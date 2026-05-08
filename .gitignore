@@ -1,0 +1,43 @@
+﻿# === Visual Studio / Rider ===
+.vs/
+.idea/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# === Unreal Engine — regenerable, NEVER commit ===
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+*.target
+*.modules
+
+# Plugin-local regenerables
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
+
+# === IDE & editor caches ===
+.vscode/
+*.swp
+*~
+
+# === OS junk ===
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# === Build artifacts ===
+*.pdb
+*.exp
+*.lib
+*.dll
+*.exe
+
+# === Temp / scratch ===
+*.tmp
+*.bak
+*.log

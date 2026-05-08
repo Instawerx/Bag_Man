@@ -1,0 +1,1768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AFL :: NEON ARENA — LIVE BUILD TRACKER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07070d;
+    --bg-1: #0d0d1a;
+    --bg-2: #131326;
+    --bg-3: #1a1a32;
+    --line: #2a2a4a;
+    --line-bright: #3d3d6b;
+    --text: #e8e8f5;
+    --text-mute: #7a7a96;
+    --text-dim: #4a4a66;
+    --cyan: #00f0ff;
+    --cyan-dim: #00808a;
+    --magenta: #ff00aa;
+    --magenta-dim: #8a005c;
+    --yellow: #ffd700;
+    --green: #00ff88;
+    --red: #ff3355;
+    --shadow-cyan: 0 0 20px rgba(0,240,255,0.3);
+    --shadow-magenta: 0 0 20px rgba(255,0,170,0.3);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* Background grid + atmosphere */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,240,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,240,255,0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at top right, rgba(255,0,170,0.08), transparent 40%),
+      radial-gradient(ellipse at bottom left, rgba(0,240,255,0.08), transparent 40%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app { position: relative; z-index: 1; min-height: 100vh; }
+
+  /* HEADER */
+  .header {
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--bg-1), var(--bg));
+    padding: 24px 32px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(10px);
+    background: rgba(7,7,13,0.85);
+  }
+  .header-inner {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 32px;
+    align-items: center;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    font-family: 'Chakra Petch', sans-serif;
+  }
+  .brand-codename {
+    font-size: 11px;
+    letter-spacing: 0.4em;
+    color: var(--text-mute);
+    border: 1px solid var(--line-bright);
+    padding: 3px 8px;
+    border-radius: 2px;
+  }
+  .brand-title {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: var(--cyan);
+    text-shadow: var(--shadow-cyan);
+  }
+  .brand-sub {
+    font-size: 11px;
+    color: var(--magenta);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+  .stats-bar {
+    display: flex;
+    gap: 28px;
+    align-items: center;
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: right;
+  }
+  .stat-label {
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    color: var(--text-mute);
+    text-transform: uppercase;
+  }
+  .stat-value {
+    font-family: 'Chakra Petch', sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .stat-value.cyan { color: var(--cyan); }
+  .stat-value.magenta { color: var(--magenta); }
+  .stat-value.yellow { color: var(--yellow); }
+  .stat-value.green { color: var(--green); }
+
+  /* GLOBAL PROGRESS BAR */
+  .global-progress {
+    margin-top: 16px;
+    height: 4px;
+    background: var(--bg-2);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+  }
+  .global-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cyan), var(--magenta));
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 12px rgba(0,240,255,0.5);
+  }
+
+  /* AMENDMENTS BANNER */
+  .amendments-banner {
+    max-width: 1600px;
+    margin: 16px auto 0;
+    padding: 14px 32px;
+    background: linear-gradient(90deg, rgba(255,0,170,0.06), rgba(0,240,255,0.06));
+    border: 1px solid rgba(255,0,170,0.25);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: relative;
+  }
+  .amendments-banner.collapsed .amendments-body { display: none; }
+  .amendments-banner-tag {
+    background: var(--magenta);
+    color: var(--bg-0);
+    padding: 3px 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+    align-self: flex-start;
+  }
+  .amendments-body { flex: 1; line-height: 1.6; }
+  .amendments-body strong { color: var(--cyan); }
+  .amendments-body code {
+    background: rgba(0,240,255,0.08);
+    color: var(--cyan);
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 11px;
+  }
+  .amendments-toggle {
+    background: transparent;
+    border: 1px solid var(--text-mute);
+    color: var(--text-mute);
+    cursor: pointer;
+    padding: 4px 10px;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+    align-self: flex-start;
+  }
+  .amendments-toggle:hover { color: var(--cyan); border-color: var(--cyan); }
+
+  /* MAIN LAYOUT */
+  .main {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 24px 32px 64px;
+    display: grid;
+    grid-template-columns: 240px 1fr 320px;
+    gap: 24px;
+  }
+
+  /* SIDE NAV */
+  .nav {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 16px;
+    height: fit-content;
+    position: sticky;
+    top: 140px;
+  }
+  .nav-section-title {
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    color: var(--text-mute);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 24px;
+  }
+  .nav-tab {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--text-mute);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+    letter-spacing: 0.05em;
+  }
+  .nav-tab:hover {
+    background: var(--bg-2);
+    color: var(--text);
+  }
+  .nav-tab.active {
+    background: var(--bg-2);
+    border-color: var(--cyan);
+    color: var(--cyan);
+    box-shadow: inset 3px 0 0 var(--cyan);
+  }
+  .nav-tab-icon {
+    font-family: 'Chakra Petch', sans-serif;
+    font-weight: 600;
+    color: inherit;
+    opacity: 0.8;
+  }
+
+  /* PHASE LIST IN NAV */
+  .phase-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .phase-pill {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .phase-pill:hover { border-color: var(--line-bright); }
+  .phase-pill.active {
+    border-color: var(--cyan);
+    background: rgba(0,240,255,0.05);
+  }
+  .phase-pill-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .phase-pill-id {
+    font-family: 'Chakra Petch', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: var(--text);
+  }
+  .phase-pill.active .phase-pill-id { color: var(--cyan); }
+  .phase-pill-pct {
+    font-size: 10px;
+    color: var(--text-mute);
+    font-weight: 600;
+  }
+  .phase-pill-title {
+    font-size: 10px;
+    color: var(--text-mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .phase-pill-bar {
+    height: 2px;
+    background: var(--bg-3);
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  .phase-pill-bar-fill {
+    height: 100%;
+    background: var(--cyan);
+    transition: width 0.3s;
+  }
+  .phase-pill-bar-fill.complete { background: var(--green); }
+
+  /* CONTENT */
+  .content {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .content-header {
+    padding: 24px 28px 20px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+  }
+  .breadcrumb {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--text-mute);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  .breadcrumb span:not(:last-child)::after {
+    content: ' / ';
+    margin: 0 6px;
+    color: var(--text-dim);
+  }
+  .content-title {
+    font-family: 'Chakra Petch', sans-serif;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.05em;
+    margin: 0 0 8px;
+  }
+  .content-goal {
+    font-size: 13px;
+    color: var(--text-mute);
+    line-height: 1.6;
+    max-width: 800px;
+  }
+
+  /* SPRINT GRID */
+  .sprint-grid {
+    padding: 20px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .sprint-card {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bg-2);
+    transition: all 0.2s;
+  }
+  .sprint-card:hover { border-color: var(--line-bright); }
+  .sprint-card.complete { border-color: var(--green); }
+  .sprint-card.complete .sprint-card-header { background: rgba(0,255,136,0.04); }
+
+  .sprint-card-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 16px;
+    align-items: center;
+    padding: 14px 18px;
+    background: var(--bg-3);
+    cursor: pointer;
+    user-select: none;
+  }
+  .sprint-id {
+    font-family: 'Chakra Petch', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: 0.15em;
+    min-width: 50px;
+  }
+  .sprint-title-block { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .sprint-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sprint-week {
+    font-size: 10px;
+    color: var(--text-mute);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .sprint-progress-mini {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .sprint-progress-text {
+    font-size: 11px;
+    color: var(--text-mute);
+    font-variant-numeric: tabular-nums;
+    min-width: 50px;
+    text-align: right;
+  }
+  .sprint-progress-bar {
+    width: 80px;
+    height: 4px;
+    background: var(--bg);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .sprint-progress-bar-fill {
+    height: 100%;
+    background: var(--cyan);
+    transition: width 0.3s;
+  }
+  .sprint-progress-bar-fill.complete { background: var(--green); }
+  .chevron {
+    color: var(--text-mute);
+    transition: transform 0.2s;
+    font-size: 10px;
+  }
+  .sprint-card.expanded .chevron { transform: rotate(90deg); }
+
+  .sprint-body {
+    display: none;
+    padding: 4px 0 0;
+    background: var(--bg-2);
+  }
+  .sprint-card.expanded .sprint-body { display: block; }
+
+  .sprint-goal-row {
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--text-mute);
+    background: rgba(0,240,255,0.02);
+  }
+  .sprint-goal-row strong {
+    color: var(--cyan);
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-right: 8px;
+    font-size: 10px;
+  }
+
+  /* TASK ROWS */
+  .task-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .task-row {
+    display: grid;
+    grid-template-columns: 28px 110px 1fr auto auto auto;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+    transition: background 0.1s;
+  }
+  .task-row:last-child { border-bottom: none; }
+  .task-row:hover { background: var(--bg-3); }
+  .task-row.done { opacity: 0.55; }
+  .task-row.done .task-title { text-decoration: line-through; color: var(--text-mute); }
+
+  .task-check {
+    width: 18px;
+    height: 18px;
+    appearance: none;
+    background: var(--bg);
+    border: 1.5px solid var(--line-bright);
+    border-radius: 2px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.15s;
+    margin: 0;
+  }
+  .task-check:hover { border-color: var(--cyan); }
+  .task-check:checked {
+    background: var(--cyan);
+    border-color: var(--cyan);
+    box-shadow: 0 0 8px rgba(0,240,255,0.5);
+  }
+  .task-check:checked::after {
+    content: '✓';
+    position: absolute;
+    inset: 0;
+    color: var(--bg);
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .task-id {
+    font-weight: 600;
+    color: var(--magenta);
+    letter-spacing: 0.05em;
+    font-size: 11px;
+  }
+  .task-title { color: var(--text); }
+
+  .task-discipline, .task-estimate, .task-status {
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 2px;
+    border: 1px solid var(--line-bright);
+    color: var(--text-mute);
+    white-space: nowrap;
+  }
+  .task-discipline.eng { color: #5fa8ff; border-color: #2a4d7a; }
+  .task-discipline.art { color: #ff7fb5; border-color: #7a2a5c; }
+  .task-discipline.vfx { color: #c87fff; border-color: #5c2a7a; }
+  .task-discipline.audio { color: #7fffc8; border-color: #2a7a5c; }
+  .task-discipline.qa { color: #ffd17f; border-color: #7a5c2a; }
+  .task-discipline.devops { color: #7fdcff; border-color: #2a657a; }
+  .task-discipline.design { color: #ff9f7f; border-color: #7a3f2a; }
+  .task-discipline.animation { color: #b87fff; border-color: #4a2a7a; }
+  .task-discipline.audio { color: #7fffc8; border-color: #2a7a5c; }
+  .task-discipline.ui { color: #ffaaff; border-color: #7a5a7a; }
+
+  .task-estimate.xs { color: #aaa; }
+  .task-estimate.s  { color: var(--green); border-color: rgba(0,255,136,0.3); }
+  .task-estimate.m  { color: var(--cyan); border-color: rgba(0,240,255,0.3); }
+  .task-estimate.l  { color: var(--yellow); border-color: rgba(255,215,0,0.3); }
+  .task-estimate.xl { color: var(--magenta); border-color: rgba(255,0,170,0.3); }
+  .task-estimate.xxl{ color: var(--red); border-color: rgba(255,51,85,0.3); }
+
+  /* GATES VIEW */
+  .gate-card {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .gate-card.entry { border-color: var(--cyan); box-shadow: 0 0 0 1px rgba(0,240,255,0.1); }
+  .gate-card.exit { border-color: var(--magenta); box-shadow: 0 0 0 1px rgba(255,0,170,0.1); }
+  .gate-card.passed { border-color: var(--green); }
+
+  .gate-header {
+    padding: 14px 18px;
+    background: var(--bg-3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .gate-header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .gate-type {
+    font-family: 'Chakra Petch', sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--magenta);
+  }
+  .gate-card.entry .gate-type { color: var(--cyan); }
+  .gate-card.passed .gate-type { color: var(--green); }
+  .gate-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .gate-progress {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-mute);
+  }
+  .gate-criteria {
+    display: flex;
+    flex-direction: column;
+  }
+  .gate-criterion {
+    padding: 10px 18px;
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 12px;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .gate-criterion:last-child { border-bottom: none; }
+  .gate-criterion.done { opacity: 0.6; }
+  .gate-criterion.done span { text-decoration: line-through; color: var(--text-mute); }
+
+  /* RIGHT RAIL */
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .rail-card {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .rail-card-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .rail-card-title {
+    font-family: 'Chakra Petch', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    color: var(--text);
+    text-transform: uppercase;
+  }
+  .rail-card-count {
+    font-size: 10px;
+    color: var(--text-mute);
+    font-variant-numeric: tabular-nums;
+  }
+  .rail-card-body {
+    padding: 12px 16px;
+    font-size: 12px;
+    color: var(--text-mute);
+    max-height: 320px;
+    overflow-y: auto;
+  }
+
+  /* BLOCKERS */
+  .blocker-add {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-2);
+  }
+  .blocker-input, .blocker-textarea {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 11px;
+    width: 100%;
+  }
+  .blocker-input:focus, .blocker-textarea:focus {
+    outline: none;
+    border-color: var(--red);
+  }
+  .blocker-textarea { resize: vertical; min-height: 50px; }
+  .btn {
+    background: transparent;
+    border: 1px solid var(--line-bright);
+    color: var(--text);
+    padding: 7px 14px;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover {
+    border-color: var(--cyan);
+    color: var(--cyan);
+    background: rgba(0,240,255,0.05);
+  }
+  .btn.danger:hover {
+    border-color: var(--red);
+    color: var(--red);
+    background: rgba(255,51,85,0.05);
+  }
+  .blocker-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-left: 3px solid var(--red);
+  }
+  .blocker-item:last-child { border-bottom: none; }
+  .blocker-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .blocker-title {
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .blocker-x {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+  }
+  .blocker-x:hover { color: var(--red); }
+  .blocker-meta {
+    font-size: 10px;
+    color: var(--text-mute);
+    letter-spacing: 0.05em;
+  }
+  .blocker-notes {
+    font-size: 11px;
+    color: var(--text-mute);
+    line-height: 1.4;
+  }
+
+  /* TODAY VIEW */
+  .today-task {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 10px;
+    padding: 8px 16px;
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--text);
+  }
+  .today-task:last-child { border-bottom: none; }
+  .today-task .task-id {
+    font-size: 10px;
+    color: var(--magenta);
+    margin-right: 6px;
+  }
+
+  /* EMPTY STATE */
+  .empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* UTILITY */
+  .footer-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    font-size: 10px;
+    color: var(--text-mute);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    background: var(--bg-2);
+  }
+  .footer-actions { display: flex; gap: 8px; }
+
+  .pulse-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    margin-right: 6px;
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+
+  /* RESPONSIVE */
+  @media (max-width: 1280px) {
+    .main { grid-template-columns: 200px 1fr; }
+    .rail { display: none; }
+  }
+  @media (max-width: 900px) {
+    .main { grid-template-columns: 1fr; padding: 16px; }
+    .nav { position: static; }
+    .header { padding: 16px; }
+    .header-inner { grid-template-columns: 1fr; gap: 16px; }
+    .stats-bar { flex-wrap: wrap; gap: 16px; }
+    .stat { text-align: left; }
+    .task-row { grid-template-columns: 24px 80px 1fr auto; gap: 8px; padding: 8px 12px; }
+    .task-discipline, .task-estimate { display: none; }
+  }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--line-bright); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--cyan-dim); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-codename">AFL</span>
+        <h1 class="brand-title">NEON ARENA</h1>
+        <span class="brand-sub">// Live Build Tracker · v1.1</span>
+      </div>
+      <div class="stats-bar" id="statsBar"></div>
+    </div>
+    <div class="global-progress"><div class="global-progress-fill" id="globalProgressFill" style="width:0%"></div></div>
+  </header>
+
+  <!-- v1.1 AMENDMENTS BANNER -->
+  <div class="amendments-banner" id="amendmentsBanner">
+    <span class="amendments-banner-tag">v1.1</span>
+    <div class="amendments-body">
+      <strong>Bag-Man amendments locked before Sprint 1.</strong>
+      Pulse Carbine appendix replaced with TargetData-driven canonical version (no more server-side <code>GetPlayerViewPoint</code>).
+      New Master Doc sections: <strong>§7</strong> hitscan validation doctrine, <strong>§8</strong> damage pipeline + ExecCalc, <strong>§9</strong> Lyra init contract.
+      Sprint 2 gains <code>AFL-0211</code>–<code>AFL-0215</code> (lag comp, ExecCalc, telemetry, PawnData wiring, lint rule).
+      Sprint 11 restructured around <code>AFL-1100</code> PlayFab→Lambda→GameLift tentpole — EOS Matchmaking out of scope.
+      Phase 1 exit gate adds 3 red criteria. Risk register adds <strong>R-09</strong> hitscan tuning.
+    </div>
+    <button class="amendments-toggle" onclick="document.getElementById('amendmentsBanner').classList.toggle('collapsed')">DISMISS</button>
+  </div>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- NAV -->
+    <aside class="nav">
+      <div class="nav-section-title">View</div>
+      <div class="nav-tabs">
+        <button class="nav-tab active" data-view="phases">
+          <span class="nav-tab-icon">▸</span> Phases
+        </button>
+        <button class="nav-tab" data-view="gates">
+          <span class="nav-tab-icon">▸</span> Gates
+        </button>
+        <button class="nav-tab" data-view="all">
+          <span class="nav-tab-icon">▸</span> All Sprints
+        </button>
+      </div>
+      <div class="nav-section-title">Phases</div>
+      <div class="phase-list" id="phaseList"></div>
+    </aside>
+
+    <!-- CONTENT -->
+    <section class="content" id="contentArea"></section>
+
+    <!-- RIGHT RAIL -->
+    <aside class="rail">
+      <!-- Today's Focus -->
+      <div class="rail-card">
+        <div class="rail-card-header">
+          <span class="rail-card-title">Today's Focus</span>
+          <span class="rail-card-count" id="todayCount">0</span>
+        </div>
+        <div id="todayList"></div>
+      </div>
+
+      <!-- Blockers -->
+      <div class="rail-card">
+        <div class="rail-card-header">
+          <span class="rail-card-title">🚨 Blockers</span>
+          <span class="rail-card-count" id="blockerCount">0</span>
+        </div>
+        <div class="blocker-add">
+          <input class="blocker-input" id="blockerTitle" placeholder="Blocker title…" />
+          <textarea class="blocker-textarea" id="blockerNotes" placeholder="What's blocked / who needs to act / ETA impact"></textarea>
+          <button class="btn danger" id="blockerAdd">+ Log Blocker</button>
+        </div>
+        <div id="blockerList"></div>
+      </div>
+
+      <!-- Storage Controls -->
+      <div class="rail-card">
+        <div class="rail-card-header">
+          <span class="rail-card-title">State</span>
+          <span class="rail-card-count"><span class="pulse-dot"></span>Live</span>
+        </div>
+        <div class="footer-bar">
+          <span id="lastSaved">—</span>
+          <div class="footer-actions">
+            <button class="btn" id="exportBtn">Export</button>
+            <button class="btn danger" id="resetBtn">Reset</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+</div>
+
+<script>
+/* =====================================================================
+   AFL NEON ARENA — Live Build Tracker
+   Single-file dashboard. State persists via localStorage.
+   ===================================================================== */
+
+// ---------------- DATA ----------------
+const PHASES = [
+  {
+    id: 'P1', title: 'THE FUN TEST', weeks: 'W1–W12',
+    goal: 'A 4-player local-network match where movement and laser combat feel AAA. If this isn\'t fun, nothing else matters.',
+    sprints: ['S1','S2','S3','S4','S5','S6'],
+    entryGate: [
+      'Lyra Starter Game cloned, builds clean on Win64 Development',
+      'GitHub repo + Git LFS configured, GitHub Actions CI green on empty PR',
+      'AFL custom AIK profiles installed on all engineer machines',
+      'Project naming/folder conventions documented (Master Build §3.4)',
+      'Licensed dev kits (PS5, XSX) on shelf; mobile dev devices ordered'
+    ],
+    exitGate: [
+      '4-player listen-server match runs at locked 60 fps on mid-tier PC',
+      'Pulse Carbine + Prism Beam both feel responsive, predicted, server-validated via TargetData (§7)',
+      'Dash ability fluid, no rubber-banding, replicated correctly',
+      'Dismemberment system: head pops on headshot, rolls >3s with physics+audio',
+      'One playable arena map (Arena_01) with all combat surfaces',
+      'Internal team playtest: ≥80% positive sentiment on game feel survey',
+      'Crash-free for 30 minutes of continuous play across 8 sessions',
+      '🔴 Hitscan validation reject rate < 1% on legitimate clients across 30/80/200ms RTT cohorts (AFL-0213 telemetry)',
+      '🔴 Damage pipeline routes through UAFLDamageExecCalc — zero direct Health modifications from any ability (§8)',
+      '🔴 All abilities granted via ULyraPawnData ability sets — zero BeginPlay granting in code review audit (§9)',
+      'Studio Lead GO/NO-GO sign-off'
+    ]
+  },
+  {
+    id: 'P2', title: 'CORE GAME LOOP', weeks: 'W13–W20',
+    goal: 'The retention loop. Players fight → drop energy → collect → risk extraction → cash out. The "one more match" engine.',
+    sprints: ['S7','S8','S9','S10'],
+    entryGate: ['Phase 1 exit gate signed off by Studio Lead'],
+    exitGate: [
+      'Energy drops on overload, magnetically attracts to players, accumulates correctly',
+      'Overdrive Mode triggers at threshold with visible buff state',
+      'Extraction zones spawn, channel, reward, fail under damage',
+      'Stress-Object mode playable end-to-end',
+      'One full match (warmup → active → extraction window → end) runs cleanly'
+    ]
+  },
+  {
+    id: 'P3', title: 'ONLINE & BACKEND', weeks: 'W21–W28',
+    goal: 'Move off listen server. Real matchmaking, real backend, real economy integrity.',
+    sprints: ['S11','S12','S13','S14'],
+    entryGate: ['Phase 2 exit gate signed off'],
+    exitGate: [
+      'PlayFab Matchmaking + Lambda + GameLift end-to-end (§10) — EOS Matchmaking explicitly OUT of scope',
+      'EOS authentication + voice + friends + EAC working cross-platform',
+      'Dedicated server fleet on AWS GameLift FleetIQ, region-aware',
+      'PlayFab inventory + currency authoritative; client never trusted',
+      'Easy Anti-Cheat integrated and bypass-tested',
+      'AFL-0213 telemetry stub now writing live to PlayFab Player Streams (§7 L5)',
+      '20-player match runs stable for 12 minutes end-to-end on dedicated server'
+    ]
+  },
+  {
+    id: 'P4', title: 'CONTENT & POLISH', weeks: 'W29–W40',
+    goal: 'Fill the game with content. 5 weapons → 12. 1 map → 6. Skin system. Replay/KillCam. Lounge.',
+    sprints: ['S15','S16','S17','S18','S19','S20'],
+    entryGate: ['Phase 3 exit gate signed off'],
+    exitGate: [
+      'All 12 weapons shipped, each with distinct identity validated by playtest',
+      '6 maps each with one signature mechanic',
+      'Skin system + 6 skins per weapon launch SKU',
+      'Replay system + KillCam + Highlight Generator working',
+      'Social Lounge operational with mini-games'
+    ]
+  },
+  {
+    id: 'P5', title: 'LIVE SERVICE LAUNCH', weeks: 'W41–W48',
+    goal: 'Battle pass, store, ranked, analytics, cert, SHIP.',
+    sprints: ['S21','S22','S23','S24'],
+    entryGate: ['Phase 4 exit gate signed off'],
+    exitGate: [
+      'Battle Pass S1 fully authored, tracked, rewarded',
+      'Store rotation system + 3 launch-week rotations queued',
+      'Ranked mode operational with MMR + season rewards',
+      'Telemetry validated against 12 KPI dashboards',
+      'Console cert pass (TRC for PS5, XR for Xbox)',
+      'Marketing build delivered to PR partner 4 weeks before launch',
+      'Public stress test (10K concurrent) passed',
+      'LAUNCH 🚀'
+    ]
+  }
+];
+
+const SPRINTS = [
+  // ===== PHASE 1 =====
+  { id:'S1', phase:'P1', weeks:'W1–W2', title:'Foundations & Pulse Skeleton',
+    goal:'Project scaffolded, Lyra extended cleanly, Pulse Carbine fires and applies damage end-to-end.',
+    tasks:[
+      {id:'AFL-0101', title:'Stand up AFLCore GameFeature plugin (uplugin, Build.cs, module)', d:'eng', e:'M'},
+      {id:'AFL-0102', title:'Define core GameplayTags table (Ability.*, State.*, Event.*)', d:'eng', e:'S'},
+      {id:'AFL-0103', title:'Create UAFLAS_Combat AttributeSet (Health/Shield/Heat) with ATTRIBUTE_ACCESSORS', d:'eng', e:'M'},
+      {id:'AFL-0104', title:'⚙️ Create UAFLAG_Laser_Pulse extending ULyraGameplayAbility — client-predicted TargetData → server validation pattern (§7, §13.1)', d:'eng', e:'XL'},
+      {id:'AFL-0105', title:'⚙️ GE_AFL_Damage_Pulse (Instant, sets Damage meta = 18) wired to UAFLDamageExecCalc; GE_AFL_EnergyGain_Small (§8)', d:'eng', e:'M'},
+      {id:'AFL-0106', title:'⚙️ Hitscan: client local trace, pack FGameplayAbilityTargetDataHandle, ship via ServerSetReplicatedTargetData. NO server-side GetPlayerViewPoint (§7)', d:'eng', e:'L'},
+      {id:'AFL-0107', title:'Bind Pulse to InputTag.Weapon.Fire via ULyraInputConfig', d:'eng', e:'S'},
+      {id:'AFL-0108', title:'GitHub Actions: Win64 Development build + cook on every PR to develop', d:'devops', e:'M'},
+      {id:'AFL-0109', title:'Asset naming validation script (Python, runs in CI)', d:'devops', e:'M'},
+      {id:'AFL-0110', title:'Greybox arena Arena_01_Greybox (60×60m, four ramps, two cover walls)', d:'art', e:'L'},
+      {id:'AFL-0111', title:'QA test plan template + Pulse smoke test pass criteria', d:'qa', e:'S'}
+    ]},
+  { id:'S2', phase:'P1', weeks:'W3–W4', title:'Pulse Polish + Beam Foundation',
+    goal:'Pulse feels great. Beam exists with continuous damage and heat.',
+    tasks:[
+      {id:'AFL-0201', title:'NS_AFL_PulseBeam Niagara — thick emissive trail, taper at impact', d:'vfx', e:'M'},
+      {id:'AFL-0202', title:'NS_AFL_HitSpark impact effect with sparks + radial bloom', d:'vfx', e:'M'},
+      {id:'AFL-0203', title:'M_AFL_NeonMaster master material with Mobile variant', d:'vfx', e:'M'},
+      {id:'AFL-0204', title:'Hit confirmation: crosshair flash, 80ms screen shake, hitmarker UMG', d:'ui', e:'M'},
+      {id:'AFL-0205', title:'SFX_AFL_PulseShot + SFX_AFL_HitConfirm via MetaSounds', d:'audio', e:'M'},
+      {id:'AFL-0206', title:'UAFLAG_Laser_Beam channeling ability — tick damage 0.1s, 1.2 dmg/tick', d:'eng', e:'L'},
+      {id:'AFL-0207', title:'Heat system: Heat/MaxHeat in AFLAS_Combat; State.Overheated blocks fire', d:'eng', e:'M'},
+      {id:'AFL-0208', title:'NS_AFL_PrismBeam continuous beam Niagara w/ heat-driven flicker', d:'vfx', e:'L'},
+      {id:'AFL-0209', title:'Recoil/spread tuning on Pulse (data-driven via DA_AFLPulseTuning)', d:'design', e:'S'},
+      {id:'AFL-0210', title:'QA: Pulse + Beam + Heat regression matrix on Win64 Dev', d:'qa', e:'M'},
+      {id:'AFL-0211', title:'⚙️ UAFLLagCompensationWorldSubsystem + per-pawn component — 60Hz hitbox snapshot ring buffer, RewindWorldFor / RestoreWorld API (§7 L3)', d:'eng', e:'XL'},
+      {id:'AFL-0212', title:'⚙️ UAFLDamageExecCalc + UAFLAttributeSet_Combat rework — Damage meta-attribute, armor/shield mitigation, overkill tag (§8)', d:'eng', e:'L'},
+      {id:'AFL-0213', title:'⚙️ Telemetry hook — emit validation rejects to PlayFab Player Streams (stub in P1, wired in S13) (§7 L5)', d:'eng', e:'M'},
+      {id:'AFL-0214', title:'⚙️ Lyra init contract: DA_AFL_PawnData_Hero_Default, IC_AFL_Default, DA_AFL_AbilitySet_Combat_Pulse, UAFLHeroComponent (§9)', d:'eng', e:'L'},
+      {id:'AFL-0215', title:'⚙️ CI lint rule: fail PR on GiveAbility outside AbilitySet, direct Health write from ability, server-side GetPlayerViewPoint', d:'devops', e:'M'}
+    ]},
+  { id:'S3', phase:'P1', weeks:'W5–W6', title:'Movement: Dash + Mobility Tuning',
+    goal:'Dash feels cyberpunk-skater, not RPG-roll. Movement is the skill ceiling.',
+    tasks:[
+      {id:'AFL-0301', title:'Stand up AFLMovement plugin', d:'eng', e:'S'},
+      {id:'AFL-0302', title:'UAFLAG_Dash — LaunchCharacter impulse 1500u, 0.12s, 3s cooldown', d:'eng', e:'M'},
+      {id:'AFL-0303', title:'AFLGE_DashCooldown with Cooldown.Dash tag', d:'eng', e:'S'},
+      {id:'AFL-0304', title:'Movement tuning pass: lower friction during dash, raised air control to 0.6', d:'design', e:'M'},
+      {id:'AFL-0305', title:'NS_AFL_DashTrail motion blur burst + chromatic aberration pulse', d:'vfx', e:'M'},
+      {id:'AFL-0306', title:'Optional 0.1s i-frame window via State.Dashing tag', d:'eng', e:'S'},
+      {id:'AFL-0307', title:'Replication validation: 4-client dash test, 0 desync over 50 trials', d:'qa', e:'M'},
+      {id:'AFL-0308', title:'SFX_AFL_DashWoosh doppler audio', d:'audio', e:'S'},
+      {id:'AFL-0309', title:'Camera FOV pulse during dash (110→95→back over 0.3s)', d:'eng', e:'S'}
+    ]},
+  { id:'S4', phase:'P1', weeks:'W7–W8', title:'Dismemberment System (signature feature)',
+    goal:'Headshots pop heads. Heads roll. Heads are funny. This is the viral feature.',
+    tasks:[
+      {id:'AFL-0401', title:'Stand up AFLDismember plugin', d:'eng', e:'S'},
+      {id:'AFL-0402', title:'UAFLDismemberComponent — tracks 6 hit zones (Head, L/R Arm, L/R Leg, Torso)', d:'eng', e:'L'},
+      {id:'AFL-0403', title:'Hit zone detection from FHitResult.BoneName → enum EAFLBodyZone', d:'eng', e:'M'},
+      {id:'AFL-0404', title:'BP_AFLDismemberedHead physics actor — RB enabled, audio component', d:'eng', e:'M'},
+      {id:'AFL-0405', title:'Robot character rig with breakable sockets at all 6 zones', d:'animation', e:'L'},
+      {id:'AFL-0406', title:'NS_AFL_BodyPartSparks — sparks + wires + emissive at detach', d:'vfx', e:'M'},
+      {id:'AFL-0407', title:'Head VO bank: 12 lines ("dignity compromised", "where am I going")', d:'audio', e:'M'},
+      {id:'AFL-0408', title:'Replicated dismemberment events (server multicast → client cosmetic)', d:'eng', e:'M'},
+      {id:'AFL-0409', title:'Arm-loss penalty: recoil ×1.5 if armless. Leg-loss: speed ×0.5 + crawl', d:'eng', e:'L'},
+      {id:'AFL-0410', title:'Performance: pooled head props, max 8 active globally', d:'eng', e:'M'},
+      {id:'AFL-0411', title:'QA: Headshot test matrix at 5 distances × 4 weapons', d:'qa', e:'M'}
+    ]},
+  { id:'S5', phase:'P1', weeks:'W9–W10', title:'Arena_01 Production + VFX Polish',
+    goal:'One real production-quality map. Combat readability locked in.',
+    tasks:[
+      {id:'AFL-0501', title:'Arena_01_Production — replace greybox with neon-cyber art pass (modular kit)', d:'art', e:'XL'},
+      {id:'AFL-0502', title:'Lighting pass: emissive-driven, low ambient, neon accents at sightlines', d:'art', e:'L'},
+      {id:'AFL-0503', title:'Mobile material variants for all Arena_01 assets', d:'vfx', e:'L'},
+      {id:'AFL-0504', title:'Beam visibility tuning vs background (no laser ever lost in env color)', d:'vfx', e:'M'},
+      {id:'AFL-0505', title:'Player silhouette readability — rim light shader on M_AFL_RobotMaster', d:'art', e:'M'},
+      {id:'AFL-0506', title:'Spawn point logic + spawn protection (1.5s State.Invulnerable)', d:'eng', e:'M'},
+      {id:'AFL-0507', title:'Arena collision audit; no exploitable geometry; bounds volume', d:'qa', e:'M'}
+    ]},
+  { id:'S6', phase:'P1', weeks:'W11–W12', title:'Phase 1 Polish, Profiling, GO/NO-GO',
+    goal:'Phase 1 ships at quality. Internal playtest + go/no-go decision.',
+    tasks:[
+      {id:'AFL-0601', title:'Profiling pass: Unreal Insights, lock 60fps RTX 3060 / Ryzen 5 baseline', d:'eng', e:'L'},
+      {id:'AFL-0602', title:'Niagara budget audit: ≤500 active particles per beam, GPU sim mandatory', d:'vfx', e:'M'},
+      {id:'AFL-0603', title:'Hit feedback final pass: subwoofer thump, controller rumble, screen flash', d:'audio', e:'M'},
+      {id:'AFL-0604', title:'Internal playtest #1 — 4-player session, post-test survey', d:'qa', e:'M'},
+      {id:'AFL-0605', title:'Bug bash week — every team member files 5+ tickets', d:'qa', e:'M'},
+      {id:'AFL-0606', title:'Phase 1 retrospective + Phase 2 sprint planning workshop', d:'design', e:'S'},
+      {id:'AFL-0607', title:'🚨 GO/NO-GO REVIEW with Studio Lead', d:'design', e:'S'}
+    ]},
+
+  // ===== PHASE 2 =====
+  { id:'S7', phase:'P2', weeks:'W13–W14', title:'Energy Economy',
+    goal:'Energy drops, attracts magnetically, accumulates, triggers Overdrive at threshold.',
+    tasks:[
+      {id:'AFL-0701', title:'AFLEnergy plugin + UAFLAS_Energy (CarriedEnergy, MaxEnergy, OverdriveThreshold)', d:'eng', e:'M'},
+      {id:'AFL-0702', title:'UAFLEnergyCollectorComponent on character, tracks carry + capacity', d:'eng', e:'M'},
+      {id:'AFL-0703', title:'BP_AFLEnergyPickup actor (3 tiers: Small/Medium/Large = +10/+25/+50)', d:'eng', e:'M'},
+      {id:'AFL-0704', title:'Magnetic attraction within 500u via VInterpTo, value-driven glow intensity', d:'eng', e:'M'},
+      {id:'AFL-0705', title:'UAFLAG_Energy_Pickup on overlap → applies AFLGE_EnergyGain', d:'eng', e:'S'},
+      {id:'AFL-0706', title:'Overload event replaces death: drops 70% energy, fast respawn', d:'eng', e:'L'},
+      {id:'AFL-0707', title:'UAFLAG_Overdrive at threshold; AFLGE_OverdriveBuff (+25% dmg, +15% spd)', d:'eng', e:'M'},
+      {id:'AFL-0708', title:'Energy meter UMG widget (center-bottom, pulses at threshold)', d:'ui', e:'M'}
+    ]},
+  { id:'S8', phase:'P2', weeks:'W15–W16', title:'Extraction System',
+    goal:'Extraction zones channel under threat, reward energy conversion to meta currency.',
+    tasks:[
+      {id:'AFL-0801', title:'AFLExtraction plugin', d:'eng', e:'S'},
+      {id:'AFL-0802', title:'BP_AFLExtractionZone with states: Inactive/Active/Contested', d:'eng', e:'M'},
+      {id:'AFL-0803', title:'UAFLAG_Extract channel ability, 6s, interrupted by damage', d:'eng', e:'M'},
+      {id:'AFL-0804', title:'Match-flow timer triggers extraction windows (every 2.5min)', d:'eng', e:'M'},
+      {id:'AFL-0805', title:'AFLGE_ExtractionReward — converts CarriedEnergy → MetaCurrency', d:'eng', e:'M'},
+      {id:'AFL-0806', title:'Extraction UI: timer, zone status, contested indicator', d:'ui', e:'M'},
+      {id:'AFL-0807', title:'Audio escalation during extraction (rising synth, pitch on damage)', d:'audio', e:'M'},
+      {id:'AFL-0808', title:'Failure state: drop all carried energy on interrupt', d:'eng', e:'S'}
+    ]},
+  { id:'S9', phase:'P2', weeks:'W17–W18', title:'Custom GameMode + Match Flow',
+    goal:'Full match runs end-to-end on listen server. Phases, timers, scoreboard, summary.',
+    tasks:[
+      {id:'AFL-0901', title:'ALyraGameMode_AFLExtractionArena extends ALyraGameMode', d:'eng', e:'M'},
+      {id:'AFL-0902', title:'Match phases: Warmup (30s) → Active (8min) → Extraction (2min) → End', d:'eng', e:'L'},
+      {id:'AFL-0903', title:'DA_AFLExperience_ExtractionArena LyraExperience definition', d:'eng', e:'M'},
+      {id:'AFL-0904', title:'Match HUD: phase indicator, time remaining, scoreboard', d:'ui', e:'M'},
+      {id:'AFL-0905', title:'End-of-match summary screen (kills, energy extracted, MVP)', d:'ui', e:'M'},
+      {id:'AFL-0906', title:'Player respawn timing: 3s base, +1s per recent death', d:'design', e:'S'},
+      {id:'AFL-0907', title:'Listen server scaling test: 8 players, 12 minutes, no leaks', d:'qa', e:'M'}
+    ]},
+  { id:'S10', phase:'P2', weeks:'W19–W20', title:'Stress-Object Chaos Mode',
+    goal:'Signature chaos mode shipped — squishy carrier object that creates highlight reels.',
+    tasks:[
+      {id:'AFL-1001', title:'AFLChaos plugin + BP_AFLStressObject carrier object', d:'eng', e:'M'},
+      {id:'AFL-1002', title:'Pickup logic: any player in radius can grab; instant drop on damage', d:'eng', e:'M'},
+      {id:'AFL-1003', title:'Carrier multipliers: 2× score, 1.5× extract, +30% damage taken', d:'eng', e:'M'},
+      {id:'AFL-1004', title:'Object instability: glows brighter over time, repositions if held >45s', d:'eng', e:'M'},
+      {id:'AFL-1005', title:'Squishy physics simulation, audio chirps/squeaks on bounce', d:'audio', e:'M'},
+      {id:'AFL-1006', title:'ALyraGameMode_AFLChaosObject mode variant', d:'eng', e:'M'},
+      {id:'AFL-1007', title:'Phase 2 internal playtest #2', d:'qa', e:'M'}
+    ]},
+
+  // ===== PHASE 3 =====
+  { id:'S11', phase:'P3', weeks:'W21–W22', title:'Backend Microservice Tentpole + EOS Foundation',
+    goal:'PlayFab→Lambda→GameLift glue microservice ships and tests standalone before any client integration. EOS reduced to voice/friends/EAC ONLY — EOS Matchmaking is OUT OF SCOPE (§10).',
+    tasks:[
+      {id:'AFL-1100', title:'🔴 TENTPOLE — Author PlayFab→Lambda→GameLift CDK stack with synthetic match payload test harness. Lambda receives PlayFab OnMatchFound webhook, calls CreateGameSession + CreatePlayerSessions, returns IP/Port/PlayerSessionId. Standalone test green BEFORE client integration', d:'eng', e:'XXL'},
+      {id:'AFL-1101', title:'AFLOnline plugin scaffolding + EOS SDK integration (identity, voice, friends, EAC ONLY)', d:'eng', e:'M'},
+      {id:'AFL-1102', title:'EOS authentication flow (Steam/Epic ticket → EOS user → cross-platform identity bridge)', d:'eng', e:'M'},
+      {id:'AFL-1103', title:'EOS Voice Chat (proximity in-match, lobby in lounge)', d:'eng', e:'M'},
+      {id:'AFL-1104', title:'EOS Friends + Parties (party rosters travel with PlayFab matchmaking ticket)', d:'eng', e:'M'},
+      {id:'AFL-1105', title:'Friend list + invite UMG widgets', d:'ui', e:'M'},
+      {id:'AFL-1106', title:'Presence integration (cross-platform rich presence)', d:'eng', e:'S'},
+      {id:'AFL-1107', title:'⚠️ Sprint exit: integration test — PlayFab ticket → Lambda fires → GameLift session → IP returned → CI green E2E', d:'qa', e:'L'}
+    ]},
+  { id:'S12', phase:'P3', weeks:'W23–W24', title:'Dedicated Servers + GameLift',
+    goal:'Linux dedicated server, AWS GameLift fleet, PlayFab-driven server allocation. EOS is voice/friends/EAC ONLY at runtime.',
+    tasks:[
+      {id:'AFL-1201', title:'Linux dedicated server build target in UE5', d:'devops', e:'L'},
+      {id:'AFL-1202', title:'Docker container packaging for dedicated server', d:'devops', e:'M'},
+      {id:'AFL-1203', title:'AWS GameLift fleet setup (us-east-1) with FleetIQ spot-instance config', d:'devops', e:'L'},
+      {id:'AFL-1204', title:'⚙️ PlayFab Matchmaking ticket flow (client → PlayFab queue → Lambda → GameLift via S11 microservice). EOS is voice/friends/EAC ONLY (§10)', d:'eng', e:'L'},
+      {id:'AFL-1205', title:'Server tick rate config (30Hz match, 10Hz lounge)', d:'eng', e:'S'},
+      {id:'AFL-1206', title:'Server health metrics → CloudWatch', d:'devops', e:'M'},
+      {id:'AFL-1207', title:'Connection migration on server crash', d:'eng', e:'M'},
+      {id:'AFL-1208', title:'Easy Anti-Cheat integration via EOS', d:'eng', e:'L'}
+    ]},
+  { id:'S13', phase:'P3', weeks:'W25–W26', title:'PlayFab Backend + Parallel Content',
+    goal:'Authoritative backend for inventory, currency, progression. Telemetry stub goes live. Ricochet weapon prototyped.',
+    tasks:[
+      {id:'AFL-1301', title:'AFLBackend plugin + PlayFab SDK', d:'eng', e:'L'},
+      {id:'AFL-1302', title:'Player account auto-link (EOS ID → PlayFab account)', d:'eng', e:'M'},
+      {id:'AFL-1303', title:'Authoritative inventory: items, currency, cosmetics', d:'eng', e:'L'},
+      {id:'AFL-1304', title:'Match-end transaction: server posts results to PlayFab CloudScript', d:'eng', e:'M'},
+      {id:'AFL-1305', title:'Currency awarding on extraction success (server-validated only)', d:'eng', e:'M'},
+      {id:'AFL-1306', title:'Anti-tamper: HMAC-signed match results, replay attack protection', d:'eng', e:'M'},
+      {id:'AFL-1307', title:'⚙️ Wire AFL-0213 telemetry stub to live PlayFab Player Streams — validation rejects, angular-velocity anomalies, headshot ratios stream to dashboards (§7 L5)', d:'eng', e:'M'},
+      {id:'AFL-1308', title:'Weapon #3 — Ricochet Lancer (UAFLAG_Laser_Ricochet)', d:'eng', e:'L'}
+    ]},
+  { id:'S14', phase:'P3', weeks:'W27–W28', title:'Hardening + 20-Player Stress Test',
+    goal:'Production-grade scale. 20 concurrent players. Anti-cheat hardened.',
+    tasks:[
+      {id:'AFL-1401', title:'20-player stress test on production-spec server', d:'qa', e:'L'},
+      {id:'AFL-1402', title:'Bandwidth audit per player (target <128kbit up, <512kbit down)', d:'eng', e:'M'},
+      {id:'AFL-1403', title:'Replication relevancy + dormancy on energy pickups', d:'eng', e:'M'},
+      {id:'AFL-1404', title:'Anti-cheat bypass attempts (red team week)', d:'qa', e:'L'},
+      {id:'AFL-1405', title:'Crash analytics dashboard (PlayFab → Grafana)', d:'devops', e:'M'},
+      {id:'AFL-1406', title:'Region failover test (kill us-east-1, verify EU pickup)', d:'devops', e:'M'},
+      {id:'AFL-1407', title:'Phase 3 retrospective + Phase 4 planning', d:'design', e:'S'}
+    ]},
+
+  // ===== PHASE 4 =====
+  { id:'S15', phase:'P4', weeks:'W29–W30', title:'Weapons #4–#5 (Nova Burst + Singularity Cannon)',
+    goal:'Two more signature weapons with distinct identity.',
+    tasks:[
+      {id:'AFL-1501', title:'UAFLAG_Laser_Nova — cone trace shotgun-laser, high burst, short range', d:'eng', e:'L'},
+      {id:'AFL-1502', title:'UAFLAG_Laser_Singularity — charge-and-release devastator beam', d:'eng', e:'L'},
+      {id:'AFL-1503', title:'NS_AFL_NovaCone Niagara cone burst effect', d:'vfx', e:'M'},
+      {id:'AFL-1504', title:'NS_AFL_SingularityCharge + NS_AFL_SingularityFire', d:'vfx', e:'L'},
+      {id:'AFL-1505', title:'Singularity charge UI feedback (rim glow, audio rising tone)', d:'ui', e:'M'},
+      {id:'AFL-1506', title:'Nova knockback GE (optional design tuning)', d:'design', e:'S'},
+      {id:'AFL-1507', title:'Weapon balance pass (5-weapon roster)', d:'design', e:'M'},
+      {id:'AFL-1508', title:'QA matrix for both new weapons', d:'qa', e:'M'}
+    ]},
+  { id:'S16', phase:'P4', weeks:'W31–W32', title:'Map_02 + Skin System Foundation',
+    goal:'Second map. Master skin material with reactive layers.',
+    tasks:[
+      {id:'AFL-1601', title:'Arena_02 design: moving laser walls signature mechanic', d:'design', e:'L'},
+      {id:'AFL-1602', title:'Arena_02 production art pass + lighting', d:'art', e:'XL'},
+      {id:'AFL-1603', title:'Arena_02 mobile material variants', d:'vfx', e:'L'},
+      {id:'AFL-1604', title:'Master skin material with reactive layers (heat, streak, low health)', d:'vfx', e:'L'},
+      {id:'AFL-1605', title:'Skin equip/preview backend wired to PlayFab', d:'eng', e:'M'},
+      {id:'AFL-1606', title:'Skin preview UMG (3D viewport, rotation, color picker)', d:'ui', e:'M'},
+      {id:'AFL-1607', title:'2 launch skins per existing weapon (10 total)', d:'art', e:'L'}
+    ]},
+  { id:'S17', phase:'P4', weeks:'W33–W34', title:'Replay + KillCam + Highlights',
+    goal:'Replay infrastructure. Auto-clip generation. Streamer mode.',
+    tasks:[
+      {id:'AFL-1701', title:'Unreal Replay system enabled on dedicated servers', d:'eng', e:'L'},
+      {id:'AFL-1702', title:'Auto-generated highlight clips on multikills', d:'eng', e:'L'},
+      {id:'AFL-1703', title:'Killcam after death (3s replay from killer POV)', d:'eng', e:'M'},
+      {id:'AFL-1704', title:'Streamer mode UI (hide sensitive UI, dummy names option)', d:'ui', e:'M'},
+      {id:'AFL-1705', title:'Highlight upload to PlayFab + shareable link', d:'eng', e:'M'},
+      {id:'AFL-1706', title:'Replay compression + storage cost audit', d:'devops', e:'S'}
+    ]},
+  { id:'S18', phase:'P4', weeks:'W35–W36', title:'Maps_03–_04 + Weapons #6–#9',
+    goal:'Two more maps. Four mid-tier weapons. Roster reaches 9.',
+    tasks:[
+      {id:'AFL-1801', title:'Arena_03 (gravity shifts) + Arena_04 (energy storms) — design', d:'design', e:'L'},
+      {id:'AFL-1802', title:'Arena_03 production art + collision', d:'art', e:'XL'},
+      {id:'AFL-1803', title:'Arena_04 production art + collision', d:'art', e:'XL'},
+      {id:'AFL-1804', title:'Weapon #6 — Chain laser (ability + VFX)', d:'eng', e:'L'},
+      {id:'AFL-1805', title:'Weapon #7 — Melt rifle (continuous mid-range)', d:'eng', e:'L'},
+      {id:'AFL-1806', title:'Weapon #8 — Energy pistol (sidearm)', d:'eng', e:'M'},
+      {id:'AFL-1807', title:'Weapon #9 — Mine projector (deployable)', d:'eng', e:'L'},
+      {id:'AFL-1808', title:'Weapon #6–#9 Niagara systems', d:'vfx', e:'L'},
+      {id:'AFL-1809', title:'Audio for new weapons + maps', d:'audio', e:'L'}
+    ]},
+  { id:'S19', phase:'P4', weeks:'W37–W38', title:'Social Lounge + Mini-Games',
+    goal:'Lounge map. Spectator. Mini-games. Betting tokens. Retention engine.',
+    tasks:[
+      {id:'AFL-1901', title:'AFLLounge plugin', d:'eng', e:'M'},
+      {id:'AFL-1902', title:'Lounge map with spectator walls (live match feed)', d:'art', e:'XL'},
+      {id:'AFL-1903', title:'Spectator camera system (multi-angle live match feed)', d:'eng', e:'L'},
+      {id:'AFL-1904', title:'Head-kicking mini-game (uses dismemberment heads)', d:'eng', e:'M'},
+      {id:'AFL-1905', title:'Beam basketball mini-game', d:'eng', e:'M'},
+      {id:'AFL-1906', title:'Hover races mini-game', d:'eng', e:'L'},
+      {id:'AFL-1907', title:'Betting tokens (non-monetary, cosmetic XP only)', d:'eng', e:'M'},
+      {id:'AFL-1908', title:'Lounge dedicated server config (10Hz tick, low CPU)', d:'devops', e:'M'},
+      {id:'AFL-1909', title:'Emote system (radial menu, 8 launch emotes)', d:'animation', e:'M'},
+      {id:'AFL-1910', title:'Cosmetic flexing: inspect skins, hologram MVP statues', d:'ui', e:'M'}
+    ]},
+  { id:'S20', phase:'P4', weeks:'W39–W40', title:'Maps_05–_06 + Weapons #10–#12 (Content Lock)',
+    goal:'Final content. After this sprint: feature freeze.',
+    tasks:[
+      {id:'AFL-2001', title:'Arena_05 (vertical rails) — design + production', d:'art', e:'XL'},
+      {id:'AFL-2002', title:'Arena_06 (shrinking extraction zones) — design + production', d:'art', e:'XL'},
+      {id:'AFL-2003', title:'Weapon #10 — Decoy clone deployer', d:'eng', e:'L'},
+      {id:'AFL-2004', title:'Weapon #11 — Lifesteal beam', d:'eng', e:'L'},
+      {id:'AFL-2005', title:'Weapon #12 — Energy magnet (utility)', d:'eng', e:'M'},
+      {id:'AFL-2006', title:'Final balance pass on 12-weapon roster', d:'design', e:'L'},
+      {id:'AFL-2007', title:'Final 4 launch skins per weapon (32 more skins)', d:'art', e:'XL'},
+      {id:'AFL-2008', title:'🔒 CONTENT LOCK — feature freeze', d:'design', e:'S'}
+    ]},
+
+  // ===== PHASE 5 =====
+  { id:'S21', phase:'P5', weeks:'W41–W42', title:'Battle Pass + Store',
+    goal:'Live ops monetization layer. Battle pass S1 authored end-to-end.',
+    tasks:[
+      {id:'AFL-2101', title:'AFLLiveOps plugin', d:'eng', e:'M'},
+      {id:'AFL-2102', title:'Battle Pass S1: 100 tiers, 50 rewards, XP curve', d:'design', e:'L'},
+      {id:'AFL-2103', title:'Battle Pass UMG (tier viewer, claim flow, premium upsell)', d:'ui', e:'L'},
+      {id:'AFL-2104', title:'Store rotation engine + admin dashboard', d:'eng', e:'L'},
+      {id:'AFL-2105', title:'Bundle system (multi-item discount packages)', d:'eng', e:'M'},
+      {id:'AFL-2106', title:'Steam IAP integration (PC) + receipt validation', d:'eng', e:'L'},
+      {id:'AFL-2107', title:'Featured shop + daily rotation schedule (3 launch weeks queued)', d:'design', e:'M'}
+    ]},
+  { id:'S22', phase:'P5', weeks:'W43–W44', title:'Ranked + Progression',
+    goal:'Ranked mode operational. MMR. Season rewards.',
+    tasks:[
+      {id:'AFL-2201', title:'MMR algorithm (Glicko-2 derivative)', d:'eng', e:'L'},
+      {id:'AFL-2202', title:'Season reset logic + soft reset for next season', d:'eng', e:'M'},
+      {id:'AFL-2203', title:'Ranked rewards (placement icons, end-season cosmetics)', d:'design', e:'M'},
+      {id:'AFL-2204', title:'Player progression dashboard (career stats, ranked history)', d:'ui', e:'L'},
+      {id:'AFL-2205', title:'Ranked-specific matchmaking pool with stricter MMR bands', d:'eng', e:'M'},
+      {id:'AFL-2206', title:'Anti-throwing detection + reporting flow', d:'eng', e:'M'}
+    ]},
+  { id:'S23', phase:'P5', weeks:'W45–W46', title:'Cert + Compliance',
+    goal:'Pass platform certs. Legal compliance.',
+    tasks:[
+      {id:'AFL-2301', title:'PS5 TRC pass (full submission)', d:'qa', e:'XL'},
+      {id:'AFL-2302', title:'Xbox XR pass (full submission)', d:'qa', e:'XL'},
+      {id:'AFL-2303', title:'Mobile compliance (iOS App Store, Google Play)', d:'qa', e:'L'},
+      {id:'AFL-2304', title:'GDPR/CCPA compliance audit', d:'design', e:'M'},
+      {id:'AFL-2305', title:'ESRB / PEGI rating submission', d:'design', e:'M'},
+      {id:'AFL-2306', title:'Day 0 patch staging branch + hotfix pipeline', d:'devops', e:'L'}
+    ]},
+  { id:'S24', phase:'P5', weeks:'W47–W48', title:'Launch Week 🚀',
+    goal:'Public stress test. War room. SHIP.',
+    tasks:[
+      {id:'AFL-2401', title:'Public stress test (10K concurrent target)', d:'qa', e:'XL'},
+      {id:'AFL-2402', title:'Live ops war room setup (24/7 coverage rotation)', d:'devops', e:'M'},
+      {id:'AFL-2403', title:'Day 0 hotfix readiness — 4 patches staged', d:'devops', e:'L'},
+      {id:'AFL-2404', title:'Marketing build to PR partner (4 weeks pre-launch)', d:'design', e:'S'},
+      {id:'AFL-2405', title:'Streamer key distribution + creator partnerships', d:'design', e:'M'},
+      {id:'AFL-2406', title:'Launch trailer final cut delivered', d:'art', e:'L'},
+      {id:'AFL-2407', title:'🚀 LAUNCH', d:'design', e:'M'}
+    ]}
+];
+
+// ---------------- STATE ----------------
+const STORAGE_KEY = 'afl_neon_arena_tracker_v2';
+
+const defaultState = () => ({
+  tasks: {},      // taskId → true/false
+  gates: {},      // `${phaseId}:entry:${idx}` or `:exit:` → true/false
+  blockers: [],   // [{id, title, notes, ts}]
+  currentView: 'phases',
+  currentPhase: 'P1',
+  expandedSprints: ['S1'],
+  startDate: new Date().toISOString().split('T')[0]
+});
+
+let state = loadState();
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultState();
+    const parsed = JSON.parse(raw);
+    return { ...defaultState(), ...parsed };
+  } catch { return defaultState(); }
+}
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    document.getElementById('lastSaved').textContent =
+      'Saved ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    console.error('Save failed:', e);
+    document.getElementById('lastSaved').textContent = 'Save failed';
+  }
+}
+
+// ---------------- COMPUTATIONS ----------------
+function getAllTasks() { return SPRINTS.flatMap(s => s.tasks); }
+function tasksOfPhase(pid) {
+  return SPRINTS.filter(s => s.phase === pid).flatMap(s => s.tasks);
+}
+function tasksOfSprint(sid) {
+  return SPRINTS.find(s => s.id === sid)?.tasks ?? [];
+}
+function taskDone(id) { return !!state.tasks[id]; }
+function pct(done, total) { return total === 0 ? 0 : Math.round((done/total)*100); }
+
+function phaseProgress(pid) {
+  const ts = tasksOfPhase(pid);
+  const done = ts.filter(t => taskDone(t.id)).length;
+  return { done, total: ts.length, pct: pct(done, ts.length) };
+}
+
+function sprintProgress(sid) {
+  const ts = tasksOfSprint(sid);
+  const done = ts.filter(t => taskDone(t.id)).length;
+  return { done, total: ts.length, pct: pct(done, ts.length) };
+}
+
+function globalProgress() {
+  const all = getAllTasks();
+  const done = all.filter(t => taskDone(t.id)).length;
+  return { done, total: all.length, pct: pct(done, all.length) };
+}
+
+function currentSprint() {
+  // First sprint with incomplete tasks
+  for (const s of SPRINTS) {
+    const p = sprintProgress(s.id);
+    if (p.done < p.total) return s;
+  }
+  return SPRINTS[SPRINTS.length - 1];
+}
+
+function todayTasks() {
+  const cs = currentSprint();
+  return cs.tasks.filter(t => !taskDone(t.id)).slice(0, 6);
+}
+
+// ---------------- RENDERING ----------------
+function render() {
+  renderHeaderStats();
+  renderNav();
+  renderContent();
+  renderRail();
+  saveState();
+}
+
+function renderHeaderStats() {
+  const g = globalProgress();
+  const cs = currentSprint();
+  const cp = PHASES.find(p => p.id === cs.phase);
+  const startDate = new Date(state.startDate);
+  const launchDate = new Date(startDate.getTime() + 48*7*24*60*60*1000);
+  const today = new Date();
+  const daysToLaunch = Math.max(0, Math.ceil((launchDate - today) / (24*60*60*1000)));
+
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat">
+      <span class="stat-label">Phase</span>
+      <span class="stat-value cyan">${cp.id} · ${cp.title}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Sprint</span>
+      <span class="stat-value magenta">${cs.id} · ${cs.weeks}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Tasks</span>
+      <span class="stat-value">${g.done} / ${g.total}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Progress</span>
+      <span class="stat-value yellow">${g.pct}%</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Days to Launch</span>
+      <span class="stat-value green">${daysToLaunch}</span>
+    </div>
+  `;
+  document.getElementById('globalProgressFill').style.width = g.pct + '%';
+}
+
+function renderNav() {
+  // View tabs
+  document.querySelectorAll('.nav-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === state.currentView);
+  });
+
+  // Phase list
+  const html = PHASES.map(p => {
+    const prog = phaseProgress(p.id);
+    const active = state.currentPhase === p.id && state.currentView !== 'gates';
+    const complete = prog.pct === 100;
+    return `
+      <div class="phase-pill ${active ? 'active' : ''}" data-phase="${p.id}">
+        <div class="phase-pill-head">
+          <span class="phase-pill-id">${p.id} · ${p.weeks}</span>
+          <span class="phase-pill-pct">${prog.pct}%</span>
+        </div>
+        <div class="phase-pill-title">${p.title}</div>
+        <div class="phase-pill-bar">
+          <div class="phase-pill-bar-fill ${complete ? 'complete' : ''}" style="width:${prog.pct}%"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  document.getElementById('phaseList').innerHTML = html;
+
+  document.querySelectorAll('.phase-pill').forEach(el => {
+    el.addEventListener('click', () => {
+      state.currentPhase = el.dataset.phase;
+      state.currentView = 'phases';
+      render();
+    });
+  });
+  document.querySelectorAll('.nav-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.currentView = btn.dataset.view;
+      render();
+    });
+  });
+}
+
+function renderContent() {
+  const area = document.getElementById('contentArea');
+  if (state.currentView === 'phases') area.innerHTML = renderPhaseView();
+  else if (state.currentView === 'gates') area.innerHTML = renderGatesView();
+  else if (state.currentView === 'all') area.innerHTML = renderAllSprintsView();
+  attachContentHandlers();
+}
+
+function renderPhaseView() {
+  const p = PHASES.find(x => x.id === state.currentPhase);
+  const phaseSprints = SPRINTS.filter(s => s.phase === p.id);
+  const prog = phaseProgress(p.id);
+
+  const sprintsHtml = phaseSprints.map(s => {
+    const sp = sprintProgress(s.id);
+    const expanded = state.expandedSprints.includes(s.id);
+    const complete = sp.pct === 100;
+    return `
+      <div class="sprint-card ${expanded ? 'expanded' : ''} ${complete ? 'complete' : ''}" data-sprint="${s.id}">
+        <div class="sprint-card-header" data-toggle="${s.id}">
+          <span class="sprint-id">${s.id}</span>
+          <div class="sprint-title-block">
+            <span class="sprint-title">${s.title}</span>
+            <span class="sprint-week">${s.weeks}</span>
+          </div>
+          <div class="sprint-progress-mini">
+            <span class="sprint-progress-text">${sp.done}/${sp.total}</span>
+            <div class="sprint-progress-bar">
+              <div class="sprint-progress-bar-fill ${complete ? 'complete' : ''}" style="width:${sp.pct}%"></div>
+            </div>
+          </div>
+          <span class="chevron">▶</span>
+        </div>
+        <div class="sprint-body">
+          <div class="sprint-goal-row"><strong>Goal</strong>${s.goal}</div>
+          <div class="task-list">
+            ${s.tasks.map(t => renderTaskRow(t)).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="content-header">
+      <div class="breadcrumb"><span>Phases</span><span>${p.id}</span></div>
+      <h2 class="content-title">${p.title} <span style="color:var(--text-mute);font-size:14px;font-weight:400;">· ${p.weeks} · ${prog.pct}%</span></h2>
+      <p class="content-goal">${p.goal}</p>
+    </div>
+    <div class="sprint-grid">${sprintsHtml}</div>
+  `;
+}
+
+function renderTaskRow(t) {
+  const done = taskDone(t.id);
+  return `
+    <div class="task-row ${done ? 'done' : ''}">
+      <input type="checkbox" class="task-check" data-task="${t.id}" ${done ? 'checked' : ''}>
+      <span class="task-id">${t.id}</span>
+      <span class="task-title">${t.title}</span>
+      <span class="task-discipline ${t.d}">${t.d}</span>
+      <span class="task-estimate ${t.e.toLowerCase()}">${t.e}</span>
+    </div>
+  `;
+}
+
+function renderGatesView() {
+  return `
+    <div class="content-header">
+      <div class="breadcrumb"><span>View</span><span>Gates</span></div>
+      <h2 class="content-title">Phase Gates</h2>
+      <p class="content-goal">No phase advances without its exit gate signed off. Entry gates protect the next phase from inheriting half-finished foundations.</p>
+    </div>
+    <div class="sprint-grid">
+      ${PHASES.map(p => renderGateCard(p)).join('')}
+    </div>
+  `;
+}
+
+function renderGateCard(p) {
+  const entryDone = p.entryGate.filter((_, i) => state.gates[`${p.id}:entry:${i}`]).length;
+  const exitDone = p.exitGate.filter((_, i) => state.gates[`${p.id}:exit:${i}`]).length;
+  const entryPct = pct(entryDone, p.entryGate.length);
+  const exitPct = pct(exitDone, p.exitGate.length);
+  return `
+    <div class="gate-card entry ${entryPct === 100 ? 'passed' : ''}">
+      <div class="gate-header">
+        <div class="gate-header-left">
+          <span class="gate-type">▸ ${p.id} ENTRY GATE</span>
+          <span class="gate-title">${p.title}</span>
+        </div>
+        <span class="gate-progress">${entryDone} / ${p.entryGate.length}</span>
+      </div>
+      <div class="gate-criteria">
+        ${p.entryGate.map((c, i) => {
+          const done = state.gates[`${p.id}:entry:${i}`];
+          return `
+            <div class="gate-criterion ${done ? 'done' : ''}">
+              <input type="checkbox" class="task-check" data-gate="${p.id}:entry:${i}" ${done ? 'checked' : ''}>
+              <span>${c}</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+    <div class="gate-card exit ${exitPct === 100 ? 'passed' : ''}">
+      <div class="gate-header">
+        <div class="gate-header-left">
+          <span class="gate-type">▸ ${p.id} EXIT GATE</span>
+          <span class="gate-title">${p.title}</span>
+        </div>
+        <span class="gate-progress">${exitDone} / ${p.exitGate.length}</span>
+      </div>
+      <div class="gate-criteria">
+        ${p.exitGate.map((c, i) => {
+          const done = state.gates[`${p.id}:exit:${i}`];
+          return `
+            <div class="gate-criterion ${done ? 'done' : ''}">
+              <input type="checkbox" class="task-check" data-gate="${p.id}:exit:${i}" ${done ? 'checked' : ''}>
+              <span>${c}</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderAllSprintsView() {
+  return `
+    <div class="content-header">
+      <div class="breadcrumb"><span>View</span><span>All Sprints</span></div>
+      <h2 class="content-title">All Sprints (24)</h2>
+      <p class="content-goal">Full sprint roadmap from kickoff to launch. Click any sprint to expand its task list.</p>
+    </div>
+    <div class="sprint-grid">
+      ${SPRINTS.map(s => {
+        const sp = sprintProgress(s.id);
+        const expanded = state.expandedSprints.includes(s.id);
+        const complete = sp.pct === 100;
+        return `
+          <div class="sprint-card ${expanded ? 'expanded' : ''} ${complete ? 'complete' : ''}">
+            <div class="sprint-card-header" data-toggle="${s.id}">
+              <span class="sprint-id">${s.id}</span>
+              <div class="sprint-title-block">
+                <span class="sprint-title">${s.phase} · ${s.title}</span>
+                <span class="sprint-week">${s.weeks}</span>
+              </div>
+              <div class="sprint-progress-mini">
+                <span class="sprint-progress-text">${sp.done}/${sp.total}</span>
+                <div class="sprint-progress-bar">
+                  <div class="sprint-progress-bar-fill ${complete ? 'complete' : ''}" style="width:${sp.pct}%"></div>
+                </div>
+              </div>
+              <span class="chevron">▶</span>
+            </div>
+            <div class="sprint-body">
+              <div class="sprint-goal-row"><strong>Goal</strong>${s.goal}</div>
+              <div class="task-list">${s.tasks.map(t => renderTaskRow(t)).join('')}</div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function attachContentHandlers() {
+  document.querySelectorAll('.task-check[data-task]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      state.tasks[e.target.dataset.task] = e.target.checked;
+      render();
+    });
+  });
+  document.querySelectorAll('.task-check[data-gate]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      state.gates[e.target.dataset.gate] = e.target.checked;
+      render();
+    });
+  });
+  document.querySelectorAll('.sprint-card-header[data-toggle]').forEach(h => {
+    h.addEventListener('click', e => {
+      // ignore checkbox clicks bubbling
+      if (e.target.tagName === 'INPUT') return;
+      const sid = h.dataset.toggle;
+      if (state.expandedSprints.includes(sid)) {
+        state.expandedSprints = state.expandedSprints.filter(x => x !== sid);
+      } else {
+        state.expandedSprints.push(sid);
+      }
+      render();
+    });
+  });
+}
+
+function renderRail() {
+  // Today's tasks
+  const today = todayTasks();
+  document.getElementById('todayCount').textContent = today.length;
+  document.getElementById('todayList').innerHTML = today.length === 0
+    ? '<div class="empty">// All current sprint tasks complete</div>'
+    : today.map(t => `
+        <div class="today-task">
+          <input type="checkbox" class="task-check" data-task="${t.id}">
+          <span><span class="task-id">${t.id}</span>${t.title}</span>
+        </div>
+      `).join('');
+  document.querySelectorAll('#todayList .task-check').forEach(cb => {
+    cb.addEventListener('change', e => {
+      state.tasks[e.target.dataset.task] = e.target.checked;
+      render();
+    });
+  });
+
+  // Blockers
+  document.getElementById('blockerCount').textContent = state.blockers.length;
+  document.getElementById('blockerList').innerHTML = state.blockers.length === 0
+    ? '<div class="empty">// No active blockers</div>'
+    : state.blockers.map(b => `
+        <div class="blocker-item">
+          <div class="blocker-title-row">
+            <span class="blocker-title">${escapeHtml(b.title)}</span>
+            <button class="blocker-x" data-blocker-id="${b.id}" title="Resolve">✕</button>
+          </div>
+          <div class="blocker-meta">${new Date(b.ts).toLocaleString()}</div>
+          ${b.notes ? `<div class="blocker-notes">${escapeHtml(b.notes)}</div>` : ''}
+        </div>
+      `).join('');
+  document.querySelectorAll('.blocker-x').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.blockers = state.blockers.filter(x => x.id !== btn.dataset.blockerId);
+      render();
+    });
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[m]));
+}
+
+// ---------------- ACTIONS ----------------
+document.getElementById('blockerAdd').addEventListener('click', () => {
+  const t = document.getElementById('blockerTitle').value.trim();
+  const n = document.getElementById('blockerNotes').value.trim();
+  if (!t) return;
+  state.blockers.unshift({
+    id: 'blk-' + Date.now(),
+    title: t, notes: n,
+    ts: new Date().toISOString()
+  });
+  document.getElementById('blockerTitle').value = '';
+  document.getElementById('blockerNotes').value = '';
+  render();
+});
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `afl-tracker-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (confirm('Reset all progress? This cannot be undone.')) {
+    state = defaultState();
+    render();
+  }
+});
+
+// ---------------- BOOT ----------------
+render();
+</script>
+</body>
+</html>
