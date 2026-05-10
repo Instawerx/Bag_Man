@@ -41,3 +41,6 @@ desktop.ini
 *.tmp
 *.bak
 *.log
+
+# Visual Studio per-user config
+.vsconfig
