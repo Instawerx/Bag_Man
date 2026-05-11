@@ -382,6 +382,10 @@
                     {
                         "Name":  "AFLCore",
                         "Enabled":  true
+                    },
+                    {
+                        "Name":  "AFLCombat",
+                        "Enabled":  true
                     }
                 ],
     "EpicSampleNameHash":  "451731683"
