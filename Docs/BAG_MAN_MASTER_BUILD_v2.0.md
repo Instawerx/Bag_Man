@@ -25,6 +25,25 @@ This document is the **single source of truth** for the BAG MAN build. As of v2.
 
 ## 📜 VERSION CHANGELOG (append-only)
 
+### v2.2 — Sprint 3 dash tag schema reconciled to b171bd17 namespace convention
+**Date**: 2026-05-12 · **Tagged**: `ssot-v2.2` (pending commit) · **Supersedes tag list in v2.1 §9.6**
+
+- **Meaning-changing correction** — not a typo fix. The original §9.6 tag list (authored 2026-05-12 in commit `ee7d54ee`) named tags `State.Dashing`, `Cooldown.Dash`, and `Ability.Dash.Active`. Those names conflicted with the shipped 51-tag bundle in `Plugins/GameFeatures/AFLCore/Config/Tags/AFLCoreTags.ini` (commit `b171bd17`, AFL-0102), which uses subscope convention `State.Movement.*`, `Cooldown.Movement.*`, `Ability.Movement.*`.
+- **Reconciliation rule**: shipped 51-tag file is canonical. SSOT §9.6 tag list bends to match it. Original §9.6 text below is updated **inline** because no Sprint 3 runtime code has been written against the bad names yet (Phase 2 implementation has not begun) — but this changelog entry is the load-bearing audit trail for the rename, per SSOT charter "Anything that changes meaning gets a new version entry."
+- **Reconciled tag list (Sprint 3 dash)**:
+  - `InputTag.Movement.Dash` — already exists (AFL-0102)
+  - `Cooldown.Movement.Dash` — already exists (AFL-0102, was `Cooldown.Dash` in v2.1 §9.6)
+  - `State.Movement.Dashing` — already exists (AFL-0102, was `State.Dashing` in v2.1 §9.6)
+  - `Ability.Movement.Dash` — already exists (AFL-0102, replaces the v2.1 `Ability.Dash.Active` which was dropped as redundant — Lyra's GA `ActivationOwnedTags` pattern uses the activation-identity tag itself, not a separate `*.Active` subscope)
+  - `State.Invulnerable` — **NEW** (cross-cutting, no subscope; follows the `State.Death` precedent. Used by dash i-frame AND spawn protection AFL-0506 AND potential future ability-cast invulnerability)
+  - `Cue.Movement.Dash.Activated` — **NEW**
+  - `Cue.Movement.Dash.Trail` — **NEW**
+- **Net AFL-0301a delta**: 3 new tags (`State.Invulnerable` + 2 cue tags). Down from the originally-specced 7-tag bundle. Four of the original seven already exist in the shipped 51-tag file under the correct subscope namespace.
+- **Cross-cutting state-tag precedent**: `State.Death` (cross-cutting, no subscope) establishes the pattern for character-state tags that are not owned by any single system. `State.Invulnerable` follows that pattern. Match-phase tags `State.Match.Warmup` / `State.Match.Ended` (specced in GameMode spec, not yet shipped) further confirm the precedent.
+- **`Cue.*` block**: AFL-0301a introduces the first `Cue.*` namespace tags. AFLCoreTags.ini gets a new `; ─── Cue ───` section header to match the existing block-comment style.
+- **Process correction noted**: the v2.1 tag list was authored without first grepping `AFLCoreTags.ini`. This v2.2 entry is the audit trail for that miss. Going forward, schema-change work must read the existing `*Tags.ini` files before specifying tag names.
+- **Known v2.0 drift (NOT corrected in this commit — scoped out)**: §5 Sprint 3 task table (lines ~361–369: AFL-0303 cites `Cooldown.Dash`, AFL-0306 cites `State.Dashing`) and §13.2 GameplayTag Skeleton (an illustrative `AFLTags.ini` paste-block, lines ~1512–1546) both use the pre-shipping draft tag names without the `Movement.` subscope. These pre-date v2.1 and are not part of this reconciliation's scope. The shipped 51-tag bundle in `AFLCoreTags.ini` is canonical; §9.6 (this section) is the load-bearing Sprint 3 contract. The §5 and §13.2 entries are stale reference text and will be addressed in a separate, scoped cleanup commit before the relevant tickets enter implementation. Flagged here rather than silently rewritten to preserve the immutable-history protocol around task-table wording.
+
 ### v2.1 — Sprint 3 architecture correction: Dash Movement Contract; UAFLAttributeSet_Movement deferred
 **Date**: 2026-05-12 · **Tagged**: `ssot-v2.1` (pending commit)
 
@@ -939,8 +958,8 @@ This section replaces the earlier Sprint 3 assumption that `UAFLAttributeSet_Mov
 **In scope for Sprint 3** — five runtime collaborators:
 1. `UAFLGameplayAbility_Dash` (AFL-0302)
 2. `AFLGE_DashCooldown` (AFL-0303)
-3. `AFLGE_Dash_Active` (AFL-0306 — duration window granting `State.Dashing` and optional `State.Invulnerable`)
-4. `UAFLCharacterMovementComponent` (AFL-0304 — listens to `State.Dashing`, swaps friction/air-control)
+3. `AFLGE_Dash_Active` (AFL-0306 — duration window granting `State.Movement.Dashing` and optional `State.Invulnerable`)
+4. `UAFLCharacterMovementComponent` (AFL-0304 — listens to `State.Movement.Dashing`, swaps friction/air-control)
 5. `UAFLCameraModifier_DashFOV` (AFL-0309 — local-only FOV pulse)
 
 Covers: dash impulse execution, cooldown enforcement, dash-active state window, friction/air-control tuning during dash, optional i-frame support, local dash camera response.
@@ -974,9 +993,9 @@ Dash uses **predicted client activation with server-authoritative validation**.
 
 | Side | Behavior |
 |---|---|
-| **Client (owner)** | Input via `InputTag.Movement.Dash` → predicts activation → predicts cooldown GE + dash-active GE → computes dash direction → calls `LaunchCharacter` → local CMC reacts to `State.Dashing` → local camera modifier reacts |
+| **Client (owner)** | Input via `InputTag.Movement.Dash` → predicts activation → predicts cooldown GE + dash-active GE → computes dash direction → calls `LaunchCharacter` → local CMC reacts to `State.Movement.Dashing` → local camera modifier reacts |
 | **Server** | Validates cooldown + blocked-tag rules → applies cooldown GE authoritatively → applies dash-active GE authoritatively → applies authoritative `LaunchCharacter` → replicated movement resolves via standard CMC replication |
-| **Remote client** | Receives replicated dash-active GE → receives replicated velocity via CMC → simulated proxy reacts via same `State.Dashing` tag path → **no remote camera modification** |
+| **Remote client** | Receives replicated dash-active GE → receives replicated velocity via CMC → simulated proxy reacts via same `State.Movement.Dashing` tag path → **no remote camera modification** |
 
 #### Gameplay rule: no Sprint 3 Movement AttributeSet
 
@@ -1020,7 +1039,7 @@ This is locked for Sprint 3 because it supports mobility expression without intr
 |---|---|
 | Policy | `Duration` |
 | Duration | `FScalableFloat 3.0s` |
-| Granted tags | `Cooldown.Dash` |
+| Granted tags | `Cooldown.Movement.Dash` |
 | Modifiers | (none — tag-only) |
 
 Sole source of dash cooldown state. The GA does not own cooldown through timers.
@@ -1031,12 +1050,12 @@ Sole source of dash cooldown state. The GA does not own cooldown through timers.
 |---|---|
 | Policy | `Duration` |
 | Duration | `FScalableFloat 0.12s` |
-| Granted tags | `State.Dashing` (always); `State.Invulnerable` (optional, configurable) |
+| Granted tags | `State.Movement.Dashing` (always); `State.Invulnerable` (optional, configurable) |
 | Modifiers | (none in Sprint 3 base — friction/air-control swap is CMC-side, not GE-modifier-side) |
 | Stacking | None (overlapping dashes prevented by cooldown) |
 
 **Invulnerability rule (LOCKED)**: i-frame support is **configurable**, not assumed as the only valid Sprint 3 mode.
-- Base Sprint 3 contract requires `State.Dashing`.
+- Base Sprint 3 contract requires `State.Movement.Dashing`.
 - Optional i-frame behavior may be enabled through the GE/tag configuration without rewriting the GA.
 - Damage GE `ApplicationTagRequirements.IgnoreTags` updates to honor `State.Invulnerable` **only if** i-frame is formally enabled in Sprint 3. If i-frame stays optional and not yet enabled, the tag is reserved but the damage GE behavior is not forced until that toggle is chosen.
 
@@ -1046,7 +1065,7 @@ This keeps PvP balance tuning flexible.
 
 **Class**: `UAFLCharacterMovementComponent` extending `UCharacterMovementComponent`.
 
-**Responsibilities**: bind to dash-active gameplay tag changes; enter dash-movement state on `State.Dashing` add; restore baseline movement state on `State.Dashing` removal.
+**Responsibilities**: bind to dash-active gameplay tag changes; enter dash-movement state on `State.Movement.Dashing` add; restore baseline movement state on `State.Movement.Dashing` removal.
 
 **Runtime behavior**:
 - On dash start: cache current `GroundFriction` and `AirControl` values, then reduce friction and raise air-control.
@@ -1062,7 +1081,7 @@ This keeps PvP balance tuning flexible.
 
 **Class**: `UAFLCameraModifier_DashFOV`.
 
-**Responsibilities**: local-only dash FOV pulse; react to `State.Dashing`; never replicate to non-owning viewers.
+**Responsibilities**: local-only dash FOV pulse; react to `State.Movement.Dashing`; never replicate to non-owning viewers.
 
 **Sprint 3 behavior**: FOV pulse during dash (target: 110→95→back over 0.3s per AFL-0309); local player only; no remote spectator/other-player camera changes.
 
@@ -1094,17 +1113,20 @@ Additionally: if a hard-disable control-state tag (stun/root/knockdown equivalen
 
 #### Tag schema (AFL-0301a — schema-final before runtime)
 
-Sprint 3 dash requires the following tags. These land via **AFL-0301a** standalone commit **before** any GA/GE/CMC code (same pattern as AFL-0608 / AFL-0908):
+Sprint 3 dash requires the following tags. The subscope convention follows the shipped 51-tag bundle in `Plugins/GameFeatures/AFLCore/Config/Tags/AFLCoreTags.ini` (AFL-0102, commit `b171bd17`).
 
+**Already present in the shipped 51-tag bundle (no new file edits required):**
 - `InputTag.Movement.Dash`
-- `Cooldown.Dash`
-- `State.Dashing`
-- `State.Invulnerable` (reserved/available; gameplay effect impact gated on i-frame toggle)
-- `Ability.Dash.Active`
-- `Cue.Movement.Dash.Activated`
-- `Cue.Movement.Dash.Trail`
+- `Cooldown.Movement.Dash`
+- `State.Movement.Dashing`
+- `Ability.Movement.Dash` — used as the GA's activation-identity tag and (via `ActivationOwnedTags`) as the implicit "this ability is active" tag. No separate `Ability.Dash.Active` tag is needed; the Lyra GA pattern uses the activation-identity tag itself.
 
-Tag naming is explicitly namespaced under `Movement` for future maintainability. A schema-final task must land before dash runtime implementation begins so the dash code does not introduce tag drift later.
+**New tags added by AFL-0301a (3 tags) — standalone commit before any GA/GE/CMC code, same pattern as AFL-0608 / AFL-0908:**
+- `State.Invulnerable` — cross-cutting, no subscope (follows `State.Death` precedent). Reserved/available; gameplay-effect impact gated on the i-frame toggle. Also reserved for spawn protection (AFL-0506) and potential future ability-cast invulnerability.
+- `Cue.Movement.Dash.Activated` — one-shot activation cue.
+- `Cue.Movement.Dash.Trail` — looping trail cue.
+
+A schema-final task must land before dash runtime implementation begins so the dash code does not introduce tag drift later.
 
 #### Acceptance matrix (T1–T8)
 
@@ -1112,7 +1134,7 @@ Sprint 3 dash closes only when the contract is proven through the following acce
 
 | Gate | Validates |
 |---|---|
-| **T1** | Fresh dash activation: dash launches; `State.Dashing` appears for active window; `Cooldown.Dash` appears for cooldown window; friction/air-control swap during dash and restore after |
+| **T1** | Fresh dash activation: dash launches; `State.Movement.Dashing` appears for active window; `Cooldown.Movement.Dash` appears for cooldown window; friction/air-control swap during dash and restore after |
 | **T2** | Dash blocked during active cooldown: second dash attempt fails cleanly |
 | **T3** | Cooldown boundary: blocked before expiry; succeeds after expiry |
 | **T4** | If i-frame mode is enabled: damage during active dash window is ignored |
