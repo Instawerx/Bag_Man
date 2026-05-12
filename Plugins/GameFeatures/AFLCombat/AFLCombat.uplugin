@@ -22,6 +22,11 @@
                         "Name":  "AFLCombat",
                         "Type":  "Runtime",
                         "LoadingPhase":  "Default"
+                    },
+                    {
+                        "Name":  "AFLCombatTests",
+                        "Type":  "Runtime",
+                        "LoadingPhase":  "Default"
                     }
                 ],
     "Plugins":  [
