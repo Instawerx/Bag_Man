@@ -11,18 +11,21 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLDamageExecCalc)
 
 
-// Anonymous namespace forces file-local linkage under Unity builds, which
-// would otherwise merge these duplicate symbols across .cpp files.
+// File-specific suffix on the C++ symbol (the FName *value* stays as the
+// canonical tag string). Required because UBT Unity builds merge multiple
+// .cpp files into one translation unit, and anonymous namespaces collapse
+// into a single TU-level namespace under that merge. Per-file rename is
+// the minimal Unity-safe pattern.
 namespace
 {
 	// SetByCaller magnitude tags. Authored in AFLCoreTags.ini (Stage 1).
-	const FName NAME_Data_Damage_Headshot   = TEXT("Data.Damage.Headshot");
-	const FName NAME_Data_Damage_Distance   = TEXT("Data.Damage.Distance");
-	const FName NAME_Data_Damage_Weakpoint  = TEXT("Data.Damage.Weakpoint");
+	const FName NAME_Data_Damage_Headshot_ExecCalc   = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Distance_ExecCalc   = TEXT("Data.Damage.Distance");
+	const FName NAME_Data_Damage_Weakpoint_ExecCalc  = TEXT("Data.Damage.Weakpoint");
 
 	// Verb tag broadcast when damage exceeds OverkillThreshold. Listeners (e.g.
 	// AFLDismember in a later stage) subscribe via UGameplayMessageSubsystem.
-	const FName NAME_Event_Damage_Overkill  = TEXT("Event.Damage.Overkill");
+	const FName NAME_Event_Damage_Overkill_ExecCalc  = TEXT("Event.Damage.Overkill");
 }
 
 
@@ -118,9 +121,9 @@ void UAFLDamageExecCalc::Execute_Implementation(
 		AFLDamageCaptureDefs().OverkillThresholdDef, EvalParams, TargetOverkillThreshold);
 
 	// 2. SetByCaller multipliers (default 1.0 when the ability didn't provide them).
-	const float HeadshotMult    = Spec.GetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot,  false), false, 1.0f);
-	const float DistanceFalloff = Spec.GetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance,  false), false, 1.0f);
-	const float WeakpointMult   = Spec.GetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint, false), false, 1.0f);
+	const float HeadshotMult    = Spec.GetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot_ExecCalc,  false), false, 1.0f);
+	const float DistanceFalloff = Spec.GetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance_ExecCalc,  false), false, 1.0f);
+	const float WeakpointMult   = Spec.GetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint_ExecCalc, false), false, 1.0f);
 
 	// 3. Raw damage before mitigation.
 	const float RawDamage = SourceDamage * HeadshotMult * WeakpointMult * DistanceFalloff;
@@ -182,7 +185,7 @@ void UAFLDamageExecCalc::Execute_Implementation(
 		if (World)
 		{
 			FLyraVerbMessage Message;
-			Message.Verb           = FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Overkill, false);
+			Message.Verb           = FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Overkill_ExecCalc, false);
 			Message.Instigator     = Spec.GetEffectContext().GetEffectCauser();
 			Message.InstigatorTags = *Spec.CapturedSourceTags.GetAggregatedTags();
 			Message.Target         = TargetActor;

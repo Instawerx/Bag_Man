@@ -27,17 +27,20 @@
 #include "Misc/AutomationTest.h"
 
 
-// Anonymous namespace forces file-local linkage under Unity builds, which would
-// otherwise merge these duplicate symbols across .cpp files.
+// File-specific suffix on the C++ symbol (the FName *value* stays as the
+// canonical tag string). Required because UBT Unity builds merge multiple
+// .cpp files into one translation unit, and anonymous namespaces collapse
+// into a single TU-level namespace under that merge.
+// PATH_GE_* constants are not suffixed because they're file-unique already.
 namespace
 {
 	// SetByCaller tags consumed by UAFLDamageExecCalc.
-	const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
-	const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
-	const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
+	const FName NAME_Data_Damage_Headshot_DamageSpec  = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Weakpoint_DamageSpec = TEXT("Data.Damage.Weakpoint");
+	const FName NAME_Data_Damage_Distance_DamageSpec  = TEXT("Data.Damage.Distance");
 
 	// Verb tag broadcast by the ExecCalc on overkill.
-	const FName NAME_Event_Damage_Overkill = TEXT("Event.Damage.Overkill");
+	const FName NAME_Event_Damage_Overkill_DamageSpec = TEXT("Event.Damage.Overkill");
 
 	// Asset paths (Blueprint-derived GEs use _C suffix).
 	const TCHAR* PATH_GE_Damage_Instant  = TEXT("/AFLCombat/Effects/GE_AFL_Damage_Instant.GE_AFL_Damage_Instant_C");
@@ -105,7 +108,7 @@ struct FAFLDamageTestFixture
         InitDataGEClass = LoadClass<UGameplayEffect>(nullptr, PATH_GE_Combat_InitData);
 
         // Listener — register before any damage so all overkill broadcasts during the test land here.
-        const FGameplayTag OverkillTag = FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Overkill, /*ErrorIfNotFound=*/false);
+        const FGameplayTag OverkillTag = FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Overkill_DamageSpec, /*ErrorIfNotFound=*/false);
         if (OverkillTag.IsValid())
         {
             OverkillHandle = UGameplayMessageSubsystem::Get(World).RegisterListener<FLyraVerbMessage>(
@@ -179,9 +182,9 @@ struct FAFLDamageTestFixture
         }
 
         FGameplayEffectSpec& Spec = *SpecHandle.Data.Get();
-        Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot,  false), Headshot);
-        Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint, false), Weakpoint);
-        Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance,  false), Distance);
+        Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot_DamageSpec,  false), Headshot);
+        Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint_DamageSpec, false), Weakpoint);
+        Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance_DamageSpec,  false), Distance);
 
         ASC->ApplyGameplayEffectSpecToSelf(Spec);
     }

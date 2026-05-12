@@ -16,13 +16,15 @@
 
 
 // SetByCaller magnitude tags consumed by UAFLDamageExecCalc::Execute_Implementation.
-// Anonymous namespace forces file-local linkage under Unity builds, which would
-// otherwise merge these duplicate symbols across .cpp files.
+// File-specific suffix on the C++ symbol (the FName *value* stays as the
+// canonical tag string). Required because UBT Unity builds merge multiple
+// .cpp files into one translation unit, and anonymous namespaces collapse
+// into a single TU-level namespace under that merge.
 namespace
 {
-	const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
-	const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
-	const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
+	const FName NAME_Data_Damage_Headshot_Cheats  = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Weakpoint_Cheats = TEXT("Data.Damage.Weakpoint");
+	const FName NAME_Data_Damage_Distance_Cheats  = TEXT("Data.Damage.Distance");
 }
 
 
@@ -90,9 +92,9 @@ void UAFLCombatCheats::TestDamage(float Base, float Headshot, float Weakpoint, f
 	}
 
 	FGameplayEffectSpec& Spec = *SpecHandle.Data.Get();
-	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot,  false), Headshot);
-	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint, false), Weakpoint);
-	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance,  false), Distance);
+	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot_Cheats,  false), Headshot);
+	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint_Cheats, false), Weakpoint);
+	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance_Cheats,  false), Distance);
 
 	ASC->ApplyGameplayEffectSpecToSelf(Spec);
 

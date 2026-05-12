@@ -16,17 +16,19 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCombatPipelineTest_Base)
 
 
-// Anonymous namespace forces file-local linkage under Unity builds, which would
-// otherwise merge these duplicate symbols across .cpp files.
+// File-specific suffix on the C++ symbol (the FName *value* stays as the
+// canonical tag string). Required because UBT Unity builds merge multiple
+// .cpp files into one translation unit, and anonymous namespaces collapse
+// into a single TU-level namespace under that merge.
 namespace
 {
 	// SetByCaller magnitude tags (consumed by UAFLDamageExecCalc).
-	const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
-	const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
-	const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
+	const FName NAME_Data_Damage_Headshot_PipelineBase  = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Weakpoint_PipelineBase = TEXT("Data.Damage.Weakpoint");
+	const FName NAME_Data_Damage_Distance_PipelineBase  = TEXT("Data.Damage.Distance");
 
 	// Verb tag broadcast by the ExecCalc on overkill.
-	const FName NAME_Event_Damage_Overkill = TEXT("Event.Damage.Overkill");
+	const FName NAME_Event_Damage_Overkill_PipelineBase = TEXT("Event.Damage.Overkill");
 }
 
 // One tick of settle time (seconds) before assertions run. Damage GE is Instant
@@ -218,7 +220,7 @@ void AAFLCombatPipelineTest_Base::RegisterOverkillListener()
 		return;
 	}
 
-	const FGameplayTag OverkillTag = FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Overkill, false);
+	const FGameplayTag OverkillTag = FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Overkill_PipelineBase, false);
 	if (!OverkillTag.IsValid())
 	{
 		UE_LOG(LogAFLCombatTests, Warning, TEXT("[%s] RegisterOverkillListener: Event.Damage.Overkill tag missing"), *RowLabel);
@@ -272,9 +274,9 @@ void AAFLCombatPipelineTest_Base::FireDamage(UAbilitySystemComponent* ASC)
 	}
 
 	FGameplayEffectSpec& Spec = *SpecHandle.Data.Get();
-	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot,  false), DamageHeadshot);
-	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint, false), DamageWeakpoint);
-	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance,  false), DamageDistance);
+	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot_PipelineBase,  false), DamageHeadshot);
+	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint_PipelineBase, false), DamageWeakpoint);
+	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance_PipelineBase,  false), DamageDistance);
 
 	ASC->ApplyGameplayEffectSpecToSelf(Spec);
 

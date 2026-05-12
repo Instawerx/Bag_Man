@@ -10,11 +10,13 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLOverkillListener)
 
 
-// Anonymous namespace forces file-local linkage under Unity builds, which would
-// otherwise merge this duplicate symbol across .cpp files.
+// File-specific suffix on the C++ symbol (the FName *value* stays as the
+// canonical tag string). Required because UBT Unity builds merge multiple
+// .cpp files into one translation unit, and anonymous namespaces collapse
+// into a single TU-level namespace under that merge.
 namespace
 {
-	const FName NAME_Event_Damage_Overkill = TEXT("Event.Damage.Overkill");
+	const FName NAME_Event_Damage_Overkill_OverkillListener = TEXT("Event.Damage.Overkill");
 }
 
 
@@ -50,7 +52,7 @@ void UAFLOverkillListener::Initialize(FSubsystemCollectionBase& Collection)
 		return;
 	}
 
-	const FGameplayTag OverkillTag = FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Overkill, false);
+	const FGameplayTag OverkillTag = FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Overkill_OverkillListener, false);
 	if (!OverkillTag.IsValid())
 	{
 		UE_LOG(LogAFLCombat, Warning, TEXT("UAFLOverkillListener: Event.Damage.Overkill tag not registered; listener inactive."));

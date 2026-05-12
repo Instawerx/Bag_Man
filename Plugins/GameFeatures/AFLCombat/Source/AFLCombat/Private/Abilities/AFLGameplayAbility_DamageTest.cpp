@@ -12,13 +12,16 @@
 
 // SetByCaller magnitude tags. Authored in AFLCoreTags.ini (Stage 1).
 // Consumed by UAFLDamageExecCalc::Execute_Implementation step 2.
-// Anonymous namespace forces file-local linkage under Unity builds, which
-// would otherwise merge these duplicate symbols across .cpp files.
+// File-specific suffix on the C++ symbol (the FName *value* stays as the
+// canonical "Data.Damage.Headshot" string). Required because UBT Unity
+// builds merge multiple .cpp files into one translation unit, and
+// anonymous namespaces collapse into a single TU-level namespace under
+// that merge. Per-file rename is the minimal Unity-safe pattern.
 namespace
 {
-	const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
-	const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
-	const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
+	const FName NAME_Data_Damage_Headshot_DamageTest  = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Weakpoint_DamageTest = TEXT("Data.Damage.Weakpoint");
+	const FName NAME_Data_Damage_Distance_DamageTest  = TEXT("Data.Damage.Distance");
 }
 
 
@@ -77,9 +80,9 @@ void UAFLGameplayAbility_DamageTest::ActivateAbility(
 	// 3. Inject SetByCaller multipliers. ExecCalc reads these with default 1.0f
 	// when absent — we always set them explicitly for predictable test runs.
 	FGameplayEffectSpec& Spec = *SpecHandle.Data.Get();
-	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot,  false), HeadshotMultiplier);
-	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint, false), WeakpointMultiplier);
-	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance,  false), DistanceFalloff);
+	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot_DamageTest,  false), HeadshotMultiplier);
+	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint_DamageTest, false), WeakpointMultiplier);
+	Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance_DamageTest,  false), DistanceFalloff);
 
 	// 4. Apply self-target. The ExecCalc will capture Source.Damage (still set
 	// to BaseDamage from step 1), compute Shield/Health deltas, emit output
