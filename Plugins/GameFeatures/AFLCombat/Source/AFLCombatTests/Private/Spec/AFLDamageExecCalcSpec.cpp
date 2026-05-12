@@ -27,17 +27,22 @@
 #include "Misc/AutomationTest.h"
 
 
-// SetByCaller tags consumed by UAFLDamageExecCalc.
-static const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
-static const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
-static const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
+// Anonymous namespace forces file-local linkage under Unity builds, which would
+// otherwise merge these duplicate symbols across .cpp files.
+namespace
+{
+	// SetByCaller tags consumed by UAFLDamageExecCalc.
+	const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
+	const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
 
-// Verb tag broadcast by the ExecCalc on overkill.
-static const FName NAME_Event_Damage_Overkill = TEXT("Event.Damage.Overkill");
+	// Verb tag broadcast by the ExecCalc on overkill.
+	const FName NAME_Event_Damage_Overkill = TEXT("Event.Damage.Overkill");
 
-// Asset paths (Blueprint-derived GEs use _C suffix).
-static const TCHAR* PATH_GE_Damage_Instant  = TEXT("/AFLCombat/Effects/GE_AFL_Damage_Instant.GE_AFL_Damage_Instant_C");
-static const TCHAR* PATH_GE_Combat_InitData = TEXT("/AFLCombat/Effects/GE_AFL_Combat_InitData.GE_AFL_Combat_InitData_C");
+	// Asset paths (Blueprint-derived GEs use _C suffix).
+	const TCHAR* PATH_GE_Damage_Instant  = TEXT("/AFLCombat/Effects/GE_AFL_Damage_Instant.GE_AFL_Damage_Instant_C");
+	const TCHAR* PATH_GE_Combat_InitData = TEXT("/AFLCombat/Effects/GE_AFL_Combat_InitData.GE_AFL_Combat_InitData_C");
+}
 
 // Common flags: runs in all application contexts; appears under Product filter.
 #define AFL_TEST_FLAGS \

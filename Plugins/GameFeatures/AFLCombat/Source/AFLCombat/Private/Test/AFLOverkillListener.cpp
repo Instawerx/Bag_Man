@@ -10,7 +10,12 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLOverkillListener)
 
 
-static const FName NAME_Event_Damage_Overkill = TEXT("Event.Damage.Overkill");
+// Anonymous namespace forces file-local linkage under Unity builds, which would
+// otherwise merge this duplicate symbol across .cpp files.
+namespace
+{
+	const FName NAME_Event_Damage_Overkill = TEXT("Event.Damage.Overkill");
+}
 
 
 bool UAFLOverkillListener::ShouldCreateSubsystem(UObject* Outer) const

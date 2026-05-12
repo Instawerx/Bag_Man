@@ -16,9 +16,14 @@
 
 
 // SetByCaller magnitude tags consumed by UAFLDamageExecCalc::Execute_Implementation.
-static const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
-static const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
-static const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
+// Anonymous namespace forces file-local linkage under Unity builds, which would
+// otherwise merge these duplicate symbols across .cpp files.
+namespace
+{
+	const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
+	const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
+}
 
 
 UAFLCombatCheats::UAFLCombatCheats()

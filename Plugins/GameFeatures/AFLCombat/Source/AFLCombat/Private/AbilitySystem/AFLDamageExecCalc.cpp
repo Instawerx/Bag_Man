@@ -11,14 +11,19 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLDamageExecCalc)
 
 
-// SetByCaller magnitude tags. Authored in AFLCoreTags.ini (Stage 1).
-static const FName NAME_Data_Damage_Headshot   = TEXT("Data.Damage.Headshot");
-static const FName NAME_Data_Damage_Distance   = TEXT("Data.Damage.Distance");
-static const FName NAME_Data_Damage_Weakpoint  = TEXT("Data.Damage.Weakpoint");
+// Anonymous namespace forces file-local linkage under Unity builds, which
+// would otherwise merge these duplicate symbols across .cpp files.
+namespace
+{
+	// SetByCaller magnitude tags. Authored in AFLCoreTags.ini (Stage 1).
+	const FName NAME_Data_Damage_Headshot   = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Distance   = TEXT("Data.Damage.Distance");
+	const FName NAME_Data_Damage_Weakpoint  = TEXT("Data.Damage.Weakpoint");
 
-// Verb tag broadcast when damage exceeds OverkillThreshold. Listeners (e.g.
-// AFLDismember in a later stage) subscribe via UGameplayMessageSubsystem.
-static const FName NAME_Event_Damage_Overkill  = TEXT("Event.Damage.Overkill");
+	// Verb tag broadcast when damage exceeds OverkillThreshold. Listeners (e.g.
+	// AFLDismember in a later stage) subscribe via UGameplayMessageSubsystem.
+	const FName NAME_Event_Damage_Overkill  = TEXT("Event.Damage.Overkill");
+}
 
 
 // Capture definitions for the damage execution. We construct

@@ -16,13 +16,18 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCombatPipelineTest_Base)
 
 
-// SetByCaller magnitude tags (consumed by UAFLDamageExecCalc).
-static const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
-static const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
-static const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
+// Anonymous namespace forces file-local linkage under Unity builds, which would
+// otherwise merge these duplicate symbols across .cpp files.
+namespace
+{
+	// SetByCaller magnitude tags (consumed by UAFLDamageExecCalc).
+	const FName NAME_Data_Damage_Headshot  = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Weakpoint = TEXT("Data.Damage.Weakpoint");
+	const FName NAME_Data_Damage_Distance  = TEXT("Data.Damage.Distance");
 
-// Verb tag broadcast by the ExecCalc on overkill.
-static const FName NAME_Event_Damage_Overkill = TEXT("Event.Damage.Overkill");
+	// Verb tag broadcast by the ExecCalc on overkill.
+	const FName NAME_Event_Damage_Overkill = TEXT("Event.Damage.Overkill");
+}
 
 // One tick of settle time (seconds) before assertions run. Damage GE is Instant
 // so Health/Shield are written synchronously; the listener delivery is queued
