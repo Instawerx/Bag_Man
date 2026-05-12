@@ -386,6 +386,10 @@
                     {
                         "Name":  "AFLCombat",
                         "Enabled":  true
+                    },
+                    {
+                        "Name":  "AFLMovement",
+                        "Enabled":  true
                     }
                 ],
     "EpicSampleNameHash":  "451731683"
