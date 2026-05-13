@@ -1,0 +1,104 @@
+{
+  "task_id": "20260512-1200-bagman-warehouse-validate",
+  "created_utc": "2026-05-13T00:00:00Z",
+  "flow": "A",
+  "summary": "BagMan warehouse blockout validation run: 4 gray-box kit pieces (Floor/Wall/Wall_Door/Pillar) + a 176-instance layout FBX covering 2 bays + connecting office corridor on the 200cm modular grid. Pipeline validation only — meshes are proxy primitives, not final art.",
+  "ue_project_root": "C:/Dev/Bag_Man",
+  "items": [
+    {
+      "kind": "mesh",
+      "source_blend": "pending/20260512-1200-bagman-warehouse-validate/warehouse_blockout.blend",
+      "output_file": "pending/20260512-1200-bagman-warehouse-validate/SM_BagMan_Warehouse_Floor_01.fbx",
+      "destination": "/Game/BagMan/Environments/Warehouse/Kit/SM_BagMan_Warehouse_Floor_01",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": true,
+        "import_lods": false,
+        "import_materials": true,
+        "combine_meshes": false
+      },
+      "notes": "Floor tile, 2x2m, origin at bottom-center. Auto-collision OK for primitive shape."
+    },
+    {
+      "kind": "mesh",
+      "source_blend": "pending/20260512-1200-bagman-warehouse-validate/warehouse_blockout.blend",
+      "output_file": "pending/20260512-1200-bagman-warehouse-validate/SM_BagMan_Warehouse_Wall_01.fbx",
+      "destination": "/Game/BagMan/Environments/Warehouse/Kit/SM_BagMan_Warehouse_Wall_01",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": true,
+        "import_lods": false,
+        "import_materials": true,
+        "combine_meshes": false
+      },
+      "notes": "Solid wall, 2m wide x 3m tall x 20cm thick, origin at bottom-center of inner face."
+    },
+    {
+      "kind": "mesh",
+      "source_blend": "pending/20260512-1200-bagman-warehouse-validate/warehouse_blockout.blend",
+      "output_file": "pending/20260512-1200-bagman-warehouse-validate/SM_BagMan_Warehouse_Wall_Door_01.fbx",
+      "destination": "/Game/BagMan/Environments/Warehouse/Kit/SM_BagMan_Warehouse_Wall_Door_01",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": true,
+        "import_lods": false,
+        "import_materials": true,
+        "combine_meshes": false
+      },
+      "notes": "Wall with 160cm x 240cm door opening (jambs + lintel). Origin at bottom-center of inner face."
+    },
+    {
+      "kind": "mesh",
+      "source_blend": "pending/20260512-1200-bagman-warehouse-validate/warehouse_blockout.blend",
+      "output_file": "pending/20260512-1200-bagman-warehouse-validate/SM_BagMan_Warehouse_Pillar_01.fbx",
+      "destination": "/Game/BagMan/Environments/Warehouse/Kit/SM_BagMan_Warehouse_Pillar_01",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": true,
+        "import_lods": false,
+        "import_materials": true,
+        "combine_meshes": false
+      },
+      "notes": "40x40cm corner pillar, 3m tall. Origin at bottom-center."
+    },
+    {
+      "kind": "level",
+      "source_blend": "pending/20260512-1200-bagman-warehouse-validate/warehouse_blockout.blend",
+      "output_file": "pending/20260512-1200-bagman-warehouse-validate/BagMan_Warehouse_Layout_01.fbx",
+      "destination": "/Game/BagMan/Environments/Warehouse/Layouts/Blockout_Warehouse_Validate_01",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": false,
+        "import_lods": false,
+        "import_materials": true,
+        "combine_meshes": false,
+        "preserve_hierarchy": true,
+        "import_as_scene": true
+      },
+      "notes": "176 instanced placements (Floor x104, Wall x60, Wall_Door x4, Pillar x8). Footprint 40m x 12m. Bay A 16x12m, Bay B 16x12m, Office corridor 8x4m connecting them with 4 doors. Each instance shares mesh data with one of the 4 kit pieces above — UE5 should resolve material slots from the per-kit-piece imports."
+    }
+  ],
+  "audit": {
+    "passed": true,
+    "warnings": [
+      "FBX exporter emitted material-slot warnings for instanced objects sharing mesh data — UE5 importer handles this correctly. Materials will be assigned from the per-asset imports.",
+      "Validation-run primitives only: no LODs, no Nanite, no real PBR textures. Production assets must add LOD0+1, UV1 lightmap channel, and a proper Master material."
+    ],
+    "report": null,
+    "passed_assets": [
+      {"name": "SM_BagMan_Warehouse_Floor_01",     "tris": 12, "verts": 8},
+      {"name": "SM_BagMan_Warehouse_Wall_01",      "tris": 12, "verts": 8},
+      {"name": "SM_BagMan_Warehouse_Wall_Door_01", "tris": 36, "verts": 24},
+      {"name": "SM_BagMan_Warehouse_Pillar_01",    "tris": 12, "verts": 8}
+    ]
+  },
+  "thumbnails": {
+    "topdown": "pending/20260512-1200-bagman-warehouse-validate/thumbs/topdown.png",
+    "iso": "pending/20260512-1200-bagman-warehouse-validate/thumbs/iso.png"
+  }
+}

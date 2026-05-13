@@ -1,0 +1,78 @@
+// Copyright C12 AI Gaming. All Rights Reserved.
+
+#pragma once
+
+#include "AbilitySystemComponent.h"
+#include "AbilitySystem/Attributes/LyraAttributeSet.h"
+
+#include "AFLAttributeSet_Combat.generated.h"
+
+class UObject;
+struct FGameplayEffectModCallbackData;
+
+
+UCLASS(BlueprintType)
+class AFLCOMBAT_API UAFLAttributeSet_Combat : public ULyraAttributeSet
+{
+	GENERATED_BODY()
+
+public:
+
+	UAFLAttributeSet_Combat();
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
+	virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
+
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, Health);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, MaxHealth);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, Shield);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, MaxShield);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, Armor);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, OverkillThreshold);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, Damage);
+
+protected:
+
+	UFUNCTION()
+	void OnRep_Health(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_MaxHealth(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_Shield(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_MaxShield(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_Armor(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_OverkillThreshold(const FGameplayAttributeData& OldValue);
+
+private:
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_Health, Category="AFL|Combat", Meta=(HideFromModifiers, AllowPrivateAccess=true))
+	FGameplayAttributeData Health;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_MaxHealth, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData MaxHealth;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_Shield, Category="AFL|Combat", Meta=(HideFromModifiers, AllowPrivateAccess=true))
+	FGameplayAttributeData Shield;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_MaxShield, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData MaxShield;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_Armor, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData Armor;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_OverkillThreshold, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData OverkillThreshold;
+
+	// Meta — non-replicated, transit-only. ExecCalc consumes and zeroes per call.
+	UPROPERTY(BlueprintReadOnly, Category="AFL|Combat", Meta=(HideFromModifiers, AllowPrivateAccess=true))
+	FGameplayAttributeData Damage;
+};
