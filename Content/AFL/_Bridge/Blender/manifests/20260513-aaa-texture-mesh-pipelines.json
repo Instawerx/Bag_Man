@@ -1,0 +1,125 @@
+{
+  "task_id": "20260513-aaa-texture-mesh-pipelines",
+  "created_utc": "2026-05-13T00:00:00Z",
+  "flow": "A",
+  "summary": "AAA texture/decal pipeline validation: BagMan wordmark logo as a Mesh Decal on the warehouse Bay A north wall. Plus a Meshy-generated bank vault door cleaned through the bridge genAI pipeline (LOD chain, ORM repack, AFL naming).",
+  "ue_project_root": "C:/Dev/Bag_Man",
+  "items": [
+    {
+      "kind": "texture",
+      "output_file": "pending/20260513-aaa-texture-mesh-pipelines/textures/T_BagMan_Decal_OpsSign_BC.png",
+      "destination": "/Game/BagMan/Textures/Decals/T_BagMan_Decal_OpsSign_BC",
+      "action": "new",
+      "import_settings": {
+        "texture_group": "UI",
+        "compression_settings": "TC_EditorIcon",
+        "srgb": true,
+        "never_stream": false,
+        "alpha_coverage": true,
+        "mip_gen_settings": "TMGS_FromTextureGroup"
+      },
+      "notes": "1024x1024 RGBA PNG. White opaque text on transparent background. Used as BaseColor + Opacity source for the decal Material Instance."
+    },
+    {
+      "kind": "material_master",
+      "destination": "/Game/BagMan/Materials/Master/M_BagMan_Decal_Master",
+      "action": "new_if_missing",
+      "blueprint": {
+        "material_domain": "DeferredDecal",
+        "blend_mode": "Translucent",
+        "decal_blend_mode": "Translucent",
+        "shading_model": "Unlit",
+        "two_sided": false,
+        "parameters": [
+          {"name": "BaseColorTex",    "type": "TextureSampleParameter2D", "default": "/Engine/EngineResources/WhiteSquareTexture"},
+          {"name": "Tint",            "type": "VectorParameter",          "default": [1.0, 1.0, 1.0, 1.0]},
+          {"name": "OpacityMultiplier", "type": "ScalarParameter",        "default": 1.0},
+          {"name": "EmissiveStrength",  "type": "ScalarParameter",        "default": 0.0}
+        ],
+        "graph_summary": "TextureSample(BaseColorTex).RGB * Tint -> EmissiveColor (if EmissiveStrength>0) and BaseColor.  TextureSample.Alpha * OpacityMultiplier -> Opacity. Material domain: DeferredDecal. Blend: Translucent.",
+        "notes": "Reusable decal master. Future decals (signage, painted text, scuff marks) instantiate from this with their own BaseColorTex."
+      }
+    },
+    {
+      "kind": "material_instance",
+      "master": "/Game/BagMan/Materials/Master/M_BagMan_Decal_Master",
+      "destination": "/Game/BagMan/Materials/Decals/MI_BagMan_Decal_OpsSign",
+      "action": "new",
+      "parameter_overrides": {
+        "BaseColorTex": "/Game/BagMan/Textures/Decals/T_BagMan_Decal_OpsSign_BC",
+        "Tint": [1.0, 1.0, 1.0, 1.0],
+        "OpacityMultiplier": 1.0,
+        "EmissiveStrength": 0.0
+      }
+    },
+    {
+      "kind": "mesh_decal",
+      "output_file": "pending/20260513-aaa-texture-mesh-pipelines/SM_BagMan_Decal_OpsSign.fbx",
+      "destination": "/Game/BagMan/Environments/Decals/SM_BagMan_Decal_OpsSign",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": false,
+        "import_lods": false,
+        "import_materials": false,
+        "material_remap": [
+          {"slot": 0, "asset": "/Game/BagMan/Materials/Decals/MI_BagMan_Decal_OpsSign"}
+        ],
+        "build_reversed_index_buffer": false,
+        "generate_lightmap_uvs": false
+      },
+      "geometry": {
+        "verts": 4,
+        "tris": 2,
+        "uv_layers": 1,
+        "dimensions_m": [1.8, 0.0, 0.36],
+        "origin": "bottom-center of the quad face",
+        "facing_axis": "+Y"
+      },
+      "notes": "Flat 4-vert decal quad. UV0 maps full 0-1 to the wordmark texture. UE5 will assign MI_BagMan_Decal_OpsSign to slot 0 via material_remap. Decal mesh is no-collision."
+    },
+    {
+      "kind": "decal_placement",
+      "decal_mesh_asset": "/Game/BagMan/Environments/Decals/SM_BagMan_Decal_OpsSign",
+      "target_wall_asset": "/Game/BagMan/Environments/Warehouse/Kit/SM_BagMan_Warehouse_Wall_01",
+      "placement": {
+        "world_location_cm": [0.0, 1100.0, 150.0],
+        "world_rotation_euler_deg": [0.0, 0.0, 180.0],
+        "surface_offset_cm": 0.5,
+        "notes": "Centered on the north wall of Bay A (y = 11 m = 1100 cm in warehouse layout space, z = 1.5 m mid-wall height). 180-deg yaw so the decal faces south into the bay. 0.5 cm forward offset to avoid Z-fighting with the wall."
+      },
+      "level": "/Game/BagMan/Environments/Warehouse/Layouts/Blockout_Warehouse_Validate_01",
+      "actor_name": "Decal_BagMan_OpsSign_BayA_North_01",
+      "notes": "AIK should place a StaticMeshActor referencing the decal mesh asset at the specified transform in the warehouse blockout level. If the level doesn't exist yet, log a warning and skip placement (decal asset will still be available for manual placement)."
+    },
+    {
+      "kind": "genai_mesh_request",
+      "source": "meshy",
+      "request_via": "aik_meshy_connector",
+      "prompt": "AAA-quality bank vault door, heavy steel construction, large rotating wheel handle in the center, multiple cylindrical bolts around the perimeter, rivets and panel lines, slightly worn industrial finish with subtle scratches and dust patina, photorealistic PBR materials, neutral lighting, frontal view, isolated on transparent background",
+      "negative_prompt": "low poly, cartoon, glowing, fantasy, gold, decoration, environment, floor, ceiling, walls, characters",
+      "target_resolution": "high",
+      "topology": "quad",
+      "with_textures": true,
+      "save_glb_to": "pending/20260513-aaa-texture-mesh-pipelines/_genai_in/meshy_vault_door.glb",
+      "next_action": "Once Meshy returns the GLB and writes it to save_glb_to, signal back to Claude Code to run the genai cleanup pipeline. AIK should not attempt to import the raw GLB directly into UE5 — it must go through the bridge cleanup first.",
+      "notes": "This item is a REQUEST to AIK's Meshy connector. After completion, a follow-up bridge task will produce the cleaned, AFL-conventional FBX + ORM-packed textures. See companion section in PR #2 description."
+    }
+  ],
+  "audit": {
+    "passed": true,
+    "warnings": [
+      "BagMan wordmark is a placeholder generated from Blender's default font. Replace with the real Bag_Man brand wordmark before production use.",
+      "M_BagMan_Decal_Master is described declaratively in this manifest — AIK must construct the material node graph from the blueprint section. If AIK cannot build deferred decal materials programmatically, fall back to: artist creates the master manually once, then MI_BagMan_Decal_OpsSign is built from it.",
+      "Meshy genAI request is asynchronous. Cleanup pipeline runs as a follow-up step after the GLB lands."
+    ],
+    "passed_assets": [
+      {"name": "T_BagMan_Decal_OpsSign_BC", "type": "Texture2D", "size_px": [1024, 1024], "channels": "RGBA", "opaque_pixel_pct": 3.61},
+      {"name": "SM_BagMan_Decal_OpsSign",   "type": "StaticMesh", "tris": 2, "verts": 4, "uv_layers": 1}
+    ]
+  },
+  "thumbnails": {
+    "wordmark_on_dark": "pending/20260513-aaa-texture-mesh-pipelines/thumbs/wordmark_on_dark.png",
+    "decal_preview":    "pending/20260513-aaa-texture-mesh-pipelines/thumbs/decal_preview.png"
+  }
+}

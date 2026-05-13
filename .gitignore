@@ -50,3 +50,15 @@ desktop.ini
 
 # === Plugin installer archives at repo root (use Fab or download fresh) ===
 /AgentIntegrationKit-*.zip
+
+# === Per-developer secrets — NEVER commit ===
+# AIK / NeoStack API keys and any developer-specific overrides.
+Config/User*.ini
+*.env
+*.secret
+secrets/
+**/credentials.json
+# Defensive: catch any *.ini that contains "ApiKey" by filename convention
+**/ApiKeys.ini
+**/*_keys.ini
+
