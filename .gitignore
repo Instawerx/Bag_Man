@@ -44,3 +44,9 @@ desktop.ini
 
 # Visual Studio per-user config
 .vsconfig
+
+# === Claude Code local project state ===
+.claude/
+
+# === Plugin installer archives at repo root (use Fab or download fresh) ===
+/AgentIntegrationKit-*.zip
