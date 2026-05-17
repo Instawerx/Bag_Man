@@ -3,7 +3,7 @@
     "Version":  1,
     "VersionName":  "0.1",
     "FriendlyName":  "AFL Movement",
-    "Description":  "BAG MAN movement systems (AFL codebase prefix). Movement attribute set, custom CMC integration, and movement-ability hosting. Depends on AFLCore.",
+    "Description":  "BAG MAN movement systems (AFL codebase prefix). Movement attribute set, custom CMC integration, and movement-ability hosting. Depends on AFLCore and AFLCombat (canonical PawnData composes both AbilitySets and the movement validation map references the AFL test experience hosted in AFLCombat).",
     "Category":  "Game Features",
     "CreatedBy":  "C12 AI Gaming",
     "CreatedByURL":  "",
@@ -27,6 +27,10 @@
     "Plugins":  [
                     {
                         "Name":  "AFLCore",
+                        "Enabled":  true
+                    },
+                    {
+                        "Name":  "AFLCombat",
                         "Enabled":  true
                     }
                 ]
