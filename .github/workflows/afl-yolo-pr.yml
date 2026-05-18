@@ -41,7 +41,7 @@ jobs:
       - name: Checkout (with LFS)
         uses: actions/checkout@v4
         with:
-          lfs: true
+          lfs: false   # CI compiles C++ only — no LFS pull needed (saves ~1h on every run)
           fetch-depth: 0    # AFL-0215 lint needs merge-base history
 
       # ----------------------------------------------------------------------
