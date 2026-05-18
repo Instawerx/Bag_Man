@@ -16,6 +16,7 @@ public class AFLCombat : ModuleRules
 				"Engine",
 				"GameplayAbilities",
 				"GameplayTags",
+				"NetCore",
 				"GameplayTasks",
 				"GameplayMessageRuntime",
 				"LyraGame",
