@@ -66,3 +66,10 @@ secrets/
 # afl_yolo
 Tools/AFL_Yolo/.state/
 Tools/AFL_Yolo/config.toml
+
+# Python bytecode cache
+**/__pycache__/
+*.pyc
+
+# Local credential backup
+Tools/AFL_Yolo/config.toml.backup
