@@ -165,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
 
     body = build_discord_payload(args.kind, payload, args.repo)
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(args.webhook, data=data, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(args.webhook, data=data, headers={"Content-Type": "application/json", "User-Agent": "afl-yolo/0.1 (https://github.com/C12-Ai-Gaming/Bag_Man)"})
     try:
         urllib.request.urlopen(req, timeout=15)
     except Exception as exc:  # noqa: BLE001
