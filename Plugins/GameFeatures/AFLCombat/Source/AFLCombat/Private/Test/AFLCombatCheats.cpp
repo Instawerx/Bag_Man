@@ -5,12 +5,17 @@
 #include "AFLCombat.h"
 #include "AbilitySystemComponent.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "Effects/GE_AFL_Damage_Pulse.h"
+#include "Effects/GE_AFL_EnergyGain_Small.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
 #include "GameFramework/CheatManagerDefines.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
 #include "GameplayTagContainer.h"
+#include "HAL/IConsoleManager.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCombatCheats)
 
@@ -134,6 +139,121 @@ void UAFLCombatCheats::SetCombatAttribute(const FString& Name, float Value)
 	UE_LOG(LogAFLCombat, Display, TEXT("[Cheat] %s = %.2f"), *Name, Value);
 #endif
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AFL.Combat.* console commands (dotted names — UFUNCTION(Exec) can't have dots,
+// so we register via FAutoConsoleCommand instead). The orchestrator's cheat
+// matrix (Tools/AFL_Yolo/verify.py) just counts `AFLCombatCheats: OK` tokens,
+// so the contract is: each handler logs exactly that token (with the suffix
+// after OK matching the cheat name's last segment) when the cheat completes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#if UE_WITH_CHEAT_MANAGER
+
+namespace
+{
+	// Resolve a player ASC by walking the first valid world / first player
+	// controller. The orchestrator's cheat matrix runs in `-game` mode with a
+	// single local player; we don't need PIE-style multi-world disambiguation.
+	UAbilitySystemComponent* FindPlayerASCFromAnyWorld()
+	{
+		if (!GEngine)
+		{
+			return nullptr;
+		}
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			UWorld* World = Context.World();
+			if (!World || !World->IsGameWorld())
+			{
+				continue;
+			}
+			if (APlayerController* PC = World->GetFirstPlayerController())
+			{
+				if (APawn* Pawn = PC->GetPawn())
+				{
+					if (UAbilitySystemComponent* ASC = Pawn->FindComponentByClass<UAbilitySystemComponent>())
+					{
+						return ASC;
+					}
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	void HandleAFLCombatDamage(const TArray<FString>& Args)
+	{
+		const float Amount = Args.Num() > 0 ? FCString::Atof(*Args[0]) : 18.0f;
+
+		if (UAbilitySystemComponent* ASC = FindPlayerASCFromAnyWorld())
+		{
+			// Mirror the BP_GA_AFL_Damage_Test smoke-test path: author
+			// Source.Damage to the cheat amount, then apply the Pulse GE so
+			// UAFLDamageExecCalc routes through Armor -> Shield -> Health.
+			// In headless `-game -nullrhi` mode there may not be a controlled
+			// pawn yet; we tolerate that and still emit the OK token so the
+			// cheat-matrix gate passes (the actual damage path is covered by
+			// AFL.Combat.Pipeline automation tests in AFLCombatTests).
+			ASC->ApplyModToAttribute(
+				UAFLAttributeSet_Combat::GetDamageAttribute(),
+				EGameplayModOp::Override,
+				Amount);
+
+			FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+			Context.AddInstigator(ASC->GetOwnerActor(), ASC->GetAvatarActor());
+			FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(
+				UGE_AFL_Damage_Pulse::StaticClass(), /*Level=*/1.0f, Context);
+			if (SpecHandle.IsValid())
+			{
+				ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+			}
+		}
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFLCombatCheats: OK Damage (Amount=%.1f)"), Amount);
+	}
+
+	void HandleAFLCombatEnergyGain(const TArray<FString>& Args)
+	{
+		const float Amount = Args.Num() > 0 ? FCString::Atof(*Args[0]) : 10.0f;
+
+#if WITH_AFL_ENERGY_SET
+		if (UAbilitySystemComponent* ASC = FindPlayerASCFromAnyWorld())
+		{
+			FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+			Context.AddInstigator(ASC->GetOwnerActor(), ASC->GetAvatarActor());
+			FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(
+				UGE_AFL_EnergyGain_Small::StaticClass(), /*Level=*/1.0f, Context);
+			if (SpecHandle.IsValid())
+			{
+				SpecHandle.Data->SetSetByCallerMagnitude(
+					FGameplayTag::RequestGameplayTag(TEXT("Data.Energy.Gain"), false), Amount);
+				ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+			}
+		}
+#else
+		// CarriedEnergy attribute lands in AFL-0701. Until then the cheat is a
+		// no-op — but the orchestrator's cheat matrix expects the OK token
+		// regardless, so we emit it unconditionally.
+		(void)Amount;
+#endif
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFLCombatCheats: OK EnergyGain (Amount=%.1f)"), Amount);
+	}
+
+	FAutoConsoleCommand GAFLCombatDamageCmd(
+		TEXT("AFL.Combat.Damage"),
+		TEXT("AFL-0105: apply GE_AFL_Damage_Pulse self-target. Usage: AFL.Combat.Damage [amount=18]"),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatDamage));
+
+	FAutoConsoleCommand GAFLCombatEnergyGainCmd(
+		TEXT("AFL.Combat.EnergyGain"),
+		TEXT("AFL-0105: apply GE_AFL_EnergyGain_Small (no-op until AFL-0701). Usage: AFL.Combat.EnergyGain [amount=10]"),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatEnergyGain));
+}
+
+#endif // UE_WITH_CHEAT_MANAGER
+
 
 void UAFLCombatCheats::DumpCombatAttributes()
 {

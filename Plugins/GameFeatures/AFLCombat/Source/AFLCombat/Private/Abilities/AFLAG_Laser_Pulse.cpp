@@ -4,6 +4,7 @@
 
 #include "AFLCombat.h"
 #include "AbilitySystemComponent.h"
+#include "Effects/GE_AFL_Damage_Pulse.h"
 #include "GameplayEffect.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Laser_Pulse)
@@ -27,6 +28,11 @@ UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
 	// Cooldown tag declared in AFLCombatTags.ini (Cooldown.Weapon.Pulse). The
 	// concrete Cooldown GE is wired by the AbilitySet data asset in AFL-0214.
 	// Cost GE is a placeholder until heat lands in AFL-0207; left unset here.
+
+	// AFL-0105: default to the native pulse damage GE. BP children of the
+	// ability can still override this on the CDO in AFL-0214 if they need a
+	// designer-tuned variant.
+	DamageEffectClass = UGE_AFL_Damage_Pulse::StaticClass();
 }
 
 void UAFLAG_Laser_Pulse::ActivateAbility(

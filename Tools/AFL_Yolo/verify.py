@@ -185,9 +185,11 @@ def run_cheat_matrix(engine_root: Path, uproject: Path, cheats: list[str], timeo
         print(f"[verify] FATAL: {editor_cmd} not found", file=sys.stderr)
         return 4
 
-    # Build the ExecCmds string. We add a small delay between cheats so that
-    # async gameplay effects have time to settle.
-    sep = " ; "
+    # Build the ExecCmds string. UE's ParseExecCmds (Engine/Source/Runtime/
+    # Engine/Private/ParseExecCommands.cpp) splits on commas; semicolons stay
+    # part of the command string and the console treats everything after the
+    # first verb as a single argument list, so only the first cheat would run.
+    sep = ", "
     sequence = sep.join(cheats) + sep + "Quit"
     cmd = [
         str(editor_cmd),
