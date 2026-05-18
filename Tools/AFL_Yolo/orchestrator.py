@@ -1142,7 +1142,7 @@ def notify(cfg: Config, kind: str, payload: dict[str, Any]) -> None:
         return
     body = build_discord_payload(kind, payload, cfg.gh_repo)
     try:
-        requests.post(cfg.discord_webhook, json=body, timeout=15)
+        requests.post(cfg.discord_webhook, json=body, timeout=15, headers={"User-Agent": "afl-yolo/0.1 (https://github.com/C12-Ai-Gaming/Bag_Man)"})
     except requests.RequestException as exc:
         LOG.warning("Discord push failed: %s", exc)
 
