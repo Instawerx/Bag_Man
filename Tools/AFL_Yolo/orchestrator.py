@@ -460,8 +460,11 @@ def gh(args: list[str], cfg: Config, *, check: bool = True, timeout: int = 120) 
 
 
 def open_pr(cfg: Config, task: Task, body: str) -> tuple[int, str]:
+    """Open a PR for the task. Falls back to yolo-only labels if the
+    discipline:<x> label doesn't exist on the repo (gh exits non-zero with
+    'could not add label' on stderr). `yolo` is the only mandatory label."""
     title = f"[{task.id}] {task.title}"
-    cmd = [
+    base_cmd = [
         "pr", "create",
         "--repo", cfg.gh_repo,
         "--base", cfg.main_branch,
@@ -469,14 +472,62 @@ def open_pr(cfg: Config, task: Task, body: str) -> tuple[int, str]:
         "--title", title,
         "--body", body,
         "--label", "yolo",
-        "--label", f"discipline:{task.discipline}",
     ]
-    res = gh(cmd, cfg, timeout=180)
+    discipline_label = f"discipline:{task.discipline}"
+    cmd = base_cmd + ["--label", discipline_label]
+
+    res = gh(cmd, cfg, timeout=180, check=False)
+    if res.returncode != 0:
+        stderr = (res.stderr or "") + (res.stdout or "")
+        if "could not add label" in stderr.lower() or "not found" in stderr.lower():
+            LOG.warning(
+                "PR create rejected discipline label %r — retrying with yolo-only. stderr=%s",
+                discipline_label, stderr.strip()[:300],
+            )
+            res = gh(base_cmd, cfg, timeout=180, check=False)
+        if res.returncode != 0:
+            raise RuntimeError(
+                f"gh pr create failed (exit {res.returncode}):\n"
+                f"{(res.stderr or res.stdout or '').strip()[:1500]}"
+            )
+
     url = res.stdout.strip().splitlines()[-1] if res.stdout else ""
     num = _extract_pr_number(url)
     if num is None:
         raise RuntimeError(f"Could not parse PR URL: {res.stdout}\n{res.stderr}")
     return num, url
+
+
+def ensure_discipline_labels(cfg: Config, tasks: list[Task]) -> None:
+    """Pre-flight: list existing labels via gh and create any missing
+    discipline:<x> labels referenced by the queue. Self-healing for new
+    disciplines so open_pr() doesn't trip on a missing label."""
+    needed = {f"discipline:{t.discipline}" for t in tasks if t.discipline}
+    if not needed:
+        return
+    res = gh(["label", "list", "--repo", cfg.gh_repo, "--json", "name", "--limit", "200"],
+             cfg, check=False, timeout=60)
+    if res.returncode != 0:
+        LOG.warning("gh label list failed (exit %d) — skipping discipline label pre-flight. "
+                    "stderr=%s", res.returncode, (res.stderr or "").strip()[:300])
+        return
+    try:
+        existing = {entry.get("name") for entry in json.loads(res.stdout or "[]")}
+    except (json.JSONDecodeError, AttributeError) as exc:
+        LOG.warning("Could not parse gh label list output: %s", exc)
+        return
+    missing = sorted(needed - existing)
+    for label in missing:
+        LOG.info("Creating missing label %r on %s", label, cfg.gh_repo)
+        create = gh(
+            ["label", "create", label, "--repo", cfg.gh_repo,
+             "--color", "B3B3B3",
+             "--description", f"YOLO auto-created for discipline label"],
+            cfg, check=False, timeout=60,
+        )
+        if create.returncode != 0:
+            LOG.warning("Could not create label %r (exit %d): %s",
+                        label, create.returncode, (create.stderr or "").strip()[:200])
 
 
 def _extract_pr_number(url: str) -> Optional[int]:
@@ -821,7 +872,20 @@ def execute_one_task(cfg: Config, task: Task, all_tasks: list[Task], queue_path:
     if cfg.dry_run:
         pr_num, pr_url = 0, "https://example.invalid/pr/0"
     else:
-        pr_num, pr_url = open_pr(cfg, task, body)
+        try:
+            pr_num, pr_url = open_pr(cfg, task, body)
+        except (RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            reason = str(exc)
+            LOG.error("PR creation failed for %s: %s", task.id, reason)
+            task.status = "error"
+            task.last_error = f"open_pr: {reason}"[:2000]
+            save_queue(queue_path, all_tasks)
+            notify(cfg, "task_failed", {
+                "task": task.id, "title": task.title,
+                "stage": "open_pr", "reason": reason[:900],
+                "branch": task.branch,
+            })
+            return "error"
     task.pr_number = pr_num
     task.pr_url = pr_url
     task.status = "pr_open"
@@ -904,6 +968,14 @@ def main_loop(cfg: Config, queue_path: Path, max_tasks: int | None) -> int:
     state.save()
 
     notify(cfg, "loop_start", {"version": VERSION, "repo": cfg.gh_repo, "dry_run": cfg.dry_run})
+
+    # Self-healing: make sure every discipline label the queue references
+    # exists on the repo before we try to open any PR.
+    if not cfg.dry_run:
+        try:
+            ensure_discipline_labels(cfg, load_queue(queue_path))
+        except Exception as exc:
+            LOG.warning("discipline label pre-flight raised: %s — continuing anyway", exc)
 
     ran = 0
     while not SHUTDOWN_REQUESTED.is_set():
@@ -1011,6 +1083,11 @@ def cmd_task(args: argparse.Namespace) -> int:
         return 1
     state = RunState.load()
     with Lockfile(LOCK_PATH):
+        if not cfg.dry_run:
+            try:
+                ensure_discipline_labels(cfg, tasks)
+            except Exception as exc:
+                LOG.warning("discipline label pre-flight raised: %s — continuing anyway", exc)
         result = execute_one_task(cfg, task, tasks, queue_path, state)
     LOG.info("Task %s finished: %s", args.task_id, result)
     return 0 if result in ("merged", "skipped") else 1
