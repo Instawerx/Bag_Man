@@ -5,6 +5,7 @@
 #include "AFLMovement.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "Character/LyraPawnExtensionComponent.h"
 #include "GameFramework/Pawn.h"
 #include "NativeGameplayTags.h"
 
@@ -26,7 +27,30 @@ void UAFLCharacterMovementComponent::InitializeComponent()
 void UAFLCharacterMovementComponent::BeginPlay()
 {
 	Super::BeginPlay();
+
+	UE_LOG(LogAFLMovement, Verbose, TEXT("AFLCMC::BeginPlay on %s (role=%d)"),
+		*GetNameSafe(GetOwner()), (int32)(GetOwner() ? GetOwner()->GetLocalRole() : ROLE_None));
+
+	// Try a direct bind first — covers non-Lyra hosts and tests where the ASC is
+	// already wired by BeginPlay. For real Lyra player pawns this short-circuits
+	// (ASC not yet available) and falls through to the pawn-extension subscription
+	// below, which fires later in the init-state lifecycle.
 	TryBindToAbilitySystem();
+
+	if (!CachedASC.IsValid())
+	{
+		RegisterWithLyraPawnExtension();
+	}
+}
+
+void UAFLCharacterMovementComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	UnbindFromAbilitySystem();
+	if (bDashTuningActive)
+	{
+		RestoreDashTuning();
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void UAFLCharacterMovementComponent::OnUnregister()
@@ -37,6 +61,45 @@ void UAFLCharacterMovementComponent::OnUnregister()
 		RestoreDashTuning();
 	}
 	Super::OnUnregister();
+}
+
+void UAFLCharacterMovementComponent::RegisterWithLyraPawnExtension()
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn)
+	{
+		return;
+	}
+
+	ULyraPawnExtensionComponent* PawnExt = ULyraPawnExtensionComponent::FindPawnExtensionComponent(OwnerPawn);
+	if (!PawnExt)
+	{
+		// No Lyra extension — nothing to subscribe to. The direct BeginPlay bind
+		// is the only path on non-Lyra pawns and has already run.
+		UE_LOG(LogAFLMovement, Verbose,
+			TEXT("AFLCharacterMovementComponent: no ULyraPawnExtensionComponent on %s; skipping deferred bind"),
+			*GetNameSafe(OwnerPawn));
+		return;
+	}
+
+	UE_LOG(LogAFLMovement, Verbose,
+		TEXT("AFLCMC::RegisterWithLyraPawnExtension: subscribing on %s"),
+		*GetNameSafe(OwnerPawn));
+
+	// OnAbilitySystemInitialized_RegisterAndCall both subscribes AND fires immediately
+	// if the ASC is already initialized — covers the race where the ASC bound between
+	// the BeginPlay TryBind and this registration.
+	PawnExt->OnAbilitySystemInitialized_RegisterAndCall(
+		FSimpleMulticastDelegate::FDelegate::CreateUObject(
+			this, &UAFLCharacterMovementComponent::OnLyraAbilitySystemInitialized));
+}
+
+void UAFLCharacterMovementComponent::OnLyraAbilitySystemInitialized()
+{
+	UE_LOG(LogAFLMovement, Verbose,
+		TEXT("AFLCMC::OnLyraAbilitySystemInitialized fired on %s"),
+		*GetNameSafe(GetOwner()));
+	TryBindToAbilitySystem();
 }
 
 void UAFLCharacterMovementComponent::TryBindToAbilitySystem()
@@ -50,15 +113,27 @@ void UAFLCharacterMovementComponent::TryBindToAbilitySystem()
 	UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(OwnerPawn);
 	if (!ASC)
 	{
-		// ASC not yet bound (PlayerState may not be replicated yet on client). The
-		// Lyra init chain calls BeginPlay before ASC is guaranteed live; the dash
-		// GA's first activation will route through the ASC anyway, and we'll
-		// re-resolve on the first tag event. Leaving CachedASC null is fine —
-		// HandleDashTagChanged guards.
+		// ASC not yet bound. The pawn-extension subscription set up in BeginPlay
+		// will retry this once Lyra finishes the init-state lifecycle and binds the
+		// PlayerState's ASC to the pawn (FSimpleMulticastDelegate fired from
+		// ULyraPawnExtensionComponent::InitializeAbilitySystem).
 		UE_LOG(LogAFLMovement, Verbose,
-			TEXT("AFLCharacterMovementComponent: ASC not yet available at BeginPlay for %s; will resolve lazily"),
+			TEXT("AFLCharacterMovementComponent: ASC not yet available for %s; awaiting Lyra pawn-extension callback"),
 			*GetNameSafe(OwnerPawn));
 		return;
+	}
+
+	// Idempotent: if we're already bound to this exact ASC, no-op.
+	if (CachedASC.Get() == ASC && DashTagChangedHandle.IsValid())
+	{
+		return;
+	}
+
+	// If we were bound to a different ASC (e.g. controller swap → fresh PlayerState),
+	// unregister the old delegate before binding the new one.
+	if (CachedASC.IsValid() && CachedASC.Get() != ASC)
+	{
+		UnbindFromAbilitySystem();
 	}
 
 	CachedASC = ASC;

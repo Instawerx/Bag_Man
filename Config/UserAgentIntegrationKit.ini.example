@@ -1,0 +1,18 @@
+; ============================================================================
+; AIK PER-DEVELOPER KEYS — TEMPLATE
+;
+; Copy this file to UserAgentIntegrationKit.ini and replace the placeholder
+; values with your real API keys.
+;
+;     cp Config/UserAgentIntegrationKit.ini.example Config/UserAgentIntegrationKit.ini
+;
+; The destination file (UserAgentIntegrationKit.ini, no .example) is
+; gitignored. NEVER commit your real keys.
+;
+; See Docs/Studio/AIK_KEYS_SETUP.md for details and fallback options.
+; ============================================================================
+
+[/Script/AgentIntegrationKit.ACPSettings]
+MeshyApiKey=msy_PLACEHOLDER_REPLACE_WITH_YOUR_REAL_KEY
+TripoApiKey=tsk_PLACEHOLDER_REPLACE_WITH_YOUR_REAL_KEY
+; Add other AIK keys here as needed (OpenRouterApiKey, etc.)

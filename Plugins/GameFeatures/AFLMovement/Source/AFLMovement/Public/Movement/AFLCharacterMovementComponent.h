@@ -47,12 +47,25 @@ public:
 protected:
 	virtual void InitializeComponent() override;
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void OnUnregister() override;
 
 private:
 	/** Bind/unbind the tag-change delegate on the owning pawn's ASC. */
 	void TryBindToAbilitySystem();
 	void UnbindFromAbilitySystem();
+
+	/**
+	 * Subscribes to ULyraPawnExtensionComponent::OnAbilitySystemInitialized so the
+	 * CMC's tag listener wires up after Lyra binds the PlayerState ASC to the pawn.
+	 * Lyra binds the ASC well after BeginPlay (via the PawnExtension init-state
+	 * lifecycle, after Controller and PlayerState replication), so the legacy
+	 * BeginPlay-only bind misses every real player pawn.
+	 */
+	void RegisterWithLyraPawnExtension();
+
+	/** Callback fired from ULyraPawnExtensionComponent when the ASC becomes available. */
+	void OnLyraAbilitySystemInitialized();
 
 	/** Tag-change callback wired via UAbilitySystemComponent::RegisterGameplayTagEvent. */
 	void HandleDashTagChanged(const FGameplayTag Tag, int32 NewCount);
