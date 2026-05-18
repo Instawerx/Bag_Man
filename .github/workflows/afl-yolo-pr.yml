@@ -58,7 +58,7 @@ jobs:
       # work (intentional: AFL-0215 is a forward gate, not a sweep).
       # ----------------------------------------------------------------------
       - name: AFL-0215 architectural lint
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
 
@@ -124,7 +124,7 @@ jobs:
       # AFLCombat.
       # ----------------------------------------------------------------------
       - name: Compile LyraEditor (Win64 Development)
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           $uproject = Join-Path $env:GITHUB_WORKSPACE $env:PROJECT_FILE
@@ -147,7 +147,7 @@ jobs:
       # before AFL-0218 lands.
       # ----------------------------------------------------------------------
       - name: Skill registry check (AFL-0218)
-        shell: pwsh
+        shell: powershell
         run: |
           $script = "Tools\AFL_Yolo\check_skills.py"
           if (Test-Path $script) {
