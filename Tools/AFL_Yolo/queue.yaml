@@ -32,8 +32,7 @@ tasks:
     \ form per master doc Sec. 14.5).\n- Cost: a placeholder InstantGE that does nothing — we'll wire heat in\n  AFL-0207.\
     \ Reference but do not implement.\n\nOut of scope (DO NOT touch):\n- Hitscan trace logic (AFL-0106)\n- Damage GE definition\
     \ (AFL-0105)\n- Input binding (AFL-0107)\n- Niagara/audio (AFL-0201..0205)"
-  status: running
-  last_attempt_at: '2026-05-18T08:08:20+00:00'
+  status: merged
 - id: AFL-0105
   title: Wire GE_AFL_Damage_Pulse + GE_AFL_EnergyGain_Small
   discipline: eng
