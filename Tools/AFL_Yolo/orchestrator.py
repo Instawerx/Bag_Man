@@ -439,8 +439,66 @@ def commit_all(cfg: Config, message: str) -> bool:
     return True
 
 
-def push_branch(cfg: Config, branch: str) -> None:
-    git(["push", "-u", "origin", branch], cfg, timeout=1800)
+_PUSH_TRANSIENT_PATTERNS = (
+    "tls handshake timeout",
+    "rpc failed",
+    "connection reset",
+    "connection timed out",
+    "early eof",
+    "ssl_read",
+    "ssl error",
+    "schannel: server closed",
+    "could not resolve host",
+    "operation timed out",
+    "remote end hung up",
+    "the requested url returned error: 5",  # 5xx server-side
+)
+
+
+def _push_error_is_transient(stderr: str) -> bool:
+    if not stderr:
+        return False
+    low = stderr.lower()
+    return any(p in low for p in _PUSH_TRANSIENT_PATTERNS)
+
+
+def push_branch(cfg: Config, branch: str, *, attempts: int = 3) -> None:
+    """Push a yolo branch to origin, retrying on transient network errors.
+
+    Retries only when stderr matches a known transient pattern (TLS timeout,
+    RPC failed, connection reset, etc). Hard failures (auth, non-fast-forward,
+    refspec missing) raise immediately so the orchestrator can surface them
+    to Discord without burning retries.
+    """
+    backoff_s = [30, 60]  # sleeps between attempts 1->2 and 2->3
+    last_err: str = ""
+    for i in range(attempts):
+        res = run_cmd(
+            ["git", "push", "-u", "origin", branch],
+            cwd=cfg.project_root, check=False, timeout=1800,
+        )
+        if res.returncode == 0:
+            if i > 0:
+                LOG.info("Push succeeded on attempt %d/%d", i + 1, attempts)
+            return
+        stderr = (res.stderr or "") + (res.stdout or "")
+        last_err = stderr.strip()[:1500]
+        if not _push_error_is_transient(stderr):
+            raise subprocess.CalledProcessError(
+                res.returncode, res.args,
+                output=res.stdout, stderr=res.stderr,
+            )
+        if i == attempts - 1:
+            LOG.error("Push attempt %d/%d failed (transient, but retries exhausted): %s",
+                      i + 1, attempts, last_err[:300])
+            raise subprocess.CalledProcessError(
+                res.returncode, res.args,
+                output=res.stdout, stderr=res.stderr,
+            )
+        sleep_s = backoff_s[i] if i < len(backoff_s) else backoff_s[-1]
+        LOG.warning("Push attempt %d/%d failed (transient): %s — retrying in %ds",
+                    i + 1, attempts, last_err[:200], sleep_s)
+        time.sleep(sleep_s)
 
 
 def rollback_branch(cfg: Config, branch: str) -> None:
