@@ -62,3 +62,7 @@ secrets/
 **/ApiKeys.ini
 **/*_keys.ini
 
+
+# afl_yolo
+Tools/AFL_Yolo/.state/
+Tools/AFL_Yolo/config.toml

@@ -1,0 +1,158 @@
+# AFL YOLO PR validation.
+#
+# Triggered on PRs from the afl_yolo orchestrator (label: `yolo`). Mirrors the
+# local checks the daemon runs - same Build.bat invocation, same AFL-0215 lint
+# rules - so that what the daemon greenlit on the studio box gets independently
+# re-verified by CI before a human merges from their phone.
+#
+# Required status check on `main`:
+#   - afl-yolo/build
+#
+# Runner: self-hosted Windows box with UE 5.6 installed (label `ue5`).
+# See Docs/AFL_YOLO_PLAYBOOK.md for runner provisioning notes.
+
+name: AFL YOLO PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches: [main]
+
+# Cancel superseded runs on the same PR - keeps the queue light when the
+# orchestrator amends a yolo branch.
+concurrency:
+  group: afl-yolo-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  UE_ROOT: C:\Program Files\Epic Games\UE_5.6
+  PROJECT_FILE: Bag_Man.uproject
+
+jobs:
+  gate:
+    # Only run on PRs that carry the `yolo` label. Manual PRs from humans
+    # use the normal afl-build.yml pipeline.
+    if: contains(github.event.pull_request.labels.*.name, 'yolo')
+    name: afl-yolo/build
+    runs-on: [self-hosted, windows, ue5]
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout (with LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0    # AFL-0215 lint needs merge-base history
+
+      # ----------------------------------------------------------------------
+      # AFL-0215 - architectural lint. Catches:
+      #   - direct AbilitySystemComponent->GiveAbility (must go through
+      #     ULyraPawnData ability sets)
+      #   - direct SetHealth on UAFLAttributeSet_Combat (must route through
+      #     UAFLDamageExecCalc)
+      #   - GetPlayerViewPoint on the server (hitscan must use client
+      #     TargetData per AFL-0106)
+      #
+      # Runs against the diff between this PR and `main` only - keeps the
+      # check fast and lets pre-existing tech debt land without blocking new
+      # work (intentional: AFL-0215 is a forward gate, not a sweep).
+      # ----------------------------------------------------------------------
+      - name: AFL-0215 architectural lint
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $base = git merge-base HEAD origin/${{ github.base_ref }}
+          if (-not $base) {
+            Write-Error "Could not determine merge base against origin/${{ github.base_ref }}"
+            exit 2
+          }
+          Write-Host "Lint diff base: $base"
+
+          $changed = git diff --name-only "$base..HEAD" |
+                     Where-Object { $_ -match '\.(cpp|h|hpp|cc)$' }
+
+          if (-not $changed) {
+            Write-Host "No C++ files changed - lint trivially passes."
+            exit 0
+          }
+
+          # Keep these regexes byte-identical to LINT_RULES in
+          # Tools/AFL_Yolo/orchestrator.py. If you change one, change both.
+          $rules = @(
+            @{ Pattern = '\bAbilitySystemComponent\s*->\s*GiveAbility\b';
+               Message = 'AFL-0215: GiveAbility called directly - abilities must come from ULyraPawnData ability sets.' },
+            @{ Pattern = '\bGetAttributeSet\s*<\s*UAFLAttributeSet_Combat\s*>\s*[^;]*?->\s*SetHealth\b';
+               Message = 'AFL-0215: Direct SetHealth on AttributeSet - damage must route through UAFLDamageExecCalc.' },
+            @{ Pattern = '\bGetPlayerViewPoint\b';
+               Message = 'AFL-0215: GetPlayerViewPoint detected - hitscan must use client TargetData per AFL-0106.' }
+          )
+
+          $violations = @()
+          foreach ($file in $changed) {
+            if (-not (Test-Path $file)) { continue }
+            $text = Get-Content -Raw -LiteralPath $file
+            $lineOffsets = @(0)
+            for ($i = 0; $i -lt $text.Length; $i++) {
+              if ($text[$i] -eq "`n") { $lineOffsets += ($i + 1) }
+            }
+            foreach ($rule in $rules) {
+              foreach ($m in [regex]::Matches($text, $rule.Pattern)) {
+                $lineNo = 1
+                for ($i = 0; $i -lt $lineOffsets.Count; $i++) {
+                  if ($lineOffsets[$i] -gt $m.Index) { break }
+                  $lineNo = $i + 1
+                }
+                $violations += "$file`:$lineNo`: $($rule.Message)"
+              }
+            }
+          }
+
+          if ($violations.Count -gt 0) {
+            Write-Host "::group::AFL-0215 violations"
+            $violations | ForEach-Object { Write-Host "::error::$_" }
+            Write-Host "::endgroup::"
+            exit 1
+          }
+          Write-Host "AFL-0215 lint clean."
+
+      # ----------------------------------------------------------------------
+      # Editor compile. Matches the local Build.bat invocation in verify.py so
+      # that "passes locally" === "passes on CI" for the orchestrator. Plugins
+      # are compiled as part of the editor target - we don't need a separate
+      # -Plugin pass here because the .uproject already references AFLCore and
+      # AFLCombat.
+      # ----------------------------------------------------------------------
+      - name: Compile LyraEditor (Win64 Development)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $uproject = Join-Path $env:GITHUB_WORKSPACE $env:PROJECT_FILE
+          if (-not (Test-Path $uproject)) {
+            Write-Error "uproject not found: $uproject"
+            exit 2
+          }
+          $buildBat = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles\Build.bat"
+          & $buildBat LyraEditor Win64 Development $uproject `
+              -waitmutex -NoHotReloadFromIDE
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Editor compile failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+      # ----------------------------------------------------------------------
+      # Skill registry CI check (AFL-0218). Cheap, catches drift between
+      # /mnt/skills/user/ and the queue.yaml `skills:` field. Only runs if the
+      # script exists in the repo - skipped silently during early sprints
+      # before AFL-0218 lands.
+      # ----------------------------------------------------------------------
+      - name: Skill registry check (AFL-0218)
+        shell: pwsh
+        run: |
+          $script = "Tools\AFL_Yolo\check_skills.py"
+          if (Test-Path $script) {
+            python $script --queue Tools/AFL_Yolo/queue.yaml
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host "check_skills.py not present yet - skipping (will be added by AFL-0218)."
+          }

@@ -1,0 +1,95 @@
+# afl_yolo configuration.
+#
+# Copy this file to `config.toml` (same directory) and fill in the values for
+# your local machine. config.toml is .gitignored — config.example.toml is
+# tracked. Never commit secrets.
+
+[paths]
+# Absolute path to the project root checkout.
+project_root = "C:/Dev/Bag_Man"
+
+# Absolute path to the UE5 engine root. UE 5.6 on the studio dev box.
+engine_root = "C:/Program Files/Epic Games/UE_5.6"
+
+# Absolute path to the .uproject file.
+uproject = "C:/Dev/Bag_Man/Bag_Man.uproject"
+
+
+[github]
+# `owner/repo` slug used by the `gh` CLI.
+repo = "C12-Ai-Gaming/Bag_Man"
+
+# Branch that PRs target. Switch to `develop` later if you adopt a develop branch.
+main_branch = "main"
+
+# How often to poll PR state while waiting for human merge. Per-call cost is one
+# `gh pr view` invocation.
+pr_poll_interval_s = 60
+
+# After this many hours of waiting for a merge, fail the task and move on.
+pr_poll_max_hours = 24
+
+
+[discord]
+# Discord webhook URL — create in Discord server settings → Integrations →
+# Webhooks → New Webhook → Copy URL. The orchestrator pushes rich embeds here
+# so the Discord mobile app pings your phone for every state change. Leave
+# blank to disable Discord notifications (you'll only see them in the local log).
+webhook_url = ""
+
+
+[claude_code]
+# Name or path of the Claude Code binary. Matches the `claude` shim the
+# native Windows installer drops into ~/.local/bin (per AFL-P0-09 in the tracker).
+bin = "claude"
+
+# Hard cap per task. Tasks of estimate XL should fit well inside an hour;
+# raise this if you find tasks legitimately need more.
+timeout_s = 3600
+
+# Skips Claude Code's interactive permission prompts. REQUIRED for YOLO mode.
+# Safety is provided by the orchestrator's post-execution lint + build verify
+# + file-cap rails, not by Claude Code's per-action prompts. Set to false to
+# revert to interactive mode (useful for one-shot debug runs).
+skip_permissions = true
+
+
+[build]
+# Hard cap per plugin compile.
+timeout_s = 1800
+# Hard cap for automation tests or the cheat matrix.
+verify_timeout_s = 1200
+
+
+[safety]
+# Stop the loop after this many consecutive task failures. 2 is the default
+# because three failures in a row is almost always a systemic issue worth a
+# human eye, not something to grind through.
+max_consecutive_failures = 2
+
+# If a single task generates more changes than this, halt and require human
+# review. Catches Claude Code "rewriting half the project" failure modes.
+max_changed_files = 100
+
+# Hard cap on file deletions per task. Almost no AFL task should delete more
+# than a handful of files.
+max_deletions_per_task = 5
+
+# LFS bandwidth halt. GitHub Pro + the C12-Ai-Gaming org gives 250 GB. We halt
+# at 90% to leave headroom for the inevitable big-art-import day.
+lfs_quota_gb = 250
+lfs_halt_threshold_pct = 0.90
+
+# Disciplines that require a human to start the task — never YOLO. The default
+# excludes pure-creative disciplines because Claude Code can't choose your
+# game's color palette or art style. You're welcome to remove these once you
+# have well-defined design specs in the queue items themselves.
+require_human_for_disciplines = ["art", "design"]
+
+
+[orchestrator]
+# When true, the orchestrator goes through all the motions (state transitions,
+# Discord pings) but skips real Claude Code spawns, real Build.bat invocations,
+# real git pushes, and real gh pr create calls. Use this on first install to
+# validate the wiring before lighting the fuse.
+dry_run = false

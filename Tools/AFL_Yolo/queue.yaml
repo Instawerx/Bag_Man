@@ -1,0 +1,432 @@
+# afl_yolo queue - BAG MAN (AFL) autonomous build queue.
+# Mirrors the Live Build Tracker, but machine-readable.
+#
+# Lifecycle: pending -> running -> pr_open -> merged | error | skipped
+# autonomy:  full | needs_approval | human_only | phase_gate
+# verify:    compile | compile+test | compile+cheat-matrix | none
+
+tasks:
+
+  # =========================================================================
+  # SPRINT 1 — Pulse weapon end-to-end
+  # =========================================================================
+
+  - id: AFL-0104
+    title: Stand up UAFLAG_Laser_Pulse ability class
+    discipline: eng
+    estimate: XL
+    autonomy: full
+    branch: yolo/afl-0104-ag-laser-pulse
+    depends_on: []
+    verify: compile
+    plugins_to_build: [AFLCombat]
+    skills:
+      - afl-cpp-lyra-developer
+      - unreal-engine-expert
+      - afl-build-operator
+    files_hint:
+      - Plugins/GameFeatures/AFLCombat/Source/AFLCombat/Public/Abilities/AFLAG_Laser_Pulse.h
+      - Plugins/GameFeatures/AFLCombat/Source/AFLCombat/Private/Abilities/AFLAG_Laser_Pulse.cpp
+      - Plugins/GameFeatures/AFLCombat/Source/AFLCombat/AFLCombat.Build.cs
+    aik_brief: |
+      Create UAFLAG_Laser_Pulse extending ULyraGameplayAbility. This is the
+      foundation for AFL-0105 / AFL-0106 (damage GE + TargetData hitscan).
+
+      Requirements:
+      - Activate on InputTag.Weapon.Fire (binding lands in AFL-0107; for now
+        just declare the AbilityTag State.Firing.Pulse and the activation hook).
+      - Replication policy: LocalPredicted.
+      - NetExecutionPolicy: LocalPredicted.
+      - InstancingPolicy: InstancedPerActor.
+      - Declare TSubclassOf<UGameplayEffect> DamageEffectClass exposed to BP
+        (set to nullptr default — wired in AFL-0105).
+      - Implement ActivateAbility skeleton that commits cost/cooldown and
+        stubs out the trace dispatch (the trace itself is AFL-0106 work). The
+        skeleton MUST log `AFL_PULSE: Activate` on commit so we can verify.
+      - Add Cooldown tag Cooldown.Weapon.Pulse to AFLCoreTags.ini under the
+        AFLCombat plugin's Config/Tags/AFLCombatTags.ini (create the file if
+        missing; use the GameplayTagList= form per master doc Sec. 14.5).
+      - Cost: a placeholder InstantGE that does nothing — we'll wire heat in
+        AFL-0207. Reference but do not implement.
+
+      Out of scope (DO NOT touch):
+      - Hitscan trace logic (AFL-0106)
+      - Damage GE definition (AFL-0105)
+      - Input binding (AFL-0107)
+      - Niagara/audio (AFL-0201..0205)
+
+  - id: AFL-0105
+    title: Wire GE_AFL_Damage_Pulse + GE_AFL_EnergyGain_Small
+    discipline: eng
+    estimate: M
+    autonomy: full
+    branch: yolo/afl-0105-pulse-damage-ge
+    depends_on: [AFL-0104]
+    verify: compile+cheat-matrix
+    cheat_matrix:
+      - AFL.Combat.Damage 18
+      - AFL.Combat.EnergyGain 10
+    plugins_to_build: [AFLCombat]
+    skills:
+      - afl-cpp-lyra-developer
+      - unreal-engine-expert
+    files_hint:
+      - Plugins/GameFeatures/AFLCombat/Content/Effects/GE_AFL_Damage_Pulse.uasset
+      - Plugins/GameFeatures/AFLCombat/Content/Effects/GE_AFL_EnergyGain_Small.uasset
+    aik_brief: |
+      Author two Instant GameplayEffects:
+
+      1) GE_AFL_Damage_Pulse
+         - Duration: Instant
+         - Modifier: Damage meta attribute, Override magnitude 18 (this hits
+           UAFLDamageExecCalc which then routes through Armor -> Shield ->
+           Health per master doc Sec. 8.3).
+         - GrantedTags: Event.Damage.Pulse on application.
+
+      2) GE_AFL_EnergyGain_Small
+         - Duration: Instant
+         - Modifier: CarriedEnergy meta (will exist after AFL-0701 — for now
+           leave the modifier list empty and gate the asset behind a #if
+           WITH_AFL_ENERGY_SET. The orchestrator's cheat matrix expects an
+           OK token regardless, so the cheat manager should log
+           `AFLCombatCheats: OK EnergyGain` even when no-op.)
+
+      Wire DamageEffectClass on UAFLAG_Laser_Pulse to GE_AFL_Damage_Pulse via
+      a default sub-object set in C++ or via the data asset that ships the
+      ability in AFL-0214 (whichever you encounter first — match prevailing
+      style).
+
+      Acceptance: console cheats `AFL.Combat.Damage 18` and
+      `AFL.Combat.EnergyGain 10` both log `AFLCombatCheats: OK <Name>`.
+
+  - id: AFL-0106
+    title: Hitscan via client TargetData (no server view point)
+    discipline: eng
+    estimate: L
+    autonomy: full
+    branch: yolo/afl-0106-targetdata-hitscan
+    depends_on: [AFL-0104, AFL-0105]
+    verify: compile
+    plugins_to_build: [AFLCombat]
+    skills:
+      - afl-cpp-lyra-developer
+      - unreal-engine-expert
+    files_hint:
+      - Plugins/GameFeatures/AFLCombat/Source/AFLCombat/Private/Abilities/AFLAG_Laser_Pulse.cpp
+      - Plugins/GameFeatures/AFLCombat/Source/AFLCombat/Public/Targeting/AFLAbilityTargetData_Hitscan.h
+    aik_brief: |
+      Implement the hitscan path per master doc Sec. 7 / AFL-0106:
+
+      1. Client (predicting): on ActivateAbility, perform the line trace
+         locally using the owning camera's view location and rotation. Pack
+         the hit result(s) into a custom FGameplayAbilityTargetData subclass
+         (AFLAbilityTargetData_Hitscan) for compactness.
+
+      2. Wrap the target data in FGameplayAbilityTargetDataHandle and call
+         UAbilitySystemBlueprintLibrary::ServerSetReplicatedTargetData. Then
+         WaitTargetData in the ability for the OnTargetDataReady delegate.
+
+      3. Server-side ApplyEffect: when the target data arrives, apply
+         GE_AFL_Damage_Pulse to the hit target's ASC via
+         ApplyGameplayEffectSpecToTarget. Do NOT re-trace from the server's
+         view.
+
+      HARD CONSTRAINT: do not call GetPlayerViewPoint on the server. The
+      AFL-0215 lint rule will reject the PR if you do.
+
+      Add a stub for the AFL-0213 telemetry hook: when the server receives
+      target data with an angular velocity above the per-pawn budget
+      (placeholder 720 deg/s), log `AFL_TELEMETRY: hitscan_reject reason=ang`
+      but do NOT discard the shot yet. Real validation lands in S2 alongside
+      UAFLLagCompensationWorldSubsystem (AFL-0211).
+
+  - id: AFL-0107
+    title: Bind Pulse to InputTag.Weapon.Fire via ULyraInputConfig
+    discipline: eng
+    estimate: S
+    autonomy: full
+    branch: yolo/afl-0107-input-binding
+    depends_on: [AFL-0106]
+    verify: compile
+    plugins_to_build: [AFLCombat]
+    skills:
+      - afl-cpp-lyra-developer
+      - afl-ui-hud-design
+    files_hint:
+      - Plugins/GameFeatures/AFLCombat/Content/Input/IA_AFL_Fire.uasset
+      - Plugins/GameFeatures/AFLCombat/Content/Input/DA_AFL_InputConfig_Combat.uasset
+    aik_brief: |
+      Bind InputTag.Weapon.Fire to UAFLAG_Laser_Pulse via a ULyraInputConfig
+      data asset.
+
+      - Create IA_AFL_Fire (InputAction, digital, Triggered+Started).
+      - Create or update DA_AFL_InputConfig_Combat to map InputTag.Weapon.Fire
+        -> IA_AFL_Fire.
+      - Register the input config on the Hero component when the AFLCombat
+        Game Feature activates — extend UAFLHeroComponent (will be authored
+        in AFL-0214; for this task add only the input config asset and the
+        ULyraInputConfig entry. Wiring the component is AFL-0214's job).
+
+      Verify locally that the InputTag.Weapon.Fire tag still exists in
+      AFLCoreTags.ini. If not, halt — that's a regression from Sprint 1.
+
+  - id: AFL-0108
+    title: GitHub Actions Win64 Development build on every PR
+    discipline: devops
+    estimate: M
+    autonomy: full
+    branch: yolo/afl-0108-ci-pr-build
+    depends_on: []
+    verify: none
+    plugins_to_build: []
+    skills:
+      - afl-build-operator
+      - afl-qa-build-recovery
+    files_hint:
+      - .github/workflows/afl-pr-build.yml
+    aik_brief: |
+      NOTE: the afl_yolo bootstrap PR already ships
+      `.github/workflows/afl-yolo-pr.yml`, which validates yolo branches
+      specifically. This task adds the broader PR pipeline that runs on
+      every PR (not just yolo branches).
+
+      Author `.github/workflows/afl-pr-build.yml`:
+      - Triggers: pull_request to main; push to main.
+      - Runs on `[self-hosted, windows, ue5]` (matches the runner pattern in
+        the afl-build-operator skill).
+      - Steps: checkout (lfs:true), Build.bat LyraEditor Win64 Development
+        on `Bag_Man.uproject`, uploads a tail of the build log as an
+        artifact on failure.
+      - Adds a required status check named `afl-build/win64-dev` so PRs
+        cannot merge without it.
+
+      Out of scope: cooking, packaging, shipping builds — those land in S11+
+      when we set up the dedicated server pipeline.
+
+  - id: AFL-0109
+    title: Asset naming validation script
+    discipline: devops
+    estimate: M
+    autonomy: full
+    branch: yolo/afl-0109-asset-naming-lint
+    depends_on: [AFL-0108]
+    verify: none
+    plugins_to_build: []
+    skills:
+      - afl-build-operator
+      - afl-asset-pipeline
+    files_hint:
+      - Tools/AFL_Lint/asset_naming.py
+      - .github/workflows/afl-pr-build.yml
+    aik_brief: |
+      Author a Python script that validates AFL asset naming conventions
+      (see master doc Sec. 3.4) and wire it into the PR pipeline from
+      AFL-0108.
+
+      Validation rules:
+      - All files under Content/ have an AFL-style prefix:
+          BP_ ABP_ AnimBP_ A_ M_ MI_ MF_ M_AFL_ SK_ SM_ T_ NS_ NSE_ MS_
+          DA_ DT_ CT_ GE_ AS_ IA_ IC_ (extend as needed; match prevailing
+          assets in the repo).
+      - All C++ classes follow A/U prefix and contain AFL in the name
+        for AFL-owned types.
+      - .uplugin files match their containing directory name.
+
+      The script should exit non-zero with a clear report of violators when
+      run as `python Tools/AFL_Lint/asset_naming.py --root .`.
+
+      Add a job `afl-naming-lint` to .github/workflows/afl-pr-build.yml that
+      runs this on every PR. Make it required.
+
+  - id: AFL-0110
+    title: Greybox arena Arena_01_Greybox
+    discipline: art
+    estimate: L
+    autonomy: human_only
+    branch: yolo/afl-0110-arena-01-greybox
+    depends_on: []
+    verify: none
+    plugins_to_build: []
+    skills:
+      - afl-asset-pipeline
+      - expert-game-designer
+    files_hint: []
+    aik_brief: |
+      HUMAN-OWNED. Arena_01 greybox is a 60x60m arena with four ramps and two
+      cover walls. Spatial design decisions belong to the human designer; the
+      orchestrator will skip this and surface a Discord ping.
+
+  - id: AFL-0111
+    title: QA test plan template + Pulse smoke test
+    discipline: qa
+    estimate: S
+    autonomy: full
+    branch: yolo/afl-0111-qa-plan-pulse
+    depends_on: [AFL-0107]
+    verify: none
+    plugins_to_build: []
+    skills:
+      - afl-qa-build-recovery
+    files_hint:
+      - Docs/QA/AFL_TEST_PLAN_TEMPLATE.md
+      - Docs/QA/AFL-0107_PulseSmokeTest.md
+    aik_brief: |
+      Author Docs/QA/AFL_TEST_PLAN_TEMPLATE.md (reusable template) and an
+      instance Docs/QA/AFL-0107_PulseSmokeTest.md that exercises:
+      - Equip Pulse on listen-server host
+      - Fire Pulse at a target dummy
+      - Confirm 18 damage applied via cheat manager `AFL.Combat.ShowHealth`
+      - Confirm `AFL_PULSE: Activate` and `AFL_TELEMETRY: hitscan_reject`
+        log lines appear as expected
+      - Repeat across 4-client listen-server with simulated 80ms RTT
+
+  # =========================================================================
+  # SPRINT 2 — early enablers that pair with the YOLO bootstrap
+  # =========================================================================
+
+  - id: AFL-0211
+    title: UAFLLagCompensationWorldSubsystem + per-pawn snapshot component
+    discipline: eng
+    estimate: XL
+    autonomy: full
+    branch: yolo/afl-0211-lag-comp-subsystem
+    depends_on: [AFL-0106]
+    verify: compile
+    plugins_to_build: [AFLCombat]
+    skills:
+      - afl-cpp-lyra-developer
+      - unreal-engine-expert
+    files_hint:
+      - Plugins/GameFeatures/AFLCombat/Source/AFLCombat/Public/LagComp/AFLLagCompensationWorldSubsystem.h
+      - Plugins/GameFeatures/AFLCombat/Source/AFLCombat/Public/LagComp/AFLPawnHitboxHistoryComponent.h
+    aik_brief: |
+      Implement lag compensation per master doc Sec. 7 L3:
+
+      - UWorldSubsystem `UAFLLagCompensationWorldSubsystem` collects a 60Hz
+        ring buffer of every relevant pawn's hitbox transforms for the last
+        1.2 seconds.
+      - `UAFLPawnHitboxHistoryComponent` per pawn samples each hitbox bone
+        and pushes into the subsystem buffer.
+      - API: `RewindWorldFor(APlayerController*, float ServerTime)` returns
+        an opaque rewind token; `RestoreWorld(Token)` undoes it. Must be
+        re-entrant safe.
+      - Verification: a server-side hit confirmation pass calls
+        RewindWorldFor before performing the bounding-box check, then
+        Restore unconditionally in a scope guard.
+
+  - id: AFL-0213
+    title: Telemetry hook — validation rejects, ang-velocity, headshot ratios
+    discipline: eng
+    estimate: M
+    autonomy: full
+    branch: yolo/afl-0213-telemetry-stub
+    depends_on: [AFL-0106]
+    verify: compile
+    plugins_to_build: [AFLCombat]
+    skills:
+      - afl-cpp-lyra-developer
+    files_hint:
+      - Plugins/GameFeatures/AFLCombat/Source/AFLCombat/Public/Telemetry/AFLCombatTelemetry.h
+    aik_brief: |
+      Author the AFL-0213 telemetry stub (PlayFab Player Streams wiring lands
+      in S13/AFL-1307). For now:
+
+      - Single static class `FAFLCombatTelemetry` with EmitRejection,
+        EmitAngularAnomaly, EmitHeadshotRatio methods. Each writes one
+        UE_LOG line in a stable, parseable format:
+            `AFL_TELEMETRY: <event> key1=val1 key2=val2 ...`
+      - Hook UAFLAG_Laser_Pulse (AFL-0106) and UAFLDamageExecCalc to call
+        EmitRejection on the documented reject reasons.
+      - No PlayFab dependency yet. S13 swaps the UE_LOG sink for a
+        PlayerStreams write without touching call sites.
+
+  - id: AFL-0214
+    title: Lyra init contract — PawnData, IC, AbilitySet, HeroComponent
+    discipline: eng
+    estimate: L
+    autonomy: full
+    branch: yolo/afl-0214-lyra-init-contract
+    depends_on: [AFL-0107]
+    verify: compile
+    plugins_to_build: [AFLCombat, AFLCore]
+    skills:
+      - afl-cpp-lyra-developer
+      - unreal-engine-expert
+    files_hint:
+      - Plugins/GameFeatures/AFLCombat/Content/Pawns/DA_AFL_PawnData_Hero_Default.uasset
+      - Plugins/GameFeatures/AFLCombat/Content/Input/IC_AFL_Default.uasset
+      - Plugins/GameFeatures/AFLCombat/Content/Abilities/DA_AFL_AbilitySet_Combat_Pulse.uasset
+      - Plugins/GameFeatures/AFLCombat/Source/AFLCombat/Public/Character/AFLHeroComponent.h
+    aik_brief: |
+      Author the Lyra init contract per master doc Sec. 9:
+
+      - DA_AFL_PawnData_Hero_Default (ULyraPawnData) referencing the Lyra
+        default skeletal mesh for now, with InputConfig = IC_AFL_Default and
+        AbilitySets = [DA_AFL_AbilitySet_Combat_Pulse].
+      - IC_AFL_Default (ULyraInputConfig) including the binding added in
+        AFL-0107.
+      - DA_AFL_AbilitySet_Combat_Pulse (ULyraAbilitySet) granting
+        UAFLAG_Laser_Pulse with the Cooldown.Weapon.Pulse tag.
+      - UAFLHeroComponent extending ULyraHeroComponent that drives the
+        ApplyEquipment/UnequipAll lifecycle when the AFLCombat Game Feature
+        activates/deactivates.
+
+      DO NOT call AbilitySystemComponent->GiveAbility anywhere in this PR.
+      AFL-0215 lint will reject it.
+
+  - id: AFL-0215
+    title: CI lint — direct ability grants / Health writes / server viewpoint
+    discipline: devops
+    estimate: M
+    autonomy: full
+    branch: yolo/afl-0215-ci-lint-rule
+    depends_on: [AFL-0108]
+    verify: none
+    plugins_to_build: []
+    skills:
+      - afl-build-operator
+    files_hint:
+      - Tools/AFL_Lint/afl_arch_lint.py
+      - .github/workflows/afl-pr-build.yml
+    aik_brief: |
+      NOTE: the afl_yolo bootstrap already encodes the AFL-0215 rules in
+      Tools/AFL_Yolo/orchestrator.py (LINT_RULES). This task lifts those same
+      rules into a standalone Tools/AFL_Lint/afl_arch_lint.py that runs as a
+      required PR check — so direct manual commits (not via yolo) also get
+      caught.
+
+      The standalone script:
+      - Accepts --root, --base-ref, --changed-files.
+      - Re-uses the regex patterns from orchestrator.LINT_RULES (refactor
+        them into a shared module if you prefer, but a copy is acceptable
+        for now and keeps yolo standalone).
+      - Returns non-zero on any violation with a clear path:line: message.
+
+      Wire it into .github/workflows/afl-pr-build.yml as job
+      `afl-arch-lint`; make it required.
+
+  - id: AFL-0218
+    title: Skill registry CI check
+    discipline: devops
+    estimate: S
+    autonomy: full
+    branch: yolo/afl-0218-skill-registry
+    depends_on: [AFL-0215]
+    verify: none
+    plugins_to_build: []
+    skills:
+      - afl-build-operator
+    files_hint:
+      - Tools/AFL_Lint/skill_registry.py
+      - Docs/SKILLS_REGISTRY.md
+    aik_brief: |
+      Generate Docs/SKILLS_REGISTRY.md from the AFL skill suite documented
+      in the master doc Sec. 15. The CI job rejects PRs that reference a
+      skill name not in the registry (catches typos like
+      "afl-cpp-developer" vs "afl-cpp-lyra-developer").
+
+      - Tools/AFL_Lint/skill_registry.py scans for `afl-<slug>` patterns in
+        .py, .md, .yaml and verifies every match exists in the registry.
+      - Auto-regenerate Docs/SKILLS_REGISTRY.md from a hard-coded list of
+        the 11 AFL skills (no docs scraping; the list is curated).
+      - Add as a required PR check named `afl-skill-registry`.
