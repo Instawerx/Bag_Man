@@ -14,6 +14,7 @@ public class AFLCombat : ModuleRules
 				"Core",
 				"CoreUObject",
 				"Engine",
+				"EnhancedInput",
 				"GameplayAbilities",
 				"GameplayTags",
 				"NetCore",
