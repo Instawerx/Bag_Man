@@ -1,0 +1,101 @@
+# AFL PR build - broad CI gate that runs on every pull request to main, plus
+# pushes to main. This is the "human PR" pipeline; the afl_yolo orchestrator
+# has its own narrower pipeline in afl-yolo-pr.yml that only fires on yolo-
+# labeled PRs.
+#
+# Required status check on `main`:
+#   - afl-build/win64-dev
+#
+# Runner: self-hosted Windows box with UE 5.6 installed (label `ue5`).
+# See Docs/AFL_YOLO_PLAYBOOK.md for runner provisioning notes.
+#
+# Scope: editor compile only. Cooking / packaging / shipping builds land in
+# S11+ when the dedicated server pipeline goes in.
+
+name: AFL PR Build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref - keeps the queue light when a PR
+# is force-pushed or amended.
+concurrency:
+  group: afl-pr-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  UE_ROOT: C:\Program Files\Epic Games\UE_5.6
+  PROJECT_FILE: Bag_Man.uproject
+
+jobs:
+  win64-dev:
+    name: afl-build/win64-dev
+    runs-on: [self-hosted, windows, ue5]
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout (with LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
+
+      # ----------------------------------------------------------------------
+      # Editor compile. Matches the local Build.bat invocation in verify.py
+      # so that "passes locally" === "passes on CI". Plugins (AFLCore,
+      # AFLCombat, ...) are compiled as part of the editor target via the
+      # .uproject's plugin references - no separate -Plugin pass needed.
+      #
+      # Log is teed to build.log so the failure-tail artifact below can
+      # capture it without scraping the GitHub Actions log API.
+      # ----------------------------------------------------------------------
+      - name: Compile LyraEditor (Win64 Development)
+        id: compile
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $uproject = Join-Path $env:GITHUB_WORKSPACE $env:PROJECT_FILE
+          if (-not (Test-Path $uproject)) {
+            Write-Error "uproject not found: $uproject"
+            exit 2
+          }
+          $buildBat = Join-Path $env:UE_ROOT "Engine\Build\BatchFiles\Build.bat"
+          $logPath  = Join-Path $env:GITHUB_WORKSPACE "build.log"
+          & $buildBat LyraEditor Win64 Development $uproject `
+              -waitmutex -NoHotReloadFromIDE 2>&1 | Tee-Object -FilePath $logPath
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Editor compile failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+      # ----------------------------------------------------------------------
+      # On failure, upload the last ~500 lines of the build log so a human
+      # can triage from the PR page without RDPing into the runner. Full
+      # logs live on the runner under Engine/Programs/UnrealBuildTool/Log.txt
+      # if deeper inspection is needed.
+      # ----------------------------------------------------------------------
+      - name: Upload build log tail (on failure)
+        if: failure()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          $log = Join-Path $env:GITHUB_WORKSPACE "build.log"
+          $tail = Join-Path $env:GITHUB_WORKSPACE "build-tail.log"
+          if (Test-Path $log) {
+            Get-Content -LiteralPath $log -Tail 500 | Out-File -FilePath $tail -Encoding utf8
+          } else {
+            "build.log not found - compile step likely failed before invoking Build.bat." |
+              Out-File -FilePath $tail -Encoding utf8
+          }
+
+      - name: Upload build log tail artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-tail
+          path: build-tail.log
+          if-no-files-found: warn
+          retention-days: 14
