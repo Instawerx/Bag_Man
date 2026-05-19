@@ -282,8 +282,7 @@ tasks:
     \ granting\n  UAFLAG_Laser_Pulse with the Cooldown.Weapon.Pulse tag.\n- UAFLHeroComponent extending ULyraHeroComponent\
     \ that drives the\n  ApplyEquipment/UnequipAll lifecycle when the AFLCombat Game Feature\n  activates/deactivates.\n\n\
     DO NOT call AbilitySystemComponent->GiveAbility anywhere in this PR.\nAFL-0215 lint will reject it."
-  status: running
-  last_attempt_at: '2026-05-19T04:22:51+00:00'
+  status: merged
 - id: AFL-0215
   title: CI lint — direct ability grants / Health writes / server viewpoint
   discipline: devops
