@@ -141,8 +141,7 @@ tasks:
     \ uploads a tail of the build log as an\n  artifact on failure.\n- Adds a required status check named `afl-build/win64-dev`\
     \ so PRs\n  cannot merge without it.\n\nOut of scope: cooking, packaging, shipping builds — those land in S11+\nwhen we\
     \ set up the dedicated server pipeline."
-  status: running
-  last_attempt_at: '2026-05-19T00:22:56+00:00'
+  status: merged
 - id: AFL-0109
   title: Asset naming validation script
   discipline: devops
