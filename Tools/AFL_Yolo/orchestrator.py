@@ -731,7 +731,25 @@ def lfs_check_safe(cfg: Config) -> tuple[bool, str]:
 # Claude Code spawn
 # ---------------------------------------------------------------------------
 
+CLAUDE_LIVE_LOG_PATH = STATE_DIR / "claude_code_live.log"
+
+
 def spawn_claude_code(cfg: Config, prompt: str) -> tuple[bool, str]:
+    """Spawn Claude Code and stream its stdout/stderr to a live log file
+    while keeping an in-memory transcript.
+
+    Why streaming: subprocess.run with capture_output=True buffers the entire
+    transcript in memory and DISCARDS it when TimeoutExpired fires — which is
+    exactly the case where we most want forensic evidence. Using Popen with
+    reader threads lets us:
+      - tail -f the live log while the run is in progress
+      - preserve all output collected up to the moment of a timeout
+      - survive the orchestrator's working-tree rollback (.state/ is outside
+        the tree)
+
+    Returns (ok, transcript). Transcript is the merged stdout + stderr,
+    truncated for non-success cases by the caller.
+    """
     if not shutil.which(cfg.claude_code_bin):
         return False, f"`{cfg.claude_code_bin}` not found on PATH"
 
@@ -739,24 +757,91 @@ def spawn_claude_code(cfg: Config, prompt: str) -> tuple[bool, str]:
     if cfg.claude_code_skip_permissions:
         cmd.append("--dangerously-skip-permissions")
 
-    LOG.info("Spawning Claude Code (timeout %ds)...", cfg.claude_code_timeout_s)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    # Truncate the live log at the start of each spawn so a tail -f shows
+    # only this session. A copy of the previous failure is preserved by the
+    # rotation below.
+    if CLAUDE_LIVE_LOG_PATH.exists():
+        try:
+            prev = CLAUDE_LIVE_LOG_PATH.read_text(encoding="utf-8", errors="replace")
+            (STATE_DIR / "claude_code_live.prev.log").write_text(prev, encoding="utf-8")
+        except OSError:
+            pass
+
+    LOG.info("Spawning Claude Code (timeout %ds, live log %s)...",
+             cfg.claude_code_timeout_s, CLAUDE_LIVE_LOG_PATH)
+
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+
+    def reader(stream: Any, sink: list[str], label: str, log_fh: Any) -> None:
+        try:
+            for line in stream:
+                sink.append(line)
+                try:
+                    log_fh.write(line if line.endswith("\n") else line + "\n")
+                    log_fh.flush()
+                except OSError:
+                    pass
+        except (OSError, ValueError):
+            pass
+
     try:
-        res = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=str(cfg.project_root),
-            timeout=cfg.claude_code_timeout_s,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             text=True,
-            check=False,
+            bufsize=1,  # line-buffered
+            encoding="utf-8",
+            errors="replace",
         )
-    except subprocess.TimeoutExpired:
-        return False, "Claude Code timed out"
     except FileNotFoundError as exc:
         return False, f"Cannot start Claude Code: {exc}"
 
-    transcript = (res.stdout or "") + ("\n--- stderr ---\n" + res.stderr if res.stderr else "")
-    if res.returncode != 0:
-        return False, f"Claude Code exit {res.returncode}\n{transcript[-2000:]}"
+    timed_out = False
+    with CLAUDE_LIVE_LOG_PATH.open("w", encoding="utf-8") as log_fh:
+        log_fh.write(f"# Claude Code session started {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n")
+        log_fh.write(f"# Timeout: {cfg.claude_code_timeout_s}s\n")
+        log_fh.write(f"# CWD: {cfg.project_root}\n")
+        log_fh.write("# Live tail: Get-Content -Wait .state\\claude_code_live.log\n\n")
+        log_fh.flush()
+
+        t_out = threading.Thread(
+            target=reader, args=(proc.stdout, stdout_lines, "stdout", log_fh), daemon=True,
+        )
+        t_err = threading.Thread(
+            target=reader, args=(proc.stderr, stderr_lines, "stderr", log_fh), daemon=True,
+        )
+        t_out.start()
+        t_err.start()
+
+        try:
+            proc.wait(timeout=cfg.claude_code_timeout_s)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            LOG.error("Claude Code exceeded %ds — killing subprocess",
+                      cfg.claude_code_timeout_s)
+            proc.kill()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                LOG.warning("Claude Code did not exit 10s after kill")
+
+        # Give the reader threads a moment to drain after the process exits.
+        t_out.join(timeout=5)
+        t_err.join(timeout=5)
+
+    transcript = "".join(stdout_lines)
+    if stderr_lines:
+        transcript += "\n--- stderr ---\n" + "".join(stderr_lines)
+
+    if timed_out:
+        return False, f"Claude Code timed out after {cfg.claude_code_timeout_s}s\n{transcript[-3000:]}"
+    if proc.returncode != 0:
+        return False, f"Claude Code exit {proc.returncode}\n{transcript[-2000:]}"
     return True, transcript
 
 
