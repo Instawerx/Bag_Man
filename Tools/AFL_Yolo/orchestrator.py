@@ -102,6 +102,7 @@ class Config:
 
     claude_code_bin: str = "claude"
     claude_code_timeout_s: int = 3600
+    claude_code_stall_s: int = 600   # kill if no JSONL event for this long
     claude_code_skip_permissions: bool = True
 
     build_timeout_s: int = 1800
@@ -132,6 +133,7 @@ class Config:
             lfs_halt_threshold_pct=raw.get("safety", {}).get("lfs_halt_threshold_pct", 0.90),
             claude_code_bin=raw.get("claude_code", {}).get("bin", "claude"),
             claude_code_timeout_s=raw.get("claude_code", {}).get("timeout_s", 3600),
+            claude_code_stall_s=raw.get("claude_code", {}).get("stall_s", 600),
             claude_code_skip_permissions=raw.get("claude_code", {}).get("skip_permissions", True),
             build_timeout_s=raw.get("build", {}).get("timeout_s", 1800),
             verify_timeout_s=raw.get("build", {}).get("verify_timeout_s", 1200),
@@ -732,55 +734,188 @@ def lfs_check_safe(cfg: Config) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 CLAUDE_LIVE_LOG_PATH = STATE_DIR / "claude_code_live.log"
+CLAUDE_RAW_JSONL_PATH = STATE_DIR / "claude_code_live.jsonl"
+
+
+def _summarize_jsonl_event(evt: dict[str, Any]) -> str:
+    """Render one Claude Code stream-json event as a single human-readable line."""
+    t = evt.get("type", "?")
+    if t == "system" and evt.get("subtype") == "init":
+        return f"[system] init session={evt.get('session_id', '?')[:8]} model={evt.get('model', '?')}"
+    if t == "rate_limit_event":
+        info = evt.get("rate_limit_info", {})
+        return (f"[rate_limit] status={info.get('status')} "
+                f"overage={info.get('overageStatus')} "
+                f"reason={info.get('overageDisabledReason', '-')} "
+                f"resetsAt={info.get('resetsAt')}")
+    if t == "assistant":
+        msg = evt.get("message", {})
+        contents = msg.get("content", [])
+        parts: list[str] = []
+        for c in contents:
+            ctype = c.get("type")
+            if ctype == "text":
+                snippet = (c.get("text") or "").replace("\n", " ")[:120]
+                parts.append(f"text={snippet!r}")
+            elif ctype == "tool_use":
+                tool = c.get("name", "?")
+                inp = c.get("input", {})
+                if isinstance(inp, dict):
+                    keys = ",".join(sorted(inp.keys()))[:60]
+                    parts.append(f"tool={tool}({keys})")
+                else:
+                    parts.append(f"tool={tool}")
+            elif ctype == "thinking":
+                snippet = (c.get("thinking") or "").replace("\n", " ")[:80]
+                parts.append(f"thinking={snippet!r}")
+        return f"[assistant] {' '.join(parts) or '(empty)'}"
+    if t == "user":  # tool_result wrapped in a user message
+        msg = evt.get("message", {})
+        contents = msg.get("content", [])
+        for c in contents:
+            if isinstance(c, dict) and c.get("type") == "tool_result":
+                tid = c.get("tool_use_id", "?")[:8]
+                is_err = c.get("is_error", False)
+                inner = c.get("content")
+                if isinstance(inner, list):
+                    text = "".join(x.get("text", "") for x in inner if isinstance(x, dict))[:100]
+                else:
+                    text = str(inner)[:100]
+                return f"[tool_result] id={tid} err={is_err} body={text!r}"
+        return "[user] (non-tool message)"
+    if t == "result":
+        dur_ms = evt.get("duration_ms", 0)
+        cost = evt.get("total_cost_usd", 0.0)
+        is_err = evt.get("is_error", False)
+        turns = evt.get("num_turns", 0)
+        return f"[result] duration={dur_ms/1000:.1f}s cost=${cost:.4f} turns={turns} err={is_err}"
+    return f"[{t}] {json.dumps(evt)[:200]}"
 
 
 def spawn_claude_code(cfg: Config, prompt: str) -> tuple[bool, str]:
-    """Spawn Claude Code and stream its stdout/stderr to a live log file
-    while keeping an in-memory transcript.
+    """Spawn Claude Code in stream-json mode and stream events to disk.
 
-    Why streaming: subprocess.run with capture_output=True buffers the entire
-    transcript in memory and DISCARDS it when TimeoutExpired fires — which is
-    exactly the case where we most want forensic evidence. Using Popen with
-    reader threads lets us:
-      - tail -f the live log while the run is in progress
-      - preserve all output collected up to the moment of a timeout
-      - survive the orchestrator's working-tree rollback (.state/ is outside
-        the tree)
+    Why stream-json: `claude -p` defaults to buffered text mode (everything
+    at end-of-run). With --output-format stream-json --verbose, Claude emits
+    one JSON object per event (system/init, assistant turn, tool_use,
+    tool_result, rate_limit_event, result). This gives us:
+      - real-time visibility into what Claude is doing
+      - early detection of rate-limit-rejected runs (overageStatus rejected)
+      - per-event timestamps for a stall watchdog
+      - structured forensic data preserved through orchestrator rollback
 
-    Returns (ok, transcript). Transcript is the merged stdout + stderr,
-    truncated for non-success cases by the caller.
+    Two files in .state/ are written:
+      claude_code_live.log    — human-readable one-line-per-event summaries
+      claude_code_live.jsonl  — raw JSON from claude (for replay/debug)
+
+    Plus a stall watchdog thread that kills the subprocess if no new event
+    arrives within cfg.claude_code_stall_s seconds — catches the silent
+    rate-limit-retry hang that the wall-clock timeout was too slow to detect.
+
+    Returns (ok, transcript). Transcript on success is the final assembled
+    assistant output (last `result.result` field if present, else the
+    concatenation of assistant text blocks); on failure includes a tail of
+    the human-readable summary log for the Discord embed.
     """
     if not shutil.which(cfg.claude_code_bin):
         return False, f"`{cfg.claude_code_bin}` not found on PATH"
 
-    cmd = [cfg.claude_code_bin, "-p", prompt]
+    cmd = [
+        cfg.claude_code_bin,
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+    ]
     if cfg.claude_code_skip_permissions:
         cmd.append("--dangerously-skip-permissions")
 
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    # Truncate the live log at the start of each spawn so a tail -f shows
-    # only this session. A copy of the previous failure is preserved by the
-    # rotation below.
-    if CLAUDE_LIVE_LOG_PATH.exists():
-        try:
-            prev = CLAUDE_LIVE_LOG_PATH.read_text(encoding="utf-8", errors="replace")
-            (STATE_DIR / "claude_code_live.prev.log").write_text(prev, encoding="utf-8")
-        except OSError:
-            pass
+    # Rotate the previous live log so the last failure is recoverable.
+    for path in (CLAUDE_LIVE_LOG_PATH, CLAUDE_RAW_JSONL_PATH):
+        if path.exists():
+            try:
+                path.replace(path.with_suffix(path.suffix + ".prev"))
+            except OSError:
+                pass
 
-    LOG.info("Spawning Claude Code (timeout %ds, live log %s)...",
-             cfg.claude_code_timeout_s, CLAUDE_LIVE_LOG_PATH)
+    LOG.info(
+        "Spawning Claude Code (wall-timeout %ds, stall-timeout %ds, live log %s)...",
+        cfg.claude_code_timeout_s, cfg.claude_code_stall_s, CLAUDE_LIVE_LOG_PATH,
+    )
 
-    stdout_lines: list[str] = []
+    # State shared between threads.
+    assistant_text_chunks: list[str] = []
+    final_result_text: list[str] = []     # set when a `result` event arrives
     stderr_lines: list[str] = []
+    last_event_ts = [time.monotonic()]    # mutable so threads can write
+    rate_limited_flag = [False]
+    summary_lines: list[str] = []         # in-memory tail for failure messages
 
-    def reader(stream: Any, sink: list[str], label: str, log_fh: Any) -> None:
+    def stream_reader(stream: Any, summary_fh: Any, jsonl_fh: Any) -> None:
         try:
             for line in stream:
-                sink.append(line)
+                last_event_ts[0] = time.monotonic()
+                stripped = line.rstrip("\n")
                 try:
-                    log_fh.write(line if line.endswith("\n") else line + "\n")
-                    log_fh.flush()
+                    jsonl_fh.write(stripped + "\n")
+                    jsonl_fh.flush()
+                except OSError:
+                    pass
+                # Try parsing as JSON; fall back to raw if not.
+                try:
+                    evt = json.loads(stripped)
+                except (json.JSONDecodeError, ValueError):
+                    msg = f"[raw] {stripped[:300]}"
+                    summary_lines.append(msg)
+                    try:
+                        summary_fh.write(msg + "\n")
+                        summary_fh.flush()
+                    except OSError:
+                        pass
+                    continue
+                # Detect rate-limit rejection on the FIRST event.
+                if evt.get("type") == "rate_limit_event":
+                    info = evt.get("rate_limit_info", {})
+                    if info.get("overageStatus") == "rejected" and \
+                       info.get("overageDisabledReason") == "out_of_credits":
+                        rate_limited_flag[0] = True
+                        LOG.warning(
+                            "Claude Code rate-limit overage REJECTED (out_of_credits); "
+                            "5h window resetsAt=%s. If the base window also exhausts, "
+                            "the run will hang on retries.",
+                            info.get("resetsAt"),
+                        )
+                # Capture final result text.
+                if evt.get("type") == "result":
+                    res = evt.get("result")
+                    if isinstance(res, str):
+                        final_result_text.append(res)
+                # Capture assistant text deltas for fallback transcript.
+                if evt.get("type") == "assistant":
+                    msg = evt.get("message", {})
+                    for c in msg.get("content", []):
+                        if isinstance(c, dict) and c.get("type") == "text":
+                            t = c.get("text")
+                            if isinstance(t, str):
+                                assistant_text_chunks.append(t)
+                summary = _summarize_jsonl_event(evt)
+                summary_lines.append(summary)
+                try:
+                    summary_fh.write(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} {summary}\n")
+                    summary_fh.flush()
+                except OSError:
+                    pass
+        except (OSError, ValueError):
+            pass
+
+    def stderr_reader(stream: Any, summary_fh: Any) -> None:
+        try:
+            for line in stream:
+                last_event_ts[0] = time.monotonic()
+                stderr_lines.append(line)
+                try:
+                    summary_fh.write(f"[stderr] {line.rstrip()}\n")
+                    summary_fh.flush()
                 except OSError:
                     pass
         except (OSError, ValueError):
@@ -794,35 +929,52 @@ def spawn_claude_code(cfg: Config, prompt: str) -> tuple[bool, str]:
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
             text=True,
-            bufsize=1,  # line-buffered
+            bufsize=1,
             encoding="utf-8",
             errors="replace",
         )
     except FileNotFoundError as exc:
         return False, f"Cannot start Claude Code: {exc}"
 
-    timed_out = False
-    with CLAUDE_LIVE_LOG_PATH.open("w", encoding="utf-8") as log_fh:
-        log_fh.write(f"# Claude Code session started {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n")
-        log_fh.write(f"# Timeout: {cfg.claude_code_timeout_s}s\n")
-        log_fh.write(f"# CWD: {cfg.project_root}\n")
-        log_fh.write("# Live tail: Get-Content -Wait .state\\claude_code_live.log\n\n")
-        log_fh.flush()
+    # Watchdog: every 30s, check if we've heard from Claude. Kill if stalled.
+    stall_kill_flag = [False]
 
-        t_out = threading.Thread(
-            target=reader, args=(proc.stdout, stdout_lines, "stdout", log_fh), daemon=True,
-        )
-        t_err = threading.Thread(
-            target=reader, args=(proc.stderr, stderr_lines, "stderr", log_fh), daemon=True,
-        )
-        t_out.start()
-        t_err.start()
+    def watchdog() -> None:
+        while proc.poll() is None:
+            time.sleep(30)
+            silent_s = time.monotonic() - last_event_ts[0]
+            if silent_s > cfg.claude_code_stall_s:
+                LOG.error(
+                    "Claude Code stalled — no events for %.0fs (threshold %ds). Killing.",
+                    silent_s, cfg.claude_code_stall_s,
+                )
+                stall_kill_flag[0] = True
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+                return
+
+    timed_out = False
+    with CLAUDE_LIVE_LOG_PATH.open("w", encoding="utf-8") as summary_fh, \
+         CLAUDE_RAW_JSONL_PATH.open("w", encoding="utf-8") as jsonl_fh:
+        summary_fh.write(f"# Claude Code session started {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n")
+        summary_fh.write(f"# wall-timeout={cfg.claude_code_timeout_s}s stall-timeout={cfg.claude_code_stall_s}s\n")
+        summary_fh.write(f"# CWD: {cfg.project_root}\n")
+        summary_fh.write("# Live tail: Get-Content -Wait .state\\claude_code_live.log\n")
+        summary_fh.write("# Raw JSONL alongside at: .state\\claude_code_live.jsonl\n\n")
+        summary_fh.flush()
+
+        t_out = threading.Thread(target=stream_reader, args=(proc.stdout, summary_fh, jsonl_fh), daemon=True)
+        t_err = threading.Thread(target=stderr_reader, args=(proc.stderr, summary_fh), daemon=True)
+        t_wdg = threading.Thread(target=watchdog, daemon=True)
+        t_out.start(); t_err.start(); t_wdg.start()
 
         try:
             proc.wait(timeout=cfg.claude_code_timeout_s)
         except subprocess.TimeoutExpired:
             timed_out = True
-            LOG.error("Claude Code exceeded %ds — killing subprocess",
+            LOG.error("Claude Code exceeded wall-clock %ds — killing subprocess",
                       cfg.claude_code_timeout_s)
             proc.kill()
             try:
@@ -830,18 +982,33 @@ def spawn_claude_code(cfg: Config, prompt: str) -> tuple[bool, str]:
             except subprocess.TimeoutExpired:
                 LOG.warning("Claude Code did not exit 10s after kill")
 
-        # Give the reader threads a moment to drain after the process exits.
         t_out.join(timeout=5)
         t_err.join(timeout=5)
+        # watchdog will exit on its own when proc.poll() is non-None
+        t_wdg.join(timeout=2)
 
-    transcript = "".join(stdout_lines)
+    # Assemble transcript: prefer the final `result.result` (Claude's
+    # post-task summary), fall back to concatenated assistant text deltas.
+    if final_result_text:
+        transcript = final_result_text[-1]
+    else:
+        transcript = "".join(assistant_text_chunks)
     if stderr_lines:
         transcript += "\n--- stderr ---\n" + "".join(stderr_lines)
 
+    # Failure reason prefix takes priority and is followed by the human-
+    # readable summary tail so the Discord embed has triageable context.
+    summary_tail = "\n".join(summary_lines[-40:])
+
+    if stall_kill_flag[0]:
+        prefix = f"Claude Code stalled >{cfg.claude_code_stall_s}s (no JSONL events)"
+        if rate_limited_flag[0]:
+            prefix += " — rate-limit overage rejected (out_of_credits) earlier this session"
+        return False, f"{prefix}\n--- summary tail ---\n{summary_tail}"
     if timed_out:
-        return False, f"Claude Code timed out after {cfg.claude_code_timeout_s}s\n{transcript[-3000:]}"
+        return False, f"Claude Code timed out after {cfg.claude_code_timeout_s}s\n--- summary tail ---\n{summary_tail}"
     if proc.returncode != 0:
-        return False, f"Claude Code exit {proc.returncode}\n{transcript[-2000:]}"
+        return False, f"Claude Code exit {proc.returncode}\n--- summary tail ---\n{summary_tail}"
     return True, transcript
 
 
