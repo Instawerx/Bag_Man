@@ -166,8 +166,7 @@ tasks:
     \ types.\n- .uplugin files match their containing directory name.\n\nThe script should exit non-zero with a clear report\
     \ of violators when\nrun as `python Tools/AFL_Lint/asset_naming.py --root .`.\n\nAdd a job `afl-naming-lint` to .github/workflows/afl-pr-build.yml\
     \ that\nruns this on every PR. Make it required."
-  status: running
-  last_attempt_at: '2026-05-21T00:52:22+00:00'
+  status: merged
 - id: AFL-0110
   title: Greybox arena Arena_01_Greybox
   discipline: art
