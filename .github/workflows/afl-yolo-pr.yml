@@ -45,7 +45,62 @@ jobs:
           fetch-depth: 0    # AFL-0215 lint needs merge-base history
 
       # ----------------------------------------------------------------------
-      # AFL-0215 - architectural lint. Catches:
+      # AFL-0215 self-test — confirms the three architectural rails still
+      # fire on a known violation fixture. If a rail silently breaks (a
+      # regex regression, an accidental loosening), this fails BEFORE we
+      # scan real code, so we never see a false-clean run.
+      # ----------------------------------------------------------------------
+      - name: AFL-0215 self-test (regression guard)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          python Tools\AFL_Yolo\lint_afl_0215.py --self-test
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "AFL-0215 self-test failed — the architectural rail is broken."
+            exit $LASTEXITCODE
+          }
+
+      # ----------------------------------------------------------------------
+      # AFL-0215 standalone scan — runs `lint_afl_0215.py` against the diff
+      # of this PR. Authoritative since 2026-05-20 (the inline-PowerShell
+      # rules step below was the bootstrap version; standalone now owns the
+      # rules so direct manual PRs can use the same gate via afl-pr-build.yml
+      # follow-up).
+      # ----------------------------------------------------------------------
+      - name: AFL-0215 architectural lint (standalone)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $base = git merge-base HEAD origin/${{ github.base_ref }}
+          if (-not $base) {
+            Write-Error "Could not determine merge base against origin/${{ github.base_ref }}"
+            exit 2
+          }
+          Write-Host "Lint diff base: $base"
+
+          $changed = git diff --name-only "$base..HEAD" |
+                     Where-Object { $_ -match '\.(cpp|h|hpp|cc)$' }
+
+          if (-not $changed) {
+            Write-Host "No C++ files changed - lint trivially passes."
+            exit 0
+          }
+
+          # Pass only existing files (renamed/deleted entries from the diff
+          # would otherwise fail the scan).
+          $existing = $changed | Where-Object { Test-Path $_ }
+          if (-not $existing) {
+            Write-Host "Changed C++ files were deleted/renamed; nothing to scan."
+            exit 0
+          }
+
+          python Tools\AFL_Yolo\lint_afl_0215.py @existing
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # ----------------------------------------------------------------------
+      # AFL-0215 inline lint (legacy, bootstrap-era). Kept as belt-and-braces
+      # alongside the standalone above. Catches the same three patterns:
       #   - direct AbilitySystemComponent->GiveAbility (must go through
       #     ULyraPawnData ability sets)
       #   - direct SetHealth on UAFLAttributeSet_Combat (must route through
@@ -57,7 +112,7 @@ jobs:
       # check fast and lets pre-existing tech debt land without blocking new
       # work (intentional: AFL-0215 is a forward gate, not a sweep).
       # ----------------------------------------------------------------------
-      - name: AFL-0215 architectural lint
+      - name: AFL-0215 architectural lint (inline, legacy)
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
