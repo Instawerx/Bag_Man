@@ -12,9 +12,20 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "GameplayEffect.h"
+#include "NativeGameplayTags.h"
 #include "Targeting/AFLAbilityTargetData_Hitscan.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Laser_Pulse)
+
+// Native tag declarations. CDO construction runs at module load — before
+// per-plugin Tags/*.ini scans complete — so FGameplayTag::RequestGameplayTag
+// here would ensure-fail with "tag not found" and crash the editor on a
+// fresh boot. UE_DEFINE_GAMEPLAY_TAG_STATIC registers these at module init,
+// strictly before any CDO of a class in this module is constructed. The
+// ini still declares the same tags as the spec source-of-truth; UE
+// dedups native+ini registrations.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Ability_Laser_Pulse, "Ability.Laser.Pulse");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Pulse, "State.Firing.Pulse");
 
 
 UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
@@ -29,8 +40,8 @@ UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
 	// AbilityTags advertise this ability's identity (granted-by-class lookup
 	// in DA_AFL_AbilitySet_*, and used by ActivationOwnedTags to apply
 	// State.Firing.Pulse for the lifetime of the activation).
-	AbilityTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Ability.Laser.Pulse")));
-	ActivationOwnedTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("State.Firing.Pulse")));
+	AbilityTags.AddTag(TAG_Ability_Laser_Pulse);
+	ActivationOwnedTags.AddTag(TAG_State_Firing_Pulse);
 
 	// Cooldown tag declared in AFLCombatTags.ini (Cooldown.Weapon.Pulse). The
 	// concrete Cooldown GE is wired by the AbilitySet data asset in AFL-0214.

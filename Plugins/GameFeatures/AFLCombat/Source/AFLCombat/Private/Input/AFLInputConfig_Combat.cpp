@@ -4,8 +4,16 @@
 
 #include "GameplayTagContainer.h"
 #include "Input/AFLInputAction_Fire.h"
+#include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLInputConfig_Combat)
+
+// Native tag — InputTag.Weapon.Fire is declared in AFLCore's ini and used
+// here at CDO construction. Even though AFLCore loads before AFLCombat,
+// declaring the tag natively here is defensive: it removes the cross-plugin
+// load-order dependency and matches the pattern used elsewhere in this
+// plugin (see AFLAG_Laser_Pulse.cpp for the rationale that proved necessary).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_InputTag_Weapon_Fire, "InputTag.Weapon.Fire");
 
 
 UAFLInputConfig_Combat::UAFLInputConfig_Combat(const FObjectInitializer& ObjectInitializer)
@@ -20,7 +28,7 @@ UAFLInputConfig_Combat::UAFLInputConfig_Combat(const FObjectInitializer& ObjectI
 
 	FLyraInputAction FireEntry;
 	FireEntry.InputAction = FireInputAction;
-	FireEntry.InputTag = FGameplayTag::RequestGameplayTag(TEXT("InputTag.Weapon.Fire"));
+	FireEntry.InputTag = TAG_InputTag_Weapon_Fire;
 	AbilityInputActions.Add(FireEntry);
 }
 

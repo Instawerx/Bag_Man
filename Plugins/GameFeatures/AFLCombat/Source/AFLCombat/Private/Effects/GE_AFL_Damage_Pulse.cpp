@@ -4,8 +4,14 @@
 
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
+#include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(GE_AFL_Damage_Pulse)
+
+// Native tag — see AFLAG_Laser_Pulse.cpp for the rationale. CDO construction
+// happens at module load before ini scans, so RequestGameplayTag here would
+// crash. Static native registration races first.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Damage_Pulse, "Event.Damage.Pulse");
 
 
 UGE_AFL_Damage_Pulse::UGE_AFL_Damage_Pulse()
@@ -30,7 +36,7 @@ UGE_AFL_Damage_Pulse::UGE_AFL_Damage_Pulse()
 	UTargetTagsGameplayEffectComponent* TargetTagsComp =
 		CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("TargetTagsComponent"));
 	FInheritedTagContainer Granted;
-	Granted.Added.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Event.Damage.Pulse")));
+	Granted.Added.AddTag(TAG_Event_Damage_Pulse);
 	TargetTagsComp->SetAndApplyTargetTagChanges(Granted);
 	GEComponents.Add(TargetTagsComp);
 }

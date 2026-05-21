@@ -6,8 +6,18 @@
 #include "GameFramework/Character.h"
 #include "GameplayEffect.h"
 #include "GameplayTagContainer.h"
+#include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLGameplayAbility_Dash)
+
+// Native tags — defensive even though State.Match.* and State.Extracting
+// are declared in AFLCore's ini (which loads before AFLMovement). The
+// cross-plugin load-order assumption is fragile; native declaration here
+// removes it. Mirrors the pattern that proved necessary in AFLCombat's
+// AFLAG_Laser_Pulse.cpp (same-plugin ini race → editor crash).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Warmup, "State.Match.Warmup");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Ended, "State.Match.Ended");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Extracting, "State.Extracting");
 
 UAFLGameplayAbility_Dash::UAFLGameplayAbility_Dash(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -18,10 +28,11 @@ UAFLGameplayAbility_Dash::UAFLGameplayAbility_Dash(const FObjectInitializer& Obj
 
 	// Block dash during match-flow gates and extraction channel. Tags owned
 	// by future systems (match flow S9 AFL-0902, extraction S8 AFL-0803) —
-	// declared in AFLCoreTags.ini so the contract is enforced from Sprint 3.
-	ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("State.Match.Warmup")));
-	ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("State.Match.Ended")));
-	ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("State.Extracting")));
+	// declared in AFLCoreTags.ini and natively above so the contract is
+	// enforced from Sprint 3 without depending on ini scan order.
+	ActivationBlockedTags.AddTag(TAG_State_Match_Warmup);
+	ActivationBlockedTags.AddTag(TAG_State_Match_Ended);
+	ActivationBlockedTags.AddTag(TAG_State_Extracting);
 }
 
 void UAFLGameplayAbility_Dash::ActivateAbility(
