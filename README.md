@@ -1,4 +1,4 @@
-Lyra Sample Game
+YOLO BUILD V1
 ===
 
 Content Information
