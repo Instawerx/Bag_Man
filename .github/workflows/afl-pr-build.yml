@@ -3,8 +3,9 @@
 # has its own narrower pipeline in afl-yolo-pr.yml that only fires on yolo-
 # labeled PRs.
 #
-# Required status check on `main`:
+# Required status checks on `main`:
 #   - afl-build/win64-dev
+#   - afl-naming-lint
 #
 # Runner: self-hosted Windows box with UE 5.6 installed (label `ue5`).
 # See Docs/AFL_YOLO_PLAYBOOK.md for runner provisioning notes.
@@ -31,6 +32,35 @@ env:
   PROJECT_FILE: Bag_Man.uproject
 
 jobs:
+  # ----------------------------------------------------------------------
+  # AFL-0109 asset naming lint. Pure-Python check, runs on ubuntu-latest
+  # so it doesn't contend with the self-hosted UE runner. Required status
+  # check on main. Self-test runs first as a regression guard so a silently-
+  # broken rule fails before we ever scan real assets.
+  # ----------------------------------------------------------------------
+  afl-naming-lint:
+    name: afl-naming-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false   # naming lint reads filenames only - no LFS payload needed
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: AFL-0109 self-test (regression guard)
+        run: python Tools/AFL_Lint/asset_naming.py --self-test
+
+      - name: AFL-0109 asset naming lint
+        run: python Tools/AFL_Lint/asset_naming.py --root .
+
   win64-dev:
     name: afl-build/win64-dev
     runs-on: [self-hosted, windows, ue5]
