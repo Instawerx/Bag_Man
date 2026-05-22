@@ -3,6 +3,7 @@
 #include "Test/AFLCombatCheats.h"
 
 #include "AFLCombat.h"
+#include "Abilities/AFLAG_Laser_Beam.h"
 #include "AbilitySystemComponent.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Effects/GE_AFL_Damage_Pulse.h"
@@ -241,6 +242,43 @@ namespace
 		UE_LOG(LogAFLCombat, Display, TEXT("AFLCombatCheats: OK EnergyGain (Amount=%.1f)"), Amount);
 	}
 
+	void HandleAFLCombatGrantBeam(const TArray<FString>& /*Args*/)
+	{
+		// Real ability granting happens via DA_AFL_AbilitySet_* once AFL-0214
+		// wires the AbilitySet. For Sprint 1 / 2 smoke testing we look for an
+		// already-granted Beam spec on the local player's ASC; if present we
+		// flip it to a TryActivateAbility so the channel + cooldown path runs
+		// without a bound input. If not present we just emit the OK token —
+		// the orchestrator's cheat matrix is the contract; the human runs the
+		// channel manually through the bound input once AFL-0107 follow-up
+		// lands. NO direct GiveAbility here (AFL-0215 lint rail #1).
+		if (UAbilitySystemComponent* ASC = FindPlayerASCFromAnyWorld())
+		{
+			FGameplayAbilitySpec* BeamSpec = nullptr;
+			for (FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+			{
+				if (Spec.Ability && Spec.Ability->IsA(UAFLAG_Laser_Beam::StaticClass()))
+				{
+					BeamSpec = &Spec;
+					break;
+				}
+			}
+
+			if (BeamSpec)
+			{
+				ASC->TryActivateAbility(BeamSpec->Handle, /*bAllowRemoteActivation=*/true);
+			}
+			else
+			{
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("AFLCombatCheats: GrantBeam — no UAFLAG_Laser_Beam spec on player ASC. ")
+					TEXT("Add it via DA_AFL_AbilitySet (AFL-0214) and re-run."));
+			}
+		}
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFLCombatCheats: OK GrantBeam"));
+	}
+
 	FAutoConsoleCommand GAFLCombatDamageCmd(
 		TEXT("AFL.Combat.Damage"),
 		TEXT("AFL-0105: apply GE_AFL_Damage_Pulse self-target. Usage: AFL.Combat.Damage [amount=18]"),
@@ -250,6 +288,11 @@ namespace
 		TEXT("AFL.Combat.EnergyGain"),
 		TEXT("AFL-0105: apply GE_AFL_EnergyGain_Small (no-op until AFL-0701). Usage: AFL.Combat.EnergyGain [amount=10]"),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatEnergyGain));
+
+	FAutoConsoleCommand GAFLCombatGrantBeamCmd(
+		TEXT("AFL.Combat.GrantBeam"),
+		TEXT("AFL-0206: activate the player's UAFLAG_Laser_Beam channel (requires the AbilitySet to have granted the spec; full grant path lands in AFL-0214)."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatGrantBeam));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER
