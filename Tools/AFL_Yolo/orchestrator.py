@@ -729,6 +729,54 @@ def lfs_check_safe(cfg: Config) -> tuple[bool, str]:
     return True, f"LFS {gb:.1f} / {cfg.lfs_quota_gb} GB"
 
 
+def pre_flight_check_ubt_mutex(cfg: Config, task: Task) -> tuple[bool, str]:
+    """For tasks with `verify: compile` or `compile+cheat-matrix`, detect
+    Session 0 dotnet zombies that are likely holding the UBT global mutex
+    from a prior Claude in-session compile. If detected, refuse to spawn
+    Claude — we'd just burn a $$ session on a build that would fail in
+    <1s and trigger the destructive rollback.
+
+    Recovery instructions are surfaced in the failure reason: the user
+    runs `Tools/AFL_Yolo/kill_ubt_zombies.ps1` from elevated PowerShell
+    (or kills the listed PIDs manually) and retries the task.
+
+    Returns (ok, reason). ok=True means safe to proceed; ok=False means
+    halt with `reason` as the user-facing explanation (goes into
+    queue.yaml last_error and Discord task_failed embed).
+    """
+    if task.verify not in ("compile", "compile+cheat-matrix"):
+        return True, "ubt-mutex check skipped (no compile verify)"
+
+    try:
+        from verify import list_suspect_ubt_zombies  # type: ignore[import]
+    except ImportError:
+        # verify.py somehow missing or older — don't block, let the real
+        # verify surface any issue.
+        return True, "ubt-mutex probe unavailable (verify.py import failed)"
+
+    LOG.debug("Pre-flight: enumerating Session 0 dotnet zombies...")
+    zombies = list_suspect_ubt_zombies()
+    if not zombies:
+        return True, "ubt mutex likely free (no Session 0 dotnet zombies detected)"
+
+    pids_info = [
+        f"PID {z.get('pid')} (ws={z.get('ws_mb')}MB, created={z.get('created')})"
+        for z in zombies
+    ]
+    pid_kill_list = ",".join(str(z.get('pid')) for z in zombies)
+    reason = (
+        f"Likely UBT global mutex collision incoming; refusing to spawn Claude "
+        f"(would burn $$ on a build that would fail in <1s and trigger rollback). "
+        f"Suspect Session 0 dotnets: {'; '.join(pids_info)}. "
+        f"Recovery: open ELEVATED PowerShell, `cd C:\\Dev\\Bag_Man`, then run "
+        f"`.\\Tools\\AFL_Yolo\\kill_ubt_zombies.ps1` (or directly: "
+        f"`Stop-Process -Id {pid_kill_list} -Force`). Then retry the task. "
+        f"If the kill silently fails or new zombies keep appearing, reboot is "
+        f"the escape hatch. See memory: feedback_ue_open_locks_uassets.md."
+    )
+    return False, reason
+
+
 # ---------------------------------------------------------------------------
 # Claude Code spawn
 # ---------------------------------------------------------------------------
@@ -1081,6 +1129,26 @@ def execute_one_task(cfg: Config, task: Task, all_tasks: list[Task], queue_path:
     except RuntimeError as exc:
         LOG.error("%s", exc)
         return "halted"
+
+    # Pre-flight: UBT global mutex (only matters for verify:compile tasks).
+    # Catches the case where a zombie dotnet from a prior Claude in-session
+    # compile is still holding Global\UnrealBuildTool_Mutex_<hash>. Halting
+    # here saves the $$ + rollback that would otherwise destroy a doomed
+    # Claude session. See feedback_ue_open_locks_uassets.md memory for the
+    # full failure-mode taxonomy.
+    if not cfg.dry_run:
+        ok, mutex_reason = pre_flight_check_ubt_mutex(cfg, task)
+        if not ok:
+            LOG.error("UBT mutex pre-flight: %s", mutex_reason)
+            task.status = "error"
+            task.last_error = mutex_reason
+            save_queue(queue_path, all_tasks)
+            notify(cfg, "task_failed", {
+                "task": task.id, "title": task.title,
+                "stage": "pre_flight_ubt_mutex",
+                "reason": mutex_reason,
+            })
+            return "error"
 
     # Branch
     LOG.info("Checking out branch %s", task.branch)

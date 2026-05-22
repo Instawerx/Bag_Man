@@ -114,6 +114,80 @@ def detect_ubt_mutex_collision(log_path: Path) -> bool:
     return all(token in text for token in UBT_MUTEX_COLLISION_TOKENS)
 
 
+def list_suspect_ubt_zombies() -> list[dict[str, object]]:
+    """Return a list of likely UBT-zombie dotnet processes.
+
+    Heuristic (Windows-only): any `dotnet.exe` whose SessionId is 0
+    (the SYSTEM session) and which has been alive long enough to have
+    accumulated meaningful resident set size (>50 MB) qualifies.
+    Legitimate user-launched dotnet processes (VS Code, Azure CLI,
+    .NET-based dev tools) live in the user's session (typically SI 1+),
+    not Session 0.
+
+    Each returned dict carries: pid (int), ws_mb (float), created (str ISO).
+    Empty list on non-Windows or if powershell can't be invoked.
+
+    This is the SAFE alternative to acquiring the UBT mutex via a real
+    Build.bat probe — the real-probe approach was observed to itself
+    leave new zombies on the AFL studio box (2026-05-22 diagnostic):
+    `Build.bat -NoActions` → `cmd.exe` → `dotnet.exe` that escapes to
+    Session 0 when UnauthorizedAccessException tears the process down.
+    Process-list heuristics don't spawn new processes.
+    """
+    if os.name != "nt":
+        return []
+    cmd = [
+        "powershell.exe", "-NoProfile", "-Command",
+        "Get-CimInstance Win32_Process -Filter \"Name='dotnet.exe'\" | "
+        "Where-Object { $_.SessionId -eq 0 } | "
+        "ForEach-Object { "
+        "  $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; "
+        "  if ($p -and $p.WS -gt 50MB) { "
+        "    [pscustomobject]@{ "
+        "      pid    = $_.ProcessId; "
+        "      ws_mb  = [math]::Round($p.WS/1MB, 1); "
+        "      created = $_.CreationDate.ToString('o') "
+        "    } "
+        "  } "
+        "} | ConvertTo-Json -Compress",
+    ]
+    try:
+        res = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    if res.returncode != 0 or not res.stdout.strip():
+        return []
+    try:
+        import json
+        parsed = json.loads(res.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+    return parsed if isinstance(parsed, list) else []
+
+
+def probe_ubt_mutex_held(engine_root: Path, uproject: Path, timeout: int = 15) -> bool:
+    """Pre-flight: return True if a UBT global-mutex collision is LIKELY
+    on the next Build.bat invocation. Implemented as a process-list
+    heuristic (NOT a real Build.bat probe — the real probe was observed
+    to itself leave zombies on the AFL studio box on 2026-05-22).
+
+    Returns True iff at least one Session 0 dotnet.exe with >50 MB WS is
+    visible — the signature of an orphaned UBT child from a prior
+    Claude in-session compile.
+
+    `engine_root`, `uproject`, and `timeout` are accepted for API
+    compatibility with the prior real-probe version of this function
+    and are not used by the heuristic implementation. They may be
+    useful again if a safer mutex-acquisition probe is found later.
+    """
+    del engine_root, uproject, timeout  # silence unused-param warnings
+    return bool(list_suspect_ubt_zombies())
+
+
 def build_plugin(engine_root: Path, uproject: Path, plugin: str, timeout: int, work: Path) -> int:
     """Build LyraEditor with -Plugin=<plugin.uplugin> on Win64 Development.
 
