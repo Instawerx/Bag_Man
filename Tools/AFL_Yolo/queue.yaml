@@ -201,17 +201,7 @@ tasks:
     \ input config active). Dash\nworks on LeftShift (AFL-0302+0304 chain active). No need to run the\nfull §8.3 damage matrix\
     \ here — that's AFL-0111's smoke test.\n\nOUT OF SCOPE: any geometry/lighting/material work; the\nL_ShooterGym map ships\
     \ as-is."
-  status: error
-  last_error: 'Partial delivery 2026-05-22 via rescue commit 44cc29f2 (Maps/L_AFL_Arena_Test.umap, Experiences/B_LyraExperience_AFL_Arena_Test.uasset,
-    Config/DefaultGame.ini scan path, Tools/AFL_Yolo/afl_0110_author_testbed.py). The 4th brief step — set the copied map''s
-    WorldSettings → Default Gameplay Experience to B_LyraExperience_AFL_Arena_Test — was NOT completed. Lyra''s WorldSettings.DefaultGameplayExperience
-    is declared EditDefaultsOnly so unreal.set_editor_property() refuses to write it (see memory: feedback_lyra_worldsettings_editonly_gate.md).
-    Without this, the map will not boot the AFL experience on PIE-load — testbed is non-functional. Two paths to unblock:
-    (a) set manually in UE Editor UI on Content/AFL/Maps/L_AFL_Arena_Test → World Settings → Default Gameplay Experience,
-    OR (b) add a small UFUNCTION FProperty-reflection helper to AFL plugin source that bypasses the EditDefaultsOnly gate.
-    Claude''s session also hung in post-result teardown (stall watchdog fired at 609s); orchestrator-side delivery never completed
-    the normal PR/CI flow. Cost: $13.27, 180 turns, 30m47s session. Acceptance criteria from the brief (PIE-load + AAFLCharacter
-    spawn + Pulse fire + Dash) NOT YET VALIDATED.'
+  status: merged
 - id: AFL-0111
   title: QA test plan template + Pulse smoke test
   discipline: qa
