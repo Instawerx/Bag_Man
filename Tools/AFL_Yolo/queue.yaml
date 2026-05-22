@@ -168,24 +168,47 @@ tasks:
     \ that\nruns this on every PR. Make it required."
   status: merged
 - id: AFL-0110
-  title: Greybox arena Arena_01_Greybox
-  discipline: art
-  estimate: L
-  autonomy: human_only
-  branch: yolo/afl-0110-arena-01-greybox
-  depends_on: []
+  title: Use Lyra L_ShooterGym as Sprint 1 combat testbed (Option A repoint)
+  discipline: eng
+  estimate: S
+  autonomy: full
+  branch: yolo/afl-0110-shootergym-testbed
+  depends_on:
+  - AFL-0214
   verify: none
   cheat_matrix: []
   plugins_to_build: []
   skills:
-  - afl-asset-pipeline
-  - expert-game-designer
-  files_hint: []
-  aik_brief: 'HUMAN-OWNED. Arena_01 greybox is a 60x60m arena with four ramps and two
-
-    cover walls. Spatial design decisions belong to the human designer; the
-
-    orchestrator will skip this and surface a Discord ping.'
+  - afl-cpp-lyra-developer
+  - unreal-engine-expert
+  files_hint:
+  - Content/AFL/Maps/L_AFL_Arena_Test.umap
+  - Content/AFL/Experiences/B_LyraExperience_AFL_Arena_Test.uasset
+  aik_brief: "REPOINTED 2026-05-18 (Option A): the original greybox-authoring scope\n\
+    is permanently deferred to AFL-0501. Sprint 5's art pass will author\nArena_01\
+    \ from scratch using the modular kit established then.\n\nNEW SCOPE — three\
+    \ asset operations, no geometry work:\n\n1. Copy /Game/../ShooterCore/Content/Maps/L_ShooterGym.umap\
+    \ to\n   Content/AFL/Maps/L_AFL_Arena_Test.umap. Project-owned copy so the\n\
+    \   Lyra plugin source stays untouched (honors \"extend, never fork\").\n   \
+    Use unreal.AssetTools.duplicate_asset() if working via python; otherwise\n  \
+    \ the editor's Content Browser Duplicate operation.\n\n2. Author Content/AFL/Experiences/B_LyraExperience_AFL_Arena_Test.uasset\n\
+    \   (ULyraExperienceDefinition). Reference Lyra's B_ShooterGame_Elimination\n\
+    \   or B_LyraShooterGame_ControlPoints for the canonical layout. Set:\n    \
+    \ - DefaultPawnData = DA_AFL_PawnData_Hero_Default\n         (path: /AFLMovement/Data/DA_AFL_PawnData_Hero_Default,\
+    \ shipped\n          by AFL-0214 and validated PIE-green via AFL-0304-Bi closure)\n\
+    \     - ExperienceActionSets: include LAS_AFL_HeroComponents (the ActionSet\n\
+    \       that AFL-0304-Bi fixed to point at AFLHeroComponent)\n     - GameFeaturesToEnable:\
+    \ [\"AFLCombat\", \"AFLMovement\", \"AFLCore\"]\n\n   Prior art in repo: Plugins/GameFeatures/AFLCombat/Content/Tests/\n\
+    \   B_AFL_Test_Experience.uasset — can be duplicated and re-pointed if\n   that's\
+    \ easier than authoring from scratch.\n\n3. Set the COPIED map's World Settings\
+    \ → Default Gameplay Experience\n   to the new B_LyraExperience_AFL_Arena_Test.\
+    \ Do NOT touch the\n   ShooterCore-plugin original.\n\nACCEPTANCE: PIE-load\
+    \ Content/AFL/Maps/L_AFL_Arena_Test.umap on listen-\nserver. Pawn spawns as\
+    \ AAFLCharacter (verified via PC.GetPawn() in\nthe Output Log). Pulse can fire\
+    \ (AFL-0107 input config active). Dash\nworks on LeftShift (AFL-0302+0304 chain\
+    \ active). No need to run the\nfull §8.3 damage matrix here — that's AFL-0111's\
+    \ smoke test.\n\nOUT OF SCOPE: any geometry/lighting/material work; the\nL_ShooterGym\
+    \ map ships as-is."
   status: pending
 - id: AFL-0111
   title: QA test plan template + Pulse smoke test
