@@ -207,8 +207,7 @@ tasks:
     \ that exercises:\n- Equip Pulse on listen-server host\n- Fire Pulse at a target dummy\n- Confirm 18 damage applied via\
     \ cheat manager `AFL.Combat.ShowHealth`\n- Confirm `AFL_PULSE: Activate` and `AFL_TELEMETRY: hitscan_reject`\n  log lines\
     \ appear as expected\n- Repeat across 4-client listen-server with simulated 80ms RTT"
-  status: running
-  last_attempt_at: '2026-05-22T05:30:20+00:00'
+  status: merged
 - id: AFL-0211
   title: UAFLLagCompensationWorldSubsystem + per-pawn snapshot component
   discipline: eng
