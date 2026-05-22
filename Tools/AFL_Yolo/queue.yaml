@@ -482,8 +482,7 @@ tasks:
     State.Overheated applies, beam ends. After ~3.5s (0.5s gate + 2.0s\ndecay) Heat drops below 30, State.Overheated clears,\
     \ beam re-fires.\nLog stream shows AFL_LOG: heat_overheat and AFL_LOG: heat_vented at\nthe transitions.\n\nOUT OF SCOPE:\
     \ per-weapon heat curves (S5 tuning); heat HUD widget\n(AFL-0204b followup); audio for venting (AFL-0205 owns the SFX)."
-  status: running
-  last_attempt_at: '2026-05-22T18:20:17+00:00'
+  status: merged
 - id: AFL-0210
   title: QA regression matrix — Pulse + Beam + Heat on Win64 Development
   discipline: qa
