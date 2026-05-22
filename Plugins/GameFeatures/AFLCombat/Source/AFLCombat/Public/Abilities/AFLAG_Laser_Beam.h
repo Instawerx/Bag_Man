@@ -83,6 +83,32 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam")
 	TSubclassOf<UGameplayEffect> ReleaseCooldownEffectClass;
 
+	/**
+	 * Per-tick heat GE applied source-to-source. Defaults to
+	 * GE_AFL_Heat_BeamTick (Override HeatPerBeamTick +4 per tick). The
+	 * AttributeSet folds the delta into Heat and grants State.Overheated
+	 * at the cap. AFL-0207.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat")
+	TSubclassOf<UGameplayEffect> HeatTickEffectClass;
+
+	/**
+	 * 0.5s carrier GE granting State.Combat.CoolingGate on the source.
+	 * Applied alongside HeatTickEffectClass each tick; suppresses passive
+	 * Heat decay while firing. AFL-0207.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat")
+	TSubclassOf<UGameplayEffect> HeatCoolingGateEffectClass;
+
+	/**
+	 * Infinite Duration GE that periodically decays Heat by HeatDecayRate * 0.1.
+	 * The beam ability ensures the GE is present on the source ASC on first
+	 * activation; AFL-0214's AbilitySet grant will own this once it lands.
+	 * AFL-0207.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat")
+	TSubclassOf<UGameplayEffect> HeatDecayEffectClass;
+
 	/** Channel tick interval in seconds. 0.1s = 10 ticks/sec = 12 dps at 1.2 dmg/tick. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam", meta=(ClampMin="0.01", UIMin="0.01"))
 	float TickInterval = 0.1f;

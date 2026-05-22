@@ -10,6 +10,9 @@
 #include "CollisionQueryParams.h"
 #include "Effects/GE_AFL_Cooldown_Beam.h"
 #include "Effects/GE_AFL_Damage_BeamTick.h"
+#include "Effects/GE_AFL_Heat_BeamTick.h"
+#include "Effects/GE_AFL_Heat_CoolingGate.h"
+#include "Effects/GE_AFL_Heat_Decay.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -28,6 +31,7 @@
 // init, strictly before any CDO of a class in this module is constructed.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Ability_Laser_Beam, "Ability.Laser.Beam");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Beam, "State.Firing.Beam");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overheated_Beam, "State.Overheated");
 
 // Telemetry reason category for AFL-0213 stable format. EmitRejection logs
 // `AFL_TELEMETRY: hitscan_reject reason=beam_tick source=...` on rejected
@@ -49,10 +53,19 @@ UAFLAG_Laser_Beam::UAFLAG_Laser_Beam()
 	AbilityTags.AddTag(TAG_Ability_Laser_Beam);
 	ActivationOwnedTags.AddTag(TAG_State_Firing_Beam);
 
-	// Defaults for the two GEs we drive. BP children can override these on
-	// the CDO once AFL-0214 introduces designer-tuned variants.
-	DamageEffectClass         = UGE_AFL_Damage_BeamTick::StaticClass();
+	// Block activation while State.Overheated is set on the source. AFL-0207
+	// adds Overheated as a loose replicated tag from
+	// UAFLAttributeSet_Combat::PostGameplayEffectExecute when Heat reaches
+	// MaxHeat; until Heat decays below MaxHeat*0.3 the beam cannot re-channel.
+	ActivationBlockedTags.AddTag(TAG_State_Overheated_Beam);
+
+	// Defaults for the GEs we drive. BP children can override these on the
+	// CDO once AFL-0214 introduces designer-tuned variants.
+	DamageEffectClass          = UGE_AFL_Damage_BeamTick::StaticClass();
 	ReleaseCooldownEffectClass = UGE_AFL_Cooldown_Beam::StaticClass();
+	HeatTickEffectClass        = UGE_AFL_Heat_BeamTick::StaticClass();
+	HeatCoolingGateEffectClass = UGE_AFL_Heat_CoolingGate::StaticClass();
+	HeatDecayEffectClass       = UGE_AFL_Heat_Decay::StaticClass();
 }
 
 void UAFLAG_Laser_Beam::ActivateAbility(
@@ -81,6 +94,26 @@ void UAFLAG_Laser_Beam::ActivateAbility(
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_BEAM: Activate"));
 
 	UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
+
+	// Authority ensures Heat_Decay is present on the source ASC. Idempotent:
+	// if a Decay GE is already active we skip. Once AFL-0214's AbilitySet
+	// grants Decay at pawn spawn this block becomes redundant but harmless.
+	if (ActorInfo->IsNetAuthority() && HeatDecayEffectClass)
+	{
+		FGameplayEffectQuery Query;
+		Query.EffectDefinition = HeatDecayEffectClass;
+		if (ASC->GetActiveEffects(Query).Num() == 0)
+		{
+			FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+			Context.AddInstigator(ActorInfo->OwnerActor.Get(), ActorInfo->AvatarActor.Get());
+			FGameplayEffectSpecHandle SpecHandle =
+				ASC->MakeOutgoingSpec(HeatDecayEffectClass, GetAbilityLevel(), Context);
+			if (SpecHandle.IsValid())
+			{
+				ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+			}
+		}
+	}
 
 	// Bind the target-data delegate on BOTH sides. Same pattern as Pulse:
 	//   * Client: fires immediately each tick from OnTargetDataReadyCallback.
@@ -306,6 +339,58 @@ void UAFLAG_Laser_Beam::ServerApplyTargetData(const FGameplayAbilityTargetDataHa
 	UAbilitySystemComponent* SourceASC = CurrentActorInfo ? CurrentActorInfo->AbilitySystemComponent.Get() : nullptr;
 	if (!SourceASC || !DamageEffectClass)
 	{
+		return;
+	}
+
+	// AFL-0207 per-tick heat: apply BeamTick (+4 HeatPerBeamTick) and
+	// CoolingGate (0.5s gate that suppresses Heat_Decay) source-to-source on
+	// every authoritative tick, regardless of whether the trace hit anything.
+	// CoolingGate is removed first so re-application produces a fresh 0.5s
+	// window — DurationPolicy alone doesn't refresh existing actives.
+	if (HeatCoolingGateEffectClass)
+	{
+		FGameplayEffectQuery RemoveQuery;
+		RemoveQuery.EffectDefinition = HeatCoolingGateEffectClass;
+		SourceASC->RemoveActiveEffects(RemoveQuery);
+
+		FGameplayEffectContextHandle GateContext = SourceASC->MakeEffectContext();
+		GateContext.AddInstigator(CurrentActorInfo->OwnerActor.Get(), CurrentActorInfo->AvatarActor.Get());
+		FGameplayEffectSpecHandle GateSpec =
+			SourceASC->MakeOutgoingSpec(HeatCoolingGateEffectClass, GetAbilityLevel(), GateContext);
+		if (GateSpec.IsValid())
+		{
+			SourceASC->ApplyGameplayEffectSpecToSelf(*GateSpec.Data.Get());
+		}
+	}
+
+	if (HeatTickEffectClass)
+	{
+		FGameplayEffectContextHandle HeatContext = SourceASC->MakeEffectContext();
+		HeatContext.AddInstigator(CurrentActorInfo->OwnerActor.Get(), CurrentActorInfo->AvatarActor.Get());
+		FGameplayEffectSpecHandle HeatSpec =
+			SourceASC->MakeOutgoingSpec(HeatTickEffectClass, GetAbilityLevel(), HeatContext);
+		if (HeatSpec.IsValid())
+		{
+			SourceASC->ApplyGameplayEffectSpecToSelf(*HeatSpec.Data.Get());
+		}
+	}
+
+	// Mid-channel overheat check. The heat-tick we just applied may have
+	// driven Heat to MaxHeat and granted State.Overheated; if so, end the
+	// channel before the damage GEs run so the player can't squeeze an extra
+	// damage tick out of the overheat boundary. ActivationBlockedTags only
+	// gates re-entry — once an ability is already active the engine doesn't
+	// re-check those tags.
+	if (SourceASC->HasMatchingGameplayTag(TAG_State_Overheated_Beam))
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BEAM: overheat — ending channel"));
+		// Apply the standard release cooldown so the player can't immediately
+		// re-channel once the venting clears (and gets the normal cooldown
+		// audio/HUD cue rather than a special overheat-end one — that's S5
+		// tuning, AFL-0204b).
+		ApplyReleaseCooldown();
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
+			/*bReplicateEndAbility=*/true, /*bWasCancelled=*/true);
 		return;
 	}
 
