@@ -232,8 +232,7 @@ tasks:
     \ float ServerTime)` returns\n  an opaque rewind token; `RestoreWorld(Token)` undoes it. Must be\n  re-entrant safe.\n\
     - Verification: a server-side hit confirmation pass calls\n  RewindWorldFor before performing the bounding-box check,\
     \ then\n  Restore unconditionally in a scope guard."
-  status: running
-  last_attempt_at: '2026-05-22T06:59:18+00:00'
+  status: merged
 - id: AFL-0213
   title: Telemetry hook — validation rejects, ang-velocity, headshot ratios
   discipline: eng
