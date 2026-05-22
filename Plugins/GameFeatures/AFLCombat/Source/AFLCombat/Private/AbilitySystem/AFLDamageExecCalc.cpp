@@ -7,6 +7,7 @@
 #include "Engine/World.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
 #include "Messages/LyraVerbMessage.h"
+#include "Telemetry/AFLCombatTelemetry.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLDamageExecCalc)
 
@@ -139,6 +140,15 @@ void UAFLDamageExecCalc::Execute_Implementation(
 
 	if (EffectiveDamage <= 0.0f)
 	{
+		// AFL-0213: armor (or zero source damage) fully absorbed the hit. This is
+		// a documented reject path — no attribute changes will be emitted, so
+		// downstream listeners (UI hit markers, damage numbers) need to know
+		// the shot landed but was nullified. EmitRejection logs only today;
+		// AFL-1307 swaps the sink for PlayFab Player Streams.
+		FAFLCombatTelemetry::EmitRejection(
+			TEXT("mitigated"),
+			Spec.GetEffectContext().GetEffectCauser(),
+			FString::Printf(TEXT("raw=%.1f armor=%.1f"), RawDamage, ClampedArmor));
 		return;
 	}
 
