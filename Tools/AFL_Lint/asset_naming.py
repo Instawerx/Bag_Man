@@ -81,6 +81,15 @@ ALLOWED_ASSET_PREFIXES: tuple[str, ...] = (
     "GA_",      # gameplay ability (e.g., GA_AFL_Dash)
     "S_",       # slate widget brush
     "W_",       # widget blueprint
+    # Lyra-derived asset patterns (AFL-0110 brought these in via the
+    # L_ShooterGym repoint). Matches Lyra's own canonical naming so
+    # AFL-extension assets that mirror Lyra's classes (Experiences,
+    # Maps, Levels) don't get false-flagged.
+    "B_",       # Blueprint subclass (e.g., B_LyraExperience_AFL_Arena_Test)
+    "L_",       # Level / map (e.g., L_AFL_Arena_Test)
+    "LAS_",     # Lyra ActionSet (e.g., LAS_AFL_HeroComponents)
+    "IMC_",     # Input Mapping Context (Lyra-EnhancedInput convention)
+    "InputData_",  # Lyra InputData asset (e.g., InputData_AFL_Hero)
 )
 
 # AFL-owned content roots. Anything outside these is exempt - Lyra and
