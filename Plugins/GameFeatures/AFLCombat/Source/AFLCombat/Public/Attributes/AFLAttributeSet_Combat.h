@@ -31,6 +31,10 @@ public:
 	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, Armor);
 	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, OverkillThreshold);
 	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, Damage);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, Heat);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, MaxHeat);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, HeatDecayRate);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, HeatPerBeamTick);
 
 protected:
 
@@ -51,6 +55,15 @@ protected:
 
 	UFUNCTION()
 	void OnRep_OverkillThreshold(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_Heat(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_MaxHeat(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_HeatDecayRate(const FGameplayAttributeData& OldValue);
 
 private:
 
@@ -75,4 +88,19 @@ private:
 	// Meta — non-replicated, transit-only. ExecCalc consumes and zeroes per call.
 	UPROPERTY(BlueprintReadOnly, Category="AFL|Combat", Meta=(HideFromModifiers, AllowPrivateAccess=true))
 	FGameplayAttributeData Damage;
+
+	// Heat economy (AFL-0207). Persistent + replicated like Health/Shield;
+	// HeatPerBeamTick is the per-tick transit meta consumed inside
+	// PostGameplayEffectExecute (same shape as Damage).
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_Heat, Category="AFL|Combat", Meta=(HideFromModifiers, AllowPrivateAccess=true))
+	FGameplayAttributeData Heat;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_MaxHeat, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData MaxHeat;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_HeatDecayRate, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData HeatDecayRate;
+
+	UPROPERTY(BlueprintReadOnly, Category="AFL|Combat", Meta=(HideFromModifiers, AllowPrivateAccess=true))
+	FGameplayAttributeData HeatPerBeamTick;
 };

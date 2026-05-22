@@ -8,6 +8,7 @@
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Effects/GE_AFL_Damage_Pulse.h"
 #include "Effects/GE_AFL_EnergyGain_Small.h"
+#include "Effects/GE_AFL_Heat_SetByCaller.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/CheatManagerDefines.h"
@@ -17,6 +18,7 @@
 #include "GameplayEffectTypes.h"
 #include "GameplayTagContainer.h"
 #include "HAL/IConsoleManager.h"
+#include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCombatCheats)
 
@@ -31,7 +33,13 @@ namespace
 	const FName NAME_Data_Damage_Headshot_Cheats  = TEXT("Data.Damage.Headshot");
 	const FName NAME_Data_Damage_Weakpoint_Cheats = TEXT("Data.Damage.Weakpoint");
 	const FName NAME_Data_Damage_Distance_Cheats  = TEXT("Data.Damage.Distance");
+	const FName NAME_Data_Combat_Heat_Cheats      = TEXT("Data.Combat.Heat");
 }
+
+// State.Overheated mirror for the cheats — manual grant / clear when the
+// cheat writes Heat outside the normal HeatPerBeamTick code path. Same
+// CDO-vs-ini rationale as the rest of AFLCombat (post-2026-05-20 pattern).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overheated_Cheats, "State.Overheated");
 
 
 UAFLCombatCheats::UAFLCombatCheats()
@@ -279,6 +287,78 @@ namespace
 		UE_LOG(LogAFLCombat, Display, TEXT("AFLCombatCheats: OK GrantBeam"));
 	}
 
+	// AFL-0207 helpers — every Heat cheat routes through GE_AFL_Heat_SetByCaller
+	// so the AttributeSet's PostGameplayEffectExecute fires (covers the
+	// vent-complete transition) and the hard-rail "no direct SetHeat" stays
+	// intact. ForceOverheat / ResetHeat additionally toggle the State.Overheated
+	// loose tag because the auto-grant path is only inside the HeatPerBeamTick
+	// branch — a manual Heat write does not synthesize the overheat boundary.
+	void ApplyHeatSetByCaller(UAbilitySystemComponent* ASC, float Value)
+	{
+		if (!ASC)
+		{
+			return;
+		}
+		FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+		Context.AddInstigator(ASC->GetOwnerActor(), ASC->GetAvatarActor());
+		FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(
+			UGE_AFL_Heat_SetByCaller::StaticClass(), /*Level=*/1.0f, Context);
+		if (SpecHandle.IsValid())
+		{
+			// FName form — GE_AFL_Heat_SetByCaller's FSetByCallerFloat keeps
+			// DataTag empty (ctor can't RequestGameplayTag pre-ini-scan), so
+			// resolution falls through to DataName.
+			SpecHandle.Data->SetSetByCallerMagnitude(NAME_Data_Combat_Heat_Cheats, Value);
+			ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+		}
+	}
+
+	void HandleAFLCombatHeat(const TArray<FString>& Args)
+	{
+		const float Amount = Args.Num() > 0 ? FCString::Atof(*Args[0]) : 50.0f;
+
+		if (UAbilitySystemComponent* ASC = FindPlayerASCFromAnyWorld())
+		{
+			ApplyHeatSetByCaller(ASC, Amount);
+		}
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFLCombatCheats: OK Heat (Amount=%.1f)"), Amount);
+	}
+
+	void HandleAFLCombatForceOverheat(const TArray<FString>& /*Args*/)
+	{
+		if (UAbilitySystemComponent* ASC = FindPlayerASCFromAnyWorld())
+		{
+			const float MaxHeat =
+				ASC->GetNumericAttribute(UAFLAttributeSet_Combat::GetMaxHeatAttribute());
+			ApplyHeatSetByCaller(ASC, MaxHeat);
+
+			if (!ASC->HasMatchingGameplayTag(TAG_State_Overheated_Cheats))
+			{
+				ASC->AddLooseGameplayTag(TAG_State_Overheated_Cheats);
+				ASC->SetReplicatedLooseGameplayTagCount(TAG_State_Overheated_Cheats, 1);
+			}
+		}
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFLCombatCheats: OK ForceOverheat"));
+	}
+
+	void HandleAFLCombatResetHeat(const TArray<FString>& /*Args*/)
+	{
+		if (UAbilitySystemComponent* ASC = FindPlayerASCFromAnyWorld())
+		{
+			ApplyHeatSetByCaller(ASC, 0.0f);
+
+			if (ASC->HasMatchingGameplayTag(TAG_State_Overheated_Cheats))
+			{
+				ASC->SetReplicatedLooseGameplayTagCount(TAG_State_Overheated_Cheats, 0);
+				ASC->RemoveLooseGameplayTag(TAG_State_Overheated_Cheats);
+			}
+		}
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFLCombatCheats: OK ResetHeat"));
+	}
+
 	FAutoConsoleCommand GAFLCombatDamageCmd(
 		TEXT("AFL.Combat.Damage"),
 		TEXT("AFL-0105: apply GE_AFL_Damage_Pulse self-target. Usage: AFL.Combat.Damage [amount=18]"),
@@ -293,6 +373,21 @@ namespace
 		TEXT("AFL.Combat.GrantBeam"),
 		TEXT("AFL-0206: activate the player's UAFLAG_Laser_Beam channel (requires the AbilitySet to have granted the spec; full grant path lands in AFL-0214)."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatGrantBeam));
+
+	FAutoConsoleCommand GAFLCombatHeatCmd(
+		TEXT("AFL.Combat.Heat"),
+		TEXT("AFL-0207: set Heat directly via GE_AFL_Heat_SetByCaller. Usage: AFL.Combat.Heat [amount=50]"),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatHeat));
+
+	FAutoConsoleCommand GAFLCombatForceOverheatCmd(
+		TEXT("AFL.Combat.ForceOverheat"),
+		TEXT("AFL-0207: set Heat = MaxHeat and apply State.Overheated."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatForceOverheat));
+
+	FAutoConsoleCommand GAFLCombatResetHeatCmd(
+		TEXT("AFL.Combat.ResetHeat"),
+		TEXT("AFL-0207: clear Heat and State.Overheated."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatResetHeat));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER
