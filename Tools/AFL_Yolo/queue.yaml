@@ -352,5 +352,4 @@ tasks:
     ).\n\n- Tools/AFL_Lint/skill_registry.py scans for `afl-<slug>` patterns in\n  .py, .md, .yaml and verifies every match\
     \ exists in the registry.\n- Auto-regenerate Docs/SKILLS_REGISTRY.md from a hard-coded list of\n  the 11 AFL skills (no\
     \ docs scraping; the list is curated).\n- Add as a required PR check named `afl-skill-registry`."
-  status: running
-  last_attempt_at: '2026-05-22T08:45:19+00:00'
+  status: merged
