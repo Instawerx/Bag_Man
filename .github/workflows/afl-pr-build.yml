@@ -6,6 +6,7 @@
 # Required status checks on `main`:
 #   - afl-build/win64-dev
 #   - afl-naming-lint
+#   - afl-skill-registry
 #
 # Runner: self-hosted Windows box with UE 5.6 installed (label `ue5`).
 # See Docs/AFL_YOLO_PLAYBOOK.md for runner provisioning notes.
@@ -60,6 +61,45 @@ jobs:
 
       - name: AFL-0109 asset naming lint
         run: python Tools/AFL_Lint/asset_naming.py --root .
+
+  # ----------------------------------------------------------------------
+  # AFL-0218 skill registry lint. Verifies that every `afl-<slug>`
+  # reference in .py/.md/.yaml/.yml maps to a real skill from master doc
+  # Sec. 15.1. Also re-runs the generator and fails if the committed
+  # Docs/SKILLS_REGISTRY.md is stale (someone changed the SKILLS tuple
+  # without regenerating the doc). Required status check on main.
+  # ----------------------------------------------------------------------
+  afl-skill-registry:
+    name: afl-skill-registry
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: AFL-0218 self-test (regression guard)
+        run: python Tools/AFL_Lint/skill_registry.py --self-test
+
+      - name: AFL-0218 skill registry scan
+        run: python Tools/AFL_Lint/skill_registry.py --root .
+
+      - name: AFL-0218 registry doc freshness
+        shell: bash
+        run: |
+          python Tools/AFL_Lint/skill_registry.py --generate
+          if ! git diff --exit-code -- Docs/SKILLS_REGISTRY.md; then
+            echo "::error::Docs/SKILLS_REGISTRY.md is stale. Run \`python Tools/AFL_Lint/skill_registry.py --generate\` locally and commit the result."
+            exit 1
+          fi
 
   win64-dev:
     name: afl-build/win64-dev
