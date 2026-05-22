@@ -279,8 +279,7 @@ tasks:
     \ one\n  UE_LOG line in a stable, parseable format:\n      `AFL_TELEMETRY: <event> key1=val1 key2=val2 ...`\n- Hook UAFLAG_Laser_Pulse\
     \ (AFL-0106) and UAFLDamageExecCalc to call\n  EmitRejection on the documented reject reasons.\n- No PlayFab dependency\
     \ yet. S13 swaps the UE_LOG sink for a\n  PlayerStreams write without touching call sites."
-  status: running
-  last_attempt_at: '2026-05-22T08:36:50+00:00'
+  status: merged
 - id: AFL-0214
   title: Lyra init contract — PawnData, IC, AbilitySet, HeroComponent
   discipline: eng
