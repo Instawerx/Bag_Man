@@ -391,8 +391,7 @@ tasks:
     \ shake\nfires, AFL_LOG: hit_confirmed damage=18 zone=Torso appears in Output\nLog. Headshot fire (aim at head bone) tints\
     \ gold.\n\nOUT OF SCOPE: damage numbers (DamageNumber popups land in AFL-0204b\nlater); audio (AFL-0205 owns SFX_AFL_HitConfirm);\
     \ proper headshot\nmultiplier (AFL-0411 wires up to the body-zone enum)."
-  status: running
-  last_attempt_at: '2026-05-22T09:26:35+00:00'
+  status: merged
 - id: AFL-0206
   title: UAFLAG_Laser_Beam — channeling ability with tick damage
   discipline: eng
