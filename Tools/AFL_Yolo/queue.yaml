@@ -546,3 +546,74 @@ tasks:
     \ 250 triggers the overkill broadcast.\n\nSee tracker entry for AFL-0212 (BAG_MAN_LIVE_TRACKER_v2_2.html\nv2.3+) for the\
     \ full description."
   status: merged
+- id: AFL-0217
+  title: GenAI mesh validator — afl_mesh_validator.py for Tripo/Meshy outputs
+  discipline: devops
+  estimate: L
+  autonomy: full
+  branch: yolo/afl-0217-mesh-validator
+  depends_on: []
+  verify: none
+  cheat_matrix: []
+  plugins_to_build: []
+  skills:
+  - afl-build-operator
+  - afl-blender-bridge
+  files_hint:
+  - Tools/AFL_MeshValidator/afl_mesh_validator.py
+  - Tools/AFL_MeshValidator/budgets.json
+  - Tools/AFL_MeshValidator/README.md
+  - Tools/AFL_MeshValidator/tests/test_validator.py
+  - Tools/AFL_MeshValidator/tests/fixtures/passing_kit_piece.gltf
+  - Tools/AFL_MeshValidator/tests/fixtures/over_budget_hero.gltf
+  - Tools/AFL_MeshValidator/tests/fixtures/misnamed_prop.gltf
+  aik_brief: "Author Tools/AFL_MeshValidator/afl_mesh_validator.py — the AAA\nconformance gate between genAI mesh outputs (Tripo,\
+    \ Meshy) and the\nafl-blender-bridge AAA-clean pipeline. Pure Python, no UE dependency.\nValidator runs on FBX or glTF inputs;\
+    \ FBX is converted to glTF via\nBlender headless shell-out so the validator's own logic only handles\nglTF JSON + bin payloads\
+    \ (decision #1 from 2026-05-22 EOD handoff).\n\nDELIVERABLES:\n\n1. Tools/AFL_MeshValidator/afl_mesh_validator.py\n   CLI:\
+    \ `python -m afl_mesh_validator <file_or_dir> \\\n           --class <hero_char|heavy_weapon|env_prop|kit_piece|decal> \\\n\
+    \           [--budgets <path>] [--manifest-out <path>] [--strict]`\n   - Class auto-detected from filename prefix when --class\
+    \ omitted\n     (SKM_AFL_*_Hero* → hero_char, SM_AFL_*_Weapon* → heavy_weapon, etc.\n     Detection rules live in budgets.json\
+    \ alongside the budget table).\n   - FBX inputs: shell out `blender --background --python converter.py\n     -- <input> <output.glb>`.\
+    \ Validator then reads the glb. If `blender`\n     is not on PATH, log a warning and require glTF input directly\n     (don't\
+    \ try a Python-only FBX parser — fragile).\n   - glTF inputs: parse JSON header (chunk 0 of .glb) + accessor\n     metadata\
+    \ directly. No third-party deps required.\n   - Exit codes: 0 pass, 1 fail (any check failed in strict mode; or\n     ANY\
+    \ asset failed when run on a directory), 2 invalid input / blender\n     missing.\n\n2. Tools/AFL_MeshValidator/budgets.json\
+    \ — canonical conformance table\n   mirroring master doc §16.2 (lines 2105-2114):\n     hero_character: LOD0=80000  LOD3=8000\
+    \   tex_max=4096 mat_slots=8\n     heavy_weapon:   LOD0=25000  LOD3=3000   tex_max=2048 mat_slots=4\n     env_prop:     \
+    \  LOD0=15000  LOD3=1500   tex_max=2048 mat_slots=4\n     kit_piece:      LOD0=5000   LOD3=500    tex_max=1024 mat_slots=2\n\
+    \     decal:          LOD0=200    LOD3=null   tex_max=1024 mat_slots=1\n   Plus prefix→class detection rules. JSON not YAML\
+    \ — designers can\n   eventually edit via the DataTable wrapper authored as a follow-up in\n   UE; for this task ship JSON\
+    \ + a TODO note in README pointing at the\n   future DT_AFL_MeshBudgets.uasset.\n\n3. Five validator checks (each emits a\
+    \ structured result row):\n     a. POLY_BUDGET    — sum of glTF accessors[primitive.indices].count/3\n                  \
+    \   compared to LOD0 budget. LOD-suffix-aware:\n                       SM_Foo_LOD0..LOD3 each checked against tier.\n   \
+    \  b. NAMING        — prefix matches SM_AFL_* / SKM_AFL_* / SM_AFL_*_LOD<N>\n                       per asset class rules.\n\
+    \     c. UV_COVERAGE   — at least one TEXCOORD_0 attribute present, all\n                       values in [0..1] bounds\
+    \ (genAI tools sometimes\n                       produce UVs in [-2..3] range).\n     d. MAT_SLOTS     — distinct material\
+    \ indices in primitives <= class\n                       budget.\n     e. SOCKET_SNIFF  — for hero_char only: WARN (not fail)\
+    \ if the\n                       glTF has no nodes named in the canonical AFL\n                       socket list (head,\
+    \ hand_l, hand_r, foot_l, foot_r,\n                       weapon_socket). List lives in budgets.json.\n\n4. Output manifest\
+    \ (--manifest-out path, default stdout):\n     {\n       \"version\": 1, \"timestamp\": ISO8601,\n       \"assets\": [{\n\
+    \         \"path\": \"...\",\n         \"class\": \"kit_piece\",\n         \"pass\": true,\n         \"checks\": [{\"name\"\
+    : \"POLY_BUDGET\", \"pass\": true,\n                      \"detail\": \"4220/5000 LOD0 tris\"}, ...],\n         \"reasons\"\
+    : []   // populated only on failures\n       }]\n     }\n   Pretty stdout summary printed alongside.\n\n5. Tools/AFL_MeshValidator/tests/test_validator.py\
+    \ — pytest cases:\n     - test_passing_kit_piece_validates: load fixture, assert pass=True.\n     - test_over_budget_hero_fails:\
+    \ poly_budget check fails, exit 1.\n     - test_misnamed_prop_fails: naming check fails, manifest reason\n              \
+    \                  contains 'NAMING'.\n     - test_directory_mode_aggregates: run on the fixtures/ dir, exit 1.\n     -\
+    \ test_blender_missing_skips_fbx: monkeypatch shutil.which to\n                                    return None, FBX input\
+    \ exits 2.\n   Fixtures are minimal hand-authored glTF JSON files — no real geo, just\n   enough structure (asset, scenes,\
+    \ nodes, meshes, accessors with the\n   right counts/attributes) to exercise each check. Keep each fixture\n   under 5KB.\n\
+    \n6. Tools/AFL_MeshValidator/README.md — install instructions (no extra pip\n   deps; mention Blender 4.x on PATH for FBX\
+    \ support is optional),\n   CLI examples, the budget table reproduced for reference, a TODO\n   block listing the §16.2 follow-ups\
+    \ (DataTable wrapper, afl-blender-bridge\n   integration in AFL-0216, afl_reimport.py).\n\nHARD CONSTRAINTS:\n- Zero pip\
+    \ deps beyond pytest (dev-only). No `pyfbx`, no `pygltflib`. The\n  glTF JSON+chunk-0 parse is trivial — don't pull a library.\n\
+    - No UE Python (`import unreal`) anywhere. This runs in plain Python\n  3.10+, headless, no editor.\n- Validator MUST be\
+    \ deterministic — no time-based logic in checks, no\n  random fixture data. Test fixtures are checked-in JSON.\n- Don't author\
+    \ the DataTable DT_AFL_MeshBudgets.uasset — that's a\n  follow-up UE-side task. Reference it in README only.\n\nACCEPTANCE:\n\
+    \  cd Tools/AFL_MeshValidator\n  pytest tests/                          → 5 passed\n  python -m afl_mesh_validator tests/fixtures/passing_kit_piece.gltf\n\
+    \                                          → exit 0, manifest pass=true\n  python -m afl_mesh_validator tests/fixtures/over_budget_hero.gltf\n\
+    \                                          → exit 1, POLY_BUDGET fail\n\nOUT OF SCOPE:\n- The DataTable wrapper (UE-side\
+    \ follow-up).\n- afl-blender-bridge full implementation (AFL-0216 a/b/c).\n- afl_reimport.py (later Sprint 2/3 task).\n-\
+    \ Actually integrating into a CI step (validator is standalone for now;\n  CI wire-up is a separate ticket if/when we want\
+    \ it gating PRs)."
+  status: pending
