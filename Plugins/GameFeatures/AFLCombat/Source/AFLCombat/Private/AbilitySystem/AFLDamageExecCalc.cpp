@@ -4,8 +4,10 @@
 
 #include "AFLCombat.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
+#include "HUD/AFLHitConfirmMessage.h"
 #include "Messages/LyraVerbMessage.h"
 #include "Telemetry/AFLCombatTelemetry.h"
 
@@ -27,6 +29,10 @@ namespace
 	// Verb tag broadcast when damage exceeds OverkillThreshold. Listeners (e.g.
 	// AFLDismember in a later stage) subscribe via UGameplayMessageSubsystem.
 	const FName NAME_Event_Damage_Overkill_ExecCalc  = TEXT("Event.Damage.Overkill");
+
+	// AFL-0204: broadcast when EffectiveDamage > 0 so the firing client's
+	// UAFLHitConfirmComponent can play crosshair pulse + camera shake.
+	const FName NAME_Event_Damage_Confirmed_ExecCalc = TEXT("Event.Damage.Confirmed");
 }
 
 
@@ -176,7 +182,41 @@ void UAFLDamageExecCalc::Execute_Implementation(
 			HealthDelta));
 	}
 
-	// 9. Overkill detection. If the health-damage component exceeded
+	// 9. AFL-0204 hit-confirm. EffectiveDamage > 0 has already been guaranteed
+	//    by the early-return at (5); broadcast Event.Damage.Confirmed so the
+	//    firing client's UAFLHitConfirmComponent can play the crosshair pulse
+	//    + camera shake. We pull bone name from the EffectContext's hit result
+	//    (populated by FAFLAbilityTargetData_Hitscan::AddTargetDataToContext)
+	//    and distance from the claimed view origin Context.GetOrigin() — both
+	//    are server-authoritative reads, no GetPlayerViewPoint involved.
+	{
+		UAbilitySystemComponent* TargetASC = ExecutionParams.GetTargetAbilitySystemComponent();
+		AActor* ConfirmTargetActor = TargetASC ? TargetASC->GetAvatarActor_Direct() : nullptr;
+		UWorld* ConfirmWorld = ConfirmTargetActor ? ConfirmTargetActor->GetWorld() : nullptr;
+		if (ConfirmWorld)
+		{
+			const FGameplayEffectContextHandle& ContextHandle = Spec.GetEffectContext();
+			const FHitResult* HitResult = ContextHandle.GetHitResult();
+
+			FAFLHitConfirmMessage HitConfirm;
+			HitConfirm.Instigator = ContextHandle.GetEffectCauser();
+			HitConfirm.Target     = ConfirmTargetActor;
+			HitConfirm.Damage     = EffectiveDamage;
+			HitConfirm.BoneName   = HitResult ? HitResult->BoneName : NAME_None;
+
+			if (HitResult)
+			{
+				HitConfirm.DistanceCm = static_cast<float>(
+					FVector::Dist(ContextHandle.GetOrigin(), HitResult->ImpactPoint));
+			}
+
+			UGameplayMessageSubsystem::Get(ConfirmWorld).BroadcastMessage(
+				FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Confirmed_ExecCalc, false),
+				HitConfirm);
+		}
+	}
+
+	// 10. Overkill detection. If the health-damage component exceeded
 	//    OverkillThreshold, broadcast Event.Damage.Overkill via the gameplay
 	//    message subsystem. AFLDismember (Stage 5) will register a listener
 	//    for this verb tag.
