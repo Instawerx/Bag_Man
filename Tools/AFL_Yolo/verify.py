@@ -39,6 +39,20 @@ COMPILE_FAILED_TOKENS = [
     "fatal error",
     "LogInit: Error",
 ]
+
+# UBT named-mutex collisions look like this in stdout/stderr. They happen when
+# Claude Code runs Build.bat in-session and the orchestrator's verify.py
+# kicks off Build.bat seconds later — the previous UBT process's named mutex
+# is still owned by a different Windows session, so we get
+# UnauthorizedAccessException acquiring the global mutex. The first invocation
+# usually drops the mutex within 10-30s of exiting, so a single retry after
+# a short sleep recovers. We do NOT treat this as a code compile failure.
+UBT_MUTEX_COLLISION_TOKENS = [
+    "UnauthorizedAccessException",
+    "UnrealBuildTool_Mutex",
+    "Access to the path",
+]
+UBT_MUTEX_RETRY_SLEEP_S = 30
 TEST_FAILED_TOKENS = [
     "Test Failed",
     "Tests Failed",
@@ -89,6 +103,17 @@ def detect_compile_failure(log_path: Path) -> tuple[bool, str]:
     return False, ""
 
 
+def detect_ubt_mutex_collision(log_path: Path) -> bool:
+    """Return True if the build log shows the UBT global-mutex collision
+    pattern (a leftover Build.bat from a Claude in-session compile still
+    holding the named mutex). This is a transient orchestration race, NOT
+    a code compile failure — retry is the correct response."""
+    if not log_path.exists():
+        return False
+    text = log_path.read_text(encoding="utf-8", errors="ignore")
+    return all(token in text for token in UBT_MUTEX_COLLISION_TOKENS)
+
+
 def build_plugin(engine_root: Path, uproject: Path, plugin: str, timeout: int, work: Path) -> int:
     """Build LyraEditor with -Plugin=<plugin.uplugin> on Win64 Development.
 
@@ -117,6 +142,30 @@ def build_plugin(engine_root: Path, uproject: Path, plugin: str, timeout: int, w
     ]
     log = work / f"build_{plugin}.log"
     rc = stream_subprocess(cmd, uproject.parent, timeout=timeout, log_path=log)
+
+    # Retry once on the UBT mutex-collision race. This trips when Claude Code
+    # ran Build.bat in-session during its authoring loop, then we kicked off
+    # Build.bat again here ~5s after the session ended — the prior UBT
+    # process's Global\UnrealBuildTool_Mutex_<hash> hasn't been released yet
+    # in a way that the second process can acquire (named-mutex ownership is
+    # per-creating-session on Windows). The prior process drops the mutex
+    # within 10-30s of exiting; one retry after a short sleep recovers.
+    # We do this regardless of rc != 0 because UBT can exit non-zero from
+    # the collision even before getting to a meaningful compile step.
+    if rc != 0 and detect_ubt_mutex_collision(log):
+        print(
+            f"[verify] UBT mutex collision detected (leftover from a prior Build.bat); "
+            f"sleeping {UBT_MUTEX_RETRY_SLEEP_S}s and retrying once.",
+            flush=True,
+        )
+        time.sleep(UBT_MUTEX_RETRY_SLEEP_S)
+        log = work / f"build_{plugin}_retry.log"
+        rc = stream_subprocess(cmd, uproject.parent, timeout=timeout, log_path=log)
+        if rc == 0 and not detect_compile_failure(log)[0]:
+            print(f"[verify] {plugin} compiled OK on retry", flush=True)
+            return 0
+        # Fall through to standard failure handling.
+
     if rc != 0:
         return 1
     failed, window = detect_compile_failure(log)
