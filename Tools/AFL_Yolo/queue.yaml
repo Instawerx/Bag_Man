@@ -524,8 +524,7 @@ tasks:
     \ plans link from here. Just a\n   markdown index with a bullet per .md and the sprint it covers.\n\nOUT OF SCOPE: actual\
     \ execution of the matrix (a human runs PIE and\nfills in the actual / pass-fail columns; this task ships the plan,\n\
     not the run). Dismemberment regression is AFL-0411."
-  status: running
-  last_attempt_at: '2026-05-22T18:52:25+00:00'
+  status: merged
 - id: AFL-0212
   title: UAFLDamageExecCalc + UAFLAttributeSet_Combat — Sprint 1 Block A delivery (shipped early)
   discipline: eng
