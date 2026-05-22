@@ -14,6 +14,7 @@
 #include "GameplayEffect.h"
 #include "NativeGameplayTags.h"
 #include "Targeting/AFLAbilityTargetData_Hitscan.h"
+#include "Telemetry/AFLCombatTelemetry.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Laser_Pulse)
 
@@ -288,9 +289,12 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 		// A real "invalid schema" reject lands in AFL-0211's ValidateTargetData.
 		if (RawData->GetScriptStruct() != FAFLAbilityTargetData_Hitscan::StaticStruct())
 		{
-			UE_LOG(LogAFLCombat, Verbose,
-				TEXT("AFL_PULSE: server skipped non-hitscan target data (struct=%s)"),
-				RawData->GetScriptStruct() ? *RawData->GetScriptStruct()->GetName() : TEXT("null"));
+			const UScriptStruct* ActualStruct = RawData->GetScriptStruct();
+			FAFLCombatTelemetry::EmitRejection(
+				TEXT("schema"),
+				CurrentActorInfo ? CurrentActorInfo->AvatarActor.Get() : nullptr,
+				FString::Printf(TEXT("struct=%s"),
+					ActualStruct ? *ActualStruct->GetName() : TEXT("null")));
 			continue;
 		}
 
@@ -302,8 +306,8 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 		// still apply damage so the Sprint 1 PIE smoke test (AFL-0107) passes.
 		if (HitscanData->AimAngularVelocityDegPerSec > MaxAimAngularVelocityDegPerSec)
 		{
-			UE_LOG(LogAFLCombat, Log,
-				TEXT("AFL_TELEMETRY: hitscan_reject reason=ang ang=%.1f budget=%.1f"),
+			FAFLCombatTelemetry::EmitAngularAnomaly(
+				CurrentActorInfo ? CurrentActorInfo->AvatarActor.Get() : nullptr,
 				HitscanData->AimAngularVelocityDegPerSec,
 				MaxAimAngularVelocityDegPerSec);
 		}
