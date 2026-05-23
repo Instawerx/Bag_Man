@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BAG MAN :: LIVE BUILD TRACKER v2.6</title>
+<title>BAG MAN :: LIVE BUILD TRACKER v2.7</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -841,18 +841,20 @@
       <div class="brand">
         <span class="brand-codename">AFL</span>
         <h1 class="brand-title">BAG MAN</h1>
-        <span class="brand-sub">// Live Build Tracker · v2.6 · SSOT · Sprint 1+2 ability/infra done · 18/18 yolo merged · queue exhausted</span>
+        <span class="brand-sub">// Live Build Tracker · v2.7 · SSOT · Sprint 1+2 ability/infra done · 19/19 yolo merged · queue exhausted</span>
       </div>
       <div class="stats-bar" id="statsBar"></div>
     </div>
     <div class="global-progress"><div class="global-progress-fill" id="globalProgressFill" style="width:0%"></div></div>
   </header>
 
-  <!-- v2.6 PROGRESS BANNER (reconciled against origin/main @ 68db4743 on 2026-05-22 late) -->
+  <!-- v2.7 PROGRESS BANNER (reconciled against origin/main @ 1f7d692a — PR #18 AFL-0217 merge; queue-status fix b5fb9824 on top) -->
   <div class="amendments-banner" id="amendmentsBanner">
-    <span class="amendments-banner-tag">v2.6 · 18/18 yolo merged · Sprint 2 ability layer + Heat economy + QA matrix + AFL-0110 closure all landed · active queue exhausted</span>
+    <span class="amendments-banner-tag">v2.7 · 19/19 yolo merged · AFL-0217 GenAI mesh validator landed (PR #18) · active queue exhausted</span>
     <div class="amendments-body">
-      <strong>Origin/main HEAD <code>68db4743</code>. Sprint 2 ability + infrastructure layer is now COMPLETE. The active 18-task yolo queue is fully closed. Since v2.5 reconcile (4 new PR merges + AFL-0110 closure):</strong>
+      <strong>v2.7 reconcile — origin/main HEAD <code>1f7d692a</code> (PR #18 merge; queue-status fix b5fb9824 on top). Sprint 2 ability + infrastructure layer COMPLETE. The 19-task yolo queue is now fully closed — AFL-0217 GenAI mesh validator landed since v2.6:</strong>
+      <br><br>
+      <strong>🧬 AFL-0217 ✅ GenAI mesh validator shipped</strong> via PR #18 (work commit dddf43ae, merge 1f7d692a). Tools/AFL_MeshValidator/afl_mesh_validator.py — pure-Python conformance gate between genAI mesh outputs (Tripo/Meshy) and the afl-blender-bridge AAA-clean pipeline. 5 checks: POLY_BUDGET, NAMING, UV_COVERAGE, MAT_SLOTS, SOCKET_SNIFF (hero warn-only). FBX→glTF via Blender headless shell-out, glTF-direct fallback when blender is off PATH. budgets.json mirrors master §16.2. Notable recovery arc: the orchestrator authored + committed the work, but its git push timed out on a network stall and the queue row stuck at status:running. The work was never lost — it was safe at dddf43ae on the branch; once the network returned it was manually pushed, PR #18 merged, and the stale queue status reconciled to merged (b5fb9824). No re-run, no burned cost. First task to validate the new TimeoutExpired catch in the orchestrator's git() path (70880797).
       <br><br>
       <strong>🎯 AFL-0206 ✅ Beam ability shipped</strong> via PR #15 (commit 04dae920, 2026-05-22 ~02:57). UAFLAG_Laser_Beam channeling ability — 100ms tick, 1.2 dmg/tick (= 12 dps), LocalPredicted replication, InstancedPerActor. 6 new C++ files: AFLAG_Laser_Beam.h/.cpp, GE_AFL_Damage_BeamTick.h/.cpp, GE_AFL_Cooldown_Beam.h/.cpp. Claude chose C++ GE declarations instead of authoring .uasset GEs, neatly avoiding the EditDefaultsOnly + python set_editor_property gate that bit AFL-0110. First production validation of the pre-flight UBT mutex check (4551ba35 — caught PID 19920 on attempt 1, $5-15 of Claude burn saved). Self-debug loop: Claude's AFL-0215 lint pass tripped 3 violations, diagnosed + fixed all 3 in-session before exiting clean. Claude session 9m 15s / 96 turns / $4.04.
       <br><br>
@@ -876,7 +878,7 @@
       <br>
       • Confirm <code>State.Overheated</code> is in the minimal-replicated-tag bag (not <code>COND_OwnerOnly</code>) so R03 doesn't break silently
       <br><br>
-      <strong>Queue state after this reconcile:</strong> 18 of 18 yolo-queue tasks merged. 0 errors. 0 pending. <code>Next: (none eligible)</code>. Last PR: #17. <em>Total session-of-the-week ship count: 9 PRs merged via orchestrator (AFL-0109 / 0111 / 0204 / 0206 / 0207 / 0210 / 0211 / 0213 / 0218) + 4 orchestrator hardening commits + AFL-0110 closure + tracker v2.5 + v2.6 reconciles + AFL-0215 standalone + asset-naming prefix fix + Sprint 2 queue authoring.</em> Sprint 3 Phase 2 mechanically closed (674696da) but <code>sprint-3-phase-2-cmc-complete</code> tag still awaiting hands-on WASD/dash/cooldown PIE pass. Sprint 5+ unchanged.
+      <strong>Queue state after this reconcile:</strong> 19 of 19 yolo-queue tasks merged. 0 errors. 0 pending. <code>Next: (none eligible)</code>. Last PR: #18. <em>Total session-of-the-week ship count: 9 PRs merged via orchestrator (AFL-0109 / 0111 / 0204 / 0206 / 0207 / 0210 / 0211 / 0213 / 0218) + 4 orchestrator hardening commits + AFL-0110 closure + tracker v2.5 + v2.6 reconciles + AFL-0215 standalone + asset-naming prefix fix + Sprint 2 queue authoring.</em> Sprint 3 Phase 2 mechanically closed (674696da) but <code>sprint-3-phase-2-cmc-complete</code> tag still awaiting hands-on WASD/dash/cooldown PIE pass. Sprint 5+ unchanged.
       <br><br>
       <details><summary><strong>(v2.5 banner archive — what shipped earlier in the same long session)</strong></summary>
       <p>Origin/main HEAD <code>142c9470</code>. Massive session 2026-05-21→22 — 7 PRs merged + 5 orchestrator/lint commits + Sprint 2 queue slice authored.</p>
@@ -1166,7 +1168,7 @@ const SPRINTS = [
       {id:'AFL-0214', title:'✅ Lyra init contract — DA_AFL_PawnData_Hero_Default + IC_AFL_Default + DA_AFL_AbilitySet_Combat_Pulse + UAFLHeroComponent (extends ULyraHeroComponent, drives ApplyEquipment/UnequipAll lifecycle on AFLCombat Game Feature activation). Authored autonomously by afl_yolo: 16m46s session, 80 turns, $3.66 cost — first task to fully validate the patched orchestrator (stream-json + 10-min stall watchdog + rate-limit detect). Shipped via PR #8 (2026-05-18, commit b4b5d87f). 🎯 UNBLOCKED AFL-0304-Bi (closed 2026-05-20 via 674696da): the v2.3 hypothesis held in spirit but the actual gap was finer — UAFLHeroComponent existed but the LAS_AFL_HeroComponents ActionSet was still wired to vanilla ULyraHeroComponent. Single-property swap closed Phase 2.', d:'eng', e:'L'},
       {id:'AFL-0215', title:'✅ AFL-0215 architectural lint — Tools/AFL_Yolo/lint_afl_0215.py standalone CLI (~370 lines) with 4 rails: (1) AbilitySystemComponent->GiveAbility direct, (2) GetAttributeSet<UAFLAttributeSet_Combat>->SetHealth direct, (3) GetPlayerViewPoint anywhere, (4) FGameplayTag::RequestGameplayTag inside UObject constructors (brace-depth-tracking, added 2026-05-20 after the AFL-0104 CDO crash). --self-test mode writes one fixture per rule, asserts each fires its own fixture. Wired into afl-yolo-pr.yml as 3 sequential steps: self-test → standalone scan → kept inline-legacy as belt-and-braces. Retroactive scan against AFLCombat + AFLCore + AFLMovement (45 files): clean both pre and post the CDO fix. Shipped via cda45f34 (initial 3-rail standalone) + 5ac9aa4d (4th-rail addition + native-tag refactor). Bootstrap-era false-merge gap closed.', d:'devops', e:'M'},
       {id:'AFL-0216', title:'🎨 Blender MCP bridge bootstrap — install blender_mcp on dev workstations, validate round-trip with test asset, lock FBX export settings (§16.1)', d:'art', e:'L'},
-      {id:'AFL-0217', title:'🎨 GenAI mesh validation pipeline — afl_mesh_validator.py for Tripo/Meshy outputs, conformance budgets per asset class, pass/fail manifest (§16.2)', d:'art', e:'L'},
+      {id:'AFL-0217', title:'✅ GenAI mesh validator shipped — Tools/AFL_MeshValidator/afl_mesh_validator.py (475 lines, pure Python, zero pip deps beyond pytest). 5 checks: POLY_BUDGET / NAMING / UV_COVERAGE / MAT_SLOTS / SOCKET_SNIFF (hero warn-only). FBX→glTF via Blender headless shell-out; glTF-direct fallback if blender not on PATH. budgets.json mirrors master §16.2. Work dddf43ae → merged PR #18 (1f7d692a). Recovery arc: orchestrator push timed out, work stayed safe on branch, manually pushed + merged, queue status reconciled (b5fb9824) — no re-run. (§16.2)', d:'devops', e:'L'},
       {id:'AFL-0218', title:'✅ Skill registry CI check — Tools/AFL_Lint/skill_registry.py (587 lines), context-aware scanner that knows the difference between skill slugs and CI job names / workflow files / GH repo names (the naive regex was producing 46 false positives; the new scanner handles YAML/MD/Python contexts distinctly + has a KNOWN_NON_SKILL_IDENTIFIERS allow-list). 11-skill curated SKILLS tuple is the source of truth; Docs/SKILLS_REGISTRY.md is generated from it (do-not-edit-by-hand banner). New required afl-skill-registry job in afl-pr-build.yml runs self-test + scan + doc-freshness diff guard. Shipped via PR #13 (2026-05-22, commit 621f92cf). ~12min e2e.', d:'devops', e:'S'}
     ]},
   { id:'S3', phase:'P1', weeks:'W5–W6', title:'Movement: Dash + Mobility Tuning',
