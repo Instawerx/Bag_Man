@@ -617,5 +617,5 @@ tasks:
     \ follow-up).\n- afl-blender-bridge full implementation (AFL-0216 a/b/c).\n- afl_reimport.py (later Sprint 2/3 task).\n\
     - Actually integrating into a CI step (validator is standalone for now;\n  CI wire-up is a separate ticket if/when we\
     \ want it gating PRs)."
-  status: running
+  status: merged
   last_attempt_at: '2026-05-23T04:57:07+00:00'
