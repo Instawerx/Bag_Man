@@ -376,7 +376,51 @@ def run_cmd(
 # ---------------------------------------------------------------------------
 
 def git(args: list[str], cfg: Config, *, check: bool = True, timeout: int = 600) -> subprocess.CompletedProcess[str]:
-    return run_cmd(["git", *args], cwd=cfg.project_root, check=check, timeout=timeout)
+    """Run git with the orchestrator's standard timeout + check semantics.
+
+    For `check=False` callers (notably the network-bound fetch/pull in
+    checkout_branch), catch subprocess.TimeoutExpired and convert it to
+    a synthesized CompletedProcess with returncode=124 (the GNU `timeout`
+    convention) so the caller's "treat non-zero as failure, proceed with
+    stale state" branch handles it instead of the orchestrator crashing
+    with an uncaught exception.
+
+    Background: AFL-0206 attempt 2 (2026-05-22 ~02:55 PT) crashed the
+    orchestrator when github.com network died mid-fetch — the 10-minute
+    subprocess timeout raised TimeoutExpired despite check=False, because
+    TimeoutExpired bypasses the check=False return-code semantic. AIK's
+    AFL-0217 launch (2026-05-22 ~20:10 PT) crashed the same way. Both
+    incidents left the queue + tree clean, but the orchestrator died
+    instead of proceeding with a stale-main checkout. Memory:
+    feedback_ue_open_locks_uassets.md.
+
+    `check=True` callers get unchanged behavior — TimeoutExpired
+    propagates as before, because those callers (commit, push, branch
+    creation) genuinely depend on the operation completing.
+    """
+    cmd = ["git", *args]
+    try:
+        return run_cmd(cmd, cwd=cfg.project_root, check=check, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        if check:
+            # Caller explicitly asked us to fail on errors; preserve that.
+            raise
+        LOG.warning(
+            "git %s timed out after %ds — downgrading to non-fatal (check=False). "
+            "Caller will proceed with stale state. Likely cause: github.com "
+            "HTTPS endpoint network blip.",
+            " ".join(args),
+            timeout,
+        )
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=124,
+            stdout=exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or ""),
+            stderr=(
+                (exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or ""))
+                + f"\n[orchestrator] git {args[0]} timed out after {timeout}s; downgraded to non-fatal."
+            ),
+        )
 
 
 def ensure_clean_tree(cfg: Config) -> None:
