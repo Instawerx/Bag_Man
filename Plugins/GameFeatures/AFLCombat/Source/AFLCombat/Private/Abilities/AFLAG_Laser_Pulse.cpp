@@ -15,6 +15,7 @@
 #include "NativeGameplayTags.h"
 #include "Targeting/AFLAbilityTargetData_Hitscan.h"
 #include "Telemetry/AFLCombatTelemetry.h"
+#include "Tuning/AFLPulseTuningData.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Laser_Pulse)
 
@@ -142,6 +143,21 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	UAbilitySystemComponent* ASC = CurrentActorInfo->AbilitySystemComponent.Get();
 	check(ASC);
 
+	// AFL-0209 tuning constants. Resolved once per shot from the data asset,
+	// with a hardcoded fallback matching UAFLPulseTuningData's defaults so the
+	// ability never crashes on a missing DA. Keeping these as locals (vs
+	// inlining TuningData->* in the math) keeps the null-guard cost to one
+	// branch and makes the SetSpread/SetRecoil hot-swap path naturally
+	// atomic — the cheats overwrite TuningData, and the next shot picks up
+	// the new values on its next resolve.
+	const UAFLPulseTuningData* Tuning = TuningData;
+	const float BaseSpread             = Tuning ? Tuning->BaseSpreadDegrees       : 0.5f;
+	const float MaxSpread              = Tuning ? Tuning->MaxSpreadDegrees        : 4.0f;
+	const float SpreadPerShot          = Tuning ? Tuning->SpreadPerShotDegrees    : 0.6f;
+	const float SpreadRecoveryPerSec   = Tuning ? Tuning->SpreadRecoveryDegPerSec : 8.0f;
+	const float RecoilPitch            = Tuning ? Tuning->RecoilPitchPerShot      : 0.4f;
+	const float RecoilYawJitter        = Tuning ? Tuning->RecoilYawJitterDegrees  : 0.15f;
+
 	// Camera-aligned origin and direction. PlayerCameraManager exposes the same
 	// post-modifier viewpoint as the controller's view helper, without tripping
 	// the AFL-0215 lint rule (which is intentionally a blanket grep — the view
@@ -151,7 +167,8 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	FVector  ViewLocation = AvatarPawn->GetPawnViewLocation();
 	FRotator ViewRotation = AvatarPawn->GetViewRotation();
 
-	if (APlayerController* PC = Cast<APlayerController>(AvatarPawn->GetController()))
+	APlayerController* PC = Cast<APlayerController>(AvatarPawn->GetController());
+	if (PC)
 	{
 		if (APlayerCameraManager* CamMgr = PC->PlayerCameraManager)
 		{
@@ -161,7 +178,45 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	}
 
 	const FVector AimDirection = ViewRotation.Vector().GetSafeNormal();
-	const FVector EndTrace     = ViewLocation + AimDirection * MaxRange;
+
+	// AFL-0209 bloom: decay toward Base by SpreadRecoveryPerSec * dt since the
+	// last shot, then add this shot's bump. Result feeds VRandCone for both the
+	// trace and the replicated ClaimedAimDirection so the server's lag-comp
+	// re-trace stays consistent with the client's perturbed shot.
+	UWorld* World = AvatarPawn->GetWorld();
+	const float Now = World ? World->GetTimeSeconds() : 0.0f;
+
+	// One-time floor sync: on the very first activation, snap CurrentSpread to
+	// the RESOLVED BaseSpread (from the DA, or the null-guarded default). The
+	// header initializer can't see TuningData, so without this gate the first
+	// shot would bloom from the header literal regardless of how the designer
+	// tuned the DA.
+	if (!bBloomInitialized)
+	{
+		CurrentSpreadDegrees = BaseSpread;
+		bBloomInitialized = true;
+	}
+
+	const float DeltaSinceLastFire = FMath::Max(0.0f, Now - LastFireTime);
+	CurrentSpreadDegrees = FMath::Clamp(
+		CurrentSpreadDegrees - SpreadRecoveryPerSec * DeltaSinceLastFire,
+		BaseSpread,
+		MaxSpread);
+	CurrentSpreadDegrees = FMath::Min(CurrentSpreadDegrees + SpreadPerShot, MaxSpread);
+	LastFireTime = Now;
+
+	// AFL-0209 PIE-validation log. Verbose so it doesn't spam shipping/release;
+	// `log LogAFLCombat Verbose` in the console surfaces it during the bloom
+	// regression test. Once a/b are validated this can drop to a one-time
+	// "AFL_PULSE: Bloom init" line or be removed entirely.
+	UE_LOG(LogAFLCombat, Verbose,
+		TEXT("AFL_PULSE: Bloom cur=%.2f base=%.2f max=%.2f dt=%.3f"),
+		CurrentSpreadDegrees, BaseSpread, MaxSpread, DeltaSinceLastFire);
+
+	const FVector PerturbedDirection = FMath::VRandCone(
+		AimDirection,
+		FMath::DegreesToRadians(CurrentSpreadDegrees));
+	const FVector EndTrace = ViewLocation + PerturbedDirection * MaxRange;
 
 	// Single-bullet line trace. The Lyra RangedWeapon pattern adds spread,
 	// sweep radius, and a pawn-pass filter — Pulse is a single tight beam so
@@ -172,7 +227,6 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	Params.bReturnPhysicalMaterial = true;
 
 	FHitResult Hit;
-	UWorld* World = AvatarPawn->GetWorld();
 	if (World)
 	{
 		World->LineTraceSingleByChannel(Hit, ViewLocation, EndTrace, TraceChannel, Params);
@@ -196,11 +250,24 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	FAFLAbilityTargetData_Hitscan* NewTargetData = new FAFLAbilityTargetData_Hitscan();
 	NewTargetData->HitResult                  = Hit;
 	NewTargetData->ClaimedViewOrigin          = ViewLocation;
-	NewTargetData->ClaimedAimDirection        = AimDirection;
+	NewTargetData->ClaimedAimDirection        = PerturbedDirection;
 	NewTargetData->AimAngularVelocityDegPerSec = 0.0f; // AFL-0213 measurement lands with the input plumbing.
 
 	FGameplayAbilityTargetDataHandle TargetDataHandle;
 	TargetDataHandle.Add(NewTargetData);
+
+	// AFL-0209 recoil. Owning-client-only, cosmetic, additive via the input
+	// chain (NEVER a control-rotation write — never replicated). AddPitchInput
+	// is sign-inverted because the input system treats positive pitch as look-
+	// down; we want a kick up. Guard on IsLocallyControlled() so listen-server
+	// hosts kick their own camera but DON'T kick remote pawns' authoritative
+	// view (they don't own those controllers in the first place — the if-check
+	// is belt-and-braces against future refactors).
+	if (PC && CurrentActorInfo->IsLocallyControlled())
+	{
+		PC->AddPitchInput(-RecoilPitch);
+		PC->AddYawInput(FMath::FRandRange(-RecoilYawJitter, RecoilYawJitter));
+	}
 
 	// Open a prediction window so the local-side OnTargetDataReadyCallback
 	// runs under the same prediction key the server will see on the replicated

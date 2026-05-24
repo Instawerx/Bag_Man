@@ -8,6 +8,7 @@
 
 #include "AFLAG_Laser_Pulse.generated.h"
 
+class UAFLPulseTuningData;
 class UGameplayEffect;
 struct FGameplayAbilityTargetDataHandle;
 
@@ -78,6 +79,29 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Pulse|Telemetry", meta=(ClampMin="0.0"))
 	float MaxAimAngularVelocityDegPerSec = 720.0f;
 
+	/**
+	 * AFL-0209: data-driven recoil + spread tuning. Set on the BP/CDO to the
+	 * canonical DA_AFLPulseTuning asset. AFL.Combat.LoadTuning swaps it at
+	 * runtime; the per-knob cheats (AFL.Combat.SetSpread / AFL.Combat.SetRecoil)
+	 * operate on a transient duplicate installed via SetTransientTuningData so
+	 * the source asset is never mutated. Null is tolerated — the ability falls
+	 * back to a hardcoded default set matching DA_AFLPulseTuning's defaults.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AFL|Tuning")
+	TObjectPtr<UAFLPulseTuningData> TuningData;
+
+public:
+
+	/**
+	 * Replace the live TuningData pointer (called by AFL.Combat.LoadTuning and
+	 * AFL.Combat.SetSpread / AFL.Combat.SetRecoil). Callers that need to mutate
+	 * the asset must pass a duplicate; this setter does not duplicate for them.
+	 */
+	void SetTransientTuningData(UAFLPulseTuningData* InTuning) { TuningData = InTuning; }
+
+	/** Read-only accessor for the cheats. */
+	UAFLPulseTuningData* GetTuningData() const { return TuningData; }
+
 private:
 
 	/** Local trace + TargetData pack + ship to server. Local-predicting clients only. */
@@ -90,4 +114,25 @@ private:
 	void ServerApplyTargetData(const FGameplayAbilityTargetDataHandle& Data);
 
 	FDelegateHandle OnTargetDataReadyCallbackDelegateHandle;
+
+	/**
+	 * AFL-0209 bloom state. InstancedPerActor — one instance per ASC, reused
+	 * across activations — so these survive between shots naturally.
+	 *
+	 * `bBloomInitialized` gates a one-time floor sync to the resolved
+	 * TuningData->BaseSpreadDegrees on the first ClientPredictAndSend. The
+	 * header literals here are placeholders only; if a designer sets a
+	 * different BaseSpreadDegrees on the DA, the first shot will use the DA's
+	 * value, not this literal. Without that gate, the first shot would bloom
+	 * from the header's 0.5f floor regardless of the DA — silently desyncing
+	 * a tuned base.
+	 *
+	 * No UPROPERTY: these are local trace state, never replicated, never
+	 * exposed to BP. Direction perturbation runs only on the firing client; the
+	 * server's lag-comp re-trace consumes the perturbed direction back through
+	 * FAFLAbilityTargetData_Hitscan::ClaimedAimDirection.
+	 */
+	float CurrentSpreadDegrees = 0.0f;
+	float LastFireTime         = 0.0f;
+	bool  bBloomInitialized    = false;
 };

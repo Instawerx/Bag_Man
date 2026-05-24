@@ -4,11 +4,14 @@
 
 #include "AFLCombat.h"
 #include "Abilities/AFLAG_Laser_Beam.h"
+#include "Abilities/AFLAG_Laser_Pulse.h"
 #include "AbilitySystemComponent.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Effects/GE_AFL_Damage_Pulse.h"
 #include "Effects/GE_AFL_EnergyGain_Small.h"
 #include "Effects/GE_AFL_Heat_SetByCaller.h"
+#include "Tuning/AFLPulseTuningData.h"
+#include "UObject/Package.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/CheatManagerDefines.h"
@@ -359,6 +362,208 @@ namespace
 		UE_LOG(LogAFLCombat, Display, TEXT("AFLCombatCheats: OK ResetHeat"));
 	}
 
+	// ─── AFL-0209 Pulse tuning cheats ─────────────────────────────────────────
+	//
+	// LoadTuning is the primary path: swap the whole DA on the live ability
+	// instance with one StaticLoadObject. Designers iterating in editor edit
+	// DA_AFLPulseTuning, save, hit AFL.Combat.LoadTuning <path> in console, see
+	// it immediately on the next shot — no recompile, no PIE restart.
+	//
+	// SetSpread / SetRecoil are knob-by-knob shortcuts. They MUST NOT mutate the
+	// loaded source asset (or designers iterating in editor would silently lose
+	// their tuning to a console scribble). The pattern:
+	//   1. Find the ability's current TuningData.
+	//   2. If its outer is the transient package, it's already a per-instance
+	//      duplicate — mutate it directly.
+	//   3. Otherwise DuplicateObject into the transient package and install
+	//      the duplicate via SetTransientTuningData, then mutate the duplicate.
+	// The original DA on disk is never touched.
+
+	/**
+	 * Return the live activated UAFLAG_Laser_Pulse instance on the player's ASC,
+	 * or nullptr if no instance exists yet (i.e. the player has never fired).
+	 *
+	 * IMPORTANT: this MUST NEVER return the CDO. The CDO is the class default
+	 * for all future instances — writing tuning to it would mutate persistent
+	 * state (serializes, leaks across PIE sessions, defeats the
+	 * transient-duplicate guard in the per-knob cheats). The handlers call this,
+	 * see null, and log a FAIL message without emitting the OK token so the
+	 * verify.py cheat-matrix gate doesn't see a false pass.
+	 */
+	UAFLAG_Laser_Pulse* FindLivePulseAbilityInstance(UAbilitySystemComponent* ASC)
+	{
+		if (!ASC) return nullptr;
+		for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+		{
+			if (!Spec.Ability) continue;
+			if (!Spec.Ability->IsA(UAFLAG_Laser_Pulse::StaticClass())) continue;
+
+			// Prefer GetPrimaryInstance (InstancedPerActor convention). Fall
+			// through to GetAbilityInstances on the off-chance the primary
+			// slot isn't populated but instances exist — never to the CDO.
+			if (UGameplayAbility* Inst = Spec.GetPrimaryInstance())
+			{
+				return Cast<UAFLAG_Laser_Pulse>(Inst);
+			}
+			for (UGameplayAbility* Inst : Spec.GetAbilityInstances())
+			{
+				if (UAFLAG_Laser_Pulse* Pulse = Cast<UAFLAG_Laser_Pulse>(Inst))
+				{
+					return Pulse;
+				}
+			}
+			// Spec found but no instance — the ability has been granted but
+			// never activated. Return nullptr so the caller can FAIL clearly.
+			return nullptr;
+		}
+		return nullptr;
+	}
+
+	/**
+	 * Get a per-instance mutable copy of the ability's TuningData, duplicating
+	 * the source DA into the transient package on first call. Subsequent calls
+	 * return the same transient. Returns null only if the ability instance
+	 * itself can't be resolved.
+	 */
+	UAFLPulseTuningData* GetOrCreateTransientTuningCopy(UAFLAG_Laser_Pulse* Pulse)
+	{
+		if (!Pulse) return nullptr;
+
+		UAFLPulseTuningData* Current = Pulse->GetTuningData();
+
+		// If the current TuningData is already in the transient package, it's
+		// our own duplicate from a prior cheat call — reuse it.
+		if (Current && Current->GetOuter() == GetTransientPackage())
+		{
+			return Current;
+		}
+
+		// Source asset (or null). Duplicate to transient, install on the
+		// instance. DuplicateObject's null-source path constructs a new
+		// default-initialized object, which gives us the DA's default
+		// values (matching the brief's literal defaults).
+		UAFLPulseTuningData* Copy = DuplicateObject<UAFLPulseTuningData>(
+			Current,                         // source — null is OK, see above
+			GetTransientPackage(),
+			TEXT("AFLPulseTuning_Transient"));
+		if (Copy)
+		{
+			Copy->SetFlags(RF_Transient);
+			Pulse->SetTransientTuningData(Copy);
+		}
+		return Copy;
+	}
+
+	void HandleAFLCombatLoadTuning(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: LoadTuning — usage: AFL.Combat.LoadTuning <AssetPath>"));
+			return;
+		}
+		const FString AssetPath = Args[0];
+
+		UAFLPulseTuningData* Loaded = LoadObject<UAFLPulseTuningData>(nullptr, *AssetPath);
+		if (!Loaded)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: LoadTuning — could not load '%s' as UAFLPulseTuningData"),
+				*AssetPath);
+			return;
+		}
+
+		UAbilitySystemComponent* ASC = FindPlayerASCFromAnyWorld();
+		UAFLAG_Laser_Pulse* Pulse = FindLivePulseAbilityInstance(ASC);
+		if (!Pulse)
+		{
+			// No live instance — refuse to write. NEVER fall through to the CDO
+			// and NEVER emit the OK token (verify.py would see a false pass).
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: FAIL LoadTuning — no live UAFLAG_Laser_Pulse instance; ")
+				TEXT("fire Pulse once first (or grant via DA_AFL_AbilitySet from AFL-0214)."));
+			return;
+		}
+
+		Pulse->SetTransientTuningData(Loaded);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFLCombatCheats: OK LoadTuning (%s)"), *Loaded->GetName());
+	}
+
+	void HandleAFLCombatSetSpread(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 3)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: SetSpread — usage: AFL.Combat.SetSpread <baseDeg> <maxDeg> <perShotDeg>"));
+			return;
+		}
+		const float Base    = FCString::Atof(*Args[0]);
+		const float Max     = FCString::Atof(*Args[1]);
+		const float PerShot = FCString::Atof(*Args[2]);
+
+		UAbilitySystemComponent* ASC = FindPlayerASCFromAnyWorld();
+		UAFLAG_Laser_Pulse* Pulse = FindLivePulseAbilityInstance(ASC);
+		if (!Pulse)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: FAIL SetSpread — no live UAFLAG_Laser_Pulse instance; ")
+				TEXT("fire Pulse once first."));
+			return;
+		}
+		UAFLPulseTuningData* Transient = GetOrCreateTransientTuningCopy(Pulse);
+		if (!Transient)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: FAIL SetSpread — could not allocate transient tuning copy."));
+			return;
+		}
+
+		Transient->BaseSpreadDegrees    = FMath::Max(0.0f, Base);
+		Transient->MaxSpreadDegrees     = FMath::Max(Transient->BaseSpreadDegrees, Max);
+		Transient->SpreadPerShotDegrees = FMath::Max(0.0f, PerShot);
+
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFLCombatCheats: OK SetSpread (Base=%.2f Max=%.2f PerShot=%.2f)"),
+			Transient->BaseSpreadDegrees, Transient->MaxSpreadDegrees, Transient->SpreadPerShotDegrees);
+	}
+
+	void HandleAFLCombatSetRecoil(const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: SetRecoil — usage: AFL.Combat.SetRecoil <pitchPerShot> <yawJitter>"));
+			return;
+		}
+		const float Pitch  = FCString::Atof(*Args[0]);
+		const float Jitter = FCString::Atof(*Args[1]);
+
+		UAbilitySystemComponent* ASC = FindPlayerASCFromAnyWorld();
+		UAFLAG_Laser_Pulse* Pulse = FindLivePulseAbilityInstance(ASC);
+		if (!Pulse)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: FAIL SetRecoil — no live UAFLAG_Laser_Pulse instance; ")
+				TEXT("fire Pulse once first."));
+			return;
+		}
+		UAFLPulseTuningData* Transient = GetOrCreateTransientTuningCopy(Pulse);
+		if (!Transient)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: FAIL SetRecoil — could not allocate transient tuning copy."));
+			return;
+		}
+
+		Transient->RecoilPitchPerShot      = FMath::Max(0.0f, Pitch);
+		Transient->RecoilYawJitterDegrees  = FMath::Max(0.0f, Jitter);
+
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFLCombatCheats: OK SetRecoil (Pitch=%.2f Jitter=%.2f)"),
+			Transient->RecoilPitchPerShot, Transient->RecoilYawJitterDegrees);
+	}
+
 	FAutoConsoleCommand GAFLCombatDamageCmd(
 		TEXT("AFL.Combat.Damage"),
 		TEXT("AFL-0105: apply GE_AFL_Damage_Pulse self-target. Usage: AFL.Combat.Damage [amount=18]"),
@@ -388,6 +593,21 @@ namespace
 		TEXT("AFL.Combat.ResetHeat"),
 		TEXT("AFL-0207: clear Heat and State.Overheated."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatResetHeat));
+
+	FAutoConsoleCommand GAFLCombatLoadTuningCmd(
+		TEXT("AFL.Combat.LoadTuning"),
+		TEXT("AFL-0209: swap UAFLAG_Laser_Pulse->TuningData live. Usage: AFL.Combat.LoadTuning <AssetPath e.g. /AFLCombat/Tuning/DA_AFLPulseTuning>"),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatLoadTuning));
+
+	FAutoConsoleCommand GAFLCombatSetSpreadCmd(
+		TEXT("AFL.Combat.SetSpread"),
+		TEXT("AFL-0209: tweak Pulse spread on a TRANSIENT copy (source DA untouched). Usage: AFL.Combat.SetSpread <baseDeg> <maxDeg> <perShotDeg>"),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatSetSpread));
+
+	FAutoConsoleCommand GAFLCombatSetRecoilCmd(
+		TEXT("AFL.Combat.SetRecoil"),
+		TEXT("AFL-0209: tweak Pulse recoil on a TRANSIENT copy (source DA untouched). Usage: AFL.Combat.SetRecoil <pitchPerShot> <yawJitter>"),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatSetRecoil));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER
