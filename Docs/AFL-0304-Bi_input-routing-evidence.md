@@ -48,7 +48,7 @@ normally on the same engine + same box.
 
 1. **Init state stalled at DataInitialized** → both components return `InitState.GameplayReady`.
 2. **Missing `DefaultCameraMode` on PawnData blocks init advancement** → set to `CM_ThirdPerson_C`, init was already at GameplayReady before AND after. Did not unblock movement.
-3. **Feature-name rename `Hero → AFLHero` breaks Lyra's wait-list** → `AFLHeroComponent` inherits `HandleChangeInitState` from `ULyraHeroComponent`; binding logic runs keyed off this component's own GameplayReady transition. State reached GameplayReady regardless of rename.
+3. **Feature-name rename `Hero → AFLHero` breaks Lyra's wait-list** → `AFLHeroComponent` inherits `HandleChangeInitState` from `ULyraHeroComponent`; binding logic runs keyed off this component's own GameplayReady transition. State reached GameplayReady regardless of rename. **Falsified by experiment 2026-05-25:** removed the override entirely (kept inherited `"Hero"` name), full UBT rebuild (273 actions, 616s), PIE test — WASD/Shift still dead. The rename was orphaned (zero call sites referenced `"AFLHero"`) AND not the bug. Kept the revert as cleanup since the override was real dead code.
 4. **`ClearAllMappings` at `LyraHeroComponent::InitializePlayerInput:244` wipes the subsystem** → `showdebug enhancedinput` confirms BOTH `IMC_AFL_Movement` AND `IMC_Default` are present in the subsystem at runtime, with their mapping lists intact. Subsystem is NOT empty.
 5. **HUD widget (`W_OverallUILayout_C_0`) consumes keyboard input** → `ShowFlag.UI 0` and `F1` (HUD toggle) tested; neither restored WASD. HUD is not eating input.
 6. **Wrong PlayerController (DebugCameraController) is active** → `get_player_controller(0)` returns `LyraPlayerController`. Red herring; DebugCameraController exists in world but isn't the active controller.
@@ -108,10 +108,21 @@ Modified locally but NOT YET COMMITTED at evidence-dump time:
 
 These three asset edits are necessary-not-sufficient: `showdebug` confirms they register correctly at runtime, but they do not restore input routing alone. They are intended to be committed as part of the input-content baseline so VS investigation starts from a known-correct asset state.
 
+## Outstanding hypotheses (post-rename-falsification)
+
+With the rename ruled out, the remaining candidate causes are narrower:
+
+1. **`bReadyToBindInputs` may be False at the live AFLHeroComponent despite `GameplayReady`.** Python's `get_editor_property` cannot read it (protected field) and `IsReadyToBindInputs()` UFUNCTION is not exposed to the bridge. Test C (VS source-stepping) directly addresses this — set breakpoint inside `ULyraHeroComponent::InitializePlayerInput` and observe whether it fires for the AFL pawn. Source trace says it MUST fire if the component reached GameplayReady (which the runtime probe confirmed), but trace-says doesn't equal runtime-confirms.
+
+2. **`EnhancedInputComponent`'s internal action-binding table may not contain the IA→handler bindings even though IMCs are registered.** `showdebug enhancedinput` shows IMC presence and key→IA resolution but not "does pressing this key actually invoke `Input_Move` on the live HeroComponent." Source-stepping inside `UEnhancedInputComponent::ProcessInput` answers this.
+
+3. **The two isolation tests from Test A/B above remain untried.** Cheapest next-experiment if VS isn't available.
+
 ## Followup tickets implied by this work
 
 - **AFL-0107-followup:** add `InputTag.Weapon.Fire → IA_Weapon_Fire` to `InputData_AFL_Hero.AbilityInputActions`. Deferred pending AFL-0304-Bi resolution.
 - **AFL-0209-feel-check:** PIE validation of bloom climb/recover/live-swap. Blocked on AFL-0304-Bi.
+- **C4996 cleanup:** `AFLAG_Laser_Beam.cpp:53` and `AFLAG_Laser_Pulse.cpp:45` use the now-deprecated `UGameplayAbility::AbilityTags` direct-mutation API. UE 5.6 surfaces these as build warnings; UE 5.7+ will make them errors. Swap to `SetAssetTags(...)` in ctor.
 - **Tracker v2.8 audit:** five "the tracker said it shipped but content was incomplete" findings this session (Pulse ungranted; DA_AFL_AbilitySet_Combat_Pulse never authored; InputData_AFL_Hero authored Dash-only; `DefaultCameraMode=None`; this entire input-routing breakage going undetected since AFL-0214 supposedly closed). The AFL content layer needs a deliberate re-audit pass of every ✅ task against actual tree state.
 
 ## Investigation context for the next session

@@ -61,11 +61,16 @@ public:
 
 	UAFLHeroComponent(const FObjectInitializer& ObjectInitializer);
 
-	/** Component-implemented feature name. Distinct from the Lyra hero feature so init-state machinery treats them independently. */
-	static AFLCOMBAT_API const FName NAME_ActorFeatureName;
-
-	/** IGameFrameworkInitStateInterface — override to advertise the AFL feature name without disturbing Lyra's state graph. */
-	virtual FName GetFeatureName() const override { return NAME_ActorFeatureName; }
+	// NOTE: Intentionally does NOT override GetFeatureName(). We inherit
+	// ULyraHeroComponent's NAME_ActorFeatureName = "Hero" so this component
+	// registers with the GameFrameworkComponentManager under the same feature
+	// name Lyra's stock hero plumbing expects. Earlier versions of this class
+	// declared a distinct "AFLHero" feature name based on the assumption that
+	// AFL needed its own state graph; investigation 2026-05-25 confirmed the
+	// rename was fully orphaned (zero call sites in the entire project
+	// queried "AFLHero"), and Lyra's init-state gates are feature-name-agnostic
+	// except for the PawnExtension self-check. Reverted to inherited default
+	// as part of AFL-0304-Bi diagnosis.
 
 	/**
 	 * Server-authoritative: equip every entry in DefaultEquipmentDefinitions via

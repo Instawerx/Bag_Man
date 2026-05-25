@@ -11,7 +11,9 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLHeroComponent)
 
 
-const FName UAFLHeroComponent::NAME_ActorFeatureName("AFLHero");
+// NAME_ActorFeatureName static definition removed 2026-05-25 as part of
+// AFL-0304-Bi diagnosis — see header comment. Component now inherits
+// ULyraHeroComponent's "Hero" feature name.
 
 
 UAFLHeroComponent::UAFLHeroComponent(const FObjectInitializer& ObjectInitializer)
