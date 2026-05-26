@@ -136,3 +136,72 @@ With the rename ruled out, the remaining candidate causes are narrower:
 ---
 
 *Written 2026-05-24/25 EOD as the input-routing diagnostic terminated at the AIK tool boundary. Next session resumes with VS attached + breakpoint on `UPlayerInput::InputKey` per Test C above.*
+
+---
+
+## 2026-05-26 update — VS debugger attached, partial fix landed, still dead
+
+### What the debugger proved (this is bedrock, not theory)
+
+Attached VS Code (`cppvsdbg`) to a running `UnrealEditor.exe` PIE session. Breakpoint at `Source/LyraGame/Character/LyraHeroComponent.cpp:226` (`ULyraHeroComponent::InitializePlayerInput`) **hit** for `UAFLHeroComponent` — so the override IS being called on our component. At the iteration site (line 252), the Watch panel showed:
+
+```
+this->DefaultInputMappings = { AllocatorInstance = {...}, ArrayNum = 0, ArrayMax = 0 }
+```
+
+**Root-cause #1 confirmed by direct memory read, not inference.** Lyra's hero plumbing calls `Subsystem->ClearAllMappings()` at line 244, then iterates `DefaultInputMappings` at line 252 to repopulate. With the array empty on `UAFLHeroComponent`, the LAS-registered IMCs (which `showdebug enhancedinput` correctly reports as present pre-clear) get wiped and nothing puts them back. This invalidates outstanding hypothesis #2 from above — it was never an EnhancedInputComponent binding-table issue at this layer; the subsystem itself had no mappings post-clear.
+
+### Fix applied (Fix F2: ctor-side population)
+
+`Plugins/GameFeatures/AFLCombat/Source/AFLCombat/Private/Character/AFLHeroComponent.cpp` — ctor now populates `DefaultInputMappings` with both contexts in priority order matching the LAS:
+
+- `/AFLMovement/Input/IMC_AFL_Movement.IMC_AFL_Movement` @ Priority 0
+- `/Game/Input/Mappings/IMC_Default.IMC_Default` @ Priority -1
+- Both `bRegisterWithSettings = true`
+- Soft refs via `TSoftObjectPtr<UInputMappingContext>` + `FSoftObjectPath` (matches the Lyra field type; no constructor-time disk I/O; survives CDO snapshot)
+
+Build path: PowerShell UBT (editor closed first to avoid DLL lock). 7/7 actions clean, 51.89s, zero warnings.
+
+### Post-fix debugger read — fix landed, didn't restore input
+
+Re-attached VS, re-broke at the same line 252 iteration site. Watch panel now showed:
+
+```
+this->DefaultInputMappings = { ArrayNum = 2, ArrayMax = 4 }
+```
+
+Both entries present at the iteration site. **The CDO population survived to runtime.** Yet WASD/LMB/Space/Shift remain dead in PIE after build + reopen + retest.
+
+This means **empty `DefaultInputMappings` was a real bug, but not the sole root cause.** There is at least one more broken layer downstream.
+
+### Asset content verified (rules out path-typo no-op)
+
+Both IMC `.uasset` headers dumped and inspected for printable strings:
+
+- `IMC_AFL_Movement.uasset` — confirms package path `/AFLMovement/Input/IMC_AFL_Movement`, class `/Script/EnhancedInput.InputMappingContext`, contains one mapping `LeftShift → IA_Ability_Dash`.
+- `IMC_Default.uasset` — confirms package path `/Game/Input/Mappings/IMC_Default`, class `/Script/EnhancedInput.InputMappingContext`, contains the full Lyra set (Move Forward/Backwards/Left/Right, Jump, Crouch, Fire, Look, Dash, Auto-run, Reload, etc.).
+
+The soft paths in the ctor match the asset package paths exactly. `LoadSynchronous()` should resolve.
+
+### Lyra source path re-walked with what we now know
+
+`Source/LyraGame/Character/LyraHeroComponent.cpp:252-289` — important re-read:
+
+- Line 250: **the entire IMC iteration AND the LyraIC binding block are nested inside `if (const ULyraInputConfig* InputConfig = PawnData->InputConfig)`**. If `PawnData->InputConfig` is null, all of lines 252-290 are skipped silently. AFL-0107 + commit `3c3d9bd7` should have populated `InputData_AFL_Hero`, but this hasn't been debugger-confirmed at the runtime nesting check.
+- Line 254-256: `LoadSynchronous()` followed by `if (Mapping.bRegisterWithSettings)`. Both gates have to pass per-entry.
+- Line 274-275: `ULyraInputComponent* LyraIC = Cast<ULyraInputComponent>(PlayerInputComponent);` — `ensureMsgf` fires if null (logs `"Unexpected Input Component class!"`). If LyraIC is null, lines 278-289 — including the `BindNativeAction` for `InputTag_Move`, `Look_Mouse`, `Crouch`, `AutoRun` — are skipped. This is the most plausible remaining root cause: the bindings never get wired even though the IMCs are present in the subsystem.
+
+### Next session — start with ONE breakpoint, not more theory
+
+Reopen, attach VS to the running editor, set a single breakpoint at `ULyraHeroComponent::Input_Move` (the BindNativeAction target for `InputTag.Move`). PIE, press W.
+
+- **Hits but no movement** → IA→handler binding is live; the problem is downstream in the movement layer. Likely `UAFLCharacterMovementComponent` eating the `AddMovementInput` call or velocity being clamped/overridden. Different file, different fix.
+- **Never hits** → the binding was never wired. Check the Output Log for `Unexpected Input Component class!` (means `LyraIC` cast returned null on line 274). If absent, check `PawnData->InputConfig` resolution at line 250 (set breakpoint there; inspect `InputConfig` non-null + non-empty `NativeInputActions`).
+
+That single breakpoint splits the remaining state cleanly — same shape as the BP at line 252 that broke this layer open today.
+
+### Followup ticket adjustments
+
+- **AFL-0304-Bi** stays OPEN as PARTIAL. The ctor-population fix is correct and load-bearing for the layer it addresses but is not sufficient. Do not close.
+- **AFL-0107-followup** (Fire binding) still deferred; can only meaningfully test once basic movement input is restored.
+- Other followups from the original section (C4996, tracker v2.8 audit) unchanged.

@@ -6,7 +6,9 @@
 #include "Equipment/LyraEquipmentDefinition.h"
 #include "Equipment/LyraEquipmentInstance.h"
 #include "Equipment/LyraEquipmentManagerComponent.h"
+#include "GameFeatures/GameFeatureAction_AddInputContextMapping.h"
 #include "GameFramework/Pawn.h"
+#include "UObject/SoftObjectPath.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLHeroComponent)
 
@@ -21,6 +23,36 @@ UAFLHeroComponent::UAFLHeroComponent(const FObjectInitializer& ObjectInitializer
 {
 	// Inherit Lyra's tick/replication defaults; the AFL layer only adds an
 	// equipment lifecycle on top of the existing hero plumbing.
+
+	// AFL-0304-Bi: ULyraHeroComponent::InitializePlayerInput calls
+	// Subsystem->ClearAllMappings() then iterates DefaultInputMappings to
+	// repopulate the EnhancedInput subsystem. The Game Feature's
+	// AddInputContextMapping action runs BEFORE InitializePlayerInput on the
+	// player-pawn path, so any LAS-registered IMCs get wiped and only this
+	// array's entries survive. Empty array == no input bindings, which is
+	// exactly the dead-WASD symptom diagnosed via live debugger 2026-05-26
+	// (DefaultInputMappings.ArrayNum == 0 at the iteration site).
+	//
+	// Populate in priority order matching the LAS registration:
+	//   - IMC_AFL_Movement @ Priority 0  (AFL-specific Dash + movement bindings)
+	//   - IMC_Default      @ Priority -1 (Lyra stock WASD/Look/Jump/Crouch fallback)
+	// bRegisterWithSettings=true mirrors the GameFeatureAction default so the
+	// player-mappable-key UI sees both contexts.
+	{
+		FInputMappingContextAndPriority AFLMovement;
+		AFLMovement.InputMapping = TSoftObjectPtr<UInputMappingContext>(
+			FSoftObjectPath(TEXT("/AFLMovement/Input/IMC_AFL_Movement.IMC_AFL_Movement")));
+		AFLMovement.Priority = 0;
+		AFLMovement.bRegisterWithSettings = true;
+		DefaultInputMappings.Add(AFLMovement);
+
+		FInputMappingContextAndPriority LyraDefault;
+		LyraDefault.InputMapping = TSoftObjectPtr<UInputMappingContext>(
+			FSoftObjectPath(TEXT("/Game/Input/Mappings/IMC_Default.IMC_Default")));
+		LyraDefault.Priority = -1;
+		LyraDefault.bRegisterWithSettings = true;
+		DefaultInputMappings.Add(LyraDefault);
+	}
 }
 
 void UAFLHeroComponent::BeginPlay()
