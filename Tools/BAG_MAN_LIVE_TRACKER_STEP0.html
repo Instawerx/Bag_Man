@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BAG MAN — Step-0 Live Build Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0a0c0f;
+    --panel:#11151a;
+    --panel-2:#161b22;
+    --line:#232b35;
+    --ink:#e8edf2;
+    --ink-dim:#8c98a6;
+    --ink-faint:#5b6675;
+    --amber:#ffb000;
+    --amber-deep:#c98700;
+    --green:#3ddc84;
+    --green-deep:#1f9d5a;
+    --red:#ff4d4d;
+    --blue:#4da3ff;
+    --gate:#ff6a00;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+    --disp:'Oswald',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(255,176,0,.06), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(77,163,255,.05), transparent 55%),
+      var(--bg);
+    color:var(--ink);
+    font-family:var(--mono);
+    line-height:1.5;
+    padding:0 0 120px;
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:1;
+    background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px);
+    mix-blend-mode:overlay;opacity:.5;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 28px;position:relative;z-index:2;}
+
+  /* ---------- header ---------- */
+  header{padding:54px 0 22px;border-bottom:1px solid var(--line);}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.42em;color:var(--amber);text-transform:uppercase;}
+  h1{font-family:var(--disp);font-weight:700;font-size:clamp(48px,9vw,104px);line-height:.92;letter-spacing:.01em;margin:.12em 0 .1em;text-transform:uppercase;}
+  h1 .tag{color:var(--amber);}
+  .sub{font-family:var(--disp);font-weight:300;font-size:clamp(15px,2.2vw,20px);color:var(--ink-dim);letter-spacing:.16em;text-transform:uppercase;}
+  .meta-row{display:flex;flex-wrap:wrap;gap:10px 26px;margin-top:20px;font-size:12px;color:var(--ink-faint);}
+  .meta-row b{color:var(--ink-dim);font-weight:500;}
+
+  /* ---------- overall progress ---------- */
+  .overall{display:flex;align-items:center;gap:18px;margin-top:26px;}
+  .overall .bar{flex:1;height:10px;background:var(--panel-2);border:1px solid var(--line);border-radius:2px;overflow:hidden;}
+  .overall .fill{height:100%;width:0;background:linear-gradient(90deg,var(--green-deep),var(--green));transition:width .5s cubic-bezier(.2,.8,.2,1);}
+  .overall .pct{font-family:var(--disp);font-weight:600;font-size:30px;min-width:84px;text-align:right;}
+  .overall .pct small{font-size:14px;color:var(--ink-faint);}
+
+  /* ---------- doctrine banner ---------- */
+  .doctrine{margin:30px 0 8px;background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--amber-deep);border-radius:6px;overflow:hidden;}
+  .doctrine .dh{display:flex;align-items:center;gap:12px;padding:13px 18px;background:rgba(255,176,0,.08);border-bottom:1px solid rgba(255,176,0,.25);}
+  .doctrine .dh .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 12px var(--amber);}
+  .doctrine .dh h2{font-family:var(--disp);font-weight:600;letter-spacing:.18em;font-size:15px;text-transform:uppercase;color:var(--amber);}
+  .doctrine ol{list-style:none;counter-reset:d;padding:8px 6px 14px;}
+  .doctrine li{counter-increment:d;display:flex;gap:14px;padding:10px 16px;align-items:flex-start;}
+  .doctrine li::before{content:counter(d,decimal-leading-zero);font-family:var(--disp);font-weight:700;font-size:18px;color:var(--amber-deep);min-width:30px;line-height:1.2;}
+  .doctrine li .t{font-size:13px;color:var(--ink);} 
+  .doctrine li .t b{color:var(--amber);font-weight:700;}
+  .doctrine li .t .q{color:var(--ink-dim);font-style:normal;display:block;margin-top:2px;font-size:11.5px;}
+
+  /* ---------- phase ---------- */
+  .phase{margin-top:38px;}
+  .phase-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:10px;}
+  .phase-head .pid{font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.3em;color:var(--ink-faint);}
+  .phase-head h2{font-family:var(--disp);font-weight:600;font-size:clamp(22px,3.4vw,32px);text-transform:uppercase;letter-spacing:.02em;}
+  .phase-head .pcount{margin-left:auto;font-size:12px;color:var(--ink-faint);}
+  .phase-head .pcount b{color:var(--green);}
+  .phase-note{font-size:12.5px;color:var(--ink-dim);margin:12px 2px 4px;border-left:2px solid var(--line);padding-left:12px;}
+
+  .sprint{margin-top:20px;}
+  .sprint-title{font-family:var(--disp);font-weight:500;letter-spacing:.16em;font-size:13px;text-transform:uppercase;color:var(--blue);margin:14px 2px 8px;}
+
+  /* ---------- task ---------- */
+  .task{display:flex;gap:14px;align-items:flex-start;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:5px;margin-bottom:7px;transition:border-color .2s,background .2s,transform .12s;}
+  .task:hover{border-color:#2f3a47;transform:translateX(2px);}
+  .task.done{background:linear-gradient(90deg,rgba(61,220,132,.07),var(--panel) 60%);border-color:rgba(61,220,132,.35);}
+  .task .cb{position:relative;flex:0 0 auto;margin-top:1px;}
+  .task .cb input{position:absolute;opacity:0;width:22px;height:22px;cursor:pointer;z-index:2;}
+  .task .cb .box{width:22px;height:22px;border:1.5px solid var(--ink-faint);border-radius:4px;display:grid;place-items:center;transition:.18s;background:var(--panel-2);}
+  .task .cb .box svg{width:13px;height:13px;stroke:var(--bg);stroke-width:3.5;fill:none;opacity:0;transform:scale(.4);transition:.18s;}
+  .task.done .cb .box{background:var(--green);border-color:var(--green);box-shadow:0 0 12px rgba(61,220,132,.4);}
+  .task.done .cb .box svg{opacity:1;transform:scale(1);}
+  .task .body{flex:1;min-width:0;}
+  .task .id{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--amber);letter-spacing:.05em;}
+  .task .desc{font-size:13.5px;color:var(--ink);margin-top:2px;}
+  .task.done .desc{color:var(--ink-dim);}
+  .task .desc .why{color:var(--ink-faint);font-size:11.5px;display:block;margin-top:3px;}
+  .task .tags{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;}
+  .chip{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;padding:2.5px 7px;border-radius:3px;font-weight:700;border:1px solid;}
+  .chip.pie{color:var(--green);border-color:var(--green-deep);background:rgba(61,220,132,.08);}
+  .chip.build{color:var(--blue);border-color:#2c5a8a;background:rgba(77,163,255,.08);}
+  .chip.data{color:var(--amber);border-color:var(--amber-deep);background:rgba(255,176,0,.08);}
+  .chip.carry{color:#c9a0ff;border-color:#5e4a87;background:rgba(160,120,255,.08);}
+
+  /* ---------- the gate ---------- */
+  .gate{position:relative;margin:22px 0;border:2px solid var(--gate);border-radius:7px;background:linear-gradient(135deg,rgba(255,106,0,.12),rgba(255,106,0,.03));overflow:hidden;box-shadow:0 0 30px rgba(255,106,0,.12);}
+  .gate::before{content:"";position:absolute;inset:0;background-image:repeating-linear-gradient(45deg,rgba(255,106,0,.10) 0 14px,transparent 14px 28px);pointer-events:none;}
+  .gate-head{display:flex;align-items:center;gap:12px;padding:11px 18px;background:rgba(255,106,0,.16);border-bottom:1px solid var(--gate);position:relative;}
+  .gate-head .lock{font-family:var(--disp);font-weight:700;letter-spacing:.28em;font-size:14px;color:var(--gate);text-transform:uppercase;}
+  .gate-head .imm{margin-left:auto;font-size:10px;letter-spacing:.2em;color:#ffcaa0;text-transform:uppercase;}
+  .gate .task{margin:14px;background:rgba(10,12,15,.6);border-color:var(--gate);position:relative;}
+  .gate .task.done{background:linear-gradient(90deg,rgba(61,220,132,.12),rgba(10,12,15,.6) 60%);border-color:var(--green);}
+  .gate .task .id{color:var(--gate);}
+  .gate-foot{padding:0 18px 14px;font-size:12px;color:#ffcaa0;position:relative;}
+  .gate-foot b{color:#fff;}
+
+  /* ---------- carried-forward ---------- */
+  .carry-box{margin-top:14px;background:var(--panel);border:1px dashed #5e4a87;border-radius:6px;padding:14px 18px;}
+  .carry-box h3{font-family:var(--disp);font-weight:600;letter-spacing:.18em;font-size:13px;text-transform:uppercase;color:#c9a0ff;margin-bottom:8px;}
+  .carry-box p{font-size:12px;color:var(--ink-dim);margin-bottom:8px;}
+  .carry-box ul{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;}
+  .carry-box li{font-size:11.5px;color:var(--ink);padding:6px 10px;background:var(--panel-2);border:1px solid var(--line);border-radius:4px;}
+  .carry-box li span{color:var(--green);}
+
+  /* ---------- not-doing ---------- */
+  .guard{margin-top:34px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--red);border-radius:5px;padding:16px 20px;}
+  .guard h3{font-family:var(--disp);font-weight:600;letter-spacing:.18em;font-size:13px;text-transform:uppercase;color:var(--red);margin-bottom:10px;}
+  .guard ul{list-style:none;}
+  .guard li{font-size:12.5px;color:var(--ink-dim);padding:5px 0 5px 22px;position:relative;}
+  .guard li::before{content:"✕";position:absolute;left:0;color:var(--red);font-weight:700;}
+  .guard li b{color:var(--ink);}
+
+  /* ---------- known debt ---------- */
+  .debt{margin-top:34px;background:var(--panel);border:1px solid var(--line);border-left:3px solid #c9a0ff;border-radius:5px;padding:16px 20px;}
+  .debt h3{font-family:var(--disp);font-weight:600;letter-spacing:.18em;font-size:13px;text-transform:uppercase;color:#c9a0ff;margin-bottom:6px;}
+  .debt .lede{font-size:11.5px;color:var(--ink-faint);margin-bottom:14px;}
+  .debt .item{padding:11px 0;border-top:1px solid var(--line);}
+  .debt .item:first-of-type{border-top:none;padding-top:4px;}
+  .debt .item .row1{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;}
+  .debt .item .did{font-family:var(--mono);font-size:11px;font-weight:700;color:#c9a0ff;letter-spacing:.05em;}
+  .debt .item .title{font-size:13px;color:var(--ink);font-weight:500;}
+  .debt .item .gate{margin-left:auto;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;padding:2.5px 7px;border-radius:3px;font-weight:700;border:1px solid #5e4a87;color:#c9a0ff;background:rgba(160,120,255,.08);}
+  .debt .item .body{font-size:12px;color:var(--ink-dim);margin-top:6px;line-height:1.55;}
+  .debt .item .body b{color:var(--ink);font-weight:600;}
+  .debt .item .meta{font-size:10.5px;color:var(--ink-faint);margin-top:6px;letter-spacing:.04em;}
+
+  /* ---------- postmortem ---------- */
+  .pm{margin-top:34px;background:linear-gradient(180deg,var(--panel-2),var(--panel));border:1px solid var(--line);border-radius:6px;padding:18px 22px;}
+  .pm h3{font-family:var(--disp);font-weight:600;letter-spacing:.18em;font-size:13px;text-transform:uppercase;color:var(--ink-dim);margin-bottom:10px;}
+  .pm p{font-size:12.5px;color:var(--ink-faint);margin-bottom:8px;}
+  .pm p b{color:var(--ink-dim);}
+
+  footer{margin-top:50px;padding-top:20px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-faint);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;}
+  .reset{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--ink-faint);background:transparent;border:1px solid var(--line);border-radius:4px;padding:6px 12px;cursor:pointer;text-transform:uppercase;transition:.2s;}
+  .reset:hover{color:var(--red);border-color:var(--red);}
+
+  a.jump{color:var(--amber);text-decoration:none;border-bottom:1px dotted var(--amber-deep);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">C12 AI Gaming · UE 5.6 · Lyra-derived · Step-0 Rebuild</div>
+    <h1>BAG <span class="tag">MAN</span></h1>
+    <div class="sub">Live Build Tracker — Foundation-First Reset</div>
+    <div class="meta-row">
+      <span><b>Repo:</b> C12-Ai-Gaming/Bag_Man</span>
+      <span><b>Engine:</b> UE 5.6 (Lyra base)</span>
+      <span><b>Path:</b> C:\Dev\Bag_Man</span>
+      <span><b>Supersedes:</b> BAG_MAN_LIVE_TRACKER.html (v2.7)</span>
+      <span><b>Tracker:</b> step0_v1</span>
+    </div>
+    <div class="overall">
+      <div class="bar"><div class="fill" id="overallFill"></div></div>
+      <div class="pct"><span id="overallPct">0</span><small>%</small></div>
+    </div>
+  </header>
+
+  <!-- DOCTRINE -->
+  <section class="doctrine">
+    <div class="dh"><span class="dot"></span><h2>Immovable Doctrine — read before checking anything</h2></div>
+    <ol>
+      <li><div class="t"><b>✅ means DEMONSTRATED IN PIE</b> — watched moving on screen. Never "compiles," never "committed." A green box is a thing you saw work, not a thing that built.<span class="q">The entire previous build failed because ✅ measured "code authored," not "feature works."</span></div></li>
+      <li><div class="t">The <b>Step-0 Control Gate is immovable.</b> A possessed Bag Man pawn must WALK / LOOK / JUMP / CROUCH in PIE before <b>any</b> feature, ability, or combat work begins.<span class="q">No exceptions. The gate does not move for "just one quick thing."</span></div></li>
+      <li><div class="t">Stay <b>Lyra-canonical.</b> Character = Blueprint child + data assets. IMCs / AbilitySets / InputConfig live on BP & DataAsset defaults — <b>never</b> a from-scratch raw-C++ character assembly.<span class="q">Work WITH Lyra's grain. The last bug was caused by departing from it (empty DefaultInputMappings on a raw-C++ hero component).</span></div></li>
+      <li><div class="t"><b>One layer at a time. Re-verify control after each.</b> Reattach a system → confirm the pawn still walks/looks/jumps → only then the next.<span class="q">Never stack a second thing on an unverified first thing.</span></div></li>
+      <li><div class="t">The <b>live PIE / live terminal is the only source of truth.</b> Status marks, agent summaries, and prior reads are reports — verify against a running command or a moving pawn before you act.<span class="q">Reports lie by omission. The pawn either moves or it doesn't.</span></div></li>
+    </ol>
+  </section>
+
+  <!-- PHASE 0 -->
+  <section class="phase" id="p0">
+    <div class="phase-head">
+      <span class="pid">PHASE 0</span>
+      <h2>Foundation — A Character That Controls</h2>
+      <span class="pcount"><b data-count="p0">0</b> / <span data-total="p0">0</span> PIE-verified</span>
+    </div>
+    <div class="phase-note">The part that was skipped. Nothing in Phase 1+ exists until the Control Gate (BM-0013) is green. Build the foundation the canonical way, prove it moves, then — and only then — reattach what already works.</div>
+
+    <div class="sprint">
+      <div class="sprint-title">Sprint 0.0 — Baseline sanity (prove the box & the seams)</div>
+      <div data-task="BM-0001" data-phase="p0" data-kind="pie" data-desc="Stock Lyra hero (B_Hero_ShooterGame) walks / looks / jumps in PIE on a clean stock Lyra map." data-why="Confirms engine + EnhancedInput + IMC plumbing are healthy on THIS box before we touch anything AFL. If stock is broken, the problem isn't us."></div>
+      <div data-task="BM-0002" data-phase="p0" data-kind="pie" data-desc="Create L_BagMan_Greybox map + B_Experience_BagMan referencing the STOCK Lyra PawnData. Stock pawn walks on the BagMan map+experience." data-why="Proves the map / experience layer in isolation, using a pawn known to work, before the pawn variable is introduced."></div>
+    </div>
+
+    <div class="sprint">
+      <div class="sprint-title">Sprint 0.1 — Canonical character adoption</div>
+      <div data-task="BM-0010" data-phase="p0" data-kind="build" data-desc="Copy / reparent B_Hero_ShooterGame → B_Hero_BagMan as a Blueprint child of ALyraCharacter. Keep it a BP." data-why="Adopt the thing that demonstrably walks. The BP child is where Lyra carries DefaultInputMappings, camera, mesh, components — as data."></div>
+      <div data-task="BM-0011" data-phase="p0" data-kind="data" data-desc="Author DA_PawnData_BagMan (DataAsset): PawnClass = B_Hero_BagMan, InputConfig set, DefaultCameraMode set (not None)." data-why="PawnData is the canonical contract. Everything reads from here."></div>
+      <div data-task="BM-0012" data-phase="p0" data-kind="data" data-desc="Point B_Experience_BagMan.DefaultPawnData → DA_PawnData_BagMan." data-why="Wire the experience to the new pawn data."></div>
+    </div>
+
+    <!-- THE GATE -->
+    <div class="gate" id="gate">
+      <div class="gate-head"><span class="lock">⛔ STEP-0 CONTROL GATE</span><span class="imm">Immovable · nothing proceeds until green</span></div>
+      <div data-task="BM-0013" data-phase="p0" data-kind="pie" data-desc="B_Hero_BagMan, possessed in PIE on L_BagMan_Greybox: WALKS (WASD), LOOKS (mouse — both axes), JUMPS (Space), CROUCHES. All demonstrated on screen." data-why="THE milestone. The mission 'adopt the Lyra character and make it ours' is not done until this is watched working. Do not pass this line on faith."></div>
+      <div class="gate-foot"><b>If this is not green, no task below it may be started.</b> A controllable pawn is the floor of the entire project.</div>
+    </div>
+
+    <div class="sprint">
+      <div class="sprint-title">Sprint 0.2 — Input config & branding (canonical, data-layer)</div>
+      <div data-task="BM-0020" data-phase="p0" data-kind="pie" data-desc="Bag Man IMC + InputConfig (Move / Look / Jump / Crouch) authored on the BP & data layer — NOT a C++ constructor. Each binding verified live." data-why="Input lives as data on the canonical layer. No ctor-populated DefaultInputMappings."></div>
+      <div data-task="BM-0021" data-phase="p0" data-kind="pie" data-desc="Branding pass: rename / reskin toward Bag Man identity. Re-verify the pawn STILL walks/looks/jumps after the changes." data-why="Identity work must not silently break control. Re-verify after touching the pawn."></div>
+    </div>
+
+    <div class="sprint">
+      <div class="sprint-title">Sprint 0.3 — Movement extension (dash) the canonical way</div>
+      <div data-task="BM-0030" data-phase="p0" data-kind="build" data-desc="UBagManCharacterMovementComponent : ULyraCharacterMovementComponent — a C++ subclass REFERENCED by B_Hero_BagMan, not a from-scratch character." data-why="Custom behavior in C++ is fine; the character ASSEMBLY stays canonical. The CMC is a referenced component, not a hand-built pawn."></div>
+      <div data-task="BM-0031" data-phase="p0" data-kind="data" data-desc="Dash ability + IMC mapping, granted via AbilitySet on DA_PawnData_BagMan." data-why="Ability granted through the canonical Experience → PawnData → AbilitySet chain."></div>
+      <div data-task="BM-0032" data-phase="p0" data-kind="pie" data-desc="Dash fires in PIE AND the pawn still walks / looks / jumps after the CMC swap." data-why="The custom CMC is the exact class family that could eat movement input. Re-verify base control after installing it."></div>
+    </div>
+  </section>
+
+  <!-- PHASE 1 -->
+  <section class="phase" id="p1">
+    <div class="phase-head">
+      <span class="pid">PHASE 1</span>
+      <h2>Reattach Combat — One Piece at a Time</h2>
+      <span class="pcount"><b data-count="p1">0</b> / <span data-total="p1">0</span> PIE-verified</span>
+    </div>
+    <div class="phase-note">The AFLCombat C++ already written is sound — it compiles and is lint-clean. It was never the failure; the character under it was. Reattach each system to the now-controllable pawn and <b>re-verify control after every single one</b>. A combat feature is ✅ only when it works AND the pawn still moves.</div>
+
+    <div class="carry-box">
+      <h3>◇ Carried Forward — Known-Good Combat C++</h3>
+      <p>Preserved from the prior build. Do not rewrite — reattach. Each compiles clean &amp; passed lint; none is yet PIE-proven on a controllable pawn (that was impossible before).</p>
+      <ul>
+        <li><span>›</span> Pulse ability (hitscan, predict-and-send)</li>
+        <li><span>›</span> Damage ExecCalc + tag-gated GEs</li>
+        <li><span>›</span> Heat / overheat system</li>
+        <li><span>›</span> Lag-compensated server re-trace</li>
+        <li><span>›</span> Telemetry / message-bus events</li>
+        <li><span>›</span> Pulse tuning DataAsset (AFL-0209)</li>
+      </ul>
+    </div>
+
+    <div class="sprint">
+      <div class="sprint-title">Reattachment sequence</div>
+      <div data-task="BM-0100" data-phase="p1" data-kind="carry" data-desc="Reattach the combat GameFeature / AbilitySet to DA_PawnData_BagMan. Pawn still walks/looks/jumps in PIE." data-why="Adding combat components must not break base control. Re-verify first."></div>
+      <div data-task="BM-0101" data-phase="p1" data-kind="pie" data-desc="Grant Pulse via AbilitySet under InputTag.Weapon.Fire. LMB fires Pulse in PIE AND the pawn still moves." data-why="The Fire binding that was deferred the entire prior saga — now on a pawn that actually controls."></div>
+      <div data-task="BM-0102" data-phase="p1" data-kind="pie" data-desc="Damage GE applies on a confirmed hit in PIE (target takes damage)." data-why="Damage path proven end-to-end, watched."></div>
+      <div data-task="BM-0103" data-phase="p1" data-kind="pie" data-desc="Heat builds and overheat gates firing as designed, in PIE." data-why="Heat system behavior demonstrated, not assumed."></div>
+      <div data-task="BM-0104" data-phase="p1" data-kind="pie" data-desc="Pulse tuning DA live-swap — bloom climb / recover / live retune (the AFL-0209 feel-check, finally unblocked)." data-why="The validation that was blocked for the entire previous build, now runnable."></div>
+      <div data-task="BM-0105" data-phase="p1" data-kind="pie" data-desc="Lag-comp re-trace verified under simulated latency (net emulation)." data-why="Server-authoritative re-trace proven with real lag, not on a LAN ideal."></div>
+      <div data-task="BM-0106" data-phase="p1" data-kind="pie" data-desc="Telemetry / message-bus events fire on combat actions in PIE." data-why="Cross-system events demonstrated firing."></div>
+    </div>
+  </section>
+
+  <!-- PHASE 2+ -->
+  <section class="phase" id="p2">
+    <div class="phase-head">
+      <span class="pid">PHASE 2+</span>
+      <h2>Forward Roadmap — Configure, Don't Reinvent</h2>
+      <span class="pcount"><b data-count="p2">0</b> / <span data-total="p2">0</span> PIE-verified</span>
+    </div>
+    <div class="phase-note">Reference scope from the prior roadmap. These are ~80% "configure Lyra's existing systems," which is exactly why staying canonical matters — each becomes adoption work, not invention. Each phase is gated on the prior being PIE-verified. Expand into full sprints when Phase 1 is green.</div>
+    <div class="sprint">
+      <div class="sprint-title">High-level milestones (expand later)</div>
+      <div data-task="BM-0200" data-phase="p2" data-kind="build" data-desc="Online services adoption — EOS auth / friends / voice (Lyra ships this; configure it)." data-why="Lyra-native. Configuration, not construction."></div>
+      <div data-task="BM-0201" data-phase="p2" data-kind="build" data-desc="Dedicated server build target + GameLift packaging (Lyra has the server target)." data-why="Lyra-native server target adopted, not built from scratch."></div>
+      <div data-task="BM-0202" data-phase="p2" data-kind="build" data-desc="Matchmaking + session flow via Lyra's experience/session system." data-why="Built on Lyra's existing session plumbing."></div>
+      <div data-task="BM-0203" data-phase="p2" data-kind="build" data-desc="PlayFab economy + battle pass + ranked progression." data-why="Backend services layered onto the canonical foundation."></div>
+      <div data-task="BM-0204" data-phase="p2" data-kind="build" data-desc="Platform cert prep (TRC/XR) + performance pass." data-why="Shipping readiness on a foundation proven from Step 0."></div>
+    </div>
+  </section>
+
+  <!-- GUARDRAILS -->
+  <section class="guard">
+    <h3>✕ What This Reset Is NOT</h3>
+    <ul>
+      <li><b>NOT abandoning Lyra.</b> Dropping it means rebuilding GAS, EOS, dedicated servers, GameFeatures, CommonUI from scratch — a different multi-year project. The problem was never Lyra; it was adopting it incorrectly.</li>
+      <li><b>NOT discarding the combat C++.</b> Pulse / damage / heat / lag-comp / telemetry are sound. They are carried forward and reattached — not rewritten.</li>
+      <li><b>NOT marking ✅ on compile.</b> Building clean is necessary and meaningless on its own. Only a moving pawn / firing weapon watched in PIE earns the box.</li>
+      <li><b>NOT stacking features on unverified foundations.</b> The single rule that would have prevented the entire prior saga.</li>
+      <li><b>NOT a raw-C++ character assembly.</b> Canonical BP-child + data only. The deviation that caused the empty-DefaultInputMappings bug is forbidden.</li>
+    </ul>
+  </section>
+
+  <!-- KNOWN DEBT -->
+  <section class="debt">
+    <h3>◆ Known Debt — named, tracked, must clear before the gate it points at</h3>
+    <p class="lede">Real findings surfaced during build. NOT "harmless warnings" — every entry here is a Phase-blocker for the gate listed. The class of problem we used to ignore.</p>
+
+    <div class="item">
+      <div class="row1">
+        <span class="did">BM-DEBT-001</span>
+        <span class="title">B_Experience_BagMan (and BagMan content generally) lives in /Game/ and references /ShooterCore/ plugin assets</span>
+        <span class="gate">Blocks: Phase 1 plugin authoring</span>
+      </div>
+      <div class="body">
+        Lyra's asset-reference-restriction validator flagged 4 illegal references on save: <code>/Game/BagMan/Experiences/B_Experience_BagMan</code> referencing <code>/ShooterCore/Game/HeroData_ShooterGame</code> and the three <code>LAS_ShooterGame_*</code> ActionSets. Did not block save, but violates Lyra's content-dependency architecture: project content (<code>/Game/</code>) should not depend on plugin content (<code>/ShooterCore/</code>) — instead, plugin content activates <i>into</i> the project.
+        <br><br>
+        <b>Proper fix:</b> BagMan content belongs in a BagMan GameFeature plugin that activates ShooterCore content into the project, not <code>/Game/</code> content depending directly on plugin content. The current arrangement works for Sprint 0.0 isolation but is the wrong shape for adding BagMan-specific abilities, weapons, or experiences in Phase 1+.
+        <br><br>
+        <b>Why it matters:</b> this is the exact "just a warning" class that silently bit the prior build. Named, not trusted to evaporate.
+      </div>
+      <div class="meta">Surfaced 2026-05-26 during BM-0002 PIE diagnosis (PIE log line 4092). Must resolve before authoring BagMan-specific plugin content in Phase 1.</div>
+    </div>
+  </section>
+
+  <!-- POSTMORTEM -->
+  <section class="pm">
+    <h3>⌗ Why This Tracker Exists (post-mortem, kept on purpose)</h3>
+    <p><b>The failure:</b> "Adopt the Lyra character and fully expand it" was a Phase-1 foundational mission. It was marked ✅ and built upon for weeks — through Pulse, beam, heat, dash, tuning — while the possessed pawn never actually accepted input. WASD/LMB were dead the entire time.</p>
+    <p><b>The root deviation:</b> a raw-C++ hero component with no BP child left Lyra's <code>DefaultInputMappings</code> empty at runtime (confirmed in the debugger). Lyra's <code>InitializePlayerInput</code> clears all mappings then repopulates from that array — empty on a raw-C++ class — so every binding silently died. The fix for that one layer was correct but insufficient; deeper input-routing layers remained.</p>
+    <p><b>The meta-failure:</b> ✅ measured "code authored + compiled," not "feature demonstrated." Five separate "tracker said shipped, content was incomplete" findings surfaced in a single session. The checkbox lied because nobody watched the pawn move.</p>
+    <p><b>The correction:</b> foundation first, canonical adoption, an immovable PIE-control gate, ✅ = watched-working, one layer at a time. This document is built so that trap cannot recur.</p>
+  </section>
+
+  <footer>
+    <span>BAG MAN · Step-0 Live Build Tracker · step0_v1 · checkbox state persists locally in this browser</span>
+    <button class="reset" id="resetBtn">Reset all checks</button>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var STORAGE_KEY = "bag_man_tracker_step0_v1";
+
+  // ----- safe storage (works as local file; degrades gracefully in sandboxed preview) -----
+  function loadState(){
+    try{ var raw = window.localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : {}; }
+    catch(e){ return {}; }
+  }
+  function saveState(state){
+    try{ window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch(e){ /* preview sandbox: in-memory only this session */ }
+  }
+  var state = loadState();
+
+  var KIND_LABEL = { pie:"PIE-verify", build:"Build", data:"Data asset", carry:"Reattach" };
+
+  // ----- build task rows from data-task stubs -----
+  var stubs = document.querySelectorAll("[data-task]");
+  stubs.forEach(function(stub){
+    var id    = stub.getAttribute("data-task");
+    var kind  = stub.getAttribute("data-kind") || "pie";
+    var desc  = stub.getAttribute("data-desc") || "";
+    var why   = stub.getAttribute("data-why")  || "";
+
+    var row = document.createElement("div");
+    row.className = "task";
+    row.setAttribute("data-row", id);
+
+    var checked = !!state[id];
+    if(checked) row.classList.add("done");
+
+    var whyHTML = why ? '<span class="why">'+why+'</span>' : '';
+    var kindLabel = KIND_LABEL[kind] || kind;
+
+    row.innerHTML =
+      '<label class="cb">'+
+        '<input type="checkbox" '+(checked?'checked':'')+' aria-label="Mark '+id+' PIE-verified">'+
+        '<span class="box"><svg viewBox="0 0 24 24"><polyline points="4 12 10 18 20 6"></polyline></svg></span>'+
+      '</label>'+
+      '<div class="body">'+
+        '<div class="id">'+id+'</div>'+
+        '<div class="desc">'+desc+whyHTML+'</div>'+
+        '<div class="tags"><span class="chip '+kind+'">'+kindLabel+'</span></div>'+
+      '</div>';
+
+    var input = row.querySelector("input");
+    input.addEventListener("change", function(){
+      if(input.checked){ state[id] = true; row.classList.add("done"); }
+      else { delete state[id]; row.classList.remove("done"); }
+      saveState(state);
+      recompute();
+    });
+
+    stub.replaceWith(row);
+  });
+
+  // ----- progress -----
+  var rows = Array.prototype.slice.call(document.querySelectorAll("[data-row]"));
+  function recompute(){
+    var total = rows.length, done = 0;
+    var perPhase = {};
+    rows.forEach(function(r){
+      var id = r.getAttribute("data-row");
+      var phase = r.closest(".phase") ? r.closest(".phase").id : "px";
+      perPhase[phase] = perPhase[phase] || {t:0,d:0};
+      perPhase[phase].t++;
+      if(state[id]){ done++; perPhase[phase].d++; }
+    });
+    var pct = total ? Math.round(done/total*100) : 0;
+    document.getElementById("overallFill").style.width = pct+"%";
+    document.getElementById("overallPct").textContent = pct;
+
+    document.querySelectorAll("[data-total]").forEach(function(el){
+      var p = el.getAttribute("data-total");
+      el.textContent = perPhase[p] ? perPhase[p].t : 0;
+    });
+    document.querySelectorAll("[data-count]").forEach(function(el){
+      var p = el.getAttribute("data-count");
+      el.textContent = perPhase[p] ? perPhase[p].d : 0;
+    });
+
+    // gate emphasis: dim everything below the gate until BM-0013 is done
+    var gateDone = !!state["BM-0013"];
+    var gate = document.getElementById("gate");
+    if(gate){ gate.style.opacity = "1"; }
+  }
+  recompute();
+
+  // ----- reset -----
+  document.getElementById("resetBtn").addEventListener("click", function(){
+    if(!window.confirm("Reset all PIE-verification checks? This clears local progress.")) return;
+    state = {};
+    saveState(state);
+    rows.forEach(function(r){
+      r.classList.remove("done");
+      var i = r.querySelector("input"); if(i) i.checked = false;
+    });
+    recompute();
+  });
+})();
+</script>
+</body>
+</html>
