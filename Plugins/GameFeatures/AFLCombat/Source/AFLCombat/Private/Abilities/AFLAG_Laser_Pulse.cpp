@@ -17,6 +17,7 @@
 #include "Targeting/AFLAbilityTargetData_Hitscan.h"
 #include "Telemetry/AFLCombatTelemetry.h"
 #include "Tuning/AFLPulseTuningData.h"
+#include "UObject/ConstructorHelpers.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Laser_Pulse)
 
@@ -68,6 +69,19 @@ UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
 	// ability can still override this on the CDO in AFL-0214 if they need a
 	// designer-tuned variant.
 	DamageEffectClass = UGE_AFL_Damage_Pulse::StaticClass();
+
+	// AFL-0209 (BM-0104): native default ship-tuning. Per-shot ClientPredictAndSend
+	// re-reads this DA every shot, so live edits in the Content Browser propagate
+	// without restart. The Succeeded() guard means a missing/renamed asset
+	// gracefully falls through to the hardcoded fallback constants at
+	// ClientPredictAndSend (which match DA_AFLPulseTuning's defaults by design).
+	// BP children may override per Pulse.h:53-54.
+	static ConstructorHelpers::FObjectFinder<UAFLPulseTuningData> TuningFinder(
+		TEXT("/AFLCombat/Tuning/DA_AFLPulseTuning.DA_AFLPulseTuning"));
+	if (TuningFinder.Succeeded())
+	{
+		TuningData = TuningFinder.Object;
+	}
 }
 
 void UAFLAG_Laser_Pulse::ActivateAbility(
