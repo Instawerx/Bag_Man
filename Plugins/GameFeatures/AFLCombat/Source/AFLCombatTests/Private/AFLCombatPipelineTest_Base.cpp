@@ -4,10 +4,12 @@
 
 #include "AFLCombatTests.h"
 #include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerState.h"
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
 #include "GameplayTagContainer.h"
@@ -150,6 +152,11 @@ void AAFLCombatPipelineTest_Base::Tick(float DeltaSeconds)
 
 UAbilitySystemComponent* AAFLCombatPipelineTest_Base::ResolvePlayerASC() const
 {
+	// BM-DEBT-AUDIT-001 / closes BM-DEBT-008: Lyra's ASC lives on LyraPlayerState
+	// (IAbilitySystemInterface), not on the pawn. Pre-fix the test-base resolver
+	// returned nullptr for any Lyra-stack PIE/automation run; tests passed only by
+	// happenstance (mocked ASCs or null-tolerant assertions). Now resolves via the
+	// engine helper, parallel to UAFLCombatCheats::GetPlayerASC.
 	const UWorld* World = GetWorld();
 	if (World == nullptr)
 	{
@@ -158,9 +165,9 @@ UAbilitySystemComponent* AAFLCombatPipelineTest_Base::ResolvePlayerASC() const
 
 	if (APlayerController* PC = World->GetFirstPlayerController())
 	{
-		if (APawn* Pawn = PC->GetPawn())
+		if (APlayerState* PS = PC->PlayerState)
 		{
-			return Pawn->FindComponentByClass<UAbilitySystemComponent>();
+			return UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(PS);
 		}
 	}
 	return nullptr;

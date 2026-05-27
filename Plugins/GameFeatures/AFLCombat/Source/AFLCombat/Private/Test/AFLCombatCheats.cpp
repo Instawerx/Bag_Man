@@ -7,6 +7,7 @@
 #include "Abilities/AFLAG_Laser_Pulse.h"
 #include "AbilitySystemComponent.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "AbilitySystemGlobals.h"
 #include "Effects/GE_AFL_Damage_Pulse.h"
 #include "Effects/GE_AFL_EnergyGain_Small.h"
 #include "Effects/GE_AFL_Heat_SetByCaller.h"
@@ -17,6 +18,7 @@
 #include "GameFramework/CheatManagerDefines.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
 #include "GameplayTagContainer.h"
@@ -62,11 +64,17 @@ UAFLCombatCheats::UAFLCombatCheats()
 UAbilitySystemComponent* UAFLCombatCheats::GetPlayerASC() const
 {
 #if UE_WITH_CHEAT_MANAGER
+	// BM-DEBT-AUDIT-001 / closes BM-DEBT-008: Lyra's ASC is owned by LyraPlayerState
+	// (which implements IAbilitySystemInterface), NOT by the pawn. The engine helper
+	// walks IAbilitySystemInterface and falls back to component search for BP-only
+	// actors. Pawn-side FindComponentByClass returns null for the Lyra ownership
+	// model and was the root cause of every AFL.Combat.* cheat failing to find the
+	// player's ASC after BM-DEBT-005's fix-forward put grants on LyraPlayerState.
 	if (const APlayerController* PC = GetPlayerController())
 	{
-		if (const APawn* Pawn = PC->GetPawn())
+		if (APlayerState* PS = PC->PlayerState)
 		{
-			return Pawn->FindComponentByClass<UAbilitySystemComponent>();
+			return UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(PS);
 		}
 	}
 #endif
@@ -180,11 +188,17 @@ namespace
 			{
 				continue;
 			}
+			// BM-DEBT-AUDIT-001 / closes BM-DEBT-008: Lyra's ASC lives on LyraPlayerState
+			// (IAbilitySystemInterface), not on the pawn. The engine helper resolves the
+			// interface or falls back to a component scan, so it correctly returns the
+			// PlayerState-owned ASC. World-walking outer loop preserved for the cheat-
+			// matrix `-game` mode where multi-world disambiguation doesn't matter but
+			// the controller may not yet be the editor's primary.
 			if (APlayerController* PC = World->GetFirstPlayerController())
 			{
-				if (APawn* Pawn = PC->GetPawn())
+				if (APlayerState* PS = PC->PlayerState)
 				{
-					if (UAbilitySystemComponent* ASC = Pawn->FindComponentByClass<UAbilitySystemComponent>())
+					if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(PS))
 					{
 						return ASC;
 					}
