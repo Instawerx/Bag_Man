@@ -5,6 +5,7 @@
 #include "AFLCombat.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
+#include "Attributes/AFLAttributeSet_Combat.h"
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
 #include "Effects/GE_AFL_Damage_Pulse.h"
@@ -28,6 +29,20 @@
 // dedups native+ini registrations.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Ability_Laser_Pulse, "Ability.Laser.Pulse");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Pulse, "State.Firing.Pulse");
+
+// SetByCaller magnitude tags consumed by UAFLDamageExecCalc::Execute_Implementation
+// step 2. File-specific suffix on the C++ symbol (the FName *value* stays as the
+// canonical "Data.Damage.*" string). Required because UBT Unity builds merge
+// multiple .cpp files into one translation unit, and anonymous namespaces
+// collapse into a single TU-level namespace under that merge. Per-file rename
+// is the minimal Unity-safe pattern — see UAFLGameplayAbility_DamageTest for
+// the identical workaround.
+namespace
+{
+	const FName NAME_Data_Damage_Headshot_LaserPulse  = TEXT("Data.Damage.Headshot");
+	const FName NAME_Data_Damage_Weakpoint_LaserPulse = TEXT("Data.Damage.Weakpoint");
+	const FName NAME_Data_Damage_Distance_LaserPulse  = TEXT("Data.Damage.Distance");
+}
 
 
 UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
@@ -392,6 +407,16 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 			continue;
 		}
 
+		// Seed Source.Damage on the firing ASC. The ExecCalc captures
+		// Source.Damage with bSnapshot=true at spec creation, so this write
+		// MUST land before MakeOutgoingSpec. Override semantics overwrite any
+		// stale value from a previous shot — the value is fully owned by this
+		// ability per-shot. Mirrors UAFLGameplayAbility_DamageTest's seed step.
+		SourceASC->ApplyModToAttribute(
+			UAFLAttributeSet_Combat::GetDamageAttribute(),
+			EGameplayModOp::Override,
+			BaseDamage);
+
 		// Build the spec with an effect context that carries the hit + the
 		// claimed view origin. The struct's AddTargetDataToContext is invoked
 		// by FGameplayAbilityTargetData_SingleTargetHit during context-add via
@@ -412,7 +437,16 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 			continue;
 		}
 
-		SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+		// Inject SetByCaller multipliers. ExecCalc reads these with default 1.0f
+		// when absent — we always set them explicitly for predictable runs and
+		// to establish the Headshot/Weakpoint/Distance hooks for AFL-0211/0213
+		// tuning. Mirrors UAFLGameplayAbility_DamageTest::ActivateAbility step 3.
+		FGameplayEffectSpec& Spec = *SpecHandle.Data.Get();
+		Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot_LaserPulse,  false), 1.0f);
+		Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint_LaserPulse, false), 1.0f);
+		Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance_LaserPulse,  false), 1.0f);
+
+		SourceASC->ApplyGameplayEffectSpecToTarget(Spec, TargetASC);
 	}
 }
 #endif // WITH_SERVER_CODE

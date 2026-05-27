@@ -63,6 +63,16 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Pulse")
 	TSubclassOf<UGameplayEffect> DamageEffectClass;
 
+	/**
+	 * Per-shot damage seed written to Source.Damage before MakeOutgoingSpec.
+	 * UAFLDamageExecCalc snapshots Source.Damage at spec creation, so this is
+	 * the value the ExecCalc multiplies by Headshot/Weakpoint/Distance and
+	 * routes through armor mitigation to Shield/Health output modifiers.
+	 * AFL-0209/0213/0214 designer tuning hooks (DA_AFLPulseTuning) plug in here.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Pulse", meta=(ClampMin="0.0"))
+	float BaseDamage = 18.0f;
+
 	/** Maximum trace distance from the camera, centimetres. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Pulse|Trace", meta=(ClampMin="100.0", UIMin="100.0"))
 	float MaxRange = 8000.0f;
