@@ -195,3 +195,36 @@ void UAFLLagCompensationWorldSubsystem::RestoreWorld(FAFLLagRewindToken& Token)
 	Token.Entries.Reset();
 	Token.bValid = false;
 }
+
+bool UAFLLagCompensationWorldSubsystem::ConfirmHit(APlayerController* RequestingPC, float RewindDeltaSeconds,
+	const AActor* TargetActor, const FVector& ImpactPoint)
+{
+	const UWorld* World = GetWorld();
+	const float RewindTime = (World ? static_cast<float>(World->GetTimeSeconds()) : 0.0f) - RewindDeltaSeconds;
+
+	FAFLLagRewindToken Token = RewindWorldFor(RequestingPC, RewindTime);
+
+	// Empty-token default-accept: a degenerate rewind (client world, no
+	// registered components, no history yet) yields no entries, and the live
+	// path must not be gated by missing snapshots — so we accept. The geometric
+	// reject only fires when there is a real rewound box to test against.
+	bool bGeometricallyValid = true;
+	FBox RewoundBox(ForceInit);
+	if (Token.Entries.Num() > 0 && Token.BuildBoundingBox(TargetActor, RewoundBox))
+	{
+		// 30cm rig-accuracy pad per master doc Sec. 7.4 (BuildBoundingBox returns
+		// a tight bone-derived box; the pad lives at the confirm site per the
+		// header's contract).
+		const FBox PaddedBox = RewoundBox.ExpandBy(30.0f);
+		bGeometricallyValid = PaddedBox.IsInsideOrOn(ImpactPoint);
+	}
+
+	UE_LOG(LogAFLCombat, Verbose,
+		TEXT("AFL_LAGCOMP: rewind dt=%.3f entries=%d verdict=%s"),
+		RewindDeltaSeconds, Token.Entries.Num(),
+		bGeometricallyValid ? TEXT("accept") : TEXT("reject"));
+
+	RestoreWorld(Token);
+
+	return bGeometricallyValid;
+}

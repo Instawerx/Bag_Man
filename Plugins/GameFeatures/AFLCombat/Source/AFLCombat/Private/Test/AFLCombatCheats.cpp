@@ -11,10 +11,14 @@
 #include "Effects/GE_AFL_Damage_Pulse.h"
 #include "Effects/GE_AFL_EnergyGain_Small.h"
 #include "Effects/GE_AFL_Heat_SetByCaller.h"
+#include "LagComp/AFLLagCompensationWorldSubsystem.h"
+#include "LagComp/AFLPawnHitboxHistoryComponent.h"
+#include "Targeting/AFLLagTestDummy.h"
 #include "Tuning/AFLPulseTuningData.h"
 #include "UObject/Package.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/CheatManagerDefines.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -622,6 +626,178 @@ namespace
 		TEXT("AFL.Combat.SetRecoil"),
 		TEXT("AFL-0209: tweak Pulse recoil on a TRANSIENT copy (source DA untouched). Usage: AFL.Combat.SetRecoil <pitchPerShot> <yawJitter>"),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLCombatSetRecoil));
+
+	// ─── BM-0105c lag-comp compensation proof: afl.LagComp.TestFire ──────────
+	//
+	// The isolated single-variable RTT-flip. Hand-aiming a moving target last
+	// session produced uncontrolled samples (every shot's impact point differs);
+	// this command removes the human from the aim loop entirely. It fires the
+	// SHARED UAFLLagCompensationWorldSubsystem::ConfirmHit (the same code the
+	// live Pulse path runs) at a FIXED, LATCHED world coordinate, varying only
+	// the rewind delta via the afl.LagComp.ForceRTT CVar:
+	//
+	//   afl.LagComp.ForceRTT 0.2 ; afl.LagComp.TestFire
+	//     -> latch C = dummy's position 0.2s ago; ConfirmHit(PC, 0.2, dummy, C)
+	//        rewind ON -> box at past pose at C -> ACCEPT
+	//   afl.LagComp.ForceRTT 0   ; afl.LagComp.TestFire replay
+	//     -> reuse SAME C; ConfirmHit(PC, 0.0, dummy, C)
+	//        rewind OFF -> box at current pose (~235cm from C) -> REJECT
+	//
+	// Identical coordinate, only RTT varies, verdict flips = the proof.
+
+	// Latched fixed coordinate for the flip's "replay" leg. Static so the
+	// second invocation reuses the exact coordinate the first latched.
+	FVector GAFLLagCompLatchedCoord = FVector::ZeroVector;
+	bool    GAFLLagCompLatched      = false;
+
+	// Read the afl.LagComp.ForceRTT CVar (defined in AFLAG_Laser_Pulse.cpp) by
+	// name — it registers globally, so cross-TU access is via the console
+	// manager. Clamped to 0.2 exactly like the live path. -1 (real ping) maps
+	// to 0 here because TestFire has no network ping to read; the operator is
+	// expected to set ForceRTT explicitly for the flip.
+	float ResolveForceRTTDelta()
+	{
+		float Raw = -1.0f;
+		if (IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.LagComp.ForceRTT")))
+		{
+			Raw = CVar->GetFloat();
+		}
+		const float Effective = (Raw >= 0.0f) ? Raw : 0.0f;
+		return FMath::Min(Effective, 0.2f);
+	}
+
+	// Find the test dummy + its history component in the first game world.
+	// Returns the component (for SampleAtTime) and the owning actor (the
+	// ConfirmHit target). nullptr if no dummy is placed / registered.
+	UAFLPawnHitboxHistoryComponent* FindDummyHistory(AAFLLagTestDummy*& OutDummy)
+	{
+		OutDummy = nullptr;
+		if (!GEngine)
+		{
+			return nullptr;
+		}
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			UWorld* World = Context.World();
+			if (!World || !World->IsGameWorld())
+			{
+				continue;
+			}
+			for (TActorIterator<AAFLLagTestDummy> It(World); It; ++It)
+			{
+				if (UAFLPawnHitboxHistoryComponent* Hist = It->FindComponentByClass<UAFLPawnHitboxHistoryComponent>())
+				{
+					OutDummy = *It;
+					return Hist;
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	// Average the rewound bone locations into one representative point. This
+	// mirrors how FAFLLagRewindToken::BuildBoundingBox derives its box (sum of
+	// bone world locations) — the box CENTER is the natural "where the dummy
+	// was" coordinate, so a shot at the average lands inside the rewound box.
+	bool SampleDummyPastCenter(UAFLPawnHitboxHistoryComponent* Hist, UWorld* World, float PastDelta, FVector& OutCenter)
+	{
+		if (!Hist || !World)
+		{
+			return false;
+		}
+		const double SampleTime = static_cast<double>(World->GetTimeSeconds()) - static_cast<double>(PastDelta);
+		TArray<FAFLHitboxBoneSample> Samples;
+		if (!Hist->SampleAtTime(SampleTime, Samples) || Samples.Num() == 0)
+		{
+			return false;
+		}
+		FVector Sum = FVector::ZeroVector;
+		for (const FAFLHitboxBoneSample& S : Samples)
+		{
+			Sum += S.WorldXForm.GetLocation();
+		}
+		OutCenter = Sum / static_cast<float>(Samples.Num());
+		return true;
+	}
+
+	void HandleAFLLagCompTestFire(const TArray<FString>& Args)
+	{
+		const bool bReplay = Args.Num() > 0 && Args[0].Equals(TEXT("replay"), ESearchCase::IgnoreCase);
+
+		AAFLLagTestDummy* Dummy = nullptr;
+		UAFLPawnHitboxHistoryComponent* Hist = FindDummyHistory(Dummy);
+		if (!Dummy || !Hist)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFLCombatCheats: FAIL TestFire — no AAFLLagTestDummy with a history component in any game world."));
+			return;
+		}
+
+		UWorld* World = Dummy->GetWorld();
+		UAFLLagCompensationWorldSubsystem* LagComp =
+			World ? World->GetSubsystem<UAFLLagCompensationWorldSubsystem>() : nullptr;
+		if (!LagComp)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFLCombatCheats: FAIL TestFire — no lag-comp subsystem."));
+			return;
+		}
+
+		// The shooter PC to exclude from the rewind (its own pawn). The dummy
+		// is not the shooter, so it stays in the rewind set regardless.
+		APlayerController* PC = World->GetFirstPlayerController();
+
+		const float Delta = ResolveForceRTTDelta();
+
+		FVector Coord;
+		if (bReplay)
+		{
+			if (!GAFLLagCompLatched)
+			{
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("AFLCombatCheats: FAIL TestFire replay — no latched coordinate. Run 'afl.LagComp.TestFire' (no arg) first to latch."));
+				return;
+			}
+			Coord = GAFLLagCompLatchedCoord;
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFLCombatCheats: TestFire REPLAY at latched C=(%.2f, %.2f, %.2f) delta=%.3f"),
+				Coord.X, Coord.Y, Coord.Z, Delta);
+		}
+		else
+		{
+			// Latch the dummy's position 0.2s ago — the FIXED point both legs
+			// of the flip fire at. 0.2 is the max-compensation window; latching
+			// the past point (not "now") means the ForceRTT=0.2 leg accepts
+			// (box rewinds onto C) and the ForceRTT=0 leg rejects (box at the
+			// now-position, ~235cm from C at amplitude 400).
+			if (!SampleDummyPastCenter(Hist, World, 0.2f, Coord))
+			{
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("AFLCombatCheats: FAIL TestFire — history has no sample at now-0.2s yet (let the dummy tick a moment)."));
+				return;
+			}
+			GAFLLagCompLatchedCoord = Coord;
+			GAFLLagCompLatched      = true;
+
+			FVector NowCenter = FVector::ZeroVector;
+			SampleDummyPastCenter(Hist, World, 0.0f, NowCenter);
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFLCombatCheats: TestFire LATCH C=past_0.2s=(%.2f, %.2f, %.2f)  current=(%.2f, %.2f, %.2f)  delta=%.3f"),
+				Coord.X, Coord.Y, Coord.Z, NowCenter.X, NowCenter.Y, NowCenter.Z, Delta);
+		}
+
+		// THE shared confirm path — identical to live Pulse. Emits the
+		// "rewind dt=... entries=... verdict=..." line itself.
+		const bool bAccept = LagComp->ConfirmHit(PC, Delta, Dummy, Coord);
+
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFLCombatCheats: OK TestFire verdict=%s (delta=%.3f, C=(%.2f, %.2f, %.2f))"),
+			bAccept ? TEXT("ACCEPT") : TEXT("REJECT"), Delta, Coord.X, Coord.Y, Coord.Z);
+	}
+
+	FAutoConsoleCommand GAFLLagCompTestFireCmd(
+		TEXT("afl.LagComp.TestFire"),
+		TEXT("BM-0105c: fire the shared lag-comp ConfirmHit at the test dummy's latched 0.2s-ago position, using afl.LagComp.ForceRTT as the rewind delta. No arg = latch + fire; 'replay' = reuse latched coord. The flip: ForceRTT 0.2 + TestFire (ACCEPT), then ForceRTT 0 + TestFire replay (REJECT)."),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLLagCompTestFire));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER

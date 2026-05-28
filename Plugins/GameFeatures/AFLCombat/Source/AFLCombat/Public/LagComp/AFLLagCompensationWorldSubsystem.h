@@ -171,6 +171,29 @@ public:
 	 */
 	void RestoreWorld(FAFLLagRewindToken& Token);
 
+	/**
+	 * The full server-side hit-confirmation pass: rewind the world by
+	 * RewindDeltaSeconds, build TargetActor's rewound bounding box, pad it,
+	 * and test ImpactPoint against it. Returns the accept/reject verdict and
+	 * emits the canonical "AFL_LAGCOMP: rewind dt=... entries=... verdict=..."
+	 * log line. The token is created and restored internally (the rewind is
+	 * non-mutating, so this is self-contained).
+	 *
+	 * This is the SINGLE confirm path. UAFLAG_Laser_Pulse::ServerApplyTargetData
+	 * calls it for live hitscan; the afl.LagComp.TestFire debug command calls it
+	 * with a fixed coordinate. Sharing the code (vs duplicating it) is the point:
+	 * the BM-0105c isolated RTT-flip then exercises the REAL shipping path, not a
+	 * reimplementation that could drift from it.
+	 *
+	 * `RewindDeltaSeconds` is the DELTA (e.g. ClampedRTT), NOT an absolute time —
+	 * the absolute RewindTime = GetTimeSeconds() - RewindDeltaSeconds is computed
+	 * inside. Empty-token default-accept is preserved: a degenerate rewind (client
+	 * world, no registered components, no history yet) returns true so the live
+	 * path isn't gated by missing snapshots.
+	 */
+	bool ConfirmHit(APlayerController* RequestingPC, float RewindDeltaSeconds,
+		const AActor* TargetActor, const FVector& ImpactPoint);
+
 	/** Called by UAFLPawnHitboxHistoryComponent on BeginPlay. Idempotent. */
 	void RegisterComponent(UAFLPawnHitboxHistoryComponent* Component);
 

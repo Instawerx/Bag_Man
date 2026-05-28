@@ -479,7 +479,6 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 				const float EffectiveRTT = RawRTT;
 #endif
 				const float ClampedRTT = FMath::Min(EffectiveRTT, 0.2f);
-				const float RewindTime = static_cast<float>(World->GetTimeSeconds()) - ClampedRTT;
 
 #if !UE_BUILD_SHIPPING
 				if (ForcedRTT >= 0.0f)
@@ -490,27 +489,13 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 				}
 #endif
 
-				FAFLLagRewindToken Token = LagComp->RewindWorldFor(SourcePC, RewindTime);
-
-				bool bGeometricallyValid = true;   // empty-token default-accept
-				FBox RewoundBox(ForceInit);
-				if (Token.Entries.Num() > 0 && Token.BuildBoundingBox(HitActor, RewoundBox))
-				{
-					// 30cm rig-accuracy pad per master doc Sec. 7.4 (the token's
-					// BuildBoundingBox returns a tight bone-derived box; the pad
-					// lives at the caller per the subsystem header's contract).
-					const FBox PaddedBox = RewoundBox.ExpandBy(30.0f);
-					bGeometricallyValid = PaddedBox.IsInsideOrOn(HitscanData->HitResult.ImpactPoint);
-				}
-
-				UE_LOG(LogAFLCombat, Verbose,
-					TEXT("AFL_LAGCOMP: rewind dt=%.3f entries=%d verdict=%s"),
-					ClampedRTT, Token.Entries.Num(),
-					bGeometricallyValid ? TEXT("accept") : TEXT("reject"));
-
-				LagComp->RestoreWorld(Token);
-
-				if (!bGeometricallyValid)
+				// BM-0105c: the rewind + bounding-box + pad + verdict pass now
+				// lives in one shared method on the subsystem. The afl.LagComp.TestFire
+				// debug command calls the SAME ConfirmHit, so the isolated RTT-flip
+				// proof exercises this exact shipping path (not a reimplementation).
+				// ConfirmHit emits the "rewind dt=... entries=... verdict=..." log and
+				// owns the rewind/restore internally; it takes the DELTA (ClampedRTT).
+				if (!LagComp->ConfirmHit(SourcePC, ClampedRTT, HitActor, HitscanData->HitResult.ImpactPoint))
 				{
 					UE_LOG(LogAFLCombat, Verbose,
 						TEXT("AFL_LAGCOMP: hitscan_reject reason=geometry"));
