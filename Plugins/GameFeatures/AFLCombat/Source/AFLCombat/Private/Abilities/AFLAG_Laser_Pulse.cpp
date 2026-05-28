@@ -47,6 +47,22 @@ namespace
 	const FName NAME_Data_Damage_Distance_LaserPulse  = TEXT("Data.Damage.Distance");
 }
 
+// BM-0105c lag-comp COMPENSATION test harness. Forces the rewind RTT so the
+// distinguishing experiment runs deterministically in single-client PIE
+// (no networking confounds): afl.LagComp.ForceRTT 0.2 rewinds to a past pose,
+// afl.LagComp.ForceRTT 0 stays at "now" — same aim, verdict flips, isolating
+// rewind as the cause. -1 = use real ping (production path). The forced value
+// still passes through the same 0.2s clamp as the real path (master doc 7.4),
+// so ForceRTT=0.2 exercises the system at its designed max compensation.
+// ECVF_Cheat + shipping-guarded: never present in a shipping build.
+#if !UE_BUILD_SHIPPING
+static TAutoConsoleVariable<float> CVarAFLLagCompForceRTT(
+	TEXT("afl.LagComp.ForceRTT"),
+	-1.0f,
+	TEXT("Debug: force lag-comp RTT in seconds. -1 = use real ping. >=0 = forced. Clamped to 0.2 like the real path."),
+	ECVF_Cheat);
+#endif
+
 
 UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
 {
@@ -452,8 +468,27 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 				// server / local, falls back to compressed-ping on remote clients).
 				const APlayerState* SourcePS = SourcePC ? SourcePC->PlayerState : nullptr;
 				const float RawRTT     = SourcePS ? (SourcePS->GetPingInMilliseconds() * 0.001f) : 0.0f;
-				const float ClampedRTT = FMath::Min(RawRTT, 0.2f);
+
+				// BM-0105c: synthetic-RTT override for the compensation proof. The
+				// forced value still clamps to 0.2 like the real path, so the test
+				// exercises the system's designed max compensation, not a bypass.
+#if !UE_BUILD_SHIPPING
+				const float ForcedRTT    = CVarAFLLagCompForceRTT.GetValueOnGameThread();
+				const float EffectiveRTT = (ForcedRTT >= 0.0f) ? ForcedRTT : RawRTT;
+#else
+				const float EffectiveRTT = RawRTT;
+#endif
+				const float ClampedRTT = FMath::Min(EffectiveRTT, 0.2f);
 				const float RewindTime = static_cast<float>(World->GetTimeSeconds()) - ClampedRTT;
+
+#if !UE_BUILD_SHIPPING
+				if (ForcedRTT >= 0.0f)
+				{
+					UE_LOG(LogAFLCombat, Verbose,
+						TEXT("AFL_LAGCOMP: ForceRTT active = %.3f (synthetic, not real ping)"),
+						ClampedRTT);
+				}
+#endif
 
 				FAFLLagRewindToken Token = LagComp->RewindWorldFor(SourcePC, RewindTime);
 

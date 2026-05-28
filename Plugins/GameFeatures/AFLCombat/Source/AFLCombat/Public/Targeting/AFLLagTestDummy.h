@@ -60,9 +60,16 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|LagTest", meta = (AllowPrivateAccess = true))
 	float SweepFrequency = 3.14159f;
 
-	/** Peak lateral offset in cm from the spawn origin. Default 200cm. */
+	/**
+	 * Peak lateral offset in cm from the spawn origin. 400cm so the BM-0105c
+	 * compensation proof discriminates decisively: at 400cm/3.14159rad-s the
+	 * dummy moves ~235cm during a 200ms rewind window (peak velocity ~1256cm/s),
+	 * far wider than the ~115cm padded hit box — so accept-at-past vs
+	 * reject-at-current is robust to imperfect shot timing. This is test-fixture
+	 * tuning; the lag-comp system under test is unchanged.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|LagTest", meta = (AllowPrivateAccess = true))
-	float SweepAmplitude = 200.0f;
+	float SweepAmplitude = 400.0f;
 
 private:
 	/** Skeletal mesh root. SKM_Manny so the history component's 8 default tracked bones resolve. */
