@@ -5,12 +5,19 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 
+// FAFLRewindPawnEntry stores TArray<FAFLHitboxBoneSample> by value, so the
+// element type must be COMPLETE here (TArray's destructor instantiation needs
+// it). A forward declaration is insufficient — it only compiled while every
+// include site happened to pull in the component header first. Surfaced by
+// BM-0105a when Pulse.cpp became the first consumer to include this header
+// without the component header preceding it.
+#include "LagComp/AFLPawnHitboxHistoryComponent.h"
+
 #include "AFLLagCompensationWorldSubsystem.generated.h"
 
 class AActor;
 class APlayerController;
 class UAFLPawnHitboxHistoryComponent;
-struct FAFLHitboxBoneSample;
 
 
 /**

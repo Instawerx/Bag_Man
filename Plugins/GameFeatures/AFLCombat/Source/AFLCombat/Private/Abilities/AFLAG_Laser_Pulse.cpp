@@ -12,7 +12,9 @@
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 #include "GameplayEffect.h"
+#include "LagComp/AFLLagCompensationWorldSubsystem.h"
 #include "NativeGameplayTags.h"
 #include "Targeting/AFLAbilityTargetData_Hitscan.h"
 #include "Telemetry/AFLCombatTelemetry.h"
@@ -398,8 +400,10 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 
 		// AFL-0213 telemetry stub. The real budget is per-pawn and the real
 		// reject (drop the shot, increment reject counter) lands with
-		// UAFLLagCompensationWorldSubsystem in AFL-0211. For now: log only,
-		// still apply damage so the Sprint 1 PIE smoke test (AFL-0107) passes.
+		// UAFLLagCompensationWorldSubsystem (consumer wired in BM-0105a, this
+		// block below). The angular-velocity check stays as the AFL-0213 budget
+		// stub — it logs only, doesn't gate damage. The lag-comp pass IS the
+		// real geometric reject path now.
 		if (HitscanData->AimAngularVelocityDegPerSec > MaxAimAngularVelocityDegPerSec)
 		{
 			FAFLCombatTelemetry::EmitAngularAnomaly(
@@ -419,6 +423,65 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 		if (!TargetASC)
 		{
 			continue;
+		}
+
+		// BM-0105a: lag-comp rewind + bounding-box confirm pass.
+		//
+		// Subsystem is server-only and returns a valid empty token in
+		// degenerate cases (client world, no registered components). With no
+		// per-pawn UAFLPawnHitboxHistoryComponent grants in place yet
+		// (BM-0105b's job), Token.Entries is empty for every shot in this
+		// sprint — the BuildBoundingBox path returns false and we default-
+		// accept. The call pair runs and emits its log line; the actual
+		// geometric reject is exercised only once per-pawn snapshotting lands.
+		//
+		// RTT clamped at 200ms per master doc Sec. 7.4. The half (ping/2) +
+		// interp term lives on the client; here we use the server-side
+		// APlayerState::GetPingInMilliseconds() which returns ExactPing on the
+		// server (Lyra-canonical). Defensive null-guards on PC and PS:
+		// server-driven hitscan (AI bots) has no PC, and a just-spawned pawn may
+		// not have a PlayerState bound yet.
+		if (UWorld* World = GetWorld())
+		{
+			if (UAFLLagCompensationWorldSubsystem* LagComp =
+				World->GetSubsystem<UAFLLagCompensationWorldSubsystem>())
+			{
+				APlayerController* SourcePC = CurrentActorInfo ? CurrentActorInfo->PlayerController.Get() : nullptr;
+				// Ping API lives on APlayerState in UE 5.6 (PlayerController's float
+				// GetPing() was removed; the canonical accessor returns ExactPing on
+				// server / local, falls back to compressed-ping on remote clients).
+				const APlayerState* SourcePS = SourcePC ? SourcePC->PlayerState : nullptr;
+				const float RawRTT     = SourcePS ? (SourcePS->GetPingInMilliseconds() * 0.001f) : 0.0f;
+				const float ClampedRTT = FMath::Min(RawRTT, 0.2f);
+				const float RewindTime = static_cast<float>(World->GetTimeSeconds()) - ClampedRTT;
+
+				FAFLLagRewindToken Token = LagComp->RewindWorldFor(SourcePC, RewindTime);
+
+				bool bGeometricallyValid = true;   // empty-token default-accept
+				FBox RewoundBox(ForceInit);
+				if (Token.Entries.Num() > 0 && Token.BuildBoundingBox(HitActor, RewoundBox))
+				{
+					// 30cm rig-accuracy pad per master doc Sec. 7.4 (the token's
+					// BuildBoundingBox returns a tight bone-derived box; the pad
+					// lives at the caller per the subsystem header's contract).
+					const FBox PaddedBox = RewoundBox.ExpandBy(30.0f);
+					bGeometricallyValid = PaddedBox.IsInsideOrOn(HitscanData->HitResult.ImpactPoint);
+				}
+
+				UE_LOG(LogAFLCombat, Verbose,
+					TEXT("AFL_LAGCOMP: rewind dt=%.3f entries=%d verdict=%s"),
+					ClampedRTT, Token.Entries.Num(),
+					bGeometricallyValid ? TEXT("accept") : TEXT("reject"));
+
+				LagComp->RestoreWorld(Token);
+
+				if (!bGeometricallyValid)
+				{
+					UE_LOG(LogAFLCombat, Verbose,
+						TEXT("AFL_LAGCOMP: hitscan_reject reason=geometry"));
+					continue;
+				}
+			}
 		}
 
 		// Seed Source.Damage on the firing ASC. The ExecCalc captures
