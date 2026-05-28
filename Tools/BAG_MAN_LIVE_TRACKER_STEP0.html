@@ -174,9 +174,12 @@
       <span><b>Repo:</b> C12-Ai-Gaming/Bag_Man</span>
       <span><b>Engine:</b> UE 5.6 (Lyra base)</span>
       <span><b>Path:</b> C:\Dev\Bag_Man</span>
-      <span><b>Supersedes:</b> BAG_MAN_LIVE_TRACKER.html (v2.7)</span>
+      <span><b>Supersedes:</b> BAG_MAN_LIVE_TRACKER.html (v2.7) <em>during Step-0</em></span>
       <span><b>Tracker:</b> step0_v1</span>
     </div>
+      <div class="meta-row" style="margin-top:8px; font-size:11px; color:var(--ink-faint);">
+        <span><b>Cross-tracker note:</b> This is the Step-0 foundation-rebuild tracker. The project-wide tracker is <code>BAG_MAN_LIVE_TRACKER.html</code> at version label v2.7 — carrying AIK-internal updates from v2.3 forward, not all of which were operator-verified at update-time. The v2.7 file is the physical home of the long-arc S0→S24 LAUNCH roadmap. Step-0 closes when Phase 1 + bundled IRONICS-RENAME sprint close; a v2.7 reconciliation pass (audit v2.7 content against git reality, same discipline as this commit applied to that file) precedes the long-arc resume at S4 (Dismemberment).</span>
+      </div>
     <div class="overall">
       <div class="bar"><div class="fill" id="overallFill"></div></div>
       <div class="pct"><span id="overallPct">0</span><small>%</small></div>
@@ -266,7 +269,8 @@
       <div data-task="BM-0100" data-phase="p1" data-kind="pie" data-desc="AFL modules (AFLCore/AFLCombat) reach Registered via DefaultGame.ini +GameFeaturesToEnable. Control survives module registration — 5 baseline controls (walk/look/jump/crouch/dash) green in PIE on L_BagMan_Greybox. NOTE: Registered ≠ Active. Combat abilities did NOT attach this task — activation is per-experience; B_Experience_BagMan lists only ShooterCore. AddAbilities action did NOT fire; UAFLAG_Laser_Pulse NOT bound; UAFLAttributeSet_Combat NOT on ASC. LMB = stock Lyra weapon, not Pulse. Real attach + Pulse + LMB-conflict recon deferred to BM-0101." data-why="The architectural finding caught BEFORE banking: +GameFeaturesToEnable pushes plugins to Registered only; experience-side GameFeaturesToEnable drives Active. The 5-control gate was real but tested NOTHING of AFL attach — because AFLCombat never reached Active and nothing attached. Honest framing locks the doctrine: a passed gate that proves nothing of the change is still a false pass."></div>
       <div data-task="BM-0101" data-phase="p1" data-kind="pie" data-desc="AFLCombat activated via B_Experience_BagMan.GameFeaturesToEnable (NOT the project ini — activation is per-experience, banked BM-0100). Log-confirmed: AFLCore + AFLCombat reach Ending state: Active after OnExperienceLoadComplete — the proof lines missing in BM-0100. DA_AFL_Combat_AbilitySet granted to B_Hero_BagMan via AddAbilities; UAFLAG_Laser_Pulse bound to InputTag.Weapon.Fire; UAFLAttributeSet_Combat on ASC. 5-control gate (walk/look/jump/crouch/dash) survives the REAL attach — the genuine test BM-0100 couldn't run. LMB RECON: both stock Lyra weapon AND Pulse fire on InputTag.Weapon.Fire, no cancellation; ADS reveals the Pulse laser (suppresses hipfire visual). Weapon-identity decision (Pulse vs stock vs both) DEFERRED to BM-0102. Path β: AFLMovement NOT activated, no missing-dep error — AFLCombat has no activation-time dependency on it. LAS_AFL_HeroComponents NOT added (bug-carrier hard-no held). Known 4 GE startup errors persist (BM-0102+ debt); no new errors." data-why="The Fire binding that was deferred the entire prior saga — now on a pawn that actually controls, with the AddAbilities action that EVERY prior session failed to verify fired and was non-destructive. The layer that killed the prior build held."></div>
       <div data-task="BM-0102a" data-phase="p1" data-kind="data" data-desc="SOURCE-READ DECISION: Pulse's damage path is WIRED (UAFLAG_Laser_Pulse::DamageEffectClass = UGE_AFL_Damage_Pulse, source-confirmed in cpp:55). ServerApplyTargetData calls MakeOutgoingSpec + ApplyGameplayEffectSpecToTarget on any hit-with-ASC (cpp:405-415). Wall/floor hits short-circuit at the no-ASC guard (cpp:390-393) — explains why fire-at-greybox surfaces zero GE-application logging. PARTIALLY BROKEN: numerical damage SHOULD apply (TargetTagsGameplayEffectComponent only handles tag-grant), tag-chaining broken — UGE_AFL_Damage_Pulse is Instant+TargetTagsGameplayEffectComponent (BM-DEBT-003). 'Damage modifier still applies' is INFERENCE from error semantics, not runtime-proven; BM-0102b confirms. WEAPON-IDENTITY DECIDED: Pulse-primary (Option A) — Pulse is the AFL project's designed weapon (full hitscan/prediction/lag-comp/telemetry in source); stock Lyra rifle is inherited scaffolding, never BagMan's identity. Decided with eyes open re: BM-DEBT-003 needing a C++ fix before Phase-2 tag-gated damage." data-why="Source-read sidestepped the crash surface (BM-DEBT-004) AND answered more than wall-fire PIE would have. The doctrine: if the cheap-safe read answers the question, take it; don't invest in a more expensive observation that won't surface more truth."></div>
-      <div data-task="BM-0102b" data-phase="p1" data-kind="pie" data-desc="DEFERRED: Real damage verification — fire Pulse at a damageable target whose UAFLAttributeSet_Combat.Health decrements (visible via showdebug abilitysystem). Requires target architecture per BM-DEBT-004 (NOT an unpossessed ALyraCharacter — crashes via AddAbilities CastChecked). Options: possessed-AI pawn OR purpose-built non-ALyraCharacter damageable actor. Also resolves whether BM-DEBT-003's C++ fix (UGE_AFL_Damage_Pulse Instant defect) is a prerequisite or whether damage lands despite the tag-component defect. Plans Option-A wiring (remove stock weapon equip on BagMan — equipment-driven, NOT AbilitySet) alongside the damage-sink." data-why="The runtime confirmation of the source-read inference. Separate sprint because target architecture is its own non-trivial design call after BM-DEBT-004 ruled out the cheap approach."></div>
+      <div data-task="BM-0102b" data-phase="p1" data-kind="pie" data-desc="DEFERRED: Real damage verification — fire Pulse at a damageable target whose UAFLAttributeSet_Combat.Health decrements (visible via showdebug abilitysystem). Requires target architecture per BM-DEBT-004 (NOT an unpossessed ALyraCharacter — crashes via AddAbilities CastChecked). Options: possessed-AI pawn OR purpose-built non-ALyraCharacter damageable actor. Also resolves whether BM-DEBT-003's C++ fix (UGE_AFL_Damage_Pulse Instant defect) is a prerequisite or whether damage lands despite the tag-component defect. Plans Option-A wiring (remove stock weapon equip on BagMan — equipment-driven, NOT AbilitySet) alongside the damage-sink. ▸ CLOSED 2026-05-28 by commit edfb6953: GE_AFL_Damage_Pulse routed via UAFLDamageExecCalc (Executions, drop direct Override Modifier — matches GE_AFL_Damage_Instant); UAFLAG_Laser_Pulse seeds Source.Damage + SetByCallers; AAFLDamageTarget purpose-built self-contained non-ALyraCharacter sink (sidesteps BM-DEBT-004's CastChecked crash). Runtime-verified PIE: Pulse-shot → Health 100→82→64→46→28, exactly −18/shot, no accumulation (Override re-seed clean). The deferred runtime gate, landed." data-why="The deferral became a sprint. Source-read at BM-0102a sidestepped BM-DEBT-004's crash surface; the runtime confirmation here closes the gate the prior build never observed land."></div>
+      <div data-task="BM-0102c" data-phase="p1" data-kind="pie" data-desc="BM-DEBT-005 fix-forward: AFLCombat ability grants delivered via experience-side GameFeatureAction_AddComponents on B_Experience_BagMan (targeting LyraPlayerState), NOT via plugin-side AddAbilities action. The experience-side mirror is the proven delivery path for the BM-PLUGIN-GRANT-LIFECYCLE architectural-open-question (codified as trap #8 in the lyra-ue5-build-discipline skill). Commit 7101997f." data-why="Plugin-side AddAbilities does not reliably reach LyraPlayerState in BagMan's experience load lifecycle (confirmed by the BM-DEBT-005-followup-prune distinguishing experiment). Experience-side mirror = required workaround until the lifecycle question is investigated."></div>
       <div data-task="BM-0103" data-phase="p1" data-kind="pie" data-desc="Heat builds and overheat gates firing as designed, in PIE." data-why="Heat system behavior demonstrated, not assumed."></div>
       <div data-task="BM-0104" data-phase="p1" data-kind="pie" data-desc="Pulse tuning DA live-swap — bloom climb / recover / live retune (the AFL-0209 feel-check, finally unblocked)." data-why="The validation that was blocked for the entire previous build, now runnable."></div>
       <div data-task="BM-0105" data-phase="p1" data-kind="pie" data-desc="Lag-comp re-trace verified under simulated latency (net emulation)." data-why="Server-authoritative re-trace proven with real lag, not on a LAN ideal."></div>
@@ -289,6 +293,35 @@
       <div data-task="BM-0202" data-phase="p2" data-kind="build" data-desc="Matchmaking + session flow via Lyra's experience/session system." data-why="Built on Lyra's existing session plumbing."></div>
       <div data-task="BM-0203" data-phase="p2" data-kind="build" data-desc="PlayFab economy + battle pass + ranked progression." data-why="Backend services layered onto the canonical foundation."></div>
       <div data-task="BM-0204" data-phase="p2" data-kind="build" data-desc="Platform cert prep (TRC/XR) + performance pass." data-why="Shipping readiness on a foundation proven from Step 0."></div>
+    </div>
+  </section>
+
+  <!-- CROSS-CUTTING WORK -->
+  <section class="phase">
+    <div class="phase-head">
+      <span class="pid">CROSS-CUTTING</span>
+      <h2>Sprints in service of Step-0 (not BM-0xxx tasks)</h2>
+      <span class="pcount">2 / 2 banked</span>
+    </div>
+    <div class="phase-note">Real consequential banks that happened during the Step-0 thread but aren't single-feature BM-0xxx sprints. Captured here so future readers see they were not rogue work — they were foundational to the methodology and architecture the rebuild depends on.</div>
+    <div class="sprint">
+      <div class="sprint-title">Architectural audit + methodology codification</div>
+      <div class="task done">
+        <label class="cb"><input type="checkbox" checked disabled><span class="box"><svg viewBox="0 0 24 24"><polyline points="4 12 10 18 20 6"></polyline></svg></span></label>
+        <div class="body">
+          <div class="id">BM-DEBT-AUDIT-001</div>
+          <div class="desc">ASC-lookup pattern audit (Pillar 4 — three instances is systemic). Inventoried 8 sites in AFLCombat, classified 5 correct vs 3 broken (all using pawn-FindComponentByClass for ASC lookup, which fails because Lyra owns ASC on PlayerState not pawn). Unified all sites to PC→PlayerState→GetAbilitySystemComponentFromActor pattern. Closes BM-DEBT-005 + BM-DEBT-008. The audit's fourth quietly-broken site (test base) would not have been caught by per-sprint fixes. Commit d6942982.<span class="why">The systemic-pattern audit that codified Pillar 4 in practice. Three repetitions in three sprints triggered the audit; the audit found a fourth instance no future sprint would have touched.</span></div>
+          <div class="tags"><span class="chip carry">Audit</span></div>
+        </div>
+      </div>
+      <div class="task done">
+        <label class="cb"><input type="checkbox" checked disabled><span class="box"><svg viewBox="0 0 24 24"><polyline points="4 12 10 18 20 6"></polyline></svg></span></label>
+        <div class="body">
+          <div class="id">lyra-ue5-build-discipline skill v1</div>
+          <div class="desc">Methodology codified as a versioned in-repo artifact at Tools\skills\lyra-ue5-build-discipline\ (SKILL.md + references\methodology.md + references\traps-catalog.md, ~861 lines total). Five Pillars (Pillar 5 foundational — distinguishing experiments), 16 traps indexed by symptom, sprint loop with failure-mode-per-phase clauses, three worked examples (BM-0102 / BM-DEBT-AUDIT-001 / BM-DEBT-005-followup-prune), session-restart checklist. Consumed on its very next sprint (BM-0105a's reads cited Pillars 2/3/4/5 by name) — the discover→bank→author→consume loop closed. Commit 268b9ede.<span class="why">The methodology is no longer tribal knowledge held in one conversation — it's a versioned artifact in the repo with self-correction discipline applying inward to itself.</span></div>
+          <div class="tags"><span class="chip carry">Methodology</span></div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -322,7 +355,7 @@
         <br><br>
         <b>Why it matters:</b> this is the exact "just a warning" class that silently bit the prior build. Named, not trusted to evaporate.
       </div>
-      <div class="meta">Surfaced 2026-05-26 during BM-0002 PIE diagnosis (PIE log line 4092). Must resolve before authoring BagMan-specific plugin content in Phase 1.</div>
+      <div class="meta">Surfaced 2026-05-26 during BM-0002 PIE diagnosis (PIE log line 4092). Must resolve before authoring BagMan-specific plugin content in Phase 1.<br><br><strong>Status 2026-05-28:</strong> still unresolved on origin. BM-0100→BM-0106 reattachment work did not require resolving this (operated on existing AFLCombat/AFLCore plugins, not new BagMan content). However, S4 (Dismemberment) requires authoring a new AFLDismember plugin — which would inherit the same wrong shape. <strong>Bundling resolution with the IRONICS-RENAME sprint as Layer 1 (content relocation to a proper BagMan/IRONICS GameFeature plugin) + Layer 2 (rebrand to IRONICS), with intermediate PIE-verify gate between layers.</strong> Both must close before S4 opens.</div>
     </div>
   </section>
 
