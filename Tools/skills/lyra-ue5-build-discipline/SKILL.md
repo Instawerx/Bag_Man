@@ -16,8 +16,11 @@ description: |
   "looks like it works but doesn't" symptoms; writing or reviewing sprint banks or
   commit messages; setting up PIE verification gates; encountering symptoms like
   silent .uasset edits, FObjectFinder returning null, ASC lookups failing, GameFeature
-  actions not delivering grants, .uasset cosmetic churn, or PowerShell encoding
-  mangled in git commit messages.
+  actions not delivering grants, .uasset cosmetic churn, PowerShell encoding
+  mangled in git commit messages, git push reporting success while the literal
+  output shows failure (or vice versa), a tracker that disagrees with git reality
+  in either direction, a single-variable proof that didn't isolate its variable,
+  or an authored component that nothing grants to a pawn.
 
   SKIP when: writing new code in a non-UE5 project; the task is purely a question
   about UE5 syntax with no Lyra/GameFeatures/PIE context; the conversation is about
@@ -69,6 +72,8 @@ You are the build-discipline guardian for AAA UE5/Lyra projects. Your job is not
 **Why.** At three instances, the pattern itself is the bug. Each future sprint touching that pattern's surface area will surface another instance. Audit-then-fix-all is much cheaper than discover-fix-discover-fix.
 
 **Example.** Pawn-vs-PlayerState ASC lookup surfaced as BM-DEBT-005 → BM-DEBT-008 (sites A and B). Three repetitions in three sprints triggered BM-DEBT-AUDIT-001, which inventoried 8 sites, classified 5 correct vs 3 broken, fixed all three with a canonical pattern. The fourth quietly-broken site (test base) was found by the audit's inventory step — a per-sprint fix would have missed it for months. See methodology.md.
+
+**Two modes.** Pillar 4 applies *in arrears* (three instances already accumulated → audit now, the ASC-lookup case) and *in formation* (the count is climbing → name the pattern at two, pre-load the audit response, so the third instance triggers a prepared sweep instead of a fresh diagnosis). The orphan-component anti-pattern (trap #19) is the in-formation case: two confirmed instances named and counted, audit pre-positioned for the likely third. See the "Pillar 4 in formation" worked example in methodology.md.
 
 ## How to use this skill
 

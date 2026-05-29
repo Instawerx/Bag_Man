@@ -2,6 +2,14 @@
 
 This document lists every trap surfaced during the BAG MAN rebuild. Entries are organized by SYMPTOM (what you observe) so future investigators can grep by their actual problem, not by what they think the cause is.
 
+## Categories (navigation aid — entries keep their numbers below)
+
+- **Build / Git:** #4 (PowerShell commit), #12 (UBT mutex), #13 (editor locks + MCP), #21 (git output mediation)
+- **GAS / Abilities:** #2 (FObjectFinder null), #3 (ASC lookup), #8 (AddAbilities delivery), #9 (equipment/AnimBP), #10 (CastChecked crash), #11 (RequestGameplayTag ctor), #16 (input dispatch UNRESOLVED)
+- **MCP / Editor / Assets:** #1 (`:set()` no-op), #5 (.uasset churn), #6 (cube size), #14 (WorldSettings EditDefaultsOnly), #18 (BP-CDO persist-fail)
+- **GameFeature / activation:** #15 (Registered vs Active)
+- **Verification discipline:** #7 (dispatch-path audit), #17 (distinguishing experiment didn't distinguish), #19 (orphan component), #20 (memory bit-rot), #22 (bidirectional tracker drift)
+
 ## Table of contents (by symptom)
 
 1. [".uasset edit via MCP `:set()` returns ok=true but doesn't actually change anything"](#1-uasset-edit-via-mcp-set-returns-oktrue-but-doesnt-actually-change-anything)
@@ -20,6 +28,12 @@ This document lists every trap surfaced during the BAG MAN rebuild. Entries are 
 14. ["Python `set_editor_property` on `ALyraWorldSettings.DefaultGameplayExperience` returns success but doesn't take"](#14-python-set_editor_property-on-alyraworldsettingsdefaultgameplayexperience)
 15. ["`+GameFeaturesToEnable` in DefaultGame.ini but the plugin's actions never fire"](#15-gamefeaturestoenable-in-defaultgameini-but-the-plugins-actions-never-fire)
 16. ["GiveAbility log shows the ability granted, but firing input does nothing — UNRESOLVED"](#16-giveability-log-shows-the-ability-granted-but-firing-input-does-nothing--unresolved)
+17. ["A distinguishing experiment didn't actually distinguish — the variable wasn't isolated"](#17-a-distinguishing-experiment-didnt-actually-distinguish--the-variable-wasnt-isolated)
+18. ["Python BP-CDO edit reads back correct in-memory but doesn't persist to disk"](#18-python-bp-cdo-edit-reads-back-correct-in-memory-but-doesnt-persist-to-disk)
+19. ["Orphan component — authored UCLASS with a self-subscribe lifecycle that nothing grants"](#19-orphan-component--authored-uclass-with-a-self-subscribe-lifecycle-that-nothing-grants)
+20. ["Memory bit-rot — a banked filesystem pointer drifts as the codebase moves"](#20-memory-bit-rot--a-banked-filesystem-pointer-drifts-as-the-codebase-moves)
+21. ["Git output mediation — the wrapper's exit code lies about what git actually did"](#21-git-output-mediation--the-wrappers-exit-code-lies-about-what-git-actually-did)
+22. ["Bidirectional tracker drift — a stale tracker both overstates AND understates"](#22-bidirectional-tracker-drift--a-stale-tracker-both-overstates-and-understates)
 
 ---
 
@@ -465,7 +479,9 @@ Three failure modes, in increasing pain order:
 - After UE closes, both .uasset locks and the UBT mutex (trap #12) clear within seconds.
 - Resume git operation.
 
-**Important corollary: this skill's other-side prohibition.** When Claude is mid-session with editor open, do NOT ask the operator to close the editor for git operations Claude is running. Closing the editor severs Claude's MCP access — Claude can't run anything until editor reopens. If git checkout fails on a locked .uasset, the alternative is to use Python in the still-open editor to mutate the asset back to the desired state (the BM-DEBT-005-followup-prune recovery pattern: `set_editor_property` + `compile_blueprint` + `save_asset`).
+**Important corollary — the MCP-access prohibition (the other side of this trap).** When Claude is mid-session with the editor open and MCP-dependent, do NOT ask the operator to close the editor for git operations Claude is running — closing the editor severs Claude's MCP access (and the in-editor Python path), so Claude can't run anything until the editor reopens. Two consequences:
+- **For git ops on locked .uassets:** use the still-open editor's Python to mutate the asset back to the desired state (the BM-DEBT-005-followup-prune recovery: `set_editor_property` + `compile_blueprint` + `save_asset`), rather than asking for an editor-close that strands the session.
+- **For UBT builds (trap #12), the constraint INVERTS:** a build *requires* the editor closed (to release the mutex), but the close severs MCP. So a build is a deliberate close→build→reopen cycle the operator drives — never a mid-MCP-work request. The post-build PIE verification is console-driven (no MCP needed), which is what makes the cycle workable. Distinguish "I need MCP" work (editor stays open) from "I need a build" work (editor closes, MCP unavailable, verification happens via console). Source: BM-0106 (the AddComponents grant was authored via in-editor Python — editor stayed open throughout; BM-0105c's ForceRTT build, by contrast, required the close→build→reopen cycle).
 
 **Prevention:**
 - Don't `git pull`/`merge`/`checkout` paths that overlap with loaded .uassets while editor is open.
@@ -564,3 +580,180 @@ The bracketed `[Registered, Active]` in the log shows the transition path FROM R
 **Source evidence:** BM-0102b B1 failure investigation. Source-read narrowed the failure cause to outside the read dispatch path; open leads identified but root cause still UNRESOLVED for that specific failure. Banked in `reference_lyra_equipment_animbp_coupling.md`. Future investigation pending.
 
 **Related pillar:** Pillar 1 (don't bank "input wired" without observing the ability activate); Pillar 5 (sub-causes (a)-(d) are alternative interpretations — the diagnostic steps are distinguishing experiments to identify which is true for a specific failure instance).
+
+---
+
+### 17. A distinguishing experiment didn't actually distinguish — the variable wasn't isolated
+
+**Symptom:** You run an experiment meant to prove X by varying one parameter, and the result *looks* like proof — but the parameter you varied wasn't the only thing changing. Two named sub-symptoms:
+- **(a) Hand-aim variance:** firing at a moving target by hand to test a verdict (hit/reject, accept/deny). Every shot's impact point differs, so "fired at 0.2 RTT → accept" and "fired at 0 RTT → reject" are two *uncontrolled samples*, not a controlled A/B.
+- **(b) Velocity-zero phase:** the moving target is at a sweep extreme (sinusoid peak) where its velocity ≈ 0, so "past position" and "current position" are nearly identical — the verdict can't distinguish them even though the parameter (RTT) changed correctly.
+
+**Diagnostic signature:**
+- The experiment's "proof" is a verdict flip (A→B) across a parameter change, but the *other* inputs (aim point, target position, timing) also moved between the two trials.
+- Re-running the "same" trial produces inconsistent verdicts (because the uncontrolled inputs vary each run).
+- For (b): the logged "past" and "current" coordinates differ by less than the tolerance/box width — e.g., separation ~15cm against a ~115cm box.
+
+**Root cause:** A single-variable proof requires every input *except* the variable-under-test to be held constant. A moving target + hand-aim couples three variables (the test parameter, the aim point, the timing). The verdict flip could be caused by any of them. Convenient interpretation: "the parameter caused it." Pillar 5 inconvenient truth: you didn't isolate it.
+
+**Fix pattern:**
+- Drive the verdict path from a **fixed-coordinate debug command**, not the mouse. Latch the coordinate so both trials fire at a byte-identical point (e.g. `afl.LagComp.TestFire` latches the target's past position; `TestFire replay` reuses the exact latched coord). Then only the test parameter (RTT) varies → verdict flip is attributable to it alone.
+- For (b): ensure the separation the experiment relies on actually exceeds the tolerance. Fire at the target's *maximum-velocity* phase (sinusoid center-crossing), and **log both the past and current coordinates** so the operator can confirm the separation is real (e.g. 233cm) before trusting the verdict. If the logged separation is small, re-latch — the trial is meaningless.
+
+**Prevention:**
+- For any hit-confirmation / geometric-verdict proof that must isolate ONE variable (RTT, box size, pad), remove the human from the input loop. Hand-aim is fine for "does it work at all" smoke checks, never for single-variable proofs.
+- Slowing the target down *reduces* but does not *eliminate* the variance — it yields a better uncontrolled sample, not a controlled experiment. Eliminate, don't reduce.
+- Make the experiment self-reporting: log the controlled inputs (the latched coordinate, the dt) so a false-isolation is visible in the evidence, not assumed away.
+
+**Source evidence:** BM-0105c. Session 1 (commit bfc8b8c9) deferred the isolated flip because hand-aim could only produce directional evidence (trailing-accept/current-reject at fixed RTT) — proof that the box was at the past pose, but not single-variable isolation. Session 2 (commit 17ce2fc8) authored `afl.LagComp.TestFire` with a latched coordinate; the *first* flip attempt latched at a sweep peak (15cm separation → both legs accepted, a false-pass caught pre-bank); re-latching at center-crossing (233.79cm separation) produced the clean ACCEPT→REJECT flip with C byte-identical across both legs.
+
+**Related pillar:** Pillar 5 (the convenient "the parameter caused the flip" interpretation vs the inconvenient "you didn't isolate the parameter" — the fixed-coordinate latch is the experiment that actually distinguishes); Pillar 1 (the operator must observe the controlled inputs in the log, not just the verdict).
+
+---
+
+### 18. Python BP-CDO edit reads back correct in-memory but doesn't persist to disk
+
+**Symptom:** A Python `set_editor_property` on a Blueprint's CDO (e.g. appending to a `GameFeatureAction_AddComponents.ComponentList`) reads back correctly via `get_editor_property` — the in-memory CDO holds the change — but `git status` shows the `.uasset` unmodified. The change is not on disk; a fresh load wouldn't see it.
+
+**Diagnostic signature:**
+- In-memory read-back (`get_editor_property` right after the set) shows the new value. **This is the false-confidence surface** — the edit *is* in memory.
+- `EditorAssetLibrary.save_loaded_asset(bp)` / `save_asset` returns without error.
+- BUT `git status` shows no `M` on the `.uasset`, OR a reload-from-disk doesn't carry the change.
+
+**Root cause:** A Blueprint's runtime state lives in its `BlueprintGeneratedClass`; the editable CDO and the serialized class can diverge. Mutating the CDO via `set_editor_property` alone does not always propagate into the BlueprintGeneratedClass that gets serialized — so the save writes the *unchanged* class. `compile_blueprint` is what propagates CDO state into the generated class (and marks the package dirty correctly) so the subsequent save persists the change.
+
+**Fix pattern:**
+```python
+cdo = unreal.get_default_object(gen_class)
+# ... mutate cdo via set_editor_property (for instanced-struct TArrays, copy an
+#     existing element with element.copy(), mutate the copy, append) ...
+unreal.BlueprintEditorLibrary.compile_blueprint(bp)   # propagate CDO -> generated class
+unreal.EditorAssetLibrary.save_asset(bp_path, only_if_is_dirty=False)
+```
+Then **verify persistence via the git working tree**, not the in-memory read:
+```
+git status -sb -- path/to/Asset.uasset   # expect M (modified on disk)
+```
+The git working tree is the persistence oracle — it tells you the bytes actually changed on disk, which the in-memory CDO read cannot.
+
+**Prevention:**
+- For any Python BP-CDO mutation: `compile_blueprint` BEFORE `save_asset`, always. The compile is not optional.
+- NEVER trust the in-memory `get_editor_property` read-back as proof of persistence — it confirms the edit reached memory, not disk. Confirm with `git status` showing the `.uasset` modified.
+- This is distinct from trap #1 (MCP `:set()` silent no-op on instanced TArrays — that fails to apply at all, even in memory). Here the edit *applies in memory* and silently fails to *persist*. Different mechanism, same defense: read-back-verify, but the verification must be at the disk layer (git), not the memory layer.
+
+**Source evidence:** BM-0106 (commit ab683344). The `UAFLHitConfirmComponent` grant appended to `B_Experience_BagMan`'s `AddComponents` ComponentList read back correct in-memory, but `git status` showed no `.uasset` change after the first `save_loaded_asset`. Adding `compile_blueprint` before `save_asset` committed it to disk; git then showed `M Content/BagMan/Experiences/B_Experience_BagMan.uasset`. The git check is what caught the non-persistence.
+
+**Related pillar:** Pillar 1 (in-memory read-back is not runtime/persistent truth; the git working tree is the observable proof the bytes changed); Pillar 5 (the convenient "save returned no error so it saved" vs the inconvenient "the bytes aren't on disk" — git status is the distinguishing check). Cross-link: trap #1 (related MCP-edit mechanism, but that one no-ops in memory too; this one persists-fails after applying in memory).
+
+---
+
+### 19. Orphan component — authored UCLASS with a self-subscribe lifecycle that nothing grants
+
+**Symptom:** A `UActorComponent` subclass exists in the codebase, self-subscribes to an event on `BeginPlay` (e.g. `UGameplayMessageSubsystem::RegisterListener`), and has all its logic — but in PIE nothing reacts to the event it listens for. A `BroadcastMessage` fires with no live subscriber: a tree falling in an empty forest.
+
+**Diagnostic signature:**
+- The subscriber class exists in source and looks complete (registers on BeginPlay, has the callback).
+- Grep the class name across `Content/**.uasset` + PawnData/experience definitions → **zero hits outside its own source files and tests.**
+- The broadcast site fires (verifiable in log), but the subscriber's reaction (its log line, its visible effect) never appears in PIE.
+
+**Root cause:** The component was authored but never *granted* to any pawn/PC — no `GameFeatureAction_AddComponents` entry, no PawnData component list, no ctor `CreateDefaultSubobject` on a spawned actor. Its `BeginPlay` never runs because it's never instantiated on a live actor. This is the prior build's habit made concrete: author a component, forget the grant. The class compiles, ships, and looks done — but does nothing at runtime.
+
+**Fix pattern:**
+- Grant the component via the canonical path for its role. For player-feedback components → an experience-side `GameFeatureAction_AddComponents` targeting the appropriate actor class (e.g. `LyraPlayerController` for per-player feedback; client-only = `bClientComponent=true, bServerComponent=false`). For self-contained test actors → ctor `CreateDefaultSubobject`.
+- Verify the round-trip in PIE: the broadcast fires AND the subscriber observably reacts (its log line + visible effect). Both halves — broadcast-called is not the same as subscriber-reacted (Pillar 5).
+
+**Prevention — the audit trigger (Pillar 4 in formation):**
+- This is a *counting* pattern. ONE orphan is a bug; TWO is a coincidence; **THREE triggers a Pillar-4 audit.** Currently at TWO confirmed (see source). When a third surfaces, STOP feature work and audit ALL AFLCombat `UActorComponent` subclasses: grep each class name in `Content/**.uasset` + PawnData; zero hits outside source/tests = orphaned. Bank the full attach-coverage picture rather than discovering orphans one sprint at a time.
+- For any new self-subscribing component: author the grant in the SAME sprint as the component. The grant is part of "the component works," not a follow-up.
+
+**Source evidence:** Two confirmed instances. BM-0105b: `UAFLPawnHitboxHistoryComponent` — resolved by carrying it in the `AAFLLagTestDummy` ctor (test actor); the player-pawn grant was deferred. BM-0106 (commit ab683344): `UAFLHitConfirmComponent` — authored, self-subscribes to `Event.Damage.Confirmed`, but no grant existed; grep of Content showed zero references; fixed by adding it to `B_Experience_BagMan`'s `AddComponents` action. A third instance (likely AFL-0402's `UAFLDismemberComponent` in S4) triggers the audit. Banked in `feedback_orphan_component_watch.md`.
+
+**Related pillar:** Pillar 4 (the anticipatory mode — watching the count climb toward the audit threshold, rather than auditing after the fact; see the "Pillar 4 in formation" worked example in methodology.md); Pillar 1 (a component that compiles but is never instantiated is the "✅ on code-authored, not feature-works" failure mode in component form).
+
+---
+
+### 20. Memory bit-rot — a banked filesystem pointer drifts as the codebase moves
+
+**Symptom:** A memory note (or any durable doc) cites a file path or version label that was correct when banked, but the file has since been renamed/moved/version-bumped. Acting on the banked pointer sends you to a path that doesn't exist, or asserts a version that's stale.
+
+**Diagnostic signature:**
+- A memory says "the tracker is at `X_v2_2.html`" or "the SSOT is v2.3," and the live filesystem shows a different filename or version.
+- A `[[wikilink]]` or path reference resolves to nothing, or to a superseded file.
+- The memory's own timestamp is days/weeks old; the cited artifact has a newer mtime.
+
+**Root cause:** A memory is a point-in-time observation, not live state. File paths, version labels, and "current" filenames drift as the codebase evolves (renames, version bumps, agent-edits). The bank was accurate at write-time; the world moved underneath it. This is especially acute for artifacts edited by *other* agents (e.g. an AIK that version-bumps a tracker on each edit — see `project_aik_version_labels_not_verification`).
+
+**Fix pattern:**
+- **Verify the pointer at consumption time, not at bank time.** Before acting on a banked path: `ls`/Glob it. Before asserting a banked version: read the live file's label. If they disagree, trust the live read and *correct the memory* (the correction is itself a finding).
+- When correcting: note that the memory wasn't *wrong* at write-time — the file moved. Record both the old and new state so the drift history is legible (e.g. "said v2.3; that was the operator-verified label at write-time; AIK edits advanced it to v2.7").
+
+**Prevention:**
+- Treat every banked file path / version label as "true as of the bank date," never as "true now." A memory that names a path is a claim it existed *when written*.
+- For pointers consumed across sessions: re-verify on the first read of a new session. Cheap (one Glob/Read); the alternative (planning on a stale pointer) is expensive.
+- Prefer durable anchors over volatile ones in banks: a git commit SHA is immutable; a versioned filename is not. Cite the SHA when possible.
+
+**Source evidence:** BM-0106 handoff (2026-05-28). The `reference_tracker_and_paths` memory pointed at `BAG_MAN_LIVE_TRACKER_v2_2.html` — a filename that no longer existed (current was `BAG_MAN_LIVE_TRACKER.html`). The same session's handoff banked "v2.3 SSOT"; the next session's read of the live file showed **v2.7** (AIK had version-bumped it between sessions). Both corrected by reading the live file before acting. See `project_aik_version_labels_not_verification`.
+
+**Related pillar:** Pillar 1 (the live filesystem is the source of truth; a banked pointer is a report — verify against the running state before acting); Pillar 5 (the convenient "the memory says X so X is true" vs the inconvenient "the file moved" — the Glob/Read is the distinguishing check).
+
+---
+
+### 21. Git output mediation — the wrapper's exit code lies about what git actually did
+
+**Symptom:** A `git push` (or other git op) run through a tool wrapper or PowerShell reports a result that contradicts what git actually did. Two confirmed, opposite failure modes:
+- **(a) Wrapper-exit-0 hides a real failure:** the background-task / wrapper summary reports `exit code 0` (success), but the literal git output is `fatal: ... Connection timed out ... EXIT 128`. The push did NOT happen.
+- **(b) PowerShell wraps stderr as a RemoteException hiding a real success:** a native git command's stderr (which git uses for progress, not just errors) gets wrapped by PowerShell into a `NativeCommandError`/RemoteException, making a *successful* operation look failed (and setting `$?` to false even on exit 0).
+
+**Diagnostic signature:**
+- (a) The wrapper/summary says success, but `git status -sb` still shows `[ahead N]` and `git log origin/main` doesn't show the new commit.
+- (b) PowerShell surfaces a red error block citing the git command, but the operation's effect (the push, the commit) actually landed.
+- In both: the *mediated* report (wrapper exit, PowerShell `$?`) disagrees with the *literal git text* and the *independent git state*.
+
+**Root cause:** Layers between you and git — a background-task exit-code summary, PowerShell's native-stderr handling — re-interpret git's output and can invert its meaning. Git communicates via stdout/stderr text and its own exit codes; any wrapper that summarizes those can lose or invert the signal. Git also uses stderr for non-error progress, which trips stderr-means-failure heuristics.
+
+**Fix pattern:**
+- **Verify every git mutation by the literal git text + independent git state, never the mediated report.** After a push:
+```
+git push origin main 2>&1     # READ the literal output lines
+git status -sb                 # independent: expect no [ahead]
+git log --oneline -1 origin/main   # independent: expect the new SHA at origin
+```
+Success = the literal `<old>..<new>  main -> main` line AND `git status` clean AND `origin/main` shows the new SHA. All three, from real git — not the wrapper's exit code.
+- For (b) specifically: avoid `2>&1` on native git in PowerShell where it wraps stderr as ErrorRecords; or treat a PowerShell red block on a git command as "inspect the literal output + git state," not "it failed."
+
+**Prevention:**
+- Bake the independent-verify into every push/commit bank step. The wrapper exit code is an input to suspicion, not a verdict.
+- When a wrapper reports success on a network op, *still* check `git status` — network ops are exactly where (a) bites.
+- Treat this as potentially systemic: it has fired multiple times. If it recurs, the mitigation (parse literal git lines) is cheap and should be reflexive.
+
+**Source evidence:** Confirmed multiple times in the BAG MAN rebuild. The clearest: the tracker-hygiene push (commit 3489998a, 2026-05-28) reported `exit code 0` on TWO consecutive background pushes while the literal output was `fatal: Connection timed out ... EXIT 128` both times — `git status` showing `[ahead 1]` and `origin/main` still at the prior SHA is what caught it. The push only truly landed a session later when the HTTPS:443 block cleared. Mode (b) (PowerShell stderr-as-RemoteException) is documented in the PowerShell tool guidance and observed on native-exe progress output.
+
+**Related pillar:** Pillar 1 (the literal git text + independent git state is the runtime truth; the wrapper's exit code is a report that can lie in either direction); Pillar 5 (the convenient "exit 0 means it pushed" vs the inconvenient "git timed out" — `git status -sb` is the one-command distinguishing experiment).
+
+---
+
+### 22. Bidirectional tracker drift — a stale tracker both overstates AND understates
+
+**Symptom:** A project tracker has diverged from reality, and the divergence runs *both* directions: some tasks marked ✅ were never actually verified (overstatement), AND some genuinely-completed work shows no-marker or stub (understatement).
+
+**Diagnostic signature:**
+- A task shows ✅ but no runtime evidence (no PIE record, no commit demonstrating the feature *works* — only commits showing code authored).
+- A different task shows stub/no-marker, but git + PIE record show it was genuinely closed.
+- The tracker's ✅ semantics turn out to mean "code shipped," not "feature verified" — for some entries but not others.
+
+**Root cause:** When a tracker and reality diverge, the divergence is not uniformly in one direction. ✅ may have been applied on code-authored (overstatement, the founding failure mode), while real verified work done *outside the tracker's lineage* (e.g. a separate rebuild thread) never got reflected back (understatement). Same root cause — tracker ≠ reality — two opposite surface symptoms.
+
+**Fix pattern — reconcile in TWO passes, not one:**
+1. **✅ → runtime:** for every claimed-✅ in the tracker, check it against runtime evidence (git commit + PIE record). Overstated if ✅ but no runtime proof. Downgrade or annotate.
+2. **commits → tracker:** for every git commit / verified PIE bank, check it against the tracker's representation. Understated if proven-done but the tracker shows stub/no-marker. Upgrade.
+
+A reconciliation that only does pass 1 (hunting false-✅) "fixes" the tracker into being wrong in the *other* direction — real progress still unrecorded.
+
+**Prevention:**
+- Never assume a stale tracker only overstates. Audit both directions by default.
+- Preserve forensic honesty markers when reconciling: if an entry self-flags its own uncertainty (e.g. "✅ MECHANICALLY CLOSED" with ⏳ on the runtime gates), keep that nuance rather than flattening it to a plain ✅ or ✗ — it's evidence of where the author already knew the code-vs-verified line.
+- Cite the runtime evidence (commit SHA + PIE observation) when upgrading/downgrading, so the corrected tracker is itself traceable.
+
+**Source evidence:** v2.7 SSOT inventory (2026-05-29). OVERSTATED: AFL-0204 (✅ hit-confirm, but the component was orphaned until BM-0106 wired it — trap #19) and AFL-0211 (✅ lag-comp, but compensation was unverified until BM-0105c's RTT-flip). UNDERSTATED: AFL-0209 (no-marker, but BM-0104 closed it via live DA-swap, PIE-verified). The AFL-0304-Bi entry self-flags "✅ MECHANICALLY CLOSED" + ⏳ on its runtime gates — a forensic honesty marker to preserve. Net drift sized MEDIUM. See `feedback_bidirectional_tracker_drift.md` and `project_v2_7_inventory_pointer.md`.
+
+**Related pillar:** Pillar 1 (✅ must mean operator-observed-runtime, not code-authored — the bidirectional drift is what happens when that discipline lapses); Pillar 5 (the convenient "the tracker just overstates" vs the inconvenient "it also understates" — the two-pass audit is the experiment that catches both).

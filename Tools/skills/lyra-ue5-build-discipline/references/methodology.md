@@ -122,6 +122,28 @@ Exactly -18/shot. No accumulation (verifies per-shot Override re-seed of Source.
 - **Negative findings are bank-worthy.** A failed sprint produced a corrected understanding plus a logged architectural-open-question. That's more valuable than a successful prune would have been (no functional change, just lost a workaround).
 - **MCP capability proof.** Python re-author of BP CDO action arrays works if: (a) class fetched from existing template via `.get_class()`, (b) struct mutation done in-place when the struct type has no Python binding, (c) `compile_blueprint` called before `save_asset`. Banked in `feedback_bp_reflection_silent_noop.md` and `project_bm_debt_005_followup_prune_failed.md`.
 
+## Worked example — Pillar 4 in formation (orphan-component anti-pattern)
+
+### The arc
+
+**Pillar 4 has two modes.** The BM-DEBT-AUDIT-001 example above is Pillar 4 *in arrears* — three instances had already accumulated before the audit triggered. This example is Pillar 4 *in formation* — watching the count climb toward the threshold and pre-positioning the audit, so the third instance triggers a prepared response instead of a fresh discovery.
+
+**The shape:** a `UActorComponent` subclass authored with a self-subscribe lifecycle (registers a `UGameplayMessageSubsystem` listener on `BeginPlay`) but with no `AddComponents` grant — so it never instantiates on a live actor, and the event it listens for broadcasts to no subscriber in PIE.
+
+**Instance 1 (BM-0105b).** `UAFLPawnHitboxHistoryComponent` — the lag-comp snapshot publisher. Authored, self-registers with the lag-comp subsystem on BeginPlay if it has authority. But nothing granted it to the player pawn; it was made to work by carrying it in the `AAFLLagTestDummy` ctor (a test actor), with the player-pawn grant explicitly deferred. At the time this read as a one-off scoping choice, not a pattern.
+
+**Instance 2 (BM-0106, commit ab683344).** `UAFLHitConfirmComponent` — listens for `Event.Damage.Confirmed`, fires camera shake + hitmarker. Authored complete, self-subscribes on BeginPlay. But a grep of `Content/**.uasset` + PawnData showed **zero references** — orphaned. The `Event.Damage.Confirmed` broadcast (from the ExecCalc) had no live subscriber in PIE. Fixed by adding an experience-side `AddComponents` entry targeting `LyraPlayerController`.
+
+**The recognition.** Two instances of the identical shape — *authored component, self-subscribe lifecycle, no grant* — in two consecutive sprints. Not yet three (the audit threshold), but the pattern was now named and the count was tracked: `feedback_orphan_component_watch.md` banked the rule "two is coincidence; the third triggers an audit of ALL AFLCombat components for attach coverage."
+
+**Pre-positioning the audit.** Rather than wait to rediscover the pattern on instance 3, the next-session runway (`project_next_session_s4_dismemberment.md`) flagged AFL-0402's `UAFLDismemberComponent` — S4's first new component — as the *likely* third instance, with the audit response pre-loaded: grep every AFLCombat `UActorComponent` subclass against Content + PawnData; zero hits outside source/tests = orphaned.
+
+### Lessons
+
+- **Pillar 4 in formation is cheaper than in arrears.** Naming the pattern at instance 2 and pre-loading the audit response means instance 3 triggers a prepared sweep instead of a from-scratch diagnosis. The cost of tracking a forming pattern is one memory note; the payoff is not rediscovering it.
+- **The prior-build habit is the generator.** "Author a component, forget the grant" was a systemic habit, which is exactly why instances recur — every carry-forward component is a candidate. The audit (when it triggers) inventories the whole class, not just the sprint's component.
+- **Two is the moment to write the rule, not the moment to audit.** Auditing at two would be premature (Pillar 4 says three); ignoring at two loses the recall. The discipline is to *name and count* at two, *audit* at three.
+
 ## Decision trees (prose form)
 
 ### Read or author?
