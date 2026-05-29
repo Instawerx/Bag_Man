@@ -3,7 +3,10 @@
 #include "AFLDismemberComponent.h"
 
 #include "AFLDismember.h"
+#include "AFLDismemberedHead.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
 #include "HUD/AFLOverkillMessage.h"
@@ -22,6 +25,10 @@ namespace
 UAFLDismemberComponent::UAFLDismemberComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+
+	// Defaulted in ctor so the slice ships without BP wiring; BP children
+	// may override to a custom head asset later (real head mesh = polish).
+	HeadActorClass = AAFLDismemberedHead::StaticClass();
 }
 
 void UAFLDismemberComponent::BeginPlay()
@@ -87,6 +94,37 @@ void UAFLDismemberComponent::OnOverkill(FGameplayTag Channel, const FAFLOverkill
 			UE_LOG(LogAFLDismember, Display,
 				TEXT("[AFLDismember] Head bone hidden on %s (S4-05a) -- rolling prop is S4-05b"),
 				*GetNameSafe(GetOwner()));
+
+			// S4-05b: spawn the rolling head prop at the head's world transform.
+			// Server-side; shows in single-player PIE (server==client). The
+			// physics sphere simulates + auto-destroys after 5s. Multiplayer-
+			// correct replicated physics is deferred (snapshot replication is
+			// good enough cosmetically; deterministic physics is a later lift).
+			const FTransform HeadXform =
+				SkelMesh->GetSocketTransform(FName(TEXT("head")), RTS_World);
+
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			SpawnParams.Owner = GetOwner();
+
+			UClass* HeadClass = HeadActorClass.Get();
+			if (HeadClass && GetWorld())
+			{
+				AAFLDismemberedHead* HeadActor =
+					GetWorld()->SpawnActor<AAFLDismemberedHead>(HeadClass, HeadXform, SpawnParams);
+				if (HeadActor && HeadActor->GetSphereMesh())
+				{
+					HeadActor->GetSphereMesh()->AddImpulse(
+						FVector(FMath::FRandRange(-100.f, 100.f),
+								FMath::FRandRange(-100.f, 100.f),
+								500.f),
+						NAME_None, /*bVelChange=*/false);
+					UE_LOG(LogAFLDismember, Display,
+						TEXT("[AFLDismember] Head prop spawned on %s (S4-05b) -- pop + roll"),
+						*GetNameSafe(GetOwner()));
+				}
+			}
 		}
 		else
 		{

@@ -5,9 +5,11 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
+#include "Templates/SubclassOf.h"
 
 #include "AFLDismemberComponent.generated.h"
 
+class AAFLDismemberedHead;
 struct FAFLOverkillMessage;
 struct FGameplayTag;
 
@@ -34,6 +36,10 @@ class AFLDISMEMBER_API UAFLDismemberComponent : public UActorComponent
 
 public:
 	UAFLDismemberComponent();
+
+	/** The physics-prop class spawned at the victim's head transform on head-overkill (S4-05b). BP-overridable. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
+	TSubclassOf<AAFLDismemberedHead> HeadActorClass;
 
 protected:
 	virtual void BeginPlay() override;
