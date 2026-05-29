@@ -390,6 +390,10 @@
                     {
                         "Name":  "AFLMovement",
                         "Enabled":  true
+                    },
+                    {
+                        "Name":  "AFLDismember",
+                        "Enabled":  true
                     }
                 ],
     "EpicSampleNameHash":  "451731683"
