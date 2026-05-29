@@ -3,6 +3,7 @@
 #include "AFLDismemberComponent.h"
 
 #include "AFLDismember.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
 #include "HUD/AFLOverkillMessage.h"
@@ -61,14 +62,38 @@ void UAFLDismemberComponent::OnOverkill(FGameplayTag Channel, const FAFLOverkill
 	// Head-zone check. S4-A0 confirmed the Manny head bone is "head".
 	if (Payload.BoneName == FName(TEXT("head")))
 	{
-		// S4-04 SCOPE: detection only. The detach (head physics actor +
-		// bone hide) is S4-05. This log is the PIE-verifiable proof that
-		// the server-side victim-side listener fires on a head-overkill.
 		UE_LOG(LogAFLDismember, Warning,
-			TEXT("[AFLDismember] HEAD OVERKILL detected on %s (bone=%s, magnitude=%.1f) -- detach is S4-05"),
+			TEXT("[AFLDismember] HEAD OVERKILL detected on %s (bone=%s, magnitude=%.1f) -- detaching head"),
 			*GetNameSafe(GetOwner()),
 			*Payload.BoneName.ToString(),
 			Payload.Magnitude);
+
+		// S4-05a: detach the head. Reach the owner's skeletal mesh (registry
+		// lookup -- works for the dummy's private Mesh subobject and for
+		// ALyraCharacter pawns later) and hide the head bone. HideBoneByName
+		// scales the bone to 0 (head visibly disappears); PBO_Term also
+		// terminates its physics body so no phantom head-capsule collision
+		// remains. S4-05b spawns the rolling head prop at the head transform.
+		//
+		// Server-side, shows in single-player PIE (server==client). The
+		// multiplayer-correct version (NetMulticast wrapper so clients also
+		// run HideBoneByName) is deferred to when dismemberment goes on real
+		// pawns in real net play -- HideBoneByName does NOT replicate.
+		if (USkeletalMeshComponent* SkelMesh =
+				GetOwner()->FindComponentByClass<USkeletalMeshComponent>())
+		{
+			SkelMesh->HideBoneByName(FName(TEXT("head")), PBO_Term);
+
+			UE_LOG(LogAFLDismember, Display,
+				TEXT("[AFLDismember] Head bone hidden on %s (S4-05a) -- rolling prop is S4-05b"),
+				*GetNameSafe(GetOwner()));
+		}
+		else
+		{
+			UE_LOG(LogAFLDismember, Warning,
+				TEXT("[AFLDismember] %s has no SkeletalMeshComponent -- cannot detach head"),
+				*GetNameSafe(GetOwner()));
+		}
 	}
 	else
 	{
