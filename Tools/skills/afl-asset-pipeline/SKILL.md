@@ -8,7 +8,7 @@ description: >
   Lyra-compatible skeletal mesh setup, LOD generation, texture
   compression per platform (PC/Console/Mobile), AFL asset naming
   conventions, Git LFS management for large binary assets, cook
-  validation, redirector fixup for content relocation, and asset audit
+  validation, redirector fixup (post-editor-move reference resolution), and asset audit
   workflows. Use whenever the work involves importing meshes or
   textures, DCC export settings, skeleton retargeting for Lyra's
   mannequin, LOD setup, texture compression settings per platform, Git
@@ -195,24 +195,61 @@ reference plugin assets *inside a plugin*. **Relocate the content,
 don't sever the references.** Plugin → plugin references are legal;
 the validator only flags `/Game/` → plugin.
 
-This is `afl-cpp-lyra-developer` rule 7, applied to assets. The
-canonical UE5 mechanic for performing the relocation cleanly is the
-redirector fixup commandlet (see "Asset Validation" section below).
+This is `afl-cpp-lyra-developer` rule 7, applied to assets.
 
-When you relocate an asset:
-1. Move the asset's source file (`git mv` if tracked, preserving LFS
-   pointers and git history).
-2. UE5 leaves a redirector at the old location pointing at the new
-   location — references to the old path keep working transiently.
-3. Run the redirector-fixup commandlet to update every reference to
-   point at the new location directly, then delete the redirectors.
-4. Asset-audit cook for missing references; verify clean.
-5. **Update the Project Asset Registry** above to reflect the new
+### ⚠️ NEVER git mv UE content that has live references
+
+**Content relocation in UE is an EDITOR operation, never a git
+operation.** This rule is written in the blood of a real failure (D
+Phase B, reverted at `63d5ff7d`):
+
+- `git mv` moves bytes on disk that UE never witnessed. UE creates a
+  redirector **only** when the move happens *inside the editor* (UE
+  rewrites the referencing packages and writes a redirector object at
+  the old path). A `git mv` produces **no redirector**.
+- With no redirector, `ResavePackages -fixupredirects` has nothing to
+  chase — it silently fixes nothing, the referencing assets still point
+  at the now-empty old path, and **every reference is broken**. The
+  editor opens to "all content missing."
+- The damage is silent at the git layer: the referencing packages show
+  no diff (UE never updated them), so a `git status` after the git mv
+  looks deceptively clean while the project is actually broken.
+
+If you ever catch yourself reaching for `git mv` on a `.uasset`/`.umap`
+with live references, **stop**. Use the editor procedure below.
+
+### The correct relocation procedure (editor-native)
+
+The editor is the only thing that can move content AND update the
+references AND create the redirectors. git's job is to *record* what
+the editor did, never to perform the move.
+
+1. **Editor OPEN.** In the Content Browser, select the content to
+   relocate.
+2. **Move via the Content Browser** (drag into the target plugin's
+   Content folder, or right-click → Move/Migrate). UE updates every
+   referencing package in-place to point at the new path, and leaves a
+   redirector at the old path for anything not yet resaved.
+3. **Fix Up Redirectors** — right-click the old folder → "Fix Up
+   Redirectors in Folder" (scoped to that folder, NOT project-wide —
+   see Asset Validation section). This rewrites remaining referencers
+   and removes the orphaned redirector stubs.
+4. **Save All.** UE writes the modified referencing packages to disk.
+5. **NOW git sees a coherent change set**: the moved content under the
+   plugin, PLUS the modified referencing assets (e.g.
+   `B_Experience_BagMan`, `HeroData_BagMan`) now pointing at the new
+   paths. That second part — modified referencers — is the signal the
+   move worked. If `git status` after the move shows the content moved
+   but ZERO referencer modifications, the references did NOT update —
+   stop and investigate before committing.
+6. **Editor CLOSED**, then stage + commit the whole coherent set as one
+   relocation commit. Verify push by literal git (trap #21).
+7. **Update the Project Asset Registry** above to reflect the new
    asset homes.
 
-The redirector fixup is what makes content relocation tractable at
-scale — without it, references stay broken until every consumer is
-hand-edited. With it, the commandlet does the editing.
+The editor move is what makes relocation correct; the redirector fixup
+(next section) is its *follow-up*, only meaningful because the editor
+move created the redirectors in the first place.
 
 ---
 
@@ -388,8 +425,10 @@ See trap #5 for the full diagnostic.
 While the UE5 editor is open, .uasset files for loaded assets are
 locked — git operations on them fail with permission errors. Some
 implications:
-- Asset relocation (`git mv`) requires the editor closed or the asset
-  unloaded.
+- Asset relocation is an EDITOR operation (Content Browser move + Fix
+  Up Redirectors), never `git mv` — see the Content Shape section's
+  hard rule. git operations on .uassets (staging the editor's result,
+  reverting) require the editor closed or the asset unloaded.
 - The redirector-fixup commandlet (next section) requires the editor
   closed (it runs as its own process and would conflict with an
   editor mutex on shared assets).
@@ -428,10 +467,21 @@ Note: the executable is `UnrealEditor-Cmd.exe` for UE5 (not
 `UE4Editor-Cmd.exe` — that's the UE4 name). Project file is
 `Bag_Man.uproject` per the project's filesystem identity.
 
-The redirector-fixup commandlet is the load-bearing mechanic for
-content relocation (rule 7 in `afl-cpp-lyra-developer`, BM-DEBT-001's
-resolution). After relocating an asset, run the fixup, then delete
-the redirector stubs UE5 left behind.
+⚠️ **The fixup commandlet is a follow-up to an in-editor move, NEVER a
+substitute for one.** It resolves redirectors that an *editor move*
+already created (see Content Shape section). Running it on a `git mv`'d
+tree does nothing useful (no redirectors exist to fix) and is dangerous
+project-wide (see scoping warning below).
+
+⚠️ **The `-fixupredirects` commandlet as written above runs
+PROJECT-WIDE** — it resaves every dirty or redirector-bearing package
+across the entire project, not just your relocated content. In D Phase B
+this churned ~47 unrelated files across ShantyTown, SpaceshipInterior,
+ModularGothicFantasy, and UI/Foundation. **Always prefer the scoped
+in-editor "Fix Up Redirectors in Folder"** (right-click the specific
+folder) over the unscoped commandlet. If the commandlet is genuinely
+needed at scale, add a path filter (e.g. `-packagefolder=/Game/BagMan`)
+so it cannot sweep the whole project.
 
 **AFL Cook Checklist:**
 - [ ] No broken redirectors (`Edit > Fix Up Redirectors in Folder` on
