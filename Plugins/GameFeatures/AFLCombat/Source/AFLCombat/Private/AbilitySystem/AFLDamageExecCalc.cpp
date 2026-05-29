@@ -8,6 +8,7 @@
 #include "Engine/World.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
 #include "HUD/AFLHitConfirmMessage.h"
+#include "HUD/AFLOverkillMessage.h"
 #include "Messages/LyraVerbMessage.h"
 #include "Telemetry/AFLCombatTelemetry.h"
 
@@ -29,6 +30,10 @@ namespace
 	// Verb tag broadcast when damage exceeds OverkillThreshold. Listeners (e.g.
 	// AFLDismember in a later stage) subscribe via UGameplayMessageSubsystem.
 	const FName NAME_Event_Damage_Overkill_ExecCalc  = TEXT("Event.Damage.Overkill");
+
+	// AFL overkill channel — broadcast alongside Event.Damage.Overkill, carrying
+	// BoneName for the dismember system (S4-02). Canonical tag in AFLCoreTags.ini.
+	const FName NAME_Event_Damage_Overkill_AFL_ExecCalc = TEXT("Event.Damage.Overkill.AFL");
 
 	// AFL-0204: broadcast when EffectiveDamage > 0 so the firing client's
 	// UAFLHitConfirmComponent can play crosshair pulse + camera shake.
@@ -244,8 +249,25 @@ void UAFLDamageExecCalc::Execute_Implementation(
 
 			UGameplayMessageSubsystem::Get(World).BroadcastMessage(Message.Verb, Message);
 
-			UE_LOG(LogAFLCombat, Verbose, TEXT("Overkill broadcast: HealthDmg=%.1f Threshold=%.1f Target=%s"),
-				HealthComponent, TargetOverkillThreshold, *GetNameSafe(TargetActor));
+			// AFL overkill broadcast (S4-02): alongside the Lyra verb message above,
+			// emit a dedicated AFL message carrying BoneName so the dismember system
+			// (UAFLDismemberComponent, S4-04) knows which zone the killing blow hit.
+			// HitResult is re-fetched here: the Confirmed block's local fell out of
+			// scope at its closing brace.
+			const FHitResult* OverkillHitResult = Spec.GetEffectContext().GetHitResult();
+
+			FAFLOverkillMessage AFLOverkill;
+			AFLOverkill.Instigator = Spec.GetEffectContext().GetEffectCauser();
+			AFLOverkill.Target     = TargetActor;
+			AFLOverkill.BoneName   = OverkillHitResult ? OverkillHitResult->BoneName : NAME_None;
+			AFLOverkill.Magnitude  = HealthComponent;
+
+			UGameplayMessageSubsystem::Get(World).BroadcastMessage(
+				FGameplayTag::RequestGameplayTag(NAME_Event_Damage_Overkill_AFL_ExecCalc, false),
+				AFLOverkill);
+
+			UE_LOG(LogAFLCombat, Verbose, TEXT("Overkill broadcast: HealthDmg=%.1f Threshold=%.1f Target=%s Bone=%s"),
+				HealthComponent, TargetOverkillThreshold, *GetNameSafe(TargetActor), *AFLOverkill.BoneName.ToString());
 		}
 	}
 #endif // WITH_SERVER_CODE
