@@ -127,6 +127,39 @@ def submit_text_task(key, prompt, neg_prompt, model_version, face_limit,
     return task_id
 
 
+def submit_texture_task(key, original_task_id, model_version,
+                        texture_prompt_text=None, texture_quality=None,
+                        texture_alignment=None, bake=None, part_names=None):
+    """POST /task type=texture_model. Returns task_id.
+    Body fields verbatim from TripoProvider.cpp:490-535 + schema 749-767.
+    NOTE: texture_model model_version is restricted to v2.5-20250123 or
+    v3.0-20250812 (NOT v3.x like text_to_model)."""
+    body = {
+        "type": "texture_model",
+        "original_model_task_id": original_task_id,
+        "model_version": model_version,
+        "texture": True,
+        "pbr": True,
+    }
+    if texture_prompt_text:
+        body["texture_prompt"] = {"text": texture_prompt_text[:PROMPT_MAX]}
+    if texture_quality:
+        body["texture_quality"] = texture_quality
+    if texture_alignment:
+        body["texture_alignment"] = texture_alignment
+    if bake is not None:
+        body["bake"] = bool(bake)
+    if part_names:
+        body["part_names"] = list(part_names)
+    print(f"[tripo] submitting texture_model body keys: {sorted(body.keys())}")
+    j = _request("POST", f"{TRIPO_BASE}/task", key, body)
+    if j.get("code") != 0:
+        sys.exit(f"FATAL: texture task submit failed: {j}")
+    task_id = j["data"]["task_id"]
+    print(f"[tripo] texture task submitted: {task_id}")
+    return task_id
+
+
 def submit_image_task(key, image_url, model_version, face_limit,
                       texture=True, pbr=True, extras=None):
     """POST /task type=image_to_model via image URL (fallback path).
@@ -274,6 +307,13 @@ def main():
                     help="explicitly disable texture (default = true)")
     ap.add_argument("--no-pbr", action="store_true",
                     help="explicitly disable PBR (default = true)")
+    # texture_model (re-texture an existing model task)
+    ap.add_argument("--retexture-task-id", default=None,
+                    help="texture_model: re-texture an existing task_id (skips text/image_to_model)")
+    ap.add_argument("--texture-prompt", default=None,
+                    help="texture_model: text guidance for texturing (optional)")
+    ap.add_argument("--texture-alignment", choices=["original_image", "geometry"], default=None,
+                    help="texture_model: alignment priority (image-source only)")
     ap.add_argument("--balance-only", action="store_true",
                     help="just check balance + exit (the cheap probe)")
     args = ap.parse_args()
@@ -283,37 +323,53 @@ def main():
     if args.balance_only:
         return
 
-    if not args.prompt and not args.image_url:
-        sys.exit("FATAL: need --prompt or --image-url")
-
-    # Resolve texture/pbr with the generate_parts INTERLOCK
-    # (TripoProvider.cpp:678 -- "Segmented parts (requires texture=false, pbr=false)")
-    texture = not args.no_texture
-    pbr = not args.no_pbr
-    if args.generate_parts:
-        if texture or pbr:
-            print("[tripo] generate_parts ON -> forcing texture=false, pbr=false "
-                  "(Tripo constraint: segmented output is untextured geometry; "
-                  "texture via a separate texture_model task afterward)")
-        texture = False
-        pbr = False
-
-    extras = {
-        "generate_parts": args.generate_parts,
-        "auto_size": args.auto_size,
-        "smart_low_poly": args.smart_low_poly,
-        "texture_quality": args.texture_quality,
-        "geometry_quality": args.geometry_quality,
-        "model_seed": args.model_seed,
-    }
-
-    if args.image_url:
-        task_id = submit_image_task(key, args.image_url, args.model_version,
-                                    args.face_limit, texture=texture, pbr=pbr, extras=extras)
+    if args.retexture_task_id:
+        # texture_model branch: re-texture an existing task. Skips prompt/image entirely.
+        # NOTE: texture_model model_version is restricted to v2.5-20250123 or v3.0-20250812;
+        # default to v3.0-20250812 if the user passed a text_to_model version.
+        tex_mv = args.model_version
+        if tex_mv not in ("v2.5-20250123", "v3.0-20250812"):
+            print(f"[tripo] WARN: texture_model only accepts v2.5-20250123 or v3.0-20250812; "
+                  f"got {tex_mv} -> using v3.0-20250812")
+            tex_mv = "v3.0-20250812"
+        task_id = submit_texture_task(
+            key, args.retexture_task_id, tex_mv,
+            texture_prompt_text=args.texture_prompt,
+            texture_quality=args.texture_quality,
+            texture_alignment=args.texture_alignment,
+        )
     else:
-        task_id = submit_text_task(key, args.prompt, args.negative_prompt,
-                                   args.model_version, args.face_limit,
-                                   texture=texture, pbr=pbr, extras=extras)
+        if not args.prompt and not args.image_url:
+            sys.exit("FATAL: need --prompt or --image-url (or --retexture-task-id)")
+
+        # Resolve texture/pbr with the generate_parts INTERLOCK
+        # (TripoProvider.cpp:678 -- "Segmented parts (requires texture=false, pbr=false)")
+        texture = not args.no_texture
+        pbr = not args.no_pbr
+        if args.generate_parts:
+            if texture or pbr:
+                print("[tripo] generate_parts ON -> forcing texture=false, pbr=false "
+                      "(Tripo constraint: segmented output is untextured geometry; "
+                      "texture via a separate texture_model task afterward)")
+            texture = False
+            pbr = False
+
+        extras = {
+            "generate_parts": args.generate_parts,
+            "auto_size": args.auto_size,
+            "smart_low_poly": args.smart_low_poly,
+            "texture_quality": args.texture_quality,
+            "geometry_quality": args.geometry_quality,
+            "model_seed": args.model_seed,
+        }
+
+        if args.image_url:
+            task_id = submit_image_task(key, args.image_url, args.model_version,
+                                        args.face_limit, texture=texture, pbr=pbr, extras=extras)
+        else:
+            task_id = submit_text_task(key, args.prompt, args.negative_prompt,
+                                       args.model_version, args.face_limit,
+                                       texture=texture, pbr=pbr, extras=extras)
 
     data = poll(key, task_id)
     result = pick_model_url(data)
