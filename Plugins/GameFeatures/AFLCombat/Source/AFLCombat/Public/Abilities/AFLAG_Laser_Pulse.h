@@ -123,6 +123,16 @@ private:
 	/** Server-only: validate (stub) + ApplyGameplayEffectSpecToTarget. */
 	void ServerApplyTargetData(const FGameplayAbilityTargetDataHandle& Data);
 
+	/**
+	 * AFL-0301/0302: resolve the muzzle world location off the avatar's attached
+	 * weapon actor. Walks AvatarPawn->GetAttachedActors(), finds the first SMC
+	 * carrying a "Muzzle" socket, returns its world location. Falls back to the
+	 * weapon_r hand socket on the character mesh if no muzzle socket resolves --
+	 * cues never silently no-show with zero/origin spawn. Shared by the Fire cue
+	 * (ClientPredictAndSend) and the Tracer cue (OnTargetDataReadyCallback).
+	 */
+	FVector ResolveMuzzleLocation(APawn* AvatarPawn) const;
+
 	FDelegateHandle OnTargetDataReadyCallbackDelegateHandle;
 
 	/**

@@ -43,6 +43,14 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Pulse, "State.Firing.Pulse");
 // unique to avoid Unity-merged-TU duplicate-symbol errors.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Weapon_Pulse_Fire_PulseAbility, "GameplayCue.Weapon.Pulse.Fire");
 
+// AFL-0302: tracer cue fired post-trace from OnTargetDataReadyCallback once
+// per locally-controlled real shot. Receiver is GCN_AFL_Pulse_Tracer
+// (GameplayCueNotify_Burst with an On Burst BP override that drives
+// NS_AFL_Pulse_Tracer's User parameters: MuzzlePosition, ImpactPositions
+// (UNiagaraDataInterfaceArrayFloat3, single-element array with Hit.ImpactPoint),
+// Color, Trigger). Same _PulseAbility file-specific suffix as Fire above.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Weapon_Pulse_Tracer_PulseAbility, "GameplayCue.Weapon.Pulse.Tracer");
+
 // SetByCaller magnitude tags consumed by UAFLDamageExecCalc::Execute_Implementation
 // step 2. File-specific suffix on the C++ symbol (the FName *value* stays as the
 // canonical "Data.Damage.*" string). Required because UBT Unity builds merge
@@ -187,6 +195,46 @@ void UAFLAG_Laser_Pulse::EndAbility(
 	}
 }
 
+FVector UAFLAG_Laser_Pulse::ResolveMuzzleLocation(APawn* AvatarPawn) const
+{
+	// Fallback to weapon_r hand socket -- the cue never spawns at origin when
+	// the muzzle socket can't be found (un-armed, or a future weapon w/o the
+	// "Muzzle" socket convention).
+	FVector MuzzleLocation = FVector::ZeroVector;
+	if (!AvatarPawn)
+	{
+		return MuzzleLocation;
+	}
+
+	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
+	{
+		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
+		{
+			MuzzleLocation = CharMesh->GetSocketLocation(FName("weapon_r"));
+		}
+	}
+
+	TArray<AActor*> AttachedActors;
+	AvatarPawn->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		TInlineComponentArray<UStaticMeshComponent*> SMCs;
+		Attached->GetComponents<UStaticMeshComponent>(SMCs);
+		bool bFound = false;
+		for (UStaticMeshComponent* SMC : SMCs)
+		{
+			if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
+			{
+				MuzzleLocation = SMC->GetSocketLocation(FName("Muzzle"));
+				bFound = true;
+				break;
+			}
+		}
+		if (bFound) break;
+	}
+	return MuzzleLocation;
+}
+
 void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 {
 	check(CurrentActorInfo);
@@ -200,41 +248,11 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	// AFL-0301: muzzle cue. Fires once per real shot on the locally-predicting
 	// client (CommitAbility already passed, IsLocallyControlled already gated
 	// in ActivateAbility). Receiver is GCN_AFL_Pulse_Fire (GameplayCueNotify_
-	// Burst -- Niagara + sound). Location resolution walks the avatar's
-	// attached actors for any SMC carrying a "Muzzle" socket (the convention
-	// for AFL weapon meshes -- B_AFL_PulseCarbine authored a socket on
-	// tripo_part_17). Falls back to the weapon_r hand socket if no muzzle
-	// socket resolves, so the cue never silently no-shows. Lyra's
-	// ULyraGameplayAbility_RangedWeapon uses the same GetAttachedActors
-	// pattern for trace-ignore -- we reuse it for socket discovery.
+	// Burst -- audio at the muzzle). Muzzle world location resolved by the
+	// shared ResolveMuzzleLocation helper (same lookup the tracer cue uses --
+	// see AFL-0302 emit in OnTargetDataReadyCallback).
 	{
-		FVector MuzzleLocation = FVector::ZeroVector;
-		if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
-		{
-			if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
-			{
-				MuzzleLocation = CharMesh->GetSocketLocation(FName("weapon_r"));
-			}
-		}
-
-		TArray<AActor*> AttachedActors;
-		AvatarPawn->GetAttachedActors(AttachedActors);
-		for (AActor* Attached : AttachedActors)
-		{
-			TInlineComponentArray<UStaticMeshComponent*> SMCs;
-			Attached->GetComponents<UStaticMeshComponent>(SMCs);
-			bool bFound = false;
-			for (UStaticMeshComponent* SMC : SMCs)
-			{
-				if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
-				{
-					MuzzleLocation = SMC->GetSocketLocation(FName("Muzzle"));
-					bFound = true;
-					break;
-				}
-			}
-			if (bFound) break;
-		}
+		const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
 
 		FGameplayCueParameters CueParams;
 		CueParams.Location     = MuzzleLocation;
@@ -401,6 +419,38 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 
 	const bool bIsAuthority       = CurrentActorInfo->IsNetAuthority();
 	const bool bIsLocallyControlled = CurrentActorInfo->IsLocallyControlled();
+
+	// AFL-0302: tracer cue. Fires post-trace on the locally-predicting client
+	// (mirrors the AFL-0301 Fire cue's K2_ExecuteGameplayCueWithParams shape
+	// for the same predicted single-fire-on-owner semantics). Hit is packed
+	// into FGameplayEffectContextHandle via AddHitResult so the GCN BP's
+	// On Burst override can read Params.EffectContext.GetHitResult() to drive
+	// User.ImpactPositions on NS_AFL_Pulse_Tracer. CueParams.Location carries
+	// the muzzle start; the tracer NS reads the impact end from the context.
+	if (bIsLocallyControlled && LocalTargetDataHandle.Num() > 0)
+	{
+		const FGameplayAbilityTargetData* RawData = LocalTargetDataHandle.Get(0);
+		if (RawData && RawData->GetHitResult())
+		{
+			APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
+			if (AvatarPawn)
+			{
+				const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
+
+				FGameplayCueParameters TracerParams;
+				TracerParams.Location     = MuzzleLocation;
+				TracerParams.Instigator   = AvatarPawn;
+				TracerParams.SourceObject = AvatarPawn;
+
+				FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
+				Ctx.AddHitResult(*RawData->GetHitResult());
+				TracerParams.EffectContext = Ctx;
+
+				K2_ExecuteGameplayCueWithParams(
+					TAG_GameplayCue_Weapon_Pulse_Tracer_PulseAbility, TracerParams);
+			}
+		}
+	}
 
 	// Client predicting on a remote client: ship the data to the server. On
 	// the listen-server host both flags are true and we skip the RPC because
