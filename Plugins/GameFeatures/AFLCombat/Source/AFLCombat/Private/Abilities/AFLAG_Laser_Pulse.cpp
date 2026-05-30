@@ -9,8 +9,11 @@
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
 #include "Effects/GE_AFL_Damage_Pulse.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "GameplayEffect.h"
@@ -32,6 +35,13 @@
 // dedups native+ini registrations.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Ability_Laser_Pulse, "Ability.Laser.Pulse");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Pulse, "State.Firing.Pulse");
+
+// AFL-0301: muzzle cue fired once per local shot from ClientPredictAndSend.
+// File-specific symbol suffix matches the HYG-001 / AFLCombat Unity-build
+// pattern (e.g. TAG_State_Overheated_Cheats vs _AttrSet vs _Beam) -- the
+// FName value is the canonical tag string, the C++ symbol stays per-file
+// unique to avoid Unity-merged-TU duplicate-symbol errors.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Weapon_Pulse_Fire_PulseAbility, "GameplayCue.Weapon.Pulse.Fire");
 
 // SetByCaller magnitude tags consumed by UAFLDamageExecCalc::Execute_Implementation
 // step 2. File-specific suffix on the C++ symbol (the FName *value* stays as the
@@ -185,6 +195,52 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	if (!AvatarPawn)
 	{
 		return;
+	}
+
+	// AFL-0301: muzzle cue. Fires once per real shot on the locally-predicting
+	// client (CommitAbility already passed, IsLocallyControlled already gated
+	// in ActivateAbility). Receiver is GCN_AFL_Pulse_Fire (GameplayCueNotify_
+	// Burst -- Niagara + sound). Location resolution walks the avatar's
+	// attached actors for any SMC carrying a "Muzzle" socket (the convention
+	// for AFL weapon meshes -- B_AFL_PulseCarbine authored a socket on
+	// tripo_part_17). Falls back to the weapon_r hand socket if no muzzle
+	// socket resolves, so the cue never silently no-shows. Lyra's
+	// ULyraGameplayAbility_RangedWeapon uses the same GetAttachedActors
+	// pattern for trace-ignore -- we reuse it for socket discovery.
+	{
+		FVector MuzzleLocation = FVector::ZeroVector;
+		if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
+		{
+			if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
+			{
+				MuzzleLocation = CharMesh->GetSocketLocation(FName("weapon_r"));
+			}
+		}
+
+		TArray<AActor*> AttachedActors;
+		AvatarPawn->GetAttachedActors(AttachedActors);
+		for (AActor* Attached : AttachedActors)
+		{
+			TInlineComponentArray<UStaticMeshComponent*> SMCs;
+			Attached->GetComponents<UStaticMeshComponent>(SMCs);
+			bool bFound = false;
+			for (UStaticMeshComponent* SMC : SMCs)
+			{
+				if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
+				{
+					MuzzleLocation = SMC->GetSocketLocation(FName("Muzzle"));
+					bFound = true;
+					break;
+				}
+			}
+			if (bFound) break;
+		}
+
+		FGameplayCueParameters CueParams;
+		CueParams.Location     = MuzzleLocation;
+		CueParams.Instigator   = AvatarPawn;
+		CueParams.SourceObject = AvatarPawn;
+		K2_ExecuteGameplayCueWithParams(TAG_GameplayCue_Weapon_Pulse_Fire_PulseAbility, CueParams);
 	}
 
 	UAbilitySystemComponent* ASC = CurrentActorInfo->AbilitySystemComponent.Get();
