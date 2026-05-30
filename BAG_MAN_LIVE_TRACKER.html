@@ -850,9 +850,9 @@
 
   <!-- CURRENT STATE banner. Rewritten in place each reconcile -- git carries history, this banner carries current state, the task rows carry the durable record. NO version bumps. -->
   <div class="amendments-banner" id="amendmentsBanner">
-    <span class="amendments-banner-tag">CURRENT STATE · origin/main HEAD 32814c3a · Pulse Carbine fires as a weapon end-to-end</span>
+    <span class="amendments-banner-tag">CURRENT STATE · origin/main HEAD 2b77a69f · Pulse Carbine FINISHED</span>
     <div class="amendments-body">
-      <strong>The Pulse Carbine fires as a weapon end-to-end.</strong> Mesh + equip + audio + tracer all PIE-watched, operator-confirmed.
+      <strong>The Pulse Carbine is FINISHED.</strong> Mesh + equip + carbine hold + audio + sight-aligned tracer + damage — all PIE-watched, operator-confirmed.
       <br><br>
       <strong>The arc, in commits:</strong>
       <br>
@@ -867,8 +867,14 @@
       • <code>a86eb77d</code> — Pulse fire audio cue (<code>GameplayCue.Weapon.Pulse.Fire</code>, C++ emit in <code>ClientPredictAndSend</code>, <code>Cyber_laser_pulse_1</code> at muzzle).
       <br>
       • <code>32814c3a</code> — Pulse tracer cue (<code>GameplayCue.Weapon.Pulse.Tracer</code>, C++ emit in <code>OnTargetDataReadyCallback</code>, cyan muzzle→impact via Lyra-stock NS recolored with <code>User.Color</code> expose). Reusable cue-wire pattern banked.
+      <br>
+      • <code>cd9e8b50</code> — Q3 instance type: <code>B_WeaponInstance_AFL_PulseCarbine</code> (BP child of Rifle): two-handed carbine hold + rifle-shape fire feedback, no pistol pose/shake. WID instance_type swapped. Template: subclass the Lyra weapon-instance whose anim shape matches.
+      <br>
+      • <code>2b77a69f</code> — Q2 tracer origin: camera-ray anchored (Lyra <code>CameraTowardsFocus</code>) instead of geometric muzzle. Tracer rides the aim ray; reads <code>ClaimedViewOrigin</code>/<code>ClaimedAimDirection</code> off the trace struct (zero re-derive). Tunable <code>TracerVisualOriginDistance</code> UPROPERTY, clamped point-blank. Cosmetic — sight=shot preserved.
       <br><br>
-      <strong>NEXT runway:</strong> muzzle flash + impact cues (same wire pattern, different NS recolor) · Beam VFX (S2 close, same pattern) · Q2 muzzle alignment tune · Q3 instance_type swap (B_WeaponInstance_AFL_PulseCarbine empty anim sets). Phase 2 (Energy Economy / S7+) unblocked when Phase 1 polish completes.
+      <strong>Reusable patterns banked:</strong> the cue-wire template (Fire+Tracer C++ emit pattern), camera-ray tracer origin for third-person, Rifle-child weapon-instance subclassing, the FAFLAbilityTargetData_Hitscan ray-reuse rule. All apply to Beam + future weapons.
+      <br><br>
+      <strong>NEXT runway:</strong> muzzle flash + impact cues (same cue-wire, different NS recolor) · Beam (next weapon, same template) · Niagara-param control tool (operator's stated next-build, waits for 3-5 control surfaces to crystallize) · MP cue visibility gate · Phase 2 (Energy Economy / S7+).
       <br><br>
       <em>This tracker is UNVERSIONED.</em> Git carries history; this banner carries current state; the ✅/⏸/🔴 task rows + commit hashes carry the durable record. No more version bumps. If a frozen snapshot is ever wanted, name it by purpose (e.g. "Phase-1-close snapshot"), not a counter.
     </div>
@@ -1217,8 +1223,8 @@ const SPRINTS = [
       {id:'BM-DEBT-006', title:'✅ RESOLVED — Pulse Carbine equipped via WID swap (actors_to_spawn → B_AFL_PulseCarbine, display_name "Pulse Carbine"). Stock pistol mesh gone, WASD-correct (NoCollision fix on the 20 hand parts), 0.60 scale. PIE-watched. Commit 94573ff9. The keystone three sprints kept claiming.', d:'eng', e:'M'},
       {id:'BM-WEAPON-004', title:'✅ Pulse fire audio cue — GameplayCue.Weapon.Pulse.Fire (C++ emit in ClientPredictAndSend) → GCN_AFL_Pulse_Fire → Cyber_laser_pulse_1 at the muzzle. Commit a86eb77d. Partially resolves AFL-0205 (PulseShot half).', d:'eng', e:'M'},
       {id:'BM-WEAPON-005', title:'✅ Pulse tracer cue — GameplayCue.Weapon.Pulse.Tracer (C++ emit in OnTargetDataReadyCallback, Hit via EffectContext) → GCN_AFL_Pulse_Tracer → NS_AFL_Pulse_Tracer (Lyra tracer recolored, User.Color cyan). Cyan tracer muzzle→impact, PIE-watched. Commit 32814c3a. Reusable cue-wire pattern (the template for Beam + all weapons).', d:'vfx', e:'L'},
-      {id:'BM-WEAPON-Q2', title:'⏸ Pulse muzzle alignment — minor offset, ~1-value tune (GCN MuzzlePosition feed or NS baked offset). Operator-eye, non-blocking.', d:'vfx', e:'XS'},
-      {id:'BM-WEAPON-Q3', title:'⏸ Pulse instance_type swap — residual stock-pistol fire-shake/pose (instance_type still B_WeaponInstance_Pistol). Author B_WeaponInstance_AFL_PulseCarbine with empty anim sets, swap WID.instance_type. Cheap, no gen. Accepted-interim.', d:'eng', e:'S'}
+      {id:'BM-WEAPON-Q3', title:'✅ Pulse instance_type swap — B_WeaponInstance_AFL_PulseCarbine (BP child of B_WeaponInstance_Rifle): two-handed carbine hold + rifle-shape fire feedback, no pistol shake/pose. WID instance_type swapped (Pistol → AFL_PulseCarbine). AttachTransform tune (25,0,-5) + scale 0.50 for chest-clearance. Inherits ABP_RifleAnimLayers; ranged-instance fields (SpreadExponent, HeatToSpreadCurve) dormant. Template: subclass the Lyra weapon-instance whose anim shape matches. Commit cd9e8b50.', d:'eng', e:'S'},
+      {id:'BM-WEAPON-Q2', title:'✅ Pulse tracer origin — camera-ray anchored (Lyra ELyraAbilityTargetingSource::CameraTowardsFocus pattern, skill-confirmed for CM_ThirdPerson). Tracer START rides the aim ray (the shot line) instead of the geometric muzzle (which sits left+up of sight). Reads ClaimedViewOrigin/ClaimedAimDirection off FAFLAbilityTargetData_Hitscan (already packed for server lag-comp) — zero recompute, zero drift, matches the actual perturbed shot line. Tunable TracerVisualOriginDistance UPROPERTY (80cm default), clamped against close impacts (DistToImpact * 0.5f when nearer than the tunable, so no reversed tracer point-blank). COSMETIC — sight=shot/damage/Hit.ImpactPoint untouched. PIE-watched Q1-Q4. Commit 2b77a69f. PULSE CARBINE FINISHED.', d:'eng', e:'S'}
     ]},
 
   // ===== PHASE 2 =====
