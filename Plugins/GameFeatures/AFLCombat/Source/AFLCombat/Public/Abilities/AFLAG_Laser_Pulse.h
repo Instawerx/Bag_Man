@@ -90,6 +90,23 @@ protected:
 	float MaxAimAngularVelocityDegPerSec = 720.0f;
 
 	/**
+	 * Q2 cosmetic: distance along the aim ray, measured from the view origin,
+	 * where the visual tracer cue STARTS. The trace itself is unaffected --
+	 * trace origin, AimDirection, Hit, damage, crosshair are untouched.
+	 *
+	 * BagMan is third-person (CM_ThirdPerson). The carbine mesh sits left+up
+	 * of sight (intentional hero framing). A geometric-muzzle tracer origin
+	 * would bend the tracer off the aim ray at its start. Riding the aim ray
+	 * (Lyra ELyraAbilityTargetingSource::CameraTowardsFocus pattern) keeps the
+	 * tracer on the shot line, matching the sight=shot contract.
+	 *
+	 * Clamped at the emit site: if the impact is nearer than this distance,
+	 * the origin pulls back toward the camera so the tracer never reverses.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Tracer", meta=(ClampMin="0.0", UIMin="0.0"))
+	float TracerVisualOriginDistance = 80.0f;
+
+	/**
 	 * AFL-0209: data-driven recoil + spread tuning. Set on the BP/CDO to the
 	 * canonical DA_AFLPulseTuning asset. AFL.Combat.LoadTuning swaps it at
 	 * runtime; the per-knob cheats (AFL.Combat.SetSpread / AFL.Combat.SetRecoil)

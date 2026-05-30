@@ -425,8 +425,19 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 	// for the same predicted single-fire-on-owner semantics). Hit is packed
 	// into FGameplayEffectContextHandle via AddHitResult so the GCN BP's
 	// On Burst override can read Params.EffectContext.GetHitResult() to drive
-	// User.ImpactPositions on NS_AFL_Pulse_Tracer. CueParams.Location carries
-	// the muzzle start; the tracer NS reads the impact end from the context.
+	// User.ImpactPositions on NS_AFL_Pulse_Tracer.
+	//
+	// Q2 cosmetic fix: CueParams.Location is the tracer START. We anchor it
+	// on the aim ray (Lyra ELyraAbilityTargetingSource::CameraTowardsFocus
+	// pattern) instead of the geometric muzzle so the visual rides the shot
+	// line in third-person (CM_ThirdPerson) -- the carbine sits left+up of
+	// sight; a muzzle-anchored start would bend the tracer off the aim ray.
+	// Source for the camera ray: FAFLAbilityTargetData_Hitscan already packs
+	// ClaimedViewOrigin + ClaimedAimDirection (perturbed by this shot's
+	// spread) for the server lag-comp path -- we reuse them so the visual
+	// origin sits on the SAME ray the trace ran along, not a recomputed one.
+	// COSMETIC ONLY -- trace origin/AimDirection/Hit/damage/crosshair are
+	// untouched; tracer end is still real Hit.ImpactPoint via EffectContext.
 	if (bIsLocallyControlled && LocalTargetDataHandle.Num() > 0)
 	{
 		const FGameplayAbilityTargetData* RawData = LocalTargetDataHandle.Get(0);
@@ -435,15 +446,42 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 			APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
 			if (AvatarPawn)
 			{
-				const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
+				const FHitResult& HitRef = *RawData->GetHitResult();
+
+				// The AFL hitscan struct carries ClaimedViewOrigin /
+				// ClaimedAimDirection from ClientPredictAndSend; static_cast
+				// is safe because we built the payload as this struct in the
+				// same translation unit / activation.
+				FVector ViewOrigin    = HitRef.TraceStart;
+				FVector AimDirection  = (HitRef.TraceEnd - HitRef.TraceStart).GetSafeNormal();
+				if (RawData->GetScriptStruct() == FAFLAbilityTargetData_Hitscan::StaticStruct())
+				{
+					const FAFLAbilityTargetData_Hitscan* HitscanData =
+						static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData);
+					ViewOrigin   = HitscanData->ClaimedViewOrigin;
+					AimDirection = HitscanData->ClaimedAimDirection.GetSafeNormal();
+				}
+
+				// Tracer visual origin: a point along the aim ray. Clamp:
+				// never project past the impact -- close target -> pull
+				// origin back to the midpoint so the tracer always renders
+				// forward (no reversed tracer point-blank).
+				FVector VisualOrigin =
+					ViewOrigin + AimDirection * TracerVisualOriginDistance;
+				const float DistToImpact =
+					FVector::Dist(ViewOrigin, HitRef.ImpactPoint);
+				if (DistToImpact < TracerVisualOriginDistance)
+				{
+					VisualOrigin = ViewOrigin + AimDirection * (DistToImpact * 0.5f);
+				}
 
 				FGameplayCueParameters TracerParams;
-				TracerParams.Location     = MuzzleLocation;
+				TracerParams.Location     = VisualOrigin;
 				TracerParams.Instigator   = AvatarPawn;
 				TracerParams.SourceObject = AvatarPawn;
 
 				FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
-				Ctx.AddHitResult(*RawData->GetHitResult());
+				Ctx.AddHitResult(HitRef);
 				TracerParams.EffectContext = Ctx;
 
 				K2_ExecuteGameplayCueWithParams(
