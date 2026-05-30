@@ -85,20 +85,40 @@ def check_balance(key):
     return bal
 
 
-def submit_text_task(key, prompt, neg_prompt, model_version, face_limit):
+def _apply_common_extras(body, extras):
+    """Apply optional fields to a text/image_to_model body if present in extras.
+    Only sets keys that are explicitly provided (None = omit, defaults preserved).
+    Mirrors TripoProvider.cpp AddCommonGenerationFields (L391-421)."""
+    if extras is None:
+        return
+    for k in ("generate_parts", "auto_size", "smart_low_poly"):
+        if extras.get(k) is True:
+            body[k] = True
+    for k in ("texture_quality", "geometry_quality"):
+        v = extras.get(k)
+        if v:
+            body[k] = v
+    if extras.get("model_seed") is not None:
+        body["model_seed"] = int(extras["model_seed"])
+
+
+def submit_text_task(key, prompt, neg_prompt, model_version, face_limit,
+                     texture=True, pbr=True, extras=None):
     """POST /task type=text_to_model. Returns task_id.
     Body fields verbatim from TripoProvider.cpp:423-432 + 391-421."""
     body = {
         "type": "text_to_model",
         "prompt": prompt[:PROMPT_MAX],
-        "texture": True,
-        "pbr": True,
+        "texture": bool(texture),
+        "pbr": bool(pbr),
         "model_version": model_version,
     }
     if neg_prompt:
         body["negative_prompt"] = neg_prompt[:NEG_PROMPT_MAX]
     if face_limit:
         body["face_limit"] = int(face_limit)
+    _apply_common_extras(body, extras)
+    print(f"[tripo] submitting text_to_model body keys: {sorted(body.keys())}")
     j = _request("POST", f"{TRIPO_BASE}/task", key, body)
     if j.get("code") != 0:
         sys.exit(f"FATAL: task submit failed: {j}")
@@ -107,18 +127,21 @@ def submit_text_task(key, prompt, neg_prompt, model_version, face_limit):
     return task_id
 
 
-def submit_image_task(key, image_url, model_version, face_limit):
+def submit_image_task(key, image_url, model_version, face_limit,
+                      texture=True, pbr=True, extras=None):
     """POST /task type=image_to_model via image URL (fallback path).
     Body verbatim from TripoProvider.cpp:434-453."""
     body = {
         "type": "image_to_model",
         "file": {"type": "jpg", "url": image_url},
-        "texture": True,
-        "pbr": True,
+        "texture": bool(texture),
+        "pbr": bool(pbr),
         "model_version": model_version,
     }
     if face_limit:
         body["face_limit"] = int(face_limit)
+    _apply_common_extras(body, extras)
+    print(f"[tripo] submitting image_to_model body keys: {sorted(body.keys())}")
     j = _request("POST", f"{TRIPO_BASE}/task", key, body)
     if j.get("code") != 0:
         sys.exit(f"FATAL: image task submit failed: {j}")
@@ -151,16 +174,60 @@ def poll(key, task_id):
         time.sleep(POLL_INTERVAL_S)
 
 
+def _looks_like_url(v):
+    return isinstance(v, str) and (v.startswith("http://") or v.startswith("https://"))
+
+
+def _scan_for_parts(out):
+    """Search output dict for a parts-shape: a list of URLs OR a list of
+    {url|model|...} dicts. Returns a list of (label, url) tuples or None.
+    Pillar-5 diagnostic for when the standard model URLs are absent."""
+    candidates = []
+    for k, v in out.items():
+        if not isinstance(v, list) or not v:
+            continue
+        # Case 1: list of plain URL strings
+        if all(_looks_like_url(x) for x in v):
+            return [(f"{k}_{i:02d}", u) for i, u in enumerate(v)]
+        # Case 2: list of dicts -- pull any URL-shaped value out
+        if all(isinstance(x, dict) for x in v):
+            parts = []
+            for i, item in enumerate(v):
+                name = item.get("name") or item.get("part_name") or f"{k}_{i:02d}"
+                url = None
+                for url_key in ("pbr_model", "model", "base_model", "url", "download_url"):
+                    if _looks_like_url(item.get(url_key)):
+                        url = item[url_key]
+                        break
+                if url:
+                    parts.append((str(name), url))
+            if parts:
+                return parts
+    return None
+
+
 def pick_model_url(data):
-    """Output URL priority: pbr_model > model > base_model.
-    Verbatim from TripoProvider.cpp:93-119."""
+    """Output URL priority: pbr_model > model > base_model (single-mesh case).
+    If absent, scan for a parts shape (list of URLs / list of dicts) and
+    return that as a list of (label, url) tuples. If THAT is absent too,
+    dump the real data.output for inspection and exit (Pillar 5)."""
     out = data.get("output", {})
     for field in ("pbr_model", "model", "base_model"):
         url = out.get(field)
         if url:
-            print(f"[tripo] using output.{field}")
+            print(f"[tripo] using output.{field} (single-mesh shape)")
             return url
-    sys.exit(f"FATAL: no model URL in output: {out}")
+    # Diagnostic dump FIRST so the operator sees the real shape no matter what
+    print("[tripo] WARN: no pbr_model/model/base_model URL in output.")
+    print("[tripo] full data.output JSON for inspection:")
+    print(json.dumps(out, indent=2)[:8000])  # cap at 8KB just in case
+    parts = _scan_for_parts(out)
+    if parts:
+        print(f"[tripo] detected parts shape: {len(parts)} parts")
+        for label, url in parts:
+            print(f"[tripo]   part {label}: {url[:80]}...")
+        return parts
+    sys.exit("FATAL: no model URL or parts shape recognized in output")
 
 
 def download(url, dest_path):
@@ -186,9 +253,27 @@ def main():
     ap.add_argument("--negative-prompt", default="")
     ap.add_argument("--name", required=True, help="output basename (no ext)")
     ap.add_argument("--model-version", default="v2.5",
-                    help="Tripo model version (default v2.5; the sibling's default)")
+                    help="Tripo model version (default v2.5; valid values are dated, e.g. v3.1-20260211)")
     ap.add_argument("--face-limit", type=int, default=0,
-                    help="optional polycount cap (0 = Tripo default)")
+                    help="optional polycount cap (0 = Tripo default = adaptive)")
+    # quality knobs (schema descriptors at TripoProvider.cpp:668-684)
+    ap.add_argument("--texture-quality", choices=["standard", "detailed"], default=None,
+                    help="texture_quality: standard or detailed (default = omit)")
+    ap.add_argument("--geometry-quality", choices=["standard", "detailed"], default=None,
+                    help="geometry_quality: standard or detailed (v3.0+; default = omit)")
+    ap.add_argument("--auto-size", action="store_true",
+                    help="auto_size: scale to real-world dimensions (meters)")
+    ap.add_argument("--smart-low-poly", action="store_true",
+                    help="smart_low_poly: hand-crafted low-poly topology")
+    ap.add_argument("--model-seed", type=int, default=None,
+                    help="model_seed: int RNG for geometry reproducibility")
+    # segmentation + interlock
+    ap.add_argument("--generate-parts", action="store_true",
+                    help="generate_parts: segmented editable parts (FORCES texture=false, pbr=false)")
+    ap.add_argument("--no-texture", action="store_true",
+                    help="explicitly disable texture (default = true)")
+    ap.add_argument("--no-pbr", action="store_true",
+                    help="explicitly disable PBR (default = true)")
     ap.add_argument("--balance-only", action="store_true",
                     help="just check balance + exit (the cheap probe)")
     args = ap.parse_args()
@@ -201,17 +286,52 @@ def main():
     if not args.prompt and not args.image_url:
         sys.exit("FATAL: need --prompt or --image-url")
 
+    # Resolve texture/pbr with the generate_parts INTERLOCK
+    # (TripoProvider.cpp:678 -- "Segmented parts (requires texture=false, pbr=false)")
+    texture = not args.no_texture
+    pbr = not args.no_pbr
+    if args.generate_parts:
+        if texture or pbr:
+            print("[tripo] generate_parts ON -> forcing texture=false, pbr=false "
+                  "(Tripo constraint: segmented output is untextured geometry; "
+                  "texture via a separate texture_model task afterward)")
+        texture = False
+        pbr = False
+
+    extras = {
+        "generate_parts": args.generate_parts,
+        "auto_size": args.auto_size,
+        "smart_low_poly": args.smart_low_poly,
+        "texture_quality": args.texture_quality,
+        "geometry_quality": args.geometry_quality,
+        "model_seed": args.model_seed,
+    }
+
     if args.image_url:
-        task_id = submit_image_task(key, args.image_url, args.model_version, args.face_limit)
+        task_id = submit_image_task(key, args.image_url, args.model_version,
+                                    args.face_limit, texture=texture, pbr=pbr, extras=extras)
     else:
         task_id = submit_text_task(key, args.prompt, args.negative_prompt,
-                                   args.model_version, args.face_limit)
+                                   args.model_version, args.face_limit,
+                                   texture=texture, pbr=pbr, extras=extras)
 
     data = poll(key, task_id)
-    url = pick_model_url(data)
-    dest = os.path.join(OUT_DIR, f"{args.name}.glb")
-    download(url, dest)
-    print(f"\n[tripo] DONE -- mesh at: {dest}")
+    result = pick_model_url(data)
+    # result is either a single URL string OR a list of (label, url) tuples (parts)
+    if isinstance(result, list):
+        saved = []
+        for label, url in result:
+            safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in label)
+            dest = os.path.join(OUT_DIR, f"{args.name}_part_{safe}.glb")
+            download(url, dest)
+            saved.append(dest)
+        print(f"\n[tripo] DONE -- {len(saved)} parts saved:")
+        for p in saved:
+            print(f"  {p}")
+    else:
+        dest = os.path.join(OUT_DIR, f"{args.name}.glb")
+        download(result, dest)
+        print(f"\n[tripo] DONE -- mesh at: {dest}")
     print("[tripo] next: import editor-natively via AssetImportTask "
           "to /Game/BagMan/Equipment/Generated/")
 
