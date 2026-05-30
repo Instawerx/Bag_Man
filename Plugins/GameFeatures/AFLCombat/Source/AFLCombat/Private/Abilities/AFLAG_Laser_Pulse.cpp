@@ -214,24 +214,55 @@ FVector UAFLAG_Laser_Pulse::ResolveMuzzleLocation(APawn* AvatarPawn) const
 		}
 	}
 
+	// Path A: pawn->GetAttachedActors (root-attached weapons).
 	TArray<AActor*> AttachedActors;
 	AvatarPawn->GetAttachedActors(AttachedActors);
+	UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE: pawn->GetAttachedActors returned %d"), AttachedActors.Num());
 	for (AActor* Attached : AttachedActors)
 	{
 		TInlineComponentArray<UStaticMeshComponent*> SMCs;
 		Attached->GetComponents<UStaticMeshComponent>(SMCs);
+		UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE:  attached=%s SMCs=%d"), *Attached->GetName(), SMCs.Num());
 		bool bFound = false;
 		for (UStaticMeshComponent* SMC : SMCs)
 		{
 			if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
 			{
 				MuzzleLocation = SMC->GetSocketLocation(FName("Muzzle"));
+				UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE:   FOUND on SMC=%s at world=%s"), *SMC->GetName(), *MuzzleLocation.ToString());
 				bFound = true;
 				break;
 			}
 		}
-		if (bFound) break;
+		if (bFound) return MuzzleLocation;
 	}
+
+	// Path B: fallback -- walk the character mesh's attached actors (Lyra's equipment
+	// attaches the weapon to Char->GetMesh(), NOT to the pawn root -- so pawn->Get-
+	// AttachedActors above returns empty for equipped weapons). Try the mesh too.
+	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
+	{
+		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
+		{
+			TArray<USceneComponent*> MeshChildren;
+			CharMesh->GetChildrenComponents(/*bIncludeAllDescendants=*/true, MeshChildren);
+			UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE: mesh->GetChildrenComponents returned %d"), MeshChildren.Num());
+			for (USceneComponent* Child : MeshChildren)
+			{
+				if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Child))
+				{
+					if (SMC->DoesSocketExist(FName("Muzzle")))
+					{
+						MuzzleLocation = SMC->GetSocketLocation(FName("Muzzle"));
+						UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE:  FOUND via mesh-child SMC=%s at world=%s"), *SMC->GetName(), *MuzzleLocation.ToString());
+						return MuzzleLocation;
+					}
+				}
+			}
+		}
+	}
+
+	UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE: NOT FOUND -- falling back to weapon_r at %s"), *MuzzleLocation.ToString());
 	return MuzzleLocation;
 }
 
@@ -243,22 +274,6 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	if (!AvatarPawn)
 	{
 		return;
-	}
-
-	// AFL-0301: muzzle cue. Fires once per real shot on the locally-predicting
-	// client (CommitAbility already passed, IsLocallyControlled already gated
-	// in ActivateAbility). Receiver is GCN_AFL_Pulse_Fire (GameplayCueNotify_
-	// Burst -- audio at the muzzle). Muzzle world location resolved by the
-	// shared ResolveMuzzleLocation helper (same lookup the tracer cue uses --
-	// see AFL-0302 emit in OnTargetDataReadyCallback).
-	{
-		const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
-
-		FGameplayCueParameters CueParams;
-		CueParams.Location     = MuzzleLocation;
-		CueParams.Instigator   = AvatarPawn;
-		CueParams.SourceObject = AvatarPawn;
-		K2_ExecuteGameplayCueWithParams(TAG_GameplayCue_Weapon_Pulse_Fire_PulseAbility, CueParams);
 	}
 
 	UAbilitySystemComponent* ASC = CurrentActorInfo->AbilitySystemComponent.Get();
@@ -338,6 +353,29 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 		AimDirection,
 		FMath::DegreesToRadians(CurrentSpreadDegrees));
 	const FVector EndTrace = ViewLocation + PerturbedDirection * MaxRange;
+
+	// AFL-0301: muzzle cue. Fires once per real shot on the locally-predicting
+	// client (CommitAbility already passed, IsLocallyControlled already gated
+	// in ActivateAbility). Receiver is GCN_AFL_Pulse_Fire (GameplayCueNotify_
+	// Burst -- audio at the muzzle + visual muzzle flash via OnBurst graph).
+	//
+	// Emit position MOVED here (was at top of function) so the perturbed shot
+	// direction is in scope -- packed into CueParams.Normal so the muzzle flash
+	// orients down the REAL shot line (not pawn-forward, not camera-aim-pre-
+	// spread). Same PerturbedDirection that LineTraceSingleByChannel uses below
+	// and that lands in ClaimedAimDirection for the tracer's lag-comp ride.
+	// Flash + trace + tracer all ride the same ray (per the ray-reuse rule).
+	// COSMETIC for the flash; the audio and trace were unaffected by the move.
+	{
+		const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
+
+		FGameplayCueParameters FireCueParams;
+		FireCueParams.Location     = MuzzleLocation;
+		FireCueParams.Normal       = PerturbedDirection;
+		FireCueParams.Instigator   = AvatarPawn;
+		FireCueParams.SourceObject = AvatarPawn;
+		K2_ExecuteGameplayCueWithParams(TAG_GameplayCue_Weapon_Pulse_Fire_PulseAbility, FireCueParams);
+	}
 
 	// Single-bullet line trace. The Lyra RangedWeapon pattern adds spread,
 	// sweep radius, and a pawn-pass filter — Pulse is a single tight beam so
