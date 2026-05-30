@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BAG MAN :: LIVE BUILD TRACKER v2.7</title>
+<title>BAG MAN :: LIVE BUILD TRACKER</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -841,73 +841,36 @@
       <div class="brand">
         <span class="brand-codename">AFL</span>
         <h1 class="brand-title">BAG MAN</h1>
-        <span class="brand-sub">// Live Build Tracker · v2.7 · SSOT · Sprint 1+2 ability/infra done · 19/19 yolo merged · queue exhausted</span>
+        <span class="brand-sub">// Live Build Tracker · SSOT · unversioned (git carries history; this tracker carries current state + the record)</span>
       </div>
       <div class="stats-bar" id="statsBar"></div>
     </div>
     <div class="global-progress"><div class="global-progress-fill" id="globalProgressFill" style="width:0%"></div></div>
   </header>
 
-  <!-- v2.7 RECONCILE 2 (Step-0 merge) @ 6006a2d0 — Step-0 Foundation Rebuild thread merged in; prior orchestrator-era reconcile @ 1f7d692a preserved below -->
+  <!-- CURRENT STATE banner. Rewritten in place each reconcile -- git carries history, this banner carries current state, the task rows carry the durable record. NO version bumps. -->
   <div class="amendments-banner" id="amendmentsBanner">
-    <span class="amendments-banner-tag">v2.7 · 19/19 yolo merged · AFL-0217 GenAI mesh validator landed (PR #18) · active queue exhausted</span>
+    <span class="amendments-banner-tag">CURRENT STATE · origin/main HEAD 32814c3a · Pulse Carbine fires as a weapon end-to-end</span>
     <div class="amendments-body">
-      <strong>v2.7 reconcile 2 — origin/main HEAD <code>6006a2d0</code> (skill v2 banked; Step-0 Foundation Rebuild thread merged into this tracker 2026-05-29). TWO lineages now reconciled: the orchestrator-era yolo thread (below, @1f7d692a) AND the Step-0 foundation rebuild (BM-0100→0106 + BM-DEBT line + skill v1/v2). The Step-0 thread PIE-verified on a controllable pawn what this tracker previously had only as "shipped via PR." With both lineages reconciled, v2.7 reflects git reality verbatim. Two-pass bidirectional reconciliation per lyra-ue5-build-discipline trap #22.</strong><br><br>
-      <strong>v2.7 reconcile — origin/main HEAD <code>1f7d692a</code> (PR #18 merge; queue-status fix b5fb9824 on top). Sprint 2 ability + infrastructure layer COMPLETE. The 19-task yolo queue is now fully closed — AFL-0217 GenAI mesh validator landed since v2.6:</strong>
+      <strong>The Pulse Carbine fires as a weapon end-to-end.</strong> Mesh + equip + audio + tracer all PIE-watched, operator-confirmed.
       <br><br>
-      <strong>🧬 AFL-0217 ✅ GenAI mesh validator shipped</strong> via PR #18 (work commit dddf43ae, merge 1f7d692a). Tools/AFL_MeshValidator/afl_mesh_validator.py — pure-Python conformance gate between genAI mesh outputs (Tripo/Meshy) and the afl-blender-bridge AAA-clean pipeline. 5 checks: POLY_BUDGET, NAMING, UV_COVERAGE, MAT_SLOTS, SOCKET_SNIFF (hero warn-only). FBX→glTF via Blender headless shell-out, glTF-direct fallback when blender is off PATH. budgets.json mirrors master §16.2. Notable recovery arc: the orchestrator authored + committed the work, but its git push timed out on a network stall and the queue row stuck at status:running. The work was never lost — it was safe at dddf43ae on the branch; once the network returned it was manually pushed, PR #18 merged, and the stale queue status reconciled to merged (b5fb9824). No re-run, no burned cost. First task to validate the new TimeoutExpired catch in the orchestrator's git() path (70880797).
-      <br><br>
-      <strong>🎯 AFL-0206 ✅ Beam ability shipped</strong> via PR #15 (commit 04dae920, 2026-05-22 ~02:57). UAFLAG_Laser_Beam channeling ability — 100ms tick, 1.2 dmg/tick (= 12 dps), LocalPredicted replication, InstancedPerActor. 6 new C++ files: AFLAG_Laser_Beam.h/.cpp, GE_AFL_Damage_BeamTick.h/.cpp, GE_AFL_Cooldown_Beam.h/.cpp. Claude chose C++ GE declarations instead of authoring .uasset GEs, neatly avoiding the EditDefaultsOnly + python set_editor_property gate that bit AFL-0110. First production validation of the pre-flight UBT mutex check (4551ba35 — caught PID 19920 on attempt 1, $5-15 of Claude burn saved). Self-debug loop: Claude's AFL-0215 lint pass tripped 3 violations, diagnosed + fixed all 3 in-session before exiting clean. Claude session 9m 15s / 96 turns / $4.04.
-      <br><br>
-      <strong>🔥 AFL-0207 ✅ Heat economy shipped</strong> via PR #16 (commit 962299a6, 2026-05-22 ~11:43). The Heat economy that gates sustained-fire weapons. UAFLAttributeSet_Combat extended with Heat / MaxHeat / HeatDecayRate (persistent, replicated, OnRep, PreAttributeChange clamping) + HeatPerBeamTick (meta, cleared in PostGameplayEffectExecute). 5 new C++ GE classes: GE_AFL_Heat_BeamTick (+4 heat per tick = 12.5 ticks to overheat), GE_AFL_Heat_CoolingGate (0.5s gate Duration GE), GE_AFL_Heat_Decay (infinite Duration, -2/100ms, IgnoreTags=CoolingGate), GE_AFL_Heat_VentingComplete (event marker), GE_AFL_Heat_SetByCaller (cheat-only override preserving no-direct-SetHeat rail). 4 new gameplay tags via UE_DEFINE_GAMEPLAY_TAG_STATIC: State.Overheated, State.Combat.CoolingGate, Event.Combat.HeatVentingStart, Event.Combat.HeatVentingComplete. AFL-0206 Beam updated: ActivationBlockedTags now includes State.Overheated; mid-channel overheat triggers EndAbility. 3 new UAFLCombatCheats: Heat / ForceOverheat / ResetHeat. All 4 AFL-0215 hard rails honored, zero UHT warnings. Biggest M-estimate session: 14m 9s / 113 turns / $6.64.
-      <br><br>
-      <strong>🧪 AFL-0210 ✅ Regression matrix shipped</strong> via PR #17 (commit 3d584476, 2026-05-22 ~11:59). 14 scenarios across Pulse (P01-P05), Beam (B01-B04), Heat (H01-H04), Replication (R01-R03) in the AFL-0111 template structure with source-line citations. <strong>Better-than-spec deliverable:</strong> §7 documents 4 brief-vs-live-build gaps (e.g., AFL_PULSE: NoHit log doesn't exist; AFL_TELEMETRY: hitscan_reject reason=range isn't emitted; H02's 0.5s gate isn't modelled in current GE chain) — disambiguates "expected absence" from "bug found" for future QA runs. 4 actionable followups filed in transcript. Smallest session: 5m 2s / 19 turns / $1.05. Also notable: Claude flagged a post-compaction prompt-injection system-reminder as "unrelated to AFL and not from the user; I ignored it" — clean defensive practice.
-      <br><br>
-      <strong>🏁 AFL-0110 ✅ closed</strong> via commits 6805ff97 + 68db4743 (2026-05-22 late). Last error in the queue resolved. The WorldSettings.DefaultGameplayExperience field was set via manual UE Editor UI click (no FProperty reflection helper needed) — confirms feedback_lyra_worldsettings_editonly_gate.md path (a). Also dropped placed actors carried over from L_ShooterGym duplicate that referenced ShooterCore-only assets (B_AimAssistTargetTest + gym training props) — AssetValidator_AssetReferenceRestrictions policy permits /Game/AFL/ maps to reference EngineContent / LyraExtTool / LyraExampleContent / PocketWorlds / ProjectContent only, so the cross-plugin refs were blocking save. World Outliner deletions cleaned them. L_AFL_Arena_Test is now genuinely project-owned with no cross-plugin dependencies, PIE-loads on the AFL experience. 4 of 4 brief deliverables shipped. NEXT: hands-on PIE acceptance test (AAFLCharacter spawn + WASD + Pulse fire + Dash) — wasn't run as part of this closure.
-      <br><br>
-      <strong>Sprint 2 ability + infrastructure: COMPLETE.</strong> Pulse → Beam → Heat → Hit-Confirm → Damage ExecCalc → AttributeSet → Lag Comp → Telemetry → AbilitySet → 4-rail AFL-0215 lint all shipped. Sprint 2 remaining work is VFX (AFL-0201 NS_AFL_PulseBeam / AFL-0202 NS_AFL_HitSpark / AFL-0203 M_AFL_NeonMaster / AFL-0208 NS_AFL_PrismBeam) + Audio (AFL-0205 MetaSounds) + Design tuning (AFL-0209) + Tech Art (AFL-0216 Blender MCP / AFL-0217 GenAI mesh validator). Most of these need UE-side authoring the orchestrator can't drive headlessly today — future planning question, not blocking.
-      <br><br>
-      <strong>Orchestrator hardening followups logged in commit messages:</strong> (1) subprocess.TimeoutExpired on check=False fetch crashes orchestrator (caught one 10-min git fetch network stall during AFL-0206 attempt 2 — should be caught + downgraded to "proceed with stale main"). (2) Pre-flight halt path should git-checkout-HEAD queue.yaml before exit to avoid the dirty-tree halt-of-the-halt that bit AFL-0207 attempt 2. Both minor; defer to future hardening pass.
-      <br><br>
-      <strong>Open followups from AFL-0210 transcript (worth filing as tickets):</strong>
+      <strong>The arc, in commits:</strong>
       <br>
-      • Add <code>AFL_PULSE: NoHit</code> log line to Pulse's no-target branch (P04 positive matcher)
+      • <code>4c475c5a → 01477aeb → 28e8bd96</code> — <code>tripo_generate.py</code> standalone Tripo v2 client (Betide-independent), generate_parts segmentation, texture_model pass. The proven gen path for all future weapons (Tools/scripts/).
       <br>
-      • Emit <code>AFL_TELEMETRY: hitscan_reject reason=range</code> from Pulse + Beam paths when MaxRange caps the trace (P03 + B04 expect it)
+      • <code>33200038</code> — Pulse Carbine v2_textured hero mesh (20 SM + 20 PBR MIs + 60 textures, 38,613 tris, segmented editable parts; 89MB LFS).
       <br>
-      • Wire <code>GE_AFL_Heat_DecayPause</code> if master-doc's "0.5s gate" before heat decay is a hard requirement (H02 timing)
+      • <code>ac1f6df4</code> — <code>B_AFL_PulseCarbine</code> actor (plain AActor, 20 StaticMeshComponents at identity, Muzzle socket on tripo_part_17).
       <br>
-      • Confirm <code>State.Overheated</code> is in the minimal-replicated-tag bag (not <code>COND_OwnerOnly</code>) so R03 doesn't break silently
+      • <code>94573ff9</code> — <strong>BM-DEBT-006 RESOLVED</strong>: WID swap to <code>B_AFL_PulseCarbine</code> + display_name + NoCollision fix + 0.60 scale. Stock pistol mesh gone, WASD correct. The keystone three sprints kept claiming.
+      <br>
+      • <code>a86eb77d</code> — Pulse fire audio cue (<code>GameplayCue.Weapon.Pulse.Fire</code>, C++ emit in <code>ClientPredictAndSend</code>, <code>Cyber_laser_pulse_1</code> at muzzle).
+      <br>
+      • <code>32814c3a</code> — Pulse tracer cue (<code>GameplayCue.Weapon.Pulse.Tracer</code>, C++ emit in <code>OnTargetDataReadyCallback</code>, cyan muzzle→impact via Lyra-stock NS recolored with <code>User.Color</code> expose). Reusable cue-wire pattern banked.
       <br><br>
-      <strong>Queue state after this reconcile:</strong> 19 of 19 yolo-queue tasks merged. 0 errors. 0 pending. <code>Next: (none eligible)</code>. Last PR: #18. <em>Total session-of-the-week ship count: 9 PRs merged via orchestrator (AFL-0109 / 0111 / 0204 / 0206 / 0207 / 0210 / 0211 / 0213 / 0218) + 4 orchestrator hardening commits + AFL-0110 closure + tracker v2.5 + v2.6 reconciles + AFL-0215 standalone + asset-naming prefix fix + Sprint 2 queue authoring.</em> Sprint 3 Phase 2 mechanically closed (674696da) but <code>sprint-3-phase-2-cmc-complete</code> tag still awaiting hands-on WASD/dash/cooldown PIE pass. Sprint 5+ unchanged.
+      <strong>NEXT runway:</strong> muzzle flash + impact cues (same wire pattern, different NS recolor) · Beam VFX (S2 close, same pattern) · Q2 muzzle alignment tune · Q3 instance_type swap (B_WeaponInstance_AFL_PulseCarbine empty anim sets). Phase 2 (Energy Economy / S7+) unblocked when Phase 1 polish completes.
       <br><br>
-      <details><summary><strong>(v2.5 banner archive — what shipped earlier in the same long session)</strong></summary>
-      <p>Origin/main HEAD <code>142c9470</code>. Massive session 2026-05-21→22 — 7 PRs merged + 5 orchestrator/lint commits + Sprint 2 queue slice authored.</p>
-      <br><br>
-      <strong>Sprint 1 wrapped (with one partial):</strong> AFL-0111 ✅ QA template + Pulse smoke test (PR #10, ~7m). AFL-0109 ✅ (caught up from earlier failed run via the patched orchestrator). AFL-0215 standalone (cda45f34) + AFL-0218 skill registry CI ✅ (PR #13). AFL-0110 ⚠️ PARTIAL: 3 of 4 brief deliverables shipped via rescue commit 44cc29f2 (Maps/L_AFL_Arena_Test.umap, Experiences/B_LyraExperience_AFL_Arena_Test.uasset, DefaultGame.ini scan path, python helper); the 4th step (WorldSettings.DefaultGameplayExperience) blocked by Lyra's EditDefaultsOnly property gate — manual UI click in editor OR small UFUNCTION reflection helper required. Memory: feedback_lyra_worldsettings_editonly_gate.md.
-      <br><br>
-      <strong>Sprint 2 infrastructure shipped:</strong> AFL-0211 ✅ UAFLLagCompensationWorldSubsystem + per-pawn hitbox component (PR #11, after 3 attempts thanks to a UBT-mutex saga — see hardening below). AFL-0213 ✅ FAFLCombatTelemetry static utility wired into UAFLAG_Laser_Pulse + UAFLDamageExecCalc with stable AFL_TELEMETRY: log format (PR #12, fastest task yet at ~5m e2e). AFL-0204 ✅ Hit confirmation feedback — UAFLHitConfirmComponent + UAFLCameraShake_HitConfirm + WBP_AFL_HitMarker wired through Lyra UGameplayMessageSubsystem (PR #14). New Sprint 2 slice queued: AFL-0206 (Beam ability L), AFL-0207 (Heat system M), AFL-0210 (regression matrix M) — dep chain enforces order. AFL-0212 marked merged retroactively (was Sprint 1 Block A early ship, commit 68df114b).
-      <br><br>
-      <strong>🔧 Orchestrator hardening (3 new commits this session):</strong>
-      <br>
-      • <code>851a76d8 fix(verify): retry once on UBT mutex collision</code> — detect UnauthorizedAccessException + UrealBuildTool_Mutex tokens in build log, sleep 30s, retry once. Catches transient leftover-Build.bat case (Claude's in-session compile leaves UBT briefly holding the mutex). Validated live on AFL-0204 mid-session zombie.
-      <br>
-      • <code>6d6f16f3 fix(asset_naming): allow Lyra-canonical prefixes (B_/L_/LAS_/IMC_/InputData_)</code> — closed false positives flagged by Claude during AFL-0218: AFL-0109's lint was rejecting valid Lyra-derived AFL extension assets. Added five prefix patterns; self-test still trips on the original genuine-violation fixtures.
-      <br>
-      • <code>4551ba35 fix(orchestrator): pre-flight UBT mutex check halts on Session 0 zombies</code> — list_suspect_ubt_zombies() PowerShell-driven heuristic enumerates dotnet.exe in SessionId 0 with >50MB WS. pre_flight_check_ubt_mutex() halts verify:compile tasks BEFORE spawning Claude if a pre-existing zombie is detected, surfacing actionable Discord ping with the offending PIDs and exact Stop-Process command. New helper script Tools/AFL_Yolo/kill_ubt_zombies.ps1 (admin-elevated; guards on IsInRole). Key lesson captured in memory: do NOT use real Build.bat probes — they themselves leak zombies via cmd.exe → dotnet.exe orphan chains. Process-list heuristics only.
-      <br><br>
-      <strong>UBT mutex failure taxonomy (now documented in memory: feedback_ue_open_locks_uassets.md):</strong>
-      <br>
-      • <strong>Mode 1:</strong> UE Editor open with project loaded — closes both .uasset write-lock AND UBT mutex. Fix: close UE before any verify:compile task.
-      <br>
-      • <strong>Mode 2:</strong> Transient leftover Build.bat from Claude in-session compile, releases within 10-30s. Fix: 851a76d8's 30s retry handles it.
-      <br>
-      • <strong>Mode 3:</strong> Persistent dotnet zombie in Session 0 / SYSTEM session (Stop-Process from user PowerShell silently fails). Fix: 4551ba35's pre-flight halts before $$ burn; kill_ubt_zombies.ps1 from admin PowerShell clears; reboot is the nuclear option.
-      <br>
-      Real session costs this week from these three modes: AFL-0211 destroyed twice ($~9), AFL-0213 destroyed once ($~2), AFL-0110 partial-shipped (rescued $13.27 of work from a stall-watchdog rollback). Total mitigated by hardening: ~$24+ in destroyed Claude work and ~75 min of rework.
-      <br><br>
-      <strong>Queue state after this reconcile:</strong> 14 of 18 yolo-queue tasks merged. 1 error (AFL-0110, blocked on WorldSettings). 3 pending: <strong>AFL-0206</strong> (L, beam ability — next runnable), AFL-0207 (M, heat system — blocked on 0206), AFL-0210 (M, regression matrix — blocked on 0206 + 0207). Sprint 3 Phase 2 mechanically closed (674696da) but <code>sprint-3-phase-2-cmc-complete</code> tag still awaiting hands-on WASD/dash/cooldown PIE pass. Sprint 5+ unchanged.
-      </details>
+      <em>This tracker is UNVERSIONED.</em> Git carries history; this banner carries current state; the ✅/⏸/🔴 task rows + commit hashes carry the durable record. No more version bumps. If a frozen snapshot is ever wanted, name it by purpose (e.g. "Phase-1-close snapshot"), not a counter.
     </div>
     <button class="amendments-toggle" onclick="document.getElementById('amendmentsBanner').classList.toggle('collapsed')">DISMISS</button>
   </div>
@@ -1153,11 +1116,11 @@ const SPRINTS = [
   { id:'S2', phase:'P1', weeks:'W3–W4', title:'Pulse Polish + Beam Foundation',
     goal:'Pulse feels great. Beam exists with continuous damage and heat.',
     tasks:[
-      {id:'AFL-0201', title:'NS_AFL_PulseBeam Niagara — thick emissive trail, taper at impact', d:'vfx', e:'M'},
+      {id:'AFL-0201', title:'⚠ PARTIAL — tracer-shape NS authored via duplicate+User.Color-expose pattern (BM-WEAPON-005, 32814c3a); the Beam NS waits its own duplicate pass. Originally: NS_AFL_PulseBeam Niagara — thick emissive trail, taper at impact', d:'vfx', e:'M'},
       {id:'AFL-0202', title:'NS_AFL_HitSpark impact effect with sparks + radial bloom', d:'vfx', e:'M'},
       {id:'AFL-0203', title:'M_AFL_NeonMaster master material with Mobile variant', d:'vfx', e:'M'},
       {id:'AFL-0204', title:'✅ Hit confirmation feedback — UAFLHitConfirmComponent listens for Event.Damage.Confirmed via Lyra UGameplayMessageSubsystem (broadcast from UAFLDamageExecCalc on EffectiveDamage > 0); triggers UAFLCameraShake_HitConfirm (80ms low-amplitude) + WBP_AFL_HitMarker UMG via Lyra HUD action set. FAFLHitConfirmInfo carries damage/zone/distance; FAFLHitConfirmMessage struct shapes the broadcast payload. Headshot tinting placeholder gold (S5 tuning). Shipped via PR #14 (2026-05-22, commit 766c75aa). First Sprint 2 task to validate the orchestrator hardening end-to-end: pre-flight saw no zombie, verify.py 30s retry caught a mid-session-generated zombie cleanly. ▸ STEP-0 (BM-0106, ab683344): the UAFLHitConfirmComponent this entry shipped was ORPHANED (no AddComponents grant — nothing instantiated it on any pawn) until the Step-0 rebuild wired it to LyraPlayerController via experience-side AddComponents and PIE-verified the round-trip (Event.Damage.Confirmed broadcast → subscriber camera-shake + hit_confirmed log). The PR-#14 ✅ = shipped; Step-0 added the runtime-wired layer. See Step-0 Foundation Rebuild section.', d:'eng', e:'M'},
-      {id:'AFL-0205', title:'SFX_AFL_PulseShot + SFX_AFL_HitConfirm via MetaSounds', d:'audio', e:'M'},
+      {id:'AFL-0205', title:'⚠ PARTIAL — PulseShot half ✅ shipped (Cyber_laser_pulse_1 in GCN_AFL_Pulse_Fire, a86eb77d, BM-WEAPON-004); HitConfirm half open. Originally: SFX_AFL_PulseShot + SFX_AFL_HitConfirm via MetaSounds', d:'audio', e:'M'},
       {id:'AFL-0206', title:'✅ UAFLAG_Laser_Beam channeling ability — 100ms tick, 1.2 dmg/tick (= 12 dps), LocalPredicted, InstancedPerActor. 6 new C++ files: AFLAG_Laser_Beam.h/.cpp + GE_AFL_Damage_BeamTick.h/.cpp + GE_AFL_Cooldown_Beam.h/.cpp. Claude chose C++ GE declarations instead of authoring .uasset GEs — neatly avoided the EditDefaultsOnly + python set_editor_property gate that bit AFL-0110. AFL-0215 self-debug loop: lint pass tripped 3 violations, Claude diagnosed + fixed all 3 in-session. First production validation of the pre-flight UBT mutex check (4551ba35 — caught PID 19920 on attempt 1, $5-15 saved). Shipped via PR #15 (2026-05-22, commit 04dae920). 9m 15s / 96 turns / $4.04.', d:'eng', e:'L'},
       {id:'AFL-0207', title:'✅ Heat economy — gates sustained-fire weapons. UAFLAttributeSet_Combat extended with Heat/MaxHeat/HeatDecayRate (persistent, replicated, OnRep, PreAttributeChange clamping) + HeatPerBeamTick (meta, cleared in PostGameplayEffectExecute). 5 new C++ GE classes: Heat_BeamTick (+4/tick = 12.5 ticks to overheat), Heat_CoolingGate (0.5s Duration), Heat_Decay (infinite Duration, -2/100ms, IgnoreTags=CoolingGate), Heat_VentingComplete (event marker), Heat_SetByCaller (cheat-only override preserving no-direct-SetHeat rail). 4 new tags via UE_DEFINE_GAMEPLAY_TAG_STATIC: State.Overheated, State.Combat.CoolingGate, Event.Combat.HeatVentingStart, Event.Combat.HeatVentingComplete. AFL-0206 UAFLAG_Laser_Beam updated: ActivationBlockedTags includes State.Overheated; mid-channel overheat triggers EndAbility. 3 new UAFLCombatCheats: Heat/ForceOverheat/ResetHeat. All 4 AFL-0215 rails honored, zero UHT warnings. Shipped via PR #16 (2026-05-22, commit 962299a6). 14m 9s / 113 turns / $6.64 — biggest M-estimate session.', d:'eng', e:'M'},
       {id:'AFL-0208', title:'NS_AFL_PrismBeam continuous beam Niagara w/ heat-driven flicker', d:'vfx', e:'L'},
@@ -1247,7 +1210,15 @@ const SPRINTS = [
       {id:'BM-PLUGIN-GRANT-LIFECYCLE', title:'⏸ ARCHITECTURAL OPEN QUESTION — plugin-side UGameFeatureAction_AddAbilities does not deliver grants to LyraPlayerState in BagMan\'s experience lifecycle (proven by BM-DEBT-005-followup-prune distinguishing experiment). Workaround: experience-side AddAbilities mirror per plugin. Affects every plugin-heavy phase (AFLEnergy/Extraction/Chaos/Online/Backend). Investigation deferred.', d:'eng', e:'M'},
       {id:'SKILL-v1', title:'✅ lyra-ue5-build-discipline skill v1 (268b9ede): methodology codified as in-repo artifact — 5 Pillars (Pillar 5 foundational: distinguishing experiments), 16 traps by-symptom, sprint loop, 3 worked examples. Consumed on its next sprint (BM-0105a cited pillars by name).', d:'design', e:'L'},
       {id:'SKILL-v2', title:'✅ skill v2 (6006a2d0): +6 traps (#17-22: distinguishing-experiment-didn\'t-distinguish, BP-CDO persist-fail, orphan component, memory bit-rot, git output mediation, bidirectional tracker drift) + #13 upgrade + Pillar 4 in formation methodology example. Trap #21 fired on its own push and was caught.', d:'design', e:'M'},
-      {id:'STEP-0-HYGIENE', title:'✅ Step-0 tracker hygiene reconciliation (3489998a): the foundation tracker\'s own bidirectional reconciliation (BM-0102b closure, BM-0102c added, BM-DEBT-001 status, cross-cutting section) — the dry-run that preceded THIS v2.7 reconciliation.', d:'design', e:'S'}
+      {id:'STEP-0-HYGIENE', title:'✅ Step-0 tracker hygiene reconciliation (3489998a): the foundation tracker\'s own bidirectional reconciliation (BM-0102b closure, BM-0102c added, BM-DEBT-001 status, cross-cutting section) — the dry-run that preceded the lineage-merge reconcile.', d:'design', e:'S'},
+      {id:'BM-WEAPON-001', title:'✅ Pulse Carbine asset pipeline — tripo_generate.py standalone Tripo v2 client (text→3D + generate_parts segmentation + texture_model), Betide-independent. Commits 4c475c5a → 01477aeb → 28e8bd96. The proven gen path for all future weapons (Tools/scripts/).', d:'eng', e:'L'},
+      {id:'BM-WEAPON-002', title:'✅ Pulse Carbine v2_textured hero mesh — 20 StaticMeshes + 20 PBR MaterialInstances + 60 textures, 38,613 tris, segmented editable parts. Commit 33200038 (89MB LFS). v1 + v2_parts kept uncommitted as fallback + authoring master.', d:'art', e:'L'},
+      {id:'BM-WEAPON-003', title:'✅ B_AFL_PulseCarbine actor — plain AActor, 20 StaticMeshComponents at identity (parts carry baked offsets → assemble free), Muzzle socket on tripo_part_17. Commit ac1f6df4.', d:'eng', e:'M'},
+      {id:'BM-DEBT-006', title:'✅ RESOLVED — Pulse Carbine equipped via WID swap (actors_to_spawn → B_AFL_PulseCarbine, display_name "Pulse Carbine"). Stock pistol mesh gone, WASD-correct (NoCollision fix on the 20 hand parts), 0.60 scale. PIE-watched. Commit 94573ff9. The keystone three sprints kept claiming.', d:'eng', e:'M'},
+      {id:'BM-WEAPON-004', title:'✅ Pulse fire audio cue — GameplayCue.Weapon.Pulse.Fire (C++ emit in ClientPredictAndSend) → GCN_AFL_Pulse_Fire → Cyber_laser_pulse_1 at the muzzle. Commit a86eb77d. Partially resolves AFL-0205 (PulseShot half).', d:'eng', e:'M'},
+      {id:'BM-WEAPON-005', title:'✅ Pulse tracer cue — GameplayCue.Weapon.Pulse.Tracer (C++ emit in OnTargetDataReadyCallback, Hit via EffectContext) → GCN_AFL_Pulse_Tracer → NS_AFL_Pulse_Tracer (Lyra tracer recolored, User.Color cyan). Cyan tracer muzzle→impact, PIE-watched. Commit 32814c3a. Reusable cue-wire pattern (the template for Beam + all weapons).', d:'vfx', e:'L'},
+      {id:'BM-WEAPON-Q2', title:'⏸ Pulse muzzle alignment — minor offset, ~1-value tune (GCN MuzzlePosition feed or NS baked offset). Operator-eye, non-blocking.', d:'vfx', e:'XS'},
+      {id:'BM-WEAPON-Q3', title:'⏸ Pulse instance_type swap — residual stock-pistol fire-shake/pose (instance_type still B_WeaponInstance_Pistol). Author B_WeaponInstance_AFL_PulseCarbine with empty anim sets, swap WID.instance_type. Cheap, no gen. Accepted-interim.', d:'eng', e:'S'}
     ]},
 
   // ===== PHASE 2 =====
