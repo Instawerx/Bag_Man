@@ -26,10 +26,27 @@ After dropping `AFLVFX\`, regenerate project files and build (the runbook prompt
 
 ## What the agent still authors (extend from these)
 
-- `AAFLCueNotify_LaserImpact` and `AAFLCueNotify_LaserBeamFlash` (burst cues) — small,
-  same module, pattern in `references/integration-architecture.md` / `aik-briefing.md` prompt 4.
+- ~~`AAFLCueNotify_LaserImpact` and `AAFLCueNotify_LaserBeamFlash` (burst cues)~~ —
+  **DONE** (authored alongside the beam cue; same module, const-correct SourceObject).
 - The charge cue + camera-shake notifies — `references/full-weapon-feature-map.md`.
 - Each weapon's `IAFLLaserVisualProvider` implementation + `DA_AFL_LaserVisual_*` data asset.
+- **The `GCN_AFL_Laser_*` notify ASSETS** (see correction below) — the C++ classes do
+  not fire on their own.
+
+## CRITICAL CORRECTION — a C++ cue class alone does NOT fire
+
+The cue notify classes here (`AAFLCueNotify_LaserBeam` / `_LaserImpact` / `_LaserBeamFlash`)
+are **parent classes only.** Earlier wording implied the looping beam cue "compiles + runs"
+as if spawning the C++ class is enough — that is **wrong for this project.** Lyra's
+`LyraGameplayCueManager` is **asset-scan + path-based, not C++-class-scanned**, and only
+scans `/Game/GameplayCueNotifies` + `/Game/GameplayCues` (per `DefaultGame.ini`). A bare
+C++ notify in this plugin's `/AFLVFX/` mount is **invisible** to it.
+
+**To fire:** create a tagged **`GCN_AFL_Laser_*.uasset` parented to the C++ class**, named
+so its tag derives to `GameplayCue.Weapon.Laser.*`, saved under **`/Game/GameplayCues/`**.
+Fastest: duplicate a working `GCN_AFL_Pulse_*` and re-parent. Full detail +
+why-not-a-config-edit in `references/integration-architecture.md` (§"how the cue notify is
+DISCOVERED"). This is suspect #1 if a cue won't fire on a clean build.
 
 ## Note vs the docs
 
