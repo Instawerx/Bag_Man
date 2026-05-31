@@ -850,31 +850,39 @@
 
   <!-- CURRENT STATE banner. Rewritten in place each reconcile -- git carries history, this banner carries current state, the task rows carry the durable record. NO version bumps. -->
   <div class="amendments-banner" id="amendmentsBanner">
-    <span class="amendments-banner-tag">CURRENT STATE · origin/main HEAD 2b77a69f · Pulse Carbine FINISHED</span>
+    <span class="amendments-banner-tag">CURRENT STATE · origin/main HEAD 90ed5988 · Pulse Carbine sensory loop COMPLETE</span>
     <div class="amendments-body">
-      <strong>The Pulse Carbine is FINISHED.</strong> Mesh + equip + carbine hold + audio + sight-aligned tracer + damage — all PIE-watched, operator-confirmed.
+      <strong>The Pulse Carbine sensory loop is COMPLETE</strong> — mesh + equip + carbine hold + sight-aligned tracer + damage + cyan muzzle flash + cyan surface-flush impact + audio, all PIE-watched, operator-confirmed.
+      <br><br>
+      <strong>Color honesty:</strong> all three cues read cyan, but color is <strong>runtime-param-driven on the TRACER ONLY</strong> (<code>User.Linear Color</code>). The muzzle flash is baked-cyan (no param); the impact has an orphan <code>User.Linear Color</code> (exists, black, linked to nothing — its visible cyan is baked emitter color). Marketplace color surfaces = <strong>1 of the 3-5 gate</strong>, not 3. Making flash + impact param-driven needs operator-UI Niagara link work (MCP can't persist the link — verified trap #18).
       <br><br>
       <strong>The arc, in commits:</strong>
       <br>
-      • <code>4c475c5a → 01477aeb → 28e8bd96</code> — <code>tripo_generate.py</code> standalone Tripo v2 client (Betide-independent), generate_parts segmentation, texture_model pass. The proven gen path for all future weapons (Tools/scripts/).
+      • <code>4c475c5a → 01477aeb → 28e8bd96</code> — <code>tripo_generate.py</code> standalone Tripo v2 client, generate_parts segmentation, texture_model pass. Proven gen path for all future weapons.
       <br>
-      • <code>33200038</code> — Pulse Carbine v2_textured hero mesh (20 SM + 20 PBR MIs + 60 textures, 38,613 tris, segmented editable parts; 89MB LFS).
+      • <code>33200038</code> — Pulse Carbine v2_textured hero mesh (20 SM + 20 PBR MIs + 60 textures, 38,613 tris; 89MB LFS).
       <br>
-      • <code>ac1f6df4</code> — <code>B_AFL_PulseCarbine</code> actor (plain AActor, 20 StaticMeshComponents at identity, Muzzle socket on tripo_part_17).
+      • <code>ac1f6df4</code> — <code>B_AFL_PulseCarbine</code> actor (plain AActor, 20 StaticMeshComponents at identity). <em>Muzzle socket lives on <code>tripo_part_0</code></em> (the barrel end, origin_y +33.94 — the original "Part_17" note was geometrically inverted; Part_17 is the stock).
       <br>
-      • <code>94573ff9</code> — <strong>BM-DEBT-006 RESOLVED</strong>: WID swap to <code>B_AFL_PulseCarbine</code> + display_name + NoCollision fix + 0.60 scale. Stock pistol mesh gone, WASD correct. The keystone three sprints kept claiming.
+      • <code>94573ff9</code> — <strong>BM-DEBT-006 RESOLVED</strong>: WID swap to <code>B_AFL_PulseCarbine</code> + NoCollision fix + 0.60 scale. Stock pistol mesh gone, WASD correct.
       <br>
       • <code>a86eb77d</code> — Pulse fire audio cue (<code>GameplayCue.Weapon.Pulse.Fire</code>, C++ emit in <code>ClientPredictAndSend</code>, <code>Cyber_laser_pulse_1</code> at muzzle).
       <br>
-      • <code>32814c3a</code> — Pulse tracer cue (<code>GameplayCue.Weapon.Pulse.Tracer</code>, C++ emit in <code>OnTargetDataReadyCallback</code>, cyan muzzle→impact via Lyra-stock NS recolored with <code>User.Color</code> expose). Reusable cue-wire pattern banked.
+      • <code>32814c3a</code> — Pulse tracer cue (<code>GameplayCue.Weapon.Pulse.Tracer</code>, cyan muzzle→impact, Lyra-stock NS recolored, <code>User.Linear Color</code> — the ONE runtime-drivable color surface).
       <br>
-      • <code>cd9e8b50</code> — Q3 instance type: <code>B_WeaponInstance_AFL_PulseCarbine</code> (BP child of Rifle): two-handed carbine hold + rifle-shape fire feedback, no pistol pose/shake. WID instance_type swapped. Template: subclass the Lyra weapon-instance whose anim shape matches.
+      • <code>cd9e8b50</code> — Q3 instance type: <code>B_WeaponInstance_AFL_PulseCarbine</code> (Rifle child): two-handed carbine hold, no pistol shake.
       <br>
-      • <code>2b77a69f</code> — Q2 tracer origin: camera-ray anchored (Lyra <code>CameraTowardsFocus</code>) instead of geometric muzzle. Tracer rides the aim ray; reads <code>ClaimedViewOrigin</code>/<code>ClaimedAimDirection</code> off the trace struct (zero re-derive). Tunable <code>TracerVisualOriginDistance</code> UPROPERTY, clamped point-blank. Cosmetic — sight=shot preserved.
+      • <code>2b77a69f</code> — Q2 tracer origin: camera-ray anchored (Lyra <code>CameraTowardsFocus</code>), tunable + clamped. Cosmetic — sight=shot preserved.
+      <br>
+      • <code>e0e578ce</code> — Pulse muzzle flash: cyan, shot-line oriented (AimDirection packed into <code>CueParams.Normal</code>), on the Fire cue's OnBurst graph. Color baked (no param).
+      <br>
+      • <code>39d1cdd0</code> — fix: removed stale duplicate Muzzle socket on Part_17 (the helper breaks-on-first-match; Part_0 was winning by luck — trap defused).
+      <br>
+      • <code>90ed5988</code> — Pulse impact cue: cyan surface-flush energy spark on the Tracer cue's OnBurst graph (ADDITIVE), array-driven (<code>User.ImpactPositions</code>/<code>ImpactNormals</code>/<code>NumberOfHits</code> — the NS self-orients from the normal array). Color baked (orphan param).
       <br><br>
-      <strong>Reusable patterns banked:</strong> the cue-wire template (Fire+Tracer C++ emit pattern), camera-ray tracer origin for third-person, Rifle-child weapon-instance subclassing, the FAFLAbilityTargetData_Hitscan ray-reuse rule. All apply to Beam + future weapons.
+      <strong>Reusable patterns banked:</strong> cue-wire template (Fire+Tracer+Impact C++/graph), camera-ray tracer origin (TPS), Rifle-child weapon-instance, FAFLAbilityTargetData_Hitscan ray-reuse, MCP socket authoring (add/build/save), Tripo part-axis (+Y forward, origin-rank for muzzle), array-driven impact feed (Position vs Float3 node distinction), and the Niagara MCP nuance (reads + param-shell-create work; value/link writes DON'T persist). All apply to Beam + future weapons.
       <br><br>
-      <strong>NEXT runway:</strong> muzzle flash + impact cues (same cue-wire, different NS recolor) · Beam (next weapon, same template) · Niagara-param control tool (operator's stated next-build, waits for 3-5 control surfaces to crystallize) · MP cue visibility gate · Phase 2 (Energy Economy / S7+).
+      <strong>NEXT runway:</strong> flash/impact param-driven color backfill (operator-UI Niagara link — real work, not polish) · Beam (next weapon, full template proven) · Niagara-param control tool (1 of 3-5 surfaces real) · MP cue visibility gate · Phase 2 (Energy Economy / S7+).
       <br><br>
       <em>This tracker is UNVERSIONED.</em> Git carries history; this banner carries current state; the ✅/⏸/🔴 task rows + commit hashes carry the durable record. No more version bumps. If a frozen snapshot is ever wanted, name it by purpose (e.g. "Phase-1-close snapshot"), not a counter.
     </div>
@@ -1224,7 +1232,9 @@ const SPRINTS = [
       {id:'BM-WEAPON-004', title:'✅ Pulse fire audio cue — GameplayCue.Weapon.Pulse.Fire (C++ emit in ClientPredictAndSend) → GCN_AFL_Pulse_Fire → Cyber_laser_pulse_1 at the muzzle. Commit a86eb77d. Partially resolves AFL-0205 (PulseShot half).', d:'eng', e:'M'},
       {id:'BM-WEAPON-005', title:'✅ Pulse tracer cue — GameplayCue.Weapon.Pulse.Tracer (C++ emit in OnTargetDataReadyCallback, Hit via EffectContext) → GCN_AFL_Pulse_Tracer → NS_AFL_Pulse_Tracer (Lyra tracer recolored, User.Color cyan). Cyan tracer muzzle→impact, PIE-watched. Commit 32814c3a. Reusable cue-wire pattern (the template for Beam + all weapons).', d:'vfx', e:'L'},
       {id:'BM-WEAPON-Q3', title:'✅ Pulse instance_type swap — B_WeaponInstance_AFL_PulseCarbine (BP child of B_WeaponInstance_Rifle): two-handed carbine hold + rifle-shape fire feedback, no pistol shake/pose. WID instance_type swapped (Pistol → AFL_PulseCarbine). AttachTransform tune (25,0,-5) + scale 0.50 for chest-clearance. Inherits ABP_RifleAnimLayers; ranged-instance fields (SpreadExponent, HeatToSpreadCurve) dormant. Template: subclass the Lyra weapon-instance whose anim shape matches. Commit cd9e8b50.', d:'eng', e:'S'},
-      {id:'BM-WEAPON-Q2', title:'✅ Pulse tracer origin — camera-ray anchored (Lyra ELyraAbilityTargetingSource::CameraTowardsFocus pattern, skill-confirmed for CM_ThirdPerson). Tracer START rides the aim ray (the shot line) instead of the geometric muzzle (which sits left+up of sight). Reads ClaimedViewOrigin/ClaimedAimDirection off FAFLAbilityTargetData_Hitscan (already packed for server lag-comp) — zero recompute, zero drift, matches the actual perturbed shot line. Tunable TracerVisualOriginDistance UPROPERTY (80cm default), clamped against close impacts (DistToImpact * 0.5f when nearer than the tunable, so no reversed tracer point-blank). COSMETIC — sight=shot/damage/Hit.ImpactPoint untouched. PIE-watched Q1-Q4. Commit 2b77a69f. PULSE CARBINE FINISHED.', d:'eng', e:'S'}
+      {id:'BM-WEAPON-Q2', title:'✅ Pulse tracer origin — camera-ray anchored (Lyra ELyraAbilityTargetingSource::CameraTowardsFocus pattern, skill-confirmed for CM_ThirdPerson). Tracer START rides the aim ray (the shot line) instead of the geometric muzzle (which sits left+up of sight). Reads ClaimedViewOrigin/ClaimedAimDirection off FAFLAbilityTargetData_Hitscan (already packed for server lag-comp) — zero recompute, zero drift, matches the actual perturbed shot line. Tunable TracerVisualOriginDistance UPROPERTY (80cm default), clamped against close impacts (DistToImpact * 0.5f when nearer than the tunable, so no reversed tracer point-blank). COSMETIC — sight=shot/damage/Hit.ImpactPoint untouched. PIE-watched Q1-Q4. Commit 2b77a69f.', d:'eng', e:'S'},
+      {id:'BM-WEAPON-FLASH', title:'✅ Pulse muzzle flash — NS_AFL_Pulse_MuzzleFlash (recolor of NS_WeaponFire_MuzzleFlash_Rifle) on GCN_AFL_Pulse_Fire OnBurst graph; cyan flash at the barrel tip, oriented down the shot line (AimDirection packed into CueParams.Normal — Option 2, matches the camera-ray tracer). Muzzle socket re-authored onto tripo_part_0 (the barrel end; the "Part_17" project-memory note was inverted — Part_17 is the stock) + stale duplicate socket removed (39d1cdd0). Commits e0e578ce + 39d1cdd0. PIE-watched. NOTE: color is BAKED (no User param) — NOT yet a marketplace surface; param-driven backfill is operator-UI Niagara work.', d:'vfx', e:'M'},
+      {id:'BM-WEAPON-IMPACT', title:'✅ Pulse impact cue — NS_AFL_Pulse_Impact (recolor of NS_ImpactConcrete; dust+rocks emitters disabled — energy-clean) on GCN_AFL_Pulse_Tracer OnBurst graph, ADDITIVE (tracer undisturbed). Array-driven: feeds User.ImpactPositions (Niagara Set Position Array) + User.ImpactNormals (Niagara Set Vector Array) + User.NumberOfHits=1, reusing the Break Hit Result node; the NS self-orients surface-flush from the normal array (no Make-Rot). Commit 90ed5988. PIE-watched (cyan, flush to angled surfaces, no regression). NOTE: color is BAKED/orphan-param — the User.Linear Color exists but is unlinked (black); visible cyan is baked emitter color. NOT yet a marketplace surface. Completes the Pulse sensory loop (flash+tracer+impact+audio).', d:'vfx', e:'M'}
     ]},
 
   // ===== PHASE 2 =====
