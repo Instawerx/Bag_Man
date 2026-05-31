@@ -95,12 +95,21 @@ prompt 1 if not present.
 
 ### Prompt P6 — make ONE weapon drive the cue (smallest possible proof)
 ```
-Pick the existing second/channeled beam weapon. Author DA_AFL_LaserVisual_Test pointing
-BeamSystem at NS_AFL_Laser_Twist (post-rename), BeamColor cyan, MuzzleSocketName "Muzzle",
-CosmeticRange = its max range, MuzzleMeshComponent = its weapon mesh. Make that weapon
-implement IAFLLaserVisualProvider backed by it. In its ability, on activate
-AddGameplayCue(GameplayCue.Weapon.Laser.Beam, SourceObject=weapon); on end RemoveGameplayCue.
-Do not change its trace or damage. Build clean and report the diff.
+Pick the existing second/channeled beam weapon.
+1. CREATE THE DISCOVERABLE CUE ASSET (the step the bare C++ class does NOT cover):
+   make GCN_AFL_Laser_Beam.uasset PARENTED TO AAFLCueNotify_LaserBeam, saved under
+   /Game/GameplayCues/ (a scanned GameplayCueNotifyPaths folder), named so its tag
+   derives to GameplayCue.Weapon.Laser.Beam. Fastest safe path: duplicate the working
+   GCN_AFL_Pulse_Fire, rename to GCN_AFL_Laser_Beam, re-parent to AAFLCueNotify_LaserBeam
+   (inherits the name-derived-tag mechanism identically). WITHOUT this asset the cue will
+   NOT fire despite a clean build — see integration-architecture.md §discovery.
+2. Author DA_AFL_LaserVisual_Test pointing BeamSystem at NS_AFL_Laser_Twist (post-rename),
+   BeamColor cyan, MuzzleSocketName "Muzzle", CosmeticRange = its max range,
+   MuzzleMeshComponent = its weapon mesh. Make that weapon implement IAFLLaserVisualProvider
+   backed by it.
+3. In its ability, on activate AddGameplayCue(GameplayCue.Weapon.Laser.Beam,
+   SourceObject=weapon); on end RemoveGameplayCue. Do not change its trace or damage.
+Report the diff + confirm the GCN asset exists in /Game/GameplayCues/.
 ```
 
 ### CHECKPOINT — watch it  **[PIE]**  ← the real ✅

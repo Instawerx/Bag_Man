@@ -34,6 +34,45 @@ GameplayCue.Weapon.Laser.Impact    # burst   — sparks/decal at the hit point
 GameplayCue.Weapon.Laser.Muzzle    # burst   — muzzle/charge orb (OrbType systems)
 ```
 
+## CRITICAL — how the cue notify is DISCOVERED (a C++ class alone does NOT fire)
+
+> The `AAFLCueNotify_*` classes below are **parent C++ classes only.** A bare C++
+> notify class is **NOT discoverable by itself** in this project. To fire, each needs
+> a tagged **`GCN_AFL_*.uasset`** parented to it, saved under a **scanned
+> `GameplayCueNotifyPaths` folder**.
+
+This is project-specific and load-bearing (confirmed in BAG MAN, 2026-05-31): Lyra's
+`LyraGameplayCueManager` is **asset-scan + path-based, not C++-class-scanned** (a
+deliberate perf optimization — it skips the full class-library scan). `DefaultGame.ini`
+lists only:
+
+```
++GameplayCueNotifyPaths=/Game/GameplayCueNotifies
++GameplayCueNotifyPaths=/Game/GameplayCues
+```
+
+So a `UGameplayCueNotify_*` subclass living in a code plugin's mount (e.g. `/AFLVFX/`)
+is invisible to the manager — the path isn't scanned, and a bare C++ class carries no
+GameplayCue tag binding. **The working AFL cues fire because they are `GCN_AFL_*`
+*assets* in `/Game/GameplayCues/` (a scanned path), with the tag derived from the asset
+name** (`DeriveGameplayCueTagFromAssetName` — the asset's `gameplay_cue_tag` reads empty
+on the CDO; the name is the binding).
+
+**The rule for every laser cue:**
+1. The behavior lives in the C++ `AAFLCueNotify_*` parent class (in the always-on
+   `AFLVFX` plugin — see why in the install doctrine).
+2. Create a `GCN_AFL_Laser_<Thing>.uasset` **parented to that class**, named so its tag
+   derives to `GameplayCue.Weapon.Laser.<Thing>`, **saved in `/Game/GameplayCues/`**.
+   Fastest safe path: duplicate a working `GCN_AFL_Pulse_*` asset, rename, re-parent —
+   the tag-derivation mechanism is inherited identically.
+3. The ability emits the tag (`AddGameplayCue` / `K2_ExecuteGameplayCueWithParams`); the
+   manager maps tag → the GCN asset → spawns it → runs the C++ behavior.
+
+**No `DefaultGame.ini` edit is needed** if you follow this (asset in the already-scanned
+`/Game/GameplayCues/`). Do NOT instead add the plugin path to `GameplayCueNotifyPaths` —
+that diverges from the proven precedent for no benefit. If a cue won't fire on a clean
+build, **suspect #1 is "no tagged GCN asset in a scanned path," not the C++.**
+
 ## Why a cue and not a spawn-in-ability
 
 GameplayCues are GAS's replicated, predicted, net-decoupled cosmetic channel. Trigger
