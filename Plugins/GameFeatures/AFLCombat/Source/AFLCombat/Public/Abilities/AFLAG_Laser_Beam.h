@@ -9,6 +9,8 @@
 #include "AFLAG_Laser_Beam.generated.h"
 
 class UGameplayEffect;
+class UNiagaraSystem;
+class UNiagaraComponent;
 struct FGameplayAbilityTargetDataHandle;
 
 
@@ -121,10 +123,30 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Trace")
 	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 
+	/**
+	 * AFL-0208: sustained beam VFX. NS_AFL_Beam (DynamicBeam ribbon emitter) spawned
+	 * attached to the weapon's Muzzle socket on channel-begin, its User.BeamEnd driven
+	 * to Hit.ImpactPoint each TickChannel, destroyed on EndAbility. Locally-controlled
+	 * only (cosmetic). Set on the CDO via ctor FObjectFinder; BP children can override.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|VFX")
+	TObjectPtr<UNiagaraSystem> BeamFXSystem;
+
 private:
 
 	/** Called by the FTimerManager on the locally-controlled client every TickInterval. */
 	void TickChannel();
+
+	/**
+	 * AFL-0208: resolve the muzzle/emitter world location off the avatar's attached
+	 * weapon actor (the Muzzle socket on B_AFL_Beam's emitter end). Falls back to the
+	 * weapon_r hand socket. Mirrors the Pulse's ResolveMuzzleLocation.
+	 */
+	FVector ResolveMuzzleLocation(APawn* AvatarPawn) const;
+
+	/** The live beam NiagaraComponent for the current channel (spawned begin, destroyed end). */
+	UPROPERTY()
+	TObjectPtr<class UNiagaraComponent> BeamFXComponent;
 
 	/** Bound to UAbilityTask_WaitInputRelease's OnRelease delegate on both sides. */
 	UFUNCTION()

@@ -32,6 +32,7 @@ public class AFLCombat : ModuleRules
 			{
 				"Slate",
 				"SlateCore",
+				"Niagara",
 			}
 		);
 	}

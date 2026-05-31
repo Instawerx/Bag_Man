@@ -8,6 +8,8 @@
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Effects/GE_AFL_Cooldown_Beam.h"
 #include "Effects/GE_AFL_Damage_BeamTick.h"
 #include "Effects/GE_AFL_Heat_BeamTick.h"
@@ -15,12 +17,17 @@
 #include "Effects/GE_AFL_Heat_Decay.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
 #include "GameplayEffect.h"
 #include "NativeGameplayTags.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
 #include "TimerManager.h"
 #include "Targeting/AFLAbilityTargetData_Hitscan.h"
 #include "Telemetry/AFLCombatTelemetry.h"
+#include "UObject/ConstructorHelpers.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Laser_Beam)
 
@@ -66,6 +73,17 @@ UAFLAG_Laser_Beam::UAFLAG_Laser_Beam()
 	HeatTickEffectClass        = UGE_AFL_Heat_BeamTick::StaticClass();
 	HeatCoolingGateEffectClass = UGE_AFL_Heat_CoolingGate::StaticClass();
 	HeatDecayEffectClass       = UGE_AFL_Heat_Decay::StaticClass();
+
+	// AFL-0208: default the sustained beam VFX to NS_AFL_Beam (the DynamicBeam
+	// ribbon authored at /Game/GameplayCues/). Succeeded()-guarded so a missing/
+	// renamed asset degrades to "no beam visual" rather than crashing the CDO
+	// (trap #2). BP children may override on the CDO.
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> BeamFXFinder(
+		TEXT("/Game/GameplayCues/NS_AFL_Beam.NS_AFL_Beam"));
+	if (BeamFXFinder.Succeeded())
+	{
+		BeamFXSystem = BeamFXFinder.Object;
+	}
 }
 
 void UAFLAG_Laser_Beam::ActivateAbility(
@@ -145,6 +163,45 @@ void UAFLAG_Laser_Beam::ActivateAbility(
 				? ActorInfo->AvatarActor->GetWorld()
 				: nullptr)
 		{
+			// AFL-0208: spawn the sustained beam VFX on channel-begin, attached to
+			// the weapon's Muzzle socket so BeamStart auto-follows the emitter as
+			// the pawn moves. The component is owned for the channel's lifetime;
+			// TickChannel drives User.BeamEnd, EndAbility destroys it. Locally-
+			// controlled cosmetic only (this whole block is inside the
+			// IsLocallyControlled gate). Path B: we set User.BeamStart/BeamEnd via
+			// SetNiagaraVariableVec3 on the spawned component each tick -- no
+			// editor module-link required (the DynamicBeam reads the User params).
+			if (BeamFXSystem && !BeamFXComponent)
+			{
+				APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
+				if (AvatarPawn)
+				{
+					const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
+					USceneComponent* AttachComp = nullptr;
+					if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
+					{
+						AttachComp = AvatarChar->GetMesh();
+					}
+					if (!AttachComp)
+					{
+						AttachComp = AvatarPawn->GetRootComponent();
+					}
+					BeamFXComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
+						BeamFXSystem,
+						AttachComp,
+						NAME_None,
+						MuzzleLocation,
+						FRotator::ZeroRotator,
+						EAttachLocation::KeepWorldPosition,
+						/*bAutoDestroy=*/false);
+					if (BeamFXComponent)
+					{
+						BeamFXComponent->SetVariableVec3(FName("BeamStart"), MuzzleLocation);
+						BeamFXComponent->SetVariableVec3(FName("BeamEnd"),   MuzzleLocation);
+					}
+				}
+			}
+
 			// Fire the first tick immediately so the channel produces a
 			// hitmarker on frame 0 of the hold; the timer then settles into
 			// its TickInterval cadence for the rest of the channel.
@@ -183,6 +240,15 @@ void UAFLAG_Laser_Beam::EndAbility(
 			{
 				World->GetTimerManager().ClearTimer(TickTimerHandle);
 			}
+		}
+
+		// AFL-0208: tear down the sustained beam VFX on channel end (release,
+		// overheat self-cancel, or any cancel). DestroyComponent stops + removes
+		// the beam; null the handle so a re-channel spawns a fresh one.
+		if (BeamFXComponent)
+		{
+			BeamFXComponent->DestroyComponent();
+			BeamFXComponent = nullptr;
 		}
 
 		if (ActorInfo && ActorInfo->AbilitySystemComponent.IsValid())
@@ -250,6 +316,19 @@ void UAFLAG_Laser_Beam::TickChannel()
 		Hit.TraceEnd    = EndTrace;
 		Hit.Location    = EndTrace;
 		Hit.ImpactPoint = EndTrace;
+	}
+
+	// AFL-0208: drive the sustained beam VFX endpoints this tick (Path B -- set the
+	// DynamicBeam's User.BeamStart/BeamEnd directly on the spawned component; no
+	// editor module-link needed). BeamEnd = the real impact (or EndTrace on a miss);
+	// BeamStart = the muzzle/emitter world location (refreshed each tick so it tracks
+	// the pawn's movement). Locally-controlled cosmetic; only set when the channel's
+	// beam component exists (spawned in ActivateAbility, destroyed in EndAbility).
+	if (BeamFXComponent)
+	{
+		const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
+		BeamFXComponent->SetVariableVec3(FName("BeamStart"), MuzzleLocation);
+		BeamFXComponent->SetVariableVec3(FName("BeamEnd"),   Hit.ImpactPoint);
 	}
 
 	// Reuse the Pulse hitscan struct — the brief is explicit that Beam does
@@ -500,4 +579,42 @@ void UAFLAG_Laser_Beam::ApplyReleaseCooldown()
 	{
 		ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
 	}
+}
+
+FVector UAFLAG_Laser_Beam::ResolveMuzzleLocation(APawn* AvatarPawn) const
+{
+	// AFL-0208: resolve the beam emitter world location off the avatar's attached
+	// weapon actor (the "Muzzle" socket on B_AFL_Beam's emitter end, tripo_part_0).
+	// Falls back to the weapon_r hand socket so the beam never originates at world
+	// origin. Mirrors UAFLAG_Laser_Pulse::ResolveMuzzleLocation verbatim -- the
+	// shared muzzle-resolve pattern (see reference_weapon_cue_wire_pattern).
+	FVector MuzzleLocation = FVector::ZeroVector;
+	if (!AvatarPawn)
+	{
+		return MuzzleLocation;
+	}
+
+	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
+	{
+		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
+		{
+			MuzzleLocation = CharMesh->GetSocketLocation(FName("weapon_r"));
+		}
+	}
+
+	TArray<AActor*> AttachedActors;
+	AvatarPawn->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		TInlineComponentArray<UStaticMeshComponent*> SMCs;
+		Attached->GetComponents<UStaticMeshComponent>(SMCs);
+		for (UStaticMeshComponent* SMC : SMCs)
+		{
+			if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
+			{
+				return SMC->GetSocketLocation(FName("Muzzle"));
+			}
+		}
+	}
+	return MuzzleLocation;
 }
