@@ -16,7 +16,7 @@
     "Installed":  false,
     "ExplicitlyLoaded":  true,
     "EnabledByDefault":  false,
-    "BuiltInInitialFeatureState":  "Registered",
+    "BuiltInInitialFeatureState":  "Installed",
     "Modules":  [
                     {
                         "Name":  "AFLDismember",

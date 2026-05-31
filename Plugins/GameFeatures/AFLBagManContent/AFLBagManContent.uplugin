@@ -8,7 +8,7 @@
 	"CreatedBy": "Ironics - Beta Lands V1.0",
 	"CanContainContent": true,
 	"ExplicitlyLoaded": true,
-	"BuiltInInitialFeatureState": "Registered",
+	"BuiltInInitialFeatureState": "Installed",
 	"Plugins": [
 		{ "Name": "ModularGameplay", "Enabled": true },
 		{ "Name": "GameFeatures", "Enabled": true }
