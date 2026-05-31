@@ -22,6 +22,7 @@
 #include "GameplayEffect.h"
 #include "NativeGameplayTags.h"
 #include "NiagaraComponent.h"
+#include "NiagaraDataInterfaceArrayFunctionLibrary.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "TimerManager.h"
@@ -83,6 +84,15 @@ UAFLAG_Laser_Beam::UAFLAG_Laser_Beam()
 	if (BeamFXFinder.Succeeded())
 	{
 		BeamFXSystem = BeamFXFinder.Object;
+	}
+
+	// AFL-0208: reuse the Pulse impact spark (NS_AFL_Pulse_Impact) at the beam's
+	// hit point. Succeeded()-guarded (trap #2). BP children may override.
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> ImpactFXFinder(
+		TEXT("/Game/GameplayCues/NS_AFL_Pulse_Impact.NS_AFL_Pulse_Impact"));
+	if (ImpactFXFinder.Succeeded())
+	{
+		ImpactFXSystem = ImpactFXFinder.Object;
 	}
 }
 
@@ -199,6 +209,23 @@ void UAFLAG_Laser_Beam::ActivateAbility(
 						BeamFXComponent->SetVariableVec3(FName("BeamStart"), MuzzleLocation);
 						BeamFXComponent->SetVariableVec3(FName("BeamEnd"),   MuzzleLocation);
 					}
+
+					// AFL-0208: impact spark at the beam's hit point. Spawned in WORLD
+					// (unattached -- it lives at the impact, not on the gun), at the
+					// muzzle initially; TickChannel updates its ImpactPositions array to
+					// the live hit point each tick. Array-driven (Turn-2 pattern): the
+					// NS reads User.ImpactPositions/ImpactNormals/NumberOfHits.
+					if (ImpactFXSystem && !ImpactFXComponent)
+					{
+						ImpactFXComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+							AvatarPawn->GetWorld(),
+							ImpactFXSystem,
+							MuzzleLocation,
+							FRotator::ZeroRotator,
+							FVector(1.0f),
+							/*bAutoDestroy=*/false,
+							/*bAutoActivate=*/true);
+					}
 				}
 			}
 
@@ -249,6 +276,15 @@ void UAFLAG_Laser_Beam::EndAbility(
 		{
 			BeamFXComponent->DestroyComponent();
 			BeamFXComponent = nullptr;
+		}
+
+		// AFL-0208: tear down the impact spark alongside the beam. Same lifetime
+		// (spawned channel-begin, destroyed channel-end); null so a re-channel
+		// spawns fresh.
+		if (ImpactFXComponent)
+		{
+			ImpactFXComponent->DestroyComponent();
+			ImpactFXComponent = nullptr;
 		}
 
 		if (ActorInfo && ActorInfo->AbilitySystemComponent.IsValid())
@@ -321,14 +357,43 @@ void UAFLAG_Laser_Beam::TickChannel()
 	// AFL-0208: drive the sustained beam VFX endpoints this tick (Path B -- set the
 	// DynamicBeam's User.BeamStart/BeamEnd directly on the spawned component; no
 	// editor module-link needed). BeamEnd = the real impact (or EndTrace on a miss);
-	// BeamStart = the muzzle/emitter world location (refreshed each tick so it tracks
-	// the pawn's movement). Locally-controlled cosmetic; only set when the channel's
-	// beam component exists (spawned in ActivateAbility, destroyed in EndAbility).
+	// BeamStart = a point on the aim ray (see below). Locally-controlled cosmetic;
+	// only set when the channel's beam component exists (spawned in ActivateAbility,
+	// destroyed in EndAbility).
 	if (BeamFXComponent)
 	{
-		const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
-		BeamFXComponent->SetVariableVec3(FName("BeamStart"), MuzzleLocation);
+		// BeamStart rides the AIM RAY, NOT the muzzle. The damage trace is
+		// camera-based (ViewLocation/AimDirection above), so the visible beam
+		// must start on that same ray to stay aligned with the crosshair in 3rd
+		// person -- a muzzle-anchored start skews the beam up/right (the carbine
+		// sits up+right of the eye). Same fix + clamp as the Pulse tracer's
+		// VisualOrigin (TracerVisualOriginDistance): push the start forward down
+		// the ray, but if the impact is nearer than that, pull back to the
+		// midpoint so the beam never renders reversed point-blank.
+		FVector BeamStart = ViewLocation + AimDirection * BeamVisualOriginDistance;
+		const float DistToImpact = FVector::Dist(ViewLocation, Hit.ImpactPoint);
+		if (DistToImpact < BeamVisualOriginDistance)
+		{
+			BeamStart = ViewLocation + AimDirection * (DistToImpact * 0.5f);
+		}
+		BeamFXComponent->SetVariableVec3(FName("BeamStart"), BeamStart);
 		BeamFXComponent->SetVariableVec3(FName("BeamEnd"),   Hit.ImpactPoint);
+	}
+
+	// AFL-0208: update the impact spark to the live hit point this tick. The
+	// NS_AFL_Pulse_Impact array params (Turn-2 pattern) -- single-element arrays
+	// with this tick's impact. ImpactNormal orients the surface-flush spark; on a
+	// miss it's the trace direction (harmless, the spark is at the far end).
+	if (ImpactFXComponent)
+	{
+		const FVector ImpactNormal = Hit.bBlockingHit ? Hit.ImpactNormal : -AimDirection;
+		TArray<FVector> Positions; Positions.Add(Hit.ImpactPoint);
+		TArray<FVector> Normals;   Normals.Add(ImpactNormal);
+		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayPosition(
+			ImpactFXComponent, FName("ImpactPositions"), Positions);
+		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(
+			ImpactFXComponent, FName("ImpactNormals"), Normals);
+		ImpactFXComponent->SetVariableInt(FName("NumberOfHits"), 1);
 	}
 
 	// Reuse the Pulse hitscan struct — the brief is explicit that Beam does
