@@ -9,8 +9,6 @@
 #include "AFLAG_Laser_Beam.generated.h"
 
 class UGameplayEffect;
-class UNiagaraSystem;
-class UNiagaraComponent;
 struct FGameplayAbilityTargetDataHandle;
 
 
@@ -123,40 +121,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Trace")
 	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 
-	/**
-	 * AFL-0208: sustained beam VFX. NS_AFL_Beam (DynamicBeam ribbon emitter) spawned
-	 * on channel-begin; each TickChannel its User.BeamStart is driven to a point on
-	 * the AIM RAY (BeamVisualOriginDistance down the camera ray -- NOT the muzzle, so
-	 * it rides the crosshair like the Pulse tracer) and User.BeamEnd to Hit.ImpactPoint,
-	 * destroyed on EndAbility. Locally-controlled only (cosmetic). Set on the CDO via
-	 * ctor FObjectFinder; BP children can override.
-	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|VFX")
-	TObjectPtr<UNiagaraSystem> BeamFXSystem;
-
-	/**
-	 * AFL-0208: distance down the AIM RAY (from the camera) at which the beam's
-	 * visible start (User.BeamStart) is anchored. Mirrors the Pulse tracer's
-	 * TracerVisualOriginDistance (80cm): the damage trace is camera-based, so the
-	 * beam must ride the SAME aim ray to stay aligned with the crosshair in 3rd
-	 * person -- a muzzle-anchored start bends the beam up/right off sight (the
-	 * carbine sits up+right of the eye). Clamped at the emit site: if the impact
-	 * is nearer than this, the start pulls back to the midpoint so the beam never
-	 * reverses.
-	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|VFX", meta=(ClampMin="0.0", UIMin="0.0"))
-	float BeamVisualOriginDistance = 80.0f;
-
-	/**
-	 * AFL-0208: impact spark at the beam's hit point. Reuses NS_AFL_Pulse_Impact
-	 * (the array-driven cyan energy spark). Spawned once on channel-begin (world,
-	 * unattached -- the impact lives at the hit point, not on the gun); its
-	 * ImpactPositions/ImpactNormals arrays are updated each tick to the live
-	 * Hit.ImpactPoint/Normal so the spark tracks where the beam lands. Lets the
-	 * operator SEE the beam's reach. Destroyed on EndAbility.
-	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|VFX")
-	TObjectPtr<UNiagaraSystem> ImpactFXSystem;
+	// AFL-0208 (RP-2): the beam VFX is now a GameplayCue (GameplayCue.Weapon.Laser.Beam ->
+	// AAFLCueNotify_LaserBeam in the AFLVFX plugin). The beam system, color, and aim-ray
+	// origin distance live on the cue + the weapon's DA_AFL_LaserVisual (IAFLLaserVisualProvider),
+	// NOT on this ability. The former BeamFXSystem / ImpactFXSystem / BeamVisualOriginDistance
+	// UPROPERTYs were removed with the in-ability Niagara spawn.
 
 private:
 
@@ -164,19 +133,13 @@ private:
 	void TickChannel();
 
 	/**
-	 * AFL-0208: resolve the muzzle/emitter world location off the avatar's attached
-	 * weapon actor (the Muzzle socket on B_AFL_Beam's emitter end). Falls back to the
-	 * weapon_r hand socket. Mirrors the Pulse's ResolveMuzzleLocation.
+	 * AFL-0208 (RP-2): the equipment/weapon instance that granted this ability and
+	 * supplies the beam look (implements IAFLLaserVisualProvider). Used as the beam
+	 * GameplayCue's SourceObject. Resolves from the current ability spec's SourceObject
+	 * (the WID AbilitySet grant path sets it to the ULyraEquipmentInstance) -- mirrors
+	 * ULyraGameplayAbility_FromEquipment::GetAssociatedEquipment without reparenting.
 	 */
-	FVector ResolveMuzzleLocation(APawn* AvatarPawn) const;
-
-	/** The live beam NiagaraComponent for the current channel (spawned begin, destroyed end). */
-	UPROPERTY()
-	TObjectPtr<class UNiagaraComponent> BeamFXComponent;
-
-	/** The live impact-spark NiagaraComponent for the current channel (spawned begin, destroyed end). */
-	UPROPERTY()
-	TObjectPtr<class UNiagaraComponent> ImpactFXComponent;
+	UObject* GetAFLLaserWeaponInstance() const;
 
 	/** Bound to UAbilityTask_WaitInputRelease's OnRelease delegate on both sides. */
 	UFUNCTION()

@@ -49,7 +49,13 @@ bool AAFLCueNotify_LaserImpact::OnExecute_Implementation(AActor* MyTarget, const
 
 	if (NC && Provider && Provider->GetClass()->ImplementsInterface(UAFLLaserVisualProvider::StaticClass()))
 	{
-		NC->SetVariableLinearColor(ColorParam, IAFLLaserVisualProvider::Execute_GetBeamColor(Provider));
+		// Conditional runtime color override (see AFLCueNotify_LaserBeam): A > 0 = a
+		// real entitlement tint; A == 0 (BNE default) = use the NS editor default.
+		const FLinearColor OverrideColor = IAFLLaserVisualProvider::Execute_GetBeamColor(Provider);
+		if (OverrideColor.A > 0.0f)
+		{
+			NC->SetVariableLinearColor(ColorParam, OverrideColor);
+		}
 	}
 
 	return true;

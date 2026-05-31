@@ -51,7 +51,13 @@ bool AAFLCueNotify_LaserBeamFlash::OnExecute_Implementation(AActor* MyTarget, co
 	}
 
 	NC->SetVariableVec3(BeamEndParam, Parameters.Location);
-	NC->SetVariableLinearColor(ColorParam, IAFLLaserVisualProvider::Execute_GetBeamColor(Provider));
+	// Conditional runtime color override (see AFLCueNotify_LaserBeam): A > 0 = a real
+	// entitlement tint; A == 0 (BNE default) = use the NS editor default.
+	const FLinearColor OverrideColor = IAFLLaserVisualProvider::Execute_GetBeamColor(Provider);
+	if (OverrideColor.A > 0.0f)
+	{
+		NC->SetVariableLinearColor(ColorParam, OverrideColor);
+	}
 
 	// Schedule the brief deactivate so the beam reads as a flash, not a sustained line.
 	if (UWorld* World = GetWorld())

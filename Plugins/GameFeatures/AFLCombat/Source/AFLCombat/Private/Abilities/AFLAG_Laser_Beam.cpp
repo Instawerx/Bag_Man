@@ -8,8 +8,6 @@
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
-#include "Components/SkeletalMeshComponent.h"
-#include "Components/StaticMeshComponent.h"
 #include "Effects/GE_AFL_Cooldown_Beam.h"
 #include "Effects/GE_AFL_Damage_BeamTick.h"
 #include "Effects/GE_AFL_Heat_BeamTick.h"
@@ -17,18 +15,15 @@
 #include "Effects/GE_AFL_Heat_Decay.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
-#include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
 #include "GameplayEffect.h"
 #include "NativeGameplayTags.h"
-#include "NiagaraComponent.h"
-#include "NiagaraDataInterfaceArrayFunctionLibrary.h"
-#include "NiagaraFunctionLibrary.h"
-#include "NiagaraSystem.h"
 #include "TimerManager.h"
 #include "Targeting/AFLAbilityTargetData_Hitscan.h"
 #include "Telemetry/AFLCombatTelemetry.h"
-#include "UObject/ConstructorHelpers.h"
+// AFL-0208 (RP-2): Niagara / ConstructorHelpers / mesh-component includes removed --
+// the beam VFX moved to the GameplayCue (AAFLCueNotify_LaserBeam). The ability only
+// triggers the cue tag; it no longer spawns Niagara or resolves a muzzle socket.
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Laser_Beam)
 
@@ -40,6 +35,9 @@
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Ability_Laser_Beam, "Ability.Laser.Beam");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Beam, "State.Firing.Beam");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overheated_Beam, "State.Overheated");
+// AFL-0208 (RP-2): the looping beam cosmetic cue. Added on activate, removed on end.
+// Defined in AFLCombatTags.ini; received by GCN_AFL_Laser_Beam (AAFLCueNotify_LaserBeam).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Weapon_Laser_Beam, "GameplayCue.Weapon.Laser.Beam");
 
 // Telemetry reason category for AFL-0213 stable format. EmitRejection logs
 // `AFL_TELEMETRY: hitscan_reject reason=beam_tick source=...` on rejected
@@ -75,25 +73,9 @@ UAFLAG_Laser_Beam::UAFLAG_Laser_Beam()
 	HeatCoolingGateEffectClass = UGE_AFL_Heat_CoolingGate::StaticClass();
 	HeatDecayEffectClass       = UGE_AFL_Heat_Decay::StaticClass();
 
-	// AFL-0208: default the sustained beam VFX to NS_AFL_Beam (the DynamicBeam
-	// ribbon authored at /Game/GameplayCues/). Succeeded()-guarded so a missing/
-	// renamed asset degrades to "no beam visual" rather than crashing the CDO
-	// (trap #2). BP children may override on the CDO.
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> BeamFXFinder(
-		TEXT("/Game/GameplayCues/NS_AFL_Beam.NS_AFL_Beam"));
-	if (BeamFXFinder.Succeeded())
-	{
-		BeamFXSystem = BeamFXFinder.Object;
-	}
-
-	// AFL-0208: reuse the Pulse impact spark (NS_AFL_Pulse_Impact) at the beam's
-	// hit point. Succeeded()-guarded (trap #2). BP children may override.
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> ImpactFXFinder(
-		TEXT("/Game/GameplayCues/NS_AFL_Pulse_Impact.NS_AFL_Pulse_Impact"));
-	if (ImpactFXFinder.Succeeded())
-	{
-		ImpactFXSystem = ImpactFXFinder.Object;
-	}
+	// AFL-0208 (RP-2): no beam-VFX FObjectFinders here anymore. The beam system + impact
+	// spark are owned by the GameplayCue (AAFLCueNotify_LaserBeam) and the weapon's
+	// DA_AFL_LaserVisual, not the ability CDO. The ability only triggers the cue tag.
 }
 
 void UAFLAG_Laser_Beam::ActivateAbility(
@@ -173,60 +155,22 @@ void UAFLAG_Laser_Beam::ActivateAbility(
 				? ActorInfo->AvatarActor->GetWorld()
 				: nullptr)
 		{
-			// AFL-0208: spawn the sustained beam VFX on channel-begin, attached to
-			// the weapon's Muzzle socket so BeamStart auto-follows the emitter as
-			// the pawn moves. The component is owned for the channel's lifetime;
-			// TickChannel drives User.BeamEnd, EndAbility destroys it. Locally-
-			// controlled cosmetic only (this whole block is inside the
-			// IsLocallyControlled gate). Path B: we set User.BeamStart/BeamEnd via
-			// SetNiagaraVariableVec3 on the spawned component each tick -- no
-			// editor module-link required (the DynamicBeam reads the User params).
-			if (BeamFXSystem && !BeamFXComponent)
+			// AFL-0208 (RP-2): the sustained beam VFX is now a GameplayCue, not an
+			// ability-owned Niagara spawn. AddGameplayCue(GameplayCue.Weapon.Laser.Beam)
+			// hands the cosmetic to AAFLCueNotify_LaserBeam (AFLVFX, always-on plugin),
+			// which spawns the imported beam system, anchors its start on the aim ray
+			// (the verified BeamVisualOriginDistance logic, ported into the cue), and
+			// drives User.Beam End to its own cosmetic trace's impact. SourceObject is
+			// the weapon instance (implements IAFLLaserVisualProvider -> beam system +
+			// color). RemoveGameplayCue in EndAbility tears it down (OnRemove). The cue
+			// replicates + is net-decoupled for free; no Niagara code lives here anymore.
+			// Cosmetic only -> inside the IsLocallyControlled gate (the cue add predicts
+			// on the firing client and replicates).
 			{
-				APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
-				if (AvatarPawn)
-				{
-					const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
-					USceneComponent* AttachComp = nullptr;
-					if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
-					{
-						AttachComp = AvatarChar->GetMesh();
-					}
-					if (!AttachComp)
-					{
-						AttachComp = AvatarPawn->GetRootComponent();
-					}
-					BeamFXComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
-						BeamFXSystem,
-						AttachComp,
-						NAME_None,
-						MuzzleLocation,
-						FRotator::ZeroRotator,
-						EAttachLocation::KeepWorldPosition,
-						/*bAutoDestroy=*/false);
-					if (BeamFXComponent)
-					{
-						BeamFXComponent->SetVariableVec3(FName("BeamStart"), MuzzleLocation);
-						BeamFXComponent->SetVariableVec3(FName("BeamEnd"),   MuzzleLocation);
-					}
-
-					// AFL-0208: impact spark at the beam's hit point. Spawned in WORLD
-					// (unattached -- it lives at the impact, not on the gun), at the
-					// muzzle initially; TickChannel updates its ImpactPositions array to
-					// the live hit point each tick. Array-driven (Turn-2 pattern): the
-					// NS reads User.ImpactPositions/ImpactNormals/NumberOfHits.
-					if (ImpactFXSystem && !ImpactFXComponent)
-					{
-						ImpactFXComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-							AvatarPawn->GetWorld(),
-							ImpactFXSystem,
-							MuzzleLocation,
-							FRotator::ZeroRotator,
-							FVector(1.0f),
-							/*bAutoDestroy=*/false,
-							/*bAutoActivate=*/true);
-					}
-				}
+				FGameplayCueParameters BeamCueParams;
+				BeamCueParams.SourceObject = GetAFLLaserWeaponInstance();
+				BeamCueParams.Instigator   = GetAvatarActorFromActorInfo();
+				ASC->AddGameplayCue(TAG_GameplayCue_Weapon_Laser_Beam, BeamCueParams);
 			}
 
 			// Fire the first tick immediately so the channel produces a
@@ -269,27 +213,16 @@ void UAFLAG_Laser_Beam::EndAbility(
 			}
 		}
 
-		// AFL-0208: tear down the sustained beam VFX on channel end (release,
-		// overheat self-cancel, or any cancel). DestroyComponent stops + removes
-		// the beam; null the handle so a re-channel spawns a fresh one.
-		if (BeamFXComponent)
-		{
-			BeamFXComponent->DestroyComponent();
-			BeamFXComponent = nullptr;
-		}
-
-		// AFL-0208: tear down the impact spark alongside the beam. Same lifetime
-		// (spawned channel-begin, destroyed channel-end); null so a re-channel
-		// spawns fresh.
-		if (ImpactFXComponent)
-		{
-			ImpactFXComponent->DestroyComponent();
-			ImpactFXComponent = nullptr;
-		}
-
+		// AFL-0208 (RP-2): tear down the beam cosmetic cue on channel end (release,
+		// overheat self-cancel, or any cancel). RemoveGameplayCue fires the cue's
+		// OnRemove, which deactivates + auto-destroys the Niagara. Mirrors the
+		// AddGameplayCue in ActivateAbility; idempotent if it was never added.
 		if (ActorInfo && ActorInfo->AbilitySystemComponent.IsValid())
 		{
 			UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
+
+			ASC->RemoveGameplayCue(TAG_GameplayCue_Weapon_Laser_Beam);
+
 			ASC->AbilityTargetDataSetDelegate(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey())
 			   .Remove(OnTargetDataReadyCallbackDelegateHandle);
 			ASC->ConsumeClientReplicatedTargetData(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey());
@@ -354,47 +287,12 @@ void UAFLAG_Laser_Beam::TickChannel()
 		Hit.ImpactPoint = EndTrace;
 	}
 
-	// AFL-0208: drive the sustained beam VFX endpoints this tick (Path B -- set the
-	// DynamicBeam's User.BeamStart/BeamEnd directly on the spawned component; no
-	// editor module-link needed). BeamEnd = the real impact (or EndTrace on a miss);
-	// BeamStart = a point on the aim ray (see below). Locally-controlled cosmetic;
-	// only set when the channel's beam component exists (spawned in ActivateAbility,
-	// destroyed in EndAbility).
-	if (BeamFXComponent)
-	{
-		// BeamStart rides the AIM RAY, NOT the muzzle. The damage trace is
-		// camera-based (ViewLocation/AimDirection above), so the visible beam
-		// must start on that same ray to stay aligned with the crosshair in 3rd
-		// person -- a muzzle-anchored start skews the beam up/right (the carbine
-		// sits up+right of the eye). Same fix + clamp as the Pulse tracer's
-		// VisualOrigin (TracerVisualOriginDistance): push the start forward down
-		// the ray, but if the impact is nearer than that, pull back to the
-		// midpoint so the beam never renders reversed point-blank.
-		FVector BeamStart = ViewLocation + AimDirection * BeamVisualOriginDistance;
-		const float DistToImpact = FVector::Dist(ViewLocation, Hit.ImpactPoint);
-		if (DistToImpact < BeamVisualOriginDistance)
-		{
-			BeamStart = ViewLocation + AimDirection * (DistToImpact * 0.5f);
-		}
-		BeamFXComponent->SetVariableVec3(FName("BeamStart"), BeamStart);
-		BeamFXComponent->SetVariableVec3(FName("BeamEnd"),   Hit.ImpactPoint);
-	}
-
-	// AFL-0208: update the impact spark to the live hit point this tick. The
-	// NS_AFL_Pulse_Impact array params (Turn-2 pattern) -- single-element arrays
-	// with this tick's impact. ImpactNormal orients the surface-flush spark; on a
-	// miss it's the trace direction (harmless, the spark is at the far end).
-	if (ImpactFXComponent)
-	{
-		const FVector ImpactNormal = Hit.bBlockingHit ? Hit.ImpactNormal : -AimDirection;
-		TArray<FVector> Positions; Positions.Add(Hit.ImpactPoint);
-		TArray<FVector> Normals;   Normals.Add(ImpactNormal);
-		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayPosition(
-			ImpactFXComponent, FName("ImpactPositions"), Positions);
-		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(
-			ImpactFXComponent, FName("ImpactNormals"), Normals);
-		ImpactFXComponent->SetVariableInt(FName("NumberOfHits"), 1);
-	}
+	// AFL-0208 (RP-2): the per-tick beam/impact VFX drive lived here (Path B --
+	// SetVariableVec3 BeamStart/BeamEnd + the impact-spark array feed). It moved into
+	// AAFLCueNotify_LaserBeam, which derives the SAME aim-ray endpoint itself each tick
+	// (the BeamVisualOriginDistance + point-blank-clamp math was ported verbatim into
+	// the cue). The ability no longer touches Niagara -- it only computes the
+	// authoritative Hit (above) for the target-data payload (below).
 
 	// Reuse the Pulse hitscan struct — the brief is explicit that Beam does
 	// NOT fork a new target-data type. The server applies a different GE
@@ -646,40 +544,18 @@ void UAFLAG_Laser_Beam::ApplyReleaseCooldown()
 	}
 }
 
-FVector UAFLAG_Laser_Beam::ResolveMuzzleLocation(APawn* AvatarPawn) const
+UObject* UAFLAG_Laser_Beam::GetAFLLaserWeaponInstance() const
 {
-	// AFL-0208: resolve the beam emitter world location off the avatar's attached
-	// weapon actor (the "Muzzle" socket on B_AFL_Beam's emitter end, tripo_part_0).
-	// Falls back to the weapon_r hand socket so the beam never originates at world
-	// origin. Mirrors UAFLAG_Laser_Pulse::ResolveMuzzleLocation verbatim -- the
-	// shared muzzle-resolve pattern (see reference_weapon_cue_wire_pattern).
-	FVector MuzzleLocation = FVector::ZeroVector;
-	if (!AvatarPawn)
+	// AFL-0208 (RP-2): the weapon/equipment instance that granted this ability and
+	// implements IAFLLaserVisualProvider (the beam look). The WID AbilitySet grant
+	// (AbilitySet_AFL_BeamFire) sets the ability spec's SourceObject to the
+	// ULyraEquipmentInstance, so this mirrors
+	// ULyraGameplayAbility_FromEquipment::GetAssociatedEquipment without reparenting:
+	// read the current spec's SourceObject directly. Returned as the beam cue's
+	// SourceObject; the cue casts it to IAFLLaserVisualProvider.
+	if (FGameplayAbilitySpec* Spec = GetCurrentAbilitySpec())
 	{
-		return MuzzleLocation;
+		return Spec->SourceObject.Get();
 	}
-
-	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
-	{
-		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
-		{
-			MuzzleLocation = CharMesh->GetSocketLocation(FName("weapon_r"));
-		}
-	}
-
-	TArray<AActor*> AttachedActors;
-	AvatarPawn->GetAttachedActors(AttachedActors);
-	for (AActor* Attached : AttachedActors)
-	{
-		TInlineComponentArray<UStaticMeshComponent*> SMCs;
-		Attached->GetComponents<UStaticMeshComponent>(SMCs);
-		for (UStaticMeshComponent* SMC : SMCs)
-		{
-			if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
-			{
-				return SMC->GetSocketLocation(FName("Muzzle"));
-			}
-		}
-	}
-	return MuzzleLocation;
+	return nullptr;
 }
