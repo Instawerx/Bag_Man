@@ -33,6 +33,11 @@ public class AFLCombat : ModuleRules
 				"Slate",
 				"SlateCore",
 				"Niagara",
+				// AFL-0208: IAFLBeamEndpointProvider, implemented by UAFLBeamChannelComponent.
+				// AFLVFX is the always-on root cosmetic plugin that owns the beam-cue contract;
+				// AFLCombat (a GameFeature) depending on it is the correct load-order direction.
+				// Private: only AFLCombat's own TUs compile the component that implements it.
+				"AFLVFX",
 			}
 		);
 	}

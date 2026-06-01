@@ -6,6 +6,7 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
+#include "Beam/AFLBeamChannelComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
 #include "Effects/GE_AFL_Cooldown_Beam.h"
@@ -176,6 +177,15 @@ void UAFLAG_Laser_Beam::ActivateAbility(
 			// Cosmetic only -> inside the IsLocallyControlled gate (the cue add predicts
 			// on the firing client and replicates).
 			{
+				// AFL-0208 (published-value): open the beam-channel bridge BEFORE the cue is
+				// added, so when the cue's OnActive runs it finds the component already
+				// present + active. The ability publishes Hit.ImpactPoint into this each tick;
+				// the cue reads it to drive User."Beam End". No Niagara crosses this boundary.
+				if (UAFLBeamChannelComponent* Channel = ResolveBeamChannel())
+				{
+					Channel->SetBeamActive(true);
+				}
+
 				FGameplayCueParameters BeamCueParams;
 				BeamCueParams.SourceObject = GetAFLLaserWeaponInstance();
 				BeamCueParams.Instigator   = GetAvatarActorFromActorInfo();
@@ -237,6 +247,16 @@ void UAFLAG_Laser_Beam::EndAbility(
 			ASC->ConsumeClientReplicatedTargetData(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey());
 		}
 
+		// AFL-0208 (published-value): close the beam-channel bridge. The cue's own
+		// OnRemove (fired by RemoveGameplayCue above) destroys the Niagara; clearing
+		// bBeamActive here is the authoritative "beam is off" signal that replicates,
+		// and resetting the per-activation cache avoids a stale weak-ptr next channel.
+		if (UAFLBeamChannelComponent* Channel = BeamChannel.Get())
+		{
+			Channel->SetBeamActive(false);
+		}
+		BeamChannel.Reset();
+
 		Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 	}
 }
@@ -296,12 +316,16 @@ void UAFLAG_Laser_Beam::TickChannel()
 		Hit.ImpactPoint = EndTrace;
 	}
 
-	// AFL-0208 (RP-2): the per-tick beam/impact VFX drive lived here (Path B --
-	// SetVariableVec3 BeamStart/BeamEnd + the impact-spark array feed). It moved into
-	// AAFLCueNotify_LaserBeam, which derives the SAME aim-ray endpoint itself each tick
-	// (the BeamVisualOriginDistance + point-blank-clamp math was ported verbatim into
-	// the cue). The ability no longer touches Niagara -- it only computes the
-	// authoritative Hit (above) for the target-data payload (below).
+	// AFL-0208 (published-value): publish the authoritative endpoint into the beam-channel
+	// bridge on the LOCALLY-CONTROLLED side -- immediate, so the firing client's cue beam
+	// tracks with zero latency (no wait for a server round-trip). The authority publishes
+	// the same value from ServerApplyTargetData so simulated proxies (other clients) get it
+	// via replication. The ability touches NO Niagara; it only computes the authoritative
+	// Hit (above) and hands the endpoint to the cosmetic layer through this one value.
+	if (UAFLBeamChannelComponent* Channel = ResolveBeamChannel())
+	{
+		Channel->PublishImpact(Hit.ImpactPoint);
+	}
 
 	// Reuse the Pulse hitscan struct — the brief is explicit that Beam does
 	// NOT fork a new target-data type. The server applies a different GE
@@ -336,6 +360,44 @@ void UAFLAG_Laser_Beam::OnInputReleased(float /*TimeHeld*/)
 
 	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
 		/*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
+}
+
+UAFLBeamChannelComponent* UAFLAG_Laser_Beam::ResolveBeamChannel()
+{
+	if (UAFLBeamChannelComponent* Cached = BeamChannel.Get())
+	{
+		return Cached;
+	}
+
+	AActor* Avatar = GetAvatarActorFromActorInfo();
+	if (!Avatar)
+	{
+		return nullptr;
+	}
+
+	UAFLBeamChannelComponent* Channel = Avatar->FindComponentByClass<UAFLBeamChannelComponent>();
+	if (!Channel && Avatar->HasAuthority())
+	{
+		// Create ONLY on the authority -- a server-registered replicated component
+		// (stable name + SetIsReplicatedByDefault) propagates down to every client,
+		// INCLUDING simulated proxies (the other-player case the 2-client gate checks).
+		// Creating on a client too would race the replicated copy and produce a duplicate
+		// (engine warns / skips non-stable-named runtime components for replication), so we
+		// never create off the authority -- the autonomous proxy finds the replicated copy
+		// (and writes its own immediate local value into it via TickChannel once present).
+		// Idempotent ensure shape mirrors the Heat_Decay GE ensure; no content grant needed.
+		Channel = NewObject<UAFLBeamChannelComponent>(Avatar, TEXT("AFLBeamChannel"));
+		Channel->RegisterComponent();
+	}
+
+	// On a non-authority client before the replicated component has arrived, Channel is
+	// null this frame; the caller no-ops (the cue seeds at the camera and corrects next
+	// frame once replication delivers the component). Cache only a real component.
+	if (Channel)
+	{
+		BeamChannel = Channel;
+	}
+	return Channel;
 }
 
 void UAFLAG_Laser_Beam::OnTargetDataReadyCallback(const FGameplayAbilityTargetDataHandle& InData, FGameplayTag ApplicationTag)
@@ -451,6 +513,21 @@ void UAFLAG_Laser_Beam::ServerApplyTargetData(const FGameplayAbilityTargetDataHa
 		if (!RawData)
 		{
 			continue;
+		}
+
+		// AFL-0208 (published-value): on the AUTHORITY, publish the endpoint from the
+		// replicated payload into the beam-channel bridge so simulated proxies (other
+		// clients) replicate it and their cue beams track. We publish the ImpactPoint even
+		// on a whiff (HitResult carries the trace end when nothing was hit), so the beam
+		// renders to the far point rather than freezing. The locally-controlled side already
+		// published immediately in TickChannel; this is the remote-client path. Cosmetic
+		// only -- it never gates the damage application below.
+		if (RawData->GetScriptStruct() == FAFLAbilityTargetData_Hitscan::StaticStruct())
+		{
+			if (UAFLBeamChannelComponent* Channel = ResolveBeamChannel())
+			{
+				Channel->PublishImpact(static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData)->HitResult.ImpactPoint);
+			}
 		}
 
 		// Schema reject — mirror the Pulse path. AFL-0213 stable format with

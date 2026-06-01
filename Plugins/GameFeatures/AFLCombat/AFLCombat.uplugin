@@ -35,6 +35,10 @@
                         "Enabled":  true
                     },
                     {
+                        "Name":  "AFLVFX",
+                        "Enabled":  true
+                    },
+                    {
                         "Name":  "EnhancedInput",
                         "Enabled":  true
                     },

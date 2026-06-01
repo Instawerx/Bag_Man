@@ -2,15 +2,12 @@
 #include "AFLCueNotify_LaserBeam.h"
 
 #include "AFLLaserVisualProvider.h"
+#include "AFLBeamEndpointProvider.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
-#include "Engine/World.h"
-#include "Engine/HitResult.h"
-#include "CollisionQueryParams.h"
+#include "Components/ActorComponent.h"
 #include "GameFramework/Pawn.h"
-#include "GameFramework/PlayerController.h"
-#include "Camera/PlayerCameraManager.h"
 
 AAFLCueNotify_LaserBeam::AAFLCueNotify_LaserBeam()
 {
@@ -30,17 +27,25 @@ bool AAFLCueNotify_LaserBeam::OnActive_Implementation(AActor* MyTarget, const FG
 	}
 	VisualProvider = Provider;
 
-	// Capture the firing pawn for the aim ray. The cue ACTOR's GetInstigator() is null, so
-	// resolve from the cue params: the Instigator (the ability's avatar, what we set), else
-	// the cue Target (MyTarget = the pawn that owns the ASC). This fixes the (0,0,0) spawn.
-	FiringPawn = Cast<APawn>(Parameters.GetInstigator());
-	if (!FiringPawn.IsValid())
+	// The beam ENDPOINT comes from the firing pawn's published-value bridge -- the component
+	// that implements IAFLBeamEndpointProvider. MyTarget is the cue target = the ASC's avatar
+	// pawn (the firing pawn). We find the component by INTERFACE (no concrete-type dependency
+	// on AFLCombat's UAFLBeamChannelComponent) and read its replicated impact point each Tick.
+	// This is the whole point: the cue traces NOTHING; gameplay publishes, the cue plays it.
+	FiringPawn = Cast<APawn>(MyTarget);
+	BeamChannel = nullptr;
+	TicksSinceActive = 0;          // reset the bring-up diagnostic for this (possibly recycled) cue
+	bWarnedStuckFallback = false;
+	if (MyTarget)
 	{
-		FiringPawn = Cast<APawn>(const_cast<AActor*>(Parameters.GetEffectCauser()));
-	}
-	if (!FiringPawn.IsValid())
-	{
-		FiringPawn = Cast<APawn>(MyTarget);
+		for (UActorComponent* Comp : MyTarget->GetComponents())
+		{
+			if (Comp && Comp->GetClass()->ImplementsInterface(UAFLBeamEndpointProvider::StaticClass()))
+			{
+				BeamChannel = Comp;
+				break;
+			}
+		}
 	}
 
 	UNiagaraSystem* Sys = IAFLLaserVisualProvider::Execute_GetBeamSystem(Provider);
@@ -49,36 +54,58 @@ bool AAFLCueNotify_LaserBeam::OnActive_Implementation(AActor* MyTarget, const FG
 		return false;
 	}
 
-	// Spawn UNATTACHED in world. Imported beam systems (NS_AFL_Laser_*) stretch from the
-	// COMPONENT ORIGIN to User.Beam End, so the visible start IS the component's world
-	// position -- which Tick drives to the aim-ray start each frame (NOT the muzzle).
-	// Seed at the firing pawn's view so frame 0 isn't at world origin; Tick corrects it.
-	FVector SeedLoc = FVector::ZeroVector;
-	FVector SeedDir = FVector::ForwardVector;
-	if (ResolveAimRay(SeedLoc, SeedDir))
+	// Bail rather than spawn at world origin if there's no firing pawn to anchor the start.
+	// MyTarget IS the ASC's avatar pawn, so this should always resolve; the guard exists so a
+	// degenerate cue (no pawn) NEVER produces a one-frame beam-to-origin flicker on any client
+	// -- the exact artifact that would read as a bug in the 2-client gate.
+	APawn* Pawn = FiringPawn.Get();
+	if (!Pawn)
 	{
-		SeedLoc = SeedLoc + SeedDir * BeamVisualOriginDistance;
+		return false;
 	}
 
-	// Seed orientation = the aim direction (so frame 0 isn't vertical); Tick refines it.
+	// Spawn UNATTACHED in world. With Absolute Beam End enabled on the imported systems the
+	// endpoint is WORLD-space, so the beam stretches from the component origin to User."Beam
+	// End" with NO component rotation needed. The component's world position is only the
+	// visible START; Tick anchors it just ahead of the pawn's view. Seed at the view (never
+	// origin -- guaranteed by the pawn guard above) so frame 0 is already a sane forward beam.
+	const FVector ViewLoc   = Pawn->GetPawnViewLocation();
+	const FVector ViewFwd   = Pawn->GetViewRotation().Vector().GetSafeNormal();
+	const FVector SeedStart = ViewLoc + ViewFwd * BeamVisualOriginDistance;
+
 	BeamNC = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-		GetWorld(), Sys, SeedLoc, SeedDir.Rotation(),
+		GetWorld(), Sys, SeedStart, FRotator::ZeroRotator,
 		FVector(1.0f), /*bAutoDestroy*/ false, /*bAutoActivate*/ true);
 
 	if (BeamNC)
 	{
-		// Color is a CONDITIONAL runtime override. The base look lives on the NS
-		// User.Color default (authored in the Niagara editor -- the rich color surface).
-		// The provider returns a real color (A > 0) ONLY when a runtime/entitlement tint
-		// should override it; the BlueprintNativeEvent default is zero-init (A == 0),
-		// which means "leave the editor default alone." This is the customization seam:
-		// editor default -> optional per-player override.
+		// Colour is a CONDITIONAL runtime override. The base look lives on the NS User.Color
+		// default (the rich authored colour surface). The provider returns a real colour
+		// (A > 0) ONLY when a runtime/entitlement tint should override it; the zero-init
+		// default (A == 0) means "leave the editor default alone" -- the customization seam.
 		const FLinearColor OverrideColor = IAFLLaserVisualProvider::Execute_GetBeamColor(Provider);
 		if (OverrideColor.A > 0.0f)
 		{
 			BeamNC->SetVariableLinearColor(ColorParam, OverrideColor);
 		}
-		BeamNC->SetVariableVec3(BeamEndParam, SeedLoc);
+
+		// Seed the endpoint from the published value if the bridge is already present (it is on
+		// the host/authority -- the ability opened it before adding this cue). Else seed a sane
+		// forward point well down the aim (a full cosmetic-length forward, NOT origin/zero-len)
+		// so a remote client shows a real beam until replication delivers the live endpoint.
+		FVector SeedEnd = ViewLoc + ViewFwd * 8000.0f;
+		if (UActorComponent* Channel = BeamChannel.Get())
+		{
+			const FVector Published = IAFLBeamEndpointProvider::Execute_GetBeamImpactPoint(Channel);
+			// Guard the published value too: a just-created component reads (0,0,0) until the
+			// first PublishImpact lands. Treat near-zero as "not yet published" and keep the
+			// forward seed so we never draw a beam to world origin.
+			if (!Published.IsNearlyZero())
+			{
+				SeedEnd = Published;
+			}
+		}
+		BeamNC->SetVariableVec3(BeamEndParam, SeedEnd);
 	}
 
 	SetActorTickEnabled(true);
@@ -94,45 +121,77 @@ void AAFLCueNotify_LaserBeam::Tick(float DeltaSeconds)
 		return;
 	}
 
-	// AIM RAY (camera-based) -- the same ray the authoritative trace uses, so the visible
-	// beam rides the crosshair. Verbatim port of the PIE-verified UAFLAG_Laser_Beam.
-	FVector ViewLocation, AimDirection;
-	if (!ResolveAimRay(ViewLocation, AimDirection))
+	// The ONLY endpoint source: the published impact point from the gameplay ability, read
+	// through the interface. No trace, no camera-derived endpoint -- the ability already did
+	// the authoritative trace and handed us the world-space point. Replicated, so this reads
+	// correctly on the firing client, the listen-server host, AND simulated proxies.
+	UActorComponent* Channel = BeamChannel.Get();
+	if (!Channel)
 	{
-		return;
+		// On a remote client the replicated component may not have arrived yet (frame 0 of a
+		// remote player's beam). Try to (re)acquire it; until then, leave the seed endpoint.
+		if (APawn* Pawn = FiringPawn.Get())
+		{
+			for (UActorComponent* Comp : Pawn->GetComponents())
+			{
+				if (Comp && Comp->GetClass()->ImplementsInterface(UAFLBeamEndpointProvider::StaticClass()))
+				{
+					BeamChannel = Comp;
+					Channel = Comp;
+					break;
+				}
+			}
+		}
+		if (!Channel)
+		{
+			return;
+		}
 	}
-	const FVector EndTrace = ViewLocation + AimDirection * MaxRange;
 
-	// Cosmetic-only trace (never feeds damage). Ignore the firing pawn.
-	FHitResult Hit;
-	FCollisionQueryParams QP(SCENE_QUERY_STAT(AFLLaserCosmetic), /*bTraceComplex*/ true);
-	if (AActor* Inst = GetInstigator())
+	FVector ImpactPoint = IAFLBeamEndpointProvider::Execute_GetBeamImpactPoint(Channel);
+	const bool bEndpointPublished = !ImpactPoint.IsNearlyZero();
+	++TicksSinceActive;
+
+	// BRING-UP DIAGNOSTIC: the IsNearlyZero -> forward-seed fallback below is correct for the
+	// first frame or two (component just created/replicated, first PublishImpact not yet
+	// landed). But if it is STILL firing past the grace window, the publish->replicate->read
+	// chain is dead and this beam is the fallback (full-length forward, punches through walls),
+	// NOT a tracked endpoint -- it would pass a casual look while failing the requirement. Log
+	// once, loudly, so PIE surfaces the broken path instead of masking it. (Grace = a few ticks
+	// to cover replication arrival on a remote/sim-proxy client.)
+	if (!bEndpointPublished && TicksSinceActive > 3 && !bWarnedStuckFallback)
 	{
-		QP.AddIgnoredActor(Inst);
+		bWarnedStuckFallback = true;
+		UE_LOG(LogTemp, Warning,
+			TEXT("AFL_BEAM_CUE: endpoint still UNPUBLISHED after %d ticks -- beam is the forward FALLBACK, not a tracked endpoint. Publish->replicate->read chain is broken (publish not running on authority, or component not replicating to this client). The beam will punch through walls."),
+			TicksSinceActive);
 	}
-	const bool bHit = GetWorld()
-		? GetWorld()->LineTraceSingleByChannel(Hit, ViewLocation, EndTrace, CosmeticTraceChannel, QP)
-		: false;
-	const FVector ImpactPoint = bHit ? Hit.ImpactPoint : EndTrace;
 
-	// BeamStart on the aim ray (NOT the muzzle), with the point-blank clamp -- identical
-	// math to the verified ability. The imported system has no "start" param, so the
-	// component's world LOCATION is the start; move it there each tick.
-	FVector BeamStart = ViewLocation + AimDirection * BeamVisualOriginDistance;
-	const float DistToImpact = FVector::Dist(ViewLocation, ImpactPoint);
-	if (DistToImpact < BeamVisualOriginDistance)
+	// Anchor the visible START just ahead of the pawn's view (a cheap read, NOT a trace), with
+	// the point-blank clamp so the beam never renders reversed when the impact is very close.
+	// With Absolute Beam End the component needs no rotation -- position alone sets the start.
+	FVector BeamStart = ImpactPoint;   // fallback if the pawn went away mid-beam
+	if (APawn* Pawn = FiringPawn.Get())
 	{
-		BeamStart = ViewLocation + AimDirection * (DistToImpact * 0.5f);
-	}
-	// Position AND orient the component. The imported NS_AFL_Laser_* has no "Beam Start"
-	// param -- it stretches from the component ORIGIN along the component's orientation to
-	// User.Beam End. Setting only location left the beam at its default (vertical) rotation,
-	// so it rendered as a standing spiral. Orient the component's forward axis from the
-	// start toward the impact so the beam lances horizontally at the crosshair.
-	const FRotator BeamRot = (ImpactPoint - BeamStart).Rotation();
-	BeamNC->SetWorldLocationAndRotation(BeamStart, BeamRot);
+		const FVector ViewLoc = Pawn->GetPawnViewLocation();
+		const FVector ViewDir = Pawn->GetViewRotation().Vector().GetSafeNormal();
+		BeamStart = ViewLoc + ViewDir * BeamVisualOriginDistance;
 
-	// The marketplace contract: drive User.Beam End to the impact (world-space).
+		// Endpoint not yet published: aim a full cosmetic length forward instead of drawing to
+		// world origin. (The diagnostic above fires if this persists past the grace window.)
+		if (!bEndpointPublished)
+		{
+			ImpactPoint = ViewLoc + ViewDir * 8000.0f;
+		}
+
+		const float DistToImpact = FVector::Dist(ViewLoc, ImpactPoint);
+		if (DistToImpact < BeamVisualOriginDistance)
+		{
+			BeamStart = ViewLoc + ViewDir * (DistToImpact * 0.5f);
+		}
+	}
+
+	BeamNC->SetWorldLocation(BeamStart);
 	BeamNC->SetVariableVec3(BeamEndParam, ImpactPoint);
 }
 
@@ -145,35 +204,13 @@ bool AAFLCueNotify_LaserBeam::OnRemove_Implementation(AActor* MyTarget, const FG
 		BeamNC = nullptr;
 	}
 	SetActorTickEnabled(false);
+
+	// Pool-safe: the GC manager recycles this actor (Recycle() does NOT reset subclass
+	// members), so null every captured pointer so a reused instance never ticks a stale one.
+	BeamChannel = nullptr;
+	FiringPawn = nullptr;
 	VisualProvider = nullptr;
-	return true;
-}
-
-bool AAFLCueNotify_LaserBeam::ResolveAimRay(FVector& OutViewLocation, FVector& OutAimDirection) const
-{
-	// Verbatim the verified UAFLAG_Laser_Beam view source: pawn view, overridden by the
-	// PlayerCameraManager surface when available (post-modifier viewpoint). The firing
-	// pawn is captured from the cue params in OnActive (NOT GetInstigator(), which is
-	// null on the cue actor -- that was the (0,0,0) spawn bug).
-	const APawn* Pawn = FiringPawn.Get();
-	if (!Pawn)
-	{
-		return false;
-	}
-
-	FVector  ViewLocation = Pawn->GetPawnViewLocation();
-	FRotator ViewRotation = Pawn->GetViewRotation();
-
-	if (const APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
-	{
-		if (APlayerCameraManager* CamMgr = PC->PlayerCameraManager)
-		{
-			ViewLocation = CamMgr->GetCameraLocation();
-			ViewRotation = CamMgr->GetCameraRotation();
-		}
-	}
-
-	OutViewLocation = ViewLocation;
-	OutAimDirection = ViewRotation.Vector().GetSafeNormal();
+	TicksSinceActive = 0;
+	bWarnedStuckFallback = false;
 	return true;
 }

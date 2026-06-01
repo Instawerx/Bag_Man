@@ -9,6 +9,7 @@
 #include "AFLAG_Laser_Beam.generated.h"
 
 class UGameplayEffect;
+class UAFLBeamChannelComponent;
 struct FGameplayAbilityTargetDataHandle;
 
 
@@ -145,6 +146,15 @@ private:
 	UFUNCTION()
 	void OnInputReleased(float TimeHeld);
 
+	/**
+	 * AFL-0208: resolve (and lazily cache) the avatar's UAFLBeamChannelComponent --
+	 * the published-value bridge the looping beam cue reads to drive User."Beam End".
+	 * Idempotently adds the component to the avatar if absent (same ensure-on-activate
+	 * shape as the Heat_Decay GE), so no content-side grant is required. Null only if
+	 * there's no avatar actor yet.
+	 */
+	UAFLBeamChannelComponent* ResolveBeamChannel();
+
 	/** Bound to UAbilityTargetDataSetDelegate. Fires on both client (immediate) and server (replicated). */
 	void OnTargetDataReadyCallback(const FGameplayAbilityTargetDataHandle& InData, FGameplayTag ApplicationTag);
 
@@ -156,4 +166,7 @@ private:
 
 	FDelegateHandle OnTargetDataReadyCallbackDelegateHandle;
 	FTimerHandle TickTimerHandle;
+
+	/** Lazily-resolved per-activation cache of the avatar's beam-channel bridge. Cleared in EndAbility. */
+	TWeakObjectPtr<UAFLBeamChannelComponent> BeamChannel;
 };
