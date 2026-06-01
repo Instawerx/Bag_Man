@@ -6,6 +6,7 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
+#include "Attributes/AFLAttributeSet_Combat.h"
 #include "Beam/AFLBeamChannelComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
@@ -48,6 +49,15 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Weapon_Laser_Beam, "GameplayCue.We
 // per-tick payloads (currently only schema mismatch — geometry / lag-comp
 // rejects land with AFL-0211).
 static const FName NAME_BeamTickReject = TEXT("beam_tick");
+
+// SetByCaller magnitude tags consumed by UAFLDamageExecCalc (same tags as Pulse; the ExecCalc
+// reads them with default 1.0f). Beam seeds these alongside Source.Damage so the ExecCalc has a
+// non-zero base to compute the health delta from -- WITHOUT this seed the ExecCalc captures
+// Source.Damage=0 and the tick is fully mitigated (no Health change), which is the
+// "beam logs damage but dummy never dies" bug (BM-0103). Mirrors AFLAG_Laser_Pulse.
+static const FName NAME_Data_Damage_Headshot_Beam  = TEXT("Data.Damage.Headshot");
+static const FName NAME_Data_Damage_Weakpoint_Beam = TEXT("Data.Damage.Weakpoint");
+static const FName NAME_Data_Damage_Distance_Beam  = TEXT("Data.Damage.Distance");
 
 
 UAFLAG_Laser_Beam::UAFLAG_Laser_Beam()
@@ -637,6 +647,30 @@ void UAFLAG_Laser_Beam::ServerApplyTargetData(const FGameplayAbilityTargetDataHa
 			continue;
 		}
 
+		// Per-tick base damage, sourced from the GE's first Damage modifier so BP children that
+		// tune it stay in sync (falls back to 1.2 if the GE has a non-standard shape). Computed
+		// HERE -- before MakeOutgoingSpec -- because it must seed Source.Damage (below).
+		float DamageMagnitude = 1.2f;
+		if (const UGameplayEffect* GECdo = DamageEffectClass.GetDefaultObject())
+		{
+			if (GECdo->Modifiers.Num() > 0)
+			{
+				GECdo->Modifiers[0].ModifierMagnitude.GetStaticMagnitudeIfPossible(
+					GetAbilityLevel(), DamageMagnitude);
+			}
+		}
+
+		// Seed Source.Damage on the firing ASC BEFORE MakeOutgoingSpec -- the SAME requirement
+		// the Pulse path has (BM-0102). UAFLDamageExecCalc captures Source.Damage with
+		// bSnapshot=true at spec creation; without this seed it captures 0 -> EffectiveDamage<=0
+		// -> the ExecCalc's mitigated-reject early-return -> NO Health output modifier -> the
+		// dummy's Health never drops (the BM-0103 "beam logs 1.2 damage but never kills" bug).
+		// Override semantics fully own the value per-tick. Mirrors AFLAG_Laser_Pulse:689-697.
+		SourceASC->ApplyModToAttribute(
+			UAFLAttributeSet_Combat::GetDamageAttribute(),
+			EGameplayModOp::Override,
+			DamageMagnitude);
+
 		FGameplayEffectContextHandle ContextHandle = SourceASC->MakeEffectContext();
 		ContextHandle.AddInstigator(CurrentActorInfo->OwnerActor.Get(), CurrentActorInfo->AvatarActor.Get());
 		HitscanData->AddTargetDataToContext(ContextHandle, /*bIncludeActorArray=*/true);
@@ -651,21 +685,19 @@ void UAFLAG_Laser_Beam::ServerApplyTargetData(const FGameplayAbilityTargetDataHa
 			continue;
 		}
 
-		SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+		// SetByCaller multipliers the ExecCalc reads (default 1.0f when absent) -- set explicitly
+		// for predictable runs + the Headshot/Weakpoint/Distance tuning hooks. Mirrors Pulse.
+		FGameplayEffectSpec& Spec = *SpecHandle.Data.Get();
+		Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot_Beam,  false), 1.0f);
+		Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint_Beam, false), 1.0f);
+		Spec.SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Distance_Beam,  false), 1.0f);
 
-		// Successful tick log per spec ("AFL_LOG: beam_tick damage=1.2"). The
-		// magnitude is sourced from the GE's first Damage modifier so BP
-		// children that tune it stay in sync with the log. Falls back to
-		// 1.2 if the GE has been edited to a non-standard shape.
-		float DamageMagnitude = 1.2f;
-		if (const UGameplayEffect* GECdo = DamageEffectClass.GetDefaultObject())
-		{
-			if (GECdo->Modifiers.Num() > 0)
-			{
-				GECdo->Modifiers[0].ModifierMagnitude.GetStaticMagnitudeIfPossible(
-					GetAbilityLevel(), DamageMagnitude);
-			}
-		}
+		SourceASC->ApplyGameplayEffectSpecToTarget(Spec, TargetASC);
+
+		// Successful-tick telemetry. NOTE: this logs the seeded base magnitude (intent); the
+		// ACTUAL health delta is the ExecCalc's output (LogGameplayEffects Health line) -- the
+		// two diverged in the BM-0103 bug (this logged 1.2 while Health never moved). Now that
+		// Source.Damage is seeded they agree.
 		UE_LOG(LogAFLCombat, Log,
 			TEXT("AFL_LOG: beam_tick damage=%.2f target=%s"),
 			DamageMagnitude,
