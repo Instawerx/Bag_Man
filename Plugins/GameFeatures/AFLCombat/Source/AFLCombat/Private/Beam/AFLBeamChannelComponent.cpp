@@ -23,6 +23,7 @@ void UAFLBeamChannelComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProper
 	// the looping beam cue needs the endpoint to drive its local Niagara. This is
 	// the cosmetic-correctness the cue architecture exists for.
 	DOREPLIFETIME(UAFLBeamChannelComponent, BeamImpactPoint);
+	DOREPLIFETIME(UAFLBeamChannelComponent, BeamMuzzleLocation);
 	DOREPLIFETIME(UAFLBeamChannelComponent, bBeamActive);
 }
 
@@ -30,6 +31,11 @@ void UAFLBeamChannelComponent::PublishImpact(const FVector& WorldImpactPoint)
 {
 	BeamImpactPoint = WorldImpactPoint;
 	bBeamActive     = true;
+}
+
+void UAFLBeamChannelComponent::PublishMuzzle(const FVector& WorldMuzzleLocation)
+{
+	BeamMuzzleLocation = WorldMuzzleLocation;
 }
 
 void UAFLBeamChannelComponent::SetBeamActive(bool bInActive)

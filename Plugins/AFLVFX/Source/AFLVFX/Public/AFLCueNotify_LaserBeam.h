@@ -62,21 +62,9 @@ protected:
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UActorComponent> BeamChannel;
 
-	/** The pawn whose view anchors the beam START (a cheap view read; NOT a trace). */
+	/** The pawn whose view anchors the beam START fallback (a cheap view read; NOT a trace). */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<APawn> FiringPawn;
-
-	/**
-	 * Ticks since OnActive, and whether we've already warned about a stuck fallback. Used
-	 * ONLY for the bring-up diagnostic: the per-tick endpoint guard (IsNearlyZero ->
-	 * forward seed) is correct for the first frame or two while the published value
-	 * replicates, but if it fires EVERY tick the publish->replicate->read chain is dead and
-	 * the "beam" is the fallback, not a tracked endpoint -- which would look plausible while
-	 * failing the actual requirement. We log once, throttled, after the grace window so PIE
-	 * surfaces a broken publish path instead of masking it. Reset in OnRemove (pool-safe).
-	 */
-	int32 TicksSinceActive = 0;
-	bool  bWarnedStuckFallback = false;
 
 	/** The weapon (IAFLLaserVisualProvider) we read look/colour from. */
 	UPROPERTY(Transient)

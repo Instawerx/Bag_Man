@@ -37,6 +37,14 @@ public:
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AFL|Laser")
 	FVector GetBeamImpactPoint() const;
 
+	/**
+	 * Current weapon muzzle, world-space -- the visible beam START. Resolved gameplay-side
+	 * (with a sane fallback to the hand socket, never origin), so the cue emits from the
+	 * barrel tip. Near-zero means "not yet published" -- the cue keeps its forward seed.
+	 */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AFL|Laser")
+	FVector GetBeamMuzzleLocation() const;
+
 	/** True while a beam is actively channeling on the owning pawn. */
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AFL|Laser")
 	bool IsBeamActive() const;

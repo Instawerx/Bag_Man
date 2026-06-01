@@ -53,6 +53,7 @@ public:
 
 	//~ IAFLBeamEndpointProvider — the cue reads the beam through this contract (no concrete-type dep).
 	virtual FVector GetBeamImpactPoint_Implementation() const override { return BeamImpactPoint; }
+	virtual FVector GetBeamMuzzleLocation_Implementation() const override { return BeamMuzzleLocation; }
 	virtual bool    IsBeamActive_Implementation() const override       { return bBeamActive; }
 	//~ End IAFLBeamEndpointProvider
 
@@ -64,11 +65,23 @@ public:
 	 */
 	void PublishImpact(const FVector& WorldImpactPoint);
 
+	/**
+	 * Publish the current weapon MUZZLE location (world-space) -- the visible beam START.
+	 * Written each tick from the ability's muzzle resolve (Pulse's proven ResolveMuzzleLocation
+	 * with its weapon_r fallback, never origin). The cue reads it so the beam emits from the
+	 * barrel tip (operator precision rule), instead of a synthetic eye-point. Symmetric with
+	 * PublishImpact -- the second world point that crosses the gameplay/cosmetic boundary.
+	 */
+	void PublishMuzzle(const FVector& WorldMuzzleLocation);
+
 	/** Mark the beam channel open (call on ActivateAbility) or closed (call on EndAbility). */
 	void SetBeamActive(bool bInActive);
 
 	/** The cue reads this each Tick to drive User."Beam End". World-space. */
 	FVector GetBeamImpactPoint() const { return BeamImpactPoint; }
+
+	/** The cue reads this each Tick for the visible beam START (the weapon muzzle). World-space. */
+	FVector GetBeamMuzzleLocation() const { return BeamMuzzleLocation; }
 
 	/** True while a beam is channeling. The cue uses it as a sanity gate; the cue's own OnActive/OnRemove are the primary lifecycle. */
 	bool IsBeamActive() const { return bBeamActive; }
@@ -81,6 +94,14 @@ protected:
 	 */
 	UPROPERTY(Replicated, Transient)
 	FVector_NetQuantize BeamImpactPoint = FVector::ZeroVector;
+
+	/**
+	 * The weapon MUZZLE in WORLD space -- the visible beam START. Same FVector_NetQuantize
+	 * rationale as the endpoint. Resolved gameplay-side (Pulse's muzzle resolve + fallback)
+	 * so the cosmetic cue stays a pure consumer.
+	 */
+	UPROPERTY(Replicated, Transient)
+	FVector_NetQuantize BeamMuzzleLocation = FVector::ZeroVector;
 
 	/** True while the owning pawn has a beam channel open. */
 	UPROPERTY(Replicated, Transient)

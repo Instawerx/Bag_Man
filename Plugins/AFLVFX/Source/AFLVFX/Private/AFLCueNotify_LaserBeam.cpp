@@ -34,8 +34,6 @@ bool AAFLCueNotify_LaserBeam::OnActive_Implementation(AActor* MyTarget, const FG
 	// This is the whole point: the cue traces NOTHING; gameplay publishes, the cue plays it.
 	FiringPawn = Cast<APawn>(MyTarget);
 	BeamChannel = nullptr;
-	TicksSinceActive = 0;          // reset the bring-up diagnostic for this (possibly recycled) cue
-	bWarnedStuckFallback = false;
 	if (MyTarget)
 	{
 		for (UActorComponent* Comp : MyTarget->GetComponents())
@@ -66,12 +64,22 @@ bool AAFLCueNotify_LaserBeam::OnActive_Implementation(AActor* MyTarget, const FG
 
 	// Spawn UNATTACHED in world. With Absolute Beam End enabled on the imported systems the
 	// endpoint is WORLD-space, so the beam stretches from the component origin to User."Beam
-	// End" with NO component rotation needed. The component's world position is only the
-	// visible START; Tick anchors it just ahead of the pawn's view. Seed at the view (never
-	// origin -- guaranteed by the pawn guard above) so frame 0 is already a sane forward beam.
+	// End" with NO component rotation needed. The component's world position is the visible
+	// START; Tick anchors it to the published MUZZLE each frame. Seed: prefer the published
+	// muzzle if it's already there (host -- ability published before the cue add), else the
+	// view-anchored point (never origin -- guaranteed by the pawn guard above) so frame 0 is a
+	// sane forward beam until the muzzle lands.
 	const FVector ViewLoc   = Pawn->GetPawnViewLocation();
 	const FVector ViewFwd   = Pawn->GetViewRotation().Vector().GetSafeNormal();
-	const FVector SeedStart = ViewLoc + ViewFwd * BeamVisualOriginDistance;
+	FVector SeedStart = ViewLoc + ViewFwd * BeamVisualOriginDistance;
+	if (UActorComponent* Ch = BeamChannel.Get())
+	{
+		const FVector M = IAFLBeamEndpointProvider::Execute_GetBeamMuzzleLocation(Ch);
+		if (!M.IsNearlyZero())
+		{
+			SeedStart = M;
+		}
+	}
 
 	BeamNC = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
 		GetWorld(), Sys, SeedStart, FRotator::ZeroRotator,
@@ -149,33 +157,23 @@ void AAFLCueNotify_LaserBeam::Tick(float DeltaSeconds)
 	}
 
 	FVector ImpactPoint = IAFLBeamEndpointProvider::Execute_GetBeamImpactPoint(Channel);
+	// Near-zero = the bridge component just created/replicated and the first PublishImpact
+	// hasn't landed yet (frame 0 / pre-replication on a remote client). The forward-seed
+	// fallback below keeps the beam off world origin until the real endpoint arrives.
 	const bool bEndpointPublished = !ImpactPoint.IsNearlyZero();
-	++TicksSinceActive;
 
-	// BRING-UP DIAGNOSTIC: the IsNearlyZero -> forward-seed fallback below is correct for the
-	// first frame or two (component just created/replicated, first PublishImpact not yet
-	// landed). But if it is STILL firing past the grace window, the publish->replicate->read
-	// chain is dead and this beam is the fallback (full-length forward, punches through walls),
-	// NOT a tracked endpoint -- it would pass a casual look while failing the requirement. Log
-	// once, loudly, so PIE surfaces the broken path instead of masking it. (Grace = a few ticks
-	// to cover replication arrival on a remote/sim-proxy client.)
-	if (!bEndpointPublished && TicksSinceActive > 3 && !bWarnedStuckFallback)
-	{
-		bWarnedStuckFallback = true;
-		UE_LOG(LogTemp, Warning,
-			TEXT("AFL_BEAM_CUE: endpoint still UNPUBLISHED after %d ticks -- beam is the forward FALLBACK, not a tracked endpoint. Publish->replicate->read chain is broken (publish not running on authority, or component not replicating to this client). The beam will punch through walls."),
-			TicksSinceActive);
-	}
-
-	// Anchor the visible START just ahead of the pawn's view (a cheap read, NOT a trace), with
-	// the point-blank clamp so the beam never renders reversed when the impact is very close.
+	// Anchor the visible START at the WEAPON MUZZLE (operator precision rule: the beam emits
+	// from the barrel tip, like real life), read from the published value -- NOT a synthetic
+	// eye-point. The muzzle is resolved gameplay-side (Pulse's proven resolve + weapon_r
+	// fallback, never origin), so worst case it's the hand, never a vanished/origin beam.
 	// With Absolute Beam End the component needs no rotation -- position alone sets the start.
+	const FVector PublishedMuzzle = IAFLBeamEndpointProvider::Execute_GetBeamMuzzleLocation(Channel);
+
 	FVector BeamStart = ImpactPoint;   // fallback if the pawn went away mid-beam
 	if (APawn* Pawn = FiringPawn.Get())
 	{
 		const FVector ViewLoc = Pawn->GetPawnViewLocation();
 		const FVector ViewDir = Pawn->GetViewRotation().Vector().GetSafeNormal();
-		BeamStart = ViewLoc + ViewDir * BeamVisualOriginDistance;
 
 		// Endpoint not yet published: aim a full cosmetic length forward instead of drawing to
 		// world origin. (The diagnostic above fires if this persists past the grace window.)
@@ -184,7 +182,19 @@ void AAFLCueNotify_LaserBeam::Tick(float DeltaSeconds)
 			ImpactPoint = ViewLoc + ViewDir * 8000.0f;
 		}
 
-		const float DistToImpact = FVector::Dist(ViewLoc, ImpactPoint);
+		// Muzzle published -> emit from the barrel. Not yet (frame-0 / pre-replication) ->
+		// keep the view-anchored start so frame 0 isn't at origin; the muzzle takes over once
+		// the published value lands. Point-blank clamp guards against a reversed beam.
+		if (!PublishedMuzzle.IsNearlyZero())
+		{
+			BeamStart = PublishedMuzzle;
+		}
+		else
+		{
+			BeamStart = ViewLoc + ViewDir * BeamVisualOriginDistance;
+		}
+
+		const float DistToImpact = FVector::Dist(BeamStart, ImpactPoint);
 		if (DistToImpact < BeamVisualOriginDistance)
 		{
 			BeamStart = ViewLoc + ViewDir * (DistToImpact * 0.5f);
@@ -210,7 +220,5 @@ bool AAFLCueNotify_LaserBeam::OnRemove_Implementation(AActor* MyTarget, const FG
 	BeamChannel = nullptr;
 	FiringPawn = nullptr;
 	VisualProvider = nullptr;
-	TicksSinceActive = 0;
-	bWarnedStuckFallback = false;
 	return true;
 }

@@ -9,6 +9,9 @@
 #include "Beam/AFLBeamChannelComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "GameFramework/Character.h"
 #include "Effects/GE_AFL_Cooldown_Beam.h"
 #include "Effects/GE_AFL_Damage_BeamTick.h"
 #include "Effects/GE_AFL_Heat_BeamTick.h"
@@ -325,6 +328,11 @@ void UAFLAG_Laser_Beam::TickChannel()
 	if (UAFLBeamChannelComponent* Channel = ResolveBeamChannel())
 	{
 		Channel->PublishImpact(Hit.ImpactPoint);
+		// Operator precision rule: the visible beam emits from the barrel tip, not a synthetic
+		// eye-point. Publish the muzzle world-location (Pulse's proven resolve + weapon_r
+		// fallback) so the cue anchors the START there. Local-side immediate; the authority
+		// path below publishes it too for sim proxies.
+		Channel->PublishMuzzle(ResolveMuzzleLocation(AvatarPawn));
 	}
 
 	// Reuse the Pulse hitscan struct — the brief is explicit that Beam does
@@ -398,6 +406,70 @@ UAFLBeamChannelComponent* UAFLAG_Laser_Beam::ResolveBeamChannel()
 		BeamChannel = Channel;
 	}
 	return Channel;
+}
+
+FVector UAFLAG_Laser_Beam::ResolveMuzzleLocation(APawn* AvatarPawn) const
+{
+	// Verbatim Pulse's proven UAFLAG_Laser_Pulse::ResolveMuzzleLocation. Fallback to the
+	// weapon_r hand socket so the published muzzle is NEVER origin (un-armed, or a weapon
+	// without the "Muzzle" socket convention -- e.g. the Beam mesh until a socket is authored).
+	// That fallback is what makes wiring this safe with no regression: worst case the beam
+	// emits from the hand, never vanishes / never shoots from world origin.
+	FVector MuzzleLocation = FVector::ZeroVector;
+	if (!AvatarPawn)
+	{
+		return MuzzleLocation;
+	}
+
+	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
+	{
+		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
+		{
+			MuzzleLocation = CharMesh->GetSocketLocation(FName("weapon_r"));
+		}
+	}
+
+	// Path A: pawn->GetAttachedActors (root-attached weapons).
+	TArray<AActor*> AttachedActors;
+	AvatarPawn->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		TInlineComponentArray<UStaticMeshComponent*> SMCs;
+		Attached->GetComponents<UStaticMeshComponent>(SMCs);
+		for (UStaticMeshComponent* SMC : SMCs)
+		{
+			if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
+			{
+				return SMC->GetSocketLocation(FName("Muzzle"));
+			}
+		}
+	}
+
+	// Path B: Lyra equipment attaches the weapon to Char->GetMesh(), not the pawn root, so
+	// walk the character mesh's descendant components for the Muzzle-socketed SMC.
+	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
+	{
+		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
+		{
+			TArray<USceneComponent*> MeshChildren;
+			CharMesh->GetChildrenComponents(/*bIncludeAllDescendants=*/true, MeshChildren);
+			for (USceneComponent* Child : MeshChildren)
+			{
+				if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Child))
+				{
+					if (SMC->DoesSocketExist(FName("Muzzle")))
+					{
+						return SMC->GetSocketLocation(FName("Muzzle"));
+					}
+				}
+			}
+		}
+	}
+
+	// No runtime-resolvable Muzzle socket -- the weapon_r hand fallback stands (never origin).
+	// For the Beam this path is not taken: tripo_part_0's Muzzle socket resolves at runtime
+	// (PIE-verified 12/12, AFL-0208), so the start is barrel-accurate.
+	return MuzzleLocation;
 }
 
 void UAFLAG_Laser_Beam::OnTargetDataReadyCallback(const FGameplayAbilityTargetDataHandle& InData, FGameplayTag ApplicationTag)
@@ -527,6 +599,9 @@ void UAFLAG_Laser_Beam::ServerApplyTargetData(const FGameplayAbilityTargetDataHa
 			if (UAFLBeamChannelComponent* Channel = ResolveBeamChannel())
 			{
 				Channel->PublishImpact(static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData)->HitResult.ImpactPoint);
+				// Publish the muzzle on the authority too (the visible START), so simulated
+				// proxies emit the beam from the barrel. Resolved from the avatar pawn.
+				Channel->PublishMuzzle(ResolveMuzzleLocation(Cast<APawn>(CurrentActorInfo ? CurrentActorInfo->AvatarActor.Get() : nullptr)));
 			}
 		}
 

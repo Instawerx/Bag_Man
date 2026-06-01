@@ -134,6 +134,15 @@ private:
 	void TickChannel();
 
 	/**
+	 * AFL-0208: resolve the weapon MUZZLE world location for the visible beam START. Copy of
+	 * Pulse's proven UAFLAG_Laser_Pulse::ResolveMuzzleLocation: walk the pawn's attached
+	 * actors + the character mesh's children for the SMC carrying a "Muzzle" socket; fall back
+	 * to the weapon_r hand socket (NEVER origin) when no Muzzle socket resolves. Published into
+	 * UAFLBeamChannelComponent each tick; the cue reads it so the beam emits from the barrel.
+	 */
+	FVector ResolveMuzzleLocation(class APawn* AvatarPawn) const;
+
+	/**
 	 * AFL-0208 (RP-2): the equipment/weapon instance that granted this ability and
 	 * supplies the beam look (implements IAFLLaserVisualProvider). Used as the beam
 	 * GameplayCue's SourceObject. Resolves from the current ability spec's SourceObject
