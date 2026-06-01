@@ -10,6 +10,15 @@
 class UObject;
 struct FGameplayEffectModCallbackData;
 
+/**
+ * Fired from PostGameplayEffectExecute. Mirrors ULyraHealthSet's FLyraAttributeEvent
+ * signature so consumers (UAFLDeathComponent, hit-react, HUD) bind it the same way
+ * Lyra's ULyraHealthComponent binds ULyraHealthSet. Args: the AttributeSet, the GE
+ * mod callback data (instigator/causer/spec), the damage magnitude, and old/new values.
+ */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FAFLAttributeEvent_Combat,
+	AActor* /*EffectInstigator*/, AActor* /*EffectCauser*/, float /*Magnitude*/);
+
 
 UCLASS(BlueprintType)
 class AFLCOMBAT_API UAFLAttributeSet_Combat : public ULyraAttributeSet
@@ -19,6 +28,17 @@ class AFLCOMBAT_API UAFLAttributeSet_Combat : public ULyraAttributeSet
 public:
 
 	UAFLAttributeSet_Combat();
+
+	/**
+	 * AFL-native death/damage signals -- the trigger half of the AFL death system. AFL runs
+	 * its OWN combat-health economy (this set + UAFLDamageExecCalc), parallel to ULyraHealthSet.
+	 * Death therefore must fire off THIS set, not ULyraHealthSet, to be correct for every
+	 * combatant (the player drains this Health too). UAFLDeathComponent binds OnOutOfHealth and
+	 * drives Lyra's replicated death-state sequence (StartDeath/FinishDeath) from it. These are
+	 * the AFL mirror of ULyraHealthSet::OnOutOfHealth / OnHealthChanged.
+	 */
+	mutable FAFLAttributeEvent_Combat OnOutOfHealth;   // Health crossed >0 -> <=0
+	mutable FAFLAttributeEvent_Combat OnHealthChanged;  // any Health change (hit-react / HUD)
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;

@@ -1,0 +1,253 @@
+// Copyright C12 AI Gaming. All Rights Reserved.
+
+#include "Combat/AFLDeathComponent.h"
+
+#include "AFLCombat.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "Attributes/AFLAttributeSet_Combat.h"
+#include "Character/LyraHealthComponent.h"
+#include "Character/LyraPawnExtensionComponent.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
+#include "TimerManager.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(AFLDeathComponent)
+
+UAFLDeathComponent::UAFLDeathComponent()
+{
+	PrimaryComponentTick.bCanEverTick = false;
+	SetIsReplicatedByDefault(true);   // the death drive is authority-side; Lyra's DeathState replicates
+}
+
+UAFLDeathComponent* UAFLDeathComponent::FindDeathComponent(const AActor* Actor)
+{
+	return Actor ? Actor->FindComponentByClass<UAFLDeathComponent>() : nullptr;
+}
+
+void UAFLDeathComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Resolve the ASC. DIRECT resolve is the PRIMARY path; the PawnExtension hook is the FALLBACK.
+	// WHY (verified against LyraPawnExtensionComponent.cpp:292-303 + LyraHeroComponent.cpp:164):
+	// OnAbilitySystemInitialized_RegisterAndCall only immediate-executes `if (PawnExt->AbilitySystemComponent)`,
+	// and that member is set ONLY by PawnExt->InitializeAbilitySystem, whose ONLY caller is
+	// LyraHeroComponent (the possessed-hero / PlayerState flow). A self-ASC'd, unpossessed
+	// ALyraCharacterWithAbilities (our AAFLTargetDummy) has NO LyraHeroComponent and self-inits its
+	// ASC in PostInitializeComponents -- so the PawnExt member stays null forever, the hook NEVER
+	// fires, and the original PawnExt-first ordering left death unbound (listeners=0, no bind log).
+	// For a self-ASC'd pawn the ASC IS ready here at BeginPlay -> resolve it directly. For a
+	// possessed PLAYER (ASC on PlayerState, lands after pawn BeginPlay) the direct resolve returns
+	// null, so we fall through to the PawnExt hook, which DOES fire via LyraHeroComponent. This one
+	// component thus serves both: the dummy/enemies (direct) AND the player (deferred via PawnExt).
+	if (AActor* Owner = GetOwner())
+	{
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
+		{
+			InitializeWithAbilitySystem(ASC);
+		}
+		else if (ULyraPawnExtensionComponent* PawnExt = ULyraPawnExtensionComponent::FindPawnExtensionComponent(Owner))
+		{
+			PawnExt->OnAbilitySystemInitialized_RegisterAndCall(
+				FSimpleMulticastDelegate::FDelegate::CreateUObject(this, &ThisClass::OnAbilitySystemReady));
+		}
+	}
+}
+
+void UAFLDeathComponent::OnAbilitySystemReady()
+{
+	// Bring-up trace (Log level so it shows without verbose flags): confirms the PawnExt
+	// OnAbilitySystemInitialized hook actually fired for this owner.
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_DEATH: %s OnAbilitySystemReady fired -> resolving ASC + set."),
+		*GetNameSafe(GetOwner()));
+	if (AActor* Owner = GetOwner())
+	{
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
+		{
+			InitializeWithAbilitySystem(ASC);
+		}
+	}
+}
+
+void UAFLDeathComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	UninitializeFromAbilitySystem();
+	Super::EndPlay(EndPlayReason);
+}
+
+void UAFLDeathComponent::InitializeWithAbilitySystem(UAbilitySystemComponent* InASC)
+{
+	if (AbilitySystemComponent == InASC && CombatSet != nullptr)
+	{
+		return;   // already wired to this ASC
+	}
+	UninitializeFromAbilitySystem();
+
+	AbilitySystemComponent = InASC;
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+
+	CombatSet = AbilitySystemComponent->GetSet<UAFLAttributeSet_Combat>();
+	if (!CombatSet)
+	{
+		// The AFL combat set is granted via the experience's AddAbilities action
+		// (DA_AFL_Combat_AbilitySet) -- DEFERRED, it can land AFTER ASC init. So instead of
+		// failing, wait for it via the GE-applied delegate; GE_AFL_Combat_InitData (applied by the
+		// AbilitySet to seed the just-added set) fires it, at which point we re-resolve and bind.
+		// This is the fix for the "ASC has no UAFLAttributeSet_Combat" race (death never triggered
+		// because the set arrived after BeginPlay).
+		// Use OnGameplayEffectAppliedDelegateToSelf, NOT OnActiveGameplayEffectAddedDelegateToSelf.
+		// The latter fires ONLY for DURATION/Infinite GEs; GE_AFL_Combat_InitData (which the AbilitySet
+		// applies to seed the just-added set) is INSTANT, so the Active-added delegate never fired and
+		// the retry never bound (the previous listeners=0 bug). OnGameplayEffectAppliedDelegateToSelf
+		// fires from OnGameplayEffectAppliedToSelf for BOTH Instant and duration paths (verified:
+		// AbilitySystemComponent.cpp:962 ApplyGameplayEffectSpecToSelf -> OnGameplayEffectAppliedToSelf),
+		// so the InitData application catches us here and we re-resolve the now-present set.
+		if (!GESpawnedHandle.IsValid())
+		{
+			GESpawnedHandle = AbilitySystemComponent->OnGameplayEffectAppliedDelegateToSelf.AddUObject(
+				this, &ThisClass::OnGameplayEffectAddedToSelf);
+		}
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_DEATH: %s AFL combat set not yet granted at init; registered GE-applied retry (waiting for deferred grant)."),
+			*GetNameSafe(GetOwner()));
+		return;
+	}
+
+	// TRIGGER: bind the AFL-native out-of-health signal (NOT ULyraHealthSet).
+	OutOfHealthHandle = CombatSet->OnOutOfHealth.AddUObject(this, &ThisClass::HandleAFLOutOfHealth);
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_DEATH: %s bound to AFL OnOutOfHealth (death armed)."), *GetNameSafe(GetOwner()));
+
+	// SEQUENCE: cache the owner's Lyra health component -- we drive its replicated death sequence.
+	if (AActor* Owner = GetOwner())
+	{
+		LyraHealthComponent = ULyraHealthComponent::FindHealthComponent(Owner);
+	}
+}
+
+void UAFLDeathComponent::OnGameplayEffectAddedToSelf(
+	UAbilitySystemComponent* /*Source*/, const FGameplayEffectSpec& /*Spec*/, FActiveGameplayEffectHandle /*Handle*/)
+{
+	// A GE just applied. If it was the InitData grant, the AFL set now exists -- re-resolve and
+	// bind. Once bound, stop listening for further GE-adds (one-shot arm).
+	if (!CombatSet && AbilitySystemComponent)
+	{
+		if (const UAFLAttributeSet_Combat* Set = AbilitySystemComponent->GetSet<UAFLAttributeSet_Combat>())
+		{
+			CombatSet = Set;
+			OutOfHealthHandle = CombatSet->OnOutOfHealth.AddUObject(this, &ThisClass::HandleAFLOutOfHealth);
+			if (AActor* Owner = GetOwner())
+			{
+				LyraHealthComponent = ULyraHealthComponent::FindHealthComponent(Owner);
+			}
+			UE_LOG(LogAFLCombat, Log,
+				TEXT("AFL_DEATH: %s bound to AFL OnOutOfHealth via deferred grant (death armed)."),
+				*GetNameSafe(GetOwner()));
+
+			if (GESpawnedHandle.IsValid())
+			{
+				AbilitySystemComponent->OnGameplayEffectAppliedDelegateToSelf.Remove(GESpawnedHandle);
+				GESpawnedHandle.Reset();
+			}
+		}
+	}
+}
+
+void UAFLDeathComponent::UninitializeFromAbilitySystem()
+{
+	if (CombatSet && OutOfHealthHandle.IsValid())
+	{
+		CombatSet->OnOutOfHealth.Remove(OutOfHealthHandle);
+	}
+	if (AbilitySystemComponent && GESpawnedHandle.IsValid())
+	{
+		AbilitySystemComponent->OnGameplayEffectAppliedDelegateToSelf.Remove(GESpawnedHandle);
+	}
+	OutOfHealthHandle.Reset();
+	GESpawnedHandle.Reset();
+	CombatSet = nullptr;
+	AbilitySystemComponent = nullptr;
+	LyraHealthComponent = nullptr;
+}
+
+void UAFLDeathComponent::HandleAFLOutOfHealth(AActor* Instigator, AActor* Causer, float /*Magnitude*/)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	// Authority-only: the death sequence drives the REPLICATED ELyraDeathState, which OnReps to
+	// every client. Running it on a client would desync. (Listen-server host is authority -> runs.)
+	if (Owner->GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	if (bDeathStarted)
+	{
+		return;   // idempotent -- a second sub-zero tick must not restart death
+	}
+	bDeathStarted = true;
+
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_DEATH: %s out of AFL Health -> StartDeath (killer=%s)"),
+		*GetNameSafe(Owner), *GetNameSafe(Causer ? Causer : Instigator));
+
+	// REUSE Lyra's shipped, networked death sequence. StartDeath/FinishDeath are HealthSet-
+	// independent (drive DeathState + Status.Death.* tags + OnDeathStarted/Finished + ForceNetUpdate);
+	// ALyraCharacter ragdolls off OnDeathStarted/DeathState. We enter it from the AFL trigger.
+	if (LyraHealthComponent)
+	{
+		LyraHealthComponent->StartDeath();   // dying: ragdoll begins, replicates to all clients
+
+		if (DeathFinishDelay > 0.0f)
+		{
+			if (UWorld* World = GetWorld())
+			{
+				World->GetTimerManager().SetTimer(
+					FinishDeathTimer, this, &ThisClass::HandleFinishDeath, DeathFinishDelay, /*bLoop=*/false);
+			}
+		}
+		else
+		{
+			HandleFinishDeath();
+		}
+	}
+	else
+	{
+		// No Lyra health component (a non-ALyraCharacter combatant). Rather than hand-roll a
+		// host-only ragdoll, log and destroy on the authority (replicated removal). A future
+		// non-character combatant that needs visible death should carry a ULyraHealthComponent
+		// or a dedicated replicated death-state; flagged rather than silently faked.
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_DEATH: %s has no ULyraHealthComponent -- no Lyra death sequence to drive; destroying on authority."),
+			*GetNameSafe(Owner));
+		if (bDestroyOnDeathFinish)
+		{
+			Owner->Destroy();
+		}
+	}
+}
+
+void UAFLDeathComponent::HandleFinishDeath()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || Owner->GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	if (LyraHealthComponent)
+	{
+		LyraHealthComponent->FinishDeath();   // dead: cleanup, replicates
+	}
+
+	if (bDestroyOnDeathFinish)
+	{
+		Owner->Destroy();   // authority destroy replicates the removal to all clients
+	}
+}

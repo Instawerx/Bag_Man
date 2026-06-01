@@ -38,6 +38,11 @@ public class AFLCombat : ModuleRules
 				// AFLCombat (a GameFeature) depending on it is the correct load-order direction.
 				// Private: only AFLCombat's own TUs compile the component that implements it.
 				"AFLVFX",
+				// AFL death system (1b): AAFLTargetDummy subclasses ALyraCharacter, which
+				// implements IGenericTeamAgentInterface (FGenericTeamId / team-attitude). Those
+				// symbols live in AIModule -- LyraGame links it for the same reason
+				// (LyraGame.Build.cs). Without it: LNK2019 on the inherited interface thunks.
+				"AIModule",
 			}
 		);
 	}

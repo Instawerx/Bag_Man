@@ -78,6 +78,54 @@ void UAFLAttributeSet_Combat::PostGameplayEffectExecute(const FGameplayEffectMod
 {
 	Super::PostGameplayEffectExecute(Data);
 
+	// AFL-native death/damage signal. The ExecCalc applies the Health output modifier; here we
+	// fire the AFL Health events (the trigger half of the death system). Instigator/causer are
+	// extracted from the effect context the same way ULyraHealthSet does, so UAFLDeathComponent
+	// gets the killer. PreAttributeChange already clamped Health to [0, MaxHealth]. We fire
+	// OnHealthChanged on every Health change (hit-react/HUD) and OnOutOfHealth exactly once on
+	// the >0 -> <=0 crossing (the death trigger). Authority-only realistically, but the events
+	// are side-effect-free for listeners to gate as needed.
+	if (Data.EvaluatedData.Attribute == GetHealthAttribute())
+	{
+		// Capture the post-ExecCalc value BEFORE clamping, so the diagnostic logs the true
+		// incoming Health (incl. the negative the ExecCalc produced) and we can see the crossing.
+		const float PreClampHealth = GetHealth();
+
+		// Clamp here, NOT just in PreAttributeChange: the ExecCalc applies its Health output
+		// modifier (Additive) on a path that bypasses PreAttributeChange clamping, so without
+		// this Health goes negative (the log showed -8/-26/...). Clamp to [0, MaxHealth] so the
+		// stored value is correct and GetHealth() reads exactly 0 at death.
+		SetHealth(FMath::Clamp(GetHealth(), 0.0f, GetMaxHealth()));
+
+		const FGameplayEffectContextHandle& Context = Data.EffectSpec.GetEffectContext();
+		AActor* Instigator = Context.GetOriginalInstigator();
+		AActor* Causer     = Context.GetEffectCauser();
+		const float Magnitude = Data.EvaluatedData.Magnitude;  // signed delta actually applied
+
+		OnHealthChanged.Broadcast(Instigator, Causer, Magnitude);
+
+		// Death trigger: Health reached 0. StartDeath() is idempotent (guards DeathState), and
+		// UAFLDeathComponent::HandleAFLOutOfHealth has its own bDeathStarted guard, so repeat
+		// broadcasts (further shots into a 0-Health corpse before cleanup) are safe no-ops.
+		const bool bWillBroadcastDeath = (GetHealth() <= 0.0f);
+
+		// Bring-up diagnostic (Log level, unconditional on a Health change): proves whether the
+		// crossing test evaluated true AND whether OnOutOfHealth has any listeners. This is the
+		// signal that disambiguates "delegate never broadcast" from "broadcast but listener
+		// missed it" -- the fourth outcome the bind/StartDeath logs alone can't distinguish.
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_DEATH: Health %.1f -> %.1f (clamped %.1f), OnOutOfHealth %s (listeners=%d)"),
+			PreClampHealth, GetHealth(), GetHealth(),
+			bWillBroadcastDeath ? TEXT("FIRING") : TEXT("not-yet"),
+			OnOutOfHealth.IsBound() ? 1 : 0);
+
+		if (bWillBroadcastDeath)
+		{
+			OnOutOfHealth.Broadcast(Instigator, Causer, Magnitude);
+		}
+		return;
+	}
+
 	// The ExecCalc writes Shield/Health output modifiers directly. Damage is a
 	// transit meta-attribute used only inside the ExecCalc; if any GE somehow
 	// routes through Damage as the evaluated attribute, zero it here so it
