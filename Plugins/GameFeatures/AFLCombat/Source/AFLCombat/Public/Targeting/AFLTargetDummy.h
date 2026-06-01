@@ -9,6 +9,7 @@
 
 class UAFLDeathComponent;
 class UAFLAttributeSet_Combat;
+class UAFLPawnHitboxHistoryComponent;
 
 
 /**
@@ -40,6 +41,26 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
+
+	/**
+	 * TEST-RIG (BM-0105 lag-comp watch, NOT gameplay): server-side sinusoidal LATERAL (Y) sweep
+	 * around the placed origin. Lag-comp only DEMONSTRATES against a MOVING target -- a stationary
+	 * dummy's hits land under latency whether or not lag-comp exists (no rewind needed if nothing
+	 * moved). The lateral displacement over the rewind window is what makes a confirmed hit under
+	 * latency PROVE the rewind compensated. Authority-driven + replicated so the server position
+	 * (what ConfirmHit rewinds) diverges from the client's latency-delayed view -- the whole point.
+	 * Mirrors AAFLLagTestDummy's proven sweep.
+	 */
+	UPROPERTY(EditAnywhere, Category = "AFL|Target|TestRig")
+	float SweepAmplitude = 200.0f;   // cm to each side
+
+	UPROPERTY(EditAnywhere, Category = "AFL|Target|TestRig")
+	float SweepFrequency = 1.5f;     // rad/s
+
+	/** When false, the dummy stays put (for the no-movement baseline / non-lag-comp tests). */
+	UPROPERTY(EditAnywhere, Category = "AFL|Target|TestRig")
+	bool bEnableLateralSweep = true;
 
 	/**
 	 * Bound to UAFLAttributeSet_Combat::OnHealthChanged for the per-hit react. The visible react
@@ -52,6 +73,15 @@ protected:
 	/** The reusable AFL death driver (Health<=0 -> Lyra's replicated death sequence). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Target")
 	TObjectPtr<UAFLDeathComponent> DeathComponent;
+
+	/**
+	 * TEST-RIG: per-pawn 60Hz hitbox-history publisher the lag-comp rewind reads. ConfirmHit
+	 * rewinds via UAFLLagCompensationWorldSubsystem, which only knows targets that registered a
+	 * UAFLPawnHitboxHistoryComponent -- without this, the dummy is invisible to the rewind and
+	 * BM-0105 can't run against it. Self-registers (server-only) in its own BeginPlay; no grant.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Target|TestRig")
+	TObjectPtr<UAFLPawnHitboxHistoryComponent> HitboxHistory;
 
 private:
 	void HandleHealthChanged(AActor* Instigator, AActor* Causer, float Magnitude);
@@ -69,4 +99,7 @@ private:
 
 	const UAFLAttributeSet_Combat* CombatSet = nullptr;
 	FDelegateHandle HealthChangedHandle;
+
+	/** Sweep center, captured at BeginPlay = the placed location (test-rig lateral patrol). */
+	FVector SpawnOrigin = FVector::ZeroVector;
 };

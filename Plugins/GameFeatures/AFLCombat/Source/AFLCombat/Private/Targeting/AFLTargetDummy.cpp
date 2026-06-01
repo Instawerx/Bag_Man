@@ -8,6 +8,8 @@
 #include "Character/LyraHealthComponent.h"
 #include "Combat/AFLDeathComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/World.h"
+#include "LagComp/AFLPawnHitboxHistoryComponent.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLTargetDummy)
 
@@ -21,6 +23,13 @@ AAFLTargetDummy::AAFLTargetDummy(const FObjectInitializer& ObjectInitializer)
 	// TEST-RIG: hold the corpse longer than the gameplay default so the ragdoll visibly falls
 	// before cleanup (operator's visible-death standard). Not a balance value -- test watchability.
 	DeathComponent->SetDeathFinishDelay(3.0f);
+
+	// TEST-RIG: hitbox-history publisher so the lag-comp rewind can read this dummy (BM-0105).
+	// Self-registers with UAFLLagCompensationWorldSubsystem (server-only) in its own BeginPlay.
+	HitboxHistory = CreateDefaultSubobject<UAFLPawnHitboxHistoryComponent>(TEXT("HitboxHistory"));
+
+	// TEST-RIG: tick for the lateral sweep (server drives it; see Tick).
+	PrimaryActorTick.bCanEverTick = true;
 
 	// No AI; static target. AutoPossess stays disabled (set on the placed instance / BP).
 	AutoPossessAI = EAutoPossessAI::Disabled;
@@ -50,6 +59,36 @@ void AAFLTargetDummy::BeginPlay()
 	{
 		HC->OnDeathStarted.AddDynamic(this, &ThisClass::HandleDeathStarted);
 	}
+
+	// TEST-RIG: capture the placed location as the lateral-sweep center (BM-0105).
+	SpawnOrigin = GetActorLocation();
+}
+
+void AAFLTargetDummy::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// TEST-RIG lateral sweep, AUTHORITY-ONLY (BM-0105 lag-comp watch). Driving SetActorLocation
+	// on the server makes the SERVER position (what ConfirmHit rewinds against) sweep laterally;
+	// it replicates to the client with latency, so under net emulation the client sees the dummy
+	// at a different position than the server -- the divergence lag-comp exists to compensate.
+	// Stops once dead (death disables collision/movement; a ragdolling corpse must not be teleported).
+	if (!bEnableLateralSweep || !HasAuthority())
+	{
+		return;
+	}
+	if (const ULyraHealthComponent* HC = ULyraHealthComponent::FindHealthComponent(this))
+	{
+		if (HC->IsDeadOrDying())
+		{
+			return;
+		}
+	}
+
+	const UWorld* World = GetWorld();
+	const float Time = World ? static_cast<float>(World->GetTimeSeconds()) : 0.0f;
+	const float LateralOffset = FMath::Sin(Time * SweepFrequency) * SweepAmplitude;
+	SetActorLocation(SpawnOrigin + FVector(0.0f, LateralOffset, 0.0f));
 }
 
 void AAFLTargetDummy::HandleDeathStarted(AActor* /*OwningActor*/)
