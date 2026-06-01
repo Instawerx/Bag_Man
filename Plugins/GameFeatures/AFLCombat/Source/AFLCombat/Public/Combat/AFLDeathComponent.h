@@ -68,6 +68,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Death")
 	void UninitializeFromAbilitySystem();
 
+	/** Seconds between StartDeath and FinishDeath/cleanup. Consumers tune it (dummy holds longer for a visible ragdoll; the player sets bDestroyOnDeathFinish=false). */
+	void SetDeathFinishDelay(float InSeconds) { DeathFinishDelay = InSeconds; }
+	void SetDestroyOnDeathFinish(bool bInDestroy) { bDestroyOnDeathFinish = bInDestroy; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

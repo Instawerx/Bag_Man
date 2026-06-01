@@ -5,7 +5,9 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "Character/LyraHealthComponent.h"
 #include "Combat/AFLDeathComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLTargetDummy)
 
@@ -16,6 +18,9 @@ AAFLTargetDummy::AAFLTargetDummy(const FObjectInitializer& ObjectInitializer)
 	// combat set itself is granted by the experience AddAbilities entry keyed on this class
 	// (DA_AFL_Combat_AbilitySet), the proven 1a path; the death component binds it at BeginPlay.
 	DeathComponent = CreateDefaultSubobject<UAFLDeathComponent>(TEXT("AFLDeathComponent"));
+	// TEST-RIG: hold the corpse longer than the gameplay default so the ragdoll visibly falls
+	// before cleanup (operator's visible-death standard). Not a balance value -- test watchability.
+	DeathComponent->SetDeathFinishDelay(3.0f);
 
 	// No AI; static target. AutoPossess stays disabled (set on the placed instance / BP).
 	AutoPossessAI = EAutoPossessAI::Disabled;
@@ -35,6 +40,31 @@ void AAFLTargetDummy::BeginPlay()
 		{
 			HealthChangedHandle = CombatSet->OnHealthChanged.AddUObject(this, &ThisClass::HandleHealthChanged);
 		}
+	}
+
+	// TEST-RIG visible death: bind our own ULyraHealthComponent's OnDeathStarted (driven by
+	// UAFLDeathComponent -> StartDeath) ADDITIVELY -- Lyra's own handler still runs
+	// (DisableMovementAndCollision); we add the ragdoll on top. The health component is a ctor
+	// subobject (present now), and its delegate exists independent of the deferred AFL set.
+	if (ULyraHealthComponent* HC = ULyraHealthComponent::FindHealthComponent(this))
+	{
+		HC->OnDeathStarted.AddDynamic(this, &ThisClass::HandleDeathStarted);
+	}
+}
+
+void AAFLTargetDummy::HandleDeathStarted(AActor* /*OwningActor*/)
+{
+	// Ragdoll the mannequin so the kill is unmistakable on screen (SKM_Manny ships a physics
+	// asset, so SetSimulatePhysics gives a real limp-fall). TEST-RIG, host-visible: this runs
+	// wherever StartDeath fired (authority/listen-host); a networked dedicated-server build needs
+	// this driven from OnRep_DeathState in a replicated death cue -- flagged, not built here.
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetCollisionProfileName(TEXT("Ragdoll"));
+		MeshComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		MeshComp->SetAllBodiesSimulatePhysics(true);
+		MeshComp->SetSimulatePhysics(true);
+		MeshComp->WakeAllRigidBodies();
 	}
 }
 

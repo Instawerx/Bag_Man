@@ -56,6 +56,17 @@ protected:
 private:
 	void HandleHealthChanged(AActor* Instigator, AActor* Causer, float Magnitude);
 
+	/**
+	 * TEST-RIG visible-death (NOT gameplay): ragdoll the mannequin mesh on death so the kill is
+	 * unmistakable on screen (Lyra's OnDeathStarted only DisableMovementAndCollision()s then
+	 * destroys -- the body just freezes+vanishes, which read as "did it die?"). Bound additively
+	 * to this dummy's ULyraHealthComponent::OnDeathStarted (driven by UAFLDeathComponent ->
+	 * StartDeath). Host-visible only; MP-correct death visuals belong in a replicated death
+	 * GameplayCue later (same architecture as the beam cue) -- flagged, not built here.
+	 */
+	UFUNCTION()
+	void HandleDeathStarted(AActor* OwningActor);
+
 	const UAFLAttributeSet_Combat* CombatSet = nullptr;
 	FDelegateHandle HealthChangedHandle;
 };
