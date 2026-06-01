@@ -56,6 +56,15 @@ UAFLAG_Laser_Beam::UAFLAG_Laser_Beam()
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
 	InstancingPolicy   = EGameplayAbilityInstancingPolicy::InstancedPerActor;
 
+	// AFL-0208 (channel fix): hold-to-channel. The default ELyraAbilityActivationPolicy is
+	// OnInputTriggered (fire-once-on-press) -- correct for the hitscan Pulse, but WRONG for
+	// a channeled beam: under OnInputTriggered the input-pressed state is consumed on
+	// activation, so UAbilityTask_WaitInputRelease fires IMMEDIATELY (Activate->Release same
+	// frame) and the beam never sustains -- it flashes for one frame. WhileInputActive makes
+	// LyraASC keep the ability active while LMB is held (LyraAbilitySystemComponent input
+	// handler) and only release on real button-up. This is THE fix for the instant-release.
+	ActivationPolicy = ELyraAbilityActivationPolicy::WhileInputActive;
+
 	AbilityTags.AddTag(TAG_Ability_Laser_Beam);
 	ActivationOwnedTags.AddTag(TAG_State_Firing_Beam);
 
