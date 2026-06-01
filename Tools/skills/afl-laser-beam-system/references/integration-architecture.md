@@ -22,6 +22,54 @@ never sees Niagara. Niagara never sees an attribute. If you ever find yourself
 writing `ApplyGameplayEffect` inside a cue, or `SpawnSystemAttached` inside an
 ability, stop — the layers have leaked.
 
+## IMPORTED BEAM NS — THE AUTHORING CONTRACT (required for every cue-driven beam)
+
+A cue drives an imported `NS_AFL_Laser_*` from C++ by setting world-space coords.
+**The NS itself must be configured to receive that correctly** — get this wrong and the
+beam renders vertical / lagging / ghosting (the AFL-0208 bugs). Earned 2026-05-31 from
+the UE5 Dynamic-Beam tutorial + Epic's Dynamic Beams content example. Every beam NS a
+shipped weapon uses MUST satisfy this contract (verify in the Niagara editor — these are
+GUI-only edits; the bridge can't reliably read or write NS internals):
+
+1. **`Absolute Beam End` = ENABLED** (the DynamicBeam static switch / Beam Emitter Setup).
+   This makes `User.Beam End` a **WORLD-space** endpoint. **This is the single most
+   important setting** — with it ON, the cue just drives `User.Beam End = world impact`
+   and the beam stretches component-origin → that world point correctly. **It removes the
+   need for ANY rotation math in the cue** (no look-at / SetWorldRotation hack). With it
+   OFF, the NS treats Beam End as local-to-component → the beam fights the cue's transform
+   and renders wrong (vertical/misaligned). If you find yourself adding rotation math in
+   the cue to "fix" orientation, the real bug is Absolute Beam End is OFF.
+
+2. **`Update Beam` module in Particle Update** (not just Initialize). Particle Update runs
+   **every frame**, so the beam re-reads `User.Beam End` and redraws the ribbon per-frame
+   → it tracks the crosshair as the player sweeps. Without it, the beam only samples the
+   endpoint at spawn → it lags / detaches when the view moves. (Initialize-only = static;
+   Update = tracking.)
+
+3. **Short System Loop Duration (0.1, even 0.01) + short Particle Lifetime.** Long
+   loop/lifetime leaves old ribbon segments alive in stale world positions → a visible
+   **trail / ghost** when panning fast. Short loop + short lifetime = old segments die
+   instantly, the new aligned ones take over, no ghosting.
+
+4. **`User.Beam End` (Vector/Position) + `User.Color` (LinearColor) are the ONLY drive
+   params.** Nothing else crosses the cue↔NS boundary. Ribbon Renderer (not Sprite) for
+   the solid core; GPU sim for the beam + sparks.
+
+5. **A `_Mobile` scalability variant.** The GPU-sim + high particle counts the look wants
+   need a trimmed mobile instance (lower counts, simpler modules) per the AFL PC/Console/
+   Mobile rule (see `afl-asset-pipeline`). One NS, quality-switched — never fork per
+   platform.
+
+**Look vs skin layering (the marketplace seam):** the **base look** (ribbon width,
+emissive/HDR intensity for bloom, curl-noise twist, color curves) lives on the **NS
+User-param + module defaults**, authored in the Niagara editor — this is each weapon's
+signature beam. The cue's `User.Color` drive is **conditional**: the weapon's
+`UAFLLaserVisualData.BeamColorOverride` with **A > 0** is a runtime **skin/entitlement**
+override (cue sets it only when A>0); **A == 0** (default) = leave the NS editor default
+alone. So a new weapon = one `DA_AFL_LaserVisual_<Weapon>` + an imported NS configured to
+this contract; a skin = a runtime color (and later a swapped BeamSystem) through the same
+provider. **No per-weapon C++, no per-skin C++.**
+
 ## GameplayCue tags
 
 Add to the AFL tags table (plugin-local `Config/Tags/`, same place as the existing
