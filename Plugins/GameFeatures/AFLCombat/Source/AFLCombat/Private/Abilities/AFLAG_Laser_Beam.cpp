@@ -5,7 +5,6 @@
 #include "AFLCombat.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
-#include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Beam/AFLBeamChannelComponent.h"
 #include "Camera/PlayerCameraManager.h"
@@ -158,16 +157,16 @@ void UAFLAG_Laser_Beam::ActivateAbility(
 		ASC->AbilityTargetDataSetDelegate(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey())
 		   .AddUObject(this, &ThisClass::OnTargetDataReadyCallback);
 
-	// Listen for input release on both client and server. The standard GAS
-	// task replicates the release event up from the client; the server runs
-	// its own copy of the task in parallel and fires the delegate when the
-	// replicated event lands.
-	if (UAbilityTask_WaitInputRelease* ReleaseTask = UAbilityTask_WaitInputRelease::WaitInputRelease(
-			this, /*bTestAlreadyReleased=*/false))
-	{
-		ReleaseTask->OnRelease.AddDynamic(this, &ThisClass::OnInputReleased);
-		ReleaseTask->ReadyForActivation();
-	}
+	// NO explicit WaitInputRelease task. ELyraAbilityActivationPolicy::WhileInputActive ALREADY
+	// owns the held lifecycle: Lyra's ProcessAbilityInput activates this once while the input is
+	// held, and CancelInputActivatedAbilities cancels it (-> EndAbility) on input-release. An
+	// explicit WaitInputRelease here was REDUNDANT and actively harmful: on a trigger-less held
+	// input (IA_Weapon_Fire_Auto fires Triggered every frame), the task fired OnRelease mid-hold ->
+	// EndAbility -> the ability went !IsActive() -> ProcessAbilityInput re-activated it next frame
+	// (input still held) -> a ~6x/sec Activate->Release THRASH (re-running damage/heat/cost/lag-comp
+	// per cycle, and spawning a fresh beam cue each time = the "stuck"/stacked visual). Removing it
+	// lets WhileInputActive run ONE continuous channel for the whole hold (canonical Lyra hold
+	// ability). The release-cooldown moves to EndAbility (fires whenever Lyra cancels the channel).
 
 	if (ActorInfo->IsLocallyControlled())
 	{
@@ -234,6 +233,13 @@ void UAFLAG_Laser_Beam::EndAbility(
 				this, &ThisClass::EndAbility, Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled));
 			return;
 		}
+
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BEAM: Release"));
+
+		// Release-cooldown applies HERE (moved from the removed OnInputReleased): EndAbility is the
+		// single channel-end point — fires whether Lyra's CancelInputActivatedAbilities cancelled the
+		// held channel on input-release, or it self-cancelled (overheat). Authority-gated inside.
+		ApplyReleaseCooldown();
 
 		// Stop the tick timer regardless of which side we're on. Idempotent
 		// when the timer was never set (dedicated server avatar).
@@ -364,20 +370,6 @@ void UAFLAG_Laser_Beam::TickChannel()
 		FScopedPredictionWindow ScopedPrediction(ASC, CurrentActivationInfo.GetActivationPredictionKey());
 		OnTargetDataReadyCallback(TargetDataHandle, FGameplayTag());
 	}
-}
-
-void UAFLAG_Laser_Beam::OnInputReleased(float /*TimeHeld*/)
-{
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_BEAM: Release"));
-
-	// Apply the cooldown source-side. The WaitInputRelease task runs in
-	// parallel on client and server (the engine replicates the input event
-	// up), so this fires on both sides — the cooldown GE only takes effect
-	// on the authority but a client-side apply is a no-op there.
-	ApplyReleaseCooldown();
-
-	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
-		/*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
 }
 
 UAFLBeamChannelComponent* UAFLAG_Laser_Beam::ResolveBeamChannel()
@@ -579,11 +571,9 @@ void UAFLAG_Laser_Beam::ServerApplyTargetData(const FGameplayAbilityTargetDataHa
 	if (SourceASC->HasMatchingGameplayTag(TAG_State_Overheated_Beam))
 	{
 		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BEAM: overheat — ending channel"));
-		// Apply the standard release cooldown so the player can't immediately
-		// re-channel once the venting clears (and gets the normal cooldown
-		// audio/HUD cue rather than a special overheat-end one — that's S5
-		// tuning, AFL-0204b).
-		ApplyReleaseCooldown();
+		// EndAbility now applies the release cooldown for EVERY channel-end (single apply point),
+		// so no explicit ApplyReleaseCooldown() here -- it would double-apply. The player still
+		// can't immediately re-channel once venting clears (the cooldown lands in EndAbility below).
 		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
 			/*bReplicateEndAbility=*/true, /*bWasCancelled=*/true);
 		return;

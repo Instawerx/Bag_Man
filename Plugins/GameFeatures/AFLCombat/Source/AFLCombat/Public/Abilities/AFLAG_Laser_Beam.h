@@ -151,10 +151,6 @@ private:
 	 */
 	UObject* GetAFLLaserWeaponInstance() const;
 
-	/** Bound to UAbilityTask_WaitInputRelease's OnRelease delegate on both sides. */
-	UFUNCTION()
-	void OnInputReleased(float TimeHeld);
-
 	/**
 	 * AFL-0208: resolve (and lazily cache) the avatar's UAFLBeamChannelComponent --
 	 * the published-value bridge the looping beam cue reads to drive User."Beam End".
