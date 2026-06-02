@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "AFL Net Types",
+	"Description": "Always-loaded home for AFL cross-cutting REPLICATED types (custom FGameplayAbilityTargetData subclasses and any USTRUCT sent over a GAS/net RPC). MUST stay a plain Default-phase runtime plugin -- NOT a GameFeature: GAS builds FNetSerializeScriptStructCache once, lazily, from the structs loaded at first ASC-globals access, and a struct in a late-loading GameFeature is absent/mis-indexed on one endpoint -> ServerSetReplicatedTargetData deserialize mismatch -> connection lost. Every networked weapon's net-types belong here, never in a GameFeature.",
+	"Category": "AFL",
+	"CreatedBy": "C12 AI Gaming",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AFLNetTypes",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "GameplayAbilities",
+			"Enabled": true
+		}
+	]
+}

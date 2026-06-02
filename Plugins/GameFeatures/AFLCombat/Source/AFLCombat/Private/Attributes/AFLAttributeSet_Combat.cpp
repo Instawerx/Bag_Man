@@ -113,8 +113,14 @@ void UAFLAttributeSet_Combat::PostGameplayEffectExecute(const FGameplayEffectMod
 		// crossing test evaluated true AND whether OnOutOfHealth has any listeners. This is the
 		// signal that disambiguates "delegate never broadcast" from "broadcast but listener
 		// missed it" -- the fourth outcome the bind/StartDeath logs alone can't distinguish.
+		// 2-client watch instrumentation (watch b/d): stamp WHOSE health this is. In a 2-client
+		// log the dummy (C_1) and a dying player both drain Health through this same line, so a
+		// bare "Health 82 -> 64" can't say which actor is taking damage / dying. The owning actor
+		// name (from the set's owning ASC) disambiguates dummy-death from player-death.
+		const AActor* HealthOwner = GetOwningActor();
 		UE_LOG(LogAFLCombat, Log,
-			TEXT("AFL_DEATH: Health %.1f -> %.1f (clamped %.1f), OnOutOfHealth %s (listeners=%d)"),
+			TEXT("AFL_DEATH: %s Health %.1f -> %.1f (clamped %.1f), OnOutOfHealth %s (listeners=%d)"),
+			*GetNameSafe(HealthOwner),
 			PreClampHealth, GetHealth(), GetHealth(),
 			bWillBroadcastDeath ? TEXT("FIRING") : TEXT("not-yet"),
 			OnOutOfHealth.IsBound() ? 1 : 0);

@@ -219,10 +219,19 @@ bool UAFLLagCompensationWorldSubsystem::ConfirmHit(APlayerController* Requesting
 		bGeometricallyValid = PaddedBox.IsInsideOrOn(ImpactPoint);
 	}
 
-	UE_LOG(LogAFLCombat, Verbose,
-		TEXT("AFL_LAGCOMP: rewind dt=%.3f entries=%d verdict=%s"),
+	// 2-client watch instrumentation (watch a): this line IS the lag-comp proof -- the host's own
+	// shot rewinds dt=0 (~0 real latency to itself) while a real client's shot rewinds a non-zero
+	// dt. That contrast is unreadable unless the line says WHICH instance fired, so stamp the
+	// requesting pawn's name (C_0 host vs C_1 client) + net role. Promoted Verbose->Log so the dt
+	// shows in a plain log -- the watch must not depend on a verbose flag being on (the first c0
+	// run only saw this line because verbose happened to be enabled).
+	const APawn* RequestingPawn = RequestingPC ? RequestingPC->GetPawn() : nullptr;
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_LAGCOMP: rewind dt=%.3f entries=%d verdict=%s by %s (role=%d)"),
 		RewindDeltaSeconds, Token.Entries.Num(),
-		bGeometricallyValid ? TEXT("accept") : TEXT("reject"));
+		bGeometricallyValid ? TEXT("accept") : TEXT("reject"),
+		*GetNameSafe(RequestingPawn),
+		RequestingPawn ? static_cast<int32>(RequestingPawn->GetLocalRole()) : 0);
 
 	RestoreWorld(Token);
 

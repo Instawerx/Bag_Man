@@ -143,7 +143,18 @@ void UAFLAG_Laser_Pulse::ActivateAbility(
 		return;
 	}
 
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_PULSE: Activate"));
+	// 2-client watch instrumentation: stamp WHO fired (avatar name distinguishes PIE instances
+	// C_0=host vs C_1=client) + net role + locally-controlled. On a listen-host the client's
+	// predicted Activate and the server's re-run both land in one combined log, so the avatar
+	// name + role together are what tell the two windows apart. The whole c0/c1/lag-comp pass
+	// turns on "which instance did this" -- a bare "Activate" can't answer it.
+	{
+		const AActor* AvatarActor = GetAvatarActorFromActorInfo();
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_PULSE: Activate by %s (role=%d localctrl=%d)"),
+			*GetNameSafe(AvatarActor),
+			AvatarActor ? static_cast<int32>(AvatarActor->GetLocalRole()) : 0,
+			ActorInfo->IsLocallyControlled() ? 1 : 0);
+	}
 
 	UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
 

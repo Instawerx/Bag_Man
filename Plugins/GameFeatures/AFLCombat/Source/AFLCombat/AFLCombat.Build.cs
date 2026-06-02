@@ -22,6 +22,13 @@ public class AFLCombat : ModuleRules
 				"GameplayMessageRuntime",
 				"LyraGame",
 				"AFLCore",
+				// AFL-0106 net fix: FAFLAbilityTargetData_Hitscan (the client-built hitscan
+				// payload Pulse/Beam ship via ServerSetReplicatedTargetData) lives here, an
+				// always-loaded non-GameFeature module, so it is in GAS's once-built
+				// FNetSerializeScriptStructCache on every endpoint. It MUST NOT move back into
+				// this GameFeature -- a late-loaded net-serialized struct desyncs the cache and
+				// drops the connection (see AFLNetTypes.uplugin).
+				"AFLNetTypes",
 				"ModularGameplay",
 				"ModularGameplayActors",
 			}

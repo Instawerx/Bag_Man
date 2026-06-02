@@ -33,11 +33,28 @@ class UPackageMap;
  *     so downstream listeners (UI hit markers, telemetry) can read it without
  *     plumbing the full target-data struct through their delegates.
  *
+ * WHY THIS LIVES IN AFLNetTypes (an always-loaded, non-GameFeature module) and
+ * NOT in the AFLCombat GameFeature where it originated:
+ *   FGameplayAbilityTargetDataHandle replicates a custom target-data struct's
+ *   TYPE as a one-byte index into FNetSerializeScriptStructCache. That cache is
+ *   built ONCE, lazily, at first ASC-globals access, by walking every loaded
+ *   UScriptStruct deriving from FGameplayAbilityTargetData (AbilitySystemGlobals.cpp
+ *   InitForType) -- and is never rebuilt. A struct that lives in a GameFeature
+ *   (ExplicitlyLoaded, activated at experience-load time) is not loaded when the
+ *   cache is first built, so it is absent / differently-indexed on one endpoint.
+ *   The result over a real connection: the receiver can't resolve the index
+ *   ("Could not find script struct at idx N"), the RPC byte-stream mismatches,
+ *   and the connection is dropped. Single-client (listen-host, client==server)
+ *   never serializes over a wire, so it never surfaces. Lyra avoids this by
+ *   keeping FLyraGameplayAbilityTargetData_SingleTargetHit in the always-loaded
+ *   LyraGame module; we keep AFL's equivalent here so the AFLCombat GameFeature
+ *   and Lyra base both stay clean. Every networked AFL weapon's net-types go here.
+ *
  * Server validation (schema/bounds/geometry/lag-comp) lands in AFL-0211 and
  * AFL-0213. This task wires the transport and a telemetry stub only.
  */
 USTRUCT()
-struct AFLCOMBAT_API FAFLAbilityTargetData_Hitscan : public FGameplayAbilityTargetData_SingleTargetHit
+struct AFLNETTYPES_API FAFLAbilityTargetData_Hitscan : public FGameplayAbilityTargetData_SingleTargetHit
 {
 	GENERATED_BODY()
 
