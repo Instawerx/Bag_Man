@@ -365,28 +365,13 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 		FMath::DegreesToRadians(CurrentSpreadDegrees));
 	const FVector EndTrace = ViewLocation + PerturbedDirection * MaxRange;
 
-	// AFL-0301: muzzle cue. Fires once per real shot on the locally-predicting
-	// client (CommitAbility already passed, IsLocallyControlled already gated
-	// in ActivateAbility). Receiver is GCN_AFL_Pulse_Fire (GameplayCueNotify_
-	// Burst -- audio at the muzzle + visual muzzle flash via OnBurst graph).
-	//
-	// Emit position MOVED here (was at top of function) so the perturbed shot
-	// direction is in scope -- packed into CueParams.Normal so the muzzle flash
-	// orients down the REAL shot line (not pawn-forward, not camera-aim-pre-
-	// spread). Same PerturbedDirection that LineTraceSingleByChannel uses below
-	// and that lands in ClaimedAimDirection for the tracer's lag-comp ride.
-	// Flash + trace + tracer all ride the same ray (per the ray-reuse rule).
-	// COSMETIC for the flash; the audio and trace were unaffected by the move.
-	{
-		const FVector MuzzleLocation = ResolveMuzzleLocation(AvatarPawn);
-
-		FGameplayCueParameters FireCueParams;
-		FireCueParams.Location     = MuzzleLocation;
-		FireCueParams.Normal       = PerturbedDirection;
-		FireCueParams.Instigator   = AvatarPawn;
-		FireCueParams.SourceObject = AvatarPawn;
-		K2_ExecuteGameplayCueWithParams(TAG_GameplayCue_Weapon_Pulse_Fire_PulseAbility, FireCueParams);
-	}
+	// AFL-0301: the muzzle (Fire) cue is NO LONGER fired here. It moved to the unified, role-agnostic
+	// cosmetic block in OnTargetDataReadyCallback (inside the shared prediction window), alongside the
+	// tracer/impact cue -- so all three cosmetics fire ONCE through the predicted path and GAS dedups
+	// the owner / shows proxies via the shared key (Lyra GA_Weapon_Fire pattern). Firing it BOTH here
+	// AND in the callback would double the muzzle flash on the owner. The muzzle world-point this block
+	// used to resolve is now packed into ClaimedMuzzleLocation below (same ResolveMuzzleLocation call),
+	// and the callback fires the cue from that payload point on every side.
 
 	// Single-bullet line trace. The Lyra RangedWeapon pattern adds spread,
 	// sweep radius, and a pawn-pass filter — Pulse is a single tight beam so
@@ -422,6 +407,10 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	NewTargetData->ClaimedViewOrigin          = ViewLocation;
 	NewTargetData->ClaimedAimDirection        = PerturbedDirection;
 	NewTargetData->AimAngularVelocityDegPerSec = 0.0f; // AFL-0213 measurement lands with the input plumbing.
+	// Pack the OWNER-resolved muzzle (same ResolveMuzzleLocation the Fire cue uses above; log-confirmed
+	// correct on role=2). The authoritative Fire cue on the server reads THIS instead of resolving the
+	// muzzle server-side, so the proxy's flash sits at the correct barrel tip. COSMETIC-only.
+	NewTargetData->ClaimedMuzzleLocation      = ResolveMuzzleLocation(AvatarPawn);
 
 	FGameplayAbilityTargetDataHandle TargetDataHandle;
 	TargetDataHandle.Add(NewTargetData);
@@ -461,6 +450,23 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 		return;
 	}
 
+	// SHARED PREDICTION WINDOW (Lyra-canonical, mirrors ULyraGameplayAbility_RangedWeapon::
+	// OnTargetDataReadyCallback). Opened at the TOP of the callback so it is active on BOTH the
+	// predicted-local invocation (from ClientPredictAndSend) AND the server's replicated invocation
+	// (from the AbilityTargetDataSetDelegate). The cosmetic cues below fire INSIDE this window, so the
+	// owner's predicted execution and the authority's multicast SHARE the prediction key -> GAS's
+	// built-in NetMulticast_InvokeGameplayCueExecuted dedup suppresses the owner's duplicate (valid key
+	// = "I predicted this") and proxies play it (key=0). This REPLACES the hand-rolled owner-K2 +
+	// authority-ExecuteGameplayCue + bIsAuthority/!bIsLocallyControlled gate, which fired TWO unkeyed
+	// executions -> double + mirror on the listen-host. LOAD-BEARING: without this window on the SERVER
+	// path, the authority cue has no scoped key and the dedup fails -> a CLEAN DOUBLE returns. (Before
+	// this change the only window was inside the bIsLocallyControlled && !bIsAuthority server-send block
+	// below -- it scoped only the local RPC send, NOT the cues and NOT the server invocation.)
+	// THIS IS THE SINGLE WINDOW (Lyra's one-window shape): the cosmetic cues AND the server-send below
+	// both run under ITS key. The former nested send-window was REMOVED (it generated a second dependent
+	// key -> cues and send under different keys). One window -> cues + send share one key, trivially.
+	FScopedPredictionWindow CueScopedPrediction(ASC);
+
 	// Take ownership of the target data so downstream game code can't invalidate
 	// it under us. Pattern lifted from ULyraGameplayAbility_RangedWeapon.
 	FGameplayAbilityTargetDataHandle LocalTargetDataHandle(
@@ -469,72 +475,66 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 	const bool bIsAuthority       = CurrentActorInfo->IsNetAuthority();
 	const bool bIsLocallyControlled = CurrentActorInfo->IsLocallyControlled();
 
-	// AFL-0302: tracer cue. Fires post-trace on the locally-predicting client
-	// (mirrors the AFL-0301 Fire cue's K2_ExecuteGameplayCueWithParams shape
-	// for the same predicted single-fire-on-owner semantics). Hit is packed
-	// into FGameplayEffectContextHandle via AddHitResult so the GCN BP's
-	// On Burst override can read Params.EffectContext.GetHitResult() to drive
-	// User.ImpactPositions on NS_AFL_Pulse_Tracer.
+	// UNIFIED, ROLE-AGNOSTIC COSMETIC CUES (Lyra-canonical -- mirrors GA_Weapon_Fire: a Local-Predicted
+	// ability that fires GameplayCue.Weapon.*.Fire / .Impact ONCE through the prediction window, params
+	// carried as cue data, NO role gate). Fires on EVERY invocation of this callback -- owner-predicted
+	// AND server-replicated -- both inside the ScopedPrediction window above, so both share the key.
+	// GAS then dedups: the OWNER receives the authority multicast with a VALID key -> skips it (already
+	// predicted); PROXIES receive key=0 -> play it. No double, no mirror, on listen-server AND dedicated.
+	// This REPLACED the hand-rolled owner-K2-only block + the bIsAuthority/!bIsLocallyControlled authority
+	// branch (two unkeyed executions = the double + mirror). There is NO gate backstop now -- correctness
+	// rests entirely on the shared key, which is why the ScopedPrediction window placement (both paths)
+	// is load-bearing. bIsAuthority/bIsLocallyControlled remain for the server-RPC + EndAbility logic below.
 	//
-	// Q2 cosmetic fix: CueParams.Location is the tracer START. We anchor it
-	// on the aim ray (Lyra ELyraAbilityTargetingSource::CameraTowardsFocus
-	// pattern) instead of the geometric muzzle so the visual rides the shot
-	// line in third-person (CM_ThirdPerson) -- the carbine sits left+up of
-	// sight; a muzzle-anchored start would bend the tracer off the aim ray.
-	// Source for the camera ray: FAFLAbilityTargetData_Hitscan already packs
-	// ClaimedViewOrigin + ClaimedAimDirection (perturbed by this shot's
-	// spread) for the server lag-comp path -- we reuse them so the visual
-	// origin sits on the SAME ray the trace ran along, not a recomputed one.
-	// COSMETIC ONLY -- trace origin/AimDirection/Hit/damage/crosshair are
-	// untouched; tracer end is still real Hit.ImpactPoint via EffectContext.
-	if (bIsLocallyControlled && LocalTargetDataHandle.Num() > 0)
+	// COSMETIC ONLY -- trace origin / AimDirection / Hit / damage / crosshair untouched. Fire muzzle from
+	// the client-authoritative ClaimedMuzzleLocation; tracer/impact origin from ClaimedViewOrigin/
+	// ClaimedAimDirection (the same payload both sides; impact rides the tracer cue's OnBurst).
+	if (LocalTargetDataHandle.Num() > 0)
 	{
 		const FGameplayAbilityTargetData* RawData = LocalTargetDataHandle.Get(0);
-		if (RawData && RawData->GetHitResult())
+		if (RawData && RawData->GetHitResult() &&
+			RawData->GetScriptStruct() == FAFLAbilityTargetData_Hitscan::StaticStruct())
 		{
 			APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
 			if (AvatarPawn)
 			{
+				const FAFLAbilityTargetData_Hitscan* HitscanData =
+					static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData);
 				const FHitResult& HitRef = *RawData->GetHitResult();
 
-				// The AFL hitscan struct carries ClaimedViewOrigin /
-				// ClaimedAimDirection from ClientPredictAndSend; static_cast
-				// is safe because we built the payload as this struct in the
-				// same translation unit / activation.
-				FVector ViewOrigin    = HitRef.TraceStart;
-				FVector AimDirection  = (HitRef.TraceEnd - HitRef.TraceStart).GetSafeNormal();
-				if (RawData->GetScriptStruct() == FAFLAbilityTargetData_Hitscan::StaticStruct())
+				// FIRE cue (muzzle flash + audio) -- muzzle from the client-authoritative payload point.
 				{
-					const FAFLAbilityTargetData_Hitscan* HitscanData =
-						static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData);
-					ViewOrigin   = HitscanData->ClaimedViewOrigin;
-					AimDirection = HitscanData->ClaimedAimDirection.GetSafeNormal();
+					FGameplayCueParameters FireCueParams;
+					FireCueParams.Location     = HitscanData->ClaimedMuzzleLocation;
+					FireCueParams.Normal       = HitscanData->ClaimedAimDirection.GetSafeNormal();
+					FireCueParams.Instigator   = AvatarPawn;
+					FireCueParams.SourceObject = AvatarPawn;
+					K2_ExecuteGameplayCueWithParams(TAG_GameplayCue_Weapon_Pulse_Fire_PulseAbility, FireCueParams);
 				}
 
-				// Tracer visual origin: a point along the aim ray. Clamp:
-				// never project past the impact -- close target -> pull
-				// origin back to the midpoint so the tracer always renders
-				// forward (no reversed tracer point-blank).
-				FVector VisualOrigin =
-					ViewOrigin + AimDirection * TracerVisualOriginDistance;
-				const float DistToImpact =
-					FVector::Dist(ViewOrigin, HitRef.ImpactPoint);
-				if (DistToImpact < TracerVisualOriginDistance)
+				// TRACER cue (+ impact via its OnBurst, which reads Params.EffectContext.GetHitResult()
+				// to drive NS_AFL_Pulse_Tracer's User.ImpactPositions). START = the world-space MUZZLE
+				// (ClaimedMuzzleLocation), END = the real Hit.ImpactPoint via EffectContext. This is the
+				// VIEWPOINT-INDEPENDENT muzzle->impact model proven by Beam_v2 (UAFLBeamVisualComponent:
+				// SetWorldLocation(Muzzle) start + Beam End = ImpactPoint) -- both are real world points,
+				// so the tracer renders correctly from ANY camera, including the proxy. (REPLACED the old
+				// camera-ray anchor: ClaimedViewOrigin + ClaimedAimDirection * TracerVisualOriginDistance,
+				// which was the SHOOTER'S camera point projected forward -- correct only from the shooter's
+				// own view, floating beside the pawn on a proxy. That was the Pulse-tracer-on-proxy bug.)
+				// NOTE: a slight shooter-POSE bend (weapon barrel vs aim pose) is a SEPARATE, pre-existing
+				// cosmetic that also affects Beam_v2; deliberately NOT addressed here.
 				{
-					VisualOrigin = ViewOrigin + AimDirection * (DistToImpact * 0.5f);
+					FGameplayCueParameters TracerParams;
+					TracerParams.Location     = HitscanData->ClaimedMuzzleLocation;
+					TracerParams.Instigator   = AvatarPawn;
+					TracerParams.SourceObject = AvatarPawn;
+
+					FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
+					Ctx.AddHitResult(HitRef);
+					TracerParams.EffectContext = Ctx;
+
+					K2_ExecuteGameplayCueWithParams(TAG_GameplayCue_Weapon_Pulse_Tracer_PulseAbility, TracerParams);
 				}
-
-				FGameplayCueParameters TracerParams;
-				TracerParams.Location     = VisualOrigin;
-				TracerParams.Instigator   = AvatarPawn;
-				TracerParams.SourceObject = AvatarPawn;
-
-				FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
-				Ctx.AddHitResult(HitRef);
-				TracerParams.EffectContext = Ctx;
-
-				K2_ExecuteGameplayCueWithParams(
-					TAG_GameplayCue_Weapon_Pulse_Tracer_PulseAbility, TracerParams);
 			}
 		}
 	}
@@ -542,9 +542,16 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 	// Client predicting on a remote client: ship the data to the server. On
 	// the listen-server host both flags are true and we skip the RPC because
 	// the server-side delegate fires from this same call.
+	//
+	// The send runs under the OUTER CueScopedPrediction window's key (opened at the top of this
+	// callback) -- NOT a nested window of its own. This is Lyra's exact shape (RangedWeapon line 484
+	// single window, send under ScopedPredictionKey at line 492): ONE window, so the cosmetic cues
+	// above AND this RPC ship under the SAME prediction key. A nested FScopedPredictionWindow here
+	// (the previous structure) called GenerateDependentPredictionKey() to make a SECOND, dependent key
+	// -> cues and send would have run under DIFFERENT keys (the nested-key hazard). Removing it makes
+	// "do the cues and the send share a key?" a trivial yes -- which is what the GAS dedup needs.
 	if (bIsLocallyControlled && !bIsAuthority)
 	{
-		FScopedPredictionWindow ScopedPrediction(ASC);
 		ASC->CallServerSetReplicatedTargetData(
 			CurrentSpecHandle,
 			CurrentActivationInfo.GetActivationPredictionKey(),

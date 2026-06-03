@@ -28,5 +28,11 @@ bool FAFLAbilityTargetData_Hitscan::NetSerialize(FArchive& Ar, UPackageMap* Map,
 	ClaimedAimDirection.NetSerialize(Ar, Map, bOutSuccess);
 	Ar << AimAngularVelocityDegPerSec;
 
+	// APPENDED (AFL Pulse-on-proxy fix): ClaimedMuzzleLocation. FArchive is bidirectional,
+	// so this single line is symmetric by construction -- written on save, read on load, in
+	// the SAME position both directions. Appended AFTER the existing fields; their order is
+	// UNCHANGED (no desync of the relocated-to-AFLNetTypes net struct). Cosmetic field only.
+	ClaimedMuzzleLocation.NetSerialize(Ar, Map, bOutSuccess);
+
 	return true;
 }

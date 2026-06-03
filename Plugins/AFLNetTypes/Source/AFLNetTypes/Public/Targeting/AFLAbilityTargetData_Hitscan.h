@@ -78,6 +78,19 @@ struct AFLNETTYPES_API FAFLAbilityTargetData_Hitscan : public FGameplayAbilityTa
 	UPROPERTY()
 	float AimAngularVelocityDegPerSec = 0.0f;
 
+	/**
+	 * Client-authoritative muzzle world-location at the moment of fire (the point
+	 * ResolveMuzzleLocation finds on the OWNING client, where the weapon mesh is
+	 * posed correctly). COSMETIC-ONLY: read solely to position the authoritative
+	 * Fire-cue muzzle flash on simulated proxies (the server fires the cue from
+	 * THIS replicated point instead of a server-side ResolveMuzzleLocation, whose
+	 * server-side mesh pose isn't guaranteed identical -> muzzle-at-wrong-spot).
+	 * Same "read the in-flight payload, don't re-derive" rule the tracer uses for
+	 * ClaimedViewOrigin/ClaimedAimDirection. NEVER feeds damage or validation.
+	 */
+	UPROPERTY()
+	FVector_NetQuantize ClaimedMuzzleLocation = FVector::ZeroVector;
+
 	virtual void AddTargetDataToContext(FGameplayEffectContextHandle& Context, bool bIncludeActorArray) const override;
 
 	bool NetSerialize(FArchive& Ar, UPackageMap* Map, bool& bOutSuccess);
