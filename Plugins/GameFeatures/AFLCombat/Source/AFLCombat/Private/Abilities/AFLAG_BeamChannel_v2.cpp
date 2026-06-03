@@ -3,8 +3,10 @@
 #include "Abilities/AFLAG_BeamChannel_v2.h"
 
 #include "AFLCombat.h"
+#include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Beam/AFLBeamChannelComponent.h"
 #include "Beam/AFLBeamVisualComponent.h"
@@ -75,6 +77,22 @@ void UAFLAG_BeamChannel_v2::ActivateAbility(
 	OnTargetDataReadyCallbackDelegateHandle =
 		ASC->AbilityTargetDataSetDelegate(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey())
 		   .AddUObject(this, &ThisClass::OnTargetDataReadyCallback);
+
+	// Listen for input release -> end the channel. RESTORED from the control beam's pre-3bf573b3
+	// wiring (verbatim template). Lyra source ground-truth: ProcessAbilityInput's release path only
+	// fires the InputReleased EVENT; NOTHING in the input pipeline calls CancelInputActivatedAbilities
+	// on release (its sole caller is the CheatManager). So WhileInputActive owns activate+sustain but
+	// NOT end-on-release -- the ability MUST listen for InputReleased to end itself. Without this the
+	// channel runs forever (only EndAbility-on-teardown), which is exactly the v2 stuck-on bug.
+	// NOT a thrash risk: IA_Weapon_Fire_Auto is empty-trigger/held, so InputReleased fires ONCE on
+	// real button-up (not mid-hold) -> one clean Activate->Release. (The original thrash was the
+	// Pressed-trigger instant-loop, NOT this task -- see git 3bf573b3 reconciliation.)
+	if (UAbilityTask_WaitInputRelease* ReleaseTask = UAbilityTask_WaitInputRelease::WaitInputRelease(
+			this, /*bTestAlreadyReleased=*/false))
+	{
+		ReleaseTask->OnRelease.AddDynamic(this, &ThisClass::OnInputReleased);
+		ReleaseTask->ReadyForActivation();
+	}
 
 	// Q2=(a) DELIVERY: open the beam on the weapon-actor's visual component. AUTHORITY-only --
 	// SetBeamActive sets the replicated bBeamActive AND applies the visual locally on the server
@@ -388,6 +406,17 @@ void UAFLAG_BeamChannel_v2::ServerApplyTargetData(const FGameplayAbilityTargetDa
 	SourceASC->ApplyGameplayEffectSpecToTarget(Spec, TargetASC);
 }
 #endif
+
+void UAFLAG_BeamChannel_v2::OnInputReleased(float /*TimeHeld*/)
+{
+	// Bound to UAbilityTask_WaitInputRelease::OnRelease (fires on BOTH sides -- the engine replicates
+	// the input-release event up; the server runs its own task copy in parallel). End the channel here.
+	// NOTE: unlike the control beam's pre-3bf573b3 OnInputReleased, this does NOT call
+	// ApplyReleaseCooldown() -- v2's EndAbility already applies it as the single channel-end point
+	// (mirrors the post-3bf573b3 control). Calling it here too would DOUBLE-APPLY the cooldown.
+	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
+		/*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
+}
 
 FVector UAFLAG_BeamChannel_v2::ResolveMuzzleLocation(APawn* AvatarPawn) const
 {

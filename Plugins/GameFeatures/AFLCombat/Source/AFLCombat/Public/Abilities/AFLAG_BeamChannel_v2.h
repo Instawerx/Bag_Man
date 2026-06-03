@@ -108,6 +108,10 @@ private:
 	void ServerApplyTargetData(const FGameplayAbilityTargetDataHandle& Data);
 	void ApplyReleaseCooldown();
 
+	/** Bound to UAbilityTask_WaitInputRelease's OnRelease delegate (both sides) -> ends the channel. */
+	UFUNCTION()
+	void OnInputReleased(float TimeHeld);
+
 	FDelegateHandle OnTargetDataReadyCallbackDelegateHandle;
 	FTimerHandle TickTimerHandle;
 	TWeakObjectPtr<UAFLBeamChannelComponent> BeamChannel;
