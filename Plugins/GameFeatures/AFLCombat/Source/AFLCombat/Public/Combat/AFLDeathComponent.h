@@ -98,10 +98,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Death", meta = (ClampMin = "0.0"))
 	float DeathFinishDelay = 2.0f;
 
-	/** Whether to auto-destroy the owning actor on FinishDeath (true for transient enemies/dummies;
-	 *  the player sets false -- respawn flow owns its lifetime). */
+	/** Whether to auto-destroy the owning actor on FinishDeath. Default FALSE = player-safe: the
+	 *  player yields pawn teardown to Lyra's death->respawn flow (GA_AutoRespawn + ALyraCharacter::
+	 *  UninitAndDestroy), so the controller-side inventory/quickbar tear down coherently and the
+	 *  respawned pawn can re-equip. Transient combatants with no respawn flow (the target dummy)
+	 *  opt back into TRUE in their ctor so their proven self-destruct death is unchanged. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Death")
-	bool bDestroyOnDeathFinish = true;
+	bool bDestroyOnDeathFinish = false;
 
 private:
 	UPROPERTY(Transient)

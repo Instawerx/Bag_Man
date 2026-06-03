@@ -23,6 +23,10 @@ AAFLTargetDummy::AAFLTargetDummy(const FObjectInitializer& ObjectInitializer)
 	// TEST-RIG: hold the corpse longer than the gameplay default so the ragdoll visibly falls
 	// before cleanup (operator's visible-death standard). Not a balance value -- test watchability.
 	DeathComponent->SetDeathFinishDelay(3.0f);
+	// The dummy is a transient target with no respawn flow to own its lifetime, so it must self-destruct
+	// on death. The component CDO default is now FALSE (player-safe: respawn/Lyra teardown owns the player
+	// pawn); the dummy opts back into TRUE here so its proven ragdoll-then-self-destruct death is unchanged.
+	DeathComponent->SetDestroyOnDeathFinish(true);
 
 	// TEST-RIG: hitbox-history publisher so the lag-comp rewind can read this dummy (BM-0105).
 	// Self-registers with UAFLLagCompensationWorldSubsystem (server-only) in its own BeginPlay.
