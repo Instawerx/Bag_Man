@@ -61,14 +61,22 @@ upstream merge from Epic. Don't do it.
 >   no grey frame is possible. NOTE: which PATH catches the respawn flips with timing
 >   — in-order, PATH 2 (OnRep) fires first; under lag, PATH 1 (BeginPlay, color
 >   already present) fires first. Both load-bearing; converges either way.
-> - **ARGUED, not watched-clean** (state honestly; do NOT teach as fully proven):
->   **Race C late-join** = architecture argument + a single live operator
->   observation, NOT an isolated join-in-progress test (standard 2-client PIE joins
->   at start; a true late join needs standalone-client `open 127.0.0.1` into a
->   listen-server). `SkinColor` is DOREPLIFETIME no-COND so it fires OnRep on a late
->   client's initial bunch (architecture supports it), but it is not yet watched.
->   Close it in a future standalone-late-connect session before claiming "fully
->   wire-proven incl. late-join."
+> - **Race C late-join — WATCHED-PROVEN** (2026-06-04): operator did a genuine
+>   join-in-progress (a 3rd client connected AFTER PIE was running with skins already
+>   set on the existing players) and WATCHED the late client render the pre-existing
+>   pawns in their full correct REPLICATED state (the Purple edge-glow reached the
+>   late client, not just the baked body). Live-state-confirmed across all 3 worlds
+>   incl. the joiner (18/18 slots styled MIDs, 0 unstyled). Log mechanism-corroborated:
+>   `[CLI] OnRep_SkinColor fired` → `preexisting mat=MI_<team>_Body` (baked team MI,
+>   never default) → MID CREATED — i.e. `SkinColor` (DOREPLIFETIME, no-COND) arrived
+>   in the late client's INITIAL replication bunch, OnRep fired, styled it.
+>   HONESTY NUANCE (keep it — do NOT overclaim as equal to Race B): the log's `[CLI]`
+>   tag is not client-world-isolated, so the OnRep lines aren't surgically proven to
+>   be the joiner's world vs the pre-existing client; the live read carries that. So
+>   this is a real WATCHED late-join (doctrine bar met: operator saw it green + every
+>   world read styled) but slightly less surgical than Race B's timestamped out-of-
+>   order lag run. The skin pillar is now FULLY PROVEN (convergence + Race A + Race B
+>   under-lag-watched + Race C late-join-watched + tag-reparent anim survival).
 
 ### The non-negotiable architecture: COMPOSITION, never subclass
 
