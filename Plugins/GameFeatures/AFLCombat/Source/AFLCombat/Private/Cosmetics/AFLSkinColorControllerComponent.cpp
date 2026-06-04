@@ -2,6 +2,7 @@
 
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
 
+#include "Cosmetics/AFLSkinColorAsset.h"
 #include "Cosmetics/AFLSkinColorComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
@@ -55,6 +56,13 @@ void UAFLSkinColorControllerComponent::PushToPawn(APawn* Pawn) const
 {
 	if (Pawn)
 	{
+		if (AFLSkinDiag::IsOn())
+		{
+			UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : PushToPawn persistent=%s"),
+				*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
+				PersistentSkinColor ? *PersistentSkinColor->GetName() : TEXT("null"));
+		}
+
 		if (UAFLSkinColorComponent* PawnComp = Pawn->FindComponentByClass<UAFLSkinColorComponent>())
 		{
 			// Authority -> sets the replicated SkinColor -> all clients re-apply via OnRep (PATH 2) +

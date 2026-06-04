@@ -8,6 +8,21 @@
 
 class UAFLSkinColorAsset;
 
+// Skin-color race diagnostics (cvar-gated `afl.SkinDiag`, OFF by default). Shared by the part actor,
+// the pawn component, and the controller component so all log lines share one category + format. Defined
+// in AFLSkinColorComponent.cpp. This is a PERMANENT diagnostic, not temp scaffolding -- it is inert (zero
+// log output) unless `afl.SkinDiag 1` is set, so it does not affect shipping or normal PIE.
+AFLCOMBAT_API DECLARE_LOG_CATEGORY_EXTERN(LogAFLSkinDiag, Log, All);
+
+namespace AFLSkinDiag
+{
+	/** True when `afl.SkinDiag` > 0 (game thread). Gate every diagnostic block on this. */
+	AFLCOMBAT_API bool IsOn();
+
+	/** Shared line prefix: "[SkinDiag][SRV|CLI][f=<GFrameCounter>] " resolved from WorldContext's net mode. */
+	AFLCOMBAT_API FString Prefix(const UObject* WorldContext);
+}
+
 /**
  * Pawn-side replicated COLOR selection for the robot skin (L5, Option F composition).
  *

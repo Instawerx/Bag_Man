@@ -49,15 +49,26 @@ upstream merge from Epic. Don't do it.
 >   **Race B** mark destroy+respawn → every respawned part is a self-colored MID on
 >   every world (bidirectional); **animation** (`ABP_Mannequin_CopyPose` active, not
 >   T-posed → the tag-reparent fix works).
+> - **Race B remote default-material flash — WATCHED-PROVEN under lag** (2026-06-04,
+>   cvar-gated `afl.SkinDiag` instrument): listen-server + 2-client, `Net PktLag=120`
+>   confirmed-active-before-the-kills, **8 player respawns** out-of-order (SRV→CLI
+>   spread ~134ms avg). Operator WATCHED the remote: NO unstyled/grey frame on any
+>   respawn. Corroborated by the diag log — every respawn's *first* client touch read
+>   `preexisting mat=MI_<team>_Body` (the BAKED team MI), NEVER a default/WorldGrid.
+>   Mechanism confirmed: the part's mesh + base team MI are baked into the BP SCS
+>   (present pre-BeginPlay), so the pre-MID material is always the team MI → worst
+>   case is base-team-color for a sub-frame, then the glow MID overlays; structurally
+>   no grey frame is possible. NOTE: which PATH catches the respawn flips with timing
+>   — in-order, PATH 2 (OnRep) fires first; under lag, PATH 1 (BeginPlay, color
+>   already present) fires first. Both load-bearing; converges either way.
 > - **ARGUED, not watched-clean** (state honestly; do NOT teach as fully proven):
 >   **Race C late-join** = architecture argument + a single live operator
 >   observation, NOT an isolated join-in-progress test (standard 2-client PIE joins
->   at start). **Race B's remote default-material flash** = mechanism-confirmed
->   (respawned part is a self-colored MID, so PATH 1 should preclude a grey frame)
->   but the remote client was not instrumented/watched for the one-frame flash
->   specifically. Both are sound by construction; neither is watched-clean. Close
->   them in a future dedicated-server + late-connect session before claiming
->   "fully wire-proven incl. late-join."
+>   at start; a true late join needs standalone-client `open 127.0.0.1` into a
+>   listen-server). `SkinColor` is DOREPLIFETIME no-COND so it fires OnRep on a late
+>   client's initial bunch (architecture supports it), but it is not yet watched.
+>   Close it in a future standalone-late-connect session before claiming "fully
+>   wire-proven incl. late-join."
 
 ### The non-negotiable architecture: COMPOSITION, never subclass
 
