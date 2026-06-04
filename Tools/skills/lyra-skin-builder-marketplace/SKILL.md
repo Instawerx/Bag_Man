@@ -143,6 +143,37 @@ not be T-posed.
   `.remove_all_character_parts()` + `.add_character_part(FLyraCharacterPart{part_class=...})`;
   every respawned part must be a self-colored MID (not default grey) on every world.
 
+### Logo / emissive-mask texture spec (so masks never regenerate washed)
+
+The chest-logo mask (and any mask `MF_logo`-style consumes) is a **luminance pass-through**:
+the mask value = how much `EmissiveColor` passes (RGB discarded, recolored in-engine). So the
+mask's own hue is irrelevant; only its grayscale VALUE distribution matters. Constraints that
+cost real cycles when violated (measured BagMan 2026-06-04):
+
+- **Glyph body must reach near-white** (byte-space `top13_mean` ~0.8–0.9; reference
+  `T_UE_Logo_V2` = 0.96 / median 1.0). A **mid-grey** glyph (measured 0.47 washed) passes only
+  ~half the emissive → reads DIM at all viewpoints regardless of `EmissiveStrength` (even 5.0).
+  The fix that worked lifted the corrected masks to ~0.51–0.78.
+- **Floor stays 0.0** (true black off-glyph). The washout was NOT a lifted floor (floors were
+  already 0.0) — it was the glyph body, so re-flooring does nothing. Measure floor AND glyph
+  separately; don't assume.
+- **Generate via max-channel (HSV value) or shape-extraction, NOT Rec.709 luma.** Rec.709
+  (0.21R+0.72G+0.07B) structurally DARKENS red (and blue) sources → red logos come out dimmest
+  (measured: the two red teams were the lowest, 0.51/0.57). Since the mask is recolored
+  in-engine, source hue is irrelevant — take the brightest channel / the letterform shape.
+- **Letterform-forward:** suppress a saturated backdrop (plasma/smoke) via saturation-weighting
+  so the desaturated chrome letterform dominates; target lit coverage ~13% like `T_UE_Logo_V2`.
+- **Import settings (load-bearing):** `sRGB=false` (a mask read as sRGB shifts brightness),
+  `TC_GRAYSCALE`, `TMGS_BLUR5`, power-of-2. Reimport-in-place (`AssetImportTask`,
+  `replace_existing=True`, `replace_existing_settings=False`) preserves GUID/path/settings so
+  every consuming MI's by-path reference flows through automatically — do NOT create a new asset.
+- **VERDICT TOOL:** measure the PNG's **raw bytes** (system Python+PIL `top13_mean` max-channel,
+  0–1 byte space) — NOT UE's `GeometryScript` texture sampler, whose color management read
+  sRGB-backwards and is unreliable for absolute brightness. AND get the operator's EYE in PIE:
+  perceived brightness is co-driven by the emissive COLOR (pink/purple bloom brighter than
+  green/red at equal mask value), so the byte number is necessary-not-sufficient — red emissive
+  reads darkest even at a good mask value.
+
 ---
 
 ## The 5 Reskin Levels — Pick Before You Start
