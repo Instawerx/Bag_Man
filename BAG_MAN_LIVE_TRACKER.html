@@ -40,7 +40,13 @@
     font-size: 13px;
     line-height: 1.5;
     min-height: 100vh;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;          /* guard: no child may stretch the page sideways */
   }
+  /* Any long token (a CosmeticId, a path, a commit-ref string) wraps instead of
+     forcing horizontal scroll. Applies tracker-wide. */
+  code, .amendments-body, .amendments-banner-tag { overflow-wrap: anywhere; word-break: break-word; }
 
   /* Background grid + atmosphere */
   body::before {
@@ -169,9 +175,11 @@
     font-size: 12px;
     color: var(--text);
     display: flex;
-    align-items: center;
+    flex-direction: column;      /* stack tag / body / toggle so none forces page width */
+    align-items: center;         /* center the column */
     gap: 14px;
     position: relative;
+    text-align: center;          /* center the header + notes text (operator request) */
   }
   .amendments-banner.collapsed .amendments-body { display: none; }
   .amendments-banner-tag {
@@ -180,10 +188,11 @@
     padding: 3px 8px;
     font-weight: 700;
     letter-spacing: 0.08em;
-    flex-shrink: 0;
-    align-self: flex-start;
+    min-width: 0;                /* allow the long tag to wrap, not stretch the page */
+    max-width: 100%;
+    align-self: center;
   }
-  .amendments-body { flex: 1; line-height: 1.6; }
+  .amendments-body { width: 100%; max-width: 100%; min-width: 0; line-height: 1.6; }
   .amendments-body strong { color: var(--cyan); }
   .amendments-body code {
     background: rgba(0,240,255,0.08);
@@ -202,7 +211,7 @@
     font-size: 11px;
     letter-spacing: 0.06em;
     flex-shrink: 0;
-    align-self: flex-start;
+    align-self: center;
   }
   .amendments-toggle:hover { color: var(--cyan); border-color: var(--cyan); }
 
@@ -850,7 +859,7 @@
 
   <!-- CURRENT STATE banner. Rewritten in place each reconcile -- git carries history, this banner carries current state, the task rows carry the durable record. NO version bumps. -->
   <div class="amendments-banner" id="amendmentsBanner">
-    <span class="amendments-banner-tag">CURRENT STATE · HEAD 9e4ceb5c · #41 cosmetic metadata DONE (4067c8f6) · #38a PER-ROBOT BRAND→EDGE DEFAULT PROVEN (9e4ceb5c — eye+log, runtime-swap re-resolve via part-arrival hook, SCARLETT edge=NeonPink / MAKHIAVELLI edge=NeonBlue) · ROBOT SKINS FULLY PROVEN (convergence + Race A + Race B under-lag + Race C late-join, all watched) · FIRING LAYER PROVEN ACROSS THE WIRE (2-client, 5127dc35) · Beam_v2 is the canonical loadout beam · COSMETIC ECONOMY arc designed (see Design view); NEXT = #43 selection seam</span>
+    <span class="amendments-banner-tag">CURRENT STATE · HEAD 69484ead · GOVERNING PLAN = the 8-pillar ECOSYSTEM MAP (whole-project → see Ecosystem view); the P0–P5 week-sprints reorganize UNDER the pillars (dependency-order) · #41 cosmetic metadata DONE (4067c8f6) · #38a PER-ROBOT BRAND→EDGE DEFAULT PROVEN (9e4ceb5c — eye+log, runtime-swap re-resolve via part-arrival hook, SCARLETT edge=NeonPink / MAKHIAVELLI edge=NeonBlue) · COSMETIC ECONOMY arc designed (see Design view) · ROBOT SKINS FULLY PROVEN (convergence + Race A + Race B under-lag + Race C late-join, all watched) · FIRING LAYER PROVEN ACROSS THE WIRE (2-client, 5127dc35) · Beam_v2 is the canonical loadout beam · NEXT BUILD = #43 selection seam → then P-CONTROLS</span>
     <div class="amendments-body">
       <strong>THIS SESSION (2026-06-04) — RACE-SAFE RUNTIME ROBOT-SKIN COLOR (L5 composition), on <code>origin/main</code> HEAD <code>f8088ebe</code> (verified local==origin by hash, not push output).</strong> Robot Skins pillar TOOLED→<strong>PROVEN-WITH-GAPS</strong>. Skin = THREE independent axes: <strong>mark × body-color (<code>TeamColor</code>, from base team MI) × edge-color (Emissive/<code>EdgeGlow</code>, from a glow-only <code>UAFLSkinColorAsset</code> preset)</strong> — any robot wears any edge color, live + replicated. Architecture = <strong>COMPOSITION, never subclass</strong> (Lyra's CharacterParts/team classes are module-private → a subclass fails to LINK; 4 standalone <code>AFLCOMBAT_API</code> classes observe the spawned parts + apply via engine-only calls, zero unexported-Lyra, zero reflection). Tag-reparent fix: part base implements <code>IGameplayTagAssetInterface</code> w/ <code>StaticGameplayTags</code> name-match so robots keep <code>Cosmetic.*</code> anim/body tags (else T-pose).
       <br>
@@ -954,6 +963,12 @@
         <button class="nav-tab" data-view="design">
           <span class="nav-tab-icon">▸</span> Design
         </button>
+        <button class="nav-tab" data-view="ecosystem">
+          <span class="nav-tab-icon">▸</span> Ecosystem
+        </button>
+        <button class="nav-tab" data-view="pillars">
+          <span class="nav-tab-icon">★</span> Pillars
+        </button>
       </div>
       <div class="nav-section-title">Phases</div>
       <div class="phase-list" id="phaseList"></div>
@@ -1041,7 +1056,7 @@ const PHASES = [
   {
     id: 'P1', title: 'THE FUN TEST', weeks: 'W1–W12',
     goal: 'A 4-player local-network match where movement and laser combat feel AAA. If this isn\'t fun, nothing else matters.',
-    sprints: ['S1','S2','S3','S4','S5','S6'],
+    sprints: ['S1','S2','S3','S4','S5','S6','STEP-0','STEP-0-NET','STEP-0-SKIN','S-ECON'],
     entryGate: [
       'Lyra Starter Game cloned, builds clean on Win64 Development',
       'GitHub repo + Git LFS configured, GitHub Actions CI green on empty PR',
@@ -1066,7 +1081,7 @@ const PHASES = [
   {
     id: 'P2', title: 'CORE GAME LOOP', weeks: 'W13–W20',
     goal: 'The retention loop. Players fight → drop energy → collect → risk extraction → cash out. The "one more match" engine.',
-    sprints: ['S7','S8','S9','S10'],
+    sprints: ['S7','S8','S9','S10','S-SCORE'],
     entryGate: ['Phase 1 exit gate signed off by Studio Lead'],
     exitGate: [
       'Energy drops on overload, magnetically attracts to players, accumulates correctly',
@@ -1298,7 +1313,35 @@ const SPRINTS = [
       {id:'BM-NET-DEATH', title:'✅ player death via the PawnExt-fallback path. ▸ CLOSED 9c29c4a7 — UAFLDeathComponent granted to B_Hero_BagMan (experience-side AddComponents, pawn-target). The investigation found the gap: the player NEVER received UAFLDeathComponent — the dummy gets it via its own C++ ctor subobject (a path the player can\'t share), and no experience/PawnData/GameFeature grant placed it on the player, so the player\'s AFL OnOutOfHealth fired into listeners=0 (proven on a live pawn in Phase 0). Fix = one ComponentList entry on B_Experience_BagMan\'s GameFeatureAction_AddComponents granting the component to B_Hero_BagMan SPECIFICALLY (NOT LyraCharacter — shared base would double-grant the proven dummy; AAFLTargetDummy is a sibling under ALyraCharacter), both bClient/bServer true. No C++ — the binding was already correct by construction (direct-ASC first, PawnExt fallback for the PlayerState-owned player ASC). PIE-watched 2-client listen-server: listeners flipped 0→1, the PawnExt branch bound, HandleAFLOutOfHealth drove StartDeath off REAL p-vs-p Pulse damage (B_Hero_BagMan_C_0 → _C_1, hit_confirmed damage=18), the killed pawn FROZE (ALyraCharacter::OnDeathStarted DisableMovementAndCollision — no ragdoll on the AFL path yet) + the HOST saw the client\'s proxy go down (the replication rung, the half a single client can\'t prove) + destroyed ~2s later (bDestroyOnDeathFinish=true CDO default, expected). Dummy-control-matched in the same run. ✅ = watched on screen, replicated — this one earned it.', d:'eng', e:'M'},
       {id:'BM-NET-REARM', title:'✅ death re-arm on revive — abilities/weapon re-granted + controllable after respawn. ▸ CLOSED with BM-NET-REARM-BRIDGE (4072b615): the bridge closing closes this — once respawn returns a fully combat-functional hero, re-arm is inherent. PIE-watched 2-client: respawned hero is ARMED (PulseCarbine) + MOVE_WALKING + controllable + inventory==2; the AFL death component re-binds OnOutOfHealth on each fresh pawn (OnAbilitySystemReady fired → death armed), and the player can be killed AGAIN and respawn AGAIN (multiple cycles watched). The bind-race risk (G) did NOT bite. See BM-NET-REARM-BRIDGE for the root cause + fix.', d:'eng', e:'S'},
       {id:'BM-NET-REARM-BRIDGE', title:'✅ AFL death ignites Lyra respawn — respawn returns an ARMED, controllable hero. ▸ CLOSED 4072b615 — respawn returns an armed, controllable hero. Root cause was bDestroyOnDeathFinish=true (AFL destroying the pawn at FinishDeath left the controller-side quickbar/inventory stale → on respawn AddInitialInventory hit the occupied-slot guard so the weapon was never re-equipped → AnimBP T-pose, AND the controller inventory accumulated a 2nd loadout copy = 4 items). The INVESTIGATION overturned the original premise: respawn does NOT need GameplayEvent.Death — GA_AutoRespawn drives off ULyraHealthComponent::OnDeathStarted, which AFL\'s StartDeath already fires; the real gap was GA_AutoRespawn never being granted. Fix (the deferred V2 polarity flip, brought forward as the ROOT fix for BOTH bugs): CDO default bDestroyOnDeathFinish → false (player yields teardown to Lyra\'s death→respawn flow GA_AutoRespawn + ALyraCharacter::UninitAndDestroy, so controller-side quickbar/inventory tear down coherently); the DUMMY opts back into true in its ctor (self-destruct preserved); + grant GA_AutoRespawn to LyraPlayerState via a wrapper ability set (proven GrantedAbilitySets shape). PIE-watched 2-client (all five on live data): Rung A (dummy gate) — killed dummy self-destructs + vanishes, does NOT respawn, proven death path intact; Rung B — respawned hero ARMED (PulseCarbine attached) + MOVE_WALKING (no T-pose) + controllable + inventory==2 (double-grant gone). The re-equip bug WAS the V2 polarity problem. ▸ V2 POLARITY FLIP CONSUMED HERE — bDestroyOnDeathFinish=false is no longer a deferred future layer; it landed as this root fix. The death-VISUAL half of V2 (GameplayEvent.Death → GA_Death camera/cue + the "Trashed" elimination feed) is STILL deferred and STILL separate (⏸).', d:'eng', e:'M'},
-      {id:'BM-NET-POSEBEND', title:'⏸ PARKED — slight shooter-pose bend on the OWNER\'s 3rd-person screen: the tracer/beam START (muzzle) vs. the crosshair line don\'t perfectly converge because the character\'s aim pose angles the weapon barrel relative to the sight. DEFERRED, NOT a regression — it affects BOTH Pulse and Beam_v2 EQUALLY (a sight-vs-barrel reticle/convergence matter, not a per-weapon bug), and it does not affect the proxy view or gameplay/hit (the trace is camera-aligned and correct). For a dedicated reticle/convergence pass; do not treat as a pending todo or a bug.', d:'design', e:'M'}
+      {id:'BM-NET-POSEBEND', title:'⏸ PARKED — slight shooter-pose bend on the OWNER\'s 3rd-person screen: the tracer/beam START (muzzle) vs. the crosshair line don\'t perfectly converge because the character\'s aim pose angles the weapon barrel relative to the sight. DEFERRED, NOT a regression — it affects BOTH Pulse and Beam_v2 EQUALLY (a sight-vs-barrel reticle/convergence matter, not a per-weapon bug), and it does not affect the proxy view or gameplay/hit (the trace is camera-aligned and correct). For a dedicated reticle/convergence pass; do not treat as a pending todo or a bug.', d:'design', e:'M'},
+      {id:'#42', title:'⏸ PARKED — Beam VFX render-thread shader crash: EXCEPTION_ACCESS_VIOLATION in SetShaderMapsOnMaterialResources_RenderThread, observed when a Beam fired → NS_AFL_Laser_Basic Niagara compile under lag emulation + rapid fire. NOT skin/diag; likely an incidental shader-compile hitch. Banked, not diagnosed. Keep the Beam holstered during skin watches. Process lesson banked: the agent does NOT issue MCP into a LIVE PIE session (twice-confirmed crash) — watch console is operator-typed, agent reads Saved/Logs after.', d:'eng', e:'M'}
+    ]},
+
+  // ===== STEP-0 SKIN — robot-skin identity pillar, PIE-proven (P-IDENTITY) =====
+  { id:'STEP-0-SKIN', phase:'P1', weeks:'PROVEN (2026-06-04)', title:'Step-0 Robot-Skin Identity — race-safe runtime skin color, PIE-proven across the wire',
+    goal:'The P-IDENTITY pillar, demonstrated. Skin = THREE independent axes (mark × body-color from base team MI × edge-color from a glow-only UAFLSkinColorAsset preset) via COMPOSITION (Lyra CharacterParts/team classes are module-private → 4 standalone AFLCOMBAT_API classes observe the spawned parts + apply via engine-only calls; zero unexported-Lyra, zero reflection). Watched on a controllable pawn, replicated. See the Design view (cosmetic economy) + Ecosystem view (P-IDENTITY pillar).',
+    tasks:[
+      {id:'#41', title:'✅ Cosmetic metadata + edge-preset rename (4067c8f6) — UAFLSkinColorAsset gained the economy-metadata bricks (CosmeticId AFL.<Axis>.<Color> immutable, DisplayName, Rarity, CollectionId, Axis, Version); the 5 glow-only edge presets renamed to DA_AFL_Edge_Neon* (auto-ref-update, no redirector); robot Red→IRONICS. The first brick of the catalog (per the Design view).', d:'eng', e:'M'},
+      {id:'#38a', title:'✅ Per-robot brand-default edge resolution PROVEN (9e4ceb5c) — eye+log, 2-client listen-server. UAFLBrandEdgeMap (Cosmetic.Brand.* tag → edge preset) + controller ResolveBrandTag (reads the brand tag off the part via the existing IGameplayTagAssetInterface) + RefreshSkinForPawn (single resolve+push body) on the proven SetSkinColor path (propagation UNCHANGED). A runtime ReplaceCharacterPart swap re-resolves via the part-arrival hook in AAFLCharacterPartActor::BeginPlay (authority-only, no re-possess). FALSE POSITIVE caught + fixed: the first watch showed baked MI colors masquerading as resolution (SCARLETT applied NeonPurple, ARIA\'s stale value) — the afl.SkinDiag instrument exposed it; the part-arrival hook is the real fix. PROOF: SCARLETT edge=NeonPink (body Purple) + MAKHIAVELLI edge=NeonBlue (body Green), resolve=HIT (not fallback), [SRV]+[CLI]. Two diff brands → two diff non-fallback edges, each independent of its baked body = a baked MI cannot fake it. The Team case of identity-default resolution (Character-default is its sibling — see Design view).', d:'eng', e:'L'},
+      {id:'SKIN-RACE', title:'✅ Robot-skin race-safety FULLY PROVEN (f8088ebe) — WATCHED across listen-server + 2 clients (3 PIE worlds). Convergence 9/9. Race A (color changed on SERVER world only → both clients converged via replication — isolated). Race B (mark destroy+respawn → every respawned part a self-colored MID, bidirectional) — WATCHED-PROVEN UNDER LAG (08fdb2f2, cvar-gated afl.SkinDiag): Net PktLag=120 confirmed-before-kills, 8 player respawns out-of-order (~134ms SRV→CLI), operator saw NO unstyled/grey frame; log: every respawn\'s first client touch = preexisting mat=MI_<team>_Body, NEVER default. PATH ordering flips with timing (in-order: OnRep first; lag: BeginPlay first — both load-bearing). Race C late-join (2026-06-04) — genuine join-in-progress, late client rendered pre-existing pawns in full correct REPLICATED state (Purple edge-glow reached the joiner, 18/18 styled MIDs, 0 unstyled). Animation: ABP_Mannequin_CopyPose active, not T-posed (tag-reparent fix: part base implements IGameplayTagAssetInterface w/ StaticGameplayTags name-match so robots keep Cosmetic.* anim/body tags). HONESTY NUANCE (kept): the log\'s [CLI] tag isn\'t client-world-isolated, so the LIVE read (not the log) is what proves the joiner\'s world specifically — a real watched late-join, slightly less surgical than Race B\'s timestamped lag run.', d:'eng', e:'XL'},
+      {id:'SKIN-DEBT-LIMBS', title:'⏸ low-pri tidy — limbs MIs use a different base recipe (Manny_01 + metallic/carbon) vs bodies (Manny_02 + matte + logo). VISUAL verdict 2026-06-04 = acceptable / not two-tone. Normalize at commit-prep, not a blocker.', d:'art', e:'S'}
+    ]},
+
+  // ===== S-ECON — P-ECONOMY build cluster (the selection seam + what follows) =====
+  { id:'S-ECON', phase:'P1', weeks:'NEXT (dependency step 1)', title:'Cosmetic Economy — selection seam → catalog → wallet (P-ECONOMY)',
+    goal:'The P-ECONOMY build cluster, dependency step 1 of the locked spine. Design canonical in the Design view (catalog keystone, Watts/Volts dual currency, IRONICS Bank/Hyperledger/Bolts gated, no-cash-out invariant). Each piece proven (PIE-watched) before the next.',
+    tasks:[
+      {id:'#43', title:'▶ NEXT BUILD (in-flight) — selection / loadout seam. The server-authoritative route the store/wallet write to and spawn reads from: PlayerState-held replicated cosmetic selection = an identity slot (Team OR Character, resolved by type at spawn) + per-axis cosmetic CosmeticIds (edge/body/helmet/weapon/beam); server RPC ServerSetCosmeticSelection (authority-validated, entitlement-gated — permissive now, paid cosmetics slot in later); spawn-time read feeds the proven SetSkinColor/equip path. SUPERSEDES the prototype B_BagMan_AssignCharacterPart selector (the dev cheat becomes a thin caller of the real RPC — exercises the genuine path). Change-timing: editable pre-match + out-of-match (wallet/Player Dash), LOCKED in-match. Design pass → build → PIE-prove. See the Design view (cosmetic economy) + Ecosystem view (governing plan, build-sequence step 1).', d:'eng', e:'L'},
+      {id:'S-ECON-CAT', title:'◻ Catalog system (dependency step 3) — generalize the taxonomy (EAFLCosmeticType: SkinColor_Edge/Body, Helmet, Weapon, Beam, + Team/Character identity types) + the central curated manifest (Price, CurrencyType, AcquisitionMethod, availability). The Helmet + Weapon-accessory (Lyra grenade → IRONICS EMP) taxonomy gap closes here. Soft refs + AssetManager primary-asset rules for cook. Design in the Design view.', d:'eng', e:'L'},
+      {id:'S-ECON-WALLET', title:'◻ Wallet / currency + Phone hub (dependency step 6) — Watts/Volts dual-denomination (global currency, peg $1=1,000 Volts=10,000 Watts, integer not float), server-authoritative balances + ownership record, entitlement gate reads it; persistence stub behind the real interface (PlayFab Phase 3). Phone-as-hub scope decision lands here. Bank/Hyperledger/Bolts = GATED, legal sign-off (see Design GATE card; no-cash-out invariant). Design in the Design view.', d:'eng', e:'XL'},
+      {id:'S-ECON-STORE', title:'◻ 3D showroom / store (dependency step 9) — portable Level Instance submap; data-driven pedestals spawn from catalog entries (never hand-placed); lives as a ZONE inside the P-HUB; consumes catalog+wallet+selection; built late. NOTE: cross-links the legacy S21 store tasks (AFL-2101/2104/2105/2106/2107) — those task strings stay in S21 (the durable record), grouped here by the pillar lens.', d:'eng', e:'L'}
+    ]},
+
+  // ===== P-SCORING — the progression spine (design pass populates; existing scoring tasks cross-linked) =====
+  { id:'S-SCORE', phase:'P2', weeks:'design pass needed (dependency step 5)', title:'Scoring — progression spine (P-SCORING, design-then-build)',
+    goal:'The P-SCORING pillar, dependency step 5 (after P-LOOP). A design pass populates it; the existing scattered scoring tasks stay where they live and are cross-linked here by the pillar lens, NOT moved. See the Ecosystem view P-SCORING card.',
+    tasks:[
+      {id:'S-SCORE-DESIGN', title:'◻ P-SCORING design pass → build. Multi-arc points (per-match / day / week / month / lifetime) × dual-subject (individual + team); scored events = kills, assists, saves/reboosts (energy grants — depends on P-LOOP), loot + extraction success, zone control, multikill/streak, first-blood, clutch, survival time, team-play multipliers. Principles: reward VARIETY of play (support/objective viable, not kill-only meta), short-arc feedback + long-arc goals, team points create social stakes, server-authoritative event validation (G4 — a client cannot mint a kill/reboost), ranking derives FROM points or a hybrid (open). Data model = server-authoritative replayable event STREAM (not opaque counters) so Replay/killcam (G6) + anti-cheat (G4) consume it. CROSS-LINKS (not moved — the strings live in their sprints): S9 AFL-0904 (match HUD scoreboard) / AFL-0905 (end-of-match summary, MVP); S22 AFL-2201..2206 (MMR Glicko-2, season reset, ranked rewards, progression dashboard, ranked matchmaking, anti-throw detection).', d:'design', e:'XL'}
     ]},
 
   // ===== PHASE 2 =====
@@ -1445,8 +1488,8 @@ const SPRINTS = [
       {id:'AFL-1808', title:'Weapon #6–#9 Niagara systems', d:'vfx', e:'L'},
       {id:'AFL-1809', title:'Audio for new weapons + maps', d:'audio', e:'L'}
     ]},
-  { id:'S19', phase:'P4', weeks:'W37–W38', title:'Social Lounge + Mini-Games',
-    goal:'Lounge map. Spectator. Mini-games. Betting tokens. Retention engine.',
+  { id:'S19', phase:'P4', weeks:'W37–W38', title:'P-HUB — Social Lobby World TENTPOLE (was "Social Lounge + Mini-Games" — RE-SCOPED)',
+    goal:'⚠ SCOPE FLAG: this is the P-HUB tentpole (the IRONICS destination — ONE seamless social world: casino-sportsbook / resort-pool / day-night-club, zones streamed over separate backends), NOT a 2-week lounge. Massively under-scoped at W37–W38. Full re-sequencing under the pillar reorg (Stage B); the tasks below are real surfaces that LIVE INSIDE the hub (spectator/sportsbook zone, mini-game surfaces, betting tokens = non-monetary cosmetic-XP). See the Ecosystem view → P-HUB card for the architecture (streaming-within / experience-travel-at-hub↔match seam rule, instance-aware-now / shard-at-P3).',
     tasks:[
       {id:'AFL-1901', title:'AFLLounge plugin', d:'eng', e:'M'},
       {id:'AFL-1902', title:'Lounge map with spectator walls (live match feed)', d:'art', e:'XL'},
@@ -1515,6 +1558,118 @@ const SPRINTS = [
       {id:'AFL-2406', title:'Launch trailer final cut delivered', d:'art', e:'L'},
       {id:'AFL-2407', title:'🚀 LAUNCH', d:'design', e:'M'}
     ]}
+];
+
+// ---------------- PILLARS (the GOVERNING grouping — a LENS over SPRINTS[], not a copy) ----------------
+// Each pillar REFERENCES existing sprint/task ids; it never restates task text. The durable record
+// lives in SPRINTS[] (untouched). `whole` = whole sprints grouped here. `picks` = specific task ids
+// pulled from a shared sprint (e.g. dash tasks inside S3). `xlinks` = cross-link notes (text only —
+// the referenced tasks stay where they live). renderPillarView() resolves these against SPRINTS[]
+// and renders each via renderTaskRow() so checkbox/localStorage state is shared.
+const PILLARS = [
+  { id:'P-COMBAT', tone:'green', state:'PROVEN', label:'Laser/beam weapons, damage, death/respawn',
+    whole:['S1','S2','STEP-0','STEP-0-NET'],
+    picks:[{sprint:'S4', label:'Dismemberment (signature feature)', ids:['AFL-0401','AFL-0402','AFL-0403','AFL-0404','AFL-0405','AFL-0406','AFL-0407','AFL-0408','AFL-0409','AFL-0410','AFL-0411']},
+           {sprint:'S15', label:'Weapons #4–#5', ids:['AFL-1501','AFL-1502','AFL-1503','AFL-1504','AFL-1505','AFL-1506','AFL-1507','AFL-1508']},
+           {sprint:'S13', label:'Weapon #3', ids:['AFL-1308']},
+           {sprint:'S18', label:'Weapons #6–#9', ids:['AFL-1804','AFL-1805','AFL-1806','AFL-1807','AFL-1808']},
+           {sprint:'S20', label:'Weapons #10–#12 + balance', ids:['AFL-2003','AFL-2004','AFL-2005','AFL-2006']}],
+    xlinks:['#42 Beam render-thread crash lives PARKED in STEP-0-NET (the durable record).'] },
+
+  { id:'P-IDENTITY', tone:'magenta', state:'PROVEN', label:'Skins, brand/Team, Character, edge/body color',
+    whole:['STEP-0-SKIN'],
+    picks:[{sprint:'S16', label:'Skin content (foundation already proven)', ids:['AFL-1604','AFL-1605','AFL-1606','AFL-1607']},
+           {sprint:'S20', label:'Launch skins', ids:['AFL-2007']}],
+    xlinks:['Identity-default look: #38a is the Team case; Character-default is its sibling (Design view).'] },
+
+  { id:'P-ECONOMY', tone:'magenta', state:'FRAMED · NEXT', label:'Catalog, currency, wallet, store, bank',
+    whole:['S-ECON'],
+    picks:[{sprint:'S13', label:'Authoritative inventory/currency + anti-tamper', ids:['AFL-1303','AFL-1305','AFL-1306']},
+           {sprint:'S21', label:'Store / Battle Pass / IAP', ids:['AFL-2101','AFL-2102','AFL-2103','AFL-2104','AFL-2105','AFL-2106','AFL-2107']}],
+    xlinks:['Design view = the P-ECONOMY design SSOT (catalog, Watts/Volts, Bank/GATE, no-cash-out).',
+            'Battle Pass (AFL-2102/2103) is P-ECONOMY, cross-linked to P-SCORING.',
+            'Energy→currency (AFL-0805/0808) owned by P-LOOP, cross-linked here.'] },
+
+  { id:'P-CONTROLS', tone:'red', state:'EXPAND (builds on proven S3 dash)', label:'Fight / climb / grab / let-go / dash',
+    whole:[],
+    picks:[{sprint:'S3', label:'Dash + mobility (the proven foundation)', ids:['AFL-0301','AFL-0301a','AFL-0302','AFL-0303','AFL-0304-A','AFL-0304-Aa','AFL-0304-B','AFL-0304-Bi','AFL-0305','AFL-0306','AFL-0307','AFL-0308','AFL-0309']}],
+    xlinks:['Net-new climb/grab/let-go/fight abilities = the EXPAND (no existing tasks yet).'] },
+
+  { id:'P-LOOP', tone:'yellow', state:'DESIGNED', label:'Energy/extraction core: drop→collect→overdrive→extract',
+    whole:['S7','S8','S10'],
+    picks:[],
+    xlinks:['AFL-0805/0808 (energy→MetaCurrency) owned here, cross-linked to P-ECONOMY.',
+            'P-LOOP must precede P-SCORING (energy events are scored events).'] },
+
+  { id:'P-SCORING', tone:'red', state:'DESIGN NEEDED', label:'Multi-arc points + ranking (individual + team)',
+    whole:['S-SCORE'],
+    picks:[],
+    xlinks:['Cross-links (NOT moved — strings live in their sprints): S9 AFL-0904/0905; S22 AFL-2201..2206.',
+            'Data model = server-auth replayable event stream → Replay (G6) + anti-cheat (G4).'] },
+
+  { id:'P-MATCH', tone:'yellow', state:'PARTIAL', label:'Matchmaking, match flow, modes (UCIK/EOS session-lobby)',
+    whole:['S9'],
+    picks:[{sprint:'S11', label:'Backend tentpole + EOS', ids:['AFL-1100','AFL-1101','AFL-1102','AFL-1104','AFL-1106','AFL-1107']},
+           {sprint:'S12', label:'GameLift + matchmaking ticket', ids:['AFL-1203','AFL-1204','AFL-1207']}],
+    xlinks:['Voice/friends/presence (AFL-1103/1105) cross-link to UI/social; EAC (AFL-1208) to anti-cheat.',
+            'The P-HUB matchmaking ZONE is the front-end over this plumbing.'] },
+
+  { id:'P-HUB', tone:'red', state:'NEW (tentpole)', label:'Social Lobby World — the IRONICS destination',
+    whole:['S19'],
+    picks:[],
+    xlinks:['Re-scoped from "Social Lounge" (Stage A). Zones front-end separate backends; SEAM RULE = stream-within / travel-at-hub↔match. See Ecosystem P-HUB card.',
+            'Store zone → P-ECONOMY showroom; matchmaking zone → P-MATCH; sportsbook → Replay/spectator.'] },
+
+  { id:'P-MAPS', tone:'red', state:'LAST', label:'Arenas / play maps',
+    whole:['S5'],
+    picks:[{sprint:'S16', label:'Arena_02', ids:['AFL-1601','AFL-1602','AFL-1603']},
+           {sprint:'S18', label:'Arena_03–04', ids:['AFL-1801','AFL-1802','AFL-1803']},
+           {sprint:'S20', label:'Arena_05–06', ids:['AFL-2001','AFL-2002']}],
+    xlinks:['Operator has map details to add. Arena↔arena looped portals = travel.'] },
+
+  // ---- CROSS-CUTTING lanes (thread under all pillars; not pillars) ----
+  { id:'X-AUDIO', tone:'cyan', state:'cross-cut', label:'Audio — weapon report, hit-confirm, dash doppler, spatial',
+    whole:[], picks:[
+      {sprint:'S2', label:'', ids:['AFL-0205']}, {sprint:'S3', label:'', ids:['AFL-0308']},
+      {sprint:'S4', label:'', ids:['AFL-0407']}, {sprint:'S6', label:'', ids:['AFL-0603']},
+      {sprint:'S8', label:'', ids:['AFL-0807']}, {sprint:'S18', label:'', ids:['AFL-1809']}],
+    xlinks:['Phase-1 fun-test contributor — design alongside P-CONTROLS/P-COMBAT polish.'] },
+
+  { id:'X-ANTICHEAT', tone:'cyan', state:'cross-cut', label:'Anti-cheat / server-authority (G4)',
+    whole:[], picks:[
+      {sprint:'S2', label:'', ids:['AFL-0213']}, {sprint:'S12', label:'', ids:['AFL-1208']},
+      {sprint:'S13', label:'', ids:['AFL-1306','AFL-1307']}, {sprint:'S14', label:'', ids:['AFL-1404']},
+      {sprint:'S22', label:'', ids:['AFL-2206']}],
+    xlinks:['Named WITH P-SCORING (a client cannot mint a kill/reboost).'] },
+
+  { id:'X-UI-PHONE', tone:'cyan', state:'cross-cut', label:'UI/HUD + the Phone hub (G3)',
+    whole:[], picks:[
+      {sprint:'S7', label:'', ids:['AFL-0708']}, {sprint:'S8', label:'', ids:['AFL-0806']},
+      {sprint:'S9', label:'', ids:['AFL-0904']}, {sprint:'S11', label:'', ids:['AFL-1105']},
+      {sprint:'S16', label:'', ids:['AFL-1606']}, {sprint:'S21', label:'', ids:['AFL-2103']},
+      {sprint:'S22', label:'', ids:['AFL-2204']}],
+    xlinks:['The diegetic phone is the WHOLE out-of-match shell (wallet + friends + team + store + loadout + stats). Scope decision at wallet-build (S-ECON-WALLET).'] },
+
+  { id:'X-ONBOARD', tone:'cyan', state:'cross-cut · NET-NEW', label:'Onboarding / NPE (G5)',
+    whole:[], picks:[],
+    xlinks:['No existing tasks — Phase 4+. P-CONTROLS design should consider teachability (grab/climb/fight/extract).'] },
+
+  { id:'X-REPLAY', tone:'cyan', state:'cross-cut', label:'Replay / spectator / killcam (G6)',
+    whole:['S17'], picks:[{sprint:'S19', label:'hub spectator', ids:['AFL-1903']}],
+    xlinks:['Consumes scored events — the P-SCORING data model is designed knowing replay reads it.'] },
+
+  { id:'X-INFRA', tone:'cyan', state:'cross-cut · production substrate', label:'Infra / DevOps / Release',
+    whole:['S0','S14','S23','S24'],
+    picks:[{sprint:'S1', label:'CI', ids:['AFL-0108','AFL-0111']},
+           {sprint:'S2', label:'lint/validators', ids:['AFL-0215','AFL-0217','AFL-0218']},
+           {sprint:'S4', label:'QA matrix', ids:['AFL-0411']},
+           {sprint:'S6', label:'playtest/retro', ids:['AFL-0604','AFL-0605','AFL-0606']},
+           {sprint:'STEP-0', label:'skill/methodology', ids:['SKILL-v1','SKILL-v2','BM-PLUGIN-GRANT-LIFECYCLE','BM-DEBT-001','BM-DEBT-004']},
+           {sprint:'S10', label:'playtest', ids:['AFL-1007']},
+           {sprint:'S12', label:'Linux/Docker/server', ids:['AFL-1201','AFL-1202','AFL-1205','AFL-1206']},
+           {sprint:'S13', label:'GameLift infra', ids:['AFL-1301','AFL-1302','AFL-1304']},
+           {sprint:'S14', label:'stress/bandwidth/relevancy/analytics/failover', ids:['AFL-1401','AFL-1402','AFL-1403','AFL-1405','AFL-1406','AFL-1407']}],
+    xlinks:['LOCKED (A7): a cross-cut lane holding ALL non-gameplay production substrate — NOT a 9th pillar. AFL-COMBAT-HYG-001/002 + S0 environment also live here (whole S0).'] }
 ];
 
 // ---------------- STATE ----------------
@@ -1720,6 +1875,8 @@ function renderContent() {
   else if (state.currentView === 'gates') area.innerHTML = renderGatesView();
   else if (state.currentView === 'all') area.innerHTML = renderAllSprintsView();
   else if (state.currentView === 'design') area.innerHTML = renderDesignView();
+  else if (state.currentView === 'ecosystem') area.innerHTML = renderEcosystemView();
+  else if (state.currentView === 'pillars') area.innerHTML = renderPillarView();
   attachContentHandlers();
 }
 
@@ -1913,11 +2070,222 @@ function renderDesignView() {
     <div class="content-header">
       <div class="breadcrumb"><span>Design</span><span>Cosmetic Economy</span></div>
       <h2 class="content-title">COSMETIC ECONOMY &amp; 3D STORE <span style="color:var(--text-mute);font-size:14px;font-weight:400;">· design SSOT · spans P1→P3</span></h2>
-      <p class="content-goal">Approved decisions locked, not yet executed. The doc defines the <strong>seams</strong> so each piece is buildable in its right phase without re-architecture; Phase-3 backend (PlayFab) is <strong>stubbed now, real impl Phase 3</strong>. Validation doctrine unchanged: ✅ = watched in PIE; server-authoritative for ownership/currency/entitlement; one catalog, many readers; one layer proven before the next.</p>
+      <p class="content-goal">Approved decisions locked, not yet executed. The doc defines the <strong>seams</strong> so each piece is buildable in its right phase without re-architecture; Phase-3 backend (PlayFab) is <strong>stubbed now, real impl Phase 3</strong>. Validation doctrine unchanged: ✅ = watched in PIE; server-authoritative for ownership/currency/entitlement; one catalog, many readers; one layer proven before the next. <span style="color:var(--text-dim);">— this is the P-ECONOMY pillar; whole-project shape →</span> <strong style="color:var(--cyan);">Ecosystem view</strong>.</p>
     </div>
     <div class="sprint-grid">
       ${economyCards}
       ${roadmap}
+    </div>
+  `;
+}
+
+/* ECOSYSTEM VIEW — whole-project shape (8 pillars, dependency graph, master build
+   sequence). A different altitude than the Design view (which is the P-ECONOMY arc,
+   deep). Same .content-header + .sprint-card idiom, bodies always-open, pure render.
+   Cross-links the Design view for the economy detail. */
+function renderEcosystemView() {
+  const card = (id, title, tone, bodyHtml) => `
+    <div class="sprint-card" style="border-color:var(--line);">
+      <div class="sprint-card-header" style="cursor:default;border-left:3px solid var(--${tone});">
+        <span class="sprint-id" style="color:var(--${tone});">${id}</span>
+        <div class="sprint-title-block">
+          <span class="sprint-title">${title}</span>
+        </div>
+        <span></span><span></span>
+      </div>
+      <div class="sprint-body" style="display:block;">
+        ${bodyHtml}
+      </div>
+    </div>`;
+
+  // Pillar/sequence row: status glyph in a colored gutter + label + right tag pill.
+  const row = (mark, markColor, label, meta) => `
+    <div class="task-row" style="cursor:default;">
+      <span style="color:var(--${markColor});font-weight:700;width:18px;text-align:center;">${mark}</span>
+      <span class="task-title" style="flex:1;">${label}</span>
+      ${meta ? `<span class="task-estimate" style="background:var(--bg-3);color:var(--text-mute);">${meta}</span>` : '<span></span>'}
+    </div>`;
+
+  const P  = 'margin:0 0 10px;color:var(--text-mute);line-height:1.6;';
+  const LI = 'margin:3px 0;color:var(--text-mute);line-height:1.55;';
+  const UL = 'margin:0 0 6px;padding-left:18px;';
+  const K  = 'color:var(--cyan);';            // systems / seam rule
+  const M  = 'color:var(--magenta);';         // identity / economy
+  const G  = 'color:var(--green);';           // proven
+  const R  = 'color:var(--red);';             // unbuilt-next / risk / compliance
+  const code = s => `<code>${s}</code>`;
+
+  // ---- PILLARS: the 8, status-marked. ----
+  const pillars = card('PILLARS', 'The 8 pillars (whole ecosystem)', 'cyan', `
+    <div class="task-list">
+      ${row('✅','green',     '<strong style="'+G+'">P-COMBAT</strong> — laser/beam weapons, damage, death/respawn <span style="color:var(--text-dim);">(Pulse + Beam_v2, death loop)</span>', 'PROVEN')}
+      ${row('✅','green',     '<strong style="'+G+'">P-IDENTITY</strong> — skins, brand/Team, Character, edge/body color <span style="color:var(--text-dim);">('+'#'+'41 '+code('4067c8f6')+' · '+'#'+'38a '+code('9e4ceb5c')+')</span>', 'PROVEN')}
+      ${row('🟡','yellow',    '<strong style="'+M+'">P-ECONOMY</strong> — catalog, currency, wallet, store, bank <span style="color:var(--text-dim);">(design canonical → see Design view)</span>', 'FRAMED')}
+      ${row('🟠','red',       '<strong style="'+R+'">P-CONTROLS</strong> — fight / climb / grab / let-go / dash <span style="color:var(--text-dim);">(the fun-test; the next big pillar to EXPAND — builds on the proven S3 dash foundation, not from zero)</span>', 'EXPAND')}
+      ${row('🟡','yellow',    '<strong>P-LOOP</strong> — energy/extraction core: drop→collect→overdrive→extract <span style="color:var(--text-dim);">(master P2)</span>', 'DESIGNED')}
+      ${row('🔴','red',       '<strong style="'+R+'">P-SCORING</strong> — multi-arc points + ranking (individual + team)', 'DESIGN')}
+      ${row('🟡','yellow',    '<strong>P-MATCH</strong> — matchmaking, match flow, modes <span style="color:var(--text-dim);">(UCIK/EOS session-lobby plumbing)</span>', 'PARTIAL')}
+      ${row('🔴','red',       '<strong style="'+R+'">P-HUB</strong> — Social Lobby World <span style="color:var(--text-dim);">(the IRONICS destination)</span>', 'NEW')}
+      ${row('🔴','red',       '<strong style="'+R+'">P-MAPS</strong> — arenas / play maps <span style="color:var(--text-dim);">(operator details to add)</span>', 'LAST')}
+    </div>
+    <p style="${P}margin-top:12px;"><strong style="${K}">Cross-cutting</strong> (threads through all, not a pillar): Audio · anti-cheat / server-authority · UI/HUD + the Phone hub · Onboarding · Replay / spectator.</p>`);
+
+  // ---- DEPENDENCIES: bulleted (translated from the source graph). ----
+  const deps = card('DEPS', 'Dependency graph — what blocks what', 'cyan', `
+    <ul style="${UL}">
+      <li style="${LI}"><strong style="${K}">P-LOOP before P-SCORING</strong> — energy events (reboost / grant) are <em>scored</em> events; you can't score them until the loop exists. Frame the loop before detailing scoring.</li>
+      <li style="${LI}"><strong style="${K}">P-CONTROLS is independent of the economy</strong> — it can build in parallel, and it's the Phase-1 fun-test, so it's the right next-big pillar.</li>
+      <li style="${LI}"><strong style="${K}">Scoring feeds Replay</strong> — highlights are scored events, so the scoring data model must be designed knowing Replay (G6) consumes it (not throwaway counters).</li>
+      <li style="${LI}"><strong style="${M}">P-ECONOMY needs the Helmet + Weapon-accessory taxonomy</strong> (the "Lyra grenade → IRONICS EMP" gap) — small: adding types to the already-generalized ${code('EAFLCosmeticType')} / equipment taxonomy.</li>
+    </ul>`);
+
+  // ---- P-HUB: the new pillar, full space. ----
+  const hub = card('P-HUB', 'Social Lobby World — ONE seamless destination', 'magenta', `
+    <p style="${P}">A major differentiator: a social hub players inhabit as much as they play — <strong>casino-sportsbook meets resort-pool meets day/night-club</strong> (VRChat / Destiny Tower / Fortnite-hub patterns, on real UE5 / Lyra / EOS tech). One continuous map; the player walks between <strong style="${M}">zones</strong> — never a menu, never a load between zones.</p>
+    <ul style="${UL}">
+      <li style="${LI}"><strong>Zones = front-ends over SEPARATE backends</strong> (one place to the player; distinct systems underneath):</li>
+      <li style="${LI}">&nbsp;&nbsp;• <strong>Matchmaking area</strong> → UCIK / EOS <strong>session-lobby</strong> (party, voice, presence, Steam shadow-lobby, join-in-progress, travel-to-match).</li>
+      <li style="${LI}">&nbsp;&nbsp;• <strong>Store zone</strong> → the 3D showroom (P-ECONOMY catalog) lives here as a place.</li>
+      <li style="${LI}">&nbsp;&nbsp;• <strong>Sportsbook zone</strong> → spectator walls / live-match feeds / (gated) betting tokens.</li>
+      <li style="${LI}">&nbsp;&nbsp;• <strong>Pool / stage / club zones</strong> → social + minigame surfaces (NOT over-specced — the hub provides surfaces; players entertain themselves).</li>
+    </ul>
+    <p style="${P}padding:10px 12px;border:1px solid var(--cyan);border-radius:4px;background:rgba(0,240,255,0.05);color:var(--text);">
+      <strong style="${K}">SEAM RULE (load-correctness).</strong> <strong>WITHIN the hub = level streaming / World Partition</strong> — zones stream by proximity, the world never stops, pawns never despawn → no loads between zones (this is what makes it feel like one place; "portals" within are visual only). <strong>HUB ↔ MATCH = Lyra experience-TRAVEL</strong> — world swap (different GameMode/arena/loadout), a transition beat is expected and correct. <em>Streaming = move within a running world; travel = swap to a different world.</em></p>
+    <p style="${P}"><strong style="${M}">Scale (phased):</strong> design <strong>instance-aware now</strong>; run <strong>single-instance (~16-64) first</strong>; <strong>shard to N capped instances at Phase-3</strong> backend scale. Avoids the VRChat-scale-now trap without architecting it out.</p>`);
+
+  // ---- P-SCORING: first-pass design. ----
+  const scoring = card('P-SCORING', 'Scoring — the progression spine (first-pass)', 'magenta', `
+    <ul style="${UL}">
+      <li style="${LI}"><strong style="${M}">Multi-arc points</strong> (same event accrues to multiple time-arcs): <strong>per-match</strong> (placement/MVP) · <strong>day / week / month</strong> (rolling — recurring engagement, season cadence) · <strong>lifetime</strong> (career prestige).</li>
+      <li style="${LI}"><strong style="${M}">Dual subject</strong> (every event credits both): <strong>individual</strong> (own progression + rank) + <strong>team</strong> (Team standing → social competition, ties to P-IDENTITY's Team).</li>
+      <li style="${LI}"><strong>Scored events:</strong> kills, assists, <strong>saves / reboosts</strong> (energy grants — the cooperative hook; <em>depends on P-LOOP</em>), loot; + extraction success, zone control, multikill/streak, first-blood, clutch (last-alive), survival time, team-play multipliers.</li>
+    </ul>
+    <p style="${P}"><strong style="${K}">Principles:</strong> reward <em>variety</em> of play (support/objective viable, not kill-only meta) · visible short-arc feedback + meaningful long-arc goals (the dual loop) · team points create social stakes · <strong style="${R}">server-authoritative event validation (G4)</strong> — a client cannot mint a kill or a reboost · ranking derives FROM points, or a hybrid (points for rewards + a skill-rating for matchmaking fairness — open).</p>
+    <p style="${P}padding:8px 12px;border:1px solid var(--cyan);border-radius:4px;background:rgba(0,240,255,0.05);color:var(--text);"><strong style="${K}">Data model:</strong> the scored-event record is a <strong>server-authoritative, replayable event STREAM</strong> — so Replay/killcam (G6) can consume it and anti-cheat (G4) can audit it. <strong>NOT opaque incrementing counters.</strong></p>`);
+
+  // ---- BUILD SEQUENCE: the locked 10-step order. ----
+  const sequence = card('SEQ', 'Build sequence (locked order)', 'green', `
+    <div class="task-list">
+      ${row('▶','cyan',     '<strong style="'+K+'">#43 selection / loadout seam</strong> <span style="color:var(--text-dim);">(PlayerState identity slot · ServerSetCosmeticSelection · entitlement gate · persistence stub → see Design view)</span> — <strong style="'+K+'">NEXT</strong>', '1 · P-ECON')}
+      ${row('2','text-mute', '<strong>P-CONTROLS</strong> — fight/climb/grab/let-go/dash; design → build → PIE-prove each ability <span style="color:var(--text-dim);">(the fun-test; expands the proven S3 dash foundation)</span>', '2')}
+      ${row('3','text-mute', 'Catalog system <span style="color:var(--text-dim);">(generalize taxonomy; Helmet/EMP accessory gap closes here → see Design view)</span>', '3 · P-ECON')}
+      ${row('4','text-mute', '<strong>P-LOOP</strong> — energy/extraction <span style="color:var(--text-dim);">(frame before scoring)</span>', '4')}
+      ${row('5','text-mute', '<strong>P-SCORING</strong> design pass → build <span style="color:var(--text-dim);">(with G4 anti-cheat + replay-aware data model)</span>', '5')}
+      ${row('6','text-mute', 'Wallet / currency + <strong>Phone hub</strong> <span style="color:var(--text-dim);">(Watts/Volts, peg; phone-scope decision; persistence stub → see Design view)</span>', '6 · P-ECON')}
+      ${row('7','text-mute', '<strong>P-MATCH</strong> — matchmaking + UCIK/EOS session-lobby <span style="color:var(--text-dim);">(the hub matchmaking zone is its front-end)</span>', '7')}
+      ${row('8','text-mute', '<strong>P-HUB</strong> — Social Lobby World <span style="color:var(--text-dim);">(streamed zones; instance-aware, single-instance first)</span>', '8')}
+      ${row('9','text-mute', 'Store / 3D showroom <span style="color:var(--text-dim);">(as a hub zone; consumes catalog+wallet+selection)</span>', '9 · P-ECON')}
+      ${row('10','text-mute','<strong>P-MAPS</strong> <span style="color:var(--text-dim);">(last; arena↔arena looped portals = travel)</span>', '10')}
+      ${row('—','text-dim',  'Cross-cut: Audio (w/ controls) · Onboarding + Replay <span style="color:var(--text-dim);">(data models designed aware now)</span>', 'P4')}
+    </div>
+    <p style="${P}margin-top:12px;"><em>Content lane runs parallel, not blocking: coin/card/phone art, helmet/EMP meshes, the 30 Character emblems, audio — populate the systems as they're built.</em></p>`);
+
+  // ---- OPEN DECISIONS. ----
+  const open = card('OPEN', 'Open decisions (resolve at the relevant pillar)', 'red', `
+    <ul style="${UL}">
+      <li style="${LI}"><strong>Ranking model</strong> — points-derived rank, or hybrid (points for rewards + separate skill-rating for matchmaking)? <span style="color:var(--text-dim);">Resolve at P-SCORING / P-MATCH.</span></li>
+      <li style="${LI}"><strong>Hub instance population cap + shard trigger</strong> — count per instance, when to spin a new shard? <span style="color:var(--text-dim);">Resolve at P-HUB scale phase (P3).</span></li>
+      <li style="${LI}"><strong style="${R}">Sportsbook betting</strong> — non-monetary cosmetic-XP tokens, OR currency-linked → <strong style="${R}">currency-linked = a GATED layer (compliance, legal sign-off)</strong>. <span style="color:var(--text-dim);">Resolve at P-HUB sportsbook-zone build.</span></li>
+    </ul>
+    <p style="${P}">Economy <strong>numbers</strong> (earn-rates, Volt price tiers, store pricing) remain deferred — peg is SET; tuned at P-SCORING + wallet. <span style="color:var(--text-dim);">(See Design view for the economy open-questions + the no-cash-out invariant.)</span></p>`);
+
+  return `
+    <div class="content-header">
+      <div class="breadcrumb"><span>Ecosystem</span><span>Whole-project map</span></div>
+      <h2 class="content-title">IRONICS / BAG MAN — ECOSYSTEM MAP <span style="color:var(--text-mute);font-size:14px;font-weight:400;">· planning SSOT · whole-project shape</span></h2>
+      <p class="content-goal">Eight pillars, dependency-ordered — names every pillar, its dependencies, and the build sequence so we see the whole shape before building the next piece. Content (art / audio / names) is a separate lane from the systems that consume it. Doctrine unchanged: ✅ = watched in PIE; server-auth for anything competitive/economic; one layer proven before the next. <strong style="color:var(--cyan);">Locked next: #43 seam → P-CONTROLS.</strong> <span style="color:var(--text-dim);">This view is the narrative map; the live grouping over real tasks →</span> <strong style="color:var(--cyan);">Pillars view</strong> <span style="color:var(--text-dim);">(the governing structure).</span></p>
+    </div>
+    <div class="sprint-grid">
+      ${pillars}
+      ${deps}
+      ${hub}
+      ${scoring}
+      ${sequence}
+      ${open}
+    </div>
+  `;
+}
+
+/* PILLARS VIEW — the GOVERNING grouping. A LENS over SPRINTS[] (the durable record): each pillar
+   resolves its referenced sprint/task ids and renders them via renderTaskRow() so checkbox state is
+   shared with the Phases/All-Sprints views. Rewrites ZERO task strings. */
+function findTask(id) {
+  for (const s of SPRINTS) {
+    const t = s.tasks.find(t => t.id === id);
+    if (t) return { task: t, sprint: s };
+  }
+  return null;
+}
+function renderPillarView() {
+  const toneState = { 'green':'var(--green)', 'magenta':'var(--magenta)', 'yellow':'var(--yellow)', 'red':'var(--red)', 'cyan':'var(--cyan)' };
+
+  const pillarCard = (p) => {
+    const accent = toneState[p.tone] || 'var(--line-bright)';
+    let groups = '';
+
+    // whole sprints
+    for (const sid of (p.whole || [])) {
+      const s = SPRINTS.find(x => x.id === sid);
+      if (!s) { groups += `<div style="color:var(--red);margin:4px 0;">⚠ missing sprint ${sid}</div>`; continue; }
+      const sp = sprintProgress(s.id);
+      groups += `
+        <div style="margin:10px 0 4px;">
+          <span style="font-family:'Chakra Petch',sans-serif;font-weight:700;color:${accent};letter-spacing:0.1em;">${s.id}</span>
+          <span style="color:var(--text-mute);font-size:11px;"> · ${s.title} <span style="color:var(--text-dim);">(${s.weeks})</span> · ${sp.done}/${sp.total}</span>
+        </div>
+        <div class="task-list">${s.tasks.map(t => renderTaskRow(t)).join('')}</div>`;
+    }
+
+    // specific picks from shared sprints
+    for (const grp of (p.picks || [])) {
+      const rows = grp.ids.map(id => {
+        const hit = findTask(id);
+        return hit ? renderTaskRow(hit.task) : `<div style="color:var(--red);margin:2px 0;">⚠ missing task ${id}</div>`;
+      }).join('');
+      const hdr = grp.label
+        ? `<span style="font-family:'Chakra Petch',sans-serif;font-weight:600;color:${accent};">${grp.sprint}</span> <span style="color:var(--text-dim);font-size:11px;">${grp.label}</span>`
+        : `<span style="font-family:'Chakra Petch',sans-serif;font-weight:600;color:${accent};">${grp.sprint}</span>`;
+      groups += `<div style="margin:10px 0 4px;">${hdr}</div><div class="task-list">${rows}</div>`;
+    }
+
+    const xl = (p.xlinks && p.xlinks.length)
+      ? `<div style="margin-top:12px;padding:8px 12px;border-left:2px solid ${accent};background:var(--bg-2);">
+           ${p.xlinks.map(x => `<div style="color:var(--text-mute);font-size:11px;line-height:1.5;margin:2px 0;">↳ ${x}</div>`).join('')}
+         </div>` : '';
+
+    const empty = (!p.whole || !p.whole.length) && (!p.picks || !p.picks.length)
+      ? `<div style="color:var(--text-dim);font-style:italic;margin:6px 0;">No existing tasks grouped yet — net-new work, see cross-links.</div>` : '';
+
+    return `
+      <div class="sprint-card" style="border-color:var(--line);">
+        <div class="sprint-card-header" style="cursor:default;border-left:3px solid ${accent};">
+          <span class="sprint-id" style="color:${accent};">${p.id}</span>
+          <div class="sprint-title-block">
+            <span class="sprint-title">${p.label}</span>
+            <span class="sprint-week" style="color:${accent};">${p.state}</span>
+          </div>
+          <span></span><span></span>
+        </div>
+        <div class="sprint-body" style="display:block;">
+          ${empty}${groups}${xl}
+        </div>
+      </div>`;
+  };
+
+  const PILLAR_IDS = ['P-COMBAT','P-IDENTITY','P-ECONOMY','P-CONTROLS','P-LOOP','P-SCORING','P-MATCH','P-HUB','P-MAPS'];
+  const gameplay = PILLARS.filter(p => PILLAR_IDS.includes(p.id)).map(pillarCard).join('');
+  const crosscut = PILLARS.filter(p => !PILLAR_IDS.includes(p.id)).map(pillarCard).join('');
+
+  return `
+    <div class="content-header">
+      <div class="breadcrumb"><span>Pillars</span><span>Governing structure</span></div>
+      <h2 class="content-title">PILLARS <span style="color:var(--text-mute);font-size:14px;font-weight:400;">· GOVERNING structure · the dependency spine over the real tasks</span></h2>
+      <p class="content-goal">The 8 gameplay pillars + cross-cutting lanes, in dependency order — a LIVE LENS over the sprint/task record (the Phases &amp; All-Sprints views remain the granular record; checkbox state is shared). Each task lives once in its sprint; here it is grouped under the pillar it serves. <strong style="color:var(--cyan);">Pillars govern; sprints are the detailed how underneath.</strong> Narrative map → <strong style="color:var(--cyan);">Ecosystem view</strong>; design SSOTs → <strong style="color:var(--cyan);">Design view</strong>.</p>
+    </div>
+    <div class="sprint-grid">
+      ${gameplay}
+      <div style="margin:6px 0 -6px;padding-top:8px;border-top:1px solid var(--line);font-family:'Chakra Petch',sans-serif;letter-spacing:0.2em;color:var(--text-mute);font-size:11px;">CROSS-CUTTING LANES (production substrate threading under all pillars)</div>
+      ${crosscut}
     </div>
   `;
 }
@@ -2001,7 +2369,7 @@ function renderAllSprintsView() {
   return `
     <div class="content-header">
       <div class="breadcrumb"><span>View</span><span>All Sprints</span></div>
-      <h2 class="content-title">All Sprints (24)</h2>
+      <h2 class="content-title">All Sprints (${SPRINTS.length})</h2>
       <p class="content-goal">Full sprint roadmap from kickoff to launch. Click any sprint to expand its task list.</p>
     </div>
     <div class="sprint-grid">
