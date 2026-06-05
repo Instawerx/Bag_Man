@@ -3,11 +3,13 @@
 #pragma once
 
 #include "Components/ControllerComponent.h"
+#include "GameplayTagContainer.h"
 
 #include "AFLSkinColorControllerComponent.generated.h"
 
 class APawn;
 class UAFLSkinColorAsset;
+class UAFLBrandEdgeMap;
 
 /**
  * Controller-side PERSISTENT home for the robot-skin color selection (L5, Option F).
@@ -31,6 +33,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
 	UAFLSkinColorAsset* GetPersistentSkinColor() const { return PersistentSkinColor; }
 
+	/** AUTHORITY: re-resolve this pawn's brand edge from its CURRENT parts and push it onto the pawn's
+	 *  UAFLSkinColorComponent. The single resolve+push body -- the possess/set paths AND the part-arrival
+	 *  hook (AAFLCharacterPartActor::BeginPlay on a runtime robot swap) both call THIS, so a swap re-reads
+	 *  the new robot's brand tag without waiting for re-possession. Propagation is unchanged (SetSkinColor
+	 *  only). Safe to call redundantly (idempotent). #38a. */
+	void RefreshSkinForPawn(APawn* Pawn) const;
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -40,10 +49,19 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics")
 	TObjectPtr<UAFLSkinColorAsset> PersistentSkinColor = nullptr;
 
+	/** Brand -> default-edge map (#38a). When set, RefreshSkinForPawn resolves the possessed robot's
+	 *  Cosmetic.Brand.* tag through this map to pick the brand's factory-default edge; on miss (no tag /
+	 *  unmapped / asset unset) it falls back to PersistentSkinColor. Set in the details panel (step 2).
+	 *  EditDefaultsOnly: the GameFeatureAction-added component carries this as a per-class default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics")
+	TObjectPtr<UAFLBrandEdgeMap> BrandEdgeMap = nullptr;
+
 	/** Bound (authority) to the controller's public OnPossessedPawnChanged; re-pushes color to the new pawn. */
 	UFUNCTION()
 	void OnPossessedPawnChanged(APawn* OldPawn, APawn* NewPawn);
 
 private:
-	void PushToPawn(APawn* Pawn) const;
+	/** #38a: read the possessed robot's Cosmetic.Brand.* tag off its AAFLCharacterPartActor parts (via the
+	 *  existing IGameplayTagAssetInterface). Invalid tag if the pawn has no brand-tagged body part. */
+	FGameplayTag ResolveBrandTag(APawn* Pawn) const;
 };

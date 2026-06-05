@@ -4,8 +4,11 @@
 
 #include "Cosmetics/AFLSkinColorAsset.h"
 #include "Cosmetics/AFLSkinColorComponent.h"
+#include "Cosmetics/AFLSkinColorControllerComponent.h"
 #include "Components/MeshComponent.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Controller.h"
+#include "GameFramework/Pawn.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCharacterPartActor)
@@ -28,6 +31,32 @@ void AAFLCharacterPartActor::BeginPlay()
 	// here, and the component's OnRep-push (PATH 2) applies when the color arrives. BOTH paths are required.
 	AActor* PawnActor = GetParentActor();
 	const UAFLSkinColorComponent* ColorComp = PawnActor ? PawnActor->FindComponentByClass<UAFLSkinColorComponent>() : nullptr;
+
+	// #38a PART-ARRIVAL RE-RESOLVE (authority-only, additive trigger): a runtime robot swap
+	// (ReplaceCharacterPart) spawns a NEW branded part but does NOT re-fire the controller's possess-time
+	// resolve, so the pawn would keep the PREVIOUS robot's edge. Here -- now that THIS (possibly-new) part
+	// exists and its Cosmetic.Brand.* tag is readable -- ask the controller to re-resolve THIS pawn's brand
+	// edge and re-push it. The controller's RefreshSkinForPawn is the SAME resolve+push body the possess
+	// path uses (no duplicated logic) and drives the SAME SetSkinColor route (propagation unchanged); it
+	// re-applies to all parts (incl. this one). Every deref guarded -> no-op (never crash) if any link is
+	// absent. On a normal possess this fires harmlessly alongside the possess-time resolve (idempotent).
+	if (PawnActor && PawnActor->HasAuthority())
+	{
+		if (APawn* OwningPawn = Cast<APawn>(PawnActor))
+		{
+			if (AController* OwningController = OwningPawn->GetController())
+			{
+				if (const UAFLSkinColorControllerComponent* SkinCtrl =
+						OwningController->FindComponentByClass<UAFLSkinColorControllerComponent>())
+				{
+					SkinCtrl->RefreshSkinForPawn(OwningPawn);
+				}
+			}
+		}
+	}
+
+	// Capture the color AFTER the authority re-resolve above, so PATH 1 applies the freshly-resolved brand
+	// edge (not a stale pre-resolve value). On non-authority / no-controller this is unchanged behavior.
 	const UAFLSkinColorAsset* ResolvedColor = ColorComp ? ColorComp->GetSkinColor() : nullptr;
 
 	if (AFLSkinDiag::IsOn())
