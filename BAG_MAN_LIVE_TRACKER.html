@@ -850,7 +850,7 @@
 
   <!-- CURRENT STATE banner. Rewritten in place each reconcile -- git carries history, this banner carries current state, the task rows carry the durable record. NO version bumps. -->
   <div class="amendments-banner" id="amendmentsBanner">
-    <span class="amendments-banner-tag">CURRENT STATE · HEAD 44e70e6f · ROBOT SKINS FULLY PROVEN (convergence + Race A + Race B under-lag + Race C late-join, all watched) · FIRING LAYER PROVEN ACROSS THE WIRE (2-client, 5127dc35) · Beam_v2 is the canonical loadout beam</span>
+    <span class="amendments-banner-tag">CURRENT STATE · HEAD 9e4ceb5c · #41 cosmetic metadata DONE (4067c8f6) · #38a PER-ROBOT BRAND→EDGE DEFAULT PROVEN (9e4ceb5c — eye+log, runtime-swap re-resolve via part-arrival hook, SCARLETT edge=NeonPink / MAKHIAVELLI edge=NeonBlue) · ROBOT SKINS FULLY PROVEN (convergence + Race A + Race B under-lag + Race C late-join, all watched) · FIRING LAYER PROVEN ACROSS THE WIRE (2-client, 5127dc35) · Beam_v2 is the canonical loadout beam · COSMETIC ECONOMY arc designed (see Design view); NEXT = #43 selection seam</span>
     <div class="amendments-body">
       <strong>THIS SESSION (2026-06-04) — RACE-SAFE RUNTIME ROBOT-SKIN COLOR (L5 composition), on <code>origin/main</code> HEAD <code>f8088ebe</code> (verified local==origin by hash, not push output).</strong> Robot Skins pillar TOOLED→<strong>PROVEN-WITH-GAPS</strong>. Skin = THREE independent axes: <strong>mark × body-color (<code>TeamColor</code>, from base team MI) × edge-color (Emissive/<code>EdgeGlow</code>, from a glow-only <code>UAFLSkinColorAsset</code> preset)</strong> — any robot wears any edge color, live + replicated. Architecture = <strong>COMPOSITION, never subclass</strong> (Lyra's CharacterParts/team classes are module-private → a subclass fails to LINK; 4 standalone <code>AFLCOMBAT_API</code> classes observe the spawned parts + apply via engine-only calls, zero unexported-Lyra, zero reflection). Tag-reparent fix: part base implements <code>IGameplayTagAssetInterface</code> w/ <code>StaticGameplayTags</code> name-match so robots keep <code>Cosmetic.*</code> anim/body tags (else T-pose).
       <br>
@@ -950,6 +950,9 @@
         </button>
         <button class="nav-tab" data-view="all">
           <span class="nav-tab-icon">▸</span> All Sprints
+        </button>
+        <button class="nav-tab" data-view="design">
+          <span class="nav-tab-icon">▸</span> Design
         </button>
       </div>
       <div class="nav-section-title">Phases</div>
@@ -1716,6 +1719,7 @@ function renderContent() {
   if (state.currentView === 'phases') area.innerHTML = renderPhaseView();
   else if (state.currentView === 'gates') area.innerHTML = renderGatesView();
   else if (state.currentView === 'all') area.innerHTML = renderAllSprintsView();
+  else if (state.currentView === 'design') area.innerHTML = renderDesignView();
   attachContentHandlers();
 }
 
@@ -1761,6 +1765,160 @@ function renderPhaseView() {
       <p class="content-goal">${p.goal}</p>
     </div>
     <div class="sprint-grid">${sprintsHtml}</div>
+  `;
+}
+
+/* DESIGN VIEW — forward-looking design + roadmap (planning, not execution rows).
+   Cosmetic Economy & 3D Store arc. Reuses the .content-header + .sprint-card idiom,
+   bodies always-open (no data-toggle, so the collapse handler ignores them). Pure
+   render: no localStorage, no checkboxes, no progress math. SSOT for the locked
+   design decisions; git carries the full design doc. */
+function renderDesignView() {
+  // Static design cards. icon = the Chakra-Petch glyph; tone tints the left rule.
+  const card = (id, title, tone, bodyHtml) => `
+    <div class="sprint-card" style="border-color:var(--line);">
+      <div class="sprint-card-header" style="cursor:default;border-left:3px solid var(--${tone});">
+        <span class="sprint-id" style="color:var(--${tone});">${id}</span>
+        <div class="sprint-title-block">
+          <span class="sprint-title">${title}</span>
+        </div>
+        <span></span><span></span>
+      </div>
+      <div class="sprint-body" style="display:block;">
+        ${bodyHtml}
+      </div>
+    </div>`;
+
+  // Shared inline styles to match the tracker without new CSS classes.
+  const P  = 'margin:0 0 10px;color:var(--text-mute);line-height:1.6;';
+  const LI = 'margin:3px 0;color:var(--text-mute);line-height:1.55;';
+  const UL = 'margin:0 0 6px;padding-left:18px;';
+  const K  = 'color:var(--cyan);';            // key term
+  const M  = 'color:var(--magenta);';         // identity / economy accent
+  const G  = 'color:var(--green);';           // proven / done
+  const R  = 'color:var(--red);';             // compliance / gating / hard invariant
+  const code = s => `<code>${s}</code>`;
+
+  const economyCards = [
+    card('CAT', 'Catalog — the keystone (one source, many readers)', 'cyan', `
+      <p style="${P}">One catalog; every system <em>reads</em> it — store renders it, wallet gates ownership, currency prices it, loadout validates against it, the 3D showroom spawns pedestals from it. <strong style="${K}">Adding a cosmetic makes it appear everywhere with zero code / level edits.</strong> This is the live-service property that makes content drops cheap. No system hardcodes "there are six skins" or "the helmet is podium 3".</p>`),
+
+    card('HYB', 'Hybrid catalog model (D2)', 'cyan', `
+      <ul style="${UL}">
+        <li style="${LI}"><strong style="${K}">Per-item data asset</strong> — intrinsic identity (what the thing <em>is</em>): ${code('CosmeticId')} = ${code('AFL.&lt;Type&gt;.&lt;Name&gt;')}, immutable; ${code('DisplayName')}, ${code('Rarity')}, ${code('CollectionId')}, ${code('Axis')}, ${code('Version')}. <strong>#41's metadata was the first brick</strong> (${code('UAFLSkinColorAsset')}).</li>
+        <li style="${LI}"><strong style="${M}">Central curated manifest</strong> — economy curation (what's <em>for sale</em>, when, how): ${code('Price')}, ${code('CurrencyType')} (soft/hard), ${code('AcquisitionMethod')}, availability window, region flags.</li>
+      </ul>
+      <p style="${P}">Split rationale: intrinsic identity lives on the item; economy curation lives in the manifest. Marketing runs a sale by editing the manifest — never touching item assets.</p>`),
+
+    card('TAX', 'Generalized taxonomy (D3)', 'cyan', `
+      <p style="${P}">${code('EAFLCosmeticType')} generalizes #41's ${code('EAFLCosmeticAxis')}: <strong>SkinColor_Edge / SkinColor_Body, Helmet, Weapon, Beam</strong>, plus the identity types <strong style="${M}">Team</strong> and <strong style="${M}">Character</strong>, + future slots. Lives in ${code('AFLCosmeticTypes.h')} (the #41 shared header) — <strong>extend it, don't fork.</strong> Meshes via ${code('TSoftObjectPtr')} (mobile memory) + AssetManager primary-asset rules for cook discovery.</p>`),
+
+    card('CUR', 'Currency model — Watts &amp; Volts (D4 / D7)', 'magenta', `
+      <p style="${P}"><strong style="${M}">Single GLOBAL currency, two denominations:</strong> <strong style="${M}">Watts</strong> (soft, earned via play / match rewards) + <strong style="${M}">Volts</strong> (hard, premium denomination). <strong>${code('IRONICS Bank')} / "IRONICS Coins" = branding / flavor over the ONE global currency — NOT per-team coins.</strong></p>
+      <p style="${P}"><span style="${K}">Deliberate asymmetry (locked):</span> cosmetics are <em>per-identity branded</em>; currency is <em>global</em>. Recorded so it is not "fixed" into per-team later.</p>
+      <ul style="${UL}">
+        <li style="${LI}"><strong>PEG — exact integer math.</strong> Store balances as <strong style="${R}">INTEGER Watts / Volts, NEVER floats</strong>; peg as named constants:</li>
+        <li style="${LI}">&nbsp;&nbsp;${code('1 Volt = $0.001')} &nbsp;·&nbsp; ${code('10 Watts = 1 Volt')} &nbsp;·&nbsp; ${code('$1 = 1,000 Volts = 10,000 Watts')}</li>
+        <li style="${LI}"><strong style="${G}">Everyone gets standard sets free</strong> (${code('GrantedFree')}: all founding teams, basic colors, basic weapons/beams) regardless. Premium layers on top.</li>
+      </ul>
+      <p style="${P}">Balances are <strong>server-authoritative records</strong> — client displays, server decides.</p>`),
+
+    card('BANK', 'IRONICS Bank · ledger · P2P · wallet-as-phone', 'magenta', `
+      <ul style="${UL}">
+        <li style="${LI}"><strong style="${M}">IRONICS Bank</strong> — the issuing / custody concept (stored-value custodian).</li>
+        <li style="${LI}"><strong style="${M}">Hyperledger</strong> — the ledger / settlement layer (design target).</li>
+        <li style="${LI}"><strong style="${M}">Bolts</strong> — P2P player-to-player transfer feature (Zelle-like).</li>
+        <li style="${LI}"><strong style="${K}">Wallet-as-PHONE</strong> — the player wallet is a diegetic in-game cell-phone device (iPhone-like) holding all wallet / bank data + a gameplay/UI surface. <strong>Phone = the VIEW; wallet/bank data = the MODEL</strong> underneath (one-source-many-views, same discipline as the catalog).</li>
+      </ul>
+      <p style="${P}"><em>All four properties are designed end-to-end here but are isolatable, default-off layers — see the GATING card.</em></p>`),
+
+    card('GATE', 'GATING &amp; the NO-CASH-OUT invariant', 'red', `
+      <p style="${P}"><strong style="${R}">The bank / Hyperledger / Bolts architecture is DESIGNED end-to-end, but every monetary property is an isolatable layer, DEFAULT-OFF, requiring EXPLICIT LEGAL SIGN-OFF before enable:</strong></p>
+      <ul style="${UL}">
+        <li style="${LI}"><strong style="${R}">(1)</strong> real-money purchase of Volts</li>
+        <li style="${LI}"><strong style="${R}">(2)</strong> IRONICS Bank as stored-value custodian</li>
+        <li style="${LI}"><strong style="${R}">(3)</strong> Hyperledger / on-chain settlement</li>
+        <li style="${LI}"><strong style="${R}">(4)</strong> Bolts P2P transfer</li>
+        <li style="${LI}"><strong style="${R}">(5)</strong> randomized acquisition / loot-boxes <span style="color:var(--text-dim);">(gambling regulation)</span> — default OFF, deliberate opt-in only</li>
+      </ul>
+      <p style="${P}padding:10px 12px;border:1px solid var(--red);border-radius:4px;background:rgba(255,51,85,0.07);color:var(--text);">
+        <strong style="${R}">🔒 HARD INVARIANT — NO CASH-OUT, EVER.</strong> No code path converts Watts / Volts back to real money or transfers value out of the system. Currency is <strong style="${R}">ONE-WAY (buy-in only)</strong>. Breaking this = full compliance re-review. <strong>This is the line between in-game currency and money transmission.</strong></p>
+      <p style="${P}"><strong style="${G}">In-game-only economy</strong> (earn Watts, spend in-game on cosmetics, the wallet model, phone-as-view) is <strong>Phase-1 / normal work.</strong> Bank / chain / P2P / real-money-purchase = <strong style="${R}">designed-now, built-gated, enabled-only-after-legal (Phase 3+).</strong></p>`),
+
+    card('ID', 'Identity — TWO types, EITHER/OR (D5 / D5b)', 'magenta', `
+      <p style="${P}">A player's identity slot holds <strong>one</strong> thing — a <strong style="${M}">Team</strong> <em>or</em> a <strong style="${M}">Character</strong>, never both, never combined.</p>
+      <ul style="${UL}">
+        <li style="${LI}"><strong style="${M}">Team</strong> — 6 Founding Teams now (ARIA / IRONICS / SCARLETT / MAKHIAVELLI / AP-9 / MOB-FIGAZ); user-named teams later (unique-until-taken, Phase 3, runtime records — <em>not</em> gameplay tags).</li>
+        <li style="${LI}"><strong style="${M}">Character</strong> — the 30-name emblem set (free base = ${code('GrantedFree')}). A typed catalog identity: ${code('AFL.Character.&lt;Name&gt;')}.</li>
+      </ul>
+      <p style="${P}"><em>Names / emblems / colors are content (design lane) — this doc defines only the identity-type architecture.</em></p>`),
+
+    card('DEF', 'Identity-default look is type-specific', 'green', `
+      <ul style="${UL}">
+        <li style="${LI}"><strong style="${G}">#38a is the Team case</strong> (PROVEN, ${code('9e4ceb5c')}): a Team resolves its default edge via the brand→edge map (${code('UAFLBrandEdgeMap')}).</li>
+        <li style="${LI}"><strong>Character-default is the sibling</strong>: a Character resolves <em>its own</em> authored look — <strong>same propagation path</strong> (${code('SetSkinColor')} / equip), differing only in <em>how the default is resolved</em>. It does not inherit a brand edge — it isn't a brand.</li>
+      </ul>
+      <p style="${P}"><strong>#38a was scoped narrowly on purpose</strong> (founding-team brand→edge, not "every pawn resolves a brand edge") so Character-default slots in beside it without a rewrite.</p>`),
+
+    card('#43', 'Selection / loadout seam (#43)', 'cyan', `
+      <p style="${P}">The server-authoritative route the store/wallet write to and spawn reads from — <strong>supersedes the prototype ${code('B_BagMan_AssignCharacterPart')}</strong> selector (the dev cheat becomes a thin caller of the real RPC).</p>
+      <ul style="${UL}">
+        <li style="${LI}">${code('PlayerState')}-held replicated selection: an <strong style="${M}">identity slot</strong> (Team OR Character, resolved by type at spawn) + per-axis cosmetic ${code('CosmeticId')}s (edge/body/helmet/weapon/beam).</li>
+        <li style="${LI}">Server RPC ${code('ServerSetCosmeticSelection(...)')} — authority-validated; wallet UI <em>and</em> dev cheat both call THIS.</li>
+        <li style="${LI}"><strong>Entitlement gate</strong> exists now (permissive — everyone owns basics), so paid cosmetics slot in without re-architecture.</li>
+        <li style="${LI}">Spawn-time read feeds the <strong style="${G}">proven ${code('SetSkinColor')}/equip path</strong>.</li>
+      </ul>
+      <p style="${P}"><strong>Change-timing (D6):</strong> editable pre-match + out-of-match (wallet / Player Dash), <strong style="${K}">LOCKED in-match</strong> — identity set at spawn, never mutated mid-match. The proven skin races (spawn / respawn / late-join) fully cover it; no live-mutation case to design.</p>`),
+
+    card('3D', '3D showroom submap (D1) — built LAST', 'cyan', `
+      <p style="${P}">The spatial <em>view</em> of the catalog — consumes catalog + wallet + selection, so it comes last (building it first means hand-faking the data it should read).</p>
+      <ul style="${UL}">
+        <li style="${LI}"><strong style="${K}">Portable Level Instance</strong> submap — drops into lobby / lounge / arena corner / standalone. One asset, many contexts (free if built as a Level Instance from day one).</li>
+        <li style="${LI}"><strong>Data-driven pedestals</strong> spawn from catalog entries — <strong>never hand-placed</strong>. New catalog item → new pedestal automatically.</li>
+        <li style="${LI}">Walk up → preview → (entitled) equip / (not) purchase — through the SAME server-authoritative paths (#43 + wallet), not store-special-case code.</li>
+      </ul>`),
+
+    card('PER', 'Persistence (D8) — the stub-seam boundary', 'cyan', `
+      <ul style="${UL}">
+        <li style="${LI}"><strong style="${G}">Real now</strong>: data model (balances, owned-set), the server-authoritative read/write interface, entitlement checks.</li>
+        <li style="${LI}"><strong style="${K}">Stub now</strong>: persistence behind that interface (local SaveGame / in-memory). <strong>PlayFab drops in behind the SAME interface at Phase 3 — no re-architecture.</strong></li>
+      </ul>
+      <p style="${P}">The explicit Phase-boundary: the interface and the data model are real now; only the backing store swaps. (Compliance / monetary gating lives on the GATE card — persistence carries no compliance content.)</p>`),
+  ].join('');
+
+  // Roadmap — sequencing as a status-marked list. ✅ done · ▶ next · ◻ planned.
+  const roadStep = (mark, markColor, label, meta) => `
+    <div class="task-row" style="cursor:default;">
+      <span style="color:var(--${markColor});font-weight:700;width:18px;text-align:center;">${mark}</span>
+      <span class="task-title" style="flex:1;">${label}</span>
+      ${meta ? `<span class="task-estimate" style="background:var(--bg-3);color:var(--text-mute);">${meta}</span>` : '<span></span>'}
+    </div>`;
+
+  const roadmap = card('MAP', 'ROADMAP — sequencing (each proven in PIE before the next)', 'green', `
+    <div class="task-list">
+      ${roadStep('✅','green', '#41 rename / metadata — <strong>DONE</strong>', code('4067c8f6'))}
+      ${roadStep('✅','green', '#38a brand→edge default <span style="color:var(--text-dim);">(Team-case of identity-default)</span> — <strong style="'+G+'">PROVEN</strong>, runtime-swap re-resolve, eye+log', code('9e4ceb5c'))}
+      ${roadStep('▶','cyan',  '#43 selection / loadout seam <span style="color:var(--text-dim);">(identity slot Team-or-Character)</span> — <strong style="'+K+'">NEXT</strong>', 'P1')}
+      ${roadStep('◻','text-mute', 'Catalog system <span style="color:var(--text-dim);">(taxonomy + manifest, incl. Character type)</span>', 'P1/P6')}
+      ${roadStep('◻','text-mute', 'Wallet / ownership + currency <span style="color:var(--text-dim);">(Watts/Volts dual-denom · phone-wallet UX · seam + persistence stub)</span>', 'P1→P3')}
+      ${roadStep('◻','text-mute', '3D showroom submap', 'P1/P7')}
+      ${roadStep('—','text-dim', 'Character-default look <span style="color:var(--text-dim);">(sibling of #38a)</span>', 'P1')}
+      ${roadStep('🔒','red', 'Bank / Hyperledger / Bolts <span style="color:var(--text-dim);">(real-money · custody · on-chain · P2P)</span> — <strong style="'+R+'">GATED · legal sign-off</strong>', 'P3+')}
+      ${roadStep('—','text-dim', 'Real persistence (PlayFab) · user-named teams', 'P3')}
+    </div>
+    <p style="${P}margin-top:12px;padding:8px 12px;border:1px solid var(--red);border-radius:4px;background:rgba(255,51,85,0.07);color:var(--text);"><strong style="${R}">🔒 NO CASH-OUT, EVER</strong> — currency is one-way (buy-in only); no path converts Watts/Volts back to money or out of the system. The line between in-game currency and money transmission. (See GATING card.)</p>
+    <p style="${P}margin-top:10px;"><strong style="${M}">Open / needs input:</strong> the <strong style="${G}">peg is now SET</strong> (1 Volt=$0.001 · 10 Watts=1 Volt). Still <strong>deferred</strong>: earn-rates / real-money price tiers / store pricing — need the AFL economy model doc if it exists. <strong style="${R}">Real-money purchase, bank, on-chain settlement, and P2P all require legal review before enable.</strong> Store rotation cadence, user-team name-uniqueness, and randomized-acquisition (default off) remain later-phase open decisions.</p>`);
+
+  return `
+    <div class="content-header">
+      <div class="breadcrumb"><span>Design</span><span>Cosmetic Economy</span></div>
+      <h2 class="content-title">COSMETIC ECONOMY &amp; 3D STORE <span style="color:var(--text-mute);font-size:14px;font-weight:400;">· design SSOT · spans P1→P3</span></h2>
+      <p class="content-goal">Approved decisions locked, not yet executed. The doc defines the <strong>seams</strong> so each piece is buildable in its right phase without re-architecture; Phase-3 backend (PlayFab) is <strong>stubbed now, real impl Phase 3</strong>. Validation doctrine unchanged: ✅ = watched in PIE; server-authoritative for ownership/currency/entitlement; one catalog, many readers; one layer proven before the next.</p>
+    </div>
+    <div class="sprint-grid">
+      ${economyCards}
+      ${roadmap}
+    </div>
   `;
 }
 
