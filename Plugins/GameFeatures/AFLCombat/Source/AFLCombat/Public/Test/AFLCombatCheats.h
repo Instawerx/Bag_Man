@@ -43,7 +43,30 @@ public:
 	UFUNCTION(Exec)
 	void DumpCombatAttributes();
 
+	/**
+	 * #43 selection-seam harness. PURE CLIENT-ISSUED CALLER of the real RPC: builds an
+	 * FAFLCosmeticSelection from the typed edge id and hands it to
+	 * UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection. It does NOTHING else -- it does not
+	 * write the replicated selection, does not touch the controller resolve, does not gate. The whole
+	 * point is to exercise the genuine seam end to end: this client exec -> the component's Server RPC
+	 * -> server validation + entitlement + change-timing gate -> replicated commit -> OnRep -> the
+	 * controller's spawn-read/refresh -> the proven SetSkinColor push.
+	 *
+	 * Deliberately NOT BlueprintAuthorityOnly: it must run on the OWNING CLIENT so the Server RPC makes
+	 * the real client->server hop (an authority-only exec would run server-side and skip that hop,
+	 * proving nothing about the wire).
+	 *
+	 * EdgeColorId examples (must be present in DA_AFL_BrandEdgeMap to resolve via the #43 stopgap):
+	 *   NeonPurple / NeonPink / NeonBlue / NeonGreen  (NOT NeonRed -- absent from the map -> would miss).
+	 * Accepts either the short color ("NeonPink") or the full CosmeticId ("AFL.Edge.NeonPink").
+	 */
+	UFUNCTION(Exec)
+	void SetCosmeticEdge(const FString& EdgeColorId);
+
 private:
 
 	UAbilitySystemComponent* GetPlayerASC() const;
+
+	/** #43: resolve the owning client's PlayerState loadout component (the RPC target). Null if not ready. */
+	class UAFLCosmeticLoadoutComponent* GetLoadoutComponent() const;
 };

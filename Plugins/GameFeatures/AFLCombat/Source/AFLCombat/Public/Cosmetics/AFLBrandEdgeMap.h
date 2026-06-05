@@ -5,9 +5,11 @@
 #include "Engine/DataAsset.h"
 #include "GameplayTagContainer.h"
 
-#include "AFLBrandEdgeMap.generated.h"
+// #43: included (not just forward-declared) so ResolveEdgeById can call UAFLSkinColorAsset::GetCosmeticId()
+// inline below. The reverse-by-CosmeticId lookup is a stopgap until the catalog (S-ECON-CAT) is the registry.
+#include "Cosmetics/AFLSkinColorAsset.h"
 
-class UAFLSkinColorAsset;
+#include "AFLBrandEdgeMap.generated.h"
 
 /**
  * Brand -> default-edge mapping for the BagMan robots (#38a).
@@ -37,5 +39,24 @@ public:
 	{
 		const TObjectPtr<UAFLSkinColorAsset>* Found = BrandToEdge.Find(BrandTag);
 		return Found ? Found->Get() : nullptr;
+	}
+
+	/** #43 stopgap: resolve an edge preset by its immutable CosmeticId (UAFLSkinColorAsset::CosmeticId),
+	 *  scanning the same presets this map already references. Replaced by the catalog (S-ECON-CAT) when it
+	 *  lands; until then it lets the selection's EdgeId resolve without a separate registry. nullptr on miss. */
+	UAFLSkinColorAsset* ResolveEdgeById(FName CosmeticId) const
+	{
+		if (CosmeticId == NAME_None)
+		{
+			return nullptr;
+		}
+		for (const TPair<FGameplayTag, TObjectPtr<UAFLSkinColorAsset>>& Pair : BrandToEdge)
+		{
+			if (Pair.Value && Pair.Value->GetCosmeticId() == CosmeticId)
+			{
+				return Pair.Value.Get();
+			}
+		}
+		return nullptr;
 	}
 };

@@ -8,6 +8,8 @@
 #include "AbilitySystemComponent.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "AbilitySystemGlobals.h"
+#include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
+#include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
 #include "Effects/GE_AFL_Damage_Pulse.h"
 #include "Effects/GE_AFL_EnergyGain_Small.h"
 #include "Effects/GE_AFL_Heat_SetByCaller.h"
@@ -83,6 +85,67 @@ UAbilitySystemComponent* UAFLCombatCheats::GetPlayerASC() const
 	}
 #endif
 	return nullptr;
+}
+
+UAFLCosmeticLoadoutComponent* UAFLCombatCheats::GetLoadoutComponent() const
+{
+#if UE_WITH_CHEAT_MANAGER
+	// The loadout component lives on the PlayerState (attached via GameFeatureAction). The cheat manager
+	// is on the PlayerController; PC->PlayerState->FindComponentByClass reaches it. On a client this is the
+	// client's local replicated PlayerState, which is exactly what we want -- the Server RPC routes from it.
+	if (const APlayerController* PC = GetPlayerController())
+	{
+		if (APlayerState* PS = PC->PlayerState)
+		{
+			return PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>();
+		}
+	}
+#endif
+	return nullptr;
+}
+
+void UAFLCombatCheats::SetCosmeticEdge(const FString& EdgeColorId)
+{
+#if UE_WITH_CHEAT_MANAGER
+	UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
+	if (!Loadout)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("SetCosmeticEdge: no UAFLCosmeticLoadoutComponent on the player's PlayerState (not spawned yet?)"));
+		return;
+	}
+
+	// Normalize the arg to a full CosmeticId. Accept "NeonPink" or "AFL.Edge.NeonPink".
+	FString IdStr = EdgeColorId.TrimStartAndEnd();
+	if (!IdStr.StartsWith(TEXT("AFL.Edge."), ESearchCase::IgnoreCase))
+	{
+		IdStr = FString::Printf(TEXT("AFL.Edge.%s"), *IdStr);
+	}
+	const FName EdgeId(*IdStr);
+
+	// Build the request from the CURRENT replicated selection so we don't clobber identity/other axes;
+	// change only the edge. The RPC's _Validate requires a non-None identity id -- if the player has no
+	// identity yet, seed a valid default team so validation passes (the seam, not identity, is under test).
+	FAFLCosmeticSelection Request = Loadout->GetSelection();
+	if (Request.GetActiveIdentityId() == NAME_None)
+	{
+		Request.IdentityType = EAFLIdentityType::Team;
+		Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+	}
+	Request.EdgeId = EdgeId;
+
+	// PURE CALL: hand the request to the real Server RPC. Everything past this boundary is server-side
+	// (validation, entitlement gate, change-timing gate, replicated commit, OnRep, controller refresh).
+	// The cheat writes nothing itself.
+	Loadout->ServerSetCosmeticSelection(Request);
+
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("[Cheat] SetCosmeticEdge: client issued ServerSetCosmeticSelection(edge=%s identity=%s/%s). ")
+		TEXT("Enable `afl.SkinDiag 1` to watch RX/COMMIT/OnRep across the wire."),
+		*EdgeId.ToString(),
+		(Request.IdentityType == EAFLIdentityType::Character) ? TEXT("Character") : TEXT("Team"),
+		*Request.GetActiveIdentityId().ToString());
+#endif
 }
 
 void UAFLCombatCheats::TestDamage(float Base, float Headshot, float Weakpoint, float Distance)
@@ -798,6 +861,66 @@ namespace
 		TEXT("afl.LagComp.TestFire"),
 		TEXT("BM-0105c: fire the shared lag-comp ConfirmHit at the test dummy's latched 0.2s-ago position, using afl.LagComp.ForceRTT as the rewind delta. No arg = latch + fire; 'replay' = reuse latched coord. The flip: ForceRTT 0.2 + TestFire (ACCEPT), then ForceRTT 0 + TestFire replay (REJECT)."),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLLagCompTestFire));
+
+	// ─── #43 selection-seam harness: afl.Cosmetic.SetEdge <color> ────────────────
+	//
+	// WHY a console command (not just the UFUNCTION(Exec) SetCosmeticEdge): UFUNCTION(Exec) on a
+	// CheatManagerExtension only routes when the cheat manager is active (Lyra gates it). The always-
+	// available, world-context-aware FAutoConsoleCommandWithWorldArgsAndOutputDevice fires regardless --
+	// and critically its handler receives the UWorld of the PIE WINDOW the command was typed in, so a
+	// command typed in a CLIENT window resolves THAT client's PlayerController. That makes the Server RPC
+	// take the genuine client->server hop (resolving "any world" could grab the server PC and no-op the hop).
+	//
+	// PURE CALLER, same contract as the exec: build FAFLCosmeticSelection from the current replicated
+	// selection (don't clobber identity; seed AFL.Team.ARIA if unset so _Validate passes), set EdgeId,
+	// hand to ServerSetCosmeticSelection. Nothing else. Server does all validation/gating/commit/replicate.
+	void HandleAFLCosmeticSetEdge(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetEdge — usage: afl.Cosmetic.SetEdge <NeonPurple|NeonPink|NeonBlue|NeonGreen>"));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetEdge — no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetEdge — no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		FString IdStr = Args[0].TrimStartAndEnd();
+		if (!IdStr.StartsWith(TEXT("AFL.Edge."), ESearchCase::IgnoreCase))
+		{
+			IdStr = FString::Printf(TEXT("AFL.Edge.%s"), *IdStr);
+		}
+		const FName EdgeId(*IdStr);
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		if (Request.GetActiveIdentityId() == NAME_None)
+		{
+			Request.IdentityType = EAFLIdentityType::Team;
+			Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+		}
+		Request.EdgeId = EdgeId;
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetEdge — client issued ServerSetCosmeticSelection(edge=%s). Watch [Loadout] RX/COMMIT/OnRep with `afl.SkinDiag 1`."),
+			*EdgeId.ToString());
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetEdgeCmd(
+		TEXT("afl.Cosmetic.SetEdge"),
+		TEXT("#43 selection seam: client-issued PURE caller of ServerSetCosmeticSelection. Usage: afl.Cosmetic.SetEdge <NeonPurple|NeonPink|NeonBlue|NeonGreen> (or full AFL.Edge.<color>). NOT NeonRed (absent from BrandEdgeMap)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetEdge));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER
