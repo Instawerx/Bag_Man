@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "Cosmetics/AFLCosmeticTypes.h"
 #include "Engine/DataAsset.h"
 
 #include "AFLSkinColorAsset.generated.h"
@@ -35,8 +36,40 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|SkinColor")
 	TMap<FName, TObjectPtr<UTexture>> TextureParameters;
 
+	// --- Cosmetic economy metadata (store / wallet / drops) ---
+
+	/** Immutable machine key. Format AFL.<Axis>.<Color>, e.g. AFL.Edge.NeonPurple. NEVER change once shipped. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic|Identity")
+	FName CosmeticId;
+
+	/** Player-facing, localizable. Marketing owns this; safe to change. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic|Identity")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic|Economy")
+	EAFLCosmeticRarity Rarity = EAFLCosmeticRarity::Common;
+
+	/** Set/season grouping, e.g. Founders, Season_1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic|Economy")
+	FName CollectionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic|Identity")
+	EAFLCosmeticAxis Axis = EAFLCosmeticAxis::Edge;
+
+	/** Iteration of this cosmetic; bump on a live retune (same CosmeticId, new look). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic|Economy")
+	int32 Version = 1;
+
 	/** Direct typed getters -- ZERO reflection at the apply site. */
 	const TMap<FName, float>& GetScalars() const { return ScalarParameters; }
 	const TMap<FName, FLinearColor>& GetColors() const { return ColorParameters; }
 	const TMap<FName, TObjectPtr<UTexture>>& GetTextures() const { return TextureParameters; }
+
+	/** Cosmetic-metadata getters (mirror the L5 getter style; UPROPERTYs are the contract). */
+	FName GetCosmeticId() const { return CosmeticId; }
+	const FText& GetDisplayName() const { return DisplayName; }
+	EAFLCosmeticRarity GetRarity() const { return Rarity; }
+	FName GetCollectionId() const { return CollectionId; }
+	EAFLCosmeticAxis GetAxis() const { return Axis; }
+	int32 GetVersion() const { return Version; }
 };
