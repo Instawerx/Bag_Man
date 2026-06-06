@@ -33,9 +33,19 @@ enum class EAFLCosmeticRarity : uint8
  * The catalog discriminator — what KIND of thing a catalog entry is. ONE unified type so the catalog /
  * store / wallet / showroom all key on a single "what is this" value. Wider than EAFLCosmeticAxis: it
  * absorbs the skin axes (SkinColor_Edge/Body map to a UAFLSkinColorAsset whose Axis matches -- no
- * migration of the proven #43/#38a assets) AND adds the kinds that ride DIFFERENT propagation paths:
- * Helmet (a CharacterPart-style part-swap), WeaponAccessory (the Lyra equipment grant path -- IRONICS
- * EMP from the grenade slot), Beam (a beam-VFX variant), and the either/or identity types.
+ * migration of the proven #43/#38a assets) AND adds the kinds that ride DIFFERENT propagation paths.
+ *
+ * The type names the PROPAGATION MECHANISM (this is what makes the catalog one-source-many-readers work):
+ *  - Helmet          -> CharacterPart part-swap (the #38a/#43 part path; a part added + colored).
+ *  - AbilityCosmetic -> a GameplayAbility-grant cosmetic (e.g. IRONICS EMP = a GA_Grenade reskin granted
+ *                       via an AbilitySet). DISTINCT from equipment: the Lyra grenade is an ABILITY
+ *                       (GA_Grenade + B_Grenade projectile, AbilitySet-granted), NOT an ItemDefinition --
+ *                       so a grenade reskin rides the ability-grant path, a genuinely different mechanism
+ *                       from both the part path AND the weapon-equipment path (Pulse/Beam = ID_/WID_).
+ *  - WeaponAccessory -> a genuine weapon-attachment EQUIPMENT cosmetic (ID_/WID_/equipment-manager), IF/
+ *                       when those exist. NOT the EMP (the EMP is an ability, see AbilityCosmetic). Kept
+ *                       as a distinct, honest bucket rather than overloading it with ability cosmetics.
+ *  - Beam            -> a beam-VFX variant. Team/Character -> the either/or identity types (GrantedFree).
  */
 UENUM(BlueprintType)
 enum class EAFLCosmeticType : uint8
@@ -43,7 +53,8 @@ enum class EAFLCosmeticType : uint8
 	SkinColor_Edge    UMETA(DisplayName = "Skin Color - Edge"),    // AFL.Edge.<Color>    -> UAFLSkinColorAsset (Axis==Edge)
 	SkinColor_Body    UMETA(DisplayName = "Skin Color - Body"),    // AFL.Body.<Color>    -> UAFLSkinColorAsset (Axis==Body)
 	Helmet            UMETA(DisplayName = "Helmet"),               // AFL.Helmet.<Name>   -> CharacterPart-style part (part path)
-	WeaponAccessory   UMETA(DisplayName = "Weapon Accessory"),     // AFL.Weapon.<Name>   -> equipment cosmetic (equip path; EMP)
+	AbilityCosmetic   UMETA(DisplayName = "Ability Cosmetic"),     // AFL.Ability.<Name>  -> a GameplayAbility-grant cosmetic (EMP)
+	WeaponAccessory   UMETA(DisplayName = "Weapon Accessory"),     // AFL.Weapon.<Name>   -> weapon-attachment EQUIPMENT cosmetic (ID_/WID_)
 	Beam              UMETA(DisplayName = "Beam"),                 // AFL.Beam.<Name>     -> beam VFX variant
 	Team              UMETA(DisplayName = "Team Identity"),        // AFL.Team.<BRAND>    -> team identity (GrantedFree base)
 	Character         UMETA(DisplayName = "Character Identity")    // AFL.Character.<Name>-> character identity (GrantedFree base)

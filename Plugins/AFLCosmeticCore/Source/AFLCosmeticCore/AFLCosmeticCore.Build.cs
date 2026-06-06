@@ -18,8 +18,9 @@ public class AFLCosmeticCore : ModuleRules
 			{
 				"Core",
 				"CoreUObject",
-				"Engine",        // UPrimaryDataAsset, UGameInstanceSubsystem, AssetManager
-				"GameplayTags",  // FGameplayTag in future entry/identity fields
+				"Engine",            // UPrimaryDataAsset, UGameInstanceSubsystem, AssetManager
+				"GameplayTags",      // FGameplayTag in future entry/identity fields
+				"GameplayAbilities", // UGameplayAbility (UAFLAbilityCosmeticAsset.AbilityClass soft-class ref)
 			}
 		);
 	}

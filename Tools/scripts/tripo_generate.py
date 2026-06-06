@@ -73,6 +73,76 @@ def _request(method, url, key, body=None):
         sys.exit(f"FATAL: network error to {url}: {e.reason}")
 
 
+def upload_image(key, image_path):
+    """POST /v2/openapi/upload/sts (multipart/form-data) -> {code:0,data:{image_token}}.
+    Turns a LOCAL image file into a Tripo image/file_token for image_to_model, so a
+    local PNG (not a hosted URL) can drive image-to-3D. stdlib multipart (no requests dep).
+    Tripo's upload returns the token under data.image_token (a.k.a. file_token)."""
+    if not os.path.isfile(image_path):
+        sys.exit(f"FATAL: --image-file not found: {image_path}")
+    ext = os.path.splitext(image_path)[1].lstrip(".").lower() or "png"
+    # Tripo accepts jpg/jpeg/png/webp; map jpeg->jpg for the 'type' field later.
+    with open(image_path, "rb") as f:
+        file_bytes = f.read()
+
+    boundary = "----AFLTripoBoundary7MA4YWxkTrZu0gW"
+    filename = os.path.basename(image_path)
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+            "webp": "image/webp"}.get(ext, "application/octet-stream")
+    pre = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: {mime}\r\n\r\n"
+    ).encode("utf-8")
+    post = f"\r\n--{boundary}--\r\n".encode("utf-8")
+    payload = pre + file_bytes + post
+
+    url = f"{TRIPO_BASE}/upload/sts"
+    req = urllib.request.Request(url, data=payload, method="POST")
+    req.add_header("Authorization", f"Bearer {key}")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    print(f"[tripo] uploading image {filename} ({len(file_bytes)} bytes, {mime}) -> /upload/sts")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            j = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        sys.exit(f"FATAL: HTTP {e.code} from {url}\n{detail}")
+    except urllib.error.URLError as e:
+        sys.exit(f"FATAL: network error to {url}: {e.reason}")
+
+    if j.get("code") != 0:
+        sys.exit(f"FATAL: image upload failed: {j}")
+    token = j["data"].get("image_token") or j["data"].get("file_token")
+    if not token:
+        sys.exit(f"FATAL: upload returned no image_token: {j}")
+    print(f"[tripo] upload OK -> image_token={token[:16]}... (ext={ext})")
+    return token, ("jpg" if ext == "jpeg" else ext)
+
+
+def submit_image_task_token(key, file_token, file_type, model_version, face_limit,
+                            texture=True, pbr=True, extras=None):
+    """POST /task type=image_to_model via a Tripo file_token (from upload_image).
+    Mirrors submit_image_task but uses file_token instead of a URL -- the local-file path."""
+    body = {
+        "type": "image_to_model",
+        "file": {"type": file_type, "file_token": file_token},
+        "texture": bool(texture),
+        "pbr": bool(pbr),
+        "model_version": model_version,
+    }
+    if face_limit:
+        body["face_limit"] = int(face_limit)
+    _apply_common_extras(body, extras)
+    print(f"[tripo] submitting image_to_model (file_token) body keys: {sorted(body.keys())}")
+    j = _request("POST", f"{TRIPO_BASE}/task", key, body)
+    if j.get("code") != 0:
+        sys.exit(f"FATAL: image(token) task submit failed: {j}")
+    task_id = j["data"]["task_id"]
+    print(f"[tripo] image(token) task submitted: {task_id}")
+    return task_id
+
+
 def check_balance(key):
     """Proven endpoint: /v2/openapi/user/balance -> {code:0,data:{balance,frozen}}"""
     j = _request("GET", f"{TRIPO_BASE}/user/balance", key)
@@ -283,6 +353,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prompt", help="text-to-3d prompt")
     ap.add_argument("--image-url", help="image-to-3d source URL (fallback)")
+    ap.add_argument("--image-file", help="image-to-3d source LOCAL file (uploaded to Tripo -> file_token)")
     ap.add_argument("--negative-prompt", default="")
     ap.add_argument("--name", required=True, help="output basename (no ext)")
     ap.add_argument("--model-version", default="v2.5",
@@ -339,8 +410,8 @@ def main():
             texture_alignment=args.texture_alignment,
         )
     else:
-        if not args.prompt and not args.image_url:
-            sys.exit("FATAL: need --prompt or --image-url (or --retexture-task-id)")
+        if not args.prompt and not args.image_url and not args.image_file:
+            sys.exit("FATAL: need --prompt, --image-url, or --image-file (or --retexture-task-id)")
 
         # Resolve texture/pbr with the generate_parts INTERLOCK
         # (TripoProvider.cpp:678 -- "Segmented parts (requires texture=false, pbr=false)")
@@ -363,7 +434,12 @@ def main():
             "model_seed": args.model_seed,
         }
 
-        if args.image_url:
+        if args.image_file:
+            # LOCAL file path: upload to Tripo -> file_token -> image_to_model.
+            file_token, file_type = upload_image(key, args.image_file)
+            task_id = submit_image_task_token(key, file_token, file_type, args.model_version,
+                                              args.face_limit, texture=texture, pbr=pbr, extras=extras)
+        elif args.image_url:
             task_id = submit_image_task(key, args.image_url, args.model_version,
                                         args.face_limit, texture=texture, pbr=pbr, extras=extras)
         else:

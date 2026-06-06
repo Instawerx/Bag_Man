@@ -10,6 +10,9 @@
 #include "AbilitySystemGlobals.h"
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
+#include "AFLCosmeticCatalogSubsystem.h"             // S-ECON-CAT 4b: catalog resolve cheats (AFLCosmeticCore)
+#include "AFLHelmetAsset.h"                           // S-ECON-CAT 4b: helmet resolve target (AFLCosmeticCore)
+#include "AFLAbilityCosmeticAsset.h"                  // S-ECON-CAT 4b: EMP ability-cosmetic resolve target (AFLCosmeticCore)
 #include "Effects/GE_AFL_Damage_Pulse.h"
 #include "Effects/GE_AFL_EnergyGain_Small.h"
 #include "Effects/GE_AFL_Heat_SetByCaller.h"
@@ -921,6 +924,181 @@ namespace
 		TEXT("afl.Cosmetic.SetEdge"),
 		TEXT("#43 selection seam: client-issued PURE caller of ServerSetCosmeticSelection. Usage: afl.Cosmetic.SetEdge <NeonPurple|NeonPink|NeonBlue|NeonGreen> (or full AFL.Edge.<color>). NOT NeonRed (absent from BrandEdgeMap)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetEdge));
+
+	// ─── S-ECON-CAT 4b helmet: afl.Cosmetic.SetHelmet <name> ─────────────────────
+	//
+	// Same PURE-CALLER contract as SetEdge: build FAFLCosmeticSelection from the current selection, set
+	// HelmetId, hand to ServerSetCosmeticSelection. The server commits HelmetId; the BP add-event on
+	// B_BagMan_AssignCharacterPart reads it at the next part-resolve, resolves the helmet asset via the
+	// catalog, and AddCharacterPart's the visor. The cheat writes nothing itself.
+	void HandleAFLCosmeticSetHelmet(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetHelmet — usage: afl.Cosmetic.SetHelmet <Visor01> (or full AFL.Helmet.<name>)"));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetHelmet — no game world (run inside PIE)."));
+			return;
+		}
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetHelmet — no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		FString IdStr = Args[0].TrimStartAndEnd();
+		if (!IdStr.StartsWith(TEXT("AFL.Helmet."), ESearchCase::IgnoreCase))
+		{
+			IdStr = FString::Printf(TEXT("AFL.Helmet.%s"), *IdStr);
+		}
+		const FName HelmetId(*IdStr);
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		if (Request.GetActiveIdentityId() == NAME_None)
+		{
+			Request.IdentityType = EAFLIdentityType::Team;
+			Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+		}
+		Request.HelmetId = HelmetId;
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetHelmet — client issued ServerSetCosmeticSelection(helmet=%s). The BP add-event reads HelmetId + catalog-resolves the visor."),
+			*HelmetId.ToString());
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetHelmetCmd(
+		TEXT("afl.Cosmetic.SetHelmet"),
+		TEXT("S-ECON-CAT 4b helmet: client-issued PURE caller of ServerSetCosmeticSelection setting HelmetId. Usage: afl.Cosmetic.SetHelmet <Visor01> (or full AFL.Helmet.<name>)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetHelmet));
+
+	// ─── S-ECON-CAT 4b resolution probe: afl.Cosmetic.Resolve <id> ───────────────
+	//
+	// A diagnostic that resolves ANY catalog id through the subsystem and logs the result -- proves
+	// catalog resolution end-to-end for the non-skin types (helmet, the EMP ability cosmetic) the same
+	// way resolveVia=catalog proves it for the edge. Read-only: it does not apply or grant anything, just
+	// confirms the catalog returns the right asset of the right type for an id. (The actual helmet-apply /
+	// EMP-throw are watched separately; this isolates the CATALOG-RESOLUTION half for any id.)
+	void HandleAFLCosmeticResolve(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.Resolve — usage: afl.Cosmetic.Resolve <AFL.Helmet.Visor01 | AFL.Ability.EMP | AFL.Edge.NeonGreen | ...>"));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.Resolve — no game world (run inside PIE)."));
+			return;
+		}
+		UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Catalog || !Catalog->IsReady())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.Resolve — catalog subsystem not ready (no DA_AFL_CosmeticCatalog loaded)."));
+			return;
+		}
+
+		const FName Id(*Args[0].TrimStartAndEnd());
+		const FAFLCatalogEntry* Entry = Catalog->FindEntry(Id);
+		UPrimaryDataAsset* Asset = Catalog->ResolveAsset(Id);
+
+		if (!Entry)
+		{
+			Ar.Logf(TEXT("afl.Cosmetic.Resolve — id '%s' NOT in catalog (resolveVia=miss)."), *Id.ToString());
+			return;
+		}
+		Ar.Logf(TEXT("afl.Cosmetic.Resolve — id=%s type=%d resolveVia=catalog asset=%s (volts=%d watts=%d acq=%d)"),
+			*Id.ToString(), (int32)Entry->Type,
+			Asset ? *Asset->GetName() : TEXT("<unset/failed-load>"),
+			Entry->PriceVolts, Entry->PriceWatts, (int32)Entry->Acquisition);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticResolveCmd(
+		TEXT("afl.Cosmetic.Resolve"),
+		TEXT("S-ECON-CAT: resolve any catalog id through the subsystem + log the result (proves resolveVia=catalog for any type incl. helmet/EMP). Usage: afl.Cosmetic.Resolve <CosmeticId>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticResolve));
+
+	// ─── S-ECON-CAT 4b EMP activate (1a): afl.Cosmetic.ActivateEMP ───────────────
+	//
+	// The ability-grant-path proof, end to end through the catalog: resolve AFL.Ability.EMP -> the
+	// UAFLAbilityCosmeticAsset -> its AbilityClass -> find that ability's GRANTED spec on the player ASC
+	// (granted via AbilitySet_AFL_EMP on HeroData_BagMan) -> TryActivateAbility (bAllowRemoteActivation so
+	// the client->server activation is genuine). Sidesteps input-binding (1a ruling: binding to
+	// InputTag.Ability.Grenade would conflict with the grenade ShooterHero already grants; real EMP input
+	// is later polish). Watches the EMP throwing/functioning with the inherited grenade behavior +
+	// resolveVia=catalog. Read-the-catalog-then-act: the cheat does not hardcode the ability class.
+	void HandleAFLCosmeticActivateEMP(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.ActivateEMP — no game world (run inside PIE)."));
+			return;
+		}
+
+		UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Catalog || !Catalog->IsReady())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.ActivateEMP — catalog not ready."));
+			return;
+		}
+
+		// Resolve AFL.Ability.EMP -> UAFLAbilityCosmeticAsset -> the ability CLASS (catalog is the source).
+		const FName EmpId(TEXT("AFL.Ability.EMP"));
+		UAFLAbilityCosmeticAsset* AbilityCosmetic = Cast<UAFLAbilityCosmeticAsset>(Catalog->ResolveAsset(EmpId));
+		if (!AbilityCosmetic)
+		{
+			Ar.Logf(TEXT("afl.Cosmetic.ActivateEMP — %s did not resolve to a UAFLAbilityCosmeticAsset (resolveVia=miss)."),
+				*EmpId.ToString());
+			return;
+		}
+		UClass* AbilityClass = AbilityCosmetic->AbilityClass.LoadSynchronous();
+		if (!AbilityClass)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.ActivateEMP — UAFLAbilityCosmeticAsset.AbilityClass unset/failed to load."));
+			return;
+		}
+
+		// Find the GRANTED spec for that ability on the local player's ASC and activate it.
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAbilitySystemComponent* ASC = PS ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(PS) : nullptr;
+		if (!ASC)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.ActivateEMP — no player ASC."));
+			return;
+		}
+
+		FGameplayAbilitySpec* Found = nullptr;
+		for (FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+		{
+			if (Spec.Ability && Spec.Ability->GetClass() == AbilityClass)
+			{
+				Found = &Spec;
+				break;
+			}
+		}
+		if (!Found)
+		{
+			Ar.Logf(TEXT("afl.Cosmetic.ActivateEMP — resolveVia=catalog ability=%s but NOT granted on the player ")
+				TEXT("(add AbilitySet_AFL_EMP to HeroData_BagMan)."), *AbilityClass->GetName());
+			return;
+		}
+
+		const bool bActivated = ASC->TryActivateAbility(Found->Handle, /*bAllowRemoteActivation=*/true);
+		Ar.Logf(TEXT("afl.Cosmetic.ActivateEMP — resolveVia=catalog ability=%s granted=yes activated=%s"),
+			*AbilityClass->GetName(), bActivated ? TEXT("yes") : TEXT("no(cooldown/cost?)"));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticActivateEMPCmd(
+		TEXT("afl.Cosmetic.ActivateEMP"),
+		TEXT("S-ECON-CAT 4b: resolve AFL.Ability.EMP via catalog -> ability class -> activate the granted spec (proves the ability-grant path + resolveVia=catalog). Throws the EMP (inherited grenade behavior)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticActivateEMP));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER
