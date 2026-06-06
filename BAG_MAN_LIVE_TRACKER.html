@@ -1978,7 +1978,29 @@ function renderDesignView() {
         <li style="${LI}">&nbsp;&nbsp;${code('1 Volt = $0.001')} &nbsp;·&nbsp; ${code('10 Watts = 1 Volt')} &nbsp;·&nbsp; ${code('$1 = 1,000 Volts = 10,000 Watts')}</li>
         <li style="${LI}"><strong style="${G}">Everyone gets standard sets free</strong> (${code('GrantedFree')}: all founding teams, basic colors, basic weapons/beams) regardless. Premium layers on top.</li>
       </ul>
-      <p style="${P}">Balances are <strong>server-authoritative records</strong> — client displays, server decides.</p>`),
+      <p style="${P}"><strong style="${M}">MONETIZATION SPINE (locked) — HYBRID: Battle Pass + direct item shop, NO randomness.</strong> <strong style="${M}">Volts</strong> (hard / real-money, gated) gate the <strong>Battle Pass + premium/prestige cosmetics</strong>; <strong style="${M}">Watts</strong> (soft / earned) buy the <strong>accessible tier + apply discounts</strong>. The soft/hard split (premium currency gates the pass) is what BOTH Valorant and Fortnite actually run and is the legally-clean path.</p>
+      <p style="${P}padding:8px 12px;border:1px solid var(--red);border-radius:4px;background:rgba(255,51,85,0.07);color:var(--text);"><strong style="${R}">🔒 NO RANDOMIZED ACQUISITION.</strong> No lootboxes / gacha — all purchases are direct, known-item. Research-validated (June 2026): lootboxes are legally radioactive (Belgium + NL bans, the $520M Epic/FTC settlement); battle pass is the transparent norm. <span style="color:var(--text-dim);">(Mirrored on the GATE card as default-off layer (5).)</span></p>
+      <p style="${P}">Balances are <strong>server-authoritative records</strong> — client displays, server decides. <span style="color:var(--text-dim);">Full model: ${code('IRONICS_ECONOMY_SPEC.md')} (the economy's home) — its values ARE the S-ECON-CAT manifest fields (TIER + EARN cards below).</span></p>`),
+
+    card('TIER', 'Cosmetic tier ladder (prices LOCKED, names BLESSED)', 'magenta', `
+      <p style="${P}">The paid ladder maps the proven Valorant price points (~$10/$16/$23/$30) onto the peg. Names BLESSED by operator (rising electrical intensity). <strong>Identity items (Teams / Characters) + free base sets sit OUTSIDE this ladder</strong> (${code('GrantedFree')}).</p>
+      <ul style="${UL}">
+        <li style="${LI}"><strong style="${G}">SPARK</strong> — Accessible · ${code('10,000 V')} <em>or</em> ${code('100,000 W')} · ≈$10 · <strong>the Watts-buyable free-player tier.</strong></li>
+        <li style="${LI}"><strong style="${M}">SURGE</strong> — Standard · ${code('16,000 V')} · ≈$16 · Volts; Watts-discountable.</li>
+        <li style="${LI}"><strong style="${M}">ARC</strong> — Premium · ${code('23,000 V')} · ≈$23 · Volts only (the ~3-week generous earn target).</li>
+        <li style="${LI}"><strong style="${M}">THUNDERBOLT</strong> — Prestige · ${code('30,000 V')} · ≈$30 · Volts only; top prestige.</li>
+      </ul>
+      <p style="${P}"><span style="${K}">Soft/hard split (locked):</span> only <strong>SPARK</strong> is directly Watts-buyable (100,000 W = 10,000 V at peg). SURGE/ARC/THUNDERBOLT are Volts (real-money) — <strong>Watts can DISCOUNT them but not fully buy them.</strong> This keeps premium tiers meaningful and the model legally clean.</p>`),
+
+    card('EARN', 'Earn structure (Watts) + Battle Pass (LOCKED)', 'magenta', `
+      <p style="${P}"><strong style="${M}">Calibration target (locked):</strong> a regular player (~20 matches/week) earns a Premium (<strong>ARC</strong>) cosmetic in <strong>~3 weeks</strong> → <strong>≈4,000 Watts / match-equivalent</strong> baseline — but delivered as STRUCTURE (proven retention shape), not a flat per-match number.</p>
+      <ul style="${UL}">
+        <li style="${LI}"><strong>Match base</strong> — ~1,500 (loss / participation) → ~2,500 (win), every match. <span style="color:var(--text-dim);">Skill + outcome matter; losing still pays.</span></li>
+        <li style="${LI}"><strong>Daily first-win</strong> — ~3,000, once/day. <span style="color:var(--text-dim);">The "come back today" hook.</span></li>
+        <li style="${LI}"><strong>Daily quests</strong> (2–3) — ~1,500 each. <strong>Weekly challenge pool</strong> — ~10,000–15,000.</li>
+      </ul>
+      <p style="${P}"><span style="${K}">Weekly sum (regular, ~20 matches):</span> ≈40k match + ≈15k daily-win + ≈17.5k quests + ≈12k weekly ≈ <strong>~84,500 W/week → ~3 weeks ≈ 250,000 → an ARC cosmetic ✓</strong> (inside the generous 2–4 week band). Reward <strong>variety not just kills</strong> (saves / reboosts / extract earn — ties to P-SCORING); daily-gated so showing up &gt; grinding.</p>
+      <p style="${P}"><strong style="${M}">Battle Pass:</strong> ~${code('8,000 V')} (≈$8), <strong style="${K}">EXACTLY self-sustaining</strong> — complete the premium track, earn back exactly 8,000 V (next season's pass, no surplus). <em>Operator-locked rationale: launching exactly-self-sustaining sets the expectation cleanly with no later takeaway — Fortnite's 2026 backlash was about REMOVING a margin players had grown used to; IRONICS never creates that expectation, so never breaks it.</em> Free track grants a Watts pool + a baseline cosmetic each season. ~100 tiers, no paid tier-skips at launch (beyond a standard pass+N bundle).</p>`),
 
     card('BANK', 'IRONICS Bank · ledger · P2P · wallet-as-phone', 'magenta', `
       <ul style="${UL}">
@@ -2000,7 +2022,8 @@ function renderDesignView() {
       </ul>
       <p style="${P}padding:10px 12px;border:1px solid var(--red);border-radius:4px;background:rgba(255,51,85,0.07);color:var(--text);">
         <strong style="${R}">🔒 HARD INVARIANT — NO CASH-OUT, EVER.</strong> No code path converts Watts / Volts back to real money or transfers value out of the system. Currency is <strong style="${R}">ONE-WAY (buy-in only)</strong>. Breaking this = full compliance re-review. <strong>This is the line between in-game currency and money transmission.</strong></p>
-      <p style="${P}"><strong style="${G}">In-game-only economy</strong> (earn Watts, spend in-game on cosmetics, the wallet model, phone-as-view) is <strong>Phase-1 / normal work.</strong> Bank / chain / P2P / real-money-purchase = <strong style="${R}">designed-now, built-gated, enabled-only-after-legal (Phase 3+).</strong></p>`),
+      <p style="${P}"><strong style="${G}">In-game-only economy</strong> (earn Watts, spend in-game on cosmetics, the wallet model, phone-as-view) is <strong>Phase-1 / normal work.</strong> Bank / chain / P2P / real-money-purchase = <strong style="${R}">designed-now, built-gated, enabled-only-after-legal (Phase 3+).</strong></p>
+      <p style="${P}"><span style="${K}">Volts purchase packs (designed, sold only after the real-money layer (1) clears legal):</span> at peg with "larger pack = better value" bonuses — ${code('Starter 1,000 V/$1')} · ${code('Small 5,000 V/$5')} · ${code('Standard 10,000 V+bonus/$10')} · ${code('Large 25,000 V+bonus/$25')} · ${code('Mega 50,000 V+bonus/$50')}. Exact bonus amounts tuned at enable-time.</p>`),
 
     card('ID', 'Identity — TWO types, EITHER/OR (D5 / D5b)', 'magenta', `
       <p style="${P}">A player's identity slot holds <strong>one</strong> thing — a <strong style="${M}">Team</strong> <em>or</em> a <strong style="${M}">Character</strong>, never both, never combined.</p>
@@ -2064,7 +2087,7 @@ function renderDesignView() {
       ${roadStep('—','text-dim', 'Real persistence (PlayFab) · user-named teams', 'P3')}
     </div>
     <p style="${P}margin-top:12px;padding:8px 12px;border:1px solid var(--red);border-radius:4px;background:rgba(255,51,85,0.07);color:var(--text);"><strong style="${R}">🔒 NO CASH-OUT, EVER</strong> — currency is one-way (buy-in only); no path converts Watts/Volts back to money or out of the system. The line between in-game currency and money transmission. (See GATING card.)</p>
-    <p style="${P}margin-top:10px;"><strong style="${M}">Open / needs input:</strong> the <strong style="${G}">peg is now SET</strong> (1 Volt=$0.001 · 10 Watts=1 Volt). Still <strong>deferred</strong>: earn-rates / real-money price tiers / store pricing — need the AFL economy model doc if it exists. <strong style="${R}">Real-money purchase, bank, on-chain settlement, and P2P all require legal review before enable.</strong> Store rotation cadence, user-team name-uniqueness, and randomized-acquisition (default off) remain later-phase open decisions.</p>`);
+    <p style="${P}margin-top:10px;"><strong style="${M}">Economy LOCKED</strong> (canonical: ${code('IRONICS_ECONOMY_SPEC.md')} → folded into the CUR/TIER/EARN cards): peg, the hybrid pass+shop spine, the SPARK/SURGE/ARC/THUNDERBOLT tier prices, and the ~4,000-W/match earn STRUCTURE are all set. <strong>Tune-at-playtest only</strong> (structure locked, splits flex): exact daily/weekly Watts values, Watts-discount depth on Volts tiers, season length (~9–13 wks). <strong>Tune-at-enable</strong> (gated): Volts pack bonus amounts. <strong style="${R}">Real-money purchase, bank, on-chain settlement, and P2P all require legal review before enable; NO randomized acquisition (firm), NO cash-out ever.</strong></p>`);
 
   return `
     <div class="content-header">
@@ -2187,7 +2210,7 @@ function renderEcosystemView() {
       <li style="${LI}"><strong>Hub instance population cap + shard trigger</strong> — count per instance, when to spin a new shard? <span style="color:var(--text-dim);">Resolve at P-HUB scale phase (P3).</span></li>
       <li style="${LI}"><strong style="${R}">Sportsbook betting</strong> — non-monetary cosmetic-XP tokens, OR currency-linked → <strong style="${R}">currency-linked = a GATED layer (compliance, legal sign-off)</strong>. <span style="color:var(--text-dim);">Resolve at P-HUB sportsbook-zone build.</span></li>
     </ul>
-    <p style="${P}">Economy <strong>numbers</strong> (earn-rates, Volt price tiers, store pricing) remain deferred — peg is SET; tuned at P-SCORING + wallet. <span style="color:var(--text-dim);">(See Design view for the economy open-questions + the no-cash-out invariant.)</span></p>`);
+    <p style="${P}">Economy <strong>numbers LOCKED</strong> (peg + hybrid spine + SPARK/SURGE/ARC/THUNDERBOLT tiers + ~4,000-W/match earn structure — see Design view CUR/TIER/EARN cards, canonical ${code('IRONICS_ECONOMY_SPEC.md')}); only exact daily/weekly splits + discount depth tune at P-SCORING/playtest, pack bonuses at real-money enable. <span style="color:var(--text-dim);">(no-cash-out + no-randomness invariants hold.)</span></p>`);
 
   return `
     <div class="content-header">
