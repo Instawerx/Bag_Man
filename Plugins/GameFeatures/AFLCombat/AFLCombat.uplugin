@@ -39,6 +39,10 @@
                         "Enabled":  true
                     },
                     {
+                        "Name":  "AFLCosmeticCore",
+                        "Enabled":  true
+                    },
+                    {
                         "Name":  "AFLVFX",
                         "Enabled":  true
                     },

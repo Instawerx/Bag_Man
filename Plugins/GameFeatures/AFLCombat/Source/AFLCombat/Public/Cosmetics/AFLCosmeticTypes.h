@@ -3,26 +3,20 @@
 #pragma once
 
 #include "CoreMinimal.h"
+// EAFLCosmeticRarity moved to the always-loaded AFLCosmeticCore module (the catalog needs it at the
+// engine-startup AssetManager scan, before this GameFeature loads). Re-included here because
+// UAFLSkinColorAsset still uses it. AFLCombat now depends on AFLCosmeticCore (the correct direction).
+#include "AFLCosmeticCoreTypes.h"
 
 #include "AFLCosmeticTypes.generated.h"
 
 /**
- * Shared cosmetic-economy vocabulary for BagMan robot skins (mirrors Lyra's
- * LyraCharacterPartTypes.h pattern -- a project types header grouping cosmetic enums).
- * Used by UAFLSkinColorAsset (the per-color preset) and, later, the brand-edge map +
- * store/entitlement code. Pure enums, no runtime behavior.
+ * Skin-pillar-specific cosmetic axis for BagMan robot skins. Stays in AFLCombat (used only by
+ * UAFLSkinColorAsset + the proven #43/#38a skin/controller code -- no churn to those assets). The
+ * catalog uses EAFLCosmeticType's SkinColor_Edge/Body as its own discriminator instead (see
+ * AFLCosmeticCoreTypes.h); a SkinColor_Edge catalog entry resolves to a UAFLSkinColorAsset whose
+ * Axis == Edge. Pure enum, no runtime behavior.
  */
-
-UENUM(BlueprintType)
-enum class EAFLCosmeticRarity : uint8
-{
-	Common      UMETA(DisplayName = "Common"),
-	Uncommon    UMETA(DisplayName = "Uncommon"),
-	Rare        UMETA(DisplayName = "Rare"),
-	Epic        UMETA(DisplayName = "Epic"),
-	Legendary   UMETA(DisplayName = "Legendary")
-};
-
 UENUM(BlueprintType)
 enum class EAFLCosmeticAxis : uint8
 {

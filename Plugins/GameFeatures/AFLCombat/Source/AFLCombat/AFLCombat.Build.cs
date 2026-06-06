@@ -29,6 +29,12 @@ public class AFLCombat : ModuleRules
 				// this GameFeature -- a late-loaded net-serialized struct desyncs the cache and
 				// drops the connection (see AFLNetTypes.uplugin).
 				"AFLNetTypes",
+				// S-ECON-CAT: the cosmetic catalog + its CORE types/subsystem live in the always-loaded
+				// AFLCosmeticCore module (NOT this GameFeature) because AssetManager scans the catalog's
+				// primary-asset type at engine startup, before GameFeatures load. AFLCombat depends on it
+				// for the #43 resolve swap (UAFLCosmeticCatalogSubsystem) + EAFLCosmeticRarity (used by
+				// UAFLSkinColorAsset). Correct dependency direction: GameFeature -> always-loaded core.
+				"AFLCosmeticCore",
 				"ModularGameplay",
 				"ModularGameplayActors",
 			}

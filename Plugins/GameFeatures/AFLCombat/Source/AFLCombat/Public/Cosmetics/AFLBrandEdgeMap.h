@@ -5,11 +5,9 @@
 #include "Engine/DataAsset.h"
 #include "GameplayTagContainer.h"
 
-// #43: included (not just forward-declared) so ResolveEdgeById can call UAFLSkinColorAsset::GetCosmeticId()
-// inline below. The reverse-by-CosmeticId lookup is a stopgap until the catalog (S-ECON-CAT) is the registry.
-#include "Cosmetics/AFLSkinColorAsset.h"
-
 #include "AFLBrandEdgeMap.generated.h"
+
+class UAFLSkinColorAsset;
 
 /**
  * Brand -> default-edge mapping for the BagMan robots (#38a).
@@ -34,29 +32,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic")
 	TMap<FGameplayTag, TObjectPtr<UAFLSkinColorAsset>> BrandToEdge;
 
-	/** Resolve the edge preset for a brand tag; nullptr if unmapped. */
+	/** Resolve the edge preset for a brand tag; nullptr if unmapped. The #38a brand->default-look job
+	 *  (a Team's factory-default edge), distinct from the catalog's id->asset resolution. Kept. */
 	UAFLSkinColorAsset* ResolveEdge(const FGameplayTag& BrandTag) const
 	{
 		const TObjectPtr<UAFLSkinColorAsset>* Found = BrandToEdge.Find(BrandTag);
 		return Found ? Found->Get() : nullptr;
 	}
 
-	/** #43 stopgap: resolve an edge preset by its immutable CosmeticId (UAFLSkinColorAsset::CosmeticId),
-	 *  scanning the same presets this map already references. Replaced by the catalog (S-ECON-CAT) when it
-	 *  lands; until then it lets the selection's EdgeId resolve without a separate registry. nullptr on miss. */
-	UAFLSkinColorAsset* ResolveEdgeById(FName CosmeticId) const
-	{
-		if (CosmeticId == NAME_None)
-		{
-			return nullptr;
-		}
-		for (const TPair<FGameplayTag, TObjectPtr<UAFLSkinColorAsset>>& Pair : BrandToEdge)
-		{
-			if (Pair.Value && Pair.Value->GetCosmeticId() == CosmeticId)
-			{
-				return Pair.Value.Get();
-			}
-		}
-		return nullptr;
-	}
+	// ResolveEdgeById (the #43 by-CosmeticId stopgap) was RETIRED once S-ECON-CAT's catalog became the
+	// proven live id->asset resolver (resolveVia=catalog watched-clean). The catalog subsystem owns
+	// id->asset now; this map keeps ONLY the brand-tag->default-edge job above.
 };

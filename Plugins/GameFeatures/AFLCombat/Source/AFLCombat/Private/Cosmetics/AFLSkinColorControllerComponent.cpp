@@ -5,6 +5,7 @@
 #include "Components/ChildActorComponent.h"
 #include "Cosmetics/AFLBrandEdgeMap.h"
 #include "Cosmetics/AFLCharacterPartActor.h"
+#include "AFLCosmeticCatalogSubsystem.h"  // S-ECON-CAT (AFLCosmeticCore module): id->asset registry (replaces ResolveEdgeById stopgap)
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"  // #43: read the player's replicated selection
 #include "Cosmetics/AFLSkinColorAsset.h"
 #include "Cosmetics/AFLSkinColorComponent.h"
@@ -146,12 +147,27 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 		const UAFLCosmeticLoadoutComponent* Loadout =
 			SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
 		FName SelectedEdgeId = NAME_None;
+		const TCHAR* SelResolveVia = TEXT("-");
 		if (Loadout)
 		{
 			SelectedEdgeId = Loadout->GetSelection().EdgeId;
-			if (SelectedEdgeId != NAME_None && BrandEdgeMap)
+			if (SelectedEdgeId != NAME_None)
 			{
-				SelectedEdge = BrandEdgeMap->ResolveEdgeById(SelectedEdgeId);
+				// S-ECON-CAT: resolve the EdgeId through the catalog (the id->asset registry) -- the ONE source
+				// every economy system reads. The cast is safe: a SkinColor_Edge entry's Asset is a
+				// UAFLSkinColorAsset. The transitional ResolveEdgeById/BrandEdgeMap-scan stopgap was RETIRED
+				// once resolveVia=catalog was watched-clean (catalog proven the live source): catalog resolution
+				// is now the SOLE path, so a miss on a real selection fails LOUD (SelectedEdge stays null ->
+				// falls to the brand default in the tier resolution below, resolveVia logs nothing fired) rather
+				// than silently riding a fallback -- the unforgiving bar the non-skin types (helmet/EMP) need too.
+				if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+				{
+					SelectedEdge = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(SelectedEdgeId));
+					if (SelectedEdge)
+					{
+						SelResolveVia = TEXT("catalog");
+					}
+				}
 			}
 		}
 		const bool bSelectionResolved = (SelectedEdge != nullptr);
@@ -162,13 +178,14 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 			// whether a loadout comp was found there, and the raw EdgeId it held. On a failing respawn this
 			// reveals if PawnPS != the committed PS (instance swap) or the same PS read empty (timing).
 			UE_LOG(LogAFLSkinDiag, Log,
-				TEXT("%s%s : SelRead path=%s pawnPS=%s ctrlPS=%s loadout=%s rawEdgeId=%s"),
+				TEXT("%s%s : SelRead path=%s pawnPS=%s ctrlPS=%s loadout=%s rawEdgeId=%s resolveVia=%s"),
 				*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
 				SelectionPSPath,
 				PawnPS ? *PawnPS->GetName() : TEXT("null"),
 				CtrlPS ? *CtrlPS->GetName() : TEXT("null"),
 				Loadout ? TEXT("found") : TEXT("MISSING"),
-				(SelectedEdgeId != NAME_None) ? *SelectedEdgeId.ToString() : TEXT("<none>"));
+				(SelectedEdgeId != NAME_None) ? *SelectedEdgeId.ToString() : TEXT("<none>"),
+				SelResolveVia);  // S-ECON-CAT: "catalog" = catalog resolved the id; "-" = no id set OR catalog miss (stopgap retired -> a real-selection miss shows here, falls to brand default below)
 		}
 
 		// Three-tier priority (#43): the player's selection wins; else the #38a brand default; else the

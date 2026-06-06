@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "AFL Cosmetic Core",
+	"Description": "Always-loaded home for the AFL cosmetic-economy CORE types + the catalog (S-ECON-CAT). MUST stay a plain Default-phase runtime plugin -- NOT a GameFeature: the cosmetic catalog (UAFLCosmeticCatalog) registers as an AssetManager primary-asset type, and AssetManager scans PrimaryAssetTypesToScan at ENGINE STARTUP (frame 0), before any GameFeature module loads. A catalog class in a late-loading GameFeature fails to load at scan time -> the primary-asset type is rejected -> the catalog is undiscoverable. Same load-order class as AFLNetTypes. The cosmetic ASSETS the catalog points at stay soft-referenced (load on demand); only the catalog type/struct/subsystem + the economy vocabulary enums need to be early. The growing economy systems (wallet / entitlement-source) that hit the same early-load need belong here too.",
+	"Category": "AFL",
+	"CreatedBy": "C12 AI Gaming",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AFLCosmeticCore",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
