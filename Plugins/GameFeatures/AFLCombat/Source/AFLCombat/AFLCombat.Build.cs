@@ -56,6 +56,13 @@ public class AFLCombat : ModuleRules
 				// symbols live in AIModule -- LyraGame links it for the same reason
 				// (LyraGame.Build.cs). Without it: LNK2019 on the inherited interface thunks.
 				"AIModule",
+				// S-ECON-STORE: afl.Store.Open pushes the cosmetic-store ULyraActivatableWidget onto
+				// the UI.Layer.Menu CommonUI layer via UCommonUIExtensions::PushContentToLayer_ForPlayer.
+				// UCommonUIExtensions lives in CommonGame; the layer/activatable types in CommonUI.
+				// LyraGame (public dep) uses both for the same push; AFLCombat needs them directly to
+				// compile the include. GameFeature -> engine-plugin module direction is correct.
+				"CommonUI",
+				"CommonGame",
 			}
 		);
 	}

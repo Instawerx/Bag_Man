@@ -35,6 +35,9 @@
 #include "GameplayTagContainer.h"
 #include "HAL/IConsoleManager.h"
 #include "NativeGameplayTags.h"
+#include "CommonUIExtensions.h"                        // S-ECON-STORE: PushContentToLayer_ForPlayer (afl.Store.Open)
+#include "CommonActivatableWidget.h"                   // S-ECON-STORE: the store widget class type to push
+#include "Engine/LocalPlayer.h"                        // S-ECON-STORE: GetLocalPlayer() for the per-player push
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCombatCheats)
 
@@ -56,6 +59,11 @@ namespace
 // cheat writes Heat outside the normal HeatPerBeamTick code path. Same
 // CDO-vs-ini rationale as the rest of AFLCombat (post-2026-05-20 pattern).
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overheated_Cheats, "State.Overheated");
+
+// S-ECON-STORE: the CommonUI menu layer the cosmetic store pushes onto (same layer Lyra's
+// pause/escape menus use). File-scoped static — the tag string is the canonical SSOT
+// ("UI.Layer.Menu"), registered by Lyra's UI plugins at startup.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Store_Cheats, "UI.Layer.Menu");
 
 
 UAFLCombatCheats::UAFLCombatCheats()
@@ -1240,6 +1248,69 @@ namespace
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletGrantCmd(TEXT("afl.Wallet.Grant"),
 		TEXT("S-ECON-WALLET (b) gate: dev-grant ownership without spending (test the entitlement gate). Usage: afl.Wallet.Grant <CosmeticId>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletGrant));
+
+	// ─── S-ECON-STORE: afl.Store.Open / afl.Store.Close (push the cosmetic store onto UI.Layer.Menu) ──
+	//
+	// The store is a ULyraActivatableWidget (AFLW_Menu_CosmeticShop). Opening it = pushing it onto the
+	// CommonUI "UI.Layer.Menu" stack for the LOCAL player of the window the command was typed in (world-
+	// context-aware, like afl.Cosmetic.SetEdge). PushContentToLayer_ForPlayer is the SAME call Lyra's HUD
+	// layout uses for its menus -- the widget's InputConfig=Menu then auto-captures input, and the
+	// CloseButton's DeactivateWidget pops it off this same stack. The store's own event graph drives all
+	// catalog/wallet reads; this cheat only summons it. Cosmetic/UI-only -> run in the window you watch.
+	//
+	// NOT a GameFeatureAction_AddWidget: that would mount the store always-on in the HUD; the store is a
+	// summoned modal, so a push-on-demand (cheat now; a HUD button later) is the correct shape.
+	// Weak handle to the store widget the last afl.Store.Open pushed, so afl.Store.Close can pop
+	// exactly it (UCommonUIExtensions has no "active widget on layer" getter — PopContentFromLayer
+	// takes the widget pointer). Weak so a player-driven close (the X button) doesn't leave a stale
+	// raw pointer; we null-check before popping.
+	TWeakObjectPtr<UCommonActivatableWidget> GAFLStoreWidget;
+
+	void HandleAFLStoreOpen(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Store.Open - run inside PIE.")); return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		ULocalPlayer* LP = PC ? PC->GetLocalPlayer() : nullptr;
+		if (!LP) { Ar.Log(TEXT("afl.Store.Open - no local player.")); return; }
+
+		TSubclassOf<UCommonActivatableWidget> StoreClass = LoadClass<UCommonActivatableWidget>(
+			nullptr, TEXT("/Game/BagMan/UI/Store/AFLW_Menu_CosmeticShop.AFLW_Menu_CosmeticShop_C"));
+		if (!StoreClass)
+		{
+			Ar.Log(TEXT("afl.Store.Open - could not load AFLW_Menu_CosmeticShop_C (build the widget / check the path)."));
+			return;
+		}
+
+		UCommonActivatableWidget* Pushed =
+			UCommonUIExtensions::PushContentToLayer_ForPlayer(LP, TAG_UI_Layer_Menu_Store_Cheats, StoreClass);
+		GAFLStoreWidget = Pushed;
+		Ar.Logf(TEXT("afl.Store.Open - pushed %s onto UI.Layer.Menu (%s). Close with the X button or afl.Store.Close."),
+			*StoreClass->GetName(), Pushed ? TEXT("ok") : TEXT("push returned null"));
+	}
+
+	void HandleAFLStoreClose(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		// Pop the store this cheat opened (mirrors the CloseButton's DeactivateWidget). If the player
+		// already closed it via the X, the weak handle is stale -> nothing to do.
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Store.Close - run inside PIE.")); return; }
+		if (UCommonActivatableWidget* Store = GAFLStoreWidget.Get())
+		{
+			UCommonUIExtensions::PopContentFromLayer(Store);
+			GAFLStoreWidget = nullptr;
+			Ar.Log(TEXT("afl.Store.Close - popped the cosmetic store from UI.Layer.Menu."));
+		}
+		else
+		{
+			Ar.Log(TEXT("afl.Store.Close - store not open (or already closed via the X button)."));
+		}
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStoreOpenCmd(TEXT("afl.Store.Open"),
+		TEXT("S-ECON-STORE: push the cosmetic store (AFLW_Menu_CosmeticShop) onto UI.Layer.Menu for the local player. Browse priced/tiered catalog; buy routes through the proven wallet ServerPurchaseCosmetic."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStoreOpen));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStoreCloseCmd(TEXT("afl.Store.Close"),
+		TEXT("S-ECON-STORE: pop the top widget on UI.Layer.Menu (closes the store if open). Same effect as the store's X button."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStoreClose));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER
