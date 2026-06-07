@@ -1213,13 +1213,26 @@ namespace
 
 	void HandleAFLWalletBuy(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
-		if (Args.Num() < 1) { Ar.Log(TEXT("afl.Wallet.Buy - usage: afl.Wallet.Buy <CosmeticId>  e.g. AFL.Facemask.IroVisor")); return; }
+		if (Args.Num() < 1) { Ar.Log(TEXT("afl.Wallet.Buy - usage: afl.Wallet.Buy <CosmeticId> [volts|watts|auto]  e.g. afl.Wallet.Buy AFL.Edge.NeonBlue volts")); return; }
 		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Wallet.Buy - run inside PIE.")); return; }
 		UAFLWalletComponent* W = GetPlayerWallet(World);
 		if (!W) { Ar.Log(TEXT("afl.Wallet.Buy - no wallet component.")); return; }
 		const FName Id(*Args[0].TrimStartAndEnd());
-		W->ServerPurchaseCosmetic(Id); // server reads catalog price, validates balance, deducts + grants.
-		Ar.Logf(TEXT("afl.Wallet.Buy - client issued ServerPurchaseCosmetic(%s). Server: price from catalog -> deduct -> grant. Watch afl.WalletDiag 1."), *Id.ToString());
+
+		// Optional 2nd arg = the currency the player chooses (SPARK is pay-either). Default Auto.
+		EAFLPayCurrency Pay = EAFLPayCurrency::Auto;
+		if (Args.Num() >= 2)
+		{
+			const FString C = Args[1].TrimStartAndEnd();
+			if      (C.Equals(TEXT("volts"), ESearchCase::IgnoreCase)) Pay = EAFLPayCurrency::Volts;
+			else if (C.Equals(TEXT("watts"), ESearchCase::IgnoreCase)) Pay = EAFLPayCurrency::Watts;
+			else if (C.Equals(TEXT("auto"),  ESearchCase::IgnoreCase)) Pay = EAFLPayCurrency::Auto;
+			else { Ar.Logf(TEXT("afl.Wallet.Buy - unknown currency '%s' (use volts|watts|auto); defaulting Auto."), *C); }
+		}
+		const TCHAR* PayStr = (Pay == EAFLPayCurrency::Volts) ? TEXT("volts") : (Pay == EAFLPayCurrency::Watts) ? TEXT("watts") : TEXT("auto");
+
+		W->ServerPurchaseCosmetic(Id, Pay); // server reads catalog price, validates balance, deducts + grants.
+		Ar.Logf(TEXT("afl.Wallet.Buy - client issued ServerPurchaseCosmetic(%s, pay=%s). Server: price from catalog -> deduct -> grant. Watch afl.WalletDiag 1."), *Id.ToString(), PayStr);
 	}
 
 	void HandleAFLWalletGrant(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)

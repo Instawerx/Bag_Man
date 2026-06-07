@@ -73,3 +73,17 @@ Tools/AFL_Yolo/config.toml
 
 # Local credential backup
 Tools/AFL_Yolo/config.toml.backup
+
+# === Session scratch / local-only working dirs (keep on disk, don't track) ===
+# Unzipped marketplace pack source (the zip is the SSOT; this is an extract-on-demand working copy).
+Tools/_laser_src/
+# Skill BUNDLES dropped into Tools/skills as raw .skill ZIPs (the visual-spec source, e.g.
+# expert-game-designer.skill). Installed skills live in Tools/skills/<name>/SKILL.md folders; the
+# raw bundles are local references, not tracked.
+Tools/skills/*.skill
+# Temporary diagnostic content (B_*_AssignCharacterPart probes etc) — session scratch, never shipped.
+Content/_TmpDiag/
+# Agent scratch markers
+Tools/_commit_msg*.txt
+Tools/_commit_canary.txt
+Tools/_gate2_live.png

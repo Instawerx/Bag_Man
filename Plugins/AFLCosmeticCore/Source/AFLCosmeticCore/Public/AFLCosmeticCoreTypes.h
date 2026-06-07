@@ -3,10 +3,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"   // FGameplayTag RarityTag (skill: rarity tag drives the shop frame color)
 
 #include "AFLCosmeticCoreTypes.generated.h"
 
 class UPrimaryDataAsset;
+class UTexture2D;
 
 /**
  * AFL cosmetic-economy CORE vocabulary (S-ECON-CAT). Lives in the always-loaded AFLCosmeticCore module
@@ -154,4 +156,45 @@ struct FAFLCatalogEntry
 	/** Cosmetic flavor rarity (orthogonal to Tier/price). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
 	EAFLCosmeticRarity Rarity = EAFLCosmeticRarity::Common;
+
+	// --- Display (S-ECON-STORE / IRONICS Digital Market — the skill's display-row fields the tile + details
+	//     panel render WITHOUT loading the full asset; soft refs only, per the mobile-memory discipline) ---
+
+	/** Two-line marketing blurb shown in the details panel (e.g. "Cut through the darkness.\nLeave only
+	 *  the edge."). MultiLine so the editor gives a multi-row box. Localizable; marketing owns it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display", meta = (MultiLine = true))
+	FText Description;
+
+	/** The collection/series the details panel prints under the name ("IRONICS SERIES"). Localizable. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display")
+	FText SeriesName;
+
+	/** Shop thumbnail for the product card -- SOFT ref (hard refs blow up mobile memory; the grid soft-loads
+	 *  on display and releases off-screen). Author as T_<Item>_Thumb, low-res 256-512. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display")
+	TSoftObjectPtr<UTexture2D> ShopThumbnail;
+
+	/** Rarity as a GAMEPLAY TAG (the skill's canonical: rarity tag drives the shop CARD FRAME color, e.g.
+	 *  Cosmetic.Rarity.Legendary -> gold frame). Lives ALONGSIDE the EAFLCosmeticRarity enum (which the
+	 *  skin-color-asset path still consumes) -- additive, NOT a migration, so existing enum reads are intact.
+	 *  The store frame-color logic keys off THIS; ResolveRarityTag() falls back to the enum if this is unset. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display", meta = (Categories = "Cosmetic.Rarity"))
+	FGameplayTag RarityTag;
+
+	/** Stat-meter value (1-5) shown as the VISUAL INTENSITY bar in the details panel. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display", meta = (ClampMin = "0", ClampMax = "5"))
+	int32 VisualIntensity = 0;
+
+	/** Stat-meter value (1-5) shown as the GLOW IMPACT bar in the details panel. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display", meta = (ClampMin = "0", ClampMax = "5"))
+	int32 GlowImpact = 0;
+
+	/** Compatibility line in the details panel ("All Classes"). Localizable. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display")
+	FText Compatibility;
+
+	/** Accent theme that drives the card/preview neon color (CyanBlue / NeonGreen / NeonPink / NeonPurple /
+	 *  NeonRed). FName so it maps to a small color table without dragging a UObject. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display")
+	FName ColorTheme;
 };

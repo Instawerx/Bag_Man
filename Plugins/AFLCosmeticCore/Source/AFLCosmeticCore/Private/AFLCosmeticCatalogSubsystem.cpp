@@ -101,6 +101,115 @@ void UAFLCosmeticCatalogSubsystem::GetEntriesByType(EAFLCosmeticType Type, TArra
 	}
 }
 
+void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry>& OutEntries) const
+{
+	OutEntries.Reset();
+	if (!Catalog)
+	{
+		return;
+	}
+	for (const FAFLCatalogEntry& Entry : Catalog->Entries)
+	{
+		// Purchasable = NOT GrantedFree (identity / free base / basic colors are owned by all, not shop items).
+		if (Entry.Acquisition != EAFLAcquisition::GrantedFree)
+		{
+			OutEntries.Add(Entry); // by value -- small BlueprintType struct for the store grid.
+		}
+	}
+}
+
+bool UAFLCosmeticCatalogSubsystem::GetEntry(FName CosmeticId, FAFLCatalogEntry& OutEntry) const
+{
+	if (const FAFLCatalogEntry* Entry = FindEntry(CosmeticId))
+	{
+		OutEntry = *Entry;
+		return true;
+	}
+	return false;
+}
+
+FText UAFLCosmeticCatalogSubsystem::GetEntryPriceText(const FAFLCatalogEntry& Entry)
+{
+	// Show the ACTUAL currency/currencies the entry charges (Fix 1): a dual-priced SPARK item reads
+	// "10,000 V / 100,000 W" (pay-either), a Volts-only tier "16,000 V", a Watts-only item "100,000 W".
+	// Grouped (thousands separators) via FText::AsNumber. GrantedFree / no price reads "Free".
+	const bool bHasVolts = (Entry.PriceVolts > 0);
+	const bool bHasWatts = (Entry.PriceWatts > 0);
+
+	if (!bHasVolts && !bHasWatts)
+	{
+		return NSLOCTEXT("AFLStore", "Price_Free", "Free");
+	}
+
+	FText VoltsPart;
+	if (bHasVolts)
+	{
+		VoltsPart = FText::Format(NSLOCTEXT("AFLStore", "Price_Volts", "{0} V"), FText::AsNumber(Entry.PriceVolts));
+	}
+	FText WattsPart;
+	if (bHasWatts)
+	{
+		WattsPart = FText::Format(NSLOCTEXT("AFLStore", "Price_Watts", "{0} W"), FText::AsNumber(Entry.PriceWatts));
+	}
+
+	if (bHasVolts && bHasWatts)
+	{
+		// Pay-either (SPARK): both, separated, so the player sees the choice.
+		return FText::Format(NSLOCTEXT("AFLStore", "Price_Either", "{0} / {1}"), VoltsPart, WattsPart);
+	}
+	return bHasVolts ? VoltsPart : WattsPart;
+}
+
+FGameplayTag UAFLCosmeticCatalogSubsystem::ResolveRarityTag(const FAFLCatalogEntry& Entry)
+{
+	// Designer-set tag wins; else map the enum so a card always resolves a rarity (additive fallback).
+	if (Entry.RarityTag.IsValid())
+	{
+		return Entry.RarityTag;
+	}
+	const TCHAR* TagStr = TEXT("Cosmetic.Rarity.Common");
+	switch (Entry.Rarity)
+	{
+	case EAFLCosmeticRarity::Uncommon:  TagStr = TEXT("Cosmetic.Rarity.Uncommon");  break;
+	case EAFLCosmeticRarity::Rare:      TagStr = TEXT("Cosmetic.Rarity.Rare");      break;
+	case EAFLCosmeticRarity::Epic:      TagStr = TEXT("Cosmetic.Rarity.Epic");      break;
+	case EAFLCosmeticRarity::Legendary: TagStr = TEXT("Cosmetic.Rarity.Legendary"); break;
+	case EAFLCosmeticRarity::Common:
+	default:                            TagStr = TEXT("Cosmetic.Rarity.Common");    break;
+	}
+	// ErrorIfNotFound=false: these tags may not be registered in the ini yet; we still want a stable mapping
+	// for the color/text switch below (which keys off the enum anyway). The tag is for BP-side comparisons.
+	return FGameplayTag::RequestGameplayTag(FName(TagStr), /*ErrorIfNotFound=*/false);
+}
+
+FLinearColor UAFLCosmeticCatalogSubsystem::GetRarityColor(const FAFLCatalogEntry& Entry)
+{
+	// IRONICS cyber palette: Common=steel, Uncommon=green(#00ff88), Rare=cyan(#00f0ff),
+	// Epic=magenta(#ff00aa), Legendary=gold(#ffd700). Keyed off the enum (the stable, always-present value).
+	switch (Entry.Rarity)
+	{
+	case EAFLCosmeticRarity::Uncommon:  return FLinearColor(0.0f,   1.0f,   0.533f, 1.0f); // green
+	case EAFLCosmeticRarity::Rare:      return FLinearColor(0.0f,   0.941f, 1.0f,   1.0f); // cyan
+	case EAFLCosmeticRarity::Epic:      return FLinearColor(1.0f,   0.0f,   0.667f, 1.0f); // magenta
+	case EAFLCosmeticRarity::Legendary: return FLinearColor(1.0f,   0.843f, 0.0f,   1.0f); // gold
+	case EAFLCosmeticRarity::Common:
+	default:                            return FLinearColor(0.478f, 0.478f, 0.588f, 1.0f); // steel (text-mute)
+	}
+}
+
+FText UAFLCosmeticCatalogSubsystem::GetRarityText(const FAFLCatalogEntry& Entry)
+{
+	switch (Entry.Rarity)
+	{
+	case EAFLCosmeticRarity::Uncommon:  return NSLOCTEXT("AFLStore", "Rarity_Uncommon",  "UNCOMMON");
+	case EAFLCosmeticRarity::Rare:      return NSLOCTEXT("AFLStore", "Rarity_Rare",      "RARE");
+	case EAFLCosmeticRarity::Epic:      return NSLOCTEXT("AFLStore", "Rarity_Epic",      "EPIC");
+	case EAFLCosmeticRarity::Legendary: return NSLOCTEXT("AFLStore", "Rarity_Legendary", "LEGENDARY");
+	case EAFLCosmeticRarity::Common:
+	default:                            return NSLOCTEXT("AFLStore", "Rarity_Common",    "COMMON");
+	}
+}
+
 UAFLCosmeticCatalogSubsystem* UAFLCosmeticCatalogSubsystem::Get(const UObject* WorldContext)
 {
 	if (const UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContext, EGetWorldErrorMode::ReturnNull) : nullptr)

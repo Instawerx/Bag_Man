@@ -12,6 +12,27 @@ class ALyraPlayerState;
 class UAFLCosmeticCatalogSubsystem;
 
 /**
+ * Which currency a purchase pays in. IRONICS LOCKED tier model: SPARK (accessible) is payable in EITHER
+ * Volts OR Watts; SURGE/ARC/THUNDERBOLT are Volts-only. This lets the STORE offer the player the choice on
+ * a dual-priced (SPARK) item -- the two buy paths pass Volts/Watts explicitly. Auto = let the server pick
+ * for a dual-priced item (prefer Volts when affordable, else Watts) -- backward-compatible default for the
+ * console cheat + any single-arg caller, and the right behavior for single-priced items (it just uses the
+ * price that is set).
+ */
+UENUM(BlueprintType)
+enum class EAFLPayCurrency : uint8
+{
+	Auto   UMETA(DisplayName = "Auto (prefer Volts)"),
+	Volts  UMETA(DisplayName = "Volts"),
+	Watts  UMETA(DisplayName = "Watts")
+};
+
+/** Broadcast whenever the wallet's balance OR owned-set changes (server commit + each client OnRep). The
+ *  store wallet/grid widgets bind this -> event-driven UI refresh, NEVER tick (the marketplace-ui mandate).
+ *  Carries the current Volts/Watts so a listener can update without a second read. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FAFLOnWalletChanged, int32, Volts, int32, Watts);
+
+/**
  * UAFLWalletComponent -- the server-authoritative player WALLET + entitlement source (S-ECON-WALLET).
  *
  * The economy stops being catalog METADATA (prices on FAFLCatalogEntry) and becomes a live, interactive
@@ -44,6 +65,17 @@ class AFLCOMBAT_API UAFLWalletComponent : public UPlayerStateComponent, public I
 public:
 	// UPlayerStateComponent has no default ctor (only the FObjectInitializer overload) -> forward to Super.
 	UAFLWalletComponent(const FObjectInitializer& ObjectInitializer);
+
+	/** Balance/ownership changed -- the store wallet + grid bind this for event-driven refresh (not tick).
+	 *  Fires on the server commit AND on each client's OnRep. */
+	UPROPERTY(BlueprintAssignable, Category = "AFL|Wallet")
+	FAFLOnWalletChanged OnWalletChanged;
+
+	/** Diagnostic (client-wallet-refresh splitting check): how many listeners are bound to OnWalletChanged on
+	 *  THIS instance. The store's Construct binds it; if a client's OnRep fires with a 0 count, the store never
+	 *  bound to this wallet instance (UI-refresh gap, the #43 late-resolve case) -- distinct from a replication
+	 *  gap (OnRep never fires on the client). 0 if unbound; -1 only on a null self. */
+	int32 GetOnWalletChangedBoundCount() const { return OnWalletChanged.IsBound() ? OnWalletChanged.GetAllObjects().Num() : 0; }
 
 	//~ Balance reads (any client; the owner's HUD reads these) ---------------------------------------
 	UFUNCTION(BlueprintPure, Category = "AFL|Wallet")
@@ -83,7 +115,7 @@ public:
 	 * The wallet UI calls THIS; there is no client-side balance write.
 	 */
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Wallet")
-	void ServerPurchaseCosmetic(FName CosmeticId);
+	void ServerPurchaseCosmetic(FName CosmeticId, EAFLPayCurrency PayWith = EAFLPayCurrency::Auto);
 
 	/** Dev/seed setter (cheat-driven): authority sets the balance directly. Bypasses earn/spend validation
 	 *  -- for the (a) balance watch + test seeding, NOT a gameplay path. */
@@ -122,7 +154,7 @@ private:
 	//~ Server RPC validation bodies (the _Implementation live in the .cpp) -----------------------------
 	bool ServerEarnWatts_Validate(int32 Amount) { return true; }
 	bool ServerEarnVolts_Validate(int32 Amount) { return true; }
-	bool ServerPurchaseCosmetic_Validate(FName CosmeticId) { return true; }
+	bool ServerPurchaseCosmetic_Validate(FName CosmeticId, EAFLPayCurrency PayWith) { return true; }
 
 	ALyraPlayerState* GetLyraPlayerState() const;
 

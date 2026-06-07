@@ -38,6 +38,47 @@ namespace
 		}
 		return FString::Printf(TEXT("[Wallet][%s][f=%llu] "), Side, (unsigned long long)GFrameCounter);
 	}
+
+	// CLIENT-WALLET-REFRESH SPLITTING CHECK (per-client seam, the #43-race family). The bare [CLI] tag is
+	// NOT PIE-world-isolated (both client worlds share the log; PlayerState indices don't correspond across
+	// worlds), so a [CLI] line alone can't tell WHICH client's wallet ran OnRep. This keys on IDENTITY:
+	//   localPS=y  -> the owning PlayerState belongs to THIS world's LOCAL player (i.e. Client 1's own wallet,
+	//                 the instance whose store we are watching) -- NOT a simulated proxy of another player.
+	//   role       -> the owner's local net role (Authority / AutonomousProxy / SimulatedProxy).
+	//   boundUI=N  -> how many listeners are bound to OnWalletChanged on THIS instance right now. This is the
+	//                 SPLIT: if OnRep fires on the local client's wallet with boundUI=0, the store never bound
+	//                 (opened/resolved before the wallet, or bound a different instance) = UI-refresh gap; if
+	//                 boundUI>0 yet the store is still wrong, the refresh logic itself is at fault; if OnRep
+	//                 never fires on the local client at all = replication gap.
+	FString WalletOwnerCtx(const UAFLWalletComponent* Comp)
+	{
+		const AActor* Owner = Comp ? Comp->GetOwner() : nullptr;
+		const APlayerState* PS = Cast<APlayerState>(Owner);
+		bool bLocalPS = false;
+		if (PS)
+		{
+			// The owning PlayerState is the local player's iff its controller is the local controller in
+			// this world (server-side this is true for the host's own PS; on a client it's true only for
+			// that client's own PS -- exactly the disambiguation we need).
+			if (const APlayerController* PC = PS->GetPlayerController())
+			{
+				bLocalPS = PC->IsLocalController();
+			}
+		}
+		const TCHAR* Role = TEXT("?");
+		if (Owner)
+		{
+			switch (Owner->GetLocalRole())
+			{
+			case ROLE_Authority:       Role = TEXT("Authority");      break;
+			case ROLE_AutonomousProxy: Role = TEXT("AutonomousProxy");break;
+			case ROLE_SimulatedProxy:  Role = TEXT("SimulatedProxy"); break;
+			default:                   Role = TEXT("None");           break;
+			}
+		}
+		return FString::Printf(TEXT("localPS=%s role=%s boundUI=%d"),
+			bLocalPS ? TEXT("y") : TEXT("n"), Role, Comp ? Comp->GetOnWalletChangedBoundCount() : -1);
+	}
 }
 
 UAFLWalletComponent::UAFLWalletComponent(const FObjectInitializer& ObjectInitializer)
@@ -150,7 +191,7 @@ void UAFLWalletComponent::ServerEarnVolts_Implementation(int32 Amount)
 	CommitMutation(Clamped, 0, NAME_None, TEXT("EarnVolts"));
 }
 
-void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId)
+void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId, EAFLPayCurrency PayWith)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 
@@ -170,9 +211,37 @@ void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId
 	if (Entry->Acquisition == EAFLAcquisition::GrantedFree) { Deny(TEXT("GrantedFree (already owned by all)")); return; }
 	if (OwnedCosmeticIds.Contains(CosmeticId)) { Deny(TEXT("already owned (no double charge)")); return; }
 
-	// Cost model (IRONICS LOCKED): SPARK is the Watts-buyable tier (pay Watts); SURGE/ARC/THUNDERBOLT are
-	// Volts. (Watts-discount on Volts tiers is a later tune; here it's pay-in-full in the tier's currency.)
-	const bool bPayWatts = (Entry->Tier == EAFLCosmeticTier::SPARK) && (Entry->PriceWatts > 0);
+	// --- Cost model (IRONICS LOCKED) -----------------------------------------------------------------
+	// SPARK (accessible) is payable in EITHER Volts OR Watts; SURGE/ARC/THUNDERBOLT are Volts-only. The
+	// catalog carries whichever price(s) apply (a SPARK item has BOTH PriceVolts and PriceWatts set; a
+	// Volts-only tier has PriceWatts==0). The STORE passes PayWith=Volts/Watts for the player's chosen
+	// path on a dual-priced item; PayWith=Auto (console cheat / single-arg callers / single-priced items)
+	// lets the server pick: prefer Volts when affordable, else Watts.
+	const bool bVoltsAvailable = (Entry->PriceVolts > 0);
+	const bool bWattsAvailable = (Entry->PriceWatts > 0);
+	if (!bVoltsAvailable && !bWattsAvailable) { Deny(TEXT("no price set (not purchasable)")); return; }
+
+	// Resolve which currency to charge.
+	bool bPayWatts;
+	switch (PayWith)
+	{
+	case EAFLPayCurrency::Volts:
+		if (!bVoltsAvailable) { Deny(TEXT("Volts payment requested but item has no Volts price")); return; }
+		bPayWatts = false;
+		break;
+	case EAFLPayCurrency::Watts:
+		if (!bWattsAvailable) { Deny(TEXT("Watts payment requested but item has no Watts price")); return; }
+		bPayWatts = true;
+		break;
+	case EAFLPayCurrency::Auto:
+	default:
+		// Prefer Volts: pay Volts if the item has a Volts price AND the player can afford it; otherwise,
+		// if it has a Watts price, fall back to Watts. (For a Volts-only item this is always Volts; for a
+		// Watts-only item, always Watts; for a dual-priced SPARK item, Volts-first.)
+		bPayWatts = bVoltsAvailable ? (Volts < Entry->PriceVolts && bWattsAvailable) : bWattsAvailable;
+		break;
+	}
+
 	const int32 CostVolts = bPayWatts ? 0 : Entry->PriceVolts;
 	const int32 CostWatts = bPayWatts ? Entry->PriceWatts : 0;
 
@@ -219,26 +288,39 @@ void UAFLWalletComponent::CommitMutation(int32 DeltaVolts, int32 DeltaWatts, FNa
 			bGranted ? *FString::Printf(TEXT(" + GRANTED %s (owned=%d)"), *GrantId.ToString(), OwnedCosmeticIds.Num()) : TEXT(""));
 	}
 
+	// Event-driven UI refresh on the AUTHORITY/listen-host (OnRep does not fire on authority). Remote clients
+	// get it via OnRep_Balance/OnRep_OwnedSet below.
+	OnWalletChanged.Broadcast(Volts, Watts);
+
 	PersistState();
 }
 
 void UAFLWalletComponent::OnRep_Balance()
 {
-	// Remote clients: the balance replicated in -- the owner's HUD updates from here.
+	// Remote clients: the balance replicated in -- the owner's HUD/store updates from here (event-driven).
+	// SPLITTING CHECK: WalletOwnerCtx reports localPS (is this the local player's wallet, defeating the PIE
+	// world-isolation trap) + boundUI (did the store's bind take on THIS instance). Read boundUI on the line
+	// where localPS=y to split replication-gap (no line) from UI-refresh-gap (line present, boundUI=0).
 	if (WalletDiagOn())
 	{
-		UE_LOG(LogAFLWalletDiag, Log, TEXT("%s[a] OnRep_Balance on %s: volts=%d watts=%d"),
-			*WalletPrefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"), Volts, Watts);
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%s[a] OnRep_Balance on %s (%s): volts=%d watts=%d"),
+			*WalletPrefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
+			*WalletOwnerCtx(this), Volts, Watts);
 	}
+	OnWalletChanged.Broadcast(Volts, Watts);
 }
 
 void UAFLWalletComponent::OnRep_OwnedSet()
 {
 	if (WalletDiagOn())
 	{
-		UE_LOG(LogAFLWalletDiag, Log, TEXT("%s[b] OnRep_OwnedSet on %s: owned=%d"),
-			*WalletPrefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"), OwnedCosmeticIds.Num());
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%s[b] OnRep_OwnedSet on %s (%s): owned=%d"),
+			*WalletPrefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
+			*WalletOwnerCtx(this), OwnedCosmeticIds.Num());
 	}
+	// Ownership changed (a buy granted an item) -> refresh the store grid's owned badges. Carries the balance
+	// too so a single binding updates both currency + ownership.
+	OnWalletChanged.Broadcast(Volts, Watts);
 }
 
 // =====================================================================================================
