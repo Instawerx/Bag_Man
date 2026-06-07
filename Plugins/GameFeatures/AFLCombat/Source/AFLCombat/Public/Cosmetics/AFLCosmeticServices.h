@@ -64,6 +64,11 @@ private:
  */
 DECLARE_DELEGATE_TwoParams(FAFLOnSelectionLoaded, bool /*bFound*/, const FAFLCosmeticSelection& /*Selection*/);
 DECLARE_DELEGATE_TwoParams(FAFLOnOwnedSetLoaded, bool /*bOk*/, const TArray<FName>& /*OwnedCosmeticIds*/);
+// S-ECON-WALLET (Fork A): balance rides the SAME persistence seam (one interface for all of a player's
+// economic state -- selection + owned-set + balance -- behind one PlayFab-ready store). Async-shaped like
+// the others. Volts + Watts are INTEGER (peg discipline; IRONICS economy LOCKED). bFound=false on a new
+// player -> the wallet seeds defaults.
+DECLARE_DELEGATE_ThreeParams(FAFLOnBalanceLoaded, bool /*bFound*/, int32 /*Volts*/, int32 /*Watts*/);
 
 // ---------------------------------------------------------------------------------------------------
 // Entitlement seam -- "does this player own this cosmetic?" The gate ASKS this; it does not implement
@@ -112,4 +117,15 @@ public:
 
 	/** Load the player's owned cosmetic-id set (feeds the entitlement gate once wallet lands). */
 	virtual void LoadOwnedSet(const FAFLPlayerId& Player, FAFLOnOwnedSetLoaded OnLoaded) = 0;
+
+	// --- S-ECON-WALLET (Fork A): the player's economic state on the SAME seam -------------------------
+	/** Persist the player's owned cosmetic-id set (after a purchase grants ownership). */
+	virtual void SaveOwnedSet(const FAFLPlayerId& Player, const TArray<FName>& OwnedCosmeticIds) = 0;
+
+	/** Load the player's Volts/Watts balance (async-shaped; stub fires synchronously). bFound=false for a
+	 *  new player -> the wallet seeds starting balances. */
+	virtual void LoadBalance(const FAFLPlayerId& Player, FAFLOnBalanceLoaded OnLoaded) = 0;
+
+	/** Persist the player's Volts/Watts balance (fire-and-forget; stub writes in-memory / SaveGame). */
+	virtual void SaveBalance(const FAFLPlayerId& Player, int32 Volts, int32 Watts) = 0;
 };

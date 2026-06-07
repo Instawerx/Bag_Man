@@ -10,6 +10,7 @@
 #include "AbilitySystemGlobals.h"
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
+#include "Cosmetics/AFLWalletComponent.h"            // S-ECON-WALLET: balance/gate/earn-spend cheats
 #include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
 #include "Components/ChildActorComponent.h"           // panel-watch: reach the body part actor (a child-actor on the pawn)
 #include "AFLCosmeticCatalogSubsystem.h"             // S-ECON-CAT: catalog resolve cheats (AFLCosmeticCore)
@@ -1157,6 +1158,88 @@ namespace
 		TEXT("afl.Cosmetic.ActivateEMP"),
 		TEXT("S-ECON-CAT 4b: resolve AFL.Ability.EMP via catalog -> ability class -> activate the granted spec (proves the ability-grant path + resolveVia=catalog). Throws the EMP (inherited grenade behavior)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticActivateEMP));
+
+	// ─── S-ECON-WALLET: afl.Wallet.* (balance / gate / earn-spend, server-authoritative) ─────────────
+	//
+	// Drive the genuine UAFLWalletComponent paths (PURE callers, like SetEdge): Get reads the replicated
+	// balance/ownership; Set/Grant are dev seeds (authority); Earn/Buy call the Server RPCs (client->server
+	// hop, server validates). Enable `afl.WalletDiag 1` to watch the per-layer logs (balance/gate/earn-spend).
+	// The wallet is on the local player's PlayerState (same as the loadout).
+	UAFLWalletComponent* GetPlayerWallet(UWorld* World)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		return PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+	}
+
+	void HandleAFLWalletGet(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Wallet.Get - run inside PIE.")); return; }
+		UAFLWalletComponent* W = GetPlayerWallet(World);
+		if (!W) { Ar.Log(TEXT("afl.Wallet.Get - no UAFLWalletComponent on the local player's PlayerState.")); return; }
+		Ar.Logf(TEXT("afl.Wallet.Get - Volts=%d Watts=%d  (run afl.WalletDiag 1 for per-layer logs)"), W->GetVolts(), W->GetWatts());
+	}
+
+	void HandleAFLWalletSet(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 2) { Ar.Log(TEXT("afl.Wallet.Set - usage: afl.Wallet.Set <Volts> <Watts> (dev seed, authority)")); return; }
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Wallet.Set - run inside PIE.")); return; }
+		UAFLWalletComponent* W = GetPlayerWallet(World);
+		if (!W) { Ar.Log(TEXT("afl.Wallet.Set - no wallet component.")); return; }
+		W->DebugSetBalance(FCString::Atoi(*Args[0]), FCString::Atoi(*Args[1]));
+		Ar.Logf(TEXT("afl.Wallet.Set - requested Volts=%s Watts=%s (authority-only; watch replication on the client)."), *Args[0], *Args[1]);
+	}
+
+	void HandleAFLWalletEarn(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1) { Ar.Log(TEXT("afl.Wallet.Earn - usage: afl.Wallet.Earn <Watts> [Volts] (server-validated earn)")); return; }
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Wallet.Earn - run inside PIE.")); return; }
+		UAFLWalletComponent* W = GetPlayerWallet(World);
+		if (!W) { Ar.Log(TEXT("afl.Wallet.Earn - no wallet component.")); return; }
+		const int32 EarnW = FCString::Atoi(*Args[0]);
+		W->ServerEarnWatts(EarnW); // client->server hop; server validates + commits.
+		if (Args.Num() >= 2) { W->ServerEarnVolts(FCString::Atoi(*Args[1])); }
+		Ar.Logf(TEXT("afl.Wallet.Earn - client issued ServerEarnWatts(%d)%s. Server validates; balance replicates down."),
+			EarnW, Args.Num() >= 2 ? *FString::Printf(TEXT(" + ServerEarnVolts(%s)"), *Args[1]) : TEXT(""));
+	}
+
+	void HandleAFLWalletBuy(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1) { Ar.Log(TEXT("afl.Wallet.Buy - usage: afl.Wallet.Buy <CosmeticId>  e.g. AFL.Facemask.IroVisor")); return; }
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Wallet.Buy - run inside PIE.")); return; }
+		UAFLWalletComponent* W = GetPlayerWallet(World);
+		if (!W) { Ar.Log(TEXT("afl.Wallet.Buy - no wallet component.")); return; }
+		const FName Id(*Args[0].TrimStartAndEnd());
+		W->ServerPurchaseCosmetic(Id); // server reads catalog price, validates balance, deducts + grants.
+		Ar.Logf(TEXT("afl.Wallet.Buy - client issued ServerPurchaseCosmetic(%s). Server: price from catalog -> deduct -> grant. Watch afl.WalletDiag 1."), *Id.ToString());
+	}
+
+	void HandleAFLWalletGrant(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1) { Ar.Log(TEXT("afl.Wallet.Grant - usage: afl.Wallet.Grant <CosmeticId> (dev grant, authority - test the gate without spending)")); return; }
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Wallet.Grant - run inside PIE.")); return; }
+		UAFLWalletComponent* W = GetPlayerWallet(World);
+		if (!W) { Ar.Log(TEXT("afl.Wallet.Grant - no wallet component.")); return; }
+		const FName Id(*Args[0].TrimStartAndEnd());
+		W->DebugGrantOwnership(Id);
+		Ar.Logf(TEXT("afl.Wallet.Grant - requested ownership of %s (authority). The entitlement gate now resolves it owned."), *Id.ToString());
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletGetCmd(TEXT("afl.Wallet.Get"),
+		TEXT("S-ECON-WALLET: print the player's replicated Volts/Watts balance."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletGet));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletSetCmd(TEXT("afl.Wallet.Set"),
+		TEXT("S-ECON-WALLET (a) balance: dev-seed the balance (authority). Usage: afl.Wallet.Set <Volts> <Watts>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletSet));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletEarnCmd(TEXT("afl.Wallet.Earn"),
+		TEXT("S-ECON-WALLET (c) earn: server-validated earn. Usage: afl.Wallet.Earn <Watts> [Volts]."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletEarn));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletBuyCmd(TEXT("afl.Wallet.Buy"),
+		TEXT("S-ECON-WALLET (c) spend + (b) grant: buy a catalog cosmetic (server reads price, deducts, grants ownership). Usage: afl.Wallet.Buy <CosmeticId>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletBuy));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletGrantCmd(TEXT("afl.Wallet.Grant"),
+		TEXT("S-ECON-WALLET (b) gate: dev-grant ownership without spending (test the entitlement gate). Usage: afl.Wallet.Grant <CosmeticId>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletGrant));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER

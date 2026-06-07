@@ -3,6 +3,7 @@
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
 
 #include "Cosmetics/AFLCosmeticServices.h"
+#include "Cosmetics/AFLWalletComponent.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
 #include "Cosmetics/AFLSkinColorComponent.h"          // AFLSkinDiag (shared cvar-gated diag: LogAFLSkinDiag / IsOn / Prefix)
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
 #include "Components/ActorComponent.h"
@@ -219,10 +220,18 @@ ALyraPlayerState* UAFLCosmeticLoadoutComponent::GetLyraPlayerState() const
 
 IAFLEntitlementSource* UAFLCosmeticLoadoutComponent::GetEntitlementSource() const
 {
-	// #43 permissive impl: no external source wired yet -> return null, and the call sites treat a null
-	// source as "basics are owned" (the lambdas above short-circuit to allowed). When S-ECON-WALLET lands
-	// it provides a real IAFLEntitlementSource (e.g. a GameState/subsystem impl) resolved here; the call
-	// sites are unchanged. Kept as an explicit resolve point so the swap is one function, not a hunt.
+	// S-ECON-WALLET (layer b): the real entitlement source is the player's UAFLWalletComponent (same
+	// PlayerState), which implements IAFLEntitlementSource against its replicated owned-set + the catalog's
+	// GrantedFree flag. Resolved here -- the swap point the #43 design reserved. If the wallet isn't attached
+	// yet (early bring-up / an experience without it), this returns null and the call sites short-circuit to
+	// permissive (basics owned), exactly as before -- so the gate degrades safely, never hard-fails.
+	if (const ALyraPlayerState* PS = GetLyraPlayerState())
+	{
+		if (UAFLWalletComponent* Wallet = PS->FindComponentByClass<UAFLWalletComponent>())
+		{
+			return Wallet;
+		}
+	}
 	return nullptr;
 }
 
