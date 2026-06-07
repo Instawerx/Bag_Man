@@ -3,6 +3,7 @@
 #pragma once
 
 #include "GameFramework/Actor.h"
+#include "GameFramework/CheatManagerDefines.h"   // UE_WITH_CHEAT_MANAGER guard for the panel-watch DebugSetMID* decls (must match the .cpp + cheats gate)
 #include "GameplayTagAssetInterface.h"
 #include "GameplayTagContainer.h"
 
@@ -60,6 +61,18 @@ public:
 	 * on already-spawned parts. Idempotent: re-fire (PATH 1 + PATH 2) reuses our cached MIDs.
 	 */
 	void ApplySkinColor(const UAFLSkinColorAsset* ColorAsset);
+
+#if UE_WITH_CHEAT_MANAGER
+	/**
+	 * PANEL-WATCH INSTRUMENT (afl.Cosmetic.SetParam): poke a single named material param on THIS part's
+	 * live MIDs so the operator can watch which physical region the param paints. Ensures a MID exists on
+	 * every slot (creates+caches via the same OWN-MID path as ApplySkinColor) so it works even before any
+	 * skin apply, then SetScalar/SetVector on all of them. Returns the number of MID slots written.
+	 * Cheat-only (compiled out of shipping). Returns 0 if the part has no mesh/slots.
+	 */
+	int32 DebugSetMIDVectorParam(FName ParamName, const FLinearColor& Value);
+	int32 DebugSetMIDScalarParam(FName ParamName, float Value);
+#endif
 
 protected:
 	virtual void BeginPlay() override;

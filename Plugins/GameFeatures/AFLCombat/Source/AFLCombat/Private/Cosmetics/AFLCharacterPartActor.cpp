@@ -7,6 +7,7 @@
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
 #include "Components/MeshComponent.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/CheatManagerDefines.h"        // UE_WITH_CHEAT_MANAGER guard for the panel-watch DebugSetMID* (undefined macro would silently compile them out -> cheat link error)
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -156,3 +157,59 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 		}
 	}
 }
+
+#if UE_WITH_CHEAT_MANAGER
+namespace
+{
+	// Shared by both SetParam variants: ensure THIS part has an OWN-MID on every slot of every mesh (same
+	// create-once/own-your-MID pattern as ApplySkinColor) and hand each MID to the visitor. Returns the
+	// number of MID slots visited. Pure helper -- the panel-watch instrument's only job is to set a param.
+	template <typename FVisitor>
+	int32 ForEachOwnedMID(AActor* Part, TMap<TObjectPtr<UMeshComponent>, FAFLSkinMIDSlots>& OwnedMIDs, FVisitor&& Visit)
+	{
+		int32 Written = 0;
+		TArray<UMeshComponent*> Meshes;
+		Part->GetComponents<UMeshComponent>(Meshes);
+		for (UMeshComponent* Mesh : Meshes)
+		{
+			if (!IsValid(Mesh))
+			{
+				continue;
+			}
+			FAFLSkinMIDSlots& Slots = OwnedMIDs.FindOrAdd(Mesh);
+			const int32 NumMaterials = Mesh->GetNumMaterials();
+			for (int32 SlotIndex = 0; SlotIndex < NumMaterials; ++SlotIndex)
+			{
+				UMaterialInstanceDynamic* MID = Slots.SlotMIDs.FindRef(SlotIndex);
+				if (!IsValid(MID) || Mesh->GetMaterial(SlotIndex) != MID)
+				{
+					MID = Mesh->CreateAndSetMaterialInstanceDynamic(SlotIndex);
+					Slots.SlotMIDs.Add(SlotIndex, MID);
+				}
+				if (MID)
+				{
+					Visit(MID);
+					++Written;
+				}
+			}
+		}
+		return Written;
+	}
+}
+
+int32 AAFLCharacterPartActor::DebugSetMIDVectorParam(FName ParamName, const FLinearColor& Value)
+{
+	return ForEachOwnedMID(this, OwnedMIDs, [ParamName, &Value](UMaterialInstanceDynamic* MID)
+	{
+		MID->SetVectorParameterValue(ParamName, Value);
+	});
+}
+
+int32 AAFLCharacterPartActor::DebugSetMIDScalarParam(FName ParamName, float Value)
+{
+	return ForEachOwnedMID(this, OwnedMIDs, [ParamName, Value](UMaterialInstanceDynamic* MID)
+	{
+		MID->SetScalarParameterValue(ParamName, Value);
+	});
+}
+#endif // UE_WITH_CHEAT_MANAGER

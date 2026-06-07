@@ -10,9 +10,10 @@
 #include "AbilitySystemGlobals.h"
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
-#include "AFLCosmeticCatalogSubsystem.h"             // S-ECON-CAT 4b: catalog resolve cheats (AFLCosmeticCore)
-#include "AFLHelmetAsset.h"                           // S-ECON-CAT 4b: helmet resolve target (AFLCosmeticCore)
-#include "AFLAbilityCosmeticAsset.h"                  // S-ECON-CAT 4b: EMP ability-cosmetic resolve target (AFLCosmeticCore)
+#include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
+#include "Components/ChildActorComponent.h"           // panel-watch: reach the body part actor (a child-actor on the pawn)
+#include "AFLCosmeticCatalogSubsystem.h"             // S-ECON-CAT: catalog resolve cheats (AFLCosmeticCore)
+#include "AFLAbilityCosmeticAsset.h"                  // S-ECON-CAT: EMP ability-cosmetic resolve target (AFLCosmeticCore)
 #include "Effects/GE_AFL_Damage_Pulse.h"
 #include "Effects/GE_AFL_EnergyGain_Small.h"
 #include "Effects/GE_AFL_Heat_SetByCaller.h"
@@ -925,58 +926,115 @@ namespace
 		TEXT("#43 selection seam: client-issued PURE caller of ServerSetCosmeticSelection. Usage: afl.Cosmetic.SetEdge <NeonPurple|NeonPink|NeonBlue|NeonGreen> (or full AFL.Edge.<color>). NOT NeonRed (absent from BrandEdgeMap)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetEdge));
 
-	// ─── S-ECON-CAT 4b helmet: afl.Cosmetic.SetHelmet <name> ─────────────────────
+	// (RETIRED: afl.Cosmetic.SetHelmet + the helmet part-path it drove. The facemask is now a material
+	//  reskin -- a slot-base-MI cosmetic on the proven logo channel (MI_AFL_FaceMask_Pink) -- not a
+	//  CharacterPart add. See the facemask commit; the part-path apparatus was deleted as a non-problem.)
+
+	// ─── PANEL ADDRESS-BOOK WATCH: afl.Cosmetic.SetParam / SetParamScalar ─────────
 	//
-	// Same PURE-CALLER contract as SetEdge: build FAFLCosmeticSelection from the current selection, set
-	// HelmetId, hand to ServerSetCosmeticSelection. The server commits HelmetId; the BP add-event on
-	// B_BagMan_AssignCharacterPart reads it at the next part-resolve, resolves the helmet asset via the
-	// catalog, and AddCharacterPart's the visor. The cheat writes nothing itself.
-	void HandleAFLCosmeticSetHelmet(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	// Reusable instrument (NOT a throwaway): poke ONE named material param on the local player's robot
+	// part actor(s)' LIVE MIDs, so the operator can watch which physical region the param paints and
+	// complete the param->region address book in ONE PIE pass. Pokes the MID in isolation (no edge-apply-
+	// vs-brand-default confound), works on any param at any value, and stays as infrastructure for the
+	// facemask + future skin-SKU authoring. The robot body is an AAFLCharacterPartActor child-actor on the
+	// pawn (spawned by Lyra's CharacterParts component); we find it via the pawn's UChildActorComponents.
+	// LOCAL/cosmetic-only: MIDs are client-side visuals -> run it in the window you're watching.
+	//
+	// NOTE on the map: EdgeGlowMagnitude is 0.0 natively (rim OFF) -> to see the edge region, first
+	// `afl.Cosmetic.SetParamScalar EdgeGlowMagnitude 1` THEN `afl.Cosmetic.SetParam EdgeGlowColor 1 0 0`.
+	// (The blue we saw earlier was the bolted-on B_AFL_Helmet_Visor part being retired, NOT the native edge.)
+
+	// Collect the local player's robot body part actors (AAFLCharacterPartActor children on the pawn).
+	void GatherPlayerPartActors(UWorld* World, TArray<AAFLCharacterPartActor*>& Out)
 	{
-		if (Args.Num() < 1)
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		if (!Pawn)
 		{
-			Ar.Log(TEXT("afl.Cosmetic.SetHelmet — usage: afl.Cosmetic.SetHelmet <Visor01> (or full AFL.Helmet.<name>)"));
+			return;
+		}
+		TArray<UChildActorComponent*> ChildComps;
+		Pawn->GetComponents<UChildActorComponent>(ChildComps);
+		for (UChildActorComponent* CAC : ChildComps)
+		{
+			if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
+			{
+				Out.AddUnique(Part);
+			}
+		}
+	}
+
+	void HandleAFLCosmeticSetParam(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 4)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetParam — usage: afl.Cosmetic.SetParam <ParamName> <R> <G> <B> (0..1 each). e.g. afl.Cosmetic.SetParam TeamColor 1 0 0"));
 			return;
 		}
 		if (!World || !World->IsGameWorld())
 		{
-			Ar.Log(TEXT("afl.Cosmetic.SetHelmet — no game world (run inside PIE)."));
+			Ar.Log(TEXT("afl.Cosmetic.SetParam — no game world (run inside PIE)."));
 			return;
 		}
-		APlayerController* PC = World->GetFirstPlayerController();
-		APlayerState* PS = PC ? PC->PlayerState : nullptr;
-		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
-		if (!Loadout)
+		const FName ParamName(*Args[0].TrimStartAndEnd());
+		const FLinearColor Value(FCString::Atof(*Args[1]), FCString::Atof(*Args[2]), FCString::Atof(*Args[3]), 1.0f);
+
+		TArray<AAFLCharacterPartActor*> Parts;
+		GatherPlayerPartActors(World, Parts);
+		if (Parts.Num() == 0)
 		{
-			Ar.Log(TEXT("afl.Cosmetic.SetHelmet — no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			Ar.Log(TEXT("afl.Cosmetic.SetParam — no AAFLCharacterPartActor on the local player's pawn (robot body not spawned yet?)."));
 			return;
 		}
-
-		FString IdStr = Args[0].TrimStartAndEnd();
-		if (!IdStr.StartsWith(TEXT("AFL.Helmet."), ESearchCase::IgnoreCase))
+		int32 TotalSlots = 0;
+		for (AAFLCharacterPartActor* Part : Parts)
 		{
-			IdStr = FString::Printf(TEXT("AFL.Helmet.%s"), *IdStr);
+			TotalSlots += Part->DebugSetMIDVectorParam(ParamName, Value);
 		}
-		const FName HelmetId(*IdStr);
-
-		FAFLCosmeticSelection Request = Loadout->GetSelection();
-		if (Request.GetActiveIdentityId() == NAME_None)
-		{
-			Request.IdentityType = EAFLIdentityType::Team;
-			Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
-		}
-		Request.HelmetId = HelmetId;
-
-		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
-
-		Ar.Logf(TEXT("afl.Cosmetic.SetHelmet — client issued ServerSetCosmeticSelection(helmet=%s). The BP add-event reads HelmetId + catalog-resolves the visor."),
-			*HelmetId.ToString());
+		Ar.Logf(TEXT("afl.Cosmetic.SetParam — set %s = (%.2f, %.2f, %.2f) on %d part(s), %d MID slot(s). Watch which region changed."),
+			*ParamName.ToString(), Value.R, Value.G, Value.B, Parts.Num(), TotalSlots);
 	}
 
-	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetHelmetCmd(
-		TEXT("afl.Cosmetic.SetHelmet"),
-		TEXT("S-ECON-CAT 4b helmet: client-issued PURE caller of ServerSetCosmeticSelection setting HelmetId. Usage: afl.Cosmetic.SetHelmet <Visor01> (or full AFL.Helmet.<name>)."),
-		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetHelmet));
+	void HandleAFLCosmeticSetParamScalar(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 2)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetParamScalar — usage: afl.Cosmetic.SetParamScalar <ParamName> <Value>. e.g. afl.Cosmetic.SetParamScalar EdgeGlowMagnitude 1"));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetParamScalar — no game world (run inside PIE)."));
+			return;
+		}
+		const FName ParamName(*Args[0].TrimStartAndEnd());
+		const float Value = FCString::Atof(*Args[1]);
+
+		TArray<AAFLCharacterPartActor*> Parts;
+		GatherPlayerPartActors(World, Parts);
+		if (Parts.Num() == 0)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetParamScalar — no AAFLCharacterPartActor on the local player's pawn (robot body not spawned yet?)."));
+			return;
+		}
+		int32 TotalSlots = 0;
+		for (AAFLCharacterPartActor* Part : Parts)
+		{
+			TotalSlots += Part->DebugSetMIDScalarParam(ParamName, Value);
+		}
+		Ar.Logf(TEXT("afl.Cosmetic.SetParamScalar — set %s = %.3f on %d part(s), %d MID slot(s). Watch which region changed."),
+			*ParamName.ToString(), Value, Parts.Num(), TotalSlots);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetParamCmd(
+		TEXT("afl.Cosmetic.SetParam"),
+		TEXT("PANEL WATCH: poke a VECTOR material param on the player robot's live MIDs to see which region it paints. Usage: afl.Cosmetic.SetParam <ParamName> <R> <G> <B>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetParam));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetParamScalarCmd(
+		TEXT("afl.Cosmetic.SetParamScalar"),
+		TEXT("PANEL WATCH: poke a SCALAR material param on the player robot's live MIDs. Usage: afl.Cosmetic.SetParamScalar <ParamName> <Value> (e.g. EdgeGlowMagnitude 1)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetParamScalar));
 
 	// ─── S-ECON-CAT 4b resolution probe: afl.Cosmetic.Resolve <id> ───────────────
 	//
