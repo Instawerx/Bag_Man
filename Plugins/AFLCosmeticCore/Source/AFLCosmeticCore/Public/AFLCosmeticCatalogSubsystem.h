@@ -42,10 +42,9 @@ public:
 	 *  miss or unset asset. Callers cast to the concrete type per Type (UAFLSkinColorAsset for skin axes). */
 	UPrimaryDataAsset* ResolveAsset(FName CosmeticId) const;
 
-	/** BP-callable resolve (S-ECON-CAT 4b): the helmet add-event on B_BagMan_AssignCharacterPart (a
-	 *  ULyraControllerComponent_CharacterParts child -- the part seam) calls this to resolve a HelmetId to
-	 *  its UAFLHelmetAsset, then builds an FLyraCharacterPart and calls AddCharacterPart (which is not
-	 *  C++-reachable from AFLCombat, so the add is BP-side). Same body as ResolveAsset; BP casts the result. */
+	/** BP-callable resolve (S-ECON-CAT): a Blueprint cosmetic consumer calls this to resolve a CosmeticId to
+	 *  its cosmetic asset (then casts to the concrete type it expects). Same body as ResolveAsset, exposed to
+	 *  BP. (Originally added for the now-retired helmet part-path BP; kept as a generic BP resolve entry.) */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Cosmetics", meta = (DisplayName = "Resolve Cosmetic Asset"))
 	UPrimaryDataAsset* ResolveCosmeticAsset(FName CosmeticId) const { return ResolveAsset(CosmeticId); }
 
