@@ -3,6 +3,7 @@
 #pragma once
 
 #include "AFLCosmeticCoreTypes.h"
+#include "AFLColorIdentityRegistry.h"   // FAFLColorIdentity (by-value UFUNCTION out-param) + UAFLColorIdentityRegistry
 #include "Subsystems/GameInstanceSubsystem.h"
 
 #include "AFLCosmeticCatalogSubsystem.generated.h"
@@ -93,9 +94,36 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
 	static FText GetRarityText(const FAFLCatalogEntry& Entry);
 
+	/**
+	 * Resolve a color-identity TAG to its declared identity (Primary + Accent) via the registry. The ONE
+	 * resolution path every surface shares (card, showroom, equipped). Returns true + fills OutIdentity on a
+	 * hit; false (OutIdentity left default) on miss / unloaded registry. WorldContext-static so any reader
+	 * (incl. the equipped character later) can resolve without holding a subsystem ptr.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Cosmetics", meta = (WorldContext = "WorldContext"))
+	static bool ResolveColorIdentity(const UObject* WorldContext, FGameplayTag IdentityTag, FAFLColorIdentity& OutIdentity);
+
+	/**
+	 * The PRIMARY neon for a catalog entry -- resolves Entry.ColorIdentityTag -> registry -> PrimaryColor.
+	 * The card frame/border glow binds to this (uniform, tag-resolved -- no per-card derivation). Falls back
+	 * to the cyber-cyan-blue UI accent if the entry has no identity tag or the registry is missing.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics", meta = (WorldContext = "WorldContext"))
+	static FLinearColor GetEntryPrimaryColor(const UObject* WorldContext, const FAFLCatalogEntry& Entry);
+
+	/**
+	 * The ACCENT neon for a catalog entry -- resolves Entry.ColorIdentityTag -> registry -> AccentColor.
+	 * The card edge accent / inner detail binds to this. Falls back to cyan if unresolved.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics", meta = (WorldContext = "WorldContext"))
+	static FLinearColor GetEntryAccentColor(const UObject* WorldContext, const FAFLCatalogEntry& Entry);
+
 	/** True once the catalog asset is loaded + ready. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
 	bool IsReady() const { return Catalog != nullptr; }
+
+	/** Instance resolve: the loaded registry's identity for a tag, or nullptr. The static resolvers route here. */
+	const FAFLColorIdentity* FindColorIdentity(const FGameplayTag& IdentityTag) const;
 
 	/** Static convenience: resolve the subsystem from any WorldContext (null-safe). BlueprintPure so the
 	 *  store widget can grab the catalog with one node (WorldContext auto-filled). */
@@ -106,7 +134,14 @@ private:
 	/** Find + load the one catalog asset via AssetManager (primary-asset type "AFLCosmeticCatalog"). */
 	void LoadCatalog();
 
+	/** Find + load the one color-identity registry via AssetManager (type "AFLColorIdentityRegistry"). */
+	void LoadColorIdentityRegistry();
+
 	/** The loaded manifest (hard ref -> stays resident for the session). */
 	UPROPERTY()
 	TObjectPtr<UAFLCosmeticCatalog> Catalog = nullptr;
+
+	/** The loaded color-identity registry (hard ref -> resident for the session). */
+	UPROPERTY()
+	TObjectPtr<UAFLColorIdentityRegistry> ColorIdentityRegistry = nullptr;
 };

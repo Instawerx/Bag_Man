@@ -3,6 +3,7 @@
 #include "AFLCosmeticCatalogSubsystem.h"
 
 #include "AFLCosmeticCatalog.h"
+#include "AFLColorIdentityRegistry.h"
 #include "AFLCosmeticCore.h"
 #include "Engine/AssetManager.h"
 #include "Engine/Engine.h"        // GEngine / GetWorldFromContextObject
@@ -15,17 +16,23 @@ namespace
 	// The AssetManager primary-asset TYPE the catalog registers under (matches
 	// UAFLCosmeticCatalog::GetPrimaryAssetId + the DefaultGame.ini PrimaryAssetTypesToScan entry).
 	const FPrimaryAssetType AFLCosmeticCatalogType(TEXT("AFLCosmeticCatalog"));
+
+	// The color-identity registry's primary-asset type (matches UAFLColorIdentityRegistry::GetPrimaryAssetId
+	// + its DefaultGame.ini PrimaryAssetTypesToScan entry).
+	const FPrimaryAssetType AFLColorIdentityRegistryType(TEXT("AFLColorIdentityRegistry"));
 }
 
 void UAFLCosmeticCatalogSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	LoadCatalog();
+	LoadColorIdentityRegistry();
 }
 
 void UAFLCosmeticCatalogSubsystem::Deinitialize()
 {
 	Catalog = nullptr;
+	ColorIdentityRegistry = nullptr;
 	Super::Deinitialize();
 }
 
@@ -66,6 +73,43 @@ void UAFLCosmeticCatalogSubsystem::LoadCatalog()
 	else
 	{
 		UE_LOG(LogAFLCosmeticCore, Warning, TEXT("[Catalog] Failed to load catalog asset at %s."), *Path.ToString());
+	}
+}
+
+void UAFLCosmeticCatalogSubsystem::LoadColorIdentityRegistry()
+{
+	UAssetManager& AssetManager = UAssetManager::Get();
+
+	// Resolve the one registry via its primary-asset type. Synchronous load -> tiny (tags + colors).
+	TArray<FPrimaryAssetId> Ids;
+	AssetManager.GetPrimaryAssetIdList(AFLColorIdentityRegistryType, Ids);
+
+	if (Ids.Num() == 0)
+	{
+		// Not fatal: readers fall back to the default cyber colors until the registry is authored + scanned.
+		UE_LOG(LogAFLCosmeticCore, Warning,
+			TEXT("[ColorIdentity] No AFLColorIdentityRegistry primary asset found (register PrimaryAssetTypesToScan + author DA_AFL_ColorIdentityRegistry)."));
+		return;
+	}
+
+	if (Ids.Num() > 1)
+	{
+		UE_LOG(LogAFLCosmeticCore, Warning,
+			TEXT("[ColorIdentity] %d registries found; expected ONE. Using the first (%s)."),
+			Ids.Num(), *Ids[0].ToString());
+	}
+
+	const FSoftObjectPath Path = AssetManager.GetPrimaryAssetPath(Ids[0]);
+	ColorIdentityRegistry = Cast<UAFLColorIdentityRegistry>(Path.TryLoad());
+
+	if (ColorIdentityRegistry)
+	{
+		UE_LOG(LogAFLCosmeticCore, Log, TEXT("[ColorIdentity] Loaded %s (%d identities)."),
+			*ColorIdentityRegistry->GetName(), ColorIdentityRegistry->Identities.Num());
+	}
+	else
+	{
+		UE_LOG(LogAFLCosmeticCore, Warning, TEXT("[ColorIdentity] Failed to load registry asset at %s."), *Path.ToString());
 	}
 }
 
@@ -208,6 +252,65 @@ FText UAFLCosmeticCatalogSubsystem::GetRarityText(const FAFLCatalogEntry& Entry)
 	case EAFLCosmeticRarity::Common:
 	default:                            return NSLOCTEXT("AFLStore", "Rarity_Common",    "COMMON");
 	}
+}
+
+const FAFLColorIdentity* UAFLCosmeticCatalogSubsystem::FindColorIdentity(const FGameplayTag& IdentityTag) const
+{
+	// Lazy-load guard: the engine-startup AssetManager scan can run BEFORE the registry asset exists (or the
+	// subsystem can init before the scan completes), leaving ColorIdentityRegistry null. If a resolve is asked
+	// for and we have no registry yet, load it now (covers the startup-timing gap that left edges on fallback).
+	if (!ColorIdentityRegistry)
+	{
+		const_cast<UAFLCosmeticCatalogSubsystem*>(this)->LoadColorIdentityRegistry();
+	}
+
+	const FAFLColorIdentity* Found = ColorIdentityRegistry ? ColorIdentityRegistry->FindIdentity(IdentityTag) : nullptr;
+
+	// DIAGNOSTIC (afl.Cosmetic identity resolve) -- instrument-then-fix: log exactly what each resolve sees,
+	// so a PIE log proves registry-loaded? tag-valid? found? per entry, instead of inferring from the screen.
+	UE_LOG(LogAFLCosmeticCore, Log,
+		TEXT("[IdentityResolve] tag=%s  registry=%s identities=%d  found=%s"),
+		*IdentityTag.ToString(),
+		ColorIdentityRegistry ? *ColorIdentityRegistry->GetName() : TEXT("NULL"),
+		ColorIdentityRegistry ? ColorIdentityRegistry->Identities.Num() : -1,
+		Found ? TEXT("YES") : TEXT("no(fallback)"));
+
+	return Found;
+}
+
+bool UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(const UObject* WorldContext, FGameplayTag IdentityTag, FAFLColorIdentity& OutIdentity)
+{
+	if (const UAFLCosmeticCatalogSubsystem* Sub = Get(WorldContext))
+	{
+		if (const FAFLColorIdentity* Found = Sub->FindColorIdentity(IdentityTag))
+		{
+			OutIdentity = *Found;
+			return true;
+		}
+	}
+	return false; // OutIdentity keeps its struct defaults (cyber blue/cyan) on miss.
+}
+
+FLinearColor UAFLCosmeticCatalogSubsystem::GetEntryPrimaryColor(const UObject* WorldContext, const FAFLCatalogEntry& Entry)
+{
+	// Resolve the entry's identity TAG -> registry -> PrimaryColor. ONE uniform path (no per-card derivation).
+	FAFLColorIdentity Identity;
+	if (ResolveColorIdentity(WorldContext, Entry.ColorIdentityTag, Identity))
+	{
+		return Identity.PrimaryColor;
+	}
+	// Fallback: the cyber-cyan-blue UI accent (also FAFLColorIdentity's PrimaryColor default).
+	return FLinearColor(0.0f, 0.42f, 1.0f, 1.0f);
+}
+
+FLinearColor UAFLCosmeticCatalogSubsystem::GetEntryAccentColor(const UObject* WorldContext, const FAFLCatalogEntry& Entry)
+{
+	FAFLColorIdentity Identity;
+	if (ResolveColorIdentity(WorldContext, Entry.ColorIdentityTag, Identity))
+	{
+		return Identity.AccentColor;
+	}
+	return FLinearColor(0.0f, 0.941f, 1.0f, 1.0f); // cyan accent default
 }
 
 UAFLCosmeticCatalogSubsystem* UAFLCosmeticCatalogSubsystem::Get(const UObject* WorldContext)

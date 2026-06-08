@@ -193,8 +193,11 @@ struct FAFLCatalogEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display")
 	FText Compatibility;
 
-	/** Accent theme that drives the card/preview neon color (CyanBlue / NeonGreen / NeonPink / NeonPurple /
-	 *  NeonRed). FName so it maps to a small color table without dragging a UObject. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display")
-	FName ColorTheme;
+	/** The product's COLOR IDENTITY tag (Cosmetic.Identity.<Name>, e.g. Cosmetic.Identity.NeonEdge). Points at
+	 *  a row in the UAFLColorIdentityRegistry which DECLARES the Primary + Accent neon colors. The card frame /
+	 *  showroom / equipped look all RESOLVE this tag -> the registry -> the colors (uniform, never derived).
+	 *  SEPARATE axis from RarityTag (which drives ONLY the rarity badge). Replaces the retired ColorTheme FName
+	 *  (which fed a per-card derivation that misfired on pooled list tiles). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Display", meta = (Categories = "Cosmetic.Identity"))
+	FGameplayTag ColorIdentityTag;
 };
