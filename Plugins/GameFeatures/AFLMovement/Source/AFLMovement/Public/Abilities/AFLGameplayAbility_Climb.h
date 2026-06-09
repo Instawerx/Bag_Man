@@ -57,13 +57,27 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Climb")
 	TSubclassOf<UGameplayEffect> ClimbActiveEffectClass;
 
-	/** Root-motion climb montage. BP child sets it (placeholder linear-up now; AAA climb anim swaps in later). */
+	/** Root-motion climb montage. BP child sets it. Two sections expected: the ascent LOOP (LoopSectionName)
+	 *  and a one-shot mantle CAP (MantleSectionName). The loop sustains while held; the ability jumps to the
+	 *  mantle on input-release-near-top (see OnInputReleased). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Climb")
 	TObjectPtr<UAnimMontage> ClimbMontage;
+
+	/** Montage section that loops the wall-ascent (anim_Climb_Up). Sustains until the ability ends or hands off. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Climb")
+	FName LoopSectionName = TEXT("Loop");
+
+	/** Montage section that plays the one-shot mantle-onto-ledge cap (anim_Mantle_2M_R). Fired on release-near-top. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Climb")
+	FName MantleSectionName = TEXT("Mantle");
 
 	/** Forward trace length (cm) for the climbable-surface validation on activate. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Climb")
 	float SurfaceTraceDistance = 80.0f;
+
+	/** Upward trace length (cm) on input-release to detect a ledge top: clear above -> mantle, blocked -> drop. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Climb")
+	float LedgeTopTraceDistance = 180.0f;
 
 private:
 	// Montage task exit callbacks.
@@ -72,7 +86,7 @@ private:
 	UFUNCTION()
 	void OnMontageInterruptedOrCancelled();
 
-	/** Input-release callback (WaitInputRelease) -> cancel. */
+	/** Input-release callback (WaitInputRelease). Branches: ledge-top clear -> mantle cap; blocked -> drop. */
 	UFUNCTION()
 	void OnInputReleased(float TimeHeld);
 
@@ -82,11 +96,33 @@ private:
 	/** End helper that logs the reason once and ends the ability. */
 	void ExitClimb(const TCHAR* Reason, bool bCancelled);
 
+	/** Fire the mantle cap if the montage has one; otherwise ExitClimb(FallbackReason). Funnels BOTH top
+	 *  signals (input-release-near-top AND forward-wall-lost) so whichever arrives first caps the climb. */
+	void TryMantleOrExit(const TCHAR* FallbackReason);
+
+	/** Guaranteed mantle exit: if the mantle section's OnCompleted is swallowed (jump issued mid-loop-blend),
+	 *  this timer force-completes the ability so the character can never be left floating in MOVE_Flying. */
+	void OnMantleTimeout();
+
+	/** Upward trace from the avatar on input-release: true = ledge top clear above (mantle), false = wall continues. */
+	bool IsLedgeTopClear() const;
+
 	/** The climb component on the avatar (resolved on activate; the surface-loss delegate binds to it). */
 	UPROPERTY()
 	TWeakObjectPtr<UAFLClimbMovementComponent> ClimbComponent;
 
+	/** The montage task (kept so the input-release branch can JumpToSection(Mantle) to hand off ascent->cap). */
+	UPROPERTY()
+	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
+
 	FDelegateHandle SurfaceLostHandle;
+
+	/** Fallback timer guaranteeing the ability exits after the mantle, even if OnMontageCompleted is missed. */
+	FTimerHandle MantleTimeoutHandle;
+
+	/** True once the mantle cap has been triggered: the loop's OnCompleted is now the mantle's completion ->
+	 *  that exit reports reason=complete (the success cap), not the unreachable loop completion. */
+	bool bMantling = false;
 
 	bool bExiting = false;
 };

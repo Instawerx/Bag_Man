@@ -7,10 +7,14 @@
 #include "AbilitySystemGlobals.h"
 #include "Character/LyraPawnExtensionComponent.h"
 #include "CollisionQueryParams.h"
+#include "Components/PrimitiveComponent.h"
 #include "Engine/World.h"
+#include "Equipment/LyraEquipmentInstance.h"
+#include "Equipment/LyraEquipmentManagerComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerState.h"
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLClimbMovementComponent)
@@ -149,6 +153,9 @@ void UAFLClimbMovementComponent::ApplyClimbState()
 	// Enable the surface-loss trace tick only while climbing.
 	SetComponentTickEnabled(true);
 
+	// Decision B: holster the rifle for the climb (it would fight the full-body climb montage).
+	HolsterEquippedWeapon();
+
 	UE_LOG(LogAFLMovement, Log,
 		TEXT("AFL_CLIMB: state applied -> gravity %.2f->0.00, mode %d->Flying."),
 		CachedGravityScale, (int32)CachedMovementMode.GetValue());
@@ -162,6 +169,9 @@ void UAFLClimbMovementComponent::RestoreClimbState()
 	}
 	SetComponentTickEnabled(false);
 
+	// Decision B: re-show the rifle (symmetric with HolsterEquippedWeapon in ApplyClimbState).
+	RestoreEquippedWeapon();
+
 	if (UCharacterMovementComponent* CMC = GetOwnerCMC())
 	{
 		CMC->GravityScale = CachedGravityScale;
@@ -173,6 +183,64 @@ void UAFLClimbMovementComponent::RestoreClimbState()
 			CMC->GravityScale, (int32)CachedMovementMode.GetValue());
 	}
 	bClimbStateActive = false;
+}
+
+void UAFLClimbMovementComponent::HolsterEquippedWeapon()
+{
+	HolsteredWeaponActors.Reset();
+
+	// The equipment manager for this hero's ranged weapons lives on the PlayerState (Lyra ranged-weapon
+	// pattern; UAFLHeroComponent attaches there). Our owner is the pawn -> reach the PS via the pawn.
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	AActor* PSActor = Pawn ? Cast<AActor>(Pawn->GetPlayerState()) : nullptr;
+	ULyraEquipmentManagerComponent* EquipMgr =
+		PSActor ? PSActor->FindComponentByClass<ULyraEquipmentManagerComponent>() : nullptr;
+	if (!EquipMgr)
+	{
+		// No manager (e.g. pre-possession) -> nothing to holster; the climb still works, rifle just stays.
+		UE_LOG(LogAFLMovement, Verbose, TEXT("AFL_CLIMB: holster skipped (no EquipmentManager on PlayerState)."));
+		return;
+	}
+
+	int32 HiddenCount = 0;
+	for (ULyraEquipmentInstance* Instance : EquipMgr->GetEquipmentInstancesOfType(ULyraEquipmentInstance::StaticClass()))
+	{
+		if (!Instance)
+		{
+			continue;
+		}
+		for (AActor* WeaponActor : Instance->GetSpawnedActors())
+		{
+			if (WeaponActor && WeaponActor->GetRootComponent() && WeaponActor->IsHidden() == false)
+			{
+				WeaponActor->SetActorHiddenInGame(true);
+				HolsteredWeaponActors.Add(WeaponActor);
+				++HiddenCount;
+			}
+		}
+	}
+
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: holstered %d weapon actor(s) for climb."), HiddenCount);
+}
+
+void UAFLClimbMovementComponent::RestoreEquippedWeapon()
+{
+	// Restore ONLY the actors we hid (1:1), so we never un-hide something hidden for another reason.
+	int32 RestoredCount = 0;
+	for (const TWeakObjectPtr<AActor>& WeakActor : HolsteredWeaponActors)
+	{
+		if (AActor* WeaponActor = WeakActor.Get())
+		{
+			WeaponActor->SetActorHiddenInGame(false);
+			++RestoredCount;
+		}
+	}
+	HolsteredWeaponActors.Reset();
+
+	if (RestoredCount > 0)
+	{
+		UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: restored %d weapon actor(s) after climb."), RestoredCount);
+	}
 }
 
 void UAFLClimbMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
