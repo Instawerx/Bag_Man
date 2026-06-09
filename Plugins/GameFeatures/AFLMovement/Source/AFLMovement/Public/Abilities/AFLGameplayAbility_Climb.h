@@ -120,6 +120,10 @@ private:
 	/** Fallback timer guaranteeing the ability exits after the mantle, even if OnMontageCompleted is missed. */
 	FTimerHandle MantleTimeoutHandle;
 
+	/** Orientation fix: cache the hero's controller-yaw flag so EndAbility restores free aim after the climb. */
+	bool bOrientationApplied = false;
+	bool bCachedUseControllerYaw = true;
+
 	/** True once the mantle cap has been triggered: the loop's OnCompleted is now the mantle's completion ->
 	 *  that exit reports reason=complete (the success cap), not the unreachable loop completion. */
 	bool bMantling = false;

@@ -12,6 +12,7 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
+#include "MotionWarpingComponent.h"
 #include "TimerManager.h"
 #include "GameplayEffect.h"
 #include "Movement/AFLClimbMovementComponent.h"
@@ -26,6 +27,7 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Ability_Movement_Climb, "Ability.Movement.Clim
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Climb_State_Match_Warmup, "State.Match.Warmup");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Climb_State_Match_Ended, "State.Match.Ended");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Climb_State_Extracting, "State.Extracting");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Climb_State_Carrying, "State.Carrying");
 
 UAFLGameplayAbility_Climb::UAFLGameplayAbility_Climb(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -45,6 +47,11 @@ UAFLGameplayAbility_Climb::UAFLGameplayAbility_Climb(const FObjectInitializer& O
 	ActivationBlockedTags.AddTag(TAG_Climb_State_Match_Warmup);
 	ActivationBlockedTags.AddTag(TAG_Climb_State_Match_Ended);
 	ActivationBlockedTags.AddTag(TAG_Climb_State_Extracting);
+
+	// Decision H: cannot climb while carrying an object. GAS blocks activation when the avatar's ASC holds a
+	// blocked tag (the canonical, less-code path vs a CanActivateAbility override). The carry component
+	// separately force-drops the held object if a climb somehow starts -> carry + climb are a clean either/or.
+	ActivationBlockedTags.AddTag(TAG_Climb_State_Carrying);
 }
 
 void UAFLGameplayAbility_Climb::ActivateAbility(
@@ -60,6 +67,7 @@ void UAFLGameplayAbility_Climb::ActivateAbility(
 	// (reason=interrupted). Clearing both flags + the stale task handle here makes every climb behave like the first.
 	bExiting = false;
 	bMantling = false;
+	bOrientationApplied = false;
 	MontageTask = nullptr;
 
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
@@ -92,6 +100,34 @@ void UAFLGameplayAbility_Climb::ActivateAbility(
 			return;
 		}
 		UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: surface valid (normal=%s)."), *Hit.ImpactNormal.ToCompactString());
+
+		// ORIENTATION via MOTIONWARPING (Cycle 4a -- the foundation pattern, replacing the manual
+		// SetActorRotation+TeleportPhysics lerp). The climb anim is authored for a character FACING the wall;
+		// rather than snap the actor yaw (which doesn't scale to per-object/variable targets and isn't net-clean),
+		// we set a named warp target the montage's MotionWarping notify window skews the root motion toward.
+		// WarpToWall = the wall surface point + facing INTO the wall (-ImpactNormal, yaw only). The notify window
+		// over Section_Loop applies it through the ascent; EndAbility clears it. MotionWarping replicates the
+		// target out of the box (multiplayer-correct).
+		if (UMotionWarpingComponent* MotionWarping = Character->FindComponentByClass<UMotionWarpingComponent>())
+		{
+			// The component ctor leaves bSearchForWindowsInAnimsWithinMontages=false; our warp windows live on
+			// the montage's sub-anims, so enable it (idempotent each activation).
+			MotionWarping->bSearchForWindowsInAnimsWithinMontages = true;
+
+			FVector FaceDir = -Hit.ImpactNormal;
+			FaceDir.Z = 0.0f;
+			FaceDir.Normalize();
+			const FVector WarpLocation = Hit.ImpactPoint;
+			const FRotator WarpRotation = FaceDir.Rotation();
+			MotionWarping->AddOrUpdateWarpTargetFromLocationAndRotation(FName("WarpToWall"), WarpLocation, WarpRotation);
+			bOrientationApplied = true;
+			UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: warp target added (name=WarpToWall, loc=%s, rot=%s)."),
+				*WarpLocation.ToCompactString(), *WarpRotation.ToCompactString());
+		}
+		else
+		{
+			UE_LOG(LogAFLMovement, Warning, TEXT("AFL_CLIMB: no MotionWarpingComponent on hero -> wall alignment will not apply."));
+		}
 	}
 
 	// 2. Apply the climb-active GE -> grants State.Movement.Climbing -> UAFLClimbMovementComponent flips
@@ -253,6 +289,48 @@ void UAFLGameplayAbility_Climb::TryMantleOrExit(const TCHAR* FallbackReason)
 				CMC->GravityScale = 0.0f;
 				CMC->SetMovementMode(MOVE_Flying);
 			}
+
+			// WarpToLedgeTop (Cycle 4a): set the mantle warp target so the Section_Mantle notify window skews the
+			// root motion to land the character on the actual ledge surface. Find the ledge top by tracing DOWN
+			// from a point above+forward of the character (where the ledge surface should be). Keep the current
+			// facing for the mantle (the WarpToWall facing already turned the body into the wall). The detection
+			// that we reached the top is UNCHANGED (forward-wall-lost / input-release-near-top) -- only the
+			// alignment consequence is now MotionWarping instead of a SetActorRotation.
+			if (UMotionWarpingComponent* MotionWarping = Character->FindComponentByClass<UMotionWarpingComponent>())
+			{
+				const UWorld* World = Character->GetWorld();
+				const FVector Fwd = Character->GetActorForwardVector();
+				const FVector Loc = Character->GetActorLocation();
+				const FRotator MantleRotation = Character->GetActorRotation(); // keep wall-facing yaw
+
+				// Find the ledge SURFACE just over the lip: trace DOWN from a point forward+above the character.
+				// Probe span is short and near the character's own height so it can't pick up the distant floor.
+				const FVector ProbeTop = Loc + Fwd * 50.0f + FVector::UpVector * 60.0f;
+				const FVector ProbeBot = ProbeTop - FVector::UpVector * 120.0f;
+				FVector LedgeTopLocation = Loc + Fwd * 50.0f; // default: forward at the CURRENT height (never below)
+				bool bFoundLedge = false;
+				if (World)
+				{
+					FCollisionQueryParams P(SCENE_QUERY_STAT(AFLClimbLedgeSurface), false, Character);
+					FHitResult TopHit;
+					if (World->LineTraceSingleByChannel(TopHit, ProbeTop, ProbeBot, ECC_Visibility, P))
+					{
+						// Only accept a hit that is at/above the character's feet -- a "ledge top" is never BELOW
+						// the climber. This rejects the greybox floor far below (the Z=-0.5 "mantle at bottom" bug).
+						if (TopHit.ImpactPoint.Z >= Loc.Z - 20.0f)
+						{
+							LedgeTopLocation = TopHit.ImpactPoint;
+							bFoundLedge = true;
+						}
+					}
+				}
+				// Hard floor: never let the target sit below the character (mantle is up+forward, never down).
+				LedgeTopLocation.Z = FMath::Max(LedgeTopLocation.Z, Loc.Z);
+
+				MotionWarping->AddOrUpdateWarpTargetFromLocationAndRotation(FName("WarpToLedgeTop"), LedgeTopLocation, MantleRotation);
+				UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: warp target added (name=WarpToLedgeTop, loc=%s, rot=%s, foundLedge=%d)."),
+					*LedgeTopLocation.ToCompactString(), *MantleRotation.ToCompactString(), bFoundLedge ? 1 : 0);
+			}
 		}
 
 		if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
@@ -316,6 +394,22 @@ void UAFLGameplayAbility_Climb::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
+	// MOTIONWARPING cleanup (Cycle 4a): clear the warp targets this ability added so they don't persist across
+	// activations (basic climb adds WarpToWall; climb-with-mantle adds WarpToLedgeTop too -- RemoveAllWarpTargets
+	// handles both). Replaces the old manual bUseControllerRotationYaw restore.
+	if (bOrientationApplied)
+	{
+		if (const ACharacter* Character = ActorInfo ? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
+		{
+			if (UMotionWarpingComponent* MotionWarping = Character->FindComponentByClass<UMotionWarpingComponent>())
+			{
+				MotionWarping->RemoveAllWarpTargets();
+				UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: warp targets cleaned."));
+			}
+		}
+		bOrientationApplied = false;
+	}
+
 	// Unbind the surface-loss delegate before the component/ability tear down.
 	if (ClimbComponent.IsValid() && SurfaceLostHandle.IsValid())
 	{

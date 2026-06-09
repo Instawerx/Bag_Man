@@ -23,6 +23,7 @@ public class AFLMovement : ModuleRules
 				"LyraGame",
 				"AFLCore",
 				"AIModule",
+				"MotionWarping",
 				"ModularGameplay",
 				"ModularGameplayActors",
 			}
