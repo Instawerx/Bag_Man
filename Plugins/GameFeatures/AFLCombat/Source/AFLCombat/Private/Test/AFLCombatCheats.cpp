@@ -26,7 +26,11 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Camera/PlayerCameraManager.h"               // afl.GroundTruth: ViewTarget / debug-camera probe
+#include "GameFramework/Character.h"                   // afl.GroundTruth: ACharacter -> CMC class
+#include "GameFramework/CharacterMovementComponent.h"  // afl.GroundTruth: CMC class read
 #include "GameFramework/CheatManagerDefines.h"
+#include "GameFramework/Controller.h"                  // afl.GroundTruth: Pawn->GetController round-trip
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
@@ -877,6 +881,84 @@ namespace
 
 	// ─── #43 selection-seam harness: afl.Cosmetic.SetEdge <color> ────────────────
 	//
+	// ─── afl.GroundTruth: possession + camera + CMC engine-state probe ──────────────
+	//
+	// Baseline diagnostic (P-CONTROLS reparent investigation). Dumps the engine's
+	// ground truth so a "flying pawn" report can be judged on STATE, not visual guess.
+	// One labeled [AFL_GROUND_TRUTH] line: PC, PC->GetPawn() + its class, the pawn's
+	// own GetController() (round-trip), the player's ViewTarget, whether the debug
+	// camera is active (PlayerCameraManager view target != pawn / DebugCameraController),
+	// and the CMC's class (LyraCMC vs AFLCMC). World-context handler -> resolves the
+	// PIE WINDOW's local PC. Read-only; touches nothing. Operator types it in console.
+	void HandleAFLGroundTruth(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("[AFL_GROUND_TRUTH] no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		if (!PC)
+		{
+			Ar.Log(TEXT("[AFL_GROUND_TRUTH] no PlayerController in this world."));
+			return;
+		}
+
+		APawn* Pawn = PC->GetPawn();
+		const FString PawnName = Pawn ? Pawn->GetName() : TEXT("NULL");
+		const FString PawnClass = Pawn ? Pawn->GetClass()->GetName() : TEXT("NULL");
+
+		// Round-trip: does the pawn point back at this controller? (true possession)
+		AController* PawnController = Pawn ? Pawn->GetController() : nullptr;
+		const FString PawnCtrlName = PawnController ? PawnController->GetName() : TEXT("NULL");
+		const bool bRoundTripOk = (PawnController == PC);
+
+		// ViewTarget + debug-camera signature.
+		AActor* ViewTarget = PC->GetViewTarget();
+		const FString ViewTargetName = ViewTarget ? ViewTarget->GetName() : TEXT("NULL");
+		const bool bViewTargetIsPawn = (ViewTarget == Pawn);
+		// Debug camera signature: ToggleDebugCamera spawns a UDebugCameraController and makes IT the
+		// active player controller (so World->GetFirstPlayerController can BE the debug controller), or
+		// the camera manager's view target diverges from the possessed pawn. Detect by class-name (no
+		// hard dep on the engine debug-camera header) + the view-target divergence.
+		const bool bDebugCam = PC->GetClass()->GetName().Contains(TEXT("DebugCamera"))
+			|| (Pawn != nullptr && PC->PlayerCameraManager && PC->PlayerCameraManager->GetViewTarget() != Pawn);
+
+		// CMC class (the reparent payoff signal: LyraCharacterMovementComponent vs AFLCharacterMovementComponent).
+		FString CMCClass = TEXT("NULL");
+		if (const ACharacter* Char = Cast<ACharacter>(Pawn))
+		{
+			if (const UCharacterMovementComponent* CMC = Char->GetCharacterMovement())
+			{
+				CMCClass = CMC->GetClass()->GetName();
+			}
+		}
+
+		const FString Tag = (Args.Num() > 0) ? Args[0] : TEXT("");
+
+		Ar.Logf(TEXT("[AFL_GROUND_TRUTH] tag=%s | PC=%s | Pawn=%s (%s) | PawnController=%s roundTripOk=%s | ViewTarget=%s viewIsPawn=%s | DebugCam=%s | CMC=%s"),
+			*Tag,
+			*PC->GetName(),
+			*PawnName, *PawnClass,
+			*PawnCtrlName, bRoundTripOk ? TEXT("YES") : TEXT("no"),
+			*ViewTargetName, bViewTargetIsPawn ? TEXT("YES") : TEXT("no"),
+			bDebugCam ? TEXT("YES") : TEXT("no"),
+			*CMCClass);
+
+		// Also UE_LOG so it lands in the file log regardless of console echo.
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("[AFL_GROUND_TRUTH] tag=%s PC=%s Pawn=%s(%s) roundTripOk=%s ViewTarget=%s viewIsPawn=%s DebugCam=%s CMC=%s"),
+			*Tag, *PC->GetName(), *PawnName, *PawnClass, bRoundTripOk ? TEXT("YES") : TEXT("no"),
+			*ViewTargetName, bViewTargetIsPawn ? TEXT("YES") : TEXT("no"),
+			bDebugCam ? TEXT("YES") : TEXT("no"), *CMCClass);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLGroundTruthCmd(
+		TEXT("afl.GroundTruth"),
+		TEXT("Baseline diagnostic: dump [AFL_GROUND_TRUTH] engine state (PC, possessed pawn + class, controller round-trip, ViewTarget, debug-camera, CMC class). Optional arg = a label tag. Run in PIE console."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLGroundTruth));
+
 	// WHY a console command (not just the UFUNCTION(Exec) SetCosmeticEdge): UFUNCTION(Exec) on a
 	// CheatManagerExtension only routes when the cheat manager is active (Lyra gates it). The always-
 	// available, world-context-aware FAutoConsoleCommandWithWorldArgsAndOutputDevice fires regardless --
