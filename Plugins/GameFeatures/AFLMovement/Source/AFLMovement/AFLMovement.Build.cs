@@ -34,6 +34,8 @@ public class AFLMovement : ModuleRules
 			{
 				"Slate",
 				"SlateCore",
+				"ControlRig",   // Cycle 4c: hand-IK via CR_AFL_IRONICS (UControlRig::SetControlValue)
+				"RigVM",        // FAnimNode_ControlRig / control-rig runtime types
 			}
 		);
 	}
