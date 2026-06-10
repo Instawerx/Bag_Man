@@ -52,6 +52,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Interaction")
 	AActor* GetCarriedActor() const { return CarriedActor.Get(); }
 
+	/** 4f: resolve the per-class anim set for a grab about to begin (policy -> DefaultAnimSet fallback),
+	 *  cache it as the active set, and return it. The grab ability calls this BEFORE the reach plays so the
+	 *  reach/carry montages are known pre-attach; GrabActor() no longer resolves -- it rides this cache.
+	 *  Cleared in ReleaseActor. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Interaction")
+	UAFLObjectClassAnimSet* ResolveAndCacheAnimSet(const FAFLGrabPolicy& Policy);
+
+	/** The set cached by ResolveAndCacheAnimSet for the current grab/carry; null when idle. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Interaction")
+	UAFLObjectClassAnimSet* GetActiveAnimSet() const { return ActiveAnimSet; }
+
 	/** 4e: designer fallback when a grabbable's policy has no ObjectAnimSet. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction")
 	TSoftObjectPtr<UAFLObjectClassAnimSet> DefaultAnimSet;
@@ -76,6 +87,24 @@ public:
 	/** 0..1 blend weight for the IK node's Alpha (smooth fade in/out; the rig's HandIKAlpha control reads this). */
 	UPROPERTY(BlueprintReadWrite, Category = "AFL|Interaction|HandIK")
 	float HandIKAlpha = 0.0f;
+
+	/** Alpha the IK FADES toward while enabled (4f: TickComponent FInterpTo's HandIKAlpha to this -- never a
+	 *  hard 0/1 switch). The console cheat writes HandIKAlpha=1 directly, which is already at this goal. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Interaction|HandIK")
+	float HandIKAlphaGoal = 1.0f;
+
+	/** FInterpTo speed for the IK alpha fade (DeltaSeconds-driven, frame-rate independent; ~15 = snappy). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Interaction|HandIK")
+	float HandIKInterpSpeed = 15.0f;
+
+	/** 4f ability-facing IK control: world target the right hand reaches for (e.g. the grabbable at rest). */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Interaction|HandIK")
+	void SetHandIKTarget(const FVector& InTarget) { HandIKTarget = InTarget; }
+
+	/** 4f ability-facing IK control: enable starts the alpha fade-in; disable fades out, then releases the rig.
+	 *  The console afl.HandIK.* path writes the same fields directly and is unchanged. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Interaction|HandIK")
+	void SetHandIKEnabled(bool bEnabled) { bHandIKEnabled = bEnabled; }
 
 	/** Position-control name on CR_AFL_IRONICS the world-space hand target drives. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Interaction|HandIK")
@@ -140,4 +169,7 @@ private:
 
 	/** True once HandIKAlpha=0 has been pushed for a disable, so we stop pushing every idle frame. */
 	bool bHandIKReleasedToRig = true;
+
+	/** 4f carry diagnostic: accumulator for the 1 Hz attached-state log while carrying. */
+	float CarryDiagAccum = 0.0f;
 };

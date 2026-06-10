@@ -5,6 +5,7 @@
 #include "AFLMovement.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
+#include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequenceBase.h"
@@ -21,6 +22,7 @@
 #include "GameplayEffect.h"
 #include "Interaction/AFLGrabbableComponent.h"
 #include "Interaction/AFLInteractionComponent.h"
+#include "Interaction/AFLObjectClassAnimSet.h"
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLGameplayAbility_Grab)
@@ -146,7 +148,8 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 	// yaw on every grab (the quarter-spin / "backwards-inverted" symptom). The box attaches to hand_r regardless
 	// of body facing, so the snap bought nothing. No orientation change on grab now.
 
-	// 2. The hero's interaction component performs the attach/hold.
+	// 2. The hero's interaction component (owns the physical attach/hold; 4f -- the attach itself is now
+	//    DEFERRED to DoAttachAndCarry, fired by the reach montage's contact notify).
 	InteractionComponent = Avatar ? Avatar->FindComponentByClass<UAFLInteractionComponent>() : nullptr;
 	if (!InteractionComponent.IsValid())
 	{
@@ -154,106 +157,230 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 		CancelAbility(Handle, ActorInfo, ActivationInfo, true);
 		return;
 	}
-	if (!InteractionComponent->GrabActor(Target, Grabbable->GetGrabPolicy()))
+
+	// 2b. (4f) Resolve the per-class anim set BEFORE anything plays -- the reach/carry montages live on it.
+	UAFLObjectClassAnimSet* AnimSet = InteractionComponent->ResolveAndCacheAnimSet(Grabbable->GetGrabPolicy());
+	UAnimMontage* ReachMontage = AnimSet ? AnimSet->GrabReachMontage.LoadSynchronous() : nullptr;
+
+	// Stash what the deferred attach needs -- the contact notify / montage-end callbacks run frames from now.
+	PendingGrabTarget = Target;
+	PendingGrabPolicy = Grabbable->GetGrabPolicy();
+	bAttachDone = false;
+	ActiveCarryPoseMontage = nullptr;
+
+	if (ReachMontage)
 	{
-		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: GrabActor failed -> cancel."));
-		CancelAbility(Handle, ActorInfo, ActivationInfo, true);
+		// 3. REACH-THEN-ATTACH (4f). Order matters: hand-IK on first (the hand starts pulling toward the box
+		//    at rest -- alpha fades in via the component's FInterpTo, never a hard switch), the event listener
+		//    BEFORE the montage (an early notify must not race past an unbound listener), then the reach
+		//    montage. The attach happens AT the contact notify (Event.Interaction.GrabAttach, fired by
+		//    UAFLAnimNotify_GameplayEvent on the montage); montage end without the event is a logged fallback
+		//    attach; an interrupt before contact aborts the grab cleanly (no attach, no State.Carrying).
+		//    This supersedes 4c/4d decision W1 -- grab and hand-IK are now wired together; the console
+		//    afl.HandIK.* path stays independent (it writes the same component fields).
+		if (!GrabAttachEventTag.IsValid())
+		{
+			GrabAttachEventTag = FGameplayTag::RequestGameplayTag(FName(TEXT("Event.Interaction.GrabAttach")), /*ErrorIfNotFound*/ false);
+		}
+
+		InteractionComponent->SetHandIKTarget(Target->GetActorLocation());
+		InteractionComponent->SetHandIKEnabled(true);
+
+		if (UAbilityTask_WaitGameplayEvent* WaitEvent = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(
+				this, GrabAttachEventTag, /*OptionalExternalTarget*/ nullptr, /*OnlyTriggerOnce*/ true, /*OnlyMatchExact*/ true))
+		{
+			WaitEvent->EventReceived.AddDynamic(this, &UAFLGameplayAbility_Grab::OnGrabAttachEvent);
+			WaitEvent->ReadyForActivation();
+		}
+
+		UAbilityTask_PlayMontageAndWait* ReachTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+			this, NAME_None, ReachMontage, /*Rate*/ 1.0f, /*StartSection*/ NAME_None, /*bStopWhenAbilityEnds*/ true);
+		if (!ReachTask)
+		{
+			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: reach task creation failed -> instant attach."));
+			DoAttachAndCarry();
+			return;
+		}
+		ReachTask->OnCompleted.AddDynamic(this, &UAFLGameplayAbility_Grab::OnReachMontageCompleted);
+		ReachTask->OnBlendOut.AddDynamic(this, &UAFLGameplayAbility_Grab::OnReachMontageCompleted);
+		ReachTask->OnInterrupted.AddDynamic(this, &UAFLGameplayAbility_Grab::OnReachMontageInterrupted);
+		ReachTask->OnCancelled.AddDynamic(this, &UAFLGameplayAbility_Grab::OnReachMontageInterrupted);
+		ReachTask->ReadyForActivation();
+
+		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: reach started (montage=%s, attach on %s)."),
+			*GetNameSafe(ReachMontage), *GrabAttachEventTag.ToString());
+		return; // continues in OnGrabAttachEvent / OnReachMontageCompleted / OnReachMontageInterrupted.
+	}
+
+	// 3'. No reach montage (null anim set or empty field): the legacy 4d instant-attach path.
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: no reach montage, instant attach."));
+	DoAttachAndCarry();
+}
+
+void UAFLGameplayAbility_Grab::OnGrabAttachEvent(FGameplayEventData Payload)
+{
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: contact notify received (%s) -> attach."), *Payload.EventTag.ToString());
+	DoAttachAndCarry();
+}
+
+void UAFLGameplayAbility_Grab::OnReachMontageCompleted()
+{
+	if (bAttachDone || bExiting)
+	{
+		return; // normal end of an already-attached reach (or a dead ability) -- nothing to do.
+	}
+	UE_LOG(LogAFLMovement, Warning, TEXT("AFL_GRAB: GrabAttach notify never fired -- fallback attach on montage end."));
+	DoAttachAndCarry();
+}
+
+void UAFLGameplayAbility_Grab::OnReachMontageInterrupted()
+{
+	if (bAttachDone || bExiting)
+	{
+		return; // the carry-pose montage interrupting the finished reach is EXPECTED; only pre-contact interrupts abort.
+	}
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: reach interrupted before contact -> aborted grab (no attach, no state)."));
+	if (InteractionComponent.IsValid())
+	{
+		InteractionComponent->SetHandIKEnabled(false);
+	}
+	ExitGrab(TEXT("reach interrupted"), /*bCancelled*/ false);
+}
+
+void UAFLGameplayAbility_Grab::DoAttachAndCarry()
+{
+	if (bAttachDone || bExiting)
+	{
+		return; // contact notify and montage-end can both arrive -- first wins; never attach on a dead ability.
+	}
+	bAttachDone = true;
+
+	// The reach is over either way: fade the reach IK back out (the hand follows the carry pose from here).
+	if (InteractionComponent.IsValid())
+	{
+		InteractionComponent->SetHandIKEnabled(false);
+	}
+
+	// Re-validate -- a second of reach happened since ActivateAbility's check (target may be gone/taken).
+	AActor* Target = PendingGrabTarget.Get();
+	UAFLGrabbableComponent* Grabbable = Target ? Target->FindComponentByClass<UAFLGrabbableComponent>() : nullptr;
+	if (!Target || !Grabbable || Grabbable->IsHeld() || !InteractionComponent.IsValid())
+	{
+		ExitGrab(TEXT("attach target lost during reach"), /*bCancelled*/ true);
 		return;
 	}
 
-	// 3. Grant State.Carrying (the future penalty cycle + climb-block read this; mirror climb's GE shape).
+	// 4. The attach (unchanged inside GrabActor: all-prims inert -> snap to hand_r -> hold offset).
+	if (!InteractionComponent->GrabActor(Target, PendingGrabPolicy))
+	{
+		ExitGrab(TEXT("GrabActor failed"), /*bCancelled*/ true);
+		return;
+	}
+
+	// 5. Grant State.Carrying (the future penalty cycle + climb-block read this; mirror climb's GE shape).
 	if (CarryingEffectClass)
 	{
 		const FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(CarryingEffectClass, GetAbilityLevel());
 		if (SpecHandle.IsValid())
 		{
-			ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, SpecHandle);
+			ApplyGameplayEffectSpecToOwner(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), SpecHandle);
 			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: state applied -> carrying."));
 		}
 	}
 
-	// 4. (Cycle 4d grab-hold fix) TOGGLE -- no WaitInputRelease. The grab is NOT input-release-driven anymore;
-	// it stays active (carrying) after ActivateAbility returns, with the input released. A SECOND press routes
-	// to InputPressed() -> EndAbility (the drop). This is what makes "hold the box with G released" work.
+	// 6. TOGGLE (4d): stays active (carrying) with the input released; a second press routes to
+	//    InputPressed() -> EndAbility (the drop).
 	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: carrying -- press again to drop."));
 
-	// 4b. Hand-IK (Cycle 4c, Control Rig path): the hero's UAFLInteractionComponent OWNS the per-frame push of
-	//     HandIKTarget/HandIKAlpha into CR_AFL_IRONICS (Path 1 -- its TickComponent resolves the rig and drives
-	//     it whenever bHandIKEnabled, so the IK works standalone via afl.HandIK.Set, not only during a grab).
-	//     Cycle 4d / decision W1: the grab DELIBERATELY does NOT enable the hand-IK. The box snaps to hand_r at
-	//     attach, so an IK target "on the box" is geometrically where the hand already is -- driving it would
-	//     fight the snap for no visible reach. Wiring grab -> hand-reaches-the-box-at-rest needs a reach-then-
-	//     attach flow and belongs to the 4f grab-flow restructure. The console afl.HandIK.* path stays a fully
-	//     independent capability (it writes the component's fields directly). No rig code lives in the ability.
+	// 7. Hold stance.
+	StartCarryPose();
+}
 
-	// 5. Play the grab reach on the UPPER-BODY slot (Lyra-canonical layered-upper-body: arms reach,
-	//    legs keep following locomotion via the AnimGraph's Layered Blend Per Bone). The slot binding
-	//    lives here in gameplay, not baked into a montage asset, and it sidesteps montage-slot
-	//    registration. PlaySlotAnimationAsDynamicMontage drives the named slot directly.
-	//    DefaultSlot is NOT routed in Lyra's AnimGraph, which is why the old montage played into the
-	//    void (log fired, body showed nothing). See the slot audit in the grab-composition lane.
-	if (UAnimInstance* AnimInstance = GetGrabAnimInstance(ActorInfo))
+void UAFLGameplayAbility_Grab::StartCarryPose()
+{
+	UAnimInstance* AnimInstance = GetGrabAnimInstance(GetCurrentActorInfo());
+	if (!AnimInstance)
 	{
-		if (GrabReachAnim)
+		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: no anim instance -- carry continues with no pose."));
+		return;
+	}
+
+	// 7a. (4f) Per-class hold: the anim set's CarryPose montage, started at its settle time. CarryPose
+	// montages are authored with bEnableAutoBlendOut=false, so on reaching the end the pose HOLDS until
+	// EndAbility's Montage_Stop -- a real settle-then-hold, no rate-0 freeze plumbing on this path.
+	UAFLObjectClassAnimSet* AnimSet = InteractionComponent.IsValid() ? InteractionComponent->GetActiveAnimSet() : nullptr;
+	UAnimMontage* CarryPose = AnimSet ? AnimSet->CarryPose.LoadSynchronous() : nullptr;
+	if (CarryPose)
+	{
+		const float PlayResult = AnimInstance->Montage_Play(CarryPose, /*InPlayRate*/ 1.0f,
+			EMontagePlayReturnType::MontageLength, /*InTimeToStartMontageAt*/ CarryPoseStartTime);
+		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: carry-pose montage (asset=%s start=%.2fs holdAtEnd=1) %s."),
+			*GetNameSafe(CarryPose), CarryPoseStartTime, (PlayResult > 0.0f) ? TEXT("OK") : TEXT("FAILED -> legacy fallback"));
+		if (PlayResult > 0.0f)
 		{
-			// Self-validating: list the slot names the SKELETON actually registers (the registry the
-			// engine validates against) so a PIE run PROVES whether GrabReachSlot ("UpperBody") is a
-			// real registered slot, rather than us guessing from editor reflection.
-			TStringBuilder<256> SlotList;
-			if (const USkeletalMeshComponent* DiagMesh = AnimInstance->GetSkelMeshComponent())
+			ActiveCarryPoseMontage = CarryPose;
+			return;
+		}
+	}
+
+	// 7b. Legacy/proven fallback (4d): freeze the raw reach clip on the UPPER-BODY slot (Lyra-canonical
+	// layered-upper-body: arms hold, legs keep locomotion via the AnimGraph's Layered Blend Per Bone).
+	// DefaultSlot is NOT routed in Lyra's AnimGraph -- a montage/anim on it plays into the void.
+	if (GrabReachAnim)
+	{
+		// Self-validating: list the slot names the SKELETON actually registers (the registry the
+		// engine validates against) so a PIE run PROVES whether GrabReachSlot ("UpperBody") is a
+		// real registered slot, rather than us guessing from editor reflection.
+		TStringBuilder<256> SlotList;
+		if (const USkeletalMeshComponent* DiagMesh = AnimInstance->GetSkelMeshComponent())
+		{
+			if (const USkeletalMesh* SkelMesh = DiagMesh->GetSkeletalMeshAsset())
 			{
-				if (const USkeletalMesh* SkelMesh = DiagMesh->GetSkeletalMeshAsset())
+				if (const USkeleton* Skeleton = SkelMesh->GetSkeleton())
 				{
-					if (const USkeleton* Skeleton = SkelMesh->GetSkeleton())
+					for (const FAnimSlotGroup& Group : Skeleton->GetSlotGroups())
 					{
-						for (const FAnimSlotGroup& Group : Skeleton->GetSlotGroups())
+						for (const FName& SlotName : Group.SlotNames)
 						{
-							for (const FName& SlotName : Group.SlotNames)
-							{
-								SlotList << SlotName << TEXT(" ");
-							}
+							SlotList << SlotName << TEXT(" ");
 						}
 					}
 				}
 			}
-
-			// Cycle 4d -- SUSTAINED carry pose. The grab-composition lane proved the UpperBody slot reaches the
-			// pose at full weight (global=local=1.000) layered over locomotion (legs free), but the clip is a
-			// reach-and-RETURN gesture (~2s) so the carry stance relaxed after the reach. The 4d fix FREEZES the
-			// clip at its reach-peak frame for the whole carry: play at rate 0 starting at GrabHoldTime, so the
-			// montage holds that single pose until EndAbility's StopSlotAnimation releases it. Rate 0 + the
-			// default BlendOutTriggerTime=-1 means no auto blend-out -- the pose holds indefinitely.
-			// (bGrabHoldPose=false restores the 4c transient one-shot reach: rate 1.0, plays through once.)
-			const float HoldRate = bGrabHoldPose ? 0.0f : 1.0f;
-			const float StartAt = bGrabHoldPose ? GrabHoldTime : 0.0f;
-
-			// PlaySlotAnimationAsDynamicMontage returns the created montage -- non-null is the authoritative
-			// success signal (it creates the transient montage and starts it on the slot). It returns null
-			// only on a bad asset/slot. IsSlotActive is informational corroboration (may lag a frame on the
-			// very first tick, so it is NOT part of the pass/fail verdict).
-			const UAnimMontage* DynMontage = AnimInstance->PlaySlotAnimationAsDynamicMontage(
-				GrabReachAnim, GrabReachSlot, GrabReachBlendTime, GrabReachBlendTime,
-				/*InPlayRate*/ HoldRate, /*LoopCount*/ 1, /*BlendOutTriggerTime*/ -1.0f,
-				/*InTimeToStartMontageAt*/ StartAt);
-			const bool bSlotActive = AnimInstance->IsSlotActive(GrabReachSlot);
-
-			UE_LOG(LogAFLMovement, Log,
-				TEXT("AFL_GRAB: carry-pose play (anim=%s slot=%s hold=%d freezeAt=%.2fs) montage=%s slotActive=%d%s | registered slots=[%s]."),
-				*GetNameSafe(GrabReachAnim), *GrabReachSlot.ToString(), bGrabHoldPose ? 1 : 0, StartAt,
-				DynMontage ? TEXT("created") : TEXT("NULL"), bSlotActive ? 1 : 0,
-				DynMontage ? TEXT(" OK") : TEXT(" FAILED(bad-anim-or-slot)"),
-				SlotList.ToString());
 		}
-		else if (GrabMontage)
+
+		// Cycle 4d -- SUSTAINED carry pose: play at rate 0 starting at GrabHoldTime so the montage holds that
+		// single frame until EndAbility's StopSlotAnimation releases it. Rate 0 + the default
+		// BlendOutTriggerTime=-1 means no auto blend-out -- the pose holds indefinitely.
+		// (bGrabHoldPose=false restores the 4c transient one-shot reach: rate 1.0, plays through once.)
+		const float HoldRate = bGrabHoldPose ? 0.0f : 1.0f;
+		const float StartAt = bGrabHoldPose ? GrabHoldTime : 0.0f;
+
+		// PlaySlotAnimationAsDynamicMontage returns the created montage -- non-null is the authoritative
+		// success signal. IsSlotActive is informational corroboration (may lag a frame on the very first
+		// tick, so it is NOT part of the pass/fail verdict).
+		const UAnimMontage* DynMontage = AnimInstance->PlaySlotAnimationAsDynamicMontage(
+			GrabReachAnim, GrabReachSlot, GrabReachBlendTime, GrabReachBlendTime,
+			/*InPlayRate*/ HoldRate, /*LoopCount*/ 1, /*BlendOutTriggerTime*/ -1.0f,
+			/*InTimeToStartMontageAt*/ StartAt);
+		const bool bSlotActive = AnimInstance->IsSlotActive(GrabReachSlot);
+
+		UE_LOG(LogAFLMovement, Log,
+			TEXT("AFL_GRAB: carry-pose play (anim=%s slot=%s hold=%d freezeAt=%.2fs) montage=%s slotActive=%d%s | registered slots=[%s]."),
+			*GetNameSafe(GrabReachAnim), *GrabReachSlot.ToString(), bGrabHoldPose ? 1 : 0, StartAt,
+			DynMontage ? TEXT("created") : TEXT("NULL"), bSlotActive ? 1 : 0,
+			DynMontage ? TEXT(" OK") : TEXT(" FAILED(bad-anim-or-slot)"),
+			SlotList.ToString());
+	}
+	else if (GrabMontage)
+	{
+		// Last-resort fallback (only if GrabReachAnim unset): the legacy montage path. Note this plays on
+		// the montage's authored slot -- if that's DefaultSlot it will NOT show (the original bug).
+		if (UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+				this, NAME_None, GrabMontage, /*Rate*/ 1.0f, /*StartSection*/ NAME_None, /*bStopWhenAbilityEnds*/ true))
 		{
-			// Legacy fallback (only if GrabReachAnim unset): the montage path. Note this plays on the
-			// montage's authored slot -- if that's DefaultSlot it will NOT show (the original bug).
-			if (UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
-					this, NAME_None, GrabMontage, /*Rate*/ 1.0f, /*StartSection*/ NAME_None, /*bStopWhenAbilityEnds*/ true))
-			{
-				UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: montage start (fallback %s)."), *GetNameSafe(GrabMontage));
-				MontageTask->ReadyForActivation();
-			}
+			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: montage start (fallback %s)."), *GetNameSafe(GrabMontage));
+			MontageTask->ReadyForActivation();
 		}
 	}
 }
@@ -300,14 +427,28 @@ void UAFLGameplayAbility_Grab::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
-	// Cycle 4d -- release the sustained carry pose. The UpperBody slot holds the frozen reach-peak pose for the
-	// whole carry; stop it (blended) on EVERY exit path (input-release, cancel, forced-drop) so the upper body
-	// returns to the clip-driven pose. StopSlotAnimation targets the slot by name, so it cleans up the
-	// dynamic montage without us caching a handle, and is a safe no-op if nothing is playing on the slot.
+	// 4f: straggler reach callbacks (contact notify / montage delegates landing after the end) must no-op.
+	bExiting = true;
+
+	// 4f: fade the reach IK out on EVERY exit (covers mid-reach aborts where DoAttachAndCarry never ran;
+	// idempotent when it did -- the component's fade just continues to 0).
+	if (InteractionComponent.IsValid())
+	{
+		InteractionComponent->SetHandIKEnabled(false);
+	}
+
+	// Stop whichever hold is active, on EVERY exit path (toggle-drop, cancel, forced-drop). The per-class
+	// carry-pose montage (autoBlendOut=false) holds its pose until told to stop; the legacy frozen slot pose
+	// needs StopSlotAnimation. Both calls are safe no-ops when that path isn't playing.
 	if (UAnimInstance* AnimInstance = GetGrabAnimInstance(ActorInfo))
 	{
+		if (ActiveCarryPoseMontage)
+		{
+			AnimInstance->Montage_Stop(GrabReachBlendTime, ActiveCarryPoseMontage);
+		}
 		AnimInstance->StopSlotAnimation(GrabReachBlendTime, GrabReachSlot);
 	}
+	ActiveCarryPoseMontage = nullptr;
 
 	// (Cycle 4d grab-hold fix) the orientation snap is gone, so there is no controller-yaw flag to restore here.
 

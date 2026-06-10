@@ -3,6 +3,9 @@
 #pragma once
 
 #include "AbilitySystem/Abilities/LyraGameplayAbility.h"
+#include "Abilities/GameplayAbilityTypes.h"
+#include "GameplayTagContainer.h"
+#include "Interaction/AFLGrabbableComponent.h"   // FAFLGrabPolicy (by-value member)
 
 #include "AFLGameplayAbility_Grab.generated.h"
 
@@ -15,17 +18,19 @@ class UAFLInteractionComponent;
 /**
  * UAFLGameplayAbility_Grab  (Object-Interaction proof ability)
  *
- * The grab/hold/let-go ability. Granted via Lyra's FInteractionOption.InteractionAbilityToGrant when the
- * player looks at a UAFLGrabbableComponent-bearing actor (the Lyra-discovery half of the Hybrid). On
- * activate it reads the target from the interaction event, validates it, asks the hero's
- * UAFLInteractionComponent to attach+hold it (the AFL carry-substrate half), grants State.Carrying, and
- * plays the grab montage (held at end-pose for the hold). WaitInputRelease -> release: the interaction
- * component detaches + re-enables physics + applies the slight-ragdoll impulse.
+ * The grab/hold/let-go ability. On activate it resolves+validates the target, pre-resolves the per-class
+ * anim set (UAFLObjectClassAnimSet via the interaction component), then runs REACH-THEN-ATTACH (4f): the
+ * reach montage plays on the UpperBody slot while the hand-IK fades toward the object at rest; the attach
+ * (UAFLInteractionComponent::GrabActor) happens AT the montage's hand-contact notify
+ * (Event.Interaction.GrabAttach), with montage-end as a logged fallback and pre-contact interrupts
+ * aborting cleanly (no attach, no state). After the attach: State.Carrying GE + the per-class CarryPose
+ * hold (montage authored bEnableAutoBlendOut=false, held until stopped). A null/empty anim set falls back
+ * to the proven 4d instant-attach + frozen-reach-pose path.
  *
- * Channeled lifecycle mirrors the proven sibling UAFLGameplayAbility_Climb (the Pressed-IA recipe):
- * ActivationPolicy=WhileInputActive (single sustained activation per hold) + IA on InputTriggerPressed +
- * a WaitInputRelease task (nothing else calls CancelInputActivatedAbilities -- CheatManager only).
- * Abstract -- the GA_AFL_Grab BP child sets CarryingEffectClass + GrabMontage.
+ * TOGGLE lifecycle (4d): OnInputTriggered -- first press grabs+holds (stays active, input released),
+ * second press routes to InputPressed -> EndAbility (the drop / mid-reach abort). EndAbility is the one
+ * cleanup funnel: IK off, hold montage stopped, ReleaseActor, State.Carrying removed.
+ * Abstract -- the GA_AFL_Grab BP child sets CarryingEffectClass (+ legacy GrabMontage).
  */
 UCLASS(Abstract)
 class AFLMOVEMENT_API UAFLGameplayAbility_Grab : public ULyraGameplayAbility
@@ -106,6 +111,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Grab")
 	TObjectPtr<UAnimMontage> GrabMontage;
 
+	/** 4f reach-then-attach: the event the reach montage's contact notify fires (UAFLAnimNotify_GameplayEvent);
+	 *  the attach happens when it arrives. Resolved lazily from "Event.Interaction.GrabAttach" if unset. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Grab")
+	FGameplayTag GrabAttachEventTag;
+
+	/** Time (s) into the per-class CarryPose montage where the settled hold begins. The montage plays from
+	 *  here once and HOLDS its final pose (CarryPose montages author bEnableAutoBlendOut=false). The 0cm-lift
+	 *  clip settles into the carry at ~2.0s. Only used on the per-class path. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Grab", meta = (ClampMin = "0.0"))
+	float CarryPoseStartTime = 2.0f;
+
 	// Hand-IK (Cycle 4c, Control Rig path): the hero's UAFLInteractionComponent OWNS resolving CR_AFL_IRONICS
 	// and pushing HandIKTarget/HandIKAlpha into it every frame (its TickComponent, Path 1). This ability holds
 	// NO rig state -- it sets the component's HandIK fields when it wants the hand driven (a follow-on; not
@@ -129,9 +145,44 @@ private:
 	/** End helper that logs the reason once and ends the ability. */
 	void ExitGrab(const TCHAR* Reason, bool bCancelled);
 
+	// --- 4f reach-then-attach callbacks + the shared attach sequence ---------------------------------
+
+	/** The contact notify's event arrived: attach now (the reach found the object). */
+	UFUNCTION()
+	void OnGrabAttachEvent(FGameplayEventData Payload);
+
+	/** Reach montage finished without the contact event: logged fallback attach at montage end. */
+	UFUNCTION()
+	void OnReachMontageCompleted();
+
+	/** Reach montage interrupted/cancelled BEFORE contact: abort the grab (no attach, no state). The
+	 *  carry-pose montage interrupting an already-attached reach is expected and no-ops here. */
+	UFUNCTION()
+	void OnReachMontageInterrupted();
+
+	/** Attach + State.Carrying + carry pose -- shared by the notify path, the montage-end fallback, and
+	 *  the no-montage legacy instant path. Guarded so only the first arrival runs it. */
+	void DoAttachAndCarry();
+
+	/** Start the hold stance: per-class CarryPose montage when the anim set has one (settle-then-hold,
+	 *  autoBlendOut=false), else the proven 4d frozen-reach fallback on the UpperBody slot. */
+	void StartCarryPose();
+
 	/** The hero's interaction component (resolved on activate; performs the attach/detach). */
 	UPROPERTY()
 	TWeakObjectPtr<UAFLInteractionComponent> InteractionComponent;
+
+	/** Validated target + its policy, carried through the reach window to the deferred attach. */
+	UPROPERTY()
+	TWeakObjectPtr<AActor> PendingGrabTarget;
+	FAFLGrabPolicy PendingGrabPolicy;
+
+	/** The per-class hold montage we started (stopped in EndAbility); null on the legacy slot path. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> ActiveCarryPoseMontage;
+
+	/** True once the attach ran (notify or fallback); later arrivals no-op. */
+	bool bAttachDone = false;
 
 	bool bExiting = false;
 };

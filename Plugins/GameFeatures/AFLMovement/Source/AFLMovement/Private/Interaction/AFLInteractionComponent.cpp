@@ -54,9 +54,15 @@ void UAFLInteractionComponent::TickComponent(
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (bHandIKEnabled)
+	// Hand-IK drive (4c Path 1 + 4f alpha fade): the alpha FADES toward its goal via FInterpTo
+	// (DeltaSeconds-driven -- the skill rule: never hard-switch an IK weight 0/1). While enabled OR still
+	// fading out, resolve + push every frame; when a disable's fade reaches ~0, push the final 0 and release
+	// the cached rig. The console cheat writes HandIKAlpha directly (Set=1 / Clear=0), which simply lands
+	// the fade at its endpoint -- cheat behavior is unchanged.
+	const float AlphaGoal = bHandIKEnabled ? HandIKAlphaGoal : 0.0f;
+	if (bHandIKEnabled || HandIKAlpha > KINDA_SMALL_NUMBER)
 	{
-		// Active: resolve the rig (lazy, cached) and push target + alpha every frame.
+		HandIKAlpha = FMath::FInterpTo(HandIKAlpha, AlphaGoal, DeltaTime, HandIKInterpSpeed);
 		if (ResolveOwnerControlRig())
 		{
 			PushHandIKToControlRig();
@@ -65,14 +71,45 @@ void UAFLInteractionComponent::TickComponent(
 	}
 	else if (!bHandIKReleasedToRig)
 	{
-		// Just disabled: push one final alpha=0 so the rig releases the hand to the clip pose, then stop
-		// pushing every idle frame and drop the cached rig (a re-possess/mesh swap re-resolves next enable).
+		// Fade complete (or never started): push one final alpha=0 so the rig releases the hand to the clip
+		// pose, then stop pushing every idle frame and drop the cached rig (a re-possess/mesh swap re-resolves
+		// next enable).
 		if (UControlRig* Rig = CachedControlRig.Get())
 		{
 			Rig->SetControlValue<float>(HandIKAlphaControl, 0.0f, /*bNotify*/ false);
 		}
 		bHandIKReleasedToRig = true;
 		CachedControlRig.Reset();
+	}
+
+	// 4f carry diagnostic (1 Hz, Verbose): makes "attached" a readable log invariant instead of a visual
+	// guess. One line per second while carrying: the held actor's root/prim world positions, the prim's
+	// attach parent, and the pawn position. The stay-in-place bug class (engine detach-on-sim splitting the
+	// held actor's hierarchy) is instantly legible here -- primParent=None while carrying is the tell.
+	if (CarriedActor.IsValid())
+	{
+		CarryDiagAccum += DeltaTime;
+		if (CarryDiagAccum >= 1.0f)
+		{
+			CarryDiagAccum = 0.0f;
+			AActor* Held = CarriedActor.Get();
+			UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(Held->GetRootComponent());
+			if (!Prim)
+			{
+				Prim = Held->FindComponentByClass<UPrimitiveComponent>();
+			}
+			const USceneComponent* PrimParent = Prim ? Prim->GetAttachParent() : nullptr;
+			UE_LOG(LogAFLMovement, Verbose,
+				TEXT("AFL_CARRY-DIAG: held=%s primParent=%s rootLoc=%s primLoc=%s pawnLoc=%s"),
+				*Held->GetName(), *GetNameSafe(PrimParent),
+				*Held->GetActorLocation().ToCompactString(),
+				Prim ? *Prim->GetComponentLocation().ToCompactString() : TEXT("?"),
+				*GetOwner()->GetActorLocation().ToCompactString());
+		}
+	}
+	else
+	{
+		CarryDiagAccum = 0.0f;
 	}
 }
 
@@ -167,6 +204,29 @@ void UAFLInteractionComponent::HandleClimbTagChanged(const FGameplayTag Tag, int
 	}
 }
 
+UAFLObjectClassAnimSet* UAFLInteractionComponent::ResolveAndCacheAnimSet(const FAFLGrabPolicy& Policy)
+{
+	// 4e resolve, moved PRE-REACH in 4f: the grab ability calls this before anything plays, so the per-class
+	// reach/carry montages are known before the attach. Policy's set, else the designer fallback.
+	// LoadSynchronous is fine here (a small data asset; the montages it soft-references load when played).
+	const TSoftObjectPtr<UAFLObjectClassAnimSet>& SetRef =
+		Policy.ObjectAnimSet.IsNull() ? DefaultAnimSet : Policy.ObjectAnimSet;
+	ActiveAnimSet = SetRef.LoadSynchronous();
+	const FGameplayTag ResolvedClass = ActiveAnimSet ? ActiveAnimSet->ObjectClass : FGameplayTag();
+	UE_LOG(LogAFLMovement, Log,
+		TEXT("[AFLInteraction] Grab resolved ObjectClass=%s AnimSet=%s (pre-reach)"),
+		*ResolvedClass.ToString(), *GetNameSafe(ActiveAnimSet));
+#if !(UE_BUILD_SHIPPING)
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan,
+			FString::Printf(TEXT("GRAB  class=%s  set=%s"),
+				*ResolvedClass.ToString(), *GetNameSafe(ActiveAnimSet)));
+	}
+#endif
+	return ActiveAnimSet;
+}
+
 bool UAFLInteractionComponent::GrabActor(AActor* Target, const FAFLGrabPolicy& Policy)
 {
 	if (!Target || CarriedActor.IsValid())
@@ -193,7 +253,7 @@ bool UAFLInteractionComponent::GrabActor(AActor* Target, const FAFLGrabPolicy& P
 	const bool bSocketExists = HeroMesh->DoesSocketExist(Policy.HoldSocketName);
 	int32 PrimCount = 0;
 	Target->ForEachComponent<UPrimitiveComponent>(/*bIncludeFromChildActors*/ true,
-		[&PrimCount](UPrimitiveComponent* P)
+		[&PrimCount, Target](UPrimitiveComponent* P)
 		{
 			if (P->IsSimulatingPhysics())
 			{
@@ -203,6 +263,18 @@ bool UAFLInteractionComponent::GrabActor(AActor* Target, const FAFLGrabPolicy& P
 			P->SetSimulatePhysics(false);              // sim OFF first (collision still valid -> no warning)
 			P->SetCollisionEnabled(ECollisionEnabled::NoCollision); // then drop collision on the now-inert body
 			++PrimCount;
+
+			// 4f tripwire: a NON-ROOT primitive with no attach parent is detach-on-sim residue -- the engine
+			// permanently detaches a child prim from its parent the moment SetSimulatePhysics(true) hits it
+			// (BodyInstance.cpp: "we detach the component"), which was the 4f stay-in-place bug. Prim-as-root
+			// grabbables never trip this; any future child-prim authoring self-reports here instead of
+			// shipping a box that silently stays behind.
+			if (P != Target->GetRootComponent() && P->GetAttachParent() == nullptr)
+			{
+				UE_LOG(LogAFLMovement, Warning,
+					TEXT("AFL_GRAB: non-root primitive %s on %s has no attach parent (detach-on-sim residue) -- the visual will NOT follow the hand."),
+					*P->GetName(), *GetNameSafe(Target));
+			}
 		});
 
 	const bool bAttached = Target->AttachToComponent(
@@ -222,22 +294,9 @@ bool UAFLInteractionComponent::GrabActor(AActor* Target, const FAFLGrabPolicy& P
 	CarriedActor = Target;
 	ActivePolicy = Policy;
 
-	// 4e: resolve per-class anim set (policy -> fallback DefaultAnimSet), cache for 4f.
-	const TSoftObjectPtr<UAFLObjectClassAnimSet>& SetRef =
-		Policy.ObjectAnimSet.IsNull() ? DefaultAnimSet : Policy.ObjectAnimSet;
-	ActiveAnimSet = SetRef.LoadSynchronous();
-	const FGameplayTag ResolvedClass = ActiveAnimSet ? ActiveAnimSet->ObjectClass : FGameplayTag();
-	UE_LOG(LogAFLMovement, Log,
-		TEXT("[AFLInteraction] Grab resolved ObjectClass=%s AnimSet=%s (target=%s)"),
-		*ResolvedClass.ToString(), *GetNameSafe(ActiveAnimSet), *GetNameSafe(Target));
-#if !(UE_BUILD_SHIPPING)
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan,
-			FString::Printf(TEXT("GRAB  class=%s  set=%s"),
-				*ResolvedClass.ToString(), *GetNameSafe(ActiveAnimSet)));
-	}
-#endif
+	// 4f: the per-class anim set is resolved+cached BEFORE the reach by ResolveAndCacheAnimSet (the ability
+	// calls it pre-reach so the montages are known before this attach runs). GrabActor rides that cache --
+	// no resolve here. ReleaseActor clears it.
 
 	if (UAFLGrabbableComponent* Grab = Target->FindComponentByClass<UAFLGrabbableComponent>())
 	{
