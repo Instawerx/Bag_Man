@@ -50,6 +50,11 @@ struct FAFLGrabPolicy
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab")
 	FVector ReleaseImpulseDirection = FVector(1.0f, 0.0f, 0.35f);
 
+	/** Impulse magnitude for an AIMED throw release (throw cycle; EAFLReleaseMode::Throw). Mass-scaled like
+	 *  the drop impulse; the direction comes from the thrower's aim, not this policy. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab", meta = (ClampMin = "0.0"))
+	float ThrowImpulseMagnitude = 900.0f;
+
 	/** If true, physics is re-enabled on the held actor at release (the default; attach-only props set false). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab")
 	bool bEnablePhysicsOnRelease = true;
@@ -122,6 +127,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
 	FVector ReleaseImpulseDirection = FVector(1.0f, 0.0f, 0.35f);
+
+	/** Aimed-throw impulse magnitude (throw cycle). Forwarded into the policy like its siblings. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy", meta = (ClampMin = "0.0"))
+	float ThrowImpulseMagnitude = 900.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
 	bool bEnablePhysicsOnRelease = true;

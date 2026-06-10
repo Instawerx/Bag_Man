@@ -12,6 +12,15 @@ class UAbilitySystemComponent;
 class UAFLObjectClassAnimSet;
 class UControlRig;
 
+/** How a carried actor leaves the hand. Drop = the modest policy-shaped toss (toggle drop, climb forced
+ *  drop, teardown). Throw = an aimed launch along a caller-supplied FULL-3D direction (throw cycle). */
+UENUM(BlueprintType)
+enum class EAFLReleaseMode : uint8
+{
+	Drop,
+	Throw,
+};
+
 /**
  * UAFLInteractionComponent  (Object-Interaction substrate, hero side)
  *
@@ -42,9 +51,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Interaction")
 	bool GrabActor(AActor* Target, const FAFLGrabPolicy& Policy);
 
-	/** Detach the held actor, re-enable physics (per policy), apply the slight-ragdoll release impulse. */
+	/** Detach the held actor, re-enable physics (per policy), seed it with the carrier's velocity (skill
+	 *  momentum hand-off), then apply the release impulse. Drop = the policy's actor-forward+up shape;
+	 *  Throw = the caller's FULL-3D aim direction at the policy's ThrowImpulseMagnitude. Defaulted params
+	 *  keep every legacy caller (toggle drop, climb forced drop, teardown) compiling as Drop. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Interaction")
-	void ReleaseActor();
+	void ReleaseActor(EAFLReleaseMode Mode = EAFLReleaseMode::Drop, const FVector& ThrowDirection = FVector::ZeroVector);
 
 	UFUNCTION(BlueprintPure, Category = "AFL|Interaction")
 	bool IsCarrying() const { return CarriedActor.IsValid(); }

@@ -312,7 +312,7 @@ bool UAFLInteractionComponent::GrabActor(AActor* Target, const FAFLGrabPolicy& P
 	return true;
 }
 
-void UAFLInteractionComponent::ReleaseActor()
+void UAFLInteractionComponent::ReleaseActor(EAFLReleaseMode Mode, const FVector& ThrowDirection)
 {
 	AActor* Target = CarriedActor.Get();
 	if (!Target)
@@ -349,21 +349,47 @@ void UAFLInteractionComponent::ReleaseActor()
 	}
 	if (Prim && ActivePolicy.bEnablePhysicsOnRelease)
 	{
-		// ORDER MATTERS: physics must be re-enabled BEFORE the impulse or AddImpulse no-ops on a non-simulating body.
+		// ORDER MATTERS: physics must be re-enabled BEFORE any velocity/impulse call or they no-op on a
+		// non-simulating body.
 		Prim->SetSimulatePhysics(true);
 
-		// "Slight ragdoll": a modest impulse along the hero's view-forward+up, scaled by mass so heavy and light
-		// objects feel consistent. Not a gravity-gun launch -- the object falls/tumbles and settles.
 		const AActor* Owner = GetOwner();
-		const FVector Fwd = Owner ? Owner->GetActorForwardVector() : FVector::ForwardVector;
-		const FVector Up = FVector::UpVector;
-		FVector Dir = (Fwd * ActivePolicy.ReleaseImpulseDirection.X) + (Up * ActivePolicy.ReleaseImpulseDirection.Z);
-		Dir = Dir.GetSafeNormal();
-		const float Mass = Prim->GetMass();
-		Prim->AddImpulse(Dir * ActivePolicy.ReleaseImpulseMagnitude * Mass);
 
-		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: detached, impulse applied (magnitude=%.0f, mass=%.1f)."),
-			ActivePolicy.ReleaseImpulseMagnitude, Mass);
+		// Skill momentum hand-off (BOTH modes): seed the freed body with the carrier's CURRENT velocity
+		// before the impulse, so a moving thrower's momentum carries into the object (a sprint-throw
+		// visibly outranges a standing throw). AddImpulse then stacks the launch on top. The hero mesh is
+		// kinematic, so the pawn velocity IS the practical hand-velocity source.
+		Prim->SetPhysicsLinearVelocity(Owner ? Owner->GetVelocity() : FVector::ZeroVector);
+
+		// Direction + magnitude by mode. Drop = the policy's actor-forward+up "slight ragdoll" shape (modest,
+		// NOT a gravity-gun launch). Throw = the caller's aim direction, FULL 3D -- pitch included, never
+		// flattened -- at the policy's throw power. Both are mass-scaled so heavy and light feel consistent.
+		const FVector Fwd = Owner ? Owner->GetActorForwardVector() : FVector::ForwardVector;
+		const FVector DropDir =
+			((Fwd * ActivePolicy.ReleaseImpulseDirection.X) + (FVector::UpVector * ActivePolicy.ReleaseImpulseDirection.Z)).GetSafeNormal();
+
+		FVector Dir = DropDir;
+		float Magnitude = ActivePolicy.ReleaseImpulseMagnitude;
+		if (Mode == EAFLReleaseMode::Throw)
+		{
+			Magnitude = ActivePolicy.ThrowImpulseMagnitude;
+			const FVector AimDir = ThrowDirection.GetSafeNormal();
+			if (AimDir.IsNearlyZero())
+			{
+				UE_LOG(LogAFLMovement, Warning,
+					TEXT("AFL_GRAB: Throw release with a zero direction -- falling back to the Drop direction."));
+			}
+			else
+			{
+				Dir = AimDir;
+			}
+		}
+
+		const float Mass = Prim->GetMass();
+		Prim->AddImpulse(Dir * Magnitude * Mass);
+
+		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: detached, %s impulse applied (magnitude=%.0f, mass=%.1f, dir=%s)."),
+			Mode == EAFLReleaseMode::Throw ? TEXT("THROW") : TEXT("drop"), Magnitude, Mass, *Dir.ToCompactString());
 	}
 	else
 	{

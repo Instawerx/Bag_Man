@@ -255,9 +255,14 @@ void UAFLGameplayAbility_Grab::DoAttachAndCarry()
 	}
 	bAttachDone = true;
 
-	// The reach is over either way: fade the reach IK back out (the hand follows the carry pose from here).
+	// The reach is over either way. HARD-CUT the reach IK at the attach frame (named debt closed): the fade
+	// kept pulling the arm toward the box's PRE-GRAB floor spot for ~0.2s while the carry pose pulled it to
+	// the waist -- the attach-frame arm wrench, scaling with object size. A cut here is fully masked by the
+	// box snapping into the hand this same frame. (EndAbility's mid-reach abort deliberately KEEPS the fade
+	// -- an abort has no box-snap to mask a cut.)
 	if (InteractionComponent.IsValid())
 	{
+		InteractionComponent->HandIKAlpha = 0.0f; // hard cut -- next tick releases the rig immediately
 		InteractionComponent->SetHandIKEnabled(false);
 	}
 
@@ -431,7 +436,8 @@ void UAFLGameplayAbility_Grab::EndAbility(
 	bExiting = true;
 
 	// 4f: fade the reach IK out on EVERY exit (covers mid-reach aborts where DoAttachAndCarry never ran;
-	// idempotent when it did -- the component's fade just continues to 0).
+	// idempotent when it did -- alpha is already cut to 0 there). This path KEEPS the smooth fade
+	// deliberately: a mid-reach abort has no box-snap to mask a hard cut (the cut lives at the attach frame).
 	if (InteractionComponent.IsValid())
 	{
 		InteractionComponent->SetHandIKEnabled(false);
