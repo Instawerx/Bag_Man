@@ -8,6 +8,7 @@
 #include "AFLGrabbableComponent.generated.h"
 
 class UGameplayAbility;
+class UAFLObjectClassAnimSet;
 
 /** Per-object carry weight -- placeholder hook for the future carry-state penalty cycle (Decision H). */
 UENUM(BlueprintType)
@@ -56,6 +57,10 @@ struct FAFLGrabPolicy
 	/** Future carry-penalty cycle reads this (no penalty in the proof commit per Decision H). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab")
 	EAFLCarryWeight CarryWeight = EAFLCarryWeight::None;
+
+	/** 4e: per-class anim dispatch. Shared anim set for this object's class (sibling to CarryWeight). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab")
+	TSoftObjectPtr<UAFLObjectClassAnimSet> ObjectAnimSet;
 };
 
 /**
@@ -123,6 +128,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
 	EAFLCarryWeight CarryWeight = EAFLCarryWeight::None;
+
+	/** 4e: shared per-class anim set this object dispatches (N heads -> one OCAS_Head). Forwarded into the policy. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
+	TSoftObjectPtr<UAFLObjectClassAnimSet> ObjectAnimSet;
 
 private:
 	bool bHeld = false;

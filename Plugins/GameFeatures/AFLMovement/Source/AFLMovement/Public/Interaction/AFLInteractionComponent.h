@@ -9,6 +9,7 @@
 #include "AFLInteractionComponent.generated.h"
 
 class UAbilitySystemComponent;
+class UAFLObjectClassAnimSet;
 class UControlRig;
 
 /**
@@ -50,6 +51,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "AFL|Interaction")
 	AActor* GetCarriedActor() const { return CarriedActor.Get(); }
+
+	/** 4e: designer fallback when a grabbable's policy has no ObjectAnimSet. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction")
+	TSoftObjectPtr<UAFLObjectClassAnimSet> DefaultAnimSet;
 
 	// --- Hand-IK driver (Cycle 4c, Control Rig path) -------------------------------------------------
 	// Runtime target for the right-hand Basic IK in the hero's Control Rig (CR_AFL_IRONICS, a fork of
@@ -115,6 +120,10 @@ private:
 	TWeakObjectPtr<AActor> CarriedActor;
 
 	FAFLGrabPolicy ActivePolicy;
+
+	/** 4e: resolved set for the carried actor; cached at grab-begin, cleared on release. Consumed in 4f. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAFLObjectClassAnimSet> ActiveAnimSet = nullptr;
 
 	/** Weapon actors hidden on grab (the holster); restored 1:1 on release. */
 	UPROPERTY()

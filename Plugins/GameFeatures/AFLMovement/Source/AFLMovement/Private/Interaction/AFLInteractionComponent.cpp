@@ -13,6 +13,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "ControlRig.h"
+#include "Engine/Engine.h"
 #include "Engine/EngineTypes.h"
 #include "Equipment/LyraEquipmentInstance.h"
 #include "Equipment/LyraEquipmentManagerComponent.h"
@@ -20,6 +21,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
 #include "Interaction/AFLGrabbableComponent.h"
+#include "Interaction/AFLObjectClassAnimSet.h"
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLInteractionComponent)
@@ -220,6 +222,23 @@ bool UAFLInteractionComponent::GrabActor(AActor* Target, const FAFLGrabPolicy& P
 	CarriedActor = Target;
 	ActivePolicy = Policy;
 
+	// 4e: resolve per-class anim set (policy -> fallback DefaultAnimSet), cache for 4f.
+	const TSoftObjectPtr<UAFLObjectClassAnimSet>& SetRef =
+		Policy.ObjectAnimSet.IsNull() ? DefaultAnimSet : Policy.ObjectAnimSet;
+	ActiveAnimSet = SetRef.LoadSynchronous();
+	const FGameplayTag ResolvedClass = ActiveAnimSet ? ActiveAnimSet->ObjectClass : FGameplayTag();
+	UE_LOG(LogAFLMovement, Log,
+		TEXT("[AFLInteraction] Grab resolved ObjectClass=%s AnimSet=%s (target=%s)"),
+		*ResolvedClass.ToString(), *GetNameSafe(ActiveAnimSet), *GetNameSafe(Target));
+#if !(UE_BUILD_SHIPPING)
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan,
+			FString::Printf(TEXT("GRAB  class=%s  set=%s"),
+				*ResolvedClass.ToString(), *GetNameSafe(ActiveAnimSet)));
+	}
+#endif
+
 	if (UAFLGrabbableComponent* Grab = Target->FindComponentByClass<UAFLGrabbableComponent>())
 	{
 		Grab->SetHeld(true);
@@ -296,6 +315,7 @@ void UAFLInteractionComponent::ReleaseActor()
 	}
 
 	CarriedActor.Reset();
+	ActiveAnimSet = nullptr; // 4e: drop the per-class anim-set cache with the carried actor.
 }
 
 void UAFLInteractionComponent::HolsterEquippedWeapon()
