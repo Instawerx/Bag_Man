@@ -5,7 +5,6 @@
 #include "AFLMovement.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
-#include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequenceBase.h"
@@ -36,9 +35,13 @@ UAFLGameplayAbility_Grab::UAFLGameplayAbility_Grab(const FObjectInitializer& Obj
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
 
-	// Channeled-hold lifecycle, same recipe proven on climb (the Pressed-IA variant): WhileInputActive owns
-	// the single sustained activation; the IA keeps InputTriggerPressed; WaitInputRelease ends it on release.
-	ActivationPolicy = ELyraAbilityActivationPolicy::WhileInputActive;
+	// TOGGLE lifecycle (Cycle 4d grab-hold fix): OnInputTriggered, NOT WhileInputActive. WhileInputActive is
+	// auto-canceled by the Lyra ASC the instant the input TAG releases -- and IA_Ability_Grab's malformed
+	// (null) trigger collapses press->release into one frame, so the ASC killed the grab the same frame it
+	// activated (the "tap, shove, spin" symptom -- attach+detach+impulse all in one frame). OnInputTriggered
+	// abilities live until WE end them. Grab now toggles: first press grabs+holds (stays active with input
+	// released), second press drops (InputPressed -> EndAbility). Immune to the null-trigger (BM-DEBT-INPUT-001).
+	ActivationPolicy = ELyraAbilityActivationPolicy::OnInputTriggered;
 
 	ActivationBlockedTags.AddTag(TAG_Grab_State_Match_Warmup);
 	ActivationBlockedTags.AddTag(TAG_Grab_State_Match_Ended);
@@ -117,7 +120,6 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 	const FGameplayEventData* TriggerEventData)
 {
 	bExiting = false;
-	bOrientationApplied = false;
 
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
 	{
@@ -139,23 +141,10 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 	}
 	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: validated (target=%s)."), *GetNameSafe(Target));
 
-	// 1b. ORIENTATION FIX (same root cause as climb): the pickup anim reaches forward (+X character-space), but
-	// this hero's yaw is controller-driven, so the reach looks sideways/reversed unless the body faces the
-	// target. Turn to face the grabbed actor (yaw only) and take yaw control off the controller for the grab;
-	// restored in EndAbility.
-	if (ACharacter* Character = Cast<ACharacter>(Avatar))
-	{
-		FVector ToTarget = Target->GetActorLocation() - Character->GetActorLocation();
-		ToTarget.Z = 0.0f;
-		if (ToTarget.Normalize())
-		{
-			bCachedUseControllerYaw = Character->bUseControllerRotationYaw;
-			Character->bUseControllerRotationYaw = false;
-			Character->SetActorRotation(ToTarget.Rotation(), ETeleportType::TeleportPhysics);
-			bOrientationApplied = true;
-			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: orienting to target (faceYaw=%.1f)."), ToTarget.Rotation().Yaw);
-		}
-	}
+	// 1b. (Cycle 4d grab-hold fix) -- the orientation snap is GONE. It did SetActorRotation(TeleportPhysics) +
+	// bUseControllerRotationYaw=false to "face the target," which teleport-snapped the whole body to a different
+	// yaw on every grab (the quarter-spin / "backwards-inverted" symptom). The box attaches to hand_r regardless
+	// of body facing, so the snap bought nothing. No orientation change on grab now.
 
 	// 2. The hero's interaction component performs the attach/hold.
 	InteractionComponent = Avatar ? Avatar->FindComponentByClass<UAFLInteractionComponent>() : nullptr;
@@ -183,18 +172,19 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 		}
 	}
 
-	// 4. Input-release listener -> release. Pressed-IA recipe (bTestAlreadyReleased=FALSE) per the climb lesson.
-	if (UAbilityTask_WaitInputRelease* ReleaseTask = UAbilityTask_WaitInputRelease::WaitInputRelease(this, /*bTestAlreadyReleased*/ false))
-	{
-		ReleaseTask->OnRelease.AddDynamic(this, &UAFLGameplayAbility_Grab::OnInputReleased);
-		ReleaseTask->ReadyForActivation();
-	}
+	// 4. (Cycle 4d grab-hold fix) TOGGLE -- no WaitInputRelease. The grab is NOT input-release-driven anymore;
+	// it stays active (carrying) after ActivateAbility returns, with the input released. A SECOND press routes
+	// to InputPressed() -> EndAbility (the drop). This is what makes "hold the box with G released" work.
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: carrying -- press again to drop."));
 
 	// 4b. Hand-IK (Cycle 4c, Control Rig path): the hero's UAFLInteractionComponent OWNS the per-frame push of
 	//     HandIKTarget/HandIKAlpha into CR_AFL_IRONICS (Path 1 -- its TickComponent resolves the rig and drives
-	//     it whenever bHandIKEnabled, so the IK works standalone via afl.SetHandIKTarget, not only during a
-	//     grab). The ability deliberately does NOT set the IK target here yet: wiring grab -> hand-reaches-the-box
-	//     is a follow-on once the IK mechanism is PIE-proven in isolation. No rig code lives in the ability.
+	//     it whenever bHandIKEnabled, so the IK works standalone via afl.HandIK.Set, not only during a grab).
+	//     Cycle 4d / decision W1: the grab DELIBERATELY does NOT enable the hand-IK. The box snaps to hand_r at
+	//     attach, so an IK target "on the box" is geometrically where the hand already is -- driving it would
+	//     fight the snap for no visible reach. Wiring grab -> hand-reaches-the-box-at-rest needs a reach-then-
+	//     attach flow and belongs to the 4f grab-flow restructure. The console afl.HandIK.* path stays a fully
+	//     independent capability (it writes the component's fields directly). No rig code lives in the ability.
 
 	// 5. Play the grab reach on the UPPER-BODY slot (Lyra-canonical layered-upper-body: arms reach,
 	//    legs keep following locomotion via the AnimGraph's Layered Blend Per Bone). The slot binding
@@ -227,23 +217,29 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 				}
 			}
 
+			// Cycle 4d -- SUSTAINED carry pose. The grab-composition lane proved the UpperBody slot reaches the
+			// pose at full weight (global=local=1.000) layered over locomotion (legs free), but the clip is a
+			// reach-and-RETURN gesture (~2s) so the carry stance relaxed after the reach. The 4d fix FREEZES the
+			// clip at its reach-peak frame for the whole carry: play at rate 0 starting at GrabHoldTime, so the
+			// montage holds that single pose until EndAbility's StopSlotAnimation releases it. Rate 0 + the
+			// default BlendOutTriggerTime=-1 means no auto blend-out -- the pose holds indefinitely.
+			// (bGrabHoldPose=false restores the 4c transient one-shot reach: rate 1.0, plays through once.)
+			const float HoldRate = bGrabHoldPose ? 0.0f : 1.0f;
+			const float StartAt = bGrabHoldPose ? GrabHoldTime : 0.0f;
+
 			// PlaySlotAnimationAsDynamicMontage returns the created montage -- non-null is the authoritative
 			// success signal (it creates the transient montage and starts it on the slot). It returns null
 			// only on a bad asset/slot. IsSlotActive is informational corroboration (may lag a frame on the
 			// very first tick, so it is NOT part of the pass/fail verdict).
 			const UAnimMontage* DynMontage = AnimInstance->PlaySlotAnimationAsDynamicMontage(
 				GrabReachAnim, GrabReachSlot, GrabReachBlendTime, GrabReachBlendTime,
-				/*InPlayRate*/ 1.0f, /*LoopCount*/ 1);
+				/*InPlayRate*/ HoldRate, /*LoopCount*/ 1, /*BlendOutTriggerTime*/ -1.0f,
+				/*InTimeToStartMontageAt*/ StartAt);
 			const bool bSlotActive = AnimInstance->IsSlotActive(GrabReachSlot);
 
-			// PROVEN (grab-composition lane): the UpperBody slot reaches the final pose at full weight
-			// (global=local=1.000 over the hold, verified via slot-weight diagnostic). The reach layers
-			// over locomotion as intended -- legs stay free, no root override (unlike FullBody, which
-			// spun the body). The remaining grab-HOLD polish (a sustained carry pose, vs this clip's
-			// reach-and-return-to-idle gesture) is a CONTENT/anim swap deferred to the 4f grab restructure.
 			UE_LOG(LogAFLMovement, Log,
-				TEXT("AFL_GRAB: reach play (anim=%s slot=%s) montage=%s slotActive=%d%s | registered slots=[%s]."),
-				*GetNameSafe(GrabReachAnim), *GrabReachSlot.ToString(),
+				TEXT("AFL_GRAB: carry-pose play (anim=%s slot=%s hold=%d freezeAt=%.2fs) montage=%s slotActive=%d%s | registered slots=[%s]."),
+				*GetNameSafe(GrabReachAnim), *GrabReachSlot.ToString(), bGrabHoldPose ? 1 : 0, StartAt,
 				DynMontage ? TEXT("created") : TEXT("NULL"), bSlotActive ? 1 : 0,
 				DynMontage ? TEXT(" OK") : TEXT(" FAILED(bad-anim-or-slot)"),
 				SlotList.ToString());
@@ -270,9 +266,17 @@ UAnimInstance* UAFLGameplayAbility_Grab::GetGrabAnimInstance(const FGameplayAbil
 	return Mesh ? Mesh->GetAnimInstance() : nullptr;
 }
 
-void UAFLGameplayAbility_Grab::OnInputReleased(float TimeHeld)
+void UAFLGameplayAbility_Grab::InputPressed(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo)
 {
-	ExitGrab(TEXT("input-release"), /*bCancelled*/ true);
+	// (Cycle 4d grab-hold fix) TOGGLE drop. While the grab is active (carrying), GAS routes a re-press of the
+	// grab input here instead of re-activating the ability. So the SECOND press drops: end the active instance,
+	// not cancelled (a clean, intentional drop). EndAbility runs the single cleanup path (stop carry pose,
+	// detach + drop impulse, clear State.Carrying).
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: second press -> drop."));
+	EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility*/ true, /*bWasCancelled*/ false);
 }
 
 void UAFLGameplayAbility_Grab::ExitGrab(const TCHAR* Reason, bool bCancelled)
@@ -296,15 +300,16 @@ void UAFLGameplayAbility_Grab::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
-	// Restore controller-yaw control so the player can aim freely again after the grab (orientation fix).
-	if (bOrientationApplied)
+	// Cycle 4d -- release the sustained carry pose. The UpperBody slot holds the frozen reach-peak pose for the
+	// whole carry; stop it (blended) on EVERY exit path (input-release, cancel, forced-drop) so the upper body
+	// returns to the clip-driven pose. StopSlotAnimation targets the slot by name, so it cleans up the
+	// dynamic montage without us caching a handle, and is a safe no-op if nothing is playing on the slot.
+	if (UAnimInstance* AnimInstance = GetGrabAnimInstance(ActorInfo))
 	{
-		if (ACharacter* Character = ActorInfo ? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
-		{
-			Character->bUseControllerRotationYaw = bCachedUseControllerYaw;
-		}
-		bOrientationApplied = false;
+		AnimInstance->StopSlotAnimation(GrabReachBlendTime, GrabReachSlot);
 	}
+
+	// (Cycle 4d grab-hold fix) the orientation snap is gone, so there is no controller-yaw flag to restore here.
 
 	// Release the held actor on EVERY exit path (input-release, cancel, forced). If the interaction component
 	// already released it (e.g. climb forced a drop), ReleaseActor() is a safe no-op.

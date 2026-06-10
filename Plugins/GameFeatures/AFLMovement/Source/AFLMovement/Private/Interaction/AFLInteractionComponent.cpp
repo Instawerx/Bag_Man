@@ -179,26 +179,34 @@ bool UAFLInteractionComponent::GrabActor(AActor* Target, const FAFLGrabPolicy& P
 		return false;
 	}
 
-	// HYBRID hold: snap the actor to the hand socket and turn OFF its physics so it rides rigidly with the
-	// hand (predictable, no clip-through-wall weirdness during carry). Release re-enables physics + impulse.
-	// IMPORTANT: find the PRIMITIVE component, do NOT assume it is the root -- a grabbable's root may be a bare
-	// SceneComponent with the mesh as a child (the test actor was built this way), in which case a root-cast
-	// returns null and physics is NEVER disabled, so the still-simulating mesh flies around ignoring the attach.
-	UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(Target->GetRootComponent());
-	if (!Prim)
-	{
-		Prim = Target->FindComponentByClass<UPrimitiveComponent>();
-	}
+	// HYBRID hold: turn the actor inert, then snap it to the hand socket so it rides rigidly (kinematic
+	// parent-follow). Release re-enables physics + impulse.
+	//
+	// ORDER IS CRITICAL (this is what the "Invalid Simulate Options: set to simulate physics but Collision
+	// Enabled is incompatible" PIE warning was telling us -- and the cause of the jitter/push-away/roll): a body
+	// that is STILL SIMULATING when you set NoCollision enters a broken half-state. So per primitive, in THIS
+	// order: zero velocity -> STOP SIMULATING (while collision is still valid) -> THEN drop collision. Now there
+	// is never a "simulating + no-collision" frame. Done on EVERY primitive (the box's mesh is a child of a bare
+	// SceneComponent root). Then attach with weld off so the socket owns the transform and the inert body follows.
 	const bool bSocketExists = HeroMesh->DoesSocketExist(Policy.HoldSocketName);
-	if (Prim)
-	{
-		// Disable collision too -- a still-colliding body can be shoved by the hero capsule or wall and won't
-		// ride cleanly. Physics OFF alone isn't enough if collision keeps resolving against the player.
-		Prim->SetSimulatePhysics(false);
-		Prim->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	}
+	int32 PrimCount = 0;
+	Target->ForEachComponent<UPrimitiveComponent>(/*bIncludeFromChildActors*/ true,
+		[&PrimCount](UPrimitiveComponent* P)
+		{
+			if (P->IsSimulatingPhysics())
+			{
+				P->SetPhysicsLinearVelocity(FVector::ZeroVector);
+				P->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+			}
+			P->SetSimulatePhysics(false);              // sim OFF first (collision still valid -> no warning)
+			P->SetCollisionEnabled(ECollisionEnabled::NoCollision); // then drop collision on the now-inert body
+			++PrimCount;
+		});
+
 	const bool bAttached = Target->AttachToComponent(
-		HeroMesh, FAttachmentTransformRules::SnapToTargetIncludingScale, Policy.HoldSocketName);
+		HeroMesh,
+		FAttachmentTransformRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, /*bWeldSimulatedBodies*/ false),
+		Policy.HoldSocketName);
 
 	// HOLD OFFSET: SnapToTarget zeroes the relative transform, so the actor's origin lands EXACTLY on the
 	// hand_r bone -- which is inside the wrist/forearm mesh, so the object is buried and invisible (the
@@ -220,9 +228,9 @@ bool UAFLInteractionComponent::GrabActor(AActor* Target, const FAFLGrabPolicy& P
 	// Holster the rifle for the carry (the rifle's upper-body anim layer would fight the grab reach + hold).
 	HolsterEquippedWeapon();
 
-	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: attached %s at socket=%s (offset=%s, socketExists=%d attachOk=%d)."),
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: attached %s at socket=%s (offset=%s, socketExists=%d attachOk=%d, physOff=%d prims)."),
 		*GetNameSafe(Target), *Policy.HoldSocketName.ToString(), *Policy.HoldOffset.ToCompactString(),
-		bSocketExists ? 1 : 0, bAttached ? 1 : 0);
+		bSocketExists ? 1 : 0, bAttached ? 1 : 0, PrimCount);
 	return true;
 }
 
@@ -246,17 +254,20 @@ void UAFLInteractionComponent::ReleaseActor()
 	// Detach KEEPING the world transform (it stays where the hand left it, not snapped back to origin).
 	Target->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 
-	// Find the primitive (not assuming root) -- same robustness as GrabActor.
+	// Restore collision on EVERY primitive we disabled on grab (symmetric with GrabActor's all-primitives
+	// disable), so the dropped object lands and is re-grabbable.
+	Target->ForEachComponent<UPrimitiveComponent>(/*bIncludeFromChildActors*/ true,
+		[](UPrimitiveComponent* P)
+		{
+			P->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		});
+
+	// The body that actually simulates (the mesh): the box root is a bare SceneComponent, so find the first
+	// real primitive for the re-simulate + impulse. (Re-enabling physics on the bare root would no-op anyway.)
 	UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(Target->GetRootComponent());
 	if (!Prim)
 	{
 		Prim = Target->FindComponentByClass<UPrimitiveComponent>();
-	}
-	if (Prim)
-	{
-		// Restore collision (we disabled it on grab so the held body wouldn't fight the capsule). Back to the
-		// query+physics default so the dropped object lands and is re-grabbable.
-		Prim->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	}
 	if (Prim && ActivePolicy.bEnablePhysicsOnRelease)
 	{

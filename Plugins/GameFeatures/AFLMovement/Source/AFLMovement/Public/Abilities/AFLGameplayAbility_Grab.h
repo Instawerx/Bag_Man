@@ -49,6 +49,13 @@ protected:
 		bool bReplicateEndAbility,
 		bool bWasCancelled) override;
 
+	/** (Cycle 4d grab-hold fix) TOGGLE drop: GAS routes a re-press of the input on an ALREADY-ACTIVE ability
+	 *  here (not a re-activate), so the second press ends the carry. */
+	virtual void InputPressed(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo) override;
+
 	/** Duration GE applied on grab -- grants State.Carrying (mirror GE_AFL_Climb_Active's shape). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Grab")
 	TSubclassOf<UGameplayEffect> CarryingEffectClass;
@@ -76,6 +83,25 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Grab")
 	float GrabReachBlendTime = 0.15f;
 
+	/**
+	 * Cycle 4d -- SUSTAINED carry pose. When true, the reach clip is FROZEN at its reach-peak frame for the
+	 * whole carry (played at rate 0 starting at GrabHoldTime), so the upper body holds a carry stance instead
+	 * of the 4c transient reach-and-return gesture that relaxed after ~2s. The legs keep locomotion (UpperBody
+	 * slot composition, proven in the grab-composition lane). EndAbility calls StopSlotAnimation to release it.
+	 * Set false to restore the 4c transient one-shot reach (rate 1.0, plays through once).
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Grab")
+	bool bGrabHoldPose = true;
+
+	/**
+	 * The time (s) into GrabReachAnim to FREEZE on for the held carry pose (the reach-peak frame). The
+	 * retargeted A_ItemPickup clip is 2.0s / 60f and reaches its peak mid-clip; 0.9s (~frame 27) lands near
+	 * the top of the reach. Tunable here without a rebuild if the visual peak is elsewhere. Only used when
+	 * bGrabHoldPose is true.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Grab", meta = (ClampMin = "0.0", EditCondition = "bGrabHoldPose"))
+	float GrabHoldTime = 0.9f;
+
 	/** Fallback montage path (legacy). Only used if GrabReachAnim is unset. Plays via PlayMontageAndWait. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Grab")
 	TObjectPtr<UAnimMontage> GrabMontage;
@@ -94,9 +120,6 @@ protected:
 	float GrabTraceRadius = 35.0f;
 
 private:
-	UFUNCTION()
-	void OnInputReleased(float TimeHeld);
-
 	/** Resolve the grab target from the interaction event data (Lyra passes it as Target/OptionalObject). */
 	AActor* ResolveTargetActor(const FGameplayEventData* TriggerEventData) const;
 
@@ -109,10 +132,6 @@ private:
 	/** The hero's interaction component (resolved on activate; performs the attach/detach). */
 	UPROPERTY()
 	TWeakObjectPtr<UAFLInteractionComponent> InteractionComponent;
-
-	/** Orientation fix: cache the hero's controller-yaw flag so EndAbility restores free aim after the grab. */
-	bool bOrientationApplied = false;
-	bool bCachedUseControllerYaw = true;
 
 	bool bExiting = false;
 };
