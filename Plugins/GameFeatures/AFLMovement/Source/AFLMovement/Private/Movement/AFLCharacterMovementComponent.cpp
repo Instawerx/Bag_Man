@@ -16,7 +16,13 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Movement_Dashing, "State.Movement.Dashin
 UAFLCharacterMovementComponent::UAFLCharacterMovementComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	// DO NOT disable the component tick. UCharacterMovementComponent::TickComponent is what applies
+	// gravity, falling, walking, and ground sweeps every frame -- the base ctor enables it and it is
+	// LOAD-BEARING. An earlier copy-paste set bCanEverTick=false here (a passive-listener idiom), which
+	// stranded the possessed hero with NO gravity/ground (WASD moved but jump went up and never came
+	// down -- floating, no ground attachment). The dash tag-listener is event-driven
+	// (RegisterGameplayTagEvent), NOT tick-driven, so this component needs no tick code of its own --
+	// but it MUST keep the parent's movement tick. Leave PrimaryComponentTick to Super.
 }
 
 void UAFLCharacterMovementComponent::InitializeComponent()
