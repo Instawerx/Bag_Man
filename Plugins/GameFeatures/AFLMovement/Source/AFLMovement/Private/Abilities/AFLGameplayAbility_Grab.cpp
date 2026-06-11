@@ -167,6 +167,7 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 	PendingGrabPolicy = Grabbable->GetGrabPolicy();
 	bAttachDone = false;
 	ActiveCarryPoseMontage = nullptr;
+	CarrierEffectHandle.Invalidate(); // fresh activation -- no carrier effect applied yet.
 
 	if (ReachMontage)
 	{
@@ -290,6 +291,23 @@ void UAFLGameplayAbility_Grab::DoAttachAndCarry()
 		{
 			ApplyGameplayEffectSpecToOwner(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), SpecHandle);
 			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: state applied -> carrying."));
+		}
+	}
+
+	// 5b. Per-object carrier effect (stress-object cycle): the policy names a GE class (e.g.
+	//     UGE_AFL_CarrierVulnerability -> State.Carrying.Vulnerable, read by the damage ExecCalc).
+	//     Tracked BY HANDLE because the class varies per object; removed by handle in EndAbility,
+	//     which every release path reaches after the forced-path unification. Null = no effect.
+	if (!PendingGrabPolicy.CarrierEffectClass.IsNull())
+	{
+		if (UClass* CarrierGEClass = PendingGrabPolicy.CarrierEffectClass.LoadSynchronous())
+		{
+			const FGameplayEffectSpecHandle CarrierSpec = MakeOutgoingGameplayEffectSpec(CarrierGEClass, GetAbilityLevel());
+			if (CarrierSpec.IsValid())
+			{
+				CarrierEffectHandle = ApplyGameplayEffectSpecToOwner(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), CarrierSpec);
+				UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: carrier effect applied (%s)."), *GetNameSafe(CarrierGEClass));
+			}
 		}
 	}
 
@@ -475,6 +493,18 @@ void UAFLGameplayAbility_Grab::EndAbility(
 			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: state restored."));
 		}
 	}
+
+	// Per-object carrier effect: removal BY HANDLE (the class varies per object -- see DoAttachAndCarry 5b).
+	// Handle removal is a safe no-op if the effect was never applied or already expired.
+	if (CarrierEffectHandle.IsValid() && ActorInfo)
+	{
+		if (UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get())
+		{
+			ASC->RemoveActiveGameplayEffect(CarrierEffectHandle);
+			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: carrier effect removed."));
+		}
+	}
+	CarrierEffectHandle.Invalidate();
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

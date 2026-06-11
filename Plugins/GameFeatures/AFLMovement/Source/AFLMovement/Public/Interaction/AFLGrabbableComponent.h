@@ -8,6 +8,7 @@
 #include "AFLGrabbableComponent.generated.h"
 
 class UGameplayAbility;
+class UGameplayEffect;
 class UAFLObjectClassAnimSet;
 
 /** Per-object carry weight -- placeholder hook for the future carry-state penalty cycle (Decision H). */
@@ -71,6 +72,13 @@ struct FAFLGrabPolicy
 	/** 4e: per-class anim dispatch. Shared anim set for this object's class (sibling to CarryWeight). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab")
 	TSoftObjectPtr<UAFLObjectClassAnimSet> ObjectAnimSet;
+
+	/** Per-object carrier effect (stress-object cycle; CarryWeight-sibling). Applied to the CARRIER's ASC
+	 *  while this object is held (e.g. UGE_AFL_CarrierVulnerability -> State.Carrying.Vulnerable -> x1.3
+	 *  damage taken via UAFLDamageExecCalc). Null (the default) = no per-object effect, behavior unchanged.
+	 *  Removal is BY HANDLE in the grab's EndAbility, so any GE class works without a class-keyed lookup. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab")
+	TSoftClassPtr<UGameplayEffect> CarrierEffectClass;
 };
 
 /**
@@ -150,6 +158,10 @@ protected:
 	/** 4e: shared per-class anim set this object dispatches (N heads -> one OCAS_Head). Forwarded into the policy. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
 	TSoftObjectPtr<UAFLObjectClassAnimSet> ObjectAnimSet;
+
+	/** Per-object carrier effect applied to the carrier while held (stress-object cycle). Forwarded into the policy. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
+	TSoftClassPtr<UGameplayEffect> CarrierEffectClass;
 
 private:
 	bool bHeld = false;

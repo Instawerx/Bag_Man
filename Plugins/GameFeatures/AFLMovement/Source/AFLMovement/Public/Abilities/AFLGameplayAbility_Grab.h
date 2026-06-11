@@ -172,6 +172,11 @@ private:
 	UPROPERTY()
 	TWeakObjectPtr<UAFLInteractionComponent> InteractionComponent;
 
+	/** Active handle for the per-object carrier effect (FAFLGrabPolicy.CarrierEffectClass). Tracked BY
+	 *  HANDLE because the GE class varies per object; removed in EndAbility, which every release path
+	 *  reaches after the forced-path unification. Invalid when the policy named no effect. */
+	FActiveGameplayEffectHandle CarrierEffectHandle;
+
 	/** Validated target + its policy, carried through the reach window to the deferred attach. */
 	UPROPERTY()
 	TWeakObjectPtr<AActor> PendingGrabTarget;

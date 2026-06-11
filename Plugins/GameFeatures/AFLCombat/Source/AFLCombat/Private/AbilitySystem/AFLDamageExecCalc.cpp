@@ -10,6 +10,7 @@
 #include "Messages/AFLHitConfirmMessage.h"   // AFLCore (relocated -- drop-on-damage cycle)
 #include "HUD/AFLOverkillMessage.h"
 #include "Messages/LyraVerbMessage.h"
+#include "NativeGameplayTags.h"
 #include "Telemetry/AFLCombatTelemetry.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLDamageExecCalc)
@@ -39,6 +40,11 @@ namespace
 	// UAFLHitConfirmComponent can play crosshair pulse + camera shake.
 	const FName NAME_Event_Damage_Confirmed_ExecCalc = TEXT("Event.Damage.Confirmed");
 }
+
+// Victim-state tag for the carrier-vulnerability check (stress-object cycle). Native define (with the
+// per-file Unity-safe suffix, matching the fire abilities' convention) rather than a runtime Request:
+// self-registering at module load, so the check can never silently read an empty tag.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_Vulnerable_ExecCalc, "State.Carrying.Vulnerable");
 
 
 // Capture definitions for the damage execution. We construct
@@ -146,8 +152,9 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	const float ClampedArmor = FMath::Max(TargetArmor, 0.0f);
 	const float Mitigation   = ClampedArmor / (ClampedArmor + 100.0f);
 
-	// 5. Effective damage after mitigation. Never negative.
-	const float EffectiveDamage = FMath::Max(RawDamage * (1.0f - Mitigation), 0.0f);
+	// 5. Effective damage after mitigation. Never negative. (Non-const: the carrier-vulnerability
+	//    step below may amplify it.)
+	float EffectiveDamage = FMath::Max(RawDamage * (1.0f - Mitigation), 0.0f);
 
 	if (EffectiveDamage <= 0.0f)
 	{
@@ -161,6 +168,18 @@ void UAFLDamageExecCalc::Execute_Implementation(
 			Spec.GetEffectContext().GetEffectCauser(),
 			FString::Printf(TEXT("raw=%.1f armor=%.1f"), RawDamage, ClampedArmor));
 		return;
+	}
+
+	// 5b. Carrier vulnerability (stress-object cycle): a victim carrying a vulnerability-flagged object
+	//     takes amplified damage. The tag rides the spec's captured TARGET tags (aggregated into
+	//     EvalParams at the top); it is granted by the per-object carrier GE (UGE_AFL_CarrierVulnerability
+	//     via FAFLGrabPolicy.CarrierEffectClass). Applied POST-mitigation, PRE-shield-split, so the whole
+	//     amplified hit drains shield first as normal. A fully-mitigated hit stays rejected (the early
+	//     return above) -- vulnerability cannot resurrect a zero. The 1.3 constant will move to
+	//     DT_AFL_DamageCurves alongside the armor half-mitigation pivot (step 4).
+	if (EvalParams.TargetTags && EvalParams.TargetTags->HasTag(TAG_State_Carrying_Vulnerable_ExecCalc))
+	{
+		EffectiveDamage *= 1.3f;
 	}
 
 	// 6. Shield absorbs first.

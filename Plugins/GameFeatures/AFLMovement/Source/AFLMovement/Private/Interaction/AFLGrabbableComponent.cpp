@@ -40,5 +40,6 @@ FAFLGrabPolicy UAFLGrabbableComponent::GetGrabPolicy() const
 	Policy.bEnablePhysicsOnRelease = bEnablePhysicsOnRelease;
 	Policy.CarryWeight = CarryWeight;
 	Policy.ObjectAnimSet = ObjectAnimSet;
+	Policy.CarrierEffectClass = CarrierEffectClass;
 	return Policy;
 }
