@@ -13,6 +13,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
@@ -20,6 +21,7 @@
 #include "LagComp/AFLLagCompensationWorldSubsystem.h"
 #include "NativeGameplayTags.h"
 #include "Targeting/AFLAbilityTargetData_Hitscan.h"
+#include "Targeting/AFLLagTestDummy.h"
 #include "Telemetry/AFLCombatTelemetry.h"
 #include "Tuning/AFLPulseTuningData.h"
 #include "UObject/ConstructorHelpers.h"
@@ -76,6 +78,16 @@ namespace
 // so ForceRTT=0.2 exercises the system at its designed max compensation.
 // ECVF_Cheat + shipping-guarded: never present in a shipping build.
 #if !UE_BUILD_SHIPPING
+// Cycle-3 discriminator (skill-v2 rule: never hand-aim an isolation): while 1, every client pulse
+// aims at the CLIENT'S LOCAL view of the nearest AAFLLagTestDummy with spread zeroed -- the perceived
+// position is literally the quantity under test (does rewind-by-dt land where the client saw it?).
+// Everything downstream stays the genuine shipping path: TargetData ship, real ping-derived dt,
+// ConfirmHit. Pairs with afl.LagComp.SweepDiagnostic on the server side.
+static TAutoConsoleVariable<int32> CVarAFLLagCompAimAtDummy(
+	TEXT("afl.LagComp.AimAtDummy"),
+	0,
+	TEXT("Client-side: 1 = pin pulse aim at the locally-perceived nearest AAFLLagTestDummy (spread zeroed); logs AFL_LAGCOMP_PIN per shot. The hand-aim-free discriminator leg."));
+
 static TAutoConsoleVariable<float> CVarAFLLagCompForceRTT(
 	TEXT("afl.LagComp.ForceRTT"),
 	-1.0f,
@@ -335,7 +347,36 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 		}
 	}
 
-	const FVector AimDirection = ViewRotation.Vector().GetSafeNormal();
+	FVector AimDirection = ViewRotation.Vector().GetSafeNormal();
+
+	// Cycle-3 pinned aim (cvar comment at file top): substitute the LOCAL perceived dummy position.
+	// Runs on the CLIENT fire path only (this function is the client-predicted trace site); the
+	// pinned ray then rides the normal claimed-ray ship to the server.
+	bool bAimPinned = false;
+	if (CVarAFLLagCompAimAtDummy.GetValueOnGameThread() != 0)
+	{
+		const AAFLLagTestDummy* NearestDummy = nullptr;
+		float BestDistSq = TNumericLimits<float>::Max();
+		for (TActorIterator<AAFLLagTestDummy> It(AvatarPawn->GetWorld()); It; ++It)
+		{
+			const float DistSq = static_cast<float>(FVector::DistSquared(It->GetActorLocation(), ViewLocation));
+			if (DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				NearestDummy = *It;
+			}
+		}
+		if (NearestDummy)
+		{
+			// +90cm = pelvis height on the SKM_Manny proxy (the 8-bone box center), so the pinned ray
+			// targets the middle of the padded box rather than the actor root at the floor.
+			const FVector PerceivedPos = NearestDummy->GetActorLocation() + FVector(0.0f, 0.0f, 90.0f);
+			AimDirection = (PerceivedPos - ViewLocation).GetSafeNormal();
+			bAimPinned = true;
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_LAGCOMP_PIN aiming at local-perceived (%.0f, %.0f, %.0f)"),
+				PerceivedPos.X, PerceivedPos.Y, PerceivedPos.Z);
+		}
+	}
 
 	// AFL-0209 bloom: decay toward Base by SpreadRecoveryPerSec * dt since the
 	// last shot, then add this shot's bump. Result feeds VRandCone for both the
@@ -363,6 +404,24 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	CurrentSpreadDegrees = FMath::Min(CurrentSpreadDegrees + SpreadPerShot, MaxSpread);
 	LastFireTime = Now;
 
+	// AFL-0213 (cycle 3): per-shot-PAIR aim angular velocity -- degrees between THIS shot's aim and the
+	// previous shot's, over the time between them. This replaces the hardcoded 0.0f that made the server's
+	// 720 deg/s telemetry check structurally untrippable (0 > 720 never). Uses the PRE-spread AimDirection
+	// (the player's intent; the spread cone would pollute the measurement). First shot of a pair ships 0.
+	float AimAngVelDegPerSec = 0.0f;
+	if (LastShotTimeSeconds >= 0.0)
+	{
+		const double DtPair = static_cast<double>(Now) - LastShotTimeSeconds;
+		if (DtPair > KINDA_SMALL_NUMBER)
+		{
+			const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(
+				static_cast<float>(FVector::DotProduct(AimDirection, LastShotAimDirection)), -1.0f, 1.0f)));
+			AimAngVelDegPerSec = AngleDeg / static_cast<float>(DtPair);
+		}
+	}
+	LastShotAimDirection = AimDirection;
+	LastShotTimeSeconds = static_cast<double>(Now);
+
 	// AFL-0209 PIE-validation log. Verbose so it doesn't spam shipping/release;
 	// `log LogAFLCombat Verbose` in the console surfaces it during the bloom
 	// regression test. Once a/b are validated this can drop to a one-time
@@ -371,9 +430,10 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 		TEXT("AFL_PULSE: Bloom cur=%.2f base=%.2f max=%.2f dt=%.3f"),
 		CurrentSpreadDegrees, BaseSpread, MaxSpread, DeltaSinceLastFire);
 
-	const FVector PerturbedDirection = FMath::VRandCone(
-		AimDirection,
-		FMath::DegreesToRadians(CurrentSpreadDegrees));
+	// Pinned shots skip the spread cone entirely -- the discriminator needs a deterministic ray.
+	const FVector PerturbedDirection = bAimPinned
+		? AimDirection
+		: FMath::VRandCone(AimDirection, FMath::DegreesToRadians(CurrentSpreadDegrees));
 	const FVector EndTrace = ViewLocation + PerturbedDirection * MaxRange;
 
 	// AFL-0301: the muzzle (Fire) cue is NO LONGER fired here. It moved to the unified, role-agnostic
@@ -417,7 +477,7 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	NewTargetData->HitResult                  = Hit;
 	NewTargetData->ClaimedViewOrigin          = ViewLocation;
 	NewTargetData->ClaimedAimDirection        = PerturbedDirection;
-	NewTargetData->AimAngularVelocityDegPerSec = 0.0f; // AFL-0213 measurement lands with the input plumbing.
+	NewTargetData->AimAngularVelocityDegPerSec = AimAngVelDegPerSec; // AFL-0213: per-shot-pair measurement (cycle 3).
 	// Pack the OWNER-resolved muzzle (same ResolveMuzzleLocation the Fire cue uses above; log-confirmed
 	// correct on role=2). The authoritative Fire cue on the server reads THIS instead of resolving the
 	// muzzle server-side, so the proxy's flash sits at the correct barrel tip. COSMETIC-only.
@@ -689,6 +749,11 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 #else
 				const float EffectiveRTT = RawRTT;
 #endif
+				// CYCLE-3 OPEN QUESTION (under the afl.LagComp.SweepDiagnostic instrument): this passes
+				// FULL RTT, but RewindWorldFor's own contract + master doc Sec. 7.4 specify
+				// ClampedRTT = min(RTT/2 + interp, 0.2). The all-6-reject at dt=0.200 (cycle 2) is
+				// consistent with over-rewinding by ~RTT/2. NO change until the sweep names the winning
+				// dt empirically (instrument-then-fix).
 				const float ClampedRTT = FMath::Min(EffectiveRTT, 0.2f);
 
 #if !UE_BUILD_SHIPPING

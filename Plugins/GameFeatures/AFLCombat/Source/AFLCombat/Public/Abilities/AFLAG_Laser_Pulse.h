@@ -172,4 +172,11 @@ private:
 	float CurrentSpreadDegrees = 0.0f;
 	float LastFireTime         = 0.0f;
 	bool  bBloomInitialized    = false;
+
+	/** AFL-0213 (cycle 3): previous shot's PRE-spread aim + fire time, for the per-shot-pair angular
+	 *  velocity shipped in FAFLAbilityTargetData_Hitscan (replaces the hardcoded 0.0f that made the
+	 *  720 deg/s telemetry check untrippable). InstancedPerActor -- survives between shots. -1.0
+	 *  sentinel = no prior shot (the pair's first shot ships 0 deg/s). */
+	FVector LastShotAimDirection = FVector::ZeroVector;
+	double  LastShotTimeSeconds  = -1.0;
 };
