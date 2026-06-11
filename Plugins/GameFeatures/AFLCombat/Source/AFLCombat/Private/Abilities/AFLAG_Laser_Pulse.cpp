@@ -88,6 +88,14 @@ static TAutoConsoleVariable<int32> CVarAFLLagCompAimAtDummy(
 	0,
 	TEXT("Client-side: 1 = pin pulse aim at the locally-perceived nearest AAFLLagTestDummy (spread zeroed); logs AFL_LAGCOMP_PIN per shot. The hand-aim-free discriminator leg."));
 
+// Cycle-3b: flip the pinned aim 180 degrees (used by afl.LagComp.Test.Run to synthesize a
+// deterministic >720 deg/s shot pair for the AFL-0213 telemetry check -- two pinned shots 0.2s
+// apart with this toggled between them = 900 deg/s, no hand flick required).
+static TAutoConsoleVariable<int32> CVarAFLLagCompPinMirror(
+	TEXT("afl.LagComp.PinMirror"),
+	0,
+	TEXT("1 = the pinned aim direction is flipped 180 degrees (telemetry flick-pair synthesis)."));
+
 static TAutoConsoleVariable<float> CVarAFLLagCompForceRTT(
 	TEXT("afl.LagComp.ForceRTT"),
 	-1.0f,
@@ -372,9 +380,14 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 			// targets the middle of the padded box rather than the actor root at the floor.
 			const FVector PerceivedPos = NearestDummy->GetActorLocation() + FVector(0.0f, 0.0f, 90.0f);
 			AimDirection = (PerceivedPos - ViewLocation).GetSafeNormal();
+			if (CVarAFLLagCompPinMirror.GetValueOnGameThread() != 0)
+			{
+				AimDirection = -AimDirection; // flick-pair synthesis: exactly 180 degrees from the pinned aim
+			}
 			bAimPinned = true;
-			UE_LOG(LogAFLCombat, Log, TEXT("AFL_LAGCOMP_PIN aiming at local-perceived (%.0f, %.0f, %.0f)"),
-				PerceivedPos.X, PerceivedPos.Y, PerceivedPos.Z);
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_LAGCOMP_PIN aiming at local-perceived (%.0f, %.0f, %.0f)%s"),
+				PerceivedPos.X, PerceivedPos.Y, PerceivedPos.Z,
+				(CVarAFLLagCompPinMirror.GetValueOnGameThread() != 0) ? TEXT(" [MIRRORED]") : TEXT(""));
 		}
 	}
 
@@ -421,6 +434,10 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	}
 	LastShotAimDirection = AimDirection;
 	LastShotTimeSeconds = static_cast<double>(Now);
+
+	// Measurement-liveness receipt (Verbose): proves the per-shot-pair value ships even when it stays
+	// under the 720 deg/s telemetry budget (the budget line only fires above it).
+	UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE: AngVel pair=%.0f deg/s"), AimAngVelDegPerSec);
 
 	// AFL-0209 PIE-validation log. Verbose so it doesn't spam shipping/release;
 	// `log LogAFLCombat Verbose` in the console surfaces it during the bloom
