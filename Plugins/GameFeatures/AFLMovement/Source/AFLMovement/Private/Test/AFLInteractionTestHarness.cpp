@@ -138,11 +138,45 @@ bool UAFLInteractionTestHarness::StartObserver(UWorld* World)
 		return false;
 	}
 
+	// Cycle-2 recalibration: carry-episode EDGES are event-driven off the replicated tag (exact counts
+	// regardless of how short the attached window is; immune to start time for everything after bind).
+	const FGameplayTag CarryTag = FGameplayTag::RequestGameplayTag(NAME_Tag_State_Carrying_Harness, false);
+	if (CarryTag.IsValid())
+	{
+		CarryTagChangedHandle = RemoteASC->RegisterGameplayTagEvent(CarryTag, EGameplayTagEventType::NewOrRemoved)
+			.AddUObject(this, &UAFLInteractionTestHarness::OnRemoteCarryTagChanged);
+	}
+
 	bObserver = true;
 	bRunning = true;
-	Banner(FString::Printf(TEXT("OBSERVER up -- watching remote %s + %d grabbables for 75s. Read-only: no teleports, no writes."),
+	Banner(FString::Printf(TEXT("OBSERVER up -- watching remote %s + %d grabbables for 75s (event-driven episodes + 0.25s detail sampling). Read-only: no teleports, no writes."),
 		*GetNameSafe(RemotePawn.Get()), ObservedGrabbables.Num()));
 	return true;
+}
+
+void UAFLInteractionTestHarness::OnRemoteCarryTagChanged(const FGameplayTag /*Tag*/, int32 NewCount)
+{
+	if (NewCount > 0)
+	{
+		++CarryEpisodes;
+		bRemoteCarrying = true;
+		bEpisodeAttachSeen = false;
+		NotCarryingSamples = 0;
+	}
+	else
+	{
+		bRemoteCarrying = false;
+		if (bEpisodeAttachSeen)
+		{
+			++EpisodesWithAttach;
+		}
+		// Falling edge: arm the settle watch on whatever was attached. 0.25s cadence -> snapshot at
+		// countdown==4 (~2.0s post-release), stability verdict at ==0 (a further 1.0s window).
+		if (LastAttached.IsValid())
+		{
+			SettleCountdown = 12;
+		}
+	}
 }
 
 void UAFLInteractionTestHarness::SampleObserver()
@@ -153,21 +187,11 @@ void UAFLInteractionTestHarness::SampleObserver()
 		RemotePawn = Cast<APawn>(RemoteASC->GetAvatarActor());
 	}
 
-	const FGameplayTag CarryTag = FGameplayTag::RequestGameplayTag(NAME_Tag_State_Carrying_Harness, false);
-	const bool bCarrying = CarryTag.IsValid() && RemoteASC.IsValid() && RemoteASC->HasMatchingGameplayTag(CarryTag);
-
-	if (bCarrying && !bPrevCarrying)
+	// DETAIL sampling only while the (event-driven) carry state is high -- attach parent, ride
+	// distance, replicated bHeld coherence. Episode counting lives in OnRemoteCarryTagChanged.
+	if (bRemoteCarrying && RemotePawn.IsValid())
 	{
-		++CarryEpisodes;
-	}
-	if (!bCarrying && bPrevCarrying && LastAttached.IsValid())
-	{
-		// Falling edge: arm the settle watch (~2.2s out, then a stability re-check one sample later).
-		SettleCountdown = 4;
-	}
-
-	if (bCarrying && RemotePawn.IsValid())
-	{
+		NotCarryingSamples = 0;
 		for (const TWeakObjectPtr<AActor>& GA : ObservedGrabbables)
 		{
 			AActor* Obj = GA.Get();
@@ -176,6 +200,7 @@ void UAFLInteractionTestHarness::SampleObserver()
 				continue;
 			}
 			++AttachSamples;
+			bEpisodeAttachSeen = true;
 			LastAttached = Obj;
 			if (FVector::Dist(Obj->GetActorLocation(), RemotePawn->GetActorLocation()) < 250.0f)
 			{
@@ -187,25 +212,29 @@ void UAFLInteractionTestHarness::SampleObserver()
 			}
 		}
 	}
-	else if (!bCarrying && !bPrevCarrying && !bPrevPrevCarrying)
+	else if (!bRemoteCarrying)
 	{
-		// Steady not-carrying (2-sample replication grace): NOTHING may still read held.
-		for (const TWeakObjectPtr<AActor>& GA : ObservedGrabbables)
+		// Steady not-carrying (2-sample = 0.5s replication grace): NOTHING may still read held.
+		if (++NotCarryingSamples >= 2)
 		{
-			const AActor* Obj = GA.Get();
-			const UAFLGrabbableComponent* G = Obj ? Obj->FindComponentByClass<UAFLGrabbableComponent>() : nullptr;
-			if (G && G->IsHeld())
+			for (const TWeakObjectPtr<AActor>& GA : ObservedGrabbables)
 			{
-				++StaleHeldViolations;
+				const AActor* Obj = GA.Get();
+				const UAFLGrabbableComponent* G = Obj ? Obj->FindComponentByClass<UAFLGrabbableComponent>() : nullptr;
+				if (G && G->IsHeld())
+				{
+					++StaleHeldViolations;
+				}
 			}
 		}
 	}
 
-	// Post-release settle/convergence: snapshot, then assert the object stopped moving on THIS client.
+	// Post-release settle/convergence: snapshot ~2.0s after the falling edge, stability verdict over
+	// the following 1.0s window (armed by OnRemoteCarryTagChanged at 0.25s cadence: 12 -> 4 -> 0).
 	if (SettleCountdown > 0 && LastAttached.IsValid())
 	{
 		--SettleCountdown;
-		if (SettleCountdown == 1)
+		if (SettleCountdown == 4)
 		{
 			SettlePos = LastAttached->GetActorLocation();
 		}
@@ -217,9 +246,6 @@ void UAFLInteractionTestHarness::SampleObserver()
 			LogObjectPos(bSettled ? TEXT("settle") : TEXT("settle-UNSTABLE"), LastAttached.Get());
 		}
 	}
-
-	bPrevPrevCarrying = bPrevCarrying;
-	bPrevCarrying = bCarrying;
 }
 
 bool UAFLInteractionTestHarness::StartRun(UWorld* World)
@@ -330,7 +356,7 @@ void UAFLInteractionTestHarness::Tick(float DeltaTime)
 		}
 		ObserverElapsed += DeltaTime;
 		SampleAccum += DeltaTime;
-		if (SampleAccum >= 0.75f)
+		if (SampleAccum >= 0.25f) // cycle-2: fast DETAIL cadence; episode edges are event-driven, not polled
 		{
 			SampleAccum = 0.0f;
 			SampleObserver();
@@ -573,13 +599,24 @@ void UAFLInteractionTestHarness::FinishRun()
 {
 	bRunning = false;
 
-	// Observer aggregate verdicts (sampled invariants, not phase-scripted asserts).
+	// Observer aggregate verdicts. Cycle-2 thresholds derive from the FSM SCRIPT (8 scripted carry
+	// episodes; event-driven edges make the counts exact), not wall-clock sample counts.
 	if (bObserver)
 	{
-		Check(TEXT("OBS"), CarryEpisodes >= 3,
-			FString::Printf(TEXT("carry episodes seen on the wire (%d, expect >=3) -- State.Carrying tag replicates"), CarryEpisodes));
-		Check(TEXT("OBS"), AttachSamples >= 5,
-			FString::Printf(TEXT("attach-parent visible client-side while carried (%d samples) -- FRepAttachment flows"), AttachSamples));
+		if (RemoteASC.IsValid() && CarryTagChangedHandle.IsValid())
+		{
+			const FGameplayTag CarryTag = FGameplayTag::RequestGameplayTag(NAME_Tag_State_Carrying_Harness, false);
+			if (CarryTag.IsValid())
+			{
+				RemoteASC->RegisterGameplayTagEvent(CarryTag, EGameplayTagEventType::NewOrRemoved).Remove(CarryTagChangedHandle);
+			}
+			CarryTagChangedHandle.Reset();
+		}
+
+		Check(TEXT("OBS"), CarryEpisodes >= 6,
+			FString::Printf(TEXT("carry episodes on the wire, event-driven (%d; FSM scripts 8, threshold >=6 tolerates pre-bind tail) -- State.Carrying replicates"), CarryEpisodes));
+		Check(TEXT("OBS"), CarryEpisodes > 0 && EpisodesWithAttach >= CarryEpisodes,
+			FString::Printf(TEXT("every observed episode had attach-parent visible client-side (%d/%d) -- FRepAttachment flows"), EpisodesWithAttach, CarryEpisodes));
 		Check(TEXT("OBS"), AttachSamples > 0 && RideSamples * 10 >= AttachSamples * 8,
 			FString::Printf(TEXT("carried object rides the remote carrier (%d/%d samples within 250cm)"), RideSamples, AttachSamples));
 		Check(TEXT("OBS"), HeldViolations == 0 && HeldCoherent >= 5,

@@ -14,6 +14,7 @@ class UAbilitySystemComponent;
 class ULyraAbilitySystemComponent;
 class UAFLGrabbableComponent;
 class UAFLInteractionComponent;
+struct FGameplayTag;
 
 /**
  * UAFLInteractionTestHarness  (stress-object cycle -- automated PIE interaction test)
@@ -81,8 +82,14 @@ private:
 	// -- step-list construction (one builder per phase keeps the script readable) --
 	void BuildSteps();
 
-	/** One observer sample (0.75s cadence): carry edges, attach/ride, bHeld coherence, settle watch. */
+	/** One observer detail sample (0.25s cadence): attach/ride/bHeld WHILE the remote carry tag is high
+	 *  (cycle-2 recalibration -- episode EDGES are event-driven, not polled), stale-held + settle watch. */
 	void SampleObserver();
+
+	/** Event-driven carry-episode edges (cycle 2): RegisterGameplayTagEvent(State.Carrying) on the remote
+	 *  ASC -- exact counts regardless of how short the attached window is; immune to observer start time
+	 *  for everything after bind. The GAS-canonical listener shape (the climb-tag precedent). */
+	void OnRemoteCarryTagChanged(const FGameplayTag Tag, int32 NewCount);
 
 	// -- primitives --
 	void PressTag(const FName TagName);                  // press+release same frame (the real IA trigger shape)
@@ -127,9 +134,12 @@ private:
 	TWeakObjectPtr<APawn> RemotePawn;                    // the carrier under test (re-resolved on respawn)
 	TWeakObjectPtr<UAbilitySystemComponent> RemoteASC;   // PlayerState ASC -- survives pawn death
 	TArray<TWeakObjectPtr<AActor>> ObservedGrabbables;
+	FDelegateHandle CarryTagChangedHandle;               // event-driven episode edges (cycle 2)
 	int32 CarryEpisodes = 0;
-	bool bPrevCarrying = false;
-	bool bPrevPrevCarrying = false;
+	bool bRemoteCarrying = false;                        // live tag state (set by the event, read by the sampler)
+	bool bEpisodeAttachSeen = false;                     // did THIS episode get >=1 attach sample
+	int32 EpisodesWithAttach = 0;
+	int32 NotCarryingSamples = 0;                        // consecutive low samples (stale-held replication grace)
 	int32 AttachSamples = 0;
 	int32 RideSamples = 0;
 	int32 HeldCoherent = 0;
