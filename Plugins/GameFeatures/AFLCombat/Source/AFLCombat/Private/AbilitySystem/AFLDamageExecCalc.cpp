@@ -46,6 +46,10 @@ namespace
 // self-registering at module load, so the check can never silently read an empty tag.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_Vulnerable_ExecCalc, "State.Carrying.Vulnerable");
 
+// Attacker-state tag for the Overdrive damage buff (energy cycle 2) -- the SOURCE-side mirror of the
+// victim-side vulnerability check below.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Energy_Overdrive_ExecCalc, "State.Energy.Overdrive");
+
 
 // Capture definitions for the damage execution. We construct
 // FGameplayEffectAttributeCaptureDefinition directly rather than using the
@@ -144,7 +148,18 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	const float WeakpointMult   = Spec.GetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Weakpoint_ExecCalc, false), false, 1.0f);
 
 	// 3. Raw damage before mitigation.
-	const float RawDamage = SourceDamage * HeadshotMult * WeakpointMult * DistanceFalloff;
+	float RawDamage = SourceDamage * HeadshotMult * WeakpointMult * DistanceFalloff;
+
+	// 3b. Overdrive damage buff (energy cycle 2): an ATTACKER carrying State.Energy.Overdrive deals
+	//     amplified damage. Source tags were captured with the spec (EvalParams above -- zero new
+	//     captures, the same free seam as the victim side). PRE-mitigation by design: a damage buff
+	//     scales the shot itself; armor then mitigates the bigger shot. Symmetric with the victim-side
+	//     vulnerability at step 5b (which is POST-mitigation, pre-shield). The 1.25 constant moves to
+	//     DT_AFL_DamageCurves alongside the armor pivot (step 4).
+	if (EvalParams.SourceTags && EvalParams.SourceTags->HasTag(TAG_State_Energy_Overdrive_ExecCalc))
+	{
+		RawDamage *= 1.25f;
+	}
 
 	// 4. Reciprocal mitigation curve. Armor=0 -> 0% mitigation, Armor=100 -> 50%,
 	//    Armor=900 -> 90%. The 100.0 constant is the half-mitigation pivot and
@@ -175,7 +190,8 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	//     EvalParams at the top); it is granted by the per-object carrier GE (UGE_AFL_CarrierVulnerability
 	//     via FAFLGrabPolicy.CarrierEffectClass). Applied POST-mitigation, PRE-shield-split, so the whole
 	//     amplified hit drains shield first as normal. A fully-mitigated hit stays rejected (the early
-	//     return above) -- vulnerability cannot resurrect a zero. The 1.3 constant will move to
+	//     return above) -- vulnerability cannot resurrect a zero. Symmetric with the SOURCE-side Overdrive
+	//     buff at step 3b (which multiplies PRE-mitigation). The 1.3 constant will move to
 	//     DT_AFL_DamageCurves alongside the armor half-mitigation pivot (step 4).
 	if (EvalParams.TargetTags && EvalParams.TargetTags->HasTag(TAG_State_Carrying_Vulnerable_ExecCalc))
 	{
