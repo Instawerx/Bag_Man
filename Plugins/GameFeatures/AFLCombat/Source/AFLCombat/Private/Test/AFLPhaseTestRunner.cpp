@@ -35,7 +35,7 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Extraction_WindowClosed_PhaseRun, "Event
 
 namespace
 {
-	constexpr float WattsPerEnergyExpected = 10.0f;
+	constexpr float WattsPerEnergyExpected_PhaseRun = 10.0f;
 }
 
 void UAFLPhaseTestRunner::RunInWorld(UWorld* World)
@@ -125,6 +125,14 @@ bool UAFLPhaseTestRunner::StartRun(UWorld* World)
 	// Teleport the pawn into the zone for the whole run (it tests dispensing, not overlap mechanics).
 	Pawn->SetActorLocation(ZoneCenter, false, nullptr, ETeleportType::TeleportPhysics);
 
+	// The match spine now starts at WARMUP (S9). This runner tests the WINDOW mechanics under PLAYING,
+	// so fast-forward into Playing: a near-zero warmup + a huge active duration, then restart the spine
+	// so it re-reads those and lands in Playing almost immediately. (Without this, leg-1's "Playing
+	// active" fails because the spine is still in Warmup.) Park the auto-cadence far out too.
+	if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.Match.WarmupDuration"))) { WarmupRestore = V->GetFloat(); V->Set(0.1f, ECVF_SetByConsole); }
+	if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.Match.ActiveDuration"))) { ActiveRestore = V->GetFloat(); V->Set(9000.0f, ECVF_SetByConsole); }
+	Driver->RestartMatch();
+
 	// Make sure no window is open at start (the driver may have opened one on its own timer). Force
 	// it closed so leg-1's "closed at start" is deterministic.
 	Driver->ForceWindowClose();
@@ -190,7 +198,7 @@ void UAFLPhaseTestRunner::Tick(float DeltaTime)
 		}
 		if (StepTimer >= 7.0f)
 		{
-			const int32 Expected = FMath::RoundToInt(EnergyAtChannelStart * WattsPerEnergyExpected);
+			const int32 Expected = FMath::RoundToInt(EnergyAtChannelStart * WattsPerEnergyExpected_PhaseRun);
 			Check(ReadCarriedEnergy() <= 0.5f, FString::Printf(TEXT("channel completed: energy zeroed (%.1f)"), ReadCarriedEnergy()));
 			Check(ReadWatts() - WattsAtChannelStart == Expected,
 				FString::Printf(TEXT("Watts conservation inside window: delta %d == %d"), ReadWatts() - WattsAtChannelStart, Expected));
@@ -288,6 +296,8 @@ void UAFLPhaseTestRunner::FinishRun()
 	{
 		if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(Name)) { V->Set(Value, ECVF_SetByConsole); }
 	};
+	Restore(TEXT("afl.Match.WarmupDuration"), WarmupRestore);
+	Restore(TEXT("afl.Match.ActiveDuration"), ActiveRestore);
 	Restore(TEXT("afl.Extract.WindowPeriod"), PeriodRestore);
 	Restore(TEXT("afl.Extract.WindowDuration"), DurationRestore);
 	Restore(TEXT("afl.Energy.DrainPerSecond"), DrainRestore);

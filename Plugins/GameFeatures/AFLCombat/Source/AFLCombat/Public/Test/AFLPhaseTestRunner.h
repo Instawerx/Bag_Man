@@ -85,6 +85,8 @@ private:
 	int32 WindowOpenCount = 0;
 	int32 WindowClosedCount = 0;
 
+	float WarmupRestore = 30.0f;
+	float ActiveRestore = 480.0f;
 	float PeriodRestore = 150.0f;
 	float DurationRestore = 60.0f;
 	float DrainRestore = 5.0f;
