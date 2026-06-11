@@ -38,6 +38,16 @@ public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+	/** Drop Percent of the owner's CarriedEnergy as a pickup ring NOW (server-only; returns the
+	 *  dropped total, 0 when nothing dropped). Extracted from the death path so other consumers
+	 *  ride the SAME rail -- first caller: UAFLAG_Extract's damage interrupt (AFL-0808, 100%).
+	 *  Does NOT touch the one-per-death flag; spam-guarding belongs to the caller's lifecycle.
+	 *  RE-COLLECT WRINKLE (named feel debt): dropped pickups have no instigator magnet-immunity
+	 *  window, so a LIVING owner standing in the ring vacuums them back within ~1s (the death
+	 *  path never sees this -- corpses are magnet-invisible). Cycle 1 ships it as-is; the harness
+	 *  asserts the burst exists before the magnet and reports re-collection explicitly. */
+	float BurstNow(float Percent, const TCHAR* Reason);
+
 protected:
 	UFUNCTION()
 	void HandleDeathStarted(AActor* OwningActor);

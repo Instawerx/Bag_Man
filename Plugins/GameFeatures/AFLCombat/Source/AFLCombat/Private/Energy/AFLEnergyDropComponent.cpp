@@ -73,21 +73,32 @@ void UAFLEnergyDropComponent::HandleDeathStarted(AActor* OwningActor)
 	{
 		return;
 	}
-	bBurstDone = true;
+	bBurstDone = true; // one-per-death stays a DEATH-path concern; BurstNow callers own their own pacing.
+
+	BurstNow(FMath::Clamp(CVarAFLEnergyDropPercent.GetValueOnGameThread(), 0.0f, 100.0f), TEXT("death"));
+}
+
+float UAFLEnergyDropComponent::BurstNow(float Percent, const TCHAR* Reason)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority())
+	{
+		return 0.0f;
+	}
 
 	UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner);
 	if (!ASC)
 	{
-		return;
+		return 0.0f;
 	}
 
 	const float Carried = ASC->GetNumericAttribute(UAFLAttributeSet_Energy::GetCarriedEnergyAttribute());
-	const float Percent = FMath::Clamp(CVarAFLEnergyDropPercent.GetValueOnGameThread(), 0.0f, 100.0f);
-	const float DropTarget = Carried * Percent * 0.01f;
+	const float ClampedPercent = FMath::Clamp(Percent, 0.0f, 100.0f);
+	const float DropTarget = Carried * ClampedPercent * 0.01f;
 	if (DropTarget < 1.0f)
 	{
-		UE_LOG(LogAFLCombat, Log, TEXT("AFL_ENERGY: %s died carrying %.1f -- nothing to drop."), *GetNameSafe(Owner), Carried);
-		return;
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_ENERGY: %s burst (%s) carrying %.1f -- nothing to drop."), *GetNameSafe(Owner), Reason, Carried);
+		return 0.0f;
 	}
 
 	// Tier distribution, smalls-favored: at most coarse tiers for the bulk, ceil the remainder in
@@ -140,6 +151,8 @@ void UAFLEnergyDropComponent::HandleDeathStarted(AActor* OwningActor)
 	}
 
 	UE_LOG(LogAFLCombat, Log,
-		TEXT("AFL_ENERGY: death burst by %s -- carried %.1f, dropped %.1f as %dL/%dM/%dS (%d pickups, %.0f%%)."),
-		*GetNameSafe(Owner), Carried, DroppedTotal, NumLarge, NumMedium, NumSmall, SpawnedCount, Percent);
+		TEXT("AFL_ENERGY: %s burst by %s -- carried %.1f, dropped %.1f as %dL/%dM/%dS (%d pickups, %.0f%%)."),
+		Reason, *GetNameSafe(Owner), Carried, DroppedTotal, NumLarge, NumMedium, NumSmall, SpawnedCount, ClampedPercent);
+
+	return DroppedTotal;
 }

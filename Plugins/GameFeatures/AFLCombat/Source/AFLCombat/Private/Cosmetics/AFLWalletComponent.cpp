@@ -191,6 +191,12 @@ void UAFLWalletComponent::ServerEarnVolts_Implementation(int32 Amount)
 	CommitMutation(Clamped, 0, NAME_None, TEXT("EarnVolts"));
 }
 
+void UAFLWalletComponent::EarnWattsAuthority(int32 Amount, const TCHAR* Reason)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+	CommitMutation(/*dVolts*/0, /*dWatts*/FMath::Max(0, Amount), /*grant*/NAME_None, Reason);
+}
+
 void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId, EAFLPayCurrency PayWith)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }

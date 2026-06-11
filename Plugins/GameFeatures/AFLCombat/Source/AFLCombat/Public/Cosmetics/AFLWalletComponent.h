@@ -117,6 +117,12 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Wallet")
 	void ServerPurchaseCosmetic(FName CosmeticId, EAFLPayCurrency PayWith = EAFLPayCurrency::Auto);
 
+	/** Gameplay earn (extraction cash-out etc.): authority-only NATIVE call into the CommitMutation
+	 *  funnel with a caller-named Reason for the diag line. Not an RPC -- gameplay sources already
+	 *  run on the server (the Server RPCs above are the client->server cheat/UI hop). Clamps
+	 *  negatives like ServerEarnWatts. Extraction cycle 1 (S8 AFL-0805: off-GAS, the wallet rail). */
+	void EarnWattsAuthority(int32 Amount, const TCHAR* Reason);
+
 	/** Dev/seed setter (cheat-driven): authority sets the balance directly. Bypasses earn/spend validation
 	 *  -- for the (a) balance watch + test seeding, NOT a gameplay path. */
 	void DebugSetBalance(int32 InVolts, int32 InWatts);
