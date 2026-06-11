@@ -50,6 +50,13 @@ public:
 	/** Entry point for the console command. Refuses to start while a prior run is live. */
 	static void RunInWorld(UWorld* World);
 
+	/** 2-client cycle 1: read-only OBSERVER for the client window (afl.Interaction.Test.Observe). Watches
+	 *  the REMOTE player (the host running the FSM) and asserts what crossed the wire: State.Carrying tag,
+	 *  attach-parent + ride-distance while carried, replicated bHeld coherence, and post-release settle
+	 *  stability. NO teleports, NO writes, NO authority ops -- sample-and-log only, [CLn]-tagged markers.
+	 *  Runs concurrently with the host FSM (PIE-under-one-process shares this class; separate slot). */
+	static void RunObserverInWorld(UWorld* World);
+
 	//~ FTickableGameObject
 	virtual void Tick(float DeltaTime) override;
 	virtual ETickableTickType GetTickableTickType() const override { return ETickableTickType::Conditional; }
@@ -68,10 +75,14 @@ private:
 
 	/** Resolve world refs + classify grabbables; build the step list; root self. */
 	bool StartRun(UWorld* World);
+	bool StartObserver(UWorld* World);
 	void FinishRun();
 
 	// -- step-list construction (one builder per phase keeps the script readable) --
 	void BuildSteps();
+
+	/** One observer sample (0.75s cadence): carry edges, attach/ride, bHeld coherence, settle watch. */
+	void SampleObserver();
 
 	// -- primitives --
 	void PressTag(const FName TagName);                  // press+release same frame (the real IA trigger shape)
@@ -85,6 +96,8 @@ private:
 	void Check(const TCHAR* Phase, bool bPass, const FString& What);
 	void Skip(const TCHAR* Phase, const FString& Why);
 	void Banner(const FString& Msg) const;               // log + on-screen step narration
+	FString NetTag() const;                              // [SV1]/[CL2] net-mode + PIE-instance log tag
+	void LogObjectPos(const TCHAR* Context, AActor* Target) const; // cross-log position compare line
 
 	// -- run state --
 	TWeakObjectPtr<UWorld> WorldPtr;
@@ -107,6 +120,27 @@ private:
 	float HealthBefore = 0.0f;
 	bool bRecoveryTagObserved = false;                   // snapshotted 0.2s after the P4 throw (window is 0.4s)
 
+	// -- observer mode state (read-only; the [CLn] side of a 2-client run) --
+	bool bObserver = false;
+	float ObserverElapsed = 0.0f;
+	float SampleAccum = 0.0f;
+	TWeakObjectPtr<APawn> RemotePawn;                    // the carrier under test (re-resolved on respawn)
+	TWeakObjectPtr<UAbilitySystemComponent> RemoteASC;   // PlayerState ASC -- survives pawn death
+	TArray<TWeakObjectPtr<AActor>> ObservedGrabbables;
+	int32 CarryEpisodes = 0;
+	bool bPrevCarrying = false;
+	bool bPrevPrevCarrying = false;
+	int32 AttachSamples = 0;
+	int32 RideSamples = 0;
+	int32 HeldCoherent = 0;
+	int32 HeldViolations = 0;
+	int32 StaleHeldViolations = 0;
+	TWeakObjectPtr<AActor> LastAttached;
+	FVector SettlePos = FVector::ZeroVector;
+	int32 SettleCountdown = -1;
+	int32 ConvergePass = 0;
+	int32 ConvergeFail = 0;
+
 	// per-phase rollup for SUMMARY
 	TMap<FString, int32> PhaseTotals;
 	TMap<FString, int32> PhaseFails;
@@ -114,6 +148,8 @@ private:
 
 	static constexpr float StepInterval = 1.5f;
 
-	/** The single live run (one harness at a time; cleared at FinishRun). */
+	/** The single live FSM run + the single live observer (separate slots: PIE-under-one-process hosts BOTH
+	 *  the server FSM and the client observer in one process; cleared at FinishRun). */
 	static TWeakObjectPtr<UAFLInteractionTestHarness> ActiveRun;
+	static TWeakObjectPtr<UAFLInteractionTestHarness> ActiveObserver;
 };
