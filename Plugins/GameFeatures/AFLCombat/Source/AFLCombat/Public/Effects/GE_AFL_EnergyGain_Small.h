@@ -8,18 +8,14 @@
 
 
 /**
- * Compile-time gate for the CarriedEnergy attribute set. Flipped to 1 by
- * AFL-0701 when the Energy/Carry attribute set lands. Until then this GE is
- * an Instant no-op that exists only so:
- *   1. The Pulse weapon and downstream systems can reference the class by
- *      type without dragging in an as-yet-unauthored attribute.
- *   2. AFLCombatCheats can route `AFL.Combat.EnergyGain` through it and log
- *      the AFLCombatCheats: OK EnergyGain token the orchestrator's cheat
- *      matrix expects (the OK token gates the build regardless of whether
- *      energy is wired yet).
+ * Compile-time gate for the CarriedEnergy attribute set. FLIPPED TO 1 by the energy-drops
+ * cycle 1 (AFL-0701 landed: UAFLAttributeSet_Energy is real and this GE carries the live
+ * Additive CarriedEnergy modifier, magnitude = SetByCaller Data.Energy.Gain). The gate is
+ * retained (rather than deleted) so a platform that must compile energy out can still
+ * flip it back to the documented no-op shape.
  */
 #ifndef WITH_AFL_ENERGY_SET
-	#define WITH_AFL_ENERGY_SET 0
+	#define WITH_AFL_ENERGY_SET 1
 #endif
 
 
