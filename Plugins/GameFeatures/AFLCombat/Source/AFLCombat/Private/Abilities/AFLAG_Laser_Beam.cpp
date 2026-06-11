@@ -41,6 +41,9 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Beam, "State.Firing.Beam");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overheated_Beam, "State.Overheated");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_LaserBeam, "State.Carrying");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_ThrowRecovery_LaserBeam, "State.Weapon.ThrowRecovery");
+// Match-flow gates (S9 AFL-0902): no beam fire during Warmup or PostGame (mirror of Pulse + movement).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Warmup_LaserBeam, "State.Match.Warmup");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Ended_LaserBeam, "State.Match.Ended");
 // AFL-0208 (RP-2): the looping beam cosmetic cue. Added on activate, removed on end.
 // Defined in AFLCombatTags.ini; received by GCN_AFL_Laser_Beam (AAFLCueNotify_LaserBeam).
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Weapon_Laser_Beam, "GameplayCue.Weapon.Laser.Beam");
@@ -97,6 +100,10 @@ UAFLAG_Laser_Beam::UAFLAG_Laser_Beam()
 	// WhileInputActive ability re-tries every held frame, so it needs the time-based gate, not a
 	// frame-based one (the PIE-caught beam-after-throw).
 	ActivationBlockedTags.AddTag(TAG_State_ThrowRecovery_LaserBeam);
+
+	// Match-flow freeze (S9 AFL-0902): no beam during Warmup or PostGame.
+	ActivationBlockedTags.AddTag(TAG_State_Match_Warmup_LaserBeam);
+	ActivationBlockedTags.AddTag(TAG_State_Match_Ended_LaserBeam);
 
 	// Defaults for the GEs we drive. BP children can override these on the
 	// CDO once AFL-0214 introduces designer-tuned variants.

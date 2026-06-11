@@ -39,6 +39,10 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Ability_Laser_Pulse, "Ability.Laser.Pulse");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Pulse, "State.Firing.Pulse");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_Pulse, "State.Carrying");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_ThrowRecovery_Pulse, "State.Weapon.ThrowRecovery");
+// Match-flow gates (S9 AFL-0902): firing is blocked during Warmup and PostGame. Same defensive
+// native-declare pattern as the movement abilities (dash/climb/grab already block on these).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Warmup_Pulse, "State.Match.Warmup");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Ended_Pulse, "State.Match.Ended");
 
 // AFL-0301: muzzle cue fired once per local shot from ClientPredictAndSend.
 // File-specific symbol suffix matches the HYG-001 / AFLCombat Unity-build
@@ -127,6 +131,11 @@ UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
 	// ...and the press that THREW must not fire either: the throw applies GE_AFL_ThrowRecovery (0.4s)
 	// granting this tag, covering the post-throw frames where the carry tag is already gone.
 	ActivationBlockedTags.AddTag(TAG_State_ThrowRecovery_Pulse);
+
+	// Match-flow freeze (S9 AFL-0902): no firing during Warmup or PostGame. The driver grants these
+	// loosely to all pawns at phase-enter; movement abilities already block the same pair.
+	ActivationBlockedTags.AddTag(TAG_State_Match_Warmup_Pulse);
+	ActivationBlockedTags.AddTag(TAG_State_Match_Ended_Pulse);
 
 	// Cooldown tag declared in AFLCombatTags.ini (Cooldown.Weapon.Pulse). The
 	// concrete Cooldown GE is wired by the AbilitySet data asset in AFL-0214.
