@@ -2,14 +2,40 @@
 
 #include "Interaction/AFLGrabbableComponent.h"
 
+#include "GameFramework/Actor.h"
 #include "Interaction/InteractionOption.h"
 #include "Interaction/InteractionQuery.h"
+#include "Net/UnrealNetwork.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLGrabbableComponent)
 
 UAFLGrabbableComponent::UAFLGrabbableComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false; // pure marker + policy holder; no tick.
+
+	// 2-client cycle 1: the component replicates so bHeld reaches every client (discovery gating + the
+	// observer harness read the same truth everywhere). The owning ACTOR must also replicate for this to
+	// flow -- grabbable BPs ship bReplicates + bReplicateMovement true (movable-asset rule).
+	SetIsReplicatedByDefault(true);
+}
+
+void UAFLGrabbableComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UAFLGrabbableComponent, bHeld);
+}
+
+void UAFLGrabbableComponent::SetHeld(bool bInHeld)
+{
+	// Authority-only write: the predicted client grab calls through here too, but clients must converge on
+	// the replicated value -- a server-rejected prediction that wrote local state would leave this grabbable
+	// permanently "held" (= undiscoverable) on that client only.
+	const AActor* Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority())
+	{
+		return;
+	}
+	bHeld = bInHeld;
 }
 
 void UAFLGrabbableComponent::GatherInteractionOptions(const FInteractionQuery& InteractQuery, FInteractionOptionBuilder& OptionBuilder)

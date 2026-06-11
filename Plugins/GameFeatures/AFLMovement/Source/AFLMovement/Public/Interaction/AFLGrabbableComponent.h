@@ -110,12 +110,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Interaction")
 	FAFLGrabPolicy GetGrabPolicy() const;
 
-	/** True while some interaction component is carrying this actor (set by the carrier; blocks double-grab). */
+	/** True while some interaction component is carrying this actor (set by the carrier; blocks double-grab).
+	 *  On clients this reads the REPLICATED value (2-client cycle 1) -- discovery gating is correct remotely. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Interaction")
 	bool IsHeld() const { return bHeld; }
 
-	/** Carrier sets/clears this on grab/release so a second instigator's discovery can reject an already-held actor. */
-	void SetHeld(bool bInHeld) { bHeld = bInHeld; }
+	/** Carrier sets/clears this on grab/release so a second instigator's discovery can reject an already-held
+	 *  actor. AUTHORITY-ONLY write (2-client cycle 1): the predicted client-side grab path calls this too, but
+	 *  only the server's write lands -- a rejected prediction can no longer poison the client's local state
+	 *  (the stale-bHeld risk); clients converge on the replicated truth. */
+	void SetHeld(bool bInHeld);
+
+	//~ UActorComponent
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	//~ End UActorComponent
 
 protected:
 	/** The ability offered to the looking-at instigator. BP child sets GA_AFL_Grab_C. */
@@ -164,5 +172,9 @@ protected:
 	TSoftClassPtr<UGameplayEffect> CarrierEffectClass;
 
 private:
+	/** Replicated held flag (2-client cycle 1, the module's first replicated property): the server's
+	 *  GrabActor/ReleaseActor own the writes; every client's discovery + the grab ability's validation read
+	 *  the same truth. Plain RepNotify-less replication -- consumers poll IsHeld(), nothing reacts to edges. */
+	UPROPERTY(Replicated)
 	bool bHeld = false;
 };

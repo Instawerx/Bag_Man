@@ -414,10 +414,15 @@ void UAFLInteractionComponent::ReleaseActor(EAFLReleaseMode Mode, const FVector&
 	RestoreEquippedWeapon();
 
 	// Detach KEEPING the world transform (it stays where the hand left it, not snapped back to origin).
+	// Runs on EVERY machine deliberately (2-client cycle 1): detach is idempotent under FRepAttachment --
+	// the server's cleared AttachmentReplication arrives via OnRep and reconciles any disagreement -- and
+	// the local detach buys the owning client zero-latency release feel instead of waiting one RTT for the
+	// attachment OnRep.
 	Target->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 
 	// Restore collision on EVERY primitive we disabled on grab (symmetric with GrabActor's all-primitives
-	// disable), so the dropped object lands and is re-grabbable.
+	// disable), so the dropped object lands and is re-grabbable. All machines: collision is local-feel +
+	// discovery-trace state, not authority state.
 	Target->ForEachComponent<UPrimitiveComponent>(/*bIncludeFromChildActors*/ true,
 		[](UPrimitiveComponent* P)
 		{
@@ -426,12 +431,21 @@ void UAFLInteractionComponent::ReleaseActor(EAFLReleaseMode Mode, const FVector&
 
 	// The body that actually simulates (the mesh): the box root is a bare SceneComponent, so find the first
 	// real primitive for the re-simulate + impulse. (Re-enabling physics on the bare root would no-op anyway.)
+	//
+	// AUTHORITY-ONLY physics (2-client cycle 1): sim re-enable + velocity hand-off + impulse run on the
+	// server alone. Non-authority instances only clear local state -- the server's replicated movement
+	// (FRepMovement.bRepPhysics on the now-replicated grabbables) drives the client copies; the engine
+	// flips client-side sim state from replication (PostNetReceivePhysicState), so a client that ALSO
+	// simulated + impulsed locally would just fight the incoming authoritative stream. NAMED FEEL DEBT:
+	// the owning client sees the released object hang for ~RTT/2 until the first server movement update
+	// arrives -- predictive release physics is a later feel item, not cycle-1 scope.
+	const bool bAuthority = GetOwner() && GetOwner()->HasAuthority();
 	UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(Target->GetRootComponent());
 	if (!Prim)
 	{
 		Prim = Target->FindComponentByClass<UPrimitiveComponent>();
 	}
-	if (Prim && ActivePolicy.bEnablePhysicsOnRelease)
+	if (Prim && ActivePolicy.bEnablePhysicsOnRelease && bAuthority)
 	{
 		// ORDER MATTERS: physics must be re-enabled BEFORE any velocity/impulse call or they no-op on a
 		// non-simulating body.
