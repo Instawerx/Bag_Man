@@ -335,10 +335,24 @@ void UAFLGameplayAbility_Grab::StartCarryPose()
 	UAnimMontage* CarryPose = AnimSet ? AnimSet->CarryPose.LoadSynchronous() : nullptr;
 	if (CarryPose)
 	{
-		const float PlayResult = AnimInstance->Montage_Play(CarryPose, /*InPlayRate*/ 1.0f,
-			EMontagePlayReturnType::MontageLength, /*InTimeToStartMontageAt*/ CarryPoseStartTime);
-		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: carry-pose montage (asset=%s start=%.2fs holdAtEnd=1) %s."),
-			*GetNameSafe(CarryPose), CarryPoseStartTime, (PlayResult > 0.0f) ? TEXT("OK") : TEXT("FAILED -> legacy fallback"));
+		// 2-client cycle 1: route through the ASC (not a direct AnimInstance->Montage_Play) so SIM PROXIES
+		// receive the pose via GAS montage replication. Static read of FGameplayAbilityRepAnimMontage says
+		// this path replicates cleanly: it carries the montage ASSET ref + PlayRate + Position, this play is
+		// rate-1 settle-then-hold (never rate-0), and at the held end the server position pins at montage
+		// length while bEnableAutoBlendOut=false is an ASSET property -- so proxies reach the end and hold
+		// exactly like the authority. The REACH already replicates (PlayMontageAndWait is ASC-routed). The
+		// rate-0 LEGACY fallback below CANNOT replicate by construction (PlaySlotAnimationAsDynamicMontage
+		// builds a TRANSIENT montage object -- nothing for RepAnimMontage to reference) and stays local-only:
+		// it only runs when an OCAS ships no CarryPose, which shipping content always sets.
+		UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+		const float PlayResult = ASC
+			? ASC->PlayMontage(this, GetCurrentActivationInfo(), CarryPose, /*InPlayRate*/ 1.0f,
+				NAME_None, /*StartTimeSeconds*/ CarryPoseStartTime)
+			: AnimInstance->Montage_Play(CarryPose, /*InPlayRate*/ 1.0f,
+				EMontagePlayReturnType::MontageLength, /*InTimeToStartMontageAt*/ CarryPoseStartTime);
+		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: carry-pose montage (asset=%s start=%.2fs holdAtEnd=1 route=%s) %s."),
+			*GetNameSafe(CarryPose), CarryPoseStartTime, ASC ? TEXT("ASC") : TEXT("local"),
+			(PlayResult > 0.0f) ? TEXT("OK") : TEXT("FAILED -> legacy fallback"));
 		if (PlayResult > 0.0f)
 		{
 			ActiveCarryPoseMontage = CarryPose;
@@ -468,6 +482,17 @@ void UAFLGameplayAbility_Grab::EndAbility(
 	{
 		if (ActiveCarryPoseMontage)
 		{
+			// ASC-routed stop FIRST (2-client cycle 1, matches the ASC-routed play): on authority this
+			// replicates the stop so sim proxies blend out with us. The direct AnimInstance stop below stays
+			// as belt-and-braces -- it covers the local-fallback play path and any frame where another
+			// ASC montage already replaced ours (the guard keeps us from stopping someone else's montage).
+			if (UAbilitySystemComponent* EndASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr)
+			{
+				if (EndASC->GetCurrentMontage() == ActiveCarryPoseMontage)
+				{
+					EndASC->CurrentMontageStop(GrabReachBlendTime);
+				}
+			}
 			AnimInstance->Montage_Stop(GrabReachBlendTime, ActiveCarryPoseMontage);
 		}
 		AnimInstance->StopSlotAnimation(GrabReachBlendTime, GrabReachSlot);
