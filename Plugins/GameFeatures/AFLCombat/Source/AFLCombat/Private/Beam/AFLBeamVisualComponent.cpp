@@ -81,23 +81,6 @@ void UAFLBeamVisualComponent::ApplyBeamActiveState(bool bActive)
 {
 	// THE ONE place the visual toggles -- called from BOTH the server (SetBeamActive) and the
 	// remote OnRep, so host-as-player / owning client / proxy all run identical logic.
-
-	// ROLE-STAMP (canary acceptance instrumentation). Both the server path and the OnRep path land
-	// here, so this single line distinguishes them. The acceptance proof is the line tagged [PROXY]
-	// (ROLE_SimulatedProxy) on the NON-firing instance with active=1 -> the toggle crossed the wire;
-	// then active=0 on release. [AUTHORITY] is the listen-host-as-player; [AUTONOMOUS] is the owning
-	// client. Remove once the canary is stamped (throwaway diagnostic, not shipping log).
-	{
-		const AActor* OwnerActor = GetOwner();
-		const ENetRole LocalRole = OwnerActor ? OwnerActor->GetLocalRole() : ROLE_None;
-		const TCHAR* RoleTag =
-			(LocalRole == ROLE_Authority)      ? TEXT("AUTHORITY") :
-			(LocalRole == ROLE_AutonomousProxy) ? TEXT("AUTONOMOUS") :
-			(LocalRole == ROLE_SimulatedProxy)  ? TEXT("PROXY") : TEXT("NONE");
-		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BEAMVIS: ApplyBeamActiveState [%s] active=%d owner=%s"),
-			RoleTag, bActive ? 1 : 0, *GetNameSafe(OwnerActor));
-	}
-
 	if (bActive)
 	{
 		// Spawn the persistent NS ONCE (Auto-Activate OFF), attached to the weapon actor root so it
