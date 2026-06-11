@@ -98,6 +98,13 @@ bool UAFLExtractTestRunner::StartRun(UWorld* World)
 		return false;
 	}
 
+	// Windowing regression fix (match-phases cycle 1): the zone is now Inactive-by-default and
+	// dispenses ONLY while a window is open. This runner proves the EXTRACT mechanics, not the
+	// window cadence (afl.Phase.Test.Run owns that), and its zone is a BARE runner-spawn with no
+	// driver phase to observe -- so activate it directly. Without this, leg-1's "tag UP on entry"
+	// regresses to a permanent zone-Inactive fail.
+	Zone->SetZoneActiveForTest(true);
+
 	// Registered listeners (the conservation-law shape -- never log greps).
 	CompleteCount = 0;
 	FailedCount = 0;
