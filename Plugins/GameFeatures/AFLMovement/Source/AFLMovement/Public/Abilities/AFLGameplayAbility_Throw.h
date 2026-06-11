@@ -22,9 +22,11 @@
  * grab's own EndAbility ReleaseActor() call hits the !Target early-return (and the rifle was already
  * restored by the full release that ran here).
  *
- * Aim source = PlayerController->GetControlRotation().Vector() -- ability-side CLIENT aim; never
- * GetPlayerViewPoint (AFL lint rail). Server-side validation of the claimed throw ray (the hitscan
- * claimed-ray pattern) is a NAMED FUTURE item for the netcode pass.
+ * Aim source = PlayerController->GetControlRotation().Vector(); never GetPlayerViewPoint (AFL lint
+ * rail). Server-side validation: RESOLVED BY ARCHITECTURE (2-client cycle 1, D-F4) -- no claimed dir
+ * ever ships; each LocalPredicted instance recomputes from its own ControlRotation and the authority
+ * impulse (ReleaseActor physics, authority-gated) uses the SERVER recompute. Rotation-rate sanity
+ * folds into the shared AFL-0213 per-pawn budget when that lands.
  *
  * Not abstract: it has no per-asset class refs to author, so the AbilitySet grants this C++ class
  * directly (a BP child only becomes necessary if a cooldown/cost GE is added later).

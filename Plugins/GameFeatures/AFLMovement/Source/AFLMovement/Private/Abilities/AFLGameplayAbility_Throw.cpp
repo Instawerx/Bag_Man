@@ -50,9 +50,13 @@ void UAFLGameplayAbility_Throw::ActivateAbility(
 		return;
 	}
 
-	// Aim = controller view direction, FULL 3D (pitch throws up-slope / down-slope). Ability-side CLIENT
-	// aim -- never GetPlayerViewPoint (AFL lint rail). Server-side validation of the claimed throw ray is a
-	// NAMED FUTURE item (netcode pass; the hitscan claimed-ray pattern is the template).
+	// Aim = controller view direction, FULL 3D (pitch throws up-slope / down-slope). Never
+	// GetPlayerViewPoint (AFL lint rail). SERVER-SIDE VALIDATION: RESOLVED BY ARCHITECTURE (2-client
+	// cycle 1, D-F4): no claimed dir ever ships -- each LocalPredicted instance recomputes from ITS OWN
+	// ControlRotation, and the authoritative impulse (ReleaseActor physics, authority-gated) uses the
+	// SERVER instance's recompute. The client's dir drives only its local cosmetic prediction. The
+	// residual trust surface is ControlRotation replication itself (shared with ALL aiming); rotation-
+	// rate sanity folds into the shared AFL-0213 per-pawn budget when that lands.
 	const APlayerController* PC = ActorInfo ? ActorInfo->PlayerController.Get() : nullptr;
 	const FVector AimDir = PC ? PC->GetControlRotation().Vector()
 	                          : (Avatar ? Avatar->GetActorForwardVector() : FVector::ForwardVector);
