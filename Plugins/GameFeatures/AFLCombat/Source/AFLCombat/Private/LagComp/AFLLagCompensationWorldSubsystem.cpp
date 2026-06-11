@@ -5,10 +5,30 @@
 #include "AFLCombat.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
+#include "HAL/IConsoleManager.h"
+#include "Misc/StringBuilder.h"
 #include "GameFramework/PlayerController.h"
 #include "LagComp/AFLPawnHitboxHistoryComponent.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLLagCompensationWorldSubsystem)
+
+// ─── Cycle-3 sweep diagnostic (instrument-then-fix) ─────────────────────────────────────────────
+// Observe-only: when enabled, every ConfirmHit ALSO evaluates candidate rewind depths and logs one
+// AFL_LAGCOMP_SWEEP line per shot. The REAL verdict path is untouched -- the passed delta (today:
+// FULL RTT at the Pulse call site) still decides accept/reject. Under test: the call-site divergence
+// from this subsystem's own documented formula (RewindWorldFor's contract + master doc Sec. 7.4 both
+// say ClampedRTT = min(RTT/2 + interp, 0.2)). The sweep names the winning dt EMPIRICALLY before any
+// formula change. Tokens are non-mutating + re-entrant (header contract), so N rewinds per confirm
+// are structurally safe; cost ~= N * (3 components x <=8 bone lerps) -- well under the 200us budget.
+static TAutoConsoleVariable<int32> CVarAFLLagCompSweepDiagnostic(
+	TEXT("afl.LagComp.SweepDiagnostic"),
+	0,
+	TEXT("1 = log an AFL_LAGCOMP_SWEEP line per ConfirmHit evaluating candidate rewind depths {0, RTT/4, RTT/2, RTT/2+interp, RTT}. Observe-only; the real verdict is unchanged."));
+
+static TAutoConsoleVariable<float> CVarAFLLagCompInterpEstimateMs(
+	TEXT("afl.LagComp.InterpEstimateMs"),
+	30.0f,
+	TEXT("Estimated client view staleness (ms) beyond one-way transit, used by the sweep's RTT/2+interp candidate. Calibrated by the sweep itself (the miss-cm gradient)."));
 
 
 bool FAFLLagRewindToken::QueryBoneTransform(const AActor* Target, FName BoneName, FTransform& OutWorldXForm) const
@@ -234,6 +254,46 @@ bool UAFLLagCompensationWorldSubsystem::ConfirmHit(APlayerController* Requesting
 		RequestingPawn ? static_cast<int32>(RequestingPawn->GetLocalRole()) : 0);
 
 	RestoreWorld(Token);
+
+	// Cycle-3 multi-dt sweep (cvar-gated, observe-only -- see the cvar comment at file top). Candidates
+	// derive from the PASSED delta, which at today's Pulse call site is full RTT -- the quantity whose
+	// correctness is under test.
+	if (CVarAFLLagCompSweepDiagnostic.GetValueOnGameThread() != 0 && World)
+	{
+		const float InterpS = CVarAFLLagCompInterpEstimateMs.GetValueOnGameThread() * 0.001f;
+		const float RTT = RewindDeltaSeconds;
+		const float Candidates[5] = { 0.0f, RTT * 0.25f, RTT * 0.5f, RTT * 0.5f + InterpS, RTT };
+
+		static int32 GSweepShotCounter = 0;
+		++GSweepShotCounter;
+
+		TStringBuilder<512> Line;
+		Line.Appendf(TEXT("AFL_LAGCOMP_SWEEP shot=%d claimed=(%.0f, %.0f, %.0f) rtt=%.3f"),
+			GSweepShotCounter, ImpactPoint.X, ImpactPoint.Y, ImpactPoint.Z, RTT);
+
+		for (const float CandDt : Candidates)
+		{
+			FAFLLagRewindToken CandToken = RewindWorldFor(RequestingPC,
+				static_cast<float>(World->GetTimeSeconds()) - CandDt);
+
+			// Mirror the real path exactly: tight bone box -> 30cm pad -> point test; empty-token
+			// default-accept (miss reads -1 = no data, distinguishable from a true inside-hit 0).
+			bool bCandHit = true;
+			float MissCm = -1.0f;
+			FBox CandBox(ForceInit);
+			if (CandToken.Entries.Num() > 0 && CandToken.BuildBoundingBox(TargetActor, CandBox))
+			{
+				const FBox Padded = CandBox.ExpandBy(30.0f);
+				bCandHit = Padded.IsInsideOrOn(ImpactPoint);
+				MissCm = bCandHit ? 0.0f : FMath::Sqrt(static_cast<float>(Padded.ComputeSquaredDistanceToPoint(ImpactPoint)));
+			}
+			RestoreWorld(CandToken);
+
+			Line.Appendf(TEXT(" | dt=%.3f miss=%.1f hit=%d"), CandDt, MissCm, bCandHit ? 1 : 0);
+		}
+
+		UE_LOG(LogAFLCombat, Log, TEXT("%s"), Line.ToString());
+	}
 
 	return bGeometricallyValid;
 }
