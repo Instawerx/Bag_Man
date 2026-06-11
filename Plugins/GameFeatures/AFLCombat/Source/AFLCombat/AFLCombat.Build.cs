@@ -45,6 +45,9 @@ public class AFLCombat : ModuleRules
 			{
 				"Slate",
 				"SlateCore",
+				// Energy cycle 2: UAFLW_EnergyMeter (the HUD meter's C++ binding half -- BP graph
+				// authoring is bridge-hostile, so the delegate work lives in code).
+				"UMG",
 				"Niagara",
 				// AFL-0208: IAFLBeamEndpointProvider, implemented by UAFLBeamChannelComponent.
 				// AFLVFX is the always-on root cosmetic plugin that owns the beam-cue contract;
