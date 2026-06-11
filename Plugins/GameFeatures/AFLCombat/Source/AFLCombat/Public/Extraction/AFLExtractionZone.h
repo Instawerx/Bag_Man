@@ -4,11 +4,22 @@
 
 #include "GameFramework/Actor.h"
 #include "GameplayEffectTypes.h"
+#include "GameplayTagContainer.h"
 
 #include "AFLExtractionZone.generated.h"
 
 class USphereComponent;
 class UGameplayEffect;
+class UStaticMeshComponent;
+
+/** Zone breathing state (match phases cycle 1). Contested lands here as a third value later -- the
+ *  documented zero-rework seam, now spending its first state pair. */
+UENUM(BlueprintType)
+enum class EAFLZoneState : uint8
+{
+	Inactive,   // no window open: dispenses nothing, disc dim.
+	Active      // extraction window open: dispenses State.InExtractionZone, disc bright.
+};
 
 /**
  * AAFLExtractionZone  (extraction cycle 1 -- S8 AFL-0802 thin cut: ONE always-active zone)
@@ -40,9 +51,32 @@ class AFLCOMBAT_API AAFLExtractionZone : public AActor
 public:
 	AAFLExtractionZone();
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	/** Harness-only direct activator (afl.Extract.Test.Run spawns a bare zone with no driver to
+	 *  observe). Routes to the same SetZoneActive the phase observer would call. */
+	void SetZoneActiveForTest(bool bActive) { SetZoneActive(bActive); }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	/** Authority: flip the zone between dispensing/dim and dispensing/bright. Active->Inactive sweeps
+	 *  all live handles (RemoveAllZoneEffects) so State.InExtractionZone drops mid-channel and the GA's
+	 *  existing zone-exit self-cancel fires -- energy retained, ZERO new GA code (leg-3 chain). */
+	void SetZoneActive(bool bActive);
+
+	UFUNCTION()
+	void OnRep_ZoneState();
+
+	/** Phase-observer callbacks. MUST be UFUNCTIONs: the subsystem's observer API is reached through
+	 *  K2_WhenPhaseStartsOrIsActive / K2_WhenPhaseEnds (the plain-C++ overloads are not LYRAGAME_API
+	 *  exported), which take DYNAMIC delegates -- bound via BindDynamic against these. */
+	UFUNCTION()
+	void HandleWindowPhaseActive(const FGameplayTag& PhaseTag);
+
+	UFUNCTION()
+	void HandleWindowPhaseEnded(const FGameplayTag& PhaseTag);
 
 	UFUNCTION()
 	void OnZoneBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
@@ -60,9 +94,44 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Extraction")
 	TSubclassOf<UGameplayEffect> ZoneEffectClass;
 
+	/** The window phase this zone listens to (default AFL.GamePhase.Playing.ExtractionWindow). The
+	 *  zone observes it via the phase subsystem -> SetZoneActive on start/end. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Extraction")
+	FGameplayTag WindowPhaseTag;
+
+	/** Replicated breathing state -> OnRep drives the disc visual on every client. */
+	UPROPERTY(ReplicatedUsing = OnRep_ZoneState)
+	EAFLZoneState ZoneState = EAFLZoneState::Inactive;
+
+	/** The glow disc whose visibility the state swap drives. Resolved by name from the BP child's
+	 *  components at BeginPlay (the cycle-1 zone BP roots a "GlowDisc" StaticMeshComponent). NOTE: this
+	 *  C++ field is deliberately NOT named "GlowDisc" -- a UPROPERTY sharing the BP component's name
+	 *  collides on BP compile ("another object GlowDisc already exists in scope"). The resolver below
+	 *  finds the BP's "GlowDisc" component by name-contains; this just holds the resolved pointer. */
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMeshComponent> GlowDiscComp;
+
+	/** Emissive multipliers the OnRep applies via the disc MID (Inactive dim / Active bright). */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Extraction")
+	float DimEmissive = 0.15f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Extraction")
+	float BrightEmissive = 4.0f;
+
 private:
+	/** Apply the dispenser GE to a pawn (the overlap-begin path; also re-applied to everyone inside
+	 *  when a window opens). No-op if already tracked or the zone is Inactive. */
+	void TryDispenseTo(AActor* PawnActor);
+
+	/** Remove + forget EVERY live handle (the EndPlay sweep, now shared with the window-close path). */
+	void RemoveAllZoneEffects();
+
 	/** Live per-pawn handles (the carrier-GE handle-tracking precedent). Weak keys: a pawn that
 	 *  dies/despawns inside the zone takes its ASC (and the GE) with it -- stale entries are
 	 *  swept on EndOverlap/EndPlay, never double-removed. */
 	TMap<TWeakObjectPtr<AActor>, FActiveGameplayEffectHandle> ZoneEffectHandles;
+
+	/** Disc MID cached for the emissive swap (created from the GlowDisc material at BeginPlay). */
+	UPROPERTY(Transient)
+	TObjectPtr<class UMaterialInstanceDynamic> GlowMID;
 };
