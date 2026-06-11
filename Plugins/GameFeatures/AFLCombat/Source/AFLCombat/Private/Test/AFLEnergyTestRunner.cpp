@@ -4,9 +4,15 @@
 
 #include "AFLCombat.h"
 #include "AbilitySystemGlobals.h"
+#include "AbilitySystem/LyraAbilitySystemComponent.h"
+#include "Attributes/AFLAttributeSet_Combat.h"
 #include "Attributes/AFLAttributeSet_Energy.h"
 #include "Energy/AFLEnergyPickup.h"
 #include "Engine/Engine.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "HAL/IConsoleManager.h"
+#include "Targeting/AFLLagTestDummy.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/CheatManagerDefines.h"
@@ -22,6 +28,8 @@
 TWeakObjectPtr<UAFLEnergyTestRunner> UAFLEnergyTestRunner::ActiveRun;
 
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Energy_ThresholdReached_EnergyRun, "Event.Energy.ThresholdReached");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Energy_Overdrive_EnergyRun, "State.Energy.Overdrive");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Input_Weapon_Fire_EnergyRun, "InputTag.Weapon.Fire");
 
 
 void UAFLEnergyTestRunner::RunInWorld(UWorld* World)
@@ -86,6 +94,18 @@ bool UAFLEnergyTestRunner::StartRun(UWorld* World)
 		});
 
 	Energy0 = ReadCarriedEnergy();
+	BaselineWalkSpeed = ReadPawnMaxWalkSpeed();
+
+	// Run the drain FAST so the full-consumption exit is assertable in seconds -- but not so fast the
+	// overdriven shot loses its window: the SetByCaller magnitude is CAPTURED AT APPLY, so the rate
+	// cannot be re-paced mid-buff. 15/s: crossing at ~85-100 energy -> tag holds ~6s (the shot fires
+	// ~2.5s in), exit well inside the 8s wait. Restored at FinishRun; cvars are process-global.
+	if (IConsoleVariable* DrainVar = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.Energy.DrainPerSecond")))
+	{
+		DrainCvarRestore = DrainVar->GetFloat();
+		DrainVar->Set(15.0f, ECVF_SetByConsole);
+	}
+
 	Step = EStep::Burst1;
 	StepTimer = 0.0f;
 	bRunning = true;
@@ -179,7 +199,127 @@ void UAFLEnergyTestRunner::Tick(float DeltaTime)
 		{
 			Check(CollectedCount == 9 && FMath::Abs(CollectedSum - 150.0f) <= 0.5f,
 				FString::Printf(TEXT("burst 2 fully collected (count %d expect 9, sum %.1f expect 150)"), CollectedCount, CollectedSum));
-			EnergyPreDeath = ReadCarriedEnergy();
+			Step = EStep::OD_AssertEntered; StepTimer = 0.0f;
+		}
+		break;
+	}
+	// ---- Energy cycle 2: the overdrive leg ---------------------------------------------------------
+	case EStep::OD_AssertEntered:
+	{
+		// Crossing 80 during burst-2 collects should have entered overdrive (listener-applied buff).
+		const float SpeedNow = ReadPawnMaxWalkSpeed();
+		Check(HasOverdriveTag(), TEXT("State.Energy.Overdrive UP after crossing 80 (listener-applied buff, no GA)"));
+		Check(SpeedNow > BaselineWalkSpeed * 1.10f,
+			FString::Printf(TEXT("CMC speed swapped (baseline %.0f -> %.0f, expect x1.15)"), BaselineWalkSpeed, SpeedNow));
+		Step = EStep::OD_OverdrivenShot; StepTimer = 0.0f;
+		break;
+	}
+	case EStep::OD_OverdrivenShot:
+	{
+		// Damage pair, shot A (overdriven): pin the aim at the lag dummy (process-global cvar) and
+		// fire the REAL pulse through the input seam -- the ExecCalc multiplies x1.25 off the
+		// captured SOURCE tags.
+		DummyHealthBefore = ReadDummyHealth();
+		// ReadDummyHealth() returns -1 when no dummy exists, and (-1) - (-1) = 0 reads exactly like a
+		// blocked shot (run-4 ambiguity). Pin the precondition explicitly so an absent dummy fails LOUD.
+		Check(DummyHealthBefore > 0.0f,
+			FString::Printf(TEXT("lag dummy present for the damage pair (health %.1f)"), DummyHealthBefore));
+		if (IConsoleVariable* PinVar = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.LagComp.AimAtDummy")))
+		{
+			PinVar->Set(1, ECVF_SetByConsole);
+		}
+		PairRetries = 0;
+		PressFire();
+		Marker(TEXT("overdriven shot fired at the dummy (pinned aim)"));
+		Step = EStep::OD_ReadHit1; StepTimer = 0.0f;
+		break;
+	}
+	case EStep::OD_ReadHit1:
+	{
+		if (StepTimer >= 1.0f)
+		{
+			OverdrivenHitDelta = DummyHealthBefore - ReadDummyHealth();
+			// Transient-blocker retry (header comment at PairRetries). The overdriven leg additionally
+			// requires the tag still UP at re-fire -- a drained-out "hit" would not be an overdriven shot.
+			if (OverdrivenHitDelta <= 0.0f && PairRetries < 3 && HasOverdriveTag())
+			{
+				++PairRetries;
+				Marker(FString::Printf(TEXT("overdriven shot blocked/missed -- retry %d/3 (pin AFL_LAGCOMP_PIN names the blocker)"), PairRetries));
+				DummyHealthBefore = ReadDummyHealth();
+				PressFire();
+				StepTimer = 0.0f;
+				break;
+			}
+			Check(OverdrivenHitDelta > 0.0f,
+				FString::Printf(TEXT("overdriven hit landed (dummy -%.1f, retries %d)"), OverdrivenHitDelta, PairRetries));
+			Marker(TEXT("waiting out the fast drain to the energy-0 exit..."));
+			Step = EStep::OD_AssertDrainExit; StepTimer = 0.0f;
+		}
+		break;
+	}
+	case EStep::OD_AssertDrainExit:
+	{
+		// ~100 energy at 15/s = ~6.7s to zero from the crossing; 8s from here covers it with margin.
+		if (StepTimer >= 8.0f)
+		{
+			const float Energy = ReadCarriedEnergy();
+			const float SpeedNow = ReadPawnMaxWalkSpeed();
+			Check(Energy <= 0.5f, FString::Printf(TEXT("drain consumed the meter (energy %.1f)"), Energy));
+			Check(!HasOverdriveTag(), TEXT("State.Energy.Overdrive DOWN at energy 0 (handle-removed exit)"));
+			Check(FMath::Abs(SpeedNow - BaselineWalkSpeed) <= 1.0f,
+				FString::Printf(TEXT("CMC speed restored (%.0f, baseline %.0f)"), SpeedNow, BaselineWalkSpeed));
+			Step = EStep::OD_ControlShot; StepTimer = 0.0f;
+		}
+		break;
+	}
+	case EStep::OD_ControlShot:
+	{
+		// Damage pair, shot B (NOT overdriven): same pinned aim, same pipeline.
+		DummyHealthBefore = ReadDummyHealth();
+		PairRetries = 0;
+		PressFire();
+		Marker(TEXT("control shot fired (overdrive off)"));
+		Step = EStep::OD_AssertRatio_Retrigger; StepTimer = 0.0f;
+		break;
+	}
+	case EStep::OD_AssertRatio_Retrigger:
+	{
+		if (StepTimer >= 1.0f)
+		{
+			const float ControlDelta = DummyHealthBefore - ReadDummyHealth();
+			// Same transient-blocker retry as the overdriven leg (run 4: this exact shot hit a body that
+			// had wandered into the swept ray). Pin stays armed until the pair is settled.
+			if (ControlDelta <= 0.0f && PairRetries < 3)
+			{
+				++PairRetries;
+				Marker(FString::Printf(TEXT("control shot blocked/missed -- retry %d/3 (pin AFL_LAGCOMP_PIN names the blocker)"), PairRetries));
+				DummyHealthBefore = ReadDummyHealth();
+				PressFire();
+				StepTimer = 0.0f;
+				break;
+			}
+			if (IConsoleVariable* PinVar = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.LagComp.AimAtDummy")))
+			{
+				PinVar->Set(0, ECVF_SetByConsole);
+			}
+			const float Ratio = (ControlDelta > 0.0f) ? OverdrivenHitDelta / ControlDelta : -1.0f;
+			Check(ControlDelta > 0.0f && FMath::Abs(Ratio - 1.25f) <= 0.08f,
+				FString::Printf(TEXT("damage pair ratio %.3f (overdriven %.1f / control %.1f, retries %d, expect 1.25)"),
+					Ratio, OverdrivenHitDelta, ControlDelta, PairRetries));
+			// Re-trigger: fresh ring + teleport-in -- crossing 80 again must re-enter (hysteresis works).
+			Console(TEXT("afl.Energy.SpawnBurst M 4"));
+			RingCenter = Pawn->GetActorLocation() + Pawn->GetActorForwardVector() * 700.0f;
+			Pawn->SetActorLocation(RingCenter + FVector(-350.0f, 0.0f, 0.0f), false, nullptr, ETeleportType::TeleportPhysics);
+			Marker(TEXT("re-trigger ring: collecting past 80 again"));
+			Step = EStep::OD_AssertRetriggered; StepTimer = 0.0f;
+		}
+		break;
+	}
+	case EStep::OD_AssertRetriggered:
+	{
+		if (StepTimer >= 4.0f)
+		{
+			Check(HasOverdriveTag(), TEXT("overdrive RE-ENTERED on the second upward crossing (hysteresis intact)"));
 			Step = EStep::DeathLeg; StepTimer = 0.0f;
 		}
 		break;
@@ -187,6 +327,7 @@ void UAFLEnergyTestRunner::Tick(float DeltaTime)
 	case EStep::DeathLeg:
 	{
 		CollectedSumAtDeath = CollectedSum; // baseline for the re-collected-drop evidence below
+		EnergyPreDeath = ReadCarriedEnergy(); // read in the SAME frame as the kill -- the drain is live
 		Console(TEXT("AFL.Combat.Damage 200"));
 		Marker(TEXT("death leg: lethal self-damage -- watch the burst scatter at the corpse on BOTH screens"));
 		Step = EStep::AssertDeathBurst; StepTimer = 0.0f;
@@ -197,17 +338,28 @@ void UAFLEnergyTestRunner::Tick(float DeltaTime)
 		if (StepTimer >= 2.0f)
 		{
 			const float Energy = ReadCarriedEnergy();
-			const float ExpectedRemain = EnergyPreDeath * 0.3f;
 			float MeanUnused = 0.0f;
 			const int32 CountNow = CountPickups(MeanUnused);
+			const float OnGroundSum = SumOnGroundEnergy();
 			const float DeathDropSum = CollectedSum - CollectedSumAtDeath; // re-collected drop portion
 			// The drop is proven by EITHER pickups still on the ground OR their collections having
 			// landed in the conservation sum (run-1: the other player vacuumed the burst in <300ms).
 			Check(CountNow > 0 || DeathDropSum > 0.0f,
 				FString::Printf(TEXT("death burst observable (on-ground %d, re-collected sum %.1f)"), CountNow, DeathDropSum));
-			Check(EnergyPreDeath < 1.0f || FMath::Abs(Energy - ExpectedRemain) <= 6.0f,
-				FString::Printf(TEXT("victim CarriedEnergy reduced through the rail (%.1f -> %.1f, expect ~%.1f at 70%%)"),
-					EnergyPreDeath, Energy, ExpectedRemain));
+			// Run-4 lesson: the victim is reduced by what was actually SPAWNED, and ceil-S tiering
+			// legitimately overshoots the 70% floor (55 -> 1M+2S = 45 dropped, not 38.5). Asserting
+			// "remain == pre x 30%" was the HARNESS lying about the component's contract. The contract
+			// is CONSERVATION: reduction == dropped (on-ground + already-re-collected), dropped >= floor.
+			const float Dropped = OnGroundSum + DeathDropSum;
+			Check(EnergyPreDeath < 1.0f || FMath::Abs((EnergyPreDeath - Energy) - Dropped) <= 0.5f,
+				FString::Printf(TEXT("victim reduction conserves into the drop (%.1f -> %.1f, dropped %.1f = ground %.1f + re-collected %.1f)"),
+					EnergyPreDeath, Energy, Dropped, OnGroundSum, DeathDropSum));
+			Check(EnergyPreDeath < 1.0f || Dropped >= EnergyPreDeath * 0.7f - 0.25f,
+				FString::Printf(TEXT("dropped %.1f meets the 70%% floor of %.1f (ceil-S may overshoot)"),
+					Dropped, EnergyPreDeath * 0.7f));
+			// Cycle 2: death must also strip the buff (explicit handle removal -- Lyra leaves
+			// Infinite GEs on the PlayerState ASC across respawn).
+			Check(!HasOverdriveTag(), TEXT("overdrive removed at death (no buff rides into the next life)"));
 			Step = EStep::Finish; StepTimer = 0.0f;
 		}
 		break;
@@ -234,6 +386,15 @@ void UAFLEnergyTestRunner::FinishRun()
 	{
 		CollectListener.Unregister();
 	}
+	// Restore the drain rate + disarm the pin (the runner armed both).
+	if (IConsoleVariable* DrainVar = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.Energy.DrainPerSecond")))
+	{
+		DrainVar->Set(DrainCvarRestore, ECVF_SetByConsole);
+	}
+	if (IConsoleVariable* PinVar = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.LagComp.AimAtDummy")))
+	{
+		PinVar->Set(0, ECVF_SetByConsole);
+	}
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_ENERGYRUN[%s] SUMMARY total: %d checks, %d failed."), *NetTag(), ChecksTotal, ChecksFailed);
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_ENERGYRUN[%s] COMPLETE"), *NetTag());
 	Marker(FString::Printf(TEXT("COMPLETE -- %d checks, %d failed. Stop PIE for log verification."), ChecksTotal, ChecksFailed));
@@ -259,11 +420,55 @@ int32 UAFLEnergyTestRunner::CountPickups(float& OutMeanDistToPawn) const
 	return Count;
 }
 
+float UAFLEnergyTestRunner::SumOnGroundEnergy() const
+{
+	float Sum = 0.0f;
+	for (TActorIterator<AAFLEnergyPickup> It(WorldPtr.Get()); It; ++It)
+	{
+		Sum += It->GetEnergyValue();
+	}
+	return Sum;
+}
+
 float UAFLEnergyTestRunner::ReadCarriedEnergy() const
 {
 	// Same-module direct read -- alias-proof by construction (the stringly reader is the
 	// cross-module fallback only; the Lyra-HealthSet alias lesson does not apply here).
 	return ASC.IsValid() ? ASC->GetNumericAttribute(UAFLAttributeSet_Energy::GetCarriedEnergyAttribute()) : -1.0f;
+}
+
+float UAFLEnergyTestRunner::ReadDummyHealth() const
+{
+	for (TActorIterator<AAFLLagTestDummy> It(WorldPtr.Get()); It; ++It)
+	{
+		if (UAbilitySystemComponent* DummyASC = It->GetAbilitySystemComponent())
+		{
+			return DummyASC->GetNumericAttribute(UAFLAttributeSet_Combat::GetHealthAttribute());
+		}
+	}
+	return -1.0f;
+}
+
+float UAFLEnergyTestRunner::ReadPawnMaxWalkSpeed() const
+{
+	const ACharacter* Character = Cast<ACharacter>(Pawn.Get());
+	const UCharacterMovementComponent* Movement = Character ? Character->GetCharacterMovement() : nullptr;
+	return Movement ? Movement->MaxWalkSpeed : -1.0f;
+}
+
+bool UAFLEnergyTestRunner::HasOverdriveTag() const
+{
+	return ASC.IsValid() && ASC->HasMatchingGameplayTag(TAG_State_Energy_Overdrive_EnergyRun);
+}
+
+void UAFLEnergyTestRunner::PressFire()
+{
+	// The real input seam (the lag-comp runner primitive): press+release back-to-back.
+	if (ULyraAbilitySystemComponent* LyraASC = Cast<ULyraAbilitySystemComponent>(ASC.Get()))
+	{
+		LyraASC->AbilityInputTagPressed(TAG_Input_Weapon_Fire_EnergyRun);
+		LyraASC->AbilityInputTagReleased(TAG_Input_Weapon_Fire_EnergyRun);
+	}
 }
 
 void UAFLEnergyTestRunner::Console(const FString& Cmd)

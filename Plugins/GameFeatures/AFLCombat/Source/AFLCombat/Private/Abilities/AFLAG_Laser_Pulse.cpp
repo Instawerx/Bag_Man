@@ -486,6 +486,16 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 		Hit.ImpactPoint = EndTrace;
 	}
 
+	// Pinned-shot trace receipt (test-only path): energy run 4's control shot read delta-0 with a
+	// geometrically perfect ray and NOTHING named what ate it. One line makes the next transient
+	// blocker (a strafed-in pawn, a map prop) legible instead of a guess.
+	if (bAimPinned)
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LAGCOMP_PIN trace: %s at %.0fuu"),
+			Hit.GetActor() ? *Hit.GetActor()->GetName() : TEXT("NO-BLOCK (full-range miss)"),
+			static_cast<float>(FVector::Dist(ViewLocation, Hit.ImpactPoint)));
+	}
+
 	// Pack into the AFL target-data struct. NewTargetData ownership transfers
 	// to the FGameplayAbilityTargetDataHandle via Add(); the handle's destructor
 	// deletes it. Heap-allocation is the convention for target-data structs

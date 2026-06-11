@@ -44,14 +44,23 @@ private:
 	enum class EStep : uint8
 	{
 		Burst1, AssertCountStable, TeleportIn, AssertPull, AssertCollected_Burst2,
-		AssertCollected2, DeathLeg, AssertDeathBurst, Finish
+		AssertCollected2,
+		// Energy cycle 2 -- the overdrive leg (the drain cvar runs fast, set by this runner):
+		OD_AssertEntered, OD_OverdrivenShot, OD_ReadHit1, OD_AssertDrainExit, OD_ControlShot,
+		OD_AssertRatio_Retrigger, OD_AssertRetriggered,
+		DeathLeg, AssertDeathBurst, Finish
 	};
 
 	bool StartRun(UWorld* World);
 	void FinishRun();
 
 	int32 CountPickups(float& OutMeanDistToPawn) const;
+	float SumOnGroundEnergy() const;        // death-leg conservation instrument (sum of live pickups' values)
 	float ReadCarriedEnergy() const;
+	float ReadDummyHealth() const;          // overdrive damage-pair instrument (lag dummy Combat set)
+	float ReadPawnMaxWalkSpeed() const;     // overdrive speed-swap instrument (CMC read)
+	bool HasOverdriveTag() const;
+	void PressFire();                       // real input seam (the lag-comp runner primitive)
 	void Console(const FString& Cmd);
 	FString NetTag() const;
 	void Marker(const FString& Msg) const;
@@ -74,6 +83,17 @@ private:
 	float CollectedSum = 0.0f;
 	float CollectedSumAtDeath = 0.0f;
 	FVector RingCenter = FVector::ZeroVector;
+
+	// -- overdrive leg state (cycle 2) --
+	float BaselineWalkSpeed = 0.0f;     // captured at StartRun, pre-overdrive
+	float DrainCvarRestore = 5.0f;      // the runner runs the drain fast (15/s) and restores after
+	float DummyHealthBefore = 0.0f;
+	float OverdrivenHitDelta = 0.0f;
+	/** Run-4 lesson: a pinned ray is deterministic but the WORLD is not -- the strafing dummy plus a
+	 *  free-roaming second player means any single shot can be transiently blocked (run 4: the control
+	 *  shot's ray swept ~95uu across to where the client pawn stood; delta 0; ratio incomputable). Each
+	 *  pair leg re-fires up to 3 times on a zero delta; the assert judges the first CLEAN hit. */
+	int32 PairRetries = 0;
 
 	EStep Step = EStep::Burst1;
 	float StepTimer = 0.0f;
