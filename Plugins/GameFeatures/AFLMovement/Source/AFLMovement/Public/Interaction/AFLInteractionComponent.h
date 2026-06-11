@@ -149,6 +149,13 @@ private:
 	 *  force-release (drop). The drop-on-damage half of the carry pressure loop (climb's sibling). */
 	void HandleDamageConfirmed(FGameplayTag Channel, const FAFLHitConfirmMessage& Msg);
 
+	/** Cancel the owning ASC's active grab ability (the throw's cancel-by-class seam, reused). The forced
+	 *  release paths call this AFTER ReleaseActor so EVERY exit funnels through the grab's EndAbility --
+	 *  the single State.Carrying (+ per-object carrier GE) removal site. EndAbility's own ReleaseActor()
+	 *  then no-ops on the !Target guard (the proven double-release protection). Without this, a forced
+	 *  drop left the ability active and the carry tag applied until the next G press (the leak). */
+	void CancelOwningGrabAbility();
+
 	/** Holster the equipped weapon during carry (mirror climb's holster) so the rifle's upper-body anim layer
 	 *  doesn't fight the grab reach + hold. Hide on grab, restore on release. */
 	void HolsterEquippedWeapon();

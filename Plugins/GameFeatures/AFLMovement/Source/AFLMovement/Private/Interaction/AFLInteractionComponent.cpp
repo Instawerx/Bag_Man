@@ -3,6 +3,7 @@
 #include "Interaction/AFLInteractionComponent.h"
 
 #include "AFLMovement.h"
+#include "Abilities/AFLGameplayAbility_Grab.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Animation/AnimClassInterface.h"
@@ -157,6 +158,12 @@ void UAFLInteractionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (CarriedActor.IsValid())
 	{
 		ReleaseActor();
+		// Teardown while carrying (pawn death/destroy): the grab ability lives on the PlayerState ASC,
+		// which OUTLIVES this pawn -- without the cancel, State.Carrying (+ the per-object carrier GE)
+		// rides across the respawn. Safe here: EndAbility's avatar-side work is null-guarded, its
+		// ReleaseActor() no-ops (!Target), and at world death CachedASC is stale so the helper early-outs
+		// (GE removal moot when the whole ASC is going away).
+		CancelOwningGrabAbility();
 	}
 	UnbindFromAbilitySystem();
 	Super::EndPlay(EndPlayReason);
@@ -226,7 +233,8 @@ void UAFLInteractionComponent::HandleClimbTagChanged(const FGameplayTag Tag, int
 	if (NewCount > 0 && CarriedActor.IsValid())
 	{
 		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: forced-release (reason=climb-start)."));
-		ReleaseActor();
+		ReleaseActor();            // Drop-mode release with the policy impulse (semantics unchanged).
+		CancelOwningGrabAbility(); // funnel: the grab's EndAbility clears State.Carrying (leak fix).
 	}
 }
 
@@ -257,7 +265,27 @@ void UAFLInteractionComponent::HandleDamageConfirmed(FGameplayTag Channel, const
 
 	UE_LOG(LogAFLMovement, Log, TEXT("[AFLInteraction] forced-release (reason=damage, dmg=%.1f bone=%s)"),
 		Msg.Damage, *Msg.BoneName.ToString());
-	ReleaseActor(); // bare = Drop mode -- the climb forced-drop funnel.
+	ReleaseActor();            // Drop-mode release with the policy impulse (the climb forced-drop shape).
+	CancelOwningGrabAbility(); // funnel: the grab's EndAbility clears State.Carrying (leak fix).
+}
+
+void UAFLInteractionComponent::CancelOwningGrabAbility()
+{
+	UAbilitySystemComponent* ASC = CachedASC.Get();
+	if (!ASC)
+	{
+		return;
+	}
+	// The throw's cancel-by-class seam (UAFLGameplayAbility_Throw), reused: find the active grab spec and
+	// cancel it so its EndAbility -- the single state-removal funnel -- runs exactly once. Safe re-entrant:
+	// EndAbility's ReleaseActor() no-ops (CarriedActor already cleared by the release that preceded us).
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (Spec.Ability && Spec.IsActive() && Spec.Ability->IsA<UAFLGameplayAbility_Grab>())
+		{
+			ASC->CancelAbilityHandle(Spec.Handle);
+		}
+	}
 }
 
 UAFLObjectClassAnimSet* UAFLInteractionComponent::ResolveAndCacheAnimSet(const FAFLGrabPolicy& Policy)
