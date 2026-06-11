@@ -36,6 +36,7 @@
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Ability_Laser_Pulse, "Ability.Laser.Pulse");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Pulse, "State.Firing.Pulse");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_Pulse, "State.Carrying");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_ThrowRecovery_Pulse, "State.Weapon.ThrowRecovery");
 
 // AFL-0301: muzzle cue fired once per local shot from ClientPredictAndSend.
 // File-specific symbol suffix matches the HYG-001 / AFLCombat Unity-build
@@ -102,6 +103,10 @@ UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
 	// (ActivationRequiredTags=State.Carrying); this block is the other half of that arbitration -- the
 	// holstered (hidden but still equipped) rifle must not fire under the carry. Tag clears on release.
 	ActivationBlockedTags.AddTag(TAG_State_Carrying_Pulse);
+
+	// ...and the press that THREW must not fire either: the throw applies GE_AFL_ThrowRecovery (0.4s)
+	// granting this tag, covering the post-throw frames where the carry tag is already gone.
+	ActivationBlockedTags.AddTag(TAG_State_ThrowRecovery_Pulse);
 
 	// Cooldown tag declared in AFLCombatTags.ini (Cooldown.Weapon.Pulse). The
 	// concrete Cooldown GE is wired by the AbilitySet data asset in AFL-0214.

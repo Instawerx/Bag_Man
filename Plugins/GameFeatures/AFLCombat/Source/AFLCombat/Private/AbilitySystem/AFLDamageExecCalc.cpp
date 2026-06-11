@@ -7,7 +7,7 @@
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
-#include "HUD/AFLHitConfirmMessage.h"
+#include "Messages/AFLHitConfirmMessage.h"   // AFLCore (relocated -- drop-on-damage cycle)
 #include "HUD/AFLOverkillMessage.h"
 #include "Messages/LyraVerbMessage.h"
 #include "Telemetry/AFLCombatTelemetry.h"

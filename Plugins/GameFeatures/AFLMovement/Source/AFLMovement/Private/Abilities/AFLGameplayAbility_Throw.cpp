@@ -5,12 +5,11 @@
 #include "AFLMovement.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/AFLGameplayAbility_Grab.h"
-#include "Engine/World.h"
+#include "Effects/GE_AFL_ThrowRecovery.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/PlayerController.h"
 #include "Interaction/AFLInteractionComponent.h"
 #include "NativeGameplayTags.h"
-#include "TimerManager.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLGameplayAbility_Throw)
 
@@ -27,13 +26,6 @@ UAFLGameplayAbility_Throw::UAFLGameplayAbility_Throw(const FObjectInitializer& O
 	// The whole gate: no carry, no throw. While carrying, this ability owns the shared input; after the
 	// throw the tag clears (grab GA teardown removes the carry GE) and the input returns to the weapon.
 	ActivationRequiredTags.AddTag(TAG_Throw_State_Carrying);
-
-	// Hold the gate OURSELVES for the activation's lifetime: the throw tears the carry GE down
-	// mid-input-pass, and without this the pulse ability (same LMB press, same frame, later in Lyra's
-	// ProcessAbilityInput loop) sees the gate vanish and fires from the very press that threw -- the
-	// PIE-observed "threw AND fired". With the owned tag + the one-tick deferred end below, the carry
-	// block holds through the whole frame regardless of spec iteration order.
-	ActivationOwnedTags.AddTag(TAG_Throw_State_Carrying);
 }
 
 void UAFLGameplayAbility_Throw::ActivateAbility(
@@ -70,6 +62,22 @@ void UAFLGameplayAbility_Throw::ActivateAbility(
 	UE_LOG(LogAFLMovement, Log, TEXT("AFL_THROW: threw %s along %s."),
 		*GetNameSafe(Thrown), *AimDir.ToCompactString());
 
+	// THROW RECOVERY (PIE-caught, rounds 2+3): the press/hold that threw must not also fire the weapon.
+	// Input-side scoping is unreliable -- IA_Weapon_Fire's trigger completes ONE FRAME after the press even
+	// while the button stays held (the climb WaitInputRelease trap's root cause), so an InputReleased-keyed
+	// lifetime collapses instantly and the WhileInputActive beam channels two frames after the throw. The
+	// robust gate is TIME-based and GAS-canonical: a 0.4s Duration GE granting State.Weapon.ThrowRecovery,
+	// which all three fire abilities block on (alongside State.Carrying). Applied BEFORE the grab teardown
+	// so there is no uncovered frame.
+	{
+		const FGameplayEffectSpecHandle RecoverySpec =
+			MakeOutgoingGameplayEffectSpec(UGE_AFL_ThrowRecovery::StaticClass(), GetAbilityLevel());
+		if (RecoverySpec.IsValid())
+		{
+			ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, RecoverySpec);
+		}
+	}
+
 	// Tear the carry down through the grab ability's single EndAbility funnel (hold-pose stop +
 	// State.Carrying GE removal + its lifetime). Cancel by CLASS -- deterministic, no dependence on
 	// BP-authored AbilityTags and no new event tag. The grab's own EndAbility ReleaseActor() call no-ops:
@@ -86,21 +94,7 @@ void UAFLGameplayAbility_Throw::ActivateAbility(
 		}
 	}
 
-	// End NEXT TICK, not now: our ActivationOwnedTags keep State.Carrying alive through the remainder of
-	// THIS frame's input pass (the carry GE is already gone via the grab teardown above), so the fire
-	// abilities' carry-block still holds for the same press that threw. The one-frame extra lifetime is
-	// invisible; a fresh LMB press after the throw fires the weapon normally (the tag drops with us).
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this,
-			[this]()
-			{
-				EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(),
-					/*bReplicateEndAbility*/ true, /*bWasCancelled*/ false);
-			}));
-	}
-	else
-	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility*/ true, /*bWasCancelled*/ false);
-	}
+	// Fire-and-forget: the recovery GE above owns the post-throw gate (no timers, no input dependence),
+	// so the ability ends immediately and cleanly.
+	EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility*/ true, /*bWasCancelled*/ false);
 }

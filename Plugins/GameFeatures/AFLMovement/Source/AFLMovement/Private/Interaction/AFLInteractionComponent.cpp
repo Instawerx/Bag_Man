@@ -22,12 +22,18 @@
 #include "GameFramework/PlayerState.h"
 #include "Interaction/AFLGrabbableComponent.h"
 #include "Interaction/AFLObjectClassAnimSet.h"
+#include "Messages/AFLHitConfirmMessage.h"   // AFLCore payload for the drop-on-damage listen
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLInteractionComponent)
 
 // Same tag the climb GE grants. Listening here lets carry drop the held object when a climb starts.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Movement_Climbing_Interaction, "State.Movement.Climbing");
+
+// The per-hit damage verb UAFLDamageExecCalc broadcasts (Event.Damage.Confirmed, EffectiveDamage > 0;
+// fires BEFORE the shield split, so a fully-shielded hit still counts as "hit"). Native-define per the
+// file convention so module init never races the per-plugin tag-ini scan.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Damage_Confirmed_Interaction, "Event.Damage.Confirmed");
 
 UAFLInteractionComponent::UAFLInteractionComponent()
 {
@@ -176,7 +182,20 @@ void UAFLInteractionComponent::BindToAbilitySystem(UAbilitySystemComponent* InAS
 			TAG_State_Movement_Climbing_Interaction, EGameplayTagEventType::NewOrRemoved)
 		.AddUObject(this, &UAFLInteractionComponent::HandleClimbTagChanged);
 
-	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: %s bound climb-tag listener (ASC %s)."),
+	// Drop-on-damage listen (the climb bind's sibling, registered at the same lifecycle site). The
+	// broadcast side is WITH_SERVER_CODE in UAFLDamageExecCalc, so this fires on the server/listen-server
+	// only -- exactly the authoritative side that owns the release; clients see the resulting drop through
+	// the existing release replication (2-client carry-forward scope, unchanged).
+	if (!DamageMessageHandle.IsValid())
+	{
+		UGameplayMessageSubsystem& MessageSubsystem = UGameplayMessageSubsystem::Get(this);
+		DamageMessageHandle = MessageSubsystem.RegisterListener(
+			TAG_Event_Damage_Confirmed_Interaction,
+			this,
+			&UAFLInteractionComponent::HandleDamageConfirmed);
+	}
+
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: %s bound climb-tag + damage-confirmed listeners (ASC %s)."),
 		*GetNameSafe(GetOwner()), *GetNameSafe(InASC));
 }
 
@@ -192,6 +211,13 @@ void UAFLInteractionComponent::UnbindFromAbilitySystem()
 	}
 	ClimbTagChangedHandle.Reset();
 	CachedASC.Reset();
+
+	// Drop-on-damage teardown (mirror of the climb unbind; the subsystem handles a dead world gracefully).
+	if (DamageMessageHandle.IsValid())
+	{
+		UGameplayMessageSubsystem& MessageSubsystem = UGameplayMessageSubsystem::Get(this);
+		MessageSubsystem.UnregisterListener(DamageMessageHandle);
+	}
 }
 
 void UAFLInteractionComponent::HandleClimbTagChanged(const FGameplayTag Tag, int32 NewCount)
@@ -202,6 +228,36 @@ void UAFLInteractionComponent::HandleClimbTagChanged(const FGameplayTag Tag, int
 		UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: forced-release (reason=climb-start)."));
 		ReleaseActor();
 	}
+}
+
+void UAFLInteractionComponent::HandleDamageConfirmed(FGameplayTag Channel, const FAFLHitConfirmMessage& Msg)
+{
+	// Verbose receipt diagnostic: makes the filter path legible in a PIE log (whose hit, are we carrying,
+	// what the policy says) -- the instrument that splits "filter mismatch" from "test never ran carrying".
+	UE_LOG(LogAFLMovement, Verbose,
+		TEXT("[AFLInteraction] damage-confirmed rx: target=%s owner=%s carrying=%d dropOnDamage=%d dmg=%.1f"),
+		*GetNameSafe(Msg.Target), *GetNameSafe(GetOwner()),
+		CarriedActor.IsValid() ? 1 : 0, ActivePolicy.bDropOnDamage ? 1 : 0, Msg.Damage);
+
+	// Drop-on-damage (the final Scope-A verb): the carrier got HIT -> the carried object releases through
+	// the same forced-drop funnel the climb uses. Ordered cheap-out-first so the global per-hit broadcast
+	// costs nothing when it is not about us / we are not carrying.
+	if (Msg.Target != GetOwner())
+	{
+		return; // someone else's hit.
+	}
+	if (!CarriedActor.IsValid())
+	{
+		return; // not carrying -- clean no-op, no log spam.
+	}
+	if (!ActivePolicy.bDropOnDamage)
+	{
+		return; // per-object opt-out (policy captured at grab time).
+	}
+
+	UE_LOG(LogAFLMovement, Log, TEXT("[AFLInteraction] forced-release (reason=damage, dmg=%.1f bone=%s)"),
+		Msg.Damage, *Msg.BoneName.ToString());
+	ReleaseActor(); // bare = Drop mode -- the climb forced-drop funnel.
 }
 
 UAFLObjectClassAnimSet* UAFLInteractionComponent::ResolveAndCacheAnimSet(const FAFLGrabPolicy& Policy)

@@ -25,6 +25,7 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_BeamChannel_v2)
 
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_BeamV2, "State.Carrying");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_ThrowRecovery_BeamV2, "State.Weapon.ThrowRecovery");
 
 // SetByCaller magnitude tags consumed by UAFLDamageExecCalc (default 1.0f when absent). v2 seeds
 // these alongside Source.Damage so the ExecCalc has a non-zero base to compute the health delta --
@@ -52,6 +53,12 @@ UAFLAG_BeamChannel_v2::UAFLAG_BeamChannel_v2()
 	// Throw cycle: no firing while carrying (the holstered rifle is hidden, not unequipped; LMB belongs
 	// to the throw ability under State.Carrying -- same arbitration as Pulse/Beam).
 	ActivationBlockedTags.AddTag(TAG_State_Carrying_BeamV2);
+
+	// ...and no channeling from the press/hold that THREW: GE_AFL_ThrowRecovery's 0.4s tag window. The
+	// WhileInputActive policy re-tries every held frame -- this was the PIE-caught beam-after-throw
+	// ([N] throw -> [N+2] beam, deterministic): IA_Weapon_Fire's trigger reports release one frame after
+	// the press even while held, so only a time-based gate holds.
+	ActivationBlockedTags.AddTag(TAG_State_ThrowRecovery_BeamV2);
 
 	DamageEffectClass          = UGE_AFL_Damage_BeamTick::StaticClass();
 	ReleaseCooldownEffectClass = UGE_AFL_Cooldown_Beam::StaticClass();

@@ -36,6 +36,7 @@ FAFLGrabPolicy UAFLGrabbableComponent::GetGrabPolicy() const
 	Policy.ReleaseImpulseMagnitude = ReleaseImpulseMagnitude;
 	Policy.ReleaseImpulseDirection = ReleaseImpulseDirection;
 	Policy.ThrowImpulseMagnitude = ThrowImpulseMagnitude;
+	Policy.bDropOnDamage = bDropOnDamage;
 	Policy.bEnablePhysicsOnRelease = bEnablePhysicsOnRelease;
 	Policy.CarryWeight = CarryWeight;
 	Policy.ObjectAnimSet = ObjectAnimSet;

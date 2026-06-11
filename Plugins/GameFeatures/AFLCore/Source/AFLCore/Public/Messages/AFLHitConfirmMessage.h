@@ -14,7 +14,14 @@
  * Broadcast on Event.Damage.Confirmed by UAFLDamageExecCalc whenever a damage
  * GE resolves with EffectiveDamage > 0. Consumed by UAFLHitConfirmComponent
  * on the firing client to drive crosshair pulse, camera shake, and AFL-0204b
- * floating damage numbers.
+ * floating damage numbers; and by UAFLInteractionComponent for the
+ * drop-on-damage carry release (the carrier-was-hit listen).
+ *
+ * LIVES IN AFLCORE (relocated from AFLCombat in the drop-on-damage cycle):
+ * the always-loaded shared module is the home for cross-GameFeature message
+ * payloads, so listeners (AFLMovement) never need an AFLCombat dependency.
+ * A CoreRedirect in DefaultEngine.ini covers any serialized references to
+ * the old /Script/AFLCombat path.
  *
  * Mirrors FLyraVerbMessage's Instigator/Target/Magnitude shape, plus the
  * bone-name pulled from the FHitResult on the spec's EffectContext. We keep
@@ -23,7 +30,7 @@
  * a Lyra type whose schema we don't own.
  */
 USTRUCT(BlueprintType)
-struct AFLCOMBAT_API FAFLHitConfirmMessage
+struct AFLCORE_API FAFLHitConfirmMessage
 {
 	GENERATED_BODY()
 

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Components/ActorComponent.h"
+#include "GameFramework/GameplayMessageSubsystem.h"   // FGameplayMessageListenerHandle (drop-on-damage listen)
 #include "GameplayTagContainer.h"
 #include "Interaction/AFLGrabbableComponent.h"   // FAFLGrabPolicy
 
@@ -11,6 +12,7 @@
 class UAbilitySystemComponent;
 class UAFLObjectClassAnimSet;
 class UControlRig;
+struct FAFLHitConfirmMessage;
 
 /** How a carried actor leaves the hand. Drop = the modest policy-shaped toss (toggle drop, climb forced
  *  drop, teardown). Throw = an aimed launch along a caller-supplied FULL-3D direction (throw cycle). */
@@ -143,6 +145,10 @@ private:
 	/** State.Movement.Climbing changed -> if a climb just started while carrying, force-release (drop). */
 	void HandleClimbTagChanged(const FGameplayTag Tag, int32 NewCount);
 
+	/** Event.Damage.Confirmed arrived -> if it hit OUR pawn while carrying (and the policy says so),
+	 *  force-release (drop). The drop-on-damage half of the carry pressure loop (climb's sibling). */
+	void HandleDamageConfirmed(FGameplayTag Channel, const FAFLHitConfirmMessage& Msg);
+
 	/** Holster the equipped weapon during carry (mirror climb's holster) so the rifle's upper-body anim layer
 	 *  doesn't fight the grab reach + hold. Hide on grab, restore on release. */
 	void HolsterEquippedWeapon();
@@ -174,6 +180,9 @@ private:
 	TWeakObjectPtr<UAbilitySystemComponent> CachedASC;
 
 	FDelegateHandle ClimbTagChangedHandle;
+
+	/** Drop-on-damage listen on Event.Damage.Confirmed (registered/unregistered beside the climb bind). */
+	FGameplayMessageListenerHandle DamageMessageHandle;
 
 	/** The hero's running hand-IK Control Rig (CR_AFL_IRONICS), resolved lazily on the first IK-enabled tick.
 	 *  Reset whenever the IK goes idle so a re-possess / mesh swap re-resolves a fresh rig. */

@@ -18,6 +18,7 @@ public class AFLMovement : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"GameplayAbilities",
+				"GameplayMessageRuntime",   // drop-on-damage: listen Event.Damage.Confirmed (FAFLHitConfirmMessage lives in AFLCore)
 				"GameplayTags",
 				"GameplayTasks",
 				"LyraGame",

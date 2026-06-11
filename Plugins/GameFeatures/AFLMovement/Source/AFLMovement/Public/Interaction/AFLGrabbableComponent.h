@@ -55,6 +55,11 @@ struct FAFLGrabPolicy
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab", meta = (ClampMin = "0.0"))
 	float ThrowImpulseMagnitude = 900.0f;
 
+	/** Drop-on-damage: if true (default -- the stress-object/extraction pressure loop), the carrier taking ANY
+	 *  confirmed damage force-drops this object. Per-object opt-out for things that should survive a hit. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab")
+	bool bDropOnDamage = true;
+
 	/** If true, physics is re-enabled on the held actor at release (the default; attach-only props set false). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Grab")
 	bool bEnablePhysicsOnRelease = true;
@@ -131,6 +136,10 @@ protected:
 	/** Aimed-throw impulse magnitude (throw cycle). Forwarded into the policy like its siblings. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy", meta = (ClampMin = "0.0"))
 	float ThrowImpulseMagnitude = 900.0f;
+
+	/** Drop-on-damage opt-out (default ON). Forwarded into the policy like its siblings. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
+	bool bDropOnDamage = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
 	bool bEnablePhysicsOnRelease = true;

@@ -8,7 +8,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HUD/AFLCameraShake_HitConfirm.h"
-#include "HUD/AFLHitConfirmMessage.h"
+#include "Messages/AFLHitConfirmMessage.h"   // AFLCore (relocated -- drop-on-damage cycle)
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLHitConfirmComponent)
