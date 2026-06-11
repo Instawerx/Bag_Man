@@ -732,12 +732,14 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 		// BM-0105a: lag-comp rewind + bounding-box confirm pass.
 		//
 		// Subsystem is server-only and returns a valid empty token in
-		// degenerate cases (client world, no registered components). With no
-		// per-pawn UAFLPawnHitboxHistoryComponent grants in place yet
-		// (BM-0105b's job), Token.Entries is empty for every shot in this
-		// sprint — the BuildBoundingBox path returns false and we default-
-		// accept. The call pair runs and emits its log line; the actual
-		// geometric reject is exercised only once per-pawn snapshotting lands.
+		// degenerate cases (client world, no registered components). BM-0105b
+		// PROVEN (2-client pass close): player pawns now carry
+		// UAFLPawnHitboxHistoryComponent via the experience AddComponents grant
+		// (B_Experience_BagMan, server-only row) — pawn shots rewind with real
+		// entries and a real geometric verdict (entries=4 restart-proof). The
+		// default-accept below remains for UNGRANTED actors only (doors, props,
+		// anything without a history component) — by design, never gated on
+		// missing snapshots.
 		//
 		// RTT clamped at 200ms per master doc Sec. 7.4. The half (ping/2) +
 		// interp term lives on the client; here we use the server-side
