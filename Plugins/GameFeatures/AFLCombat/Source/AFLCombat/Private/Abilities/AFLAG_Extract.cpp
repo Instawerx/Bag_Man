@@ -25,6 +25,19 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Extraction_Complete_Extract, "Event.Extr
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Extraction_Failed_Extract, "Event.Extraction.Failed");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Damage_Confirmed_Extract, "Event.Damage.Confirmed");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Data_Energy_Gain_Extract, "Data.Energy.Gain");
+// P2 close-out stress-object chaos (S10): extracting WHILE carrying the stress object pays a Watts
+// bonus. The tag is granted by AFLGE_StressObjectCarrier (the multi-effect carrier buff).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_StressObject_Extract, "State.Carrying.StressObject");
+
+static TAutoConsoleVariable<float> CVarAFLChaosExtractMult(
+	TEXT("afl.Chaos.ExtractMult"),
+	1.5f,
+	TEXT("Watts multiplier when extracting while carrying the stress object (S10 1.5x extraction reward)."));
+
+static TAutoConsoleVariable<float> CVarAFLExtractChannelOverride(
+	TEXT("afl.Extract.ChannelDuration"),
+	-1.0f,
+	TEXT("Override the extraction channel seconds (-1 = use the GA's ChannelDuration default of 6s). Test-compression knob."));
 
 
 UAFLAG_Extract::UAFLAG_Extract()
@@ -92,8 +105,11 @@ void UAFLAG_Extract::ActivateAbility(
 			ASC->GetNumericAttribute(UAFLAttributeSet_Energy::GetCarriedEnergyAttribute()));
 	}
 
-	// The 6s clock. Task auto-ends with the ability on every exit path.
-	UAbilityTask_WaitDelay* WaitTask = UAbilityTask_WaitDelay::WaitDelay(this, ChannelDuration);
+	// The channel clock (default 6s; afl.Extract.ChannelDuration > 0 compresses it for tests). Task
+	// auto-ends with the ability on every exit path.
+	const float Override = CVarAFLExtractChannelOverride.GetValueOnGameThread();
+	const float Duration = (Override > 0.0f) ? Override : ChannelDuration;
+	UAbilityTask_WaitDelay* WaitTask = UAbilityTask_WaitDelay::WaitDelay(this, Duration);
 	WaitTask->OnFinish.AddDynamic(this, &UAFLAG_Extract::HandleChannelComplete);
 	WaitTask->ReadyForActivation();
 }
@@ -109,7 +125,11 @@ void UAFLAG_Extract::HandleChannelComplete()
 		if (ASC && Wallet)
 		{
 			const float Energy = ASC->GetNumericAttribute(UAFLAttributeSet_Energy::GetCarriedEnergyAttribute());
-			const int32 Reward = FMath::RoundToInt(Energy * WattsPerEnergy);
+			// Stress-object chaos (S10): carrying THE stress object at extract pays afl.Chaos.ExtractMult
+			// x Watts (default 1.5x). The tag rides AFLGE_StressObjectCarrier; no carry code here.
+			const bool bStressCarrier = ASC->HasMatchingGameplayTag(TAG_State_Carrying_StressObject_Extract);
+			const float ExtractMult = bStressCarrier ? FMath::Max(1.0f, CVarAFLChaosExtractMult.GetValueOnGameThread()) : 1.0f;
+			const int32 Reward = FMath::RoundToInt(Energy * WattsPerEnergy * ExtractMult);
 
 			// Cash out THROUGH the wallet funnel (CommitMutation diag line carries the reason)...
 			Wallet->EarnWattsAuthority(Reward, TEXT("extraction"));
@@ -127,8 +147,9 @@ void UAFLAG_Extract::HandleChannelComplete()
 
 			bChannelCompleted = true;
 			BroadcastExtractionEvent(TAG_Event_Extraction_Complete_Extract, Energy);
-			UE_LOG(LogAFLCombat, Log, TEXT("AFL_EXTRACT: %s channel COMPLETE -- %.1f energy -> %d Watts (rate %.0f)."),
-				*GetNameSafe(GetAvatarActorFromActorInfo()), Energy, Reward, WattsPerEnergy);
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_EXTRACT: %s channel COMPLETE -- %.1f energy -> %d Watts (rate %.0f, mult %.1fx%s)."),
+				*GetNameSafe(GetAvatarActorFromActorInfo()), Energy, Reward, WattsPerEnergy, ExtractMult,
+				bStressCarrier ? TEXT(" STRESS") : TEXT(""));
 		}
 		else
 		{
