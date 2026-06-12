@@ -6,13 +6,44 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "Attributes/AFLAttributeSet_Energy.h"
 #include "Character/LyraHealthComponent.h"
 #include "Character/LyraPawnExtensionComponent.h"
+#include "Effects/AFLGE_OverloadRestore.h"
+#include "Effects/AFLGE_OverloadStun.h"
+#include "Energy/AFLEnergyDropComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/GameplayMessageSubsystem.h"
+#include "HAL/IConsoleManager.h"
+#include "Messages/LyraVerbMessage.h"
+#include "NativeGameplayTags.h"
 #include "TimerManager.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLDeathComponent)
+
+// P2 close-out OVERLOAD (S7 AFL-0706): a player who would die WHILE CARRYING ENERGY instead
+// OVERLOADS -- bursts their energy, restores Health to a floor, and is briefly stunned/vulnerable,
+// surviving. The State.Overloaded tag (on the stun GE) is the re-overload lockout. Death still fires
+// normally when there is no energy to lose.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overloaded_Death, "State.Overloaded");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Data_Health_Restore_Death, "Data.Health.Restore");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Combat_Overload_Death, "Event.Combat.Overload");
+
+static TAutoConsoleVariable<float> CVarAFLOverloadMinEnergy(
+	TEXT("afl.Overload.MinEnergy"),
+	1.0f,
+	TEXT("Minimum CarriedEnergy to OVERLOAD instead of dying (below this = real death). S7 AFL-0706."));
+
+static TAutoConsoleVariable<float> CVarAFLOverloadDropPercent(
+	TEXT("afl.Overload.DropPercent"),
+	70.0f,
+	TEXT("Percent of CarriedEnergy scattered as pickups on overload (the survive-burst). S7 AFL-0706."));
+
+static TAutoConsoleVariable<float> CVarAFLOverloadRestoreFraction(
+	TEXT("afl.Overload.RestoreFraction"),
+	0.5f,
+	TEXT("Health restored to this fraction of MaxHealth on overload (0..1). S7 AFL-0706."));
 
 UAFLDeathComponent::UAFLDeathComponent()
 {
@@ -192,6 +223,72 @@ void UAFLDeathComponent::HandleAFLOutOfHealth(AActor* Instigator, AActor* Causer
 	{
 		return;   // idempotent -- a second sub-zero tick must not restart death
 	}
+
+	// ── P2 close-out OVERLOAD intercept (S7 AFL-0706) ───────────────────────────────────────────────
+	// A killing blow WHILE CARRYING ENERGY and NOT already overloaded (the lockout) -> survive: burst
+	// the energy, restore Health to a floor, brief stun/vulnerability. Runs BEFORE bDeathStarted is set
+	// and returns early, so the pawn never enters the death machine AND a later real death still fires.
+	if (AbilitySystemComponent
+		&& !AbilitySystemComponent->HasMatchingGameplayTag(TAG_State_Overloaded_Death))   // lockout
+	{
+		const UAFLAttributeSet_Energy* EnergySet = AbilitySystemComponent->GetSet<UAFLAttributeSet_Energy>();
+		const float CarriedEnergy = EnergySet
+			? AbilitySystemComponent->GetNumericAttribute(UAFLAttributeSet_Energy::GetCarriedEnergyAttribute()) : 0.0f;
+		if (EnergySet && CarriedEnergy >= CVarAFLOverloadMinEnergy.GetValueOnGameThread())
+		{
+			// (1) Scatter the energy through the PROVEN burst rail (same component as the death burst).
+			if (UAFLEnergyDropComponent* Drop = Owner->FindComponentByClass<UAFLEnergyDropComponent>())
+			{
+				Drop->BurstNow(CVarAFLOverloadDropPercent.GetValueOnGameThread(), TEXT("overload"));
+			}
+
+			// (2) Restore Health to a floor THROUGH the GE rail (positive SetByCaller; no direct write).
+			//     Magnitude = max(0, floor*MaxHealth - currentHealth), computed at apply.
+			if (CombatSet)
+			{
+				const float MaxHealth = AbilitySystemComponent->GetNumericAttribute(UAFLAttributeSet_Combat::GetMaxHealthAttribute());
+				const float CurHealth = AbilitySystemComponent->GetNumericAttribute(UAFLAttributeSet_Combat::GetHealthAttribute());
+				const float Floor = FMath::FloorToFloat(FMath::Clamp(CVarAFLOverloadRestoreFraction.GetValueOnGameThread(), 0.0f, 1.0f) * MaxHealth);
+				const float RestoreAmt = FMath::Max(0.0f, Floor - CurHealth);
+				FGameplayEffectContextHandle Ctx = AbilitySystemComponent->MakeEffectContext();
+				Ctx.AddInstigator(Owner, Owner);
+				FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(UAFLGE_OverloadRestore::StaticClass(), 1.0f, Ctx);
+				if (Spec.IsValid())
+				{
+					Spec.Data->SetSetByCallerMagnitude(TAG_Data_Health_Restore_Death, RestoreAmt);
+					AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+				}
+			}
+
+			// (3) The brief stun/vulnerability window (also the re-overload lockout via State.Overloaded).
+			{
+				FGameplayEffectContextHandle Ctx = AbilitySystemComponent->MakeEffectContext();
+				Ctx.AddInstigator(Owner, Owner);
+				FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(UAFLGE_OverloadStun::StaticClass(), 1.0f, Ctx);
+				if (Spec.IsValid())
+				{
+					AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+				}
+			}
+
+			// (4) Announce (the WindowOpen dual-broadcast pattern; HUD-optional). Server-local only here
+			//     -- a client overload-flash widget is named feel-debt; the burst + survival ARE the read.
+			if (UWorld* World = GetWorld())
+			{
+				FLyraVerbMessage Msg;
+				Msg.Verb = TAG_Event_Combat_Overload_Death;
+				Msg.Instigator = Owner;
+				Msg.Magnitude = CarriedEnergy;
+				UGameplayMessageSubsystem::Get(World).BroadcastMessage(Msg.Verb, Msg);
+			}
+
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_OVERLOAD: %s OVERLOADED (carried %.1f, dropped %.0f%%, survived) -- death skipped."),
+				*GetNameSafe(Owner), CarriedEnergy, CVarAFLOverloadDropPercent.GetValueOnGameThread());
+			return; // SKIP StartDeath; bDeathStarted stays false -> a later real death still fires.
+		}
+	}
+	// ── end overload intercept; fall through to the real death path (no energy / locked out) ─────────
+
 	bDeathStarted = true;
 
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_DEATH: %s out of AFL Health -> StartDeath (killer=%s)"),
