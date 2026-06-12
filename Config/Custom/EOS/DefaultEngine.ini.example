@@ -1,0 +1,134 @@
+; ============================================================================
+;  EOS CONFIG TEMPLATE (committed, SECRET-FREE)  —  Track-2 EOS auth login lane
+; ----------------------------------------------------------------------------
+;  HOW TO USE (operator):
+;    1. COPY this file to  Config/Custom/EOS/DefaultEngine.ini  (drop the .example).
+;       That real file is GITIGNORED — it will NOT be committed. The ClientSecret
+;       lives ONLY there.
+;    2. Fill the 6 credential values in the two credential blocks below
+;       (search for <<FILL_...>>). Get them from the Epic Dev Portal:
+;         - ProductId        : Product Settings  → Product ID
+;         - SandboxId        : Product Settings  → Sandboxes → (your sandbox) → Sandbox ID
+;         - DeploymentId     : Product Settings  → Deployments → (your deployment) → Deployment ID
+;         - ClientId         : Product Settings  → Clients → (your client) → Client ID
+;         - ClientSecret     : Product Settings  → Clients → (your client) → Client Secret   *** SECRET — never commit ***
+;         - ClientEncryptionKey : a 64-hex-char key you generate (Client Policy / your own); for the
+;                                 auth-only login proof a 64-char hex string is sufficient.
+;    3. UNCOMMENT the active credential lines (remove the leading ';') in the real file.
+;    4. Build + launch LyraGameEOS (see the EOS lane runbook).
+;
+;  WHY a .example + gitignored real file: UE's CustomConfig layering merges ONLY the
+;  named Config/Custom/EOS/DefaultEngine.ini into GEngineIni for the EOS target — it does
+;  NOT merge an arbitrary extra .ini, and UE .ini files have no #include directive. So the
+;  secret cannot live in a "separate merged file"; it must live in the real DefaultEngine.ini
+;  — which is why that whole file is gitignored and only this .example is committed.
+;  (Same pattern as the tentpole .env / .env.example.)
+;
+;  SCOPE: EOS Auth/Connect login + voice/friends/EAC ONLY. Matchmaking stays PlayFab→GameLift
+;  (the Bag_Man_Backend tentpole). EOS sessions/lobbies wiring below is Lyra-stock; do NOT
+;  build match allocation on it.
+; ============================================================================
+
+[OnlineSubsystem]
+DefaultPlatformService=EOS
+
+[OnlineSubsystemEOS]
+bEnabled=true
+
+[OnlineSubsystemEOSPlus]
+bEnabled=false
+
+[OnlineServices]
+DefaultServices=Epic
+
+[/Script/OnlineSubsystemEOS.EOSSettings]
+CacheDir=CacheDir
+TickBudgetInMilliseconds=0
+bEnableOverlay=True
+bEnableSocialOverlay=True
+bEnableEditorOverlay=True
+bUseEAS=True
+bUseEOSConnect=True
+bMirrorStatsToEOS=True
+bMirrorAchievementsToEOS=True
+bUseEOSSessions=True
+bMirrorPresenceToEAS=True
+bUseNewLoginFlow=true
+!TitleStorageTags=ClearArray
++TitleStorageTags="OSS"
++TitleStorageTags="UI"
++TitleStorageTags="UI+OSS"
++TitleStorageTags="OSS+UI"
++TitleStorageTags="HOTFIX"
++TitleStorageTags="HOTFIX+UI"
+
+; ---------------------------------------------------------------------------
+;  CREDENTIAL BLOCK 1 — OSSv1 artifact (the form OnlineSubsystemEOS consumes:
+;  EOSSettings.cpp ParseArtifactSettingsFromConfigString). FILL + UNCOMMENT in the
+;  real (gitignored) file. ArtifactName is an arbitrary label you pick (e.g. BagMan).
+; ---------------------------------------------------------------------------
+;DefaultArtifactName=BagMan
+;+Artifacts=(ArtifactName="BagMan",ClientId="<<FILL_CLIENT_ID>>",ClientSecret="<<FILL_CLIENT_SECRET__SECRET_NEVER_COMMIT>>",ProductId="<<FILL_PRODUCT_ID>>",SandboxId="<<FILL_SANDBOX_ID>>",DeploymentId="<<FILL_DEPLOYMENT_ID>>",ClientEncryptionKey="<<FILL_ENCRYPTION_KEY_64_HEX>>")
+
+; ---------------------------------------------------------------------------
+;  CREDENTIAL BLOCK 2 — the EOSSDK platform section the SDK manager reads directly
+;  (EOSSDKManager.cpp reads section "EOSSDK.Platform.<PlatformConfigName>"; for the
+;  Windows editor/standalone target the platform config name is "Windows"). FILL +
+;  UNCOMMENT in the real (gitignored) file. Use ClientEncryptionKey (NOT the deprecated
+;  EncryptionKey — the engine warns on the old key and it is denylisted from packaged builds).
+; ---------------------------------------------------------------------------
+;[EOSSDK.Platform.Windows]
+;ProductId=<<FILL_PRODUCT_ID>>
+;SandboxId=<<FILL_SANDBOX_ID>>
+;DeploymentId=<<FILL_DEPLOYMENT_ID>>
+;ClientId=<<FILL_CLIENT_ID>>
+;ClientSecret=<<FILL_CLIENT_SECRET__SECRET_NEVER_COMMIT>>
+;ClientEncryptionKey=<<FILL_ENCRYPTION_KEY_64_HEX>>
+
+; ---------------------------------------------------------------------------
+;  CREDENTIAL BLOCK 3 — OSSv2 (DefaultServices=Epic path). Lyra's CommonUser new-login
+;  flow is OSSv2-aware; fill this too if the OSSv1 block alone does not log in. FILL +
+;  UNCOMMENT in the real (gitignored) file. (Secret-bearing — never commit.)
+; ---------------------------------------------------------------------------
+;+[OnlineServices.EOS]
+;+ProductId=<<FILL_PRODUCT_ID>>
+;+SandboxId=<<FILL_SANDBOX_ID>>
+;+DeploymentId=<<FILL_DEPLOYMENT_ID>>
+;+ClientId=<<FILL_CLIENT_ID>>
+;+ClientSecret=<<FILL_CLIENT_SECRET__SECRET_NEVER_COMMIT>>
+
+[/Script/Engine.Engine]
+!NetDriverDefinitions=ClearArray
++NetDriverDefinitions=(DefName="GameNetDriver",DriverClassName="/Script/SocketSubsystemEOS.NetDriverEOS",DriverClassNameFallback="/Script/OnlineSubsystemUtils.IpNetDriver")
++NetDriverDefinitions=(DefName="BeaconNetDriver",DriverClassName="/Script/SocketSubsystemEOS.NetDriverEOS",DriverClassNameFallback="/Script/OnlineSubsystemUtils.IpNetDriver")
++NetDriverDefinitions=(DefName="DemoNetDriver",DriverClassName="/Script/Engine.DemoNetDriver",DriverClassNameFallback="/Script/Engine.DemoNetDriver")
+
+[OnlineServices.Lobbies]
++SchemaDescriptors=(Id="GameLobby", ParentId="LobbyBase")
+!SchemaCategoryAttributeDescriptors=ClearArray
++SchemaCategoryAttributeDescriptors=(SchemaId="LobbyBase", CategoryId="Lobby", AttributeIds=("SchemaCompatibilityId", "PRESENCESEARCH", "OSSv2"))
++SchemaCategoryAttributeDescriptors=(SchemaId="LobbyBase", CategoryId="LobbyMember")
++SchemaCategoryAttributeDescriptors=(SchemaId="GameLobby", CategoryId="Lobby", AttributeIds=("GAMEMODE", "MAPNAME", "MATCHTIMEOUT", "SESSIONTEMPLATENAME"))
++SchemaCategoryAttributeDescriptors=(SchemaId="GameLobby", CategoryId="LobbyMember", AttributeIds=("GAMEMODE"))
++SchemaAttributeDescriptors=(Id="SchemaCompatibilityId", Type="Int64", Flags=("Public", "SchemaCompatibilityId"))
++SchemaAttributeDescriptors=(Id="PRESENCESEARCH", Type="Bool", Flags=("Public", "Searchable"))
++SchemaAttributeDescriptors=(Id="GAMEMODE", Type="String", Flags=("Public"), MaxSize=64)
++SchemaAttributeDescriptors=(Id="MAPNAME", Type="String", Flags=("Public"), MaxSize=64)
++SchemaAttributeDescriptors=(Id="MATCHTIMEOUT", Type="Double", Flags=("Public"))
++SchemaAttributeDescriptors=(Id="SESSIONTEMPLATENAME", Type="String", Flags=("Public"), MaxSize=64)
++SchemaAttributeDescriptors=(Id="OSSv2", Type="Bool", Flags=("Public"))
+
+[/Script/CommonUser.CommonUserBasicPresence]
+bEnableSessionsBasedPresence=true
+PresenceStatusInGame=Status_InGame
+PresenceStatusMainMenu=Status_MainMenu
+PresenceStatusMatchmaking=Status_Matchmaking
+PresenceKeyGameMode=game_mode
+PresenceKeyMapName=map_name
+
+; --- EOS verbose logging (so the login-success line is visible). These also live in
+; --- the base Config/DefaultEngine.ini [Core.Log]; set here for the EOS target too. ---
+[Core.Log]
+LogEOSSDK=Verbose
+LogEOSShared=Verbose
+LogOnlineServices=Verbose

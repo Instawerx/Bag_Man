@@ -87,3 +87,12 @@ Content/_TmpDiag/
 Tools/_commit_msg*.txt
 Tools/_commit_canary.txt
 Tools/_gate2_live.png
+
+# === EOS credentials — SECRET-SAFE (Track-2 EOS auth lane) ===
+# The real Config/Custom/EOS/DefaultEngine.ini carries the operator's EOS ClientSecret +
+# the 5 product IDs. UE's CustomConfig layering merges ONLY this named file (no #include,
+# no arbitrary extra .ini), so the secret MUST live in this file — therefore the file is
+# gitignored and only DefaultEngine.ini.example (placeholders, secret-free) is committed.
+# Operator: copy the .example to DefaultEngine.ini, fill the 6 values, never commit.
+Config/Custom/EOS/DefaultEngine.ini
+!Config/Custom/EOS/DefaultEngine.ini.example
