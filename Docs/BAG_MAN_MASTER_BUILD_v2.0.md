@@ -64,6 +64,11 @@ This document is the **single source of truth** for the BAG MAN build. As of v2.
 - **Sprint task additions**: AFL-0216 (Blender MCP bridge bootstrap), AFL-0217 (genAI mesh validation pipeline), AFL-0218 (skill registry CI check), placed in Sprint 2 alongside existing AFL-0211-0215.
 - Section renumbering: nothing — appended only. Original §14 (Live Build Tracker) → kept as §17. Original §15 (Final Directive) → kept as §18.
 
+### v1.2 — AFL-1100 backend-architecture correction (live-schema grounded, at P2→P3 handoff)
+**Date**: 2026-06-11 · **Tagged**: in repo at commit
+
+Corrected the Sprint 11 AFL-1100 tentpole flow against the live PlayFab + AWS GameLift docs (PlayFab `GetMatch` REST schema dated 2026-06-02): (a) PlayFab matchmaking is **polling-only** — the assumed `OnMatchFound` webhook does not exist; (b) `GetMatch.ServerDetails` is PlayFab-MPS-only, so an external GameLift allocator relays the IP **out-of-band**; (c) corrected flow = trigger (client-call OR CloudScript relay, production choice deferred to S12) → **API Gateway** (+HMAC/authorizer, secret in Secrets Manager) → Lambda → GameLift **`StartGameSessionPlacement`** (queue-based, **not** `CreateGameSession`) → `DescribeGameSessionPlacement` poll → return IP:Port:PlayerSessionId; (d) the standalone test is **trigger-agnostic** (POST a synthetic `GetMatchResult` fixture to the Lambda, assert a real tuple from a GameLift Anywhere fleet); (e) the microservice lives in a **separate sibling repo** (`Bag_Man_Backend`), never in the UE LFS repo. Added as a superseding ARCHITECTURE CORRECTION block under the Sprint 11 Goal with a `🔄 SUPERSEDED BY` pointer on the original AFL-1100 row (original text struck-through, not deleted — the §7.4 / §8 / §9 amendment device). Scope/intent of AFL-1100 (XXL; standalone-green before any client/server integration) unchanged.
+
 ### v1.1 — Bag-Man amendments (architecture corrections before Sprint 1)
 **Date**: 2026-05-08 · **Tagged**: in repo at first commit
 
@@ -485,9 +490,33 @@ TOTAL: 48 weeks (12 months) to launch
 
 **Sprint Goal**: The PlayFab→Lambda→GameLift glue microservice exists, is tested in isolation, and can spin up a dedicated server from a synthetic match payload. EOS is integrated for voice/friends/EAC ONLY — **EOS Matchmaking is explicitly out of scope** (see §10).
 
+> #### 🔄 ARCHITECTURE CORRECTION (2026-06-11) — AFL-1100 flow, live-schema grounded
+>
+> **This block supersedes the AFL-1100 row's "Lambda receives PlayFab `OnMatchFound` webhook → `CreateGameSession`" wording below.** It was written against an assumed PlayFab integration shape; the live PlayFab + GameLift docs (verified 2026-06-11, against the PlayFab `GetMatch` REST schema dated **2026-06-02**) contradict two of its premises. Per the immutable-history protocol the original row is kept (struck-through, with a `🔄 SUPERSEDED BY` pointer); this is the authoritative flow — the same correction device as §7.4 / §8 / §9.
+>
+> **Two corrected premises:**
+> 1. **PlayFab matchmaking is POLLING-ONLY — there is NO `OnMatchFound` webhook.** PlayFab supports only the polling method (clients poll `Match/GetMatch`, max every 6s / 10× per minute). There is no native push event to hang a Lambda on. The original "Lambda receives the webhook" premise does not exist in PlayFab.
+> 2. **`GetMatch.ServerDetails` is populated by PlayFab's OWN Multiplayer Servers ONLY.** Its fields (`IPV4Address`, `Ports[]{Name,Num,Protocol}`, `Region`, `ServerId`, `Fqdn`) are filled only when the queue uses PlayFab MPS. With an EXTERNAL GameLift allocator, PlayFab does **not** write GameLift's IP into `ServerDetails` — the connection info must be relayed back to clients **out-of-band**.
+>
+> **Corrected flow:**
+> ```
+> Trigger (client-call OR PlayFab CloudScript/Automation relay — PRODUCTION CHOICE DEFERRED TO S12)
+>    → API Gateway (HTTPS, fronts the Lambda — REQUIRED; the original row omitted it)
+>      + inbound auth: HMAC signature / API-key authorizer; shared secret in AWS Secrets Manager (the AFL-1306 anti-tamper pattern on the inbound edge)
+>    → Lambda (match-allocator)
+>      → GameLift StartGameSessionPlacement  (QUEUE-BASED placement — NOT CreateGameSession; placement spans fleets/regions and is the correct async call)
+>      → DescribeGameSessionPlacement (poll until FULFILLED)
+>      → returns { IPV4Address : Port : PlayerSessionId }  (from PlacedPlayerSessions[]) to the caller; clients connect DIRECTLY to GameLift
+> ```
+> The dedicated server, once built (S12), reads its match context from the GameLift **`onStartGameSession`** callback (`GameSessionData` custom props + `MatchmakerData` JSON: players + attributes + team assignments) — none of which is touched in S11.
+>
+> **The standalone test (AFL-1100 / AFL-1107 gate) is TRIGGER-AGNOSTIC:** POST a synthetic `GetMatchResult`-shaped fixture (a `MatchId` + a 4-entry `Members[]` of `{Entity, TeamId, Attributes}`) straight to the Lambda → assert a real `IP:Port:PlayerSessionId` comes back from a GameLift **Anywhere** (or stub-managed) fleet — **no client, no UE build, no real server build** (the server build is an S12 swap-in). That real tuple is the green checkbox.
+>
+> **CDK stack resource list (corrected):** Lambda + **API Gateway** + IAM execution role (`gamelift:StartGameSessionPlacement` / `DescribeGameSessionPlacement` / `CreatePlayerSessions`) + Secrets Manager (inbound HMAC secret) + optional DynamoDB (idempotency on `MatchId` so concurrent client-calls collapse to one placement). The microservice lives in a **separate sibling repo** (`Bag_Man_Backend`), never in the UE LFS repo — only the deployed IDs (title id, queue name, fleet id/alias) cross back as non-secret config.
+
 | ID | Title | Discipline | Est |
 |---|---|---|---|
-| AFL-1100 | **TENTPOLE — Author PlayFab→Lambda→GameLift CDK stack** with synthetic match payload test harness. Lambda receives PlayFab `OnMatchFound` webhook, calls `CreateGameSession` + `CreatePlayerSessions`, returns IP/Port/`PlayerSessionId`. Must pass standalone test before any client integration. See §10 | Engineering / DevOps | XXL |
+| AFL-1100 | ~~**TENTPOLE — Author PlayFab→Lambda→GameLift CDK stack** with synthetic match payload test harness. Lambda receives PlayFab `OnMatchFound` webhook, calls `CreateGameSession` + `CreatePlayerSessions`, returns IP/Port/`PlayerSessionId`. Must pass standalone test before any client integration.~~ 🔄 **SUPERSEDED BY the ARCHITECTURE CORRECTION block above (2026-06-11):** PlayFab is polling-only (no `OnMatchFound` webhook); use `StartGameSessionPlacement` (queue-based, not `CreateGameSession`); the bridge is a trigger → API Gateway (+HMAC auth) → Lambda; `ServerDetails` is PlayFab-MPS-only so GameLift IP relays out-of-band; the standalone test POSTs a synthetic `GetMatchResult` fixture and asserts a real IP:Port:PlayerSessionId. **Scope/intent (XXL, standalone-green-before-any-client-integration) UNCHANGED.** See §10 | Engineering / DevOps | XXL |
 | AFL-1101 | `AFLOnline` plugin scaffolding + EOS SDK integration (identity, voice, friends, EAC ONLY) | Engineering | M |
 | AFL-1102 | EOS authentication flow (Steam/Epic ticket → EOS user → cross-platform identity bridge) | Engineering | M |
 | AFL-1103 | EOS Voice Chat (proximity in-match, lobby in lounge) | Engineering | M |
