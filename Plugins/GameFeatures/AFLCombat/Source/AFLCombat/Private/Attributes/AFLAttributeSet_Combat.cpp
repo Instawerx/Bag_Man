@@ -29,6 +29,11 @@ UAFLAttributeSet_Combat::UAFLAttributeSet_Combat()
 	, MaxHeat(100.0f)
 	, HeatDecayRate(20.0f)
 	, RecoilMultiplier(1.0f)   // S4-INC2: baseline; consequence GEs Multiply it up
+	, HeadHealth(0.0f)         // S4-INC3: zone-HP; InitData GE seeds real values (PHASE B)
+	, LeftArmHealth(0.0f)
+	, RightArmHealth(0.0f)
+	, LeftLegHealth(0.0f)
+	, RightLegHealth(0.0f)
 {
 }
 
@@ -46,6 +51,11 @@ void UAFLAttributeSet_Combat::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, MaxHeat,           COND_OwnerOnly, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, HeatDecayRate,     COND_OwnerOnly, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, RecoilMultiplier,  COND_OwnerOnly, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, HeadHealth,        COND_OwnerOnly, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, LeftArmHealth,     COND_OwnerOnly, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, RightArmHealth,    COND_OwnerOnly, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, LeftLegHealth,     COND_OwnerOnly, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, RightLegHealth,    COND_OwnerOnly, REPNOTIFY_Always);
 }
 
 void UAFLAttributeSet_Combat::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
@@ -78,6 +88,19 @@ void UAFLAttributeSet_Combat::PreAttributeChange(const FGameplayAttribute& Attri
 		// S4-INC2: floor at baseline. A dismember consequence only ever INCREASES
 		// recoil/spread; nothing should drive it below 1.0 (no "steadier-than-normal").
 		NewValue = FMath::Max(NewValue, 1.0f);
+	}
+	else if (Attribute == GetHeadHealthAttribute()
+		|| Attribute == GetLeftArmHealthAttribute()
+		|| Attribute == GetRightArmHealthAttribute()
+		|| Attribute == GetLeftLegHealthAttribute()
+		|| Attribute == GetRightLegHealthAttribute())
+	{
+		// S4-INC3: zone-HP never stores negative (mirrors Health). DEPLETION is NOT detected
+		// from this post-clamp value -- UAFLDamageExecCalc computes the sever + overflow from
+		// the CAPTURED (pre-change) zone-HP vs EffectiveDamage, exactly as it derives health
+		// spill from EffectiveDamage - ShieldAbsorbed. So the floor here is purely storage
+		// hygiene; the absorber's math is unaffected. 0.0 = severed/inert.
+		NewValue = FMath::Max(NewValue, 0.0f);
 	}
 	// Damage / HeatPerBeamTick: no clamping; consumed in PostGameplayEffectExecute.
 }
@@ -261,4 +284,29 @@ void UAFLAttributeSet_Combat::OnRep_HeatDecayRate(const FGameplayAttributeData& 
 void UAFLAttributeSet_Combat::OnRep_RecoilMultiplier(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UAFLAttributeSet_Combat, RecoilMultiplier, OldValue);
+}
+
+void UAFLAttributeSet_Combat::OnRep_HeadHealth(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAFLAttributeSet_Combat, HeadHealth, OldValue);
+}
+
+void UAFLAttributeSet_Combat::OnRep_LeftArmHealth(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAFLAttributeSet_Combat, LeftArmHealth, OldValue);
+}
+
+void UAFLAttributeSet_Combat::OnRep_RightArmHealth(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAFLAttributeSet_Combat, RightArmHealth, OldValue);
+}
+
+void UAFLAttributeSet_Combat::OnRep_LeftLegHealth(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAFLAttributeSet_Combat, LeftLegHealth, OldValue);
+}
+
+void UAFLAttributeSet_Combat::OnRep_RightLegHealth(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAFLAttributeSet_Combat, RightLegHealth, OldValue);
 }

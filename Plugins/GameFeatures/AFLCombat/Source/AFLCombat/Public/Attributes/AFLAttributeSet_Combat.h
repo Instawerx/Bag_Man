@@ -61,6 +61,16 @@ public:
 	// Clamped >= 1.0 in PreAttributeChange so a consequence only ever INCREASES recoil.
 	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, RecoilMultiplier);
 
+	// S4-INC3: per-zone HP -- the OUTERMOST absorber. UAFLDamageExecCalc routes a hit by its
+	// bone (AFLCore::BoneToZone) to the matching zone-HP, which drains FIRST; only the overflow
+	// past zero continues to shield/health. Zone-HP <= 0 = severed (limb inert dead-zone / head
+	// decapitation). Default 0.0 in the ctor; the InitData GE seeds real values in PHASE B.
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, HeadHealth);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, LeftArmHealth);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, RightArmHealth);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, LeftLegHealth);
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, RightLegHealth);
+
 protected:
 
 	UFUNCTION()
@@ -92,6 +102,21 @@ protected:
 
 	UFUNCTION()
 	void OnRep_RecoilMultiplier(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_HeadHealth(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_LeftArmHealth(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_RightArmHealth(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_LeftLegHealth(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_RightLegHealth(const FGameplayAttributeData& OldValue);
 
 private:
 
@@ -137,4 +162,22 @@ private:
 	// any consequence GE modifier). Modifiable by GEs (NO HideFromModifiers).
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_RecoilMultiplier, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
 	FGameplayAttributeData RecoilMultiplier;
+
+	// S4-INC3: per-zone HP. Persistent + replicated; the ExecCalc absorbs into these per the
+	// hit bone before shield/health. No HideFromModifiers (the InitData GE + the ExecCalc's
+	// Additive drain modifier write them). Default 0.0 (ctor) -> InitData seeds real values.
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_HeadHealth, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData HeadHealth;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_LeftArmHealth, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData LeftArmHealth;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_RightArmHealth, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData RightArmHealth;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_LeftLegHealth, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData LeftLegHealth;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_RightLegHealth, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData RightLegHealth;
 };

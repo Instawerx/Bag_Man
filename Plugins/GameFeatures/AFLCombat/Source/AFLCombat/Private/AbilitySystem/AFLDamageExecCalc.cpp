@@ -2,12 +2,14 @@
 
 #include "AbilitySystem/AFLDamageExecCalc.h"
 
+#include "AFLBodyZone.h"   // S4-INC3: EAFLBodyZone + AFLCore::BoneToZone (AFLCore)
 #include "AFLCombat.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
 #include "Messages/AFLHitConfirmMessage.h"   // AFLCore (relocated -- drop-on-damage cycle)
+#include "HUD/AFLDismemberSeverMessage.h"     // S4-INC3: the live zone-HP sever broadcast
 #include "HUD/AFLOverkillMessage.h"
 #include "Messages/LyraVerbMessage.h"
 #include "NativeGameplayTags.h"
@@ -39,6 +41,11 @@ namespace
 	// AFL-0204: broadcast when EffectiveDamage > 0 so the firing client's
 	// UAFLHitConfirmComponent can play crosshair pulse + camera shake.
 	const FName NAME_Event_Damage_Confirmed_ExecCalc = TEXT("Event.Damage.Confirmed");
+
+	// S4-INC3: the live zone-HP sever broadcast. A limb/head falls off when ITS zone-HP
+	// depletes on a hit -- the dismember component (PHASE B) listens to this. Canonical tag
+	// in AFLCombatTags.ini (added PHASE B); RequestGameplayTag(ErrorIfNotFound=false) until then.
+	const FName NAME_Event_Dismember_Sever_AFL_ExecCalc = TEXT("Event.Dismember.Sever.AFL");
 }
 
 // Victim-state tag for the carrier-vulnerability check (stress-object cycle). Native define (with the
@@ -66,6 +73,12 @@ struct FAFLDamageCaptureDefs
 	FGameplayEffectAttributeCaptureDefinition ShieldDef;
 	FGameplayEffectAttributeCaptureDefinition HealthDef;
 	FGameplayEffectAttributeCaptureDefinition OverkillThresholdDef;
+	// S4-INC3: per-zone HP (Target/live), the outermost absorber.
+	FGameplayEffectAttributeCaptureDefinition HeadHealthDef;
+	FGameplayEffectAttributeCaptureDefinition LeftArmHealthDef;
+	FGameplayEffectAttributeCaptureDefinition RightArmHealthDef;
+	FGameplayEffectAttributeCaptureDefinition LeftLegHealthDef;
+	FGameplayEffectAttributeCaptureDefinition RightLegHealthDef;
 
 	FAFLDamageCaptureDefs()
 	{
@@ -91,6 +104,23 @@ struct FAFLDamageCaptureDefs
 		OverkillThresholdDef = FGameplayEffectAttributeCaptureDefinition(
 			UAFLAttributeSet_Combat::GetOverkillThresholdAttribute(),
 			EGameplayEffectAttributeCaptureSource::Target, false);
+
+		// S4-INC3: zone-HP, target-side live (current value at execution, like Health).
+		HeadHealthDef = FGameplayEffectAttributeCaptureDefinition(
+			UAFLAttributeSet_Combat::GetHeadHealthAttribute(),
+			EGameplayEffectAttributeCaptureSource::Target, false);
+		LeftArmHealthDef = FGameplayEffectAttributeCaptureDefinition(
+			UAFLAttributeSet_Combat::GetLeftArmHealthAttribute(),
+			EGameplayEffectAttributeCaptureSource::Target, false);
+		RightArmHealthDef = FGameplayEffectAttributeCaptureDefinition(
+			UAFLAttributeSet_Combat::GetRightArmHealthAttribute(),
+			EGameplayEffectAttributeCaptureSource::Target, false);
+		LeftLegHealthDef = FGameplayEffectAttributeCaptureDefinition(
+			UAFLAttributeSet_Combat::GetLeftLegHealthAttribute(),
+			EGameplayEffectAttributeCaptureSource::Target, false);
+		RightLegHealthDef = FGameplayEffectAttributeCaptureDefinition(
+			UAFLAttributeSet_Combat::GetRightLegHealthAttribute(),
+			EGameplayEffectAttributeCaptureSource::Target, false);
 	}
 };
 
@@ -108,6 +138,12 @@ UAFLDamageExecCalc::UAFLDamageExecCalc()
 	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().ShieldDef);
 	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().HealthDef);
 	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().OverkillThresholdDef);
+	// S4-INC3: zone-HP captures.
+	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().HeadHealthDef);
+	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().LeftArmHealthDef);
+	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().RightArmHealthDef);
+	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().LeftLegHealthDef);
+	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().RightLegHealthDef);
 }
 
 void UAFLDamageExecCalc::Execute_Implementation(
@@ -141,6 +177,15 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	float TargetOverkillThreshold = 0.0f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
 		AFLDamageCaptureDefs().OverkillThresholdDef, EvalParams, TargetOverkillThreshold);
+
+	// S4-INC3: capture the zone-HP (live target values) for the limb-absorber (step 5c).
+	float TargetHeadHealth = 0.0f, TargetLeftArmHealth = 0.0f, TargetRightArmHealth = 0.0f,
+	      TargetLeftLegHealth = 0.0f, TargetRightLegHealth = 0.0f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(AFLDamageCaptureDefs().HeadHealthDef,     EvalParams, TargetHeadHealth);
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(AFLDamageCaptureDefs().LeftArmHealthDef,  EvalParams, TargetLeftArmHealth);
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(AFLDamageCaptureDefs().RightArmHealthDef, EvalParams, TargetRightArmHealth);
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(AFLDamageCaptureDefs().LeftLegHealthDef,  EvalParams, TargetLeftLegHealth);
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(AFLDamageCaptureDefs().RightLegHealthDef, EvalParams, TargetRightLegHealth);
 
 	// 2. SetByCaller multipliers (default 1.0 when the ability didn't provide them).
 	const float HeadshotMult    = Spec.GetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(NAME_Data_Damage_Headshot_ExecCalc,  false), false, 1.0f);
@@ -196,6 +241,101 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	if (EvalParams.TargetTags && EvalParams.TargetTags->HasTag(TAG_State_Carrying_Vulnerable_ExecCalc))
 	{
 		EffectiveDamage *= 1.3f;
+	}
+
+	// 5c. S4-INC3 ZONE-HP LIMB ABSORBER (the outermost absorber, AFTER carrier-vuln, BEFORE shield).
+	//     Classify the hit bone -> zone (AFLCore::BoneToZone -- AFLCombat-reachable, no AFLDismember
+	//     dep). For a LIMB or HEAD zone, the matching zone-HP drains FIRST; only the OVERFLOW past
+	//     zero continues to shield/health. Zone-HP <= 0 already = severed/inert:
+	//       - LIMB: a DEAD ZONE -- consume the hit entirely (no limb dmg, no body dmg, no re-sever).
+	//       - HEAD: inert too (no double-decapitate; head already off).
+	//     Crossing <= 0 THIS hit broadcasts Event.Dismember.Sever.AFL (bLethal: Head=true, limbs=false).
+	//     Head overflow STILL flows to health (head is the lethal zone). Torso/None: SKIP (body damage).
+	//     The sever decision is computed from the CAPTURED (pre-change) zone-HP vs EffectiveDamage --
+	//     never from a post-clamp read (PreAttributeChange only floors the STORED value).
+	{
+		const FHitResult* ZoneHitResult = Spec.GetEffectContext().GetHitResult();
+		const FName ZoneBone = ZoneHitResult ? ZoneHitResult->BoneName : NAME_None;
+		const EAFLBodyZone Zone = AFLCore::BoneToZone(ZoneBone);
+
+		// Map the zone -> its captured HP + the FGameplayAttribute to drain. Head/limbs only.
+		float ZoneHP = -1.0f;            // -1 = "not a zone we route" (Torso/None handled by the if below)
+		FGameplayAttribute ZoneAttr;
+		bool bIsZoneRouted = true;
+		switch (Zone)
+		{
+		case EAFLBodyZone::Head:     ZoneHP = TargetHeadHealth;     ZoneAttr = UAFLAttributeSet_Combat::GetHeadHealthAttribute();     break;
+		case EAFLBodyZone::LeftArm:  ZoneHP = TargetLeftArmHealth;  ZoneAttr = UAFLAttributeSet_Combat::GetLeftArmHealthAttribute();  break;
+		case EAFLBodyZone::RightArm: ZoneHP = TargetRightArmHealth; ZoneAttr = UAFLAttributeSet_Combat::GetRightArmHealthAttribute(); break;
+		case EAFLBodyZone::LeftLeg:  ZoneHP = TargetLeftLegHealth;  ZoneAttr = UAFLAttributeSet_Combat::GetLeftLegHealthAttribute();  break;
+		case EAFLBodyZone::RightLeg: ZoneHP = TargetRightLegHealth; ZoneAttr = UAFLAttributeSet_Combat::GetRightLegHealthAttribute(); break;
+		default:                     bIsZoneRouted = false;         break;   // Torso / None -> body chain unchanged
+		}
+
+		if (bIsZoneRouted)
+		{
+			const bool bIsHead = (Zone == EAFLBodyZone::Head);
+
+			if (ZoneHP > KINDA_SMALL_NUMBER)
+			{
+				// Living zone: drain it first. The absorbed portion is consumed by the zone; only the
+				// OVERFLOW past zero continues to the body (shield/health). This is identical for limb
+				// and head -- the difference is bLethal (head severance is the kill, the overflow that
+				// reaches health is what finishes it; a limb just leaves the body taking the overflow as
+				// ordinary damage). So the head, too, contributes ONLY its overflow to health, not the
+				// full pre-absorb hit.
+				const float Absorbed = FMath::Min(ZoneHP, EffectiveDamage);
+				OutExecutionOutput.AddOutputModifier(FGameplayModifierEvaluatedData(
+					ZoneAttr, EGameplayModOp::Additive, -Absorbed));
+
+				const bool bDepletes = (EffectiveDamage >= ZoneHP - KINDA_SMALL_NUMBER);
+				EffectiveDamage -= Absorbed;   // overflow continues to the body for BOTH limb and head
+
+				if (bDepletes)
+				{
+					// After the subtraction above, EffectiveDamage == the overflow (>= 0).
+					const double SeverOverflow = static_cast<double>(FMath::Max(0.0f, EffectiveDamage));
+
+					UAbilitySystemComponent* SeverASC = ExecutionParams.GetTargetAbilitySystemComponent();
+					AActor* SeverActor = SeverASC ? SeverASC->GetAvatarActor_Direct() : nullptr;
+					UWorld* SeverWorld = SeverActor ? SeverActor->GetWorld() : nullptr;
+					if (SeverWorld)
+					{
+						FAFLDismemberSeverMessage Sever;
+						Sever.Instigator = Spec.GetEffectContext().GetEffectCauser();
+						Sever.Target     = SeverActor;
+						Sever.BoneName   = ZoneBone;
+						Sever.Zone       = Zone;
+						Sever.bLethal    = bIsHead;
+						Sever.Overflow   = SeverOverflow;
+
+						UGameplayMessageSubsystem::Get(SeverWorld).BroadcastMessage(
+							FGameplayTag::RequestGameplayTag(NAME_Event_Dismember_Sever_AFL_ExecCalc, false),
+							Sever);
+
+						UE_LOG(LogAFLCombat, Log,
+							TEXT("AFL_SEVER: zone=%d bone=%s lethal=%d zoneHP=%.2f overflow=%.2f target=%s"),
+							static_cast<int32>(Zone), *ZoneBone.ToString(), bIsHead ? 1 : 0,
+							ZoneHP, SeverOverflow, *GetNameSafe(SeverActor));
+					}
+				}
+			}
+			else
+			{
+				// Zone already severed / inert (HP <= 0): a DEAD-ZONE hit.
+				//   Limb: changes NOTHING -- consume the whole hit (no body damage, no re-sever).
+				//   Head: head is gone; treat the same (no double-decapitate). Body takes nothing from
+				//   a bone-hit on a missing head this hit (the kill already happened on decapitation).
+				EffectiveDamage = 0.0f;
+			}
+		}
+	}
+
+	if (EffectiveDamage <= 0.0f)
+	{
+		// S4-INC3: a dead-zone hit (severed limb / off head) fully consumed the hit. No shield/health
+		// modifiers, no overkill. Mirrors the step-5 mitigated early-return (no body damage lands).
+		return;
 	}
 
 	// 6. Shield absorbs first.

@@ -5,28 +5,17 @@
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 
+#include "AFLBodyZone.h"   // S4-INC3: EAFLBodyZone relocated to AFLCore (un-stranded for the ExecCalc)
+
 #include "AFLDismemberTypes.generated.h"
 
 class AAFLDismemberedPart;
 class UGameplayEffect;
 class UNiagaraSystem;
 
-/**
- * S4-INC1: the six dismemberable body zones (+ None). The killing-blow bone is
- * mapped to one of these via FAFLDismemberZone::BoneMatches; the head slice
- * (proven) is Head, the leg-consequence vehicle is Left/RightLeg.
- */
-UENUM(BlueprintType)
-enum class EAFLBodyZone : uint8
-{
-	None      UMETA(DisplayName = "None"),
-	Head      UMETA(DisplayName = "Head"),
-	LeftArm   UMETA(DisplayName = "Left Arm"),
-	RightArm  UMETA(DisplayName = "Right Arm"),
-	LeftLeg   UMETA(DisplayName = "Left Leg"),
-	RightLeg  UMETA(DisplayName = "Right Leg"),
-	Torso     UMETA(DisplayName = "Torso"),
-};
+// EAFLBodyZone moved to AFLCore/Public/AFLBodyZone.h (S4-INC3) so AFLCombat's ExecCalc can
+// classify the hit bone -> zone without a circular AFLCombat -> AFLDismember dep. The rich
+// FAFLDismemberZone data row below still uses it (consumed from AFLCore via the include above).
 
 /**
  * S4-INC1: one row of the data-driven dismember table. Generalizes the proven
