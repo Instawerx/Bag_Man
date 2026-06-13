@@ -66,6 +66,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category="AFL|Dismember")
 	void RestoreZone(EAFLBodyZone Zone);
 
+	/**
+	 * S4-INC4 (AFL-0408): the ALL-CLIENT cosmetic half, called by UAFLCueNotify_ZoneSever on the
+	 * persistent GameplayCue.Combat.Dismember.State.<Zone> cue. ApplyZoneHideCosmetic hides the zone
+	 * bone on the full visible mesh set (GatherZoneMeshes + HideBoneByName PBO_Term -- the B-2 logic,
+	 * moved here); ApplyZoneRestoreCosmetic un-hides it. These run on EVERY client (no authority guard --
+	 * the SEVER is server-auth via AddGameplayCue; the RENDER is all-client). The bone is resolved from
+	 * the loaded ZoneSet for the zone. Net-mode-tagged logging proves the hide ran client-side.
+	 */
+	void ApplyZoneHideCosmetic(EAFLBodyZone Zone);
+	void ApplyZoneRestoreCosmetic(EAFLBodyZone Zone);
+
 	/** GE that re-seeds the zone-HP to full on reattach (soft, async-loaded). Authored PHASE B-2
 	 *  (the same Override values GE_AFL_Combat_InitData seeds -- data-driven, not hardcoded twice). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")

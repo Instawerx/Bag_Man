@@ -40,12 +40,51 @@ namespace
 	// UAFLDamageExecCalc broadcasts this when a zone's HP depletes; OnSever consumes it.
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Dismember_Sever_AFL_Dismember, "Event.Dismember.Sever.AFL");
 
+	// S4-INC4 (AFL-0408): the PERSISTENT severed-state cues (declared in AFLCombatTags.ini). SeverZone
+	// AddGameplayCue's one of these (server-auth) -> replicated container -> UAFLCueNotify_ZoneSever
+	// hides the bone on all clients; RestoreZone RemoveGameplayCue's it -> OnRemove un-hides.
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Cue_Dismember_State_Head_Dismember,     "GameplayCue.Combat.Dismember.State.Head");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Cue_Dismember_State_LeftArm_Dismember,  "GameplayCue.Combat.Dismember.State.LeftArm");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Cue_Dismember_State_RightArm_Dismember, "GameplayCue.Combat.Dismember.State.RightArm");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Cue_Dismember_State_LeftLeg_Dismember,  "GameplayCue.Combat.Dismember.State.LeftLeg");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Cue_Dismember_State_RightLeg_Dismember, "GameplayCue.Combat.Dismember.State.RightLeg");
+
+	// Zone -> its persistent severed-state cue tag. None/Torso have no state cue (not severable to a loot path).
+	FGameplayTag ZoneSeverCueTag(EAFLBodyZone Zone)
+	{
+		switch (Zone)
+		{
+		case EAFLBodyZone::Head:     return TAG_Cue_Dismember_State_Head_Dismember;
+		case EAFLBodyZone::LeftArm:  return TAG_Cue_Dismember_State_LeftArm_Dismember;
+		case EAFLBodyZone::RightArm: return TAG_Cue_Dismember_State_RightArm_Dismember;
+		case EAFLBodyZone::LeftLeg:  return TAG_Cue_Dismember_State_LeftLeg_Dismember;
+		case EAFLBodyZone::RightLeg: return TAG_Cue_Dismember_State_RightLeg_Dismember;
+		default:                     return FGameplayTag();
+		}
+	}
+
 	// S4-INC3 PHASE B-1: the consequence/state tags RestoreZone removes (declared in AFLCombatTags.ini).
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Dismembered_LeftArm_Dismember,  "State.Dismembered.LeftArm");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Dismembered_RightArm_Dismember, "State.Dismembered.RightArm");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Dismembered_LeftLeg_Dismember,  "State.Dismembered.LeftLeg");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Dismembered_RightLeg_Dismember, "State.Dismembered.RightLeg");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Decapitated_Dismember,          "State.Decapitated");
+
+	// S4-INC4: a [SV]/[CL1]/[CL2] net-mode tag for the all-client cosmetic instrument -- the
+	// AFLInteractionTestHarness pattern. Proves the bone-hide RAN on the remote client (not eyeball).
+	FString NetTag(const UObject* WorldCtx)
+	{
+		const UWorld* W = WorldCtx ? WorldCtx->GetWorld() : nullptr;
+		if (!W) { return TEXT("[??]"); }
+		switch (W->GetNetMode())
+		{
+		case NM_DedicatedServer: return TEXT("[SV]");
+		case NM_ListenServer:    return TEXT("[SV]");
+		case NM_Client:          return FString::Printf(TEXT("[CL%d]"), static_cast<int32>(UE::GetPlayInEditorID()));
+		case NM_Standalone:      return TEXT("[SP]");
+		default:                 return TEXT("[??]");
+		}
+	}
 
 	// Zone -> the state tag SeverZone grants / RestoreZone removes. Head = State.Decapitated;
 	// limbs = State.Dismembered.<Zone>. None/Torso have no consequence tag today.
@@ -316,6 +355,74 @@ TArray<USkeletalMeshComponent*> UAFLDismemberComponent::GatherZoneMeshes() const
 	return Meshes;
 }
 
+void UAFLDismemberComponent::ApplyZoneHideCosmetic(EAFLBodyZone Zone)
+{
+	// ALL-CLIENT cosmetic (no authority guard -- called by the cue notify on every client). Resolve
+	// the bone from the loaded ZoneSet (resident: the cue was added after the server resolved+loaded it),
+	// then hide it on the FULL visible mesh set. Net-mode-tagged so the 2-client proof shows it ran on CL.
+	FName SeveredBone = NAME_None;
+	if (const UAFLDismemberZoneSet* Set = ZoneSet.Get())
+	{
+		for (const FAFLDismemberZone& Row : Set->Zones)
+		{
+			if (Row.Zone == Zone) { SeveredBone = Row.SeveredBone; break; }
+		}
+	}
+	const FString Net = NetTag(this);
+	if (SeveredBone.IsNone())
+	{
+		UE_LOG(LogAFLDismember, Warning,
+			TEXT("%s ZoneSever OnActive zone=%d -- no bone in ZoneSet (not loaded on this client yet?) -- NO HIDE"),
+			*Net, static_cast<int32>(Zone));
+		return;
+	}
+
+	const TArray<USkeletalMeshComponent*> ZoneMeshes = GatherZoneMeshes();
+	for (USkeletalMeshComponent* Mesh : ZoneMeshes)
+	{
+		const int32 BoneIdx = Mesh->GetBoneIndex(SeveredBone);
+		Mesh->HideBoneByName(SeveredBone, PBO_Term);
+		UE_LOG(LogAFLDismember, Display,
+			TEXT("%s ZoneSever OnActive zone=%d HideBone '%s' on %s (skelmesh=%s boneIdx=%d %s)"),
+			*Net, static_cast<int32>(Zone), *SeveredBone.ToString(), *Mesh->GetName(),
+			*GetNameSafe(Mesh->GetSkeletalMeshAsset()), BoneIdx,
+			BoneIdx == INDEX_NONE ? TEXT("NO-OP") : TEXT("ok"));
+	}
+	UE_LOG(LogAFLDismember, Display,
+		TEXT("%s ZoneSever OnActive zone=%d total=%d mesh(es) hidden on %s"),
+		*Net, static_cast<int32>(Zone), ZoneMeshes.Num(), *GetNameSafe(GetOwner()));
+}
+
+void UAFLDismemberComponent::ApplyZoneRestoreCosmetic(EAFLBodyZone Zone)
+{
+	// Symmetric all-client un-hide (cue OnRemove). Same mesh set as the hide (shared GatherZoneMeshes).
+	FName SeveredBone = NAME_None;
+	if (const UAFLDismemberZoneSet* Set = ZoneSet.Get())
+	{
+		for (const FAFLDismemberZone& Row : Set->Zones)
+		{
+			if (Row.Zone == Zone) { SeveredBone = Row.SeveredBone; break; }
+		}
+	}
+	const FString Net = NetTag(this);
+	if (SeveredBone.IsNone())
+	{
+		UE_LOG(LogAFLDismember, Warning,
+			TEXT("%s ZoneSever OnRemove zone=%d -- no bone in ZoneSet -- NO UN-HIDE"),
+			*Net, static_cast<int32>(Zone));
+		return;
+	}
+
+	const TArray<USkeletalMeshComponent*> ZoneMeshes = GatherZoneMeshes();
+	for (USkeletalMeshComponent* Mesh : ZoneMeshes)
+	{
+		Mesh->UnHideBoneByName(SeveredBone);
+	}
+	UE_LOG(LogAFLDismember, Display,
+		TEXT("%s ZoneSever OnRemove zone=%d UnHideBone '%s' total=%d mesh(es) on %s"),
+		*Net, static_cast<int32>(Zone), *SeveredBone.ToString(), ZoneMeshes.Num(), *GetNameSafe(GetOwner()));
+}
+
 void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
 {
 	AActor* Owner = GetOwner();
@@ -324,37 +431,40 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
 		return;
 	}
 
-	// (1) Hide the severed bone. PBO_Term scales the bone to 0 (limb visibly disappears) and
-	// terminates its physics body so no phantom collision remains. Server-side; shows in
-	// single-PIE (server==client). The NetMulticast-replicated HideBone is AFL-0408 (deferred).
-	// B-2 FIX: hide on the FULL mesh set (CharacterMesh0 AND the visible CopyPose CharacterPart
-	// mesh) -- hiding only CharacterMesh0 left the robot head on (the part mesh never inherits it).
-	const TArray<USkeletalMeshComponent*> ZoneMeshes = GatherZoneMeshes();
-	if (ZoneMeshes.Num() == 0)
+	// (1) S4-INC4 (AFL-0408): the bone-hide is now ALL-CLIENT via a PERSISTENT cue. SeverZone no longer
+	// hides directly -- it AddGameplayCue's GameplayCue.Combat.Dismember.State.<Zone> (server-auth) into
+	// the replicated minimal-cue container; UAFLCueNotify_ZoneSever::OnActive runs the hide
+	// (ApplyZoneHideCosmetic = GatherZoneMeshes + HideBoneByName) on EVERY client, incl. the listen-server
+	// host (so the host's OWN view is hidden by the cue, not here -> no double-hide) and late-joiners.
+	// The cue is REMOVED in RestoreZone -> OnRemove un-hides everywhere. Persistent ADD (not one-shot
+	// Execute) because the hide is persistent STATE that must survive late-join / relevancy-rejoin.
+	UAbilitySystemComponent* SeverASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner);
+	const FGameplayTag SeverCueTag = ZoneSeverCueTag(Row.Zone);
+	if (SeverASC && SeverCueTag.IsValid())
+	{
+		SeverASC->AddGameplayCue(SeverCueTag);
+		UE_LOG(LogAFLDismember, Display,
+			TEXT("[AFLDismember] %s SeverZone zone=%d -> AddGameplayCue %s (server-auth; all-client hide via cue)"),
+			*GetNameSafe(Owner), static_cast<int32>(Row.Zone), *SeverCueTag.ToString());
+	}
+	else
 	{
 		UE_LOG(LogAFLDismember, Warning,
-			TEXT("[AFLDismember] %s has no SkeletalMeshComponent -- cannot sever"), *GetNameSafe(Owner));
+			TEXT("[AFLDismember] %s SeverZone zone=%d -- no ASC or no state-cue tag -- bone will NOT hide"),
+			*GetNameSafe(Owner), static_cast<int32>(Row.Zone));
+	}
+
+	// (2) The severed-bone world transform = where the prop spawns (server-side prop spawn, unchanged).
+	// Resolve CharacterMesh0 (the hero's own anim-driver mesh) for the socket xform -- the prop still
+	// spawns at the bone position even though the visible hide now rides the cue.
+	USkeletalMeshComponent* SkelMesh = Owner->FindComponentByClass<USkeletalMeshComponent>();
+	if (!SkelMesh)
+	{
+		UE_LOG(LogAFLDismember, Warning,
+			TEXT("[AFLDismember] %s has no SkeletalMeshComponent -- cannot resolve sever transform"), *GetNameSafe(Owner));
 		return;
 	}
-	for (USkeletalMeshComponent* Mesh : ZoneMeshes)
-	{
-		const int32 BoneIdx = Mesh->GetBoneIndex(Row.SeveredBone);
-		Mesh->HideBoneByName(Row.SeveredBone, PBO_Term);
-		UE_LOG(LogAFLDismember, Display,
-			TEXT("[AFLDismember] HideBone '%s' on mesh %s (skelmesh=%s, boneIdx=%d %s)"),
-			*Row.SeveredBone.ToString(), *Mesh->GetName(),
-			*GetNameSafe(Mesh->GetSkeletalMeshAsset()), BoneIdx,
-			BoneIdx == INDEX_NONE ? TEXT("BONE-NOT-ON-THIS-SKELETON->NO-OP") : TEXT("ok"));
-	}
-
-	// (2) The severed-bone world transform = where the prop spawns. Use CharacterMesh0 (the first
-	// entry = the hero's own anim-driver mesh) -- the authoritative skeleton for the socket xform.
-	USkeletalMeshComponent* SkelMesh = ZoneMeshes[0];
 	const FTransform SeverXform = SkelMesh->GetSocketTransform(Row.SeveredBone, RTS_World);
-
-	UE_LOG(LogAFLDismember, Display,
-		TEXT("[AFLDismember] Bone %s hidden on %s -- spawning prop"),
-		*Row.SeveredBone.ToString(), *GetNameSafe(Owner));
 
 	// (2/3) Async-load the (soft) prop class, then spawn at the transform + apply the pop impulse.
 	if (!Row.PropClass.IsNull())
@@ -478,16 +588,20 @@ void UAFLDismemberComponent::RestoreZone(EAFLBodyZone Zone)
 		}
 	}
 
-	// Reveal the bone (reverse of HideBoneByName PBO_Term -- unhides + restores its physics body).
-	// NetMulticast-replicated un-hide is AFL-0408 (deferred for real net play; fine single-PIE).
-	// B-2 FIX: un-hide on the EXACT SAME mesh set SeverZone hid (CharacterMesh0 + every visible
-	// CharacterPart mesh) via the shared GatherZoneMeshes() -- so the two cannot drift (a hide-N /
-	// unhide-1 mismatch would half-restore the head). Sever-set == restore-set by construction.
-	if (!SeveredBone.IsNone())
+	// (1) S4-INC4 (AFL-0408): the un-hide is now ALL-CLIENT via REMOVING the persistent cue. RestoreZone
+	// no longer un-hides directly -- it RemoveGameplayCue's GameplayCue.Combat.Dismember.State.<Zone>
+	// (server-auth); GAS drops it from the replicated container -> UAFLCueNotify_ZoneSever::OnRemove runs
+	// ApplyZoneRestoreCosmetic (GatherZoneMeshes + UnHideBoneByName) on EVERY client. Symmetric with the
+	// SeverZone AddGameplayCue -> sever-set == restore-set by construction (same cue, same cosmetic path).
+	if (UAbilitySystemComponent* RestoreASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
 	{
-		for (USkeletalMeshComponent* Mesh : GatherZoneMeshes())
+		const FGameplayTag SeverCueTag = ZoneSeverCueTag(Zone);
+		if (SeverCueTag.IsValid())
 		{
-			Mesh->UnHideBoneByName(SeveredBone);
+			RestoreASC->RemoveGameplayCue(SeverCueTag);
+			UE_LOG(LogAFLDismember, Display,
+				TEXT("[AFLDismember] %s RestoreZone zone=%d -> RemoveGameplayCue %s (server-auth; all-client un-hide via cue)"),
+				*GetNameSafe(Owner), static_cast<int32>(Zone), *SeverCueTag.ToString());
 		}
 	}
 
@@ -535,7 +649,7 @@ void UAFLDismemberComponent::RestoreZone(EAFLBodyZone Zone)
 	}
 
 	UE_LOG(LogAFLDismember, Display,
-		TEXT("[AFLDismember] RestoreZone zone=%d bone=%s on %s -- reattached (bone unhidden, tag cleared, HP restoring)"),
+		TEXT("[AFLDismember] RestoreZone zone=%d bone=%s on %s -- reattached (cue removed -> all-client un-hide, tag cleared, HP restoring)"),
 		static_cast<int32>(Zone), *SeveredBone.ToString(), *GetNameSafe(Owner));
 }
 
