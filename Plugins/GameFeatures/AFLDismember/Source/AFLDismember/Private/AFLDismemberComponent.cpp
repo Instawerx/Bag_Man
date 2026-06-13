@@ -4,6 +4,9 @@
 
 #include "AFLDismember.h"
 #include "AFLDismemberedHead.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
@@ -20,6 +23,10 @@ namespace
 	// to avoid first-boot race -- same pattern as AFLHitConfirmComponent's
 	// TAG_Event_Damage_Confirmed. File-local suffix per HYG-001/002.
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Damage_Overkill_AFL_Dismember, "Event.Damage.Overkill.AFL");
+	// The head-pop audio cue (declared in AFLCombatTags.ini). Fired authority-side at
+	// detach so it replicates -- GCN_AFL_Dismember_HeadPop plays Electrical_Popping_Malfunction.
+	// Closes the deferred AFL-0404 head audio.
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Combat_Dismember_HeadPop, "GameplayCue.Combat.Dismember.HeadPop");
 }
 
 UAFLDismemberComponent::UAFLDismemberComponent()
@@ -123,6 +130,21 @@ void UAFLDismemberComponent::OnOverkill(FGameplayTag Channel, const FAFLOverkill
 					UE_LOG(LogAFLDismember, Display,
 						TEXT("[AFLDismember] Head prop spawned on %s (S4-05b) -- pop + roll"),
 						*GetNameSafe(GetOwner()));
+				}
+
+				// AFL-0404 (deferred audio, now landed): fire the one-shot electrical-pop cue
+				// at the head detach point. ExecuteGameplayCue off the VICTIM's ASC replicates
+				// to all clients (the reason for a cue over a direct PlaySound -- the head-pop
+				// itself is server-side/snapshot, but the SOUND should reach everyone). The
+				// head-ROLL audio lives on AAFLDismemberedHead (plays on its BeginPlay).
+				if (UAbilitySystemComponent* VictimASC =
+						UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner()))
+				{
+					FGameplayCueParameters PopCueParams;
+					PopCueParams.Location     = HeadXform.GetLocation();
+					PopCueParams.Instigator   = GetOwner();
+					PopCueParams.SourceObject = GetOwner();
+					VictimASC->ExecuteGameplayCue(TAG_GameplayCue_Combat_Dismember_HeadPop, PopCueParams);
 				}
 			}
 		}
