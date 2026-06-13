@@ -3,47 +3,48 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Actor.h"
+
+#include "AFLDismemberedPart.h"
 
 #include "AFLDismemberedHead.generated.h"
 
-class UStaticMeshComponent;
-class UAudioComponent;
 class USoundBase;
 
 /**
- * S4-05b: a detached head physics prop. Placeholder sphere (engine
- * BasicShapes/Sphere scaled to head size) that simulates physics and
- * auto-destroys after 5s. Spawned by UAFLDismemberComponent at the
- * victim's head transform on a head-overkill, after the head bone is
- * hidden (S4-05a). Real head mesh is later polish.
+ * S4-05b / S4-INC1: the detached HEAD prop -- now a thin subclass of the extracted
+ * AAFLDismemberedPart base. Inherits the proven decoupled-physics-prop shape (mesh
+ * root, SimulatePhysics, 5s lifespan, replication, ApplyPopImpulse) and adds ONLY
+ * the head-specific cosmetic: the engine-sphere default mesh + the rolling-head audio.
  *
- * AFL-0404 (deferred audio, now landed): on BeginPlay the head plays its
- * RollSound (Head_Roll_*) attached to the simulating sphere, so the rolling
- * audio follows the head as it tumbles. The electrical-POP at detach is a
- * separate one-shot GameplayCue fired by UAFLDismemberComponent (replicated).
+ * The base AAFLDismemberedPart::PartMesh IS the sphere; the head ctor sets the sphere
+ * mesh + BasicShapeMaterial + 0.25 scale on it. Limbs use the base directly with a
+ * placeholder mesh (PHASE B), so the only head-specific code left here is the sphere
+ * default + RollSound. Regression: the head must still pop + play roll audio exactly
+ * as before this refactor.
+ *
+ * AFL-0404 (audio, landed): on BeginPlay the head plays its RollSound (Head_Roll_1)
+ * attached to the simulating mesh, so the roll audio follows the tumble. The
+ * electrical-POP at detach is a separate replicated GameplayCue fired by
+ * UAFLDismemberComponent.
  */
 UCLASS()
-class AFLDISMEMBER_API AAFLDismemberedHead : public AActor
+class AFLDISMEMBER_API AAFLDismemberedHead : public AAFLDismemberedPart
 {
 	GENERATED_BODY()
 
 public:
 	AAFLDismemberedHead();
 
-	/** The simulating sphere -- b-ii applies the pop impulse to this. */
-	UStaticMeshComponent* GetSphereMesh() const { return SphereMesh; }
+	/** Back-compat accessor (callers used GetSphereMesh()); forwards to the base PartMesh. */
+	UStaticMeshComponent* GetSphereMesh() const { return GetPartMesh(); }
 
 protected:
 	virtual void BeginPlay() override;
 
 private:
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AFL|Dismember", meta=(AllowPrivateAccess="true"))
-	TObjectPtr<UStaticMeshComponent> SphereMesh;
-
-	/** AFL-0404: the rolling-head audio (Head_Roll_*), played attached to the sphere on
+	/** AFL-0404: the rolling-head audio (Head_Roll_*), played attached to the mesh on
 	 *  BeginPlay so it follows the tumble. Assigned on the BP child / by the asset; the
 	 *  ctor attempts a default load of Head_Roll_1 so the slice ships without BP wiring. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember", meta=(AllowPrivateAccess="true"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<USoundBase> RollSound;
 };

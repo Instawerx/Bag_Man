@@ -24,6 +24,9 @@ public class AFLDismember : ModuleRules
 				"AFLCombat",
 				"ModularGameplay",
 				"ModularGameplayActors",
+				// S4-INC1: Niagara for the FAFLDismemberZone.SparkFX soft slot (declared now,
+				// consumed in the AFL-0406 sparks pass). Soft-ref only -- no hard NS load here.
+				"Niagara",
 			}
 		);
 

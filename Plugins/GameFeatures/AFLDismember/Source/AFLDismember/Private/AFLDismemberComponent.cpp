@@ -3,15 +3,19 @@
 #include "AFLDismemberComponent.h"
 
 #include "AFLDismember.h"
-#include "AFLDismemberedHead.h"
-#include "AbilitySystemBlueprintLibrary.h"
+#include "AFLDismemberTypes.h"
+#include "AFLDismemberZoneSet.h"
+#include "AFLDismemberedPart.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/AssetManager.h"
+#include "Engine/StreamableManager.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
+#include "GameplayEffect.h"
 #include "HUD/AFLOverkillMessage.h"
 #include "NativeGameplayTags.h"
 
@@ -19,32 +23,22 @@
 
 namespace
 {
-	// Native-define mirrors the AFLCoreTags.ini tag (Event.Damage.Overkill.AFL)
-	// to avoid first-boot race -- same pattern as AFLHitConfirmComponent's
-	// TAG_Event_Damage_Confirmed. File-local suffix per HYG-001/002.
+	// Native-define mirrors the AFLCoreTags.ini tag (Event.Damage.Overkill.AFL) to avoid
+	// first-boot race -- same pattern as AFLHitConfirmComponent's TAG_Event_Damage_Confirmed.
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Damage_Overkill_AFL_Dismember, "Event.Damage.Overkill.AFL");
-	// The head-pop audio cue (declared in AFLCombatTags.ini). Fired authority-side at
-	// detach so it replicates -- GCN_AFL_Dismember_HeadPop plays Electrical_Popping_Malfunction.
-	// Closes the deferred AFL-0404 head audio.
-	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Combat_Dismember_HeadPop, "GameplayCue.Combat.Dismember.HeadPop");
 }
 
 UAFLDismemberComponent::UAFLDismemberComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
-
-	// Defaulted in ctor so the slice ships without BP wiring; BP children
-	// may override to a custom head asset later (real head mesh = polish).
-	HeadActorClass = AAFLDismemberedHead::StaticClass();
 }
 
 void UAFLDismemberComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Server-authoritative: the overkill broadcast is server-side, and
-	// dismemberment is authoritative gameplay. No local-controller gate
-	// (unlike UAFLHitConfirmComponent) -- register on the server only.
+	// Server-authoritative: the overkill broadcast is server-side, and dismemberment is
+	// authoritative gameplay. No local-controller gate -- register on the server only.
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
 		UGameplayMessageSubsystem& MessageSubsystem = UGameplayMessageSubsystem::Get(this);
@@ -73,93 +67,181 @@ void UAFLDismemberComponent::OnOverkill(FGameplayTag Channel, const FAFLOverkill
 		return;
 	}
 
-	// Head-zone check. S4-A0 confirmed the Manny head bone is "head".
-	if (Payload.BoneName == FName(TEXT("head")))
+	if (ZoneSet.IsNull())
 	{
 		UE_LOG(LogAFLDismember, Warning,
-			TEXT("[AFLDismember] HEAD OVERKILL detected on %s (bone=%s, magnitude=%.1f) -- detaching head"),
-			*GetNameSafe(GetOwner()),
-			*Payload.BoneName.ToString(),
-			Payload.Magnitude);
+			TEXT("[AFLDismember] %s overkilled (bone=%s) but no ZoneSet assigned -- no dismemberment"),
+			*GetNameSafe(GetOwner()), *Payload.BoneName.ToString());
+		return;
+	}
 
-		// S4-05a: detach the head. Reach the owner's skeletal mesh (registry
-		// lookup -- works for the dummy's private Mesh subobject and for
-		// ALyraCharacter pawns later) and hide the head bone. HideBoneByName
-		// scales the bone to 0 (head visibly disappears); PBO_Term also
-		// terminates its physics body so no phantom head-capsule collision
-		// remains. S4-05b spawns the rolling head prop at the head transform.
-		//
-		// Server-side, shows in single-player PIE (server==client). The
-		// multiplayer-correct version (NetMulticast wrapper so clients also
-		// run HideBoneByName) is deferred to when dismemberment goes on real
-		// pawns in real net play -- HideBoneByName does NOT replicate.
-		if (USkeletalMeshComponent* SkelMesh =
-				GetOwner()->FindComponentByClass<USkeletalMeshComponent>())
+	ResolveAndSever(Payload.BoneName);
+}
+
+void UAFLDismemberComponent::ResolveAndSever(FName HitBone)
+{
+	// AAA: async-load the ZoneSet (soft), then resolve the bone -> row on the game thread.
+	// RequestAsyncLoad keeps the asset off the hard-ref graph; the lambda runs once loaded.
+	FStreamableManager& Streamable = UAssetManager::GetStreamableManager();
+	const FSoftObjectPath ZonePath = ZoneSet.ToSoftObjectPath();
+
+	TWeakObjectPtr<UAFLDismemberComponent> WeakThis(this);
+	Streamable.RequestAsyncLoad(ZonePath, FStreamableDelegate::CreateLambda([WeakThis, HitBone, ZonePath]()
+	{
+		UAFLDismemberComponent* Self = WeakThis.Get();
+		if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority())
 		{
-			SkelMesh->HideBoneByName(FName(TEXT("head")), PBO_Term);
+			return;
+		}
 
-			UE_LOG(LogAFLDismember, Display,
-				TEXT("[AFLDismember] Head bone hidden on %s (S4-05a) -- rolling prop is S4-05b"),
-				*GetNameSafe(GetOwner()));
+		const UAFLDismemberZoneSet* Set = Cast<UAFLDismemberZoneSet>(ZonePath.ResolveObject());
+		if (!Set)
+		{
+			UE_LOG(LogAFLDismember, Warning, TEXT("[AFLDismember] ZoneSet failed to load -- no dismemberment"));
+			return;
+		}
 
-			// S4-05b: spawn the rolling head prop at the head's world transform.
-			// Server-side; shows in single-player PIE (server==client). The
-			// physics sphere simulates + auto-destroys after 5s. Multiplayer-
-			// correct replicated physics is deferred (snapshot replication is
-			// good enough cosmetically; deterministic physics is a later lift).
-			const FTransform HeadXform =
-				SkelMesh->GetSocketTransform(FName(TEXT("head")), RTS_World);
+		const FAFLDismemberZone* Row = Set->FindZoneForBone(HitBone);
+		if (!Row)
+		{
+			UE_LOG(LogAFLDismember, Verbose,
+				TEXT("[AFLDismember] Overkill on %s but bone=%s maps to no zone -- no dismemberment"),
+				*GetNameSafe(Self->GetOwner()), *HitBone.ToString());
+			return;
+		}
+
+		UE_LOG(LogAFLDismember, Warning,
+			TEXT("[AFLDismember] ZONE OVERKILL on %s -- bone=%s -> zone=%d severed=%s"),
+			*GetNameSafe(Self->GetOwner()), *HitBone.ToString(),
+			static_cast<int32>(Row->Zone), *Row->SeveredBone.ToString());
+
+		// Copy the row -- the async prop/GE continuations in SeverZone outlive the
+		// array-pointer Row returned by FindZoneForBone.
+		Self->SeverZone(*Row);
+	}));
+}
+
+void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority() || !GetWorld())
+	{
+		return;
+	}
+
+	// (1) Hide the severed bone. PBO_Term scales the bone to 0 (limb visibly disappears) and
+	// terminates its physics body so no phantom collision remains. Server-side; shows in
+	// single-PIE (server==client). The NetMulticast-replicated HideBone is AFL-0408 (deferred).
+	USkeletalMeshComponent* SkelMesh = Owner->FindComponentByClass<USkeletalMeshComponent>();
+	if (!SkelMesh)
+	{
+		UE_LOG(LogAFLDismember, Warning,
+			TEXT("[AFLDismember] %s has no SkeletalMeshComponent -- cannot sever"), *GetNameSafe(Owner));
+		return;
+	}
+	SkelMesh->HideBoneByName(Row.SeveredBone, PBO_Term);
+
+	// (2) The severed-bone world transform = where the prop spawns.
+	const FTransform SeverXform = SkelMesh->GetSocketTransform(Row.SeveredBone, RTS_World);
+
+	UE_LOG(LogAFLDismember, Display,
+		TEXT("[AFLDismember] Bone %s hidden on %s -- spawning prop"),
+		*Row.SeveredBone.ToString(), *GetNameSafe(Owner));
+
+	// (2/3) Async-load the (soft) prop class, then spawn at the transform + apply the pop impulse.
+	if (!Row.PropClass.IsNull())
+	{
+		FStreamableManager& Streamable = UAssetManager::GetStreamableManager();
+		const FSoftObjectPath PropPath = Row.PropClass.ToSoftObjectPath();
+
+		// Capture the spawn-time data by value (the row reference does not outlive the lambda).
+		TWeakObjectPtr<UAFLDismemberComponent> WeakThis(this);
+		const FVector2D ImpulseXY = Row.ImpulseXYRange;
+		const float ImpulseZ = Row.ImpulseZ;
+
+		Streamable.RequestAsyncLoad(PropPath, FStreamableDelegate::CreateLambda(
+			[WeakThis, PropPath, SeverXform, ImpulseXY, ImpulseZ]()
+		{
+			UAFLDismemberComponent* Self = WeakThis.Get();
+			if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority() || !Self->GetWorld())
+			{
+				return;
+			}
+
+			UClass* PropClass = Cast<UClass>(PropPath.ResolveObject());
+			if (!PropClass)
+			{
+				UE_LOG(LogAFLDismember, Warning, TEXT("[AFLDismember] prop class failed to load -- no prop"));
+				return;
+			}
 
 			FActorSpawnParameters SpawnParams;
-			SpawnParams.SpawnCollisionHandlingOverride =
-				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-			SpawnParams.Owner = GetOwner();
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			SpawnParams.Owner = Self->GetOwner();
 
-			UClass* HeadClass = HeadActorClass.Get();
-			if (HeadClass && GetWorld())
+			AAFLDismemberedPart* Part =
+				Self->GetWorld()->SpawnActor<AAFLDismemberedPart>(PropClass, SeverXform, SpawnParams);
+			if (Part)
 			{
-				AAFLDismemberedHead* HeadActor =
-					GetWorld()->SpawnActor<AAFLDismemberedHead>(HeadClass, HeadXform, SpawnParams);
-				if (HeadActor && HeadActor->GetSphereMesh())
-				{
-					HeadActor->GetSphereMesh()->AddImpulse(
-						FVector(FMath::FRandRange(-100.f, 100.f),
-								FMath::FRandRange(-100.f, 100.f),
-								500.f),
-						NAME_None, /*bVelChange=*/false);
-					UE_LOG(LogAFLDismember, Display,
-						TEXT("[AFLDismember] Head prop spawned on %s (S4-05b) -- pop + roll"),
-						*GetNameSafe(GetOwner()));
-				}
-
-				// AFL-0404 (deferred audio, now landed): fire the one-shot electrical-pop cue
-				// at the head detach point. ExecuteGameplayCue off the VICTIM's ASC replicates
-				// to all clients (the reason for a cue over a direct PlaySound -- the head-pop
-				// itself is server-side/snapshot, but the SOUND should reach everyone). The
-				// head-ROLL audio lives on AAFLDismemberedHead (plays on its BeginPlay).
-				if (UAbilitySystemComponent* VictimASC =
-						UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner()))
-				{
-					FGameplayCueParameters PopCueParams;
-					PopCueParams.Location     = HeadXform.GetLocation();
-					PopCueParams.Instigator   = GetOwner();
-					PopCueParams.SourceObject = GetOwner();
-					VictimASC->ExecuteGameplayCue(TAG_GameplayCue_Combat_Dismember_HeadPop, PopCueParams);
-				}
+				// Randomized pop -- matches the proven head (+-100 XY, +500 Z by default).
+				Part->ApplyPopImpulse(FVector(
+					FMath::FRandRange(ImpulseXY.X, ImpulseXY.Y),
+					FMath::FRandRange(ImpulseXY.X, ImpulseXY.Y),
+					ImpulseZ));
+				UE_LOG(LogAFLDismember, Display,
+					TEXT("[AFLDismember] Part prop spawned on %s -- pop + roll"),
+					*GetNameSafe(Self->GetOwner()));
 			}
-		}
-		else
-		{
-			UE_LOG(LogAFLDismember, Warning,
-				TEXT("[AFLDismember] %s has no SkeletalMeshComponent -- cannot detach head"),
-				*GetNameSafe(GetOwner()));
-		}
+		}));
 	}
-	else
+
+	UAbilitySystemComponent* VictimASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner);
+
+	// (4) Fire the cosmetic cue (replicated via the victim ASC) if the row sets one.
+	if (VictimASC && Row.CueTag.IsValid())
 	{
-		UE_LOG(LogAFLDismember, Verbose,
-			TEXT("[AFLDismember] Overkill on %s but bone=%s (not head) -- no head-pop"),
-			*GetNameSafe(GetOwner()),
-			*Payload.BoneName.ToString());
+		FGameplayCueParameters CueParams;
+		CueParams.Location     = SeverXform.GetLocation();
+		CueParams.Instigator   = Owner;
+		CueParams.SourceObject = Owner;
+		VictimASC->ExecuteGameplayCue(Row.CueTag, CueParams);
+	}
+
+	// (5) Apply the consequence GE (grants State.Dismembered.<Zone>) if the row sets one --
+	// EMPTY for lethal-cosmetic zones (head/torso = death, no surviving consequence). Async-load.
+	if (VictimASC && !Row.ConsequenceGE.IsNull())
+	{
+		FStreamableManager& Streamable = UAssetManager::GetStreamableManager();
+		const FSoftObjectPath GEPath = Row.ConsequenceGE.ToSoftObjectPath();
+
+		TWeakObjectPtr<UAFLDismemberComponent> WeakThis(this);
+		TWeakObjectPtr<UAbilitySystemComponent> WeakASC(VictimASC);
+
+		Streamable.RequestAsyncLoad(GEPath, FStreamableDelegate::CreateLambda([WeakThis, WeakASC, GEPath]()
+		{
+			UAFLDismemberComponent* Self = WeakThis.Get();
+			UAbilitySystemComponent* ASC = WeakASC.Get();
+			if (!Self || !ASC || !Self->GetOwner() || !Self->GetOwner()->HasAuthority())
+			{
+				return;
+			}
+
+			UClass* GEClass = Cast<UClass>(GEPath.ResolveObject());
+			if (!GEClass)
+			{
+				UE_LOG(LogAFLDismember, Warning, TEXT("[AFLDismember] consequence GE failed to load"));
+				return;
+			}
+
+			FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+			Context.AddSourceObject(Self);
+			const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(GEClass, 1.0f, Context);
+			if (Spec.IsValid())
+			{
+				ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+				UE_LOG(LogAFLDismember, Display,
+					TEXT("[AFLDismember] consequence GE applied to %s"), *GetNameSafe(Self->GetOwner()));
+			}
+		}));
 	}
 }
