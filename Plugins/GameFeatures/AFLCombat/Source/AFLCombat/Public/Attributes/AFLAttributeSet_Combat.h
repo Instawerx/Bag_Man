@@ -56,6 +56,11 @@ public:
 	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, HeatDecayRate);
 	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, HeatPerBeamTick);
 
+	// S4-INC2: recoil/spread scalar read by UAFLAG_Laser_Pulse at fire time. Baseline
+	// 1.0; a dismember consequence GE (arm loss) Multiply-modifies it up (x1.5/arm).
+	// Clamped >= 1.0 in PreAttributeChange so a consequence only ever INCREASES recoil.
+	ATTRIBUTE_ACCESSORS(UAFLAttributeSet_Combat, RecoilMultiplier);
+
 protected:
 
 	UFUNCTION()
@@ -84,6 +89,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_HeatDecayRate(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_RecoilMultiplier(const FGameplayAttributeData& OldValue);
 
 private:
 
@@ -123,4 +131,10 @@ private:
 
 	UPROPERTY(BlueprintReadOnly, Category="AFL|Combat", Meta=(HideFromModifiers, AllowPrivateAccess=true))
 	FGameplayAttributeData HeatPerBeamTick;
+
+	// S4-INC2: recoil/spread multiplier (baseline 1.0). Persistent + replicated like
+	// Health/Heat so the owning client's Pulse fire path reads the live value (incl.
+	// any consequence GE modifier). Modifiable by GEs (NO HideFromModifiers).
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing=OnRep_RecoilMultiplier, Category="AFL|Combat", Meta=(AllowPrivateAccess=true))
+	FGameplayAttributeData RecoilMultiplier;
 };

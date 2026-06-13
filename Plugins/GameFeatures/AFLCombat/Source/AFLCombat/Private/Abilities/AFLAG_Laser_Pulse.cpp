@@ -340,10 +340,27 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	const UAFLPulseTuningData* Tuning = TuningData;
 	const float BaseSpread             = Tuning ? Tuning->BaseSpreadDegrees       : 0.5f;
 	const float MaxSpread              = Tuning ? Tuning->MaxSpreadDegrees        : 4.0f;
-	const float SpreadPerShot          = Tuning ? Tuning->SpreadPerShotDegrees    : 0.6f;
 	const float SpreadRecoveryPerSec   = Tuning ? Tuning->SpreadRecoveryDegPerSec : 8.0f;
-	const float RecoilPitch            = Tuning ? Tuning->RecoilPitchPerShot      : 0.4f;
-	const float RecoilYawJitter        = Tuning ? Tuning->RecoilYawJitterDegrees  : 0.15f;
+
+	// S4-INC2: dismember arm-loss recoil/spread penalty. Read RecoilMultiplier (baseline 1.0,
+	// pushed to 1.5/arm by the arm consequence GE) off the firing pawn's ASC AT FIRE TIME, so
+	// the live value (incl. the GE modifier) is always current. Floor 1.0 (PreAttributeChange
+	// also clamps; the local Max is belt-and-braces for a missing/unset attribute). Scales the
+	// PER-SHOT magnitudes BEFORE they feed the spread bloom + the camera kick, so BOTH the cone
+	// AND the recoil widen with arm loss. Tick-free, no new component.
+	const float RecoilMult = FMath::Max(1.0f,
+		ASC->GetNumericAttribute(UAFLAttributeSet_Combat::GetRecoilMultiplierAttribute()));
+	const float SpreadPerShot          = (Tuning ? Tuning->SpreadPerShotDegrees   : 0.6f)  * RecoilMult;
+	const float RecoilPitch            = (Tuning ? Tuning->RecoilPitchPerShot     : 0.4f)  * RecoilMult;
+	const float RecoilYawJitter        = (Tuning ? Tuning->RecoilYawJitterDegrees : 0.15f) * RecoilMult;
+
+	// S4-INC2 DETERMINISTIC PROOF (Log, not Verbose -- grep AFL_PULSE_RECOIL): the exact
+	// RecoilMultiplier this shot read + the scaled per-shot magnitudes. RecoilMult is 1.00 at
+	// baseline, 1.50 with one arm severed, 2.25 with both (the Multiply GE modifiers stack).
+	// This is the unambiguous arm-loss assertion -- a clean number, no bloom-accumulation noise.
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_PULSE_RECOIL: mult=%.2f spreadPerShot=%.2f recoilPitch=%.2f yawJitter=%.2f"),
+		RecoilMult, SpreadPerShot, RecoilPitch, RecoilYawJitter);
 
 	// Camera-aligned origin and direction. PlayerCameraManager exposes the same
 	// post-modifier viewpoint as the controller's view helper, without tripping

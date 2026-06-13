@@ -21,11 +21,13 @@
 
 namespace
 {
-	// Leg-dismember consequence tags (declared in AFLCombatTags.ini). File-local native
-	// defines for the TestLegTag cheat -- must be at namespace scope (the macro emits a
+	// Dismember-consequence tags (declared in AFLCombatTags.ini). File-local native defines
+	// for the TestLegTag/TestLimbTag cheats -- must be at namespace scope (the macro emits a
 	// static FNativeGameplayTag, illegal inside a function body).
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Dismember_LeftLeg_Cheat, "State.Dismembered.LeftLeg");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Dismember_RightLeg_Cheat, "State.Dismembered.RightLeg");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Dismember_LeftArm_Cheat, "State.Dismembered.LeftArm");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Dismember_RightArm_Cheat, "State.Dismembered.RightArm");
 
 	// Find the first AAFLDamageTargetSkeletal in any game world. Pattern
 	// mirrors FindDummyHistory in AFLCombatCheats.cpp -- the slice expects
@@ -161,6 +163,75 @@ namespace
 		}
 	}
 
+	// S4-INC2: generalized -- TOGGLE the actual consequence GE for any limb on the LOCAL pawn,
+	// so any consequence is watchable on the moving/firing hero. CRITICAL: this APPLIES THE GE
+	// (not a loose tag), because the arm consequence is an ATTRIBUTE MODIFIER (RecoilMultiplier
+	// x1.5) that lives on the GE -- a bare loose-tag add grants the tag but NEVER moves the
+	// attribute, so the recoil would not change. Applying the GE grants the tag AND the modifier
+	// uniformly (the same path SeverZone uses in real play). Legs read the tag, arms read the
+	// attribute; the GE carries both, so this one path proves every limb correctly.
+	// Usage: AFL.Dismember.TestLimbTag <leftleg|rightleg|leftarm|rightarm>
+	void HandleAFLDismemberTestLimbTag(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogAFLDismember, Warning,
+				TEXT("AFL.Dismember.TestLimbTag: usage: TestLimbTag <leftleg|rightleg|leftarm|rightarm>"));
+			return;
+		}
+		const FString Zone = Args[0].ToLower();
+		FGameplayTag Tag;
+		const TCHAR* GEPath = nullptr;
+		if      (Zone == TEXT("leftleg")  || Zone == TEXT("ll")) { Tag = TAG_Dismember_LeftLeg_Cheat;  GEPath = TEXT("/AFLDismember/Effects/GE_AFL_Dismember_LeftLeg.GE_AFL_Dismember_LeftLeg_C"); }
+		else if (Zone == TEXT("rightleg") || Zone == TEXT("rl")) { Tag = TAG_Dismember_RightLeg_Cheat; GEPath = TEXT("/AFLDismember/Effects/GE_AFL_Dismember_RightLeg.GE_AFL_Dismember_RightLeg_C"); }
+		else if (Zone == TEXT("leftarm")  || Zone == TEXT("la")) { Tag = TAG_Dismember_LeftArm_Cheat;  GEPath = TEXT("/AFLDismember/Effects/GE_AFL_Dismember_LeftArm.GE_AFL_Dismember_LeftArm_C"); }
+		else if (Zone == TEXT("rightarm") || Zone == TEXT("ra")) { Tag = TAG_Dismember_RightArm_Cheat; GEPath = TEXT("/AFLDismember/Effects/GE_AFL_Dismember_RightArm.GE_AFL_Dismember_RightArm_C"); }
+		else
+		{
+			UE_LOG(LogAFLDismember, Warning,
+				TEXT("AFL.Dismember.TestLimbTag: unknown zone '%s' (use leftleg|rightleg|leftarm|rightarm)"), *Zone);
+			return;
+		}
+
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		UAbilitySystemComponent* ASC = Pawn ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn) : nullptr;
+		if (!ASC)
+		{
+			UE_LOG(LogAFLDismember, Warning, TEXT("AFL.Dismember.TestLimbTag: no local pawn ASC"));
+			return;
+		}
+
+		UClass* GEClass = StaticLoadClass(UGameplayEffect::StaticClass(), nullptr, GEPath);
+		if (!GEClass)
+		{
+			UE_LOG(LogAFLDismember, Warning, TEXT("AFL.Dismember.TestLimbTag: failed to load GE %s"), GEPath);
+			return;
+		}
+
+		// Toggle by the granted tag: present -> remove the GE (restores attr/tag), else apply it.
+		if (ASC->HasMatchingGameplayTag(Tag))
+		{
+			const FGameplayEffectQuery Query =
+				FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(FGameplayTagContainer(Tag));
+			const int32 Removed = ASC->RemoveActiveEffects(Query);
+			UE_LOG(LogAFLDismember, Display, TEXT("AFL.Dismember.TestLimbTag: REMOVED %s GE (%d) from %s -> consequence cleared"),
+				*Zone, Removed, *GetNameSafe(Pawn));
+		}
+		else
+		{
+			FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+			Context.AddInstigator(Pawn, Pawn);
+			const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(GEClass, 1.0f, Context);
+			if (Spec.IsValid())
+			{
+				ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+				UE_LOG(LogAFLDismember, Display, TEXT("AFL.Dismember.TestLimbTag: APPLIED %s GE to %s (grants %s + any attr modifier)"),
+					*Zone, *GetNameSafe(Pawn), *Tag.ToString());
+			}
+		}
+	}
+
 	FAutoConsoleCommand GAFLDismemberTestKillHeadCmd(
 		TEXT("AFL.Dismember.TestKillHead"),
 		TEXT("S4-04b: lethal head-targeted hit to the first AAFLDamageTargetSkeletal, triggering Event.Damage.Overkill.AFL with BoneName=head. Usage: AFL.Dismember.TestKillHead [damage=200]"),
@@ -177,6 +248,12 @@ namespace
 		TEXT("AFL.Dismember.TestLegTag"),
 		TEXT("S4-INC1: TOGGLE State.Dismembered.Left/RightLeg on the local player pawn -> UAFLDismemberLegPenaltyComponent halves/restores MaxWalkSpeed. Usage: AFL.Dismember.TestLegTag [l|r]"),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLDismemberTestLegTag));
+
+	// S4-INC2: any-limb consequence toggle on the local pawn (legs -> speed, arms -> recoil/spread).
+	FAutoConsoleCommand GAFLDismemberTestLimbTagCmd(
+		TEXT("AFL.Dismember.TestLimbTag"),
+		TEXT("S4-INC2: TOGGLE State.Dismembered.<zone> on the local pawn. Arms drive RecoilMultiplier x1.5 (Pulse cone+kick widen). Usage: AFL.Dismember.TestLimbTag <leftleg|rightleg|leftarm|rightarm>"),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLDismemberTestLimbTag));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER

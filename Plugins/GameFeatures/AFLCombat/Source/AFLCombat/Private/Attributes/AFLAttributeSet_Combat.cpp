@@ -28,6 +28,7 @@ UAFLAttributeSet_Combat::UAFLAttributeSet_Combat()
 	, Heat(0.0f)
 	, MaxHeat(100.0f)
 	, HeatDecayRate(20.0f)
+	, RecoilMultiplier(1.0f)   // S4-INC2: baseline; consequence GEs Multiply it up
 {
 }
 
@@ -44,6 +45,7 @@ void UAFLAttributeSet_Combat::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, Heat,              COND_OwnerOnly, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, MaxHeat,           COND_OwnerOnly, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, HeatDecayRate,     COND_OwnerOnly, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UAFLAttributeSet_Combat, RecoilMultiplier,  COND_OwnerOnly, REPNOTIFY_Always);
 }
 
 void UAFLAttributeSet_Combat::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
@@ -70,6 +72,12 @@ void UAFLAttributeSet_Combat::PreAttributeChange(const FGameplayAttribute& Attri
 		|| Attribute == GetHeatDecayRateAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.0f);
+	}
+	else if (Attribute == GetRecoilMultiplierAttribute())
+	{
+		// S4-INC2: floor at baseline. A dismember consequence only ever INCREASES
+		// recoil/spread; nothing should drive it below 1.0 (no "steadier-than-normal").
+		NewValue = FMath::Max(NewValue, 1.0f);
 	}
 	// Damage / HeatPerBeamTick: no clamping; consumed in PostGameplayEffectExecute.
 }
@@ -248,4 +256,9 @@ void UAFLAttributeSet_Combat::OnRep_MaxHeat(const FGameplayAttributeData& OldVal
 void UAFLAttributeSet_Combat::OnRep_HeatDecayRate(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UAFLAttributeSet_Combat, HeatDecayRate, OldValue);
+}
+
+void UAFLAttributeSet_Combat::OnRep_RecoilMultiplier(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UAFLAttributeSet_Combat, RecoilMultiplier, OldValue);
 }
