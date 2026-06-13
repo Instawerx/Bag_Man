@@ -10,6 +10,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/CheatManagerDefines.h"
+#include "GameFramework/Pawn.h"               // APawn::GetActorLocation in the self-decap cheat
 #include "GameFramework/PlayerController.h"
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
@@ -112,6 +113,57 @@ namespace
 	{
 		const float Damage = Args.Num() > 0 ? FCString::Atof(*Args[0]) : 200.0f;
 		SeverBoneOnDummy(FName(TEXT("head")), Damage);
+	}
+
+	// S4-INC3 PHASE B-2: sever a bone on the LOCAL PLAYER PAWN (not the dummy) so the FULL decap
+	// loop is watchable on the controllable hero -- head pops (HeadHealth drains), Health bar
+	// UNTOUCHED, the decap camera pushes (State.Decapitated -> GA_AFL_DecapitatedCamera), and the
+	// head loot-box spawns for self-retrieve. The damage GE goes to the pawn's ASC, which resolves
+	// to the PlayerState ASC where the zone-HP attributes + the dismember listener live.
+	// Default 60 dmg fully depletes the 54-HP head zone in one shot (decap immediately).
+	void SeverBoneOnLocalPawn(UWorld* World, FName Bone, float Damage)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		UAbilitySystemComponent* ASC =
+			Pawn ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn) : nullptr;
+		if (!ASC)
+		{
+			UE_LOG(LogAFLDismember, Warning, TEXT("AFL.Dismember.TestDecapSelf: no local pawn ASC"));
+			return;
+		}
+
+		// Seed Source.Damage (snapshot-captured by the exec calc), then apply a Pulse-damage spec
+		// to SELF carrying BoneName=head in the hit result -- exactly the dummy path, retargeted.
+		ASC->ApplyModToAttribute(
+			UAFLAttributeSet_Combat::GetDamageAttribute(), EGameplayModOp::Override, Damage);
+
+		FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+		Context.AddInstigator(Pawn, Pawn);
+		FHitResult Hit;
+		Hit.BoneName = Bone;
+		Hit.ImpactPoint = Pawn->GetActorLocation();
+		Context.AddHitResult(Hit);
+
+		FGameplayEffectSpecHandle SpecHandle =
+			ASC->MakeOutgoingSpec(UGE_AFL_Damage_Pulse::StaticClass(), /*Level=*/1.0f, Context);
+		if (!SpecHandle.IsValid())
+		{
+			UE_LOG(LogAFLDismember, Warning, TEXT("AFL.Dismember.TestDecapSelf: failed to make spec"));
+			return;
+		}
+		ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+
+		UE_LOG(LogAFLDismember, Display,
+			TEXT("AFL.Dismember.TestDecapSelf: applied Damage=%.1f to LOCAL PAWN %s (bone=%s) -- expect AFL_SEVER head + State.Decapitated + loot-box, Health UNCHANGED"),
+			Damage, *GetNameSafe(Pawn), *Bone.ToString());
+	}
+
+	// AFL.Dismember.TestDecapSelf [damage=60] -- decapitate the local player (watch the full loop).
+	void HandleAFLDismemberTestDecapSelf(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		const float Damage = Args.Num() > 0 ? FCString::Atof(*Args[0]) : 60.0f;
+		SeverBoneOnLocalPawn(World, FName(TEXT("head")), Damage);
 	}
 
 	// S4-INC1: generic zone sever -- bone arg picks the zone via the data table.
@@ -241,6 +293,13 @@ namespace
 		TEXT("AFL.Dismember.TestSever"),
 		TEXT("S4-INC1: lethal zone-targeted hit to the first AAFLDamageTargetSkeletal; the bone arg picks the zone via DA_AFL_DismemberZones. Usage: AFL.Dismember.TestSever <BoneName> [damage=200] (e.g. thigh_l, thigh_r)"),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&HandleAFLDismemberTestSever));
+
+	// S4-INC3 PHASE B-2: decapitate the LOCAL PLAYER (the controllable hero) to watch the full
+	// decap loop -- head pop + Health-bar-untouched + decap camera + retrievable head loot-box.
+	FAutoConsoleCommand GAFLDismemberTestDecapSelfCmd(
+		TEXT("AFL.Dismember.TestDecapSelf"),
+		TEXT("S4-INC3 B-2: decapitate the LOCAL PLAYER pawn -> head pops (HeadHealth drains), Health bar UNCHANGED, decap camera pushes, head loot-box spawns for self-retrieve. Usage: AFL.Dismember.TestDecapSelf [damage=60]"),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLDismemberTestDecapSelf));
 
 	// World-args variant: TestLegTag toggles the leg-dismember tag on the LOCAL pawn so the
 	// leg-speed penalty is watchable on the moving hero (the tag->penalty half, isolated).

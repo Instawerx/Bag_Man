@@ -18,9 +18,11 @@ void UAFLCameraMode_Decapitated::UpdateView(float DeltaTime)
 	FVector PivotLocation = GetPivotLocation();
 	FRotator PivotRotation = GetPivotRotation();
 
-	// FOV/angle ONLY (locked model). Nudge the framing: tilt down toward the headless body and
+	// FOV/angle ONLY (locked model). Nudge the framing: tilt DOWN toward the headless body and
 	// drop the viewpoint ~a head's height. Ragdoll-loosening / wobble = deferred (AFL-0410).
-	PivotRotation.Pitch = FMath::ClampAngle(PivotRotation.Pitch + PitchOffset, ViewPitchMin, ViewPitchMax);
+	// UE pitch convention: NEGATIVE = look down -> SUBTRACT the (positive) PitchOffset. (PIE B-2:
+	// the first cut ADDED it and the camera looked UP -- the sign was inverted.)
+	PivotRotation.Pitch = FMath::ClampAngle(PivotRotation.Pitch - PitchOffset, ViewPitchMin, ViewPitchMax);
 	PivotLocation.Z += PivotZOffset;
 
 	View.Location = PivotLocation;

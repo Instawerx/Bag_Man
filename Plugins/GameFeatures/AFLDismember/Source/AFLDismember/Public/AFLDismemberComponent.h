@@ -11,6 +11,7 @@
 #include "AFLDismemberComponent.generated.h"
 
 class UAFLDismemberZoneSet;
+class USkeletalMeshComponent;   // B-2 FIX: GatherZoneMeshes() return type
 struct FAFLDismemberZone;
 struct FAFLOverkillMessage;
 struct FGameplayTag;
@@ -70,6 +71,16 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
 	TSoftClassPtr<class UGameplayEffect> ZoneRestoreEffect;
 
+	/** The head loot-box spawned on decapitation (soft, async-loaded). BP child of AAFLHeadLootBox.
+	 *  Initialize'd with the owner pawn so self-retrieve reattaches + owner-death vanishes it (PHASE B-2). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
+	TSoftClassPtr<class AAFLHeadLootBox> HeadLootBoxClass;
+
+	/** GE granting State.Decapitated on head-sever (soft, async-loaded). The head's consequence GE
+	 *  (the row's ConsequenceGE stays empty for the head -- this is granted directly by OnSever). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
+	TSoftClassPtr<class UGameplayEffect> DecapitatedEffect;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -77,8 +88,20 @@ protected:
 private:
 	void OnOverkill(FGameplayTag Channel, const FAFLOverkillMessage& Payload);
 
-	/** Async-load the ZoneSet, resolve HitBone -> row, then SeverZone(row). Server-only. */
-	void ResolveAndSever(FName HitBone);
+	/**
+	 * S4-INC3 PHASE B-2: the LIVE sever consumer. Listens to Event.Dismember.Sever.AFL (broadcast by
+	 * UAFLDamageExecCalc when a zone's dedicated HP depletes) and, when the victim is THIS owner, runs
+	 * the cosmetic detach (SeverZone) for the resolved zone -- AND, for the HEAD, grants State.Decapitated
+	 * and spawns the head loot-box (Initialize'd with the owner). This is the trigger the head now uses:
+	 * decap no longer overkills (B-1 made the head consume the hit, EffectiveDamage=0), so OnOverkill never
+	 * fires for a head -- OnSever is the only path that pops the head. Limbs keep OnOverkill this increment
+	 * (a head never overkills, so there is no double-sever for the proven case).
+	 */
+	void OnSever(FGameplayTag Channel, const struct FAFLDismemberSeverMessage& Payload);
+
+	/** Async-load the ZoneSet, resolve HitBone -> row, then SeverZone(row). Server-only.
+	 *  bIsHeadSever: also grant State.Decapitated + spawn the head loot-box once the row resolves. */
+	void ResolveAndSever(FName HitBone, bool bIsHeadSever = false);
 
 	/**
 	 * Sever one zone (server-authority). Generalizes the proven head path:
@@ -92,5 +115,23 @@ private:
 	 */
 	void SeverZone(const FAFLDismemberZone& Row);
 
-	FGameplayMessageListenerHandle ListenerHandle;
+	/**
+	 * S4-INC3 PHASE B-2 FIX: every skeletal mesh a zone-bone hide/un-hide must touch. The hero's own
+	 * CharacterMesh0 is the anim driver + the prop-transform source, but the VISIBLE robot body is a
+	 * separate CopyPose-driven CharacterPart child actor (NOT a leader-pose follower) -- hiding only
+	 * CharacterMesh0 never touches the visible mesh, so the head stayed on. Returns CharacterMesh0 +
+	 * every ULyraPawnComponent_CharacterParts part mesh. On non-cosmetic actors (the dummy, no parts
+	 * component) the set is just CharacterMesh0 -- the proven dummy behavior is preserved. PBO_Term is
+	 * a post-anim render state, so it survives the per-frame CopyPose (the standard dismember approach).
+	 */
+	TArray<USkeletalMeshComponent*> GatherZoneMeshes() const;
+
+	/** Grant the State.Decapitated consequence GE (DecapitatedEffect, async-loaded) to the owner ASC. */
+	void ApplyDecapitatedEffect();
+
+	/** A head-sever spawns + Initializes the loot-box once the loot-box class resolves. Server-only. */
+	void SpawnHeadLootBox();
+
+	FGameplayMessageListenerHandle ListenerHandle;        // Event.Damage.Overkill.AFL (limbs)
+	FGameplayMessageListenerHandle SeverListenerHandle;   // Event.Dismember.Sever.AFL (head, B-2)
 };
