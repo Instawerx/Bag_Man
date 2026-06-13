@@ -18,6 +18,10 @@
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Warmup, "State.Match.Warmup");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Ended, "State.Match.Ended");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Extracting, "State.Extracting");
+// AFL-0308: one-shot dash-activation cue (whoosh SFX). Tag declared in AFLCoreTags.ini
+// (Cue.Movement.Dash.Activated); GCN_AFL_Dash_Activated receives it and plays the random
+// MS_AFL_DashWoosh. Fired at dash start, mirroring UAFLAG_Laser_Pulse's fire cue.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Cue_Movement_Dash_Activated, "Cue.Movement.Dash.Activated");
 
 UAFLGameplayAbility_Dash::UAFLGameplayAbility_Dash(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -88,6 +92,19 @@ void UAFLGameplayAbility_Dash::ActivateAbility(
 	// dash distance); ZOverride=false leaves jump/gravity arc intact.
 	const FVector Impulse = DashDir * DashImpulse.GetValue();
 	Character->LaunchCharacter(Impulse, /*bXYOverride*/ true, /*bZOverride*/ false);
+
+	// AFL-0308: fire the one-shot dash whoosh cue at dash start (location = the dasher,
+	// direction = the dash vector). GCN_AFL_Dash_Activated plays MS_AFL_DashWoosh. Same
+	// K2_ExecuteGameplayCueWithParams shape UAFLAG_Laser_Pulse uses for its fire cue;
+	// on a LocalPredicted ability the cue predicts locally + replicates to others for free.
+	{
+		FGameplayCueParameters DashCueParams;
+		DashCueParams.Location     = Character->GetActorLocation();
+		DashCueParams.Normal       = DashDir;
+		DashCueParams.Instigator   = Character;
+		DashCueParams.SourceObject = Character;
+		K2_ExecuteGameplayCueWithParams(TAG_Cue_Movement_Dash_Activated, DashCueParams);
+	}
 
 	EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility*/ true, /*bWasCancelled*/ false);
 }
