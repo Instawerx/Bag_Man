@@ -6,6 +6,8 @@
 #include "Components/ActorComponent.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
 
+#include "AFLBodyZone.h"   // EAFLBodyZone (AFLCore)
+
 #include "AFLDismemberComponent.generated.h"
 
 class UAFLDismemberZoneSet;
@@ -48,6 +50,25 @@ public:
 	/** The data-driven zone table (soft, async-loaded at sever time). Authored in PHASE B. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
 	TSoftObjectPtr<UAFLDismemberZoneSet> ZoneSet;
+
+	/**
+	 * S4-INC3 PHASE B-1: the faithful inverse of SeverZone -- the shared RECOVERY method both
+	 * reattach paths call (head self-retrieve now; limb loot-pack P2). Server-authority:
+	 *   1. UnHideBoneByName(SeveredBone) -- reverse HideBoneByName (reveals the bone + restores
+	 *      its physics body). Bone resolved from the loaded ZoneSet row for Zone.
+	 *   2. Remove the zone tag: State.Dismembered.<Zone> (limbs) / State.Decapitated (head).
+	 *   3. Restore the zone-HP to its seed constant (RestoreGE applied to the owner ASC).
+	 * (Head) clearing State.Decapitated auto-pops the decap camera mode (tag-driven).
+	 * The UnHide has the same NetMulticast consideration as the hide (AFL-0408 -- deferred for
+	 * real net play; fine in single-PIE server==client).
+	 */
+	UFUNCTION(BlueprintCallable, Category="AFL|Dismember")
+	void RestoreZone(EAFLBodyZone Zone);
+
+	/** GE that re-seeds the zone-HP to full on reattach (soft, async-loaded). Authored PHASE B-2
+	 *  (the same Override values GE_AFL_Combat_InitData seeds -- data-driven, not hardcoded twice). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
+	TSoftClassPtr<class UGameplayEffect> ZoneRestoreEffect;
 
 protected:
 	virtual void BeginPlay() override;

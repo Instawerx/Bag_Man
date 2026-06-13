@@ -278,22 +278,31 @@ void UAFLDamageExecCalc::Execute_Implementation(
 
 			if (ZoneHP > KINDA_SMALL_NUMBER)
 			{
-				// Living zone: drain it first. The absorbed portion is consumed by the zone; only the
-				// OVERFLOW past zero continues to the body (shield/health). This is identical for limb
-				// and head -- the difference is bLethal (head severance is the kill, the overflow that
-				// reaches health is what finishes it; a limb just leaves the body taking the overflow as
-				// ordinary damage). So the head, too, contributes ONLY its overflow to health, not the
-				// full pre-absorb hit.
+				// Living zone: drain it first. The absorbed portion is consumed by the zone.
 				const float Absorbed = FMath::Min(ZoneHP, EffectiveDamage);
 				OutExecutionOutput.AddOutputModifier(FGameplayModifierEvaluatedData(
 					ZoneAttr, EGameplayModOp::Additive, -Absorbed));
 
 				const bool bDepletes = (EffectiveDamage >= ZoneHP - KINDA_SMALL_NUMBER);
-				EffectiveDamage -= Absorbed;   // overflow continues to the body for BOTH limb and head
+
+				// S4-INC3 PHASE B-1 -- LOCKED HEAD MODEL: decapitation is a SURVIVABLE state change
+				// (head loot-box tied to owner life), NOT a kill. A head hit deals ZERO body damage:
+				// the head zone CONSUMES the whole hit (like an inert zone -- no overflow to shield/
+				// health). Limbs keep the overflow -> body chain. So:
+				//   - HEAD: EffectiveDamage = 0 (consumed). The early-return below stops the body chain.
+				//   - LIMB: EffectiveDamage -= Absorbed (overflow continues to shield/health).
+				if (bIsHead)
+				{
+					EffectiveDamage = 0.0f;   // decap = zero body damage; head consumes the hit
+				}
+				else
+				{
+					EffectiveDamage -= Absorbed;   // limb overflow continues to the body
+				}
 
 				if (bDepletes)
 				{
-					// After the subtraction above, EffectiveDamage == the overflow (>= 0).
+					// Limb: EffectiveDamage == overflow. Head: 0 (decap spills nothing).
 					const double SeverOverflow = static_cast<double>(FMath::Max(0.0f, EffectiveDamage));
 
 					UAbilitySystemComponent* SeverASC = ExecutionParams.GetTargetAbilitySystemComponent();
@@ -306,17 +315,24 @@ void UAFLDamageExecCalc::Execute_Implementation(
 						Sever.Target     = SeverActor;
 						Sever.BoneName   = ZoneBone;
 						Sever.Zone       = Zone;
-						Sever.bLethal    = bIsHead;
+						// LOCKED MODEL: decapitation is SURVIVABLE (head loot-box), NOT a kill -- bLethal
+						// is false for ALL zones now. The consumer branches on Zone==Head for the head
+						// path (grant State.Decapitated + spawn the head loot-box). Field kept for a
+						// future genuinely-lethal zone; head no longer sets it.
+						Sever.bLethal    = false;
 						Sever.Overflow   = SeverOverflow;
 
 						UGameplayMessageSubsystem::Get(SeverWorld).BroadcastMessage(
 							FGameplayTag::RequestGameplayTag(NAME_Event_Dismember_Sever_AFL_ExecCalc, false),
 							Sever);
 
+						// Instrument the TRUTH: head= is the zone discriminator (was mislabeled "lethal");
+						// lethal= is the actual broadcast Sever.bLethal (false for all zones under the
+						// locked survivable-decap model). Logging both so a log-reader is never misled.
 						UE_LOG(LogAFLCombat, Log,
-							TEXT("AFL_SEVER: zone=%d bone=%s lethal=%d zoneHP=%.2f overflow=%.2f target=%s"),
+							TEXT("AFL_SEVER: zone=%d bone=%s head=%d lethal=%d zoneHP=%.2f overflow=%.2f target=%s"),
 							static_cast<int32>(Zone), *ZoneBone.ToString(), bIsHead ? 1 : 0,
-							ZoneHP, SeverOverflow, *GetNameSafe(SeverActor));
+							Sever.bLethal ? 1 : 0, ZoneHP, SeverOverflow, *GetNameSafe(SeverActor));
 					}
 				}
 			}

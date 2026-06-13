@@ -385,6 +385,9 @@ bool UAFLInteractionComponent::GrabActor(AActor* Target, const FAFLGrabPolicy& P
 	if (UAFLGrabbableComponent* Grab = Target->FindComponentByClass<UAFLGrabbableComponent>())
 	{
 		Grab->SetHeld(true);
+		// Tell the grabbed actor WHO grabbed it (server-side). The head loot-box binds OnGrabbedBy to
+		// branch self-retrieve (-> RestoreZone(Head)) vs enemy-collect. GetOwner() is the carrier pawn.
+		Grab->NotifyGrabbedBy(GetOwner());
 	}
 
 	// Holster the rifle for the carry (the rifle's upper-body anim layer would fight the grab reach + hold).

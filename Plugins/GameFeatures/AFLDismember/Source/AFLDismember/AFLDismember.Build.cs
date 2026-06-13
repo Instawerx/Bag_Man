@@ -35,6 +35,11 @@ public class AFLDismember : ModuleRules
 			{
 				"Slate",
 				"SlateCore",
+				// S4-INC3 PHASE B-1: the head loot-box (AAFLHeadLootBox) wears UAFLGrabbableComponent
+				// from AFLMovement (the grab substrate) + binds its OnGrabbedBy seam. AFLMovement does
+				// NOT depend on AFLDismember, so this is non-circular. Used only in the .cpp (the header
+				// forward-declares the component), hence Private.
+				"AFLMovement",
 			}
 		);
 	}

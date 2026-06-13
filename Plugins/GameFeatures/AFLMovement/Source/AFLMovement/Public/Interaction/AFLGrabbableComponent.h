@@ -11,6 +11,16 @@ class UGameplayAbility;
 class UGameplayEffect;
 class UAFLObjectClassAnimSet;
 
+/**
+ * Fired (server-authority) the instant this grabbable is picked up, carrying the GRABBER pawn.
+ * The generic "who grabbed me" seam: the world actor wearing this component binds in BeginPlay to
+ * react to its own pickup without the grab path hard-knowing the actor's type. First consumer is
+ * the dismembered-head loot-box (self-retrieve -> reattach vs enemy -> collect); energy drops /
+ * stress-object / mini-game props can bind the same way. Grabber may be null if the carrier's owner
+ * is not a pawn (defensive).
+ */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAFLOnGrabbedBy, AActor*, Grabber);
+
 /** Per-object carry weight -- placeholder hook for the future carry-state penalty cycle (Decision H). */
 UENUM(BlueprintType)
 enum class EAFLCarryWeight : uint8
@@ -120,6 +130,14 @@ public:
 	 *  only the server's write lands -- a rejected prediction can no longer poison the client's local state
 	 *  (the stale-bHeld risk); clients converge on the replicated truth. */
 	void SetHeld(bool bInHeld);
+
+	/** Broadcasts OnGrabbedBy with the grabber. Called by UAFLInteractionComponent::GrabActor right after
+	 *  SetHeld(true), server-side. Kept as a tiny forwarder so the broadcast site stays inside the component. */
+	void NotifyGrabbedBy(AActor* Grabber);
+
+	/** "Who grabbed me" -- bound by the world actor (e.g. the head loot-box) to react to its own pickup. */
+	UPROPERTY(BlueprintAssignable, Category = "AFL|Interaction")
+	FAFLOnGrabbedBy OnGrabbedBy;
 
 	//~ UActorComponent
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

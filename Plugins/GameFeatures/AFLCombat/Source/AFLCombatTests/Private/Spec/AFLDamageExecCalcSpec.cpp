@@ -441,21 +441,39 @@ bool FAFLZone_T_LIMB_4_Armor::RunTest(const FString& Parameters)
 }
 
 // -----------------------------------------------------------------------------
-// T-HEAD — decapitation: HeadHealth=1.0, deal 1.2 at head -> head 1.0->0.0, sever
-// Head LETHAL, overflow 0.2 -> Health 100->99.8 (the overflow contributes to the kill).
+// T-HEAD — DECAPITATION (the LOCKED decoupled model, B-1): 3 Pulse-equivalent head shots
+// (18 each) drain HeadHealth 54->36->18->0 while Health stays 100 THE WHOLE TIME (decap deals
+// ZERO body damage -- head is a survivable state change, not a kill). On depletion: ONE sever,
+// zone=Head, bLethal=FALSE, overflow=0. This REPLACES the old lethal/overflow assertions.
+// THE KEY NEW TRUTH: a head hit never touches Health/Shield.
 // -----------------------------------------------------------------------------
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLZone_T_HEAD_Decap,
     "AFL.Combat.Pipeline.T_HEAD_Decap", AFL_TEST_FLAGS)
 bool FAFLZone_T_HEAD_Decap::RunTest(const FString& Parameters)
 {
     FAFLDamageTestFixture Fx(this);
-    Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetHeadHealthAttribute(), 1.0f);
-    Fx.FireDamageAtBone(/*Base=*/1.2f, /*Bone=*/TEXT("head"));
-    TestEqual(TEXT("HeadHealth"),    Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHeadHealthAttribute()), 0.0f, 0.05f);
-    TestEqual(TEXT("Health"),        Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),     99.8f, 0.05f);
-    TestEqual(TEXT("SeverCount"),    Fx.ObservedSeverCount, 1);
-    TestEqual(TEXT("SeverZone"),     static_cast<int32>(Fx.LastSeverZone), static_cast<int32>(EAFLBodyZone::Head));
-    TestTrue(TEXT("SeverLethal"),    Fx.LastSeverLethal);
-    TestEqual(TEXT("SeverOverflow"), static_cast<float>(Fx.LastSeverOverflow), 0.2f, 0.05f);
+    Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetHeadHealthAttribute(), 54.0f);   // 3 Pulse shots
+
+    // Shot 1: 54 -> 36, Health untouched, no sever yet.
+    Fx.FireDamageAtBone(/*Base=*/18.0f, /*Bone=*/TEXT("head"));
+    TestEqual(TEXT("HeadHealth@1"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHeadHealthAttribute()), 36.0f, 0.05f);
+    TestEqual(TEXT("Health@1"),     Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),     100.0f, 0.05f);
+    TestEqual(TEXT("Sever@1"),      Fx.ObservedSeverCount, 0);
+
+    // Shot 2: 36 -> 18, still no sever, Health untouched.
+    Fx.FireDamageAtBone(/*Base=*/18.0f, /*Bone=*/TEXT("head"));
+    TestEqual(TEXT("HeadHealth@2"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHeadHealthAttribute()), 18.0f, 0.05f);
+    TestEqual(TEXT("Health@2"),     Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),     100.0f, 0.05f);
+    TestEqual(TEXT("Sever@2"),      Fx.ObservedSeverCount, 0);
+
+    // Shot 3: 18 -> 0 -> DECAPITATION. Health STILL 100 (zero body damage). One survivable sever.
+    Fx.FireDamageAtBone(/*Base=*/18.0f, /*Bone=*/TEXT("head"));
+    TestEqual(TEXT("HeadHealth@3"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHeadHealthAttribute()), 0.0f, 0.05f);
+    TestEqual(TEXT("Health@3"),     Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),     100.0f, 0.05f);   // UNCHANGED -- the locked truth
+    TestEqual(TEXT("Shield@3"),     Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),     0.0f, 0.05f);
+    TestEqual(TEXT("SeverCount"),   Fx.ObservedSeverCount, 1);
+    TestEqual(TEXT("SeverZone"),    static_cast<int32>(Fx.LastSeverZone), static_cast<int32>(EAFLBodyZone::Head));
+    TestFalse(TEXT("SeverLethal"),  Fx.LastSeverLethal);   // decap is SURVIVABLE, not a kill
+    TestEqual(TEXT("SeverOverflow"),static_cast<float>(Fx.LastSeverOverflow), 0.0f, 0.05f);   // zero spill
     return true;
 }

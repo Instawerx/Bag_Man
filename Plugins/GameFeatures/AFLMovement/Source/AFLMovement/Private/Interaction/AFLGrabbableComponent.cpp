@@ -38,6 +38,13 @@ void UAFLGrabbableComponent::SetHeld(bool bInHeld)
 	bHeld = bInHeld;
 }
 
+void UAFLGrabbableComponent::NotifyGrabbedBy(AActor* Grabber)
+{
+	// Server-authority (GrabActor is the only caller, server-side). The bound world actor (e.g. the head
+	// loot-box) decides what the pickup means -- this component stays a generic marker + policy holder.
+	OnGrabbedBy.Broadcast(Grabber);
+}
+
 void UAFLGrabbableComponent::GatherInteractionOptions(const FInteractionQuery& InteractQuery, FInteractionOptionBuilder& OptionBuilder)
 {
 	// Already carried -> offer nothing (a second instigator's discovery rejects it; prevents double-grab).
