@@ -26,6 +26,16 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+// EOS-AUTH-C2: the OSSv2 UE::Online path for the afl.EOS.* cheats (auth status + friends query).
+// OnlineResult.h + OnlineAsyncOpHandle.h carry the FULL TOnlineResult / TOnlineAsyncOpHandle
+// definitions (Auth.h/Social.h only forward-declare them) -- include them FIRST so the result/
+// handle templates are complete types (else C2079/C2027 "undefined class").
+#include "Online/CoreOnline.h"                // FAccountId, ToLogString(FAccountId)
+#include "Online/OnlineResult.h"              // TOnlineResult<> full def: IsError/GetOkValue/GetErrorValue
+#include "Online/OnlineAsyncOpHandle.h"       // TOnlineAsyncOpHandle<> full def: OnComplete
+#include "Online/OnlineServices.h"            // GetServices, IOnlineServices, IAuthPtr/ISocialPtr
+#include "Online/Auth.h"                      // IAuth::GetLocalOnlineUserByPlatformUserId, FAccountInfo
+#include "Online/Social.h"                    // ISocial::QueryFriends / GetFriends, FFriend
 #include "Camera/PlayerCameraManager.h"               // afl.GroundTruth: ViewTarget / debug-camera probe
 #include "GameFramework/Character.h"                   // afl.GroundTruth: ACharacter -> CMC class
 #include "GameFramework/CharacterMovementComponent.h"  // afl.GroundTruth: CMC class read
@@ -1400,12 +1410,110 @@ namespace
 		}
 	}
 
+	// ===========================================================================================
+	//  EOS-AUTH-C2 cheats (Track-2 EOS auth/friends lane; builds on C1's platform+Connect proof).
+	//  These read the OSSv2 UE::Online path (DefaultServices=Epic), the same interface Lyra's
+	//  CommonUser uses. afl.EOS.Auth.Status is the value-check instrument (proves the EAS login's
+	//  EpicAccountId, distinct from C1's anonymous Connect PUID); afl.EOS.Friends.Query is the
+	//  thin friends-plumbing proof (N=0 is a valid green).
+	// ===========================================================================================
+	using namespace UE::Online;
+
+	// Resolve the Epic OSSv2 services + the local auth account (UserIdx 0). Returns null if EOS
+	// isn't the active services or no platform-user 0 is logged in.
+	IOnlineServicesPtr GetEpicServices()
+	{
+		return GetServices(EOnlineServices::Epic);
+	}
+
+	// The local account id of platform user 0 (the one the Developer auth logs in), if logged in.
+	bool GetLocalEOSAccountId(FAccountId& OutAccountId, FString& OutReason)
+	{
+		IOnlineServicesPtr Services = GetEpicServices();
+		if (!Services)            { OutReason = TEXT("no Epic OnlineServices (is this the LyraGameEOS / -CustomConfig=EOS run?)"); return false; }
+		IAuthPtr Auth = Services->GetAuthInterface();
+		if (!Auth)                { OutReason = TEXT("no Auth interface"); return false; }
+		// Platform user 0 is the local player the Developer-auth CLI logs in.
+		const FPlatformUserId User = FPlatformUserId::CreateFromInternalId(0);
+		TOnlineResult<FAuthGetLocalOnlineUserByPlatformUserId> R =
+			Auth->GetLocalOnlineUserByPlatformUserId({ User });
+		if (R.IsError())          { OutReason = FString::Printf(TEXT("not logged in (%s)"), *R.GetErrorValue().GetLogString()); return false; }
+		OutAccountId = R.GetOkValue().AccountInfo->AccountId;
+		return true;
+	}
+
+	// afl.EOS.Auth.Status -- dump the EOS auth state. The value-check that distinguishes the EAS
+	// login (EpicAccountId) from C1's Connect-only result.
+	void HandleAFLEOSAuthStatus(const TArray<FString>& /*Args*/, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		FAccountId AccountId;
+		FString Reason;
+		if (!GetLocalEOSAccountId(AccountId, Reason))
+		{
+			Ar.Logf(TEXT("AFL_EOS auth: NOT logged in -- %s"), *Reason);
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_EOS auth: EpicAccountId=none (%s)"), *Reason);
+			return;
+		}
+		// ToLogString prints the resolved account id; a non-empty/valid id here is the EAS proof.
+		const FString IdStr = ToLogString(AccountId);
+		Ar.Logf(TEXT("AFL_EOS auth: logged in -- AccountId=%s"), *IdStr);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_EOS auth: EpicAccountId/AccountId=%s (EAS login proven if non-empty)"), *IdStr);
+	}
+
+	// afl.EOS.Friends.Query -- query the OSSv2 Social interface friends list and log the count.
+	// N=0 is a valid plumbing-proven green (proves the interface is wired + the EpicAccountId valid).
+	void HandleAFLEOSFriendsQuery(const TArray<FString>& /*Args*/, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		FAccountId AccountId;
+		FString Reason;
+		if (!GetLocalEOSAccountId(AccountId, Reason))
+		{
+			Ar.Logf(TEXT("AFL_EOS friends: query=FAIL (no login) -- %s"), *Reason);
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_EOS friends: query=FAIL, no EpicAccountId (%s)"), *Reason);
+			return;
+		}
+		IOnlineServicesPtr Services = GetEpicServices();
+		ISocialPtr Social = Services ? Services->GetSocialInterface() : nullptr;
+		if (!Social)
+		{
+			Ar.Log(TEXT("AFL_EOS friends: query=FAIL -- no Social interface"));
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_EOS friends: query=FAIL, no Social interface"));
+			return;
+		}
+		Ar.Log(TEXT("AFL_EOS friends: query issued (async) -- result follows in the log on completion."));
+		Social->QueryFriends({ AccountId }).OnComplete([AccountId](const TOnlineResult<FQueryFriends>& Result)
+		{
+			if (Result.IsError())
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_EOS friends: query=FAIL -- %s"), *Result.GetErrorValue().GetLogString());
+				return;
+			}
+			// Query succeeded; read the cached friends list for the count.
+			IOnlineServicesPtr Svc = GetServices(EOnlineServices::Epic);
+			ISocialPtr Soc = Svc ? Svc->GetSocialInterface() : nullptr;
+			int32 N = -1;
+			if (Soc)
+			{
+				TOnlineResult<FGetFriends> GR = Soc->GetFriends({ AccountId });
+				if (GR.IsOk()) { N = GR.GetOkValue().Friends.Num(); }
+			}
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_EOS friends: query=OK, N=%d"), N);
+		});
+	}
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStoreOpenCmd(TEXT("afl.Store.Open"),
 		TEXT("S-ECON-STORE: push the cosmetic store (AFLW_Menu_CosmeticShop) onto UI.Layer.Menu for the local player. Browse priced/tiered catalog; buy routes through the proven wallet ServerPurchaseCosmetic."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStoreOpen));
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStoreCloseCmd(TEXT("afl.Store.Close"),
 		TEXT("S-ECON-STORE: pop the top widget on UI.Layer.Menu (closes the store if open). Same effect as the store's X button."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStoreClose));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLEOSAuthStatusCmd(TEXT("afl.EOS.Auth.Status"),
+		TEXT("EOS-AUTH-C2: dump the OSSv2 Epic auth state -- AFL_EOS auth: AccountId=<id|none>. A non-empty id proves the EAS (EpicAccountId) login, distinct from C1's anonymous Connect PUID. Run in the LyraGameEOS -CustomConfig=EOS run after the Developer auth login."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLEOSAuthStatus));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLEOSFriendsQueryCmd(TEXT("afl.EOS.Friends.Query"),
+		TEXT("EOS-AUTH-C2: query the OSSv2 Social friends list -> AFL_EOS friends: query=<OK|FAIL>, N=<count>. N=0 is a valid plumbing-proven green (interface wired + EpicAccountId valid). Requires the EAS login (run afl.EOS.Auth.Status first)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLEOSFriendsQuery));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER

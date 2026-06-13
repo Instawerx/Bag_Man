@@ -66,6 +66,14 @@ public class AFLCombat : ModuleRules
 				// compile the include. GameFeature -> engine-plugin module direction is correct.
 				"CommonUI",
 				"CommonGame",
+				// EOS-AUTH-C2: the afl.EOS.Auth.Status / afl.EOS.Friends.Query cheats read the OSSv2
+				// UE::Online path -- GetServices(EOnlineServices::Epic), IAuth::GetLocalOnlineUserBy
+				// PlatformUserId, ISocial::QueryFriends/GetFriends. The IOnlineServices/IAuth/ISocial
+				// interfaces live in OnlineServicesInterface; FAccountId + ToLogString(FAccountId) in
+				// CoreOnline. Private: only AFLCombatCheats.cpp compiles them. EAS auth/friends only --
+				// matchmaking stays PlayFab->GameLift (the tentpole, separate repo).
+				"OnlineServicesInterface",
+				"CoreOnline",
 			}
 		);
 	}
