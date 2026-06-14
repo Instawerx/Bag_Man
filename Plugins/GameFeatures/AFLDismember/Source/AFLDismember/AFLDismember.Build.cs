@@ -22,6 +22,12 @@ public class AFLDismember : ModuleRules
 				"LyraGame",
 				"AFLCore",
 				"AFLCombat",
+				// S4-INC4 RESIDENCY FIX: the persistent severance cue notify + IAFLDismemberCosmeticTarget
+				// live in AFLVFX (always-on -> discovered at the frame-0 cue scan). UAFLDismemberComponent
+				// IMPLEMENTS the interface. GameFeature -> always-on plugin = correct load-order direction
+				// (mirrors AFLCombat implementing AFLVFX's IAFLBeamEndpointProvider). NON-circular: AFLVFX
+				// never references AFLDismember.
+				"AFLVFX",
 				"ModularGameplay",
 				"ModularGameplayActors",
 				// S4-INC1: Niagara for the FAFLDismemberZone.SparkFX soft slot (declared now,

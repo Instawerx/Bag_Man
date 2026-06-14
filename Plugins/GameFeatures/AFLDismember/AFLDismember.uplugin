@@ -28,6 +28,7 @@
                     { "Name": "AFLCore",                "Enabled": true },
                     { "Name": "AFLCombat",              "Enabled": true },
                     { "Name": "AFLMovement",            "Enabled": true },
+                    { "Name": "AFLVFX",                 "Enabled": true },
                     { "Name": "GameplayAbilities",      "Enabled": true },
                     { "Name": "ModularGameplay",        "Enabled": true },
                     { "Name": "ModularGameplayActors",  "Enabled": true },

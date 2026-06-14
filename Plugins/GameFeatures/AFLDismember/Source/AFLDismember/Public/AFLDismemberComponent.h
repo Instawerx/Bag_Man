@@ -7,6 +7,7 @@
 #include "GameFramework/GameplayMessageSubsystem.h"
 
 #include "AFLBodyZone.h"   // EAFLBodyZone (AFLCore)
+#include "AFLDismemberCosmeticTarget.h"   // IAFLDismemberCosmeticTarget (AFLVFX) -- the cold-loadable cue's seam
 
 #include "AFLDismemberComponent.generated.h"
 
@@ -41,12 +42,19 @@ struct FGameplayTag;
  * hard cast to any specific pawn/BP (the zone is resolved by bone -> data).
  */
 UCLASS(ClassGroup=(AFL), meta=(BlueprintSpawnableComponent))
-class AFLDISMEMBER_API UAFLDismemberComponent : public UActorComponent
+class AFLDISMEMBER_API UAFLDismemberComponent : public UActorComponent, public IAFLDismemberCosmeticTarget
 {
 	GENERATED_BODY()
 
 public:
 	UAFLDismemberComponent();
+
+	//~IAFLDismemberCosmeticTarget -- the FName front door the AFLVFX persistent cue (AAFLCueNotify_ZoneSever)
+	// calls on EVERY client. Maps the cue-tag leaf -> EAFLBodyZone, then runs the existing UNCHANGED
+	// ApplyZoneHideCosmetic / ApplyZoneRestoreCosmetic (GatherZoneMeshes + Hide/UnHideBoneByName).
+	virtual void ApplyZoneHideByLeaf_Implementation(FName ZoneLeaf) override;
+	virtual void ApplyZoneRestoreByLeaf_Implementation(FName ZoneLeaf) override;
+	//~End of IAFLDismemberCosmeticTarget
 
 	/** The data-driven zone table (soft, async-loaded at sever time). Authored in PHASE B. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
@@ -91,6 +99,17 @@ public:
 	 *  (the row's ConsequenceGE stays empty for the head -- this is granted directly by OnSever). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
 	TSoftClassPtr<class UGameplayEffect> DecapitatedEffect;
+
+	/** S4 TUMBLE TIER 2: the head loot-box pop, as a TARGET VELOCITY in cm/s (the head's ApplyPopImpulse uses
+	 *  bVelChange=TRUE -- mass/scale-independent; a force-pop launches the tiny head-sized sphere off-screen).
+	 *  The loot path applies NO pop otherwise (the head just free-falls + settles). Lateral-dominant so the
+	 *  head ROLLS ~1-1.5m before resting (150 cm/s); a modest vertical pop arcs it off the neck (120 cm/s).
+	 *  EditDefaultsOnly -> PIE-tunable, no rebuild. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
+	float HeadPopLateralImpulse = 150.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
+	float HeadPopVerticalImpulse = 120.f;
 
 protected:
 	virtual void BeginPlay() override;

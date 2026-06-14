@@ -37,9 +37,10 @@ public:
 	/**
 	 * Apply the randomized pop impulse (bVelChange=false, NAME_None) to the part mesh.
 	 * Called once by UAFLDismemberComponent right after spawn. Centralizes the proven
-	 * head pop so every zone pops identically.
+	 * head pop so every zone pops identically. VIRTUAL: the head subclass overrides to
+	 * pop its SKELETAL HeadMesh (the head's physics body) instead of the static PartMesh.
 	 */
-	void ApplyPopImpulse(const FVector& Impulse);
+	virtual void ApplyPopImpulse(const FVector& Impulse);
 
 protected:
 	/** The decoupled physics prop mesh. Default mesh/material set by subclass or BP child. */

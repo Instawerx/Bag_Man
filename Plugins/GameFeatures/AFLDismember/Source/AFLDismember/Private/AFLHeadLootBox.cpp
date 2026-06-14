@@ -14,8 +14,8 @@
 
 AAFLHeadLootBox::AAFLHeadLootBox()
 {
-	// Inherit the proven head prop (sphere mesh, roll audio, PhysicsActor, snapshot replication).
-	// PERSIST: override the base's 5s cosmetic lifespan -- a loot-box waits to be retrieved.
+	// Inherit the proven head prop (SKM_Manny head-only skeletal mesh + victim skin color, roll audio,
+	// PhysicsActor, snapshot replication). PERSIST: override the base 5s lifespan -- a loot-box waits.
 	InitialLifeSpan = 0.0f;
 
 	// The grab substrate marker + policy. This is the entire "make it carriable" cost -- the existing

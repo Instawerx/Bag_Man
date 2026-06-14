@@ -7,6 +7,7 @@
 #include "AFLDismemberZoneSet.h"
 #include "AFLDismemberedPart.h"
 #include "AFLHeadLootBox.h"
+#include "Cosmetics/AFLSkinColorComponent.h"   // victim skin color handoff to the head prop (AFLCombat)
 #include "HUD/AFLDismemberSeverMessage.h"   // FAFLDismemberSeverMessage (AFLCombat)
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
@@ -84,6 +85,20 @@ namespace
 		case NM_Standalone:      return TEXT("[SP]");
 		default:                 return TEXT("[??]");
 		}
+	}
+
+	// S4-INC4 RESIDENCY FIX: map the AFLVFX cue's FName leaf -> EAFLBodyZone (the leaf names match the
+	// enum names directly). This is the IAFLDismemberCosmeticTarget front door's parse, on the component
+	// side so AFLVFX stays AFLCore-free. (Moved from the deleted AFLDismember-resident cue notify's
+	// ZoneFromCueTag, simplified to leaf-only since the cue already strips the tag to the leaf.)
+	EAFLBodyZone LeafToZone(FName Leaf)
+	{
+		if (Leaf == FName(TEXT("Head")))     { return EAFLBodyZone::Head; }
+		if (Leaf == FName(TEXT("LeftArm")))  { return EAFLBodyZone::LeftArm; }
+		if (Leaf == FName(TEXT("RightArm"))) { return EAFLBodyZone::RightArm; }
+		if (Leaf == FName(TEXT("LeftLeg")))  { return EAFLBodyZone::LeftLeg; }
+		if (Leaf == FName(TEXT("RightLeg"))) { return EAFLBodyZone::RightLeg; }
+		return EAFLBodyZone::None;
 	}
 
 	// Zone -> the state tag SeverZone grants / RestoreZone removes. Head = State.Decapitated;
@@ -423,6 +438,19 @@ void UAFLDismemberComponent::ApplyZoneRestoreCosmetic(EAFLBodyZone Zone)
 		*Net, static_cast<int32>(Zone), *SeveredBone.ToString(), ZoneMeshes.Num(), *GetNameSafe(GetOwner()));
 }
 
+void UAFLDismemberComponent::ApplyZoneHideByLeaf_Implementation(FName ZoneLeaf)
+{
+	// IAFLDismemberCosmeticTarget front door: the AFLVFX persistent cue (AAFLCueNotify_ZoneSever) calls
+	// this on EVERY client. Map the FName leaf -> zone (AFLVFX is AFLCore-free), then run the existing
+	// UNCHANGED hide. The B-2/0408 GatherZoneMeshes + HideBoneByName logic is entirely inside the call.
+	ApplyZoneHideCosmetic(LeafToZone(ZoneLeaf));
+}
+
+void UAFLDismemberComponent::ApplyZoneRestoreByLeaf_Implementation(FName ZoneLeaf)
+{
+	ApplyZoneRestoreCosmetic(LeafToZone(ZoneLeaf));
+}
+
 void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
 {
 	AActor* Owner = GetOwner();
@@ -744,9 +772,35 @@ void UAFLDismemberComponent::SpawnHeadLootBox()
 		{
 			// Tie it to the pawn it came from: self-retrieve reattaches, owner-death vanishes it.
 			Loot->Initialize(Cast<APawn>(Self->GetOwner()));
+
+			// IDENTITY: hand the victim's replicated skin color to the head so it reads as WHOSE head it
+			// is (pink robot -> pink head). Server-set -> replicates to all clients via the head's OnRep.
+			if (const UAFLSkinColorComponent* SCC =
+					Self->GetOwner()->FindComponentByClass<UAFLSkinColorComponent>())
+			{
+				Loot->SetHeadSkinColor(SCC->GetSkinColor());
+			}
+
+			// S4 TUMBLE TIER 2: pop the head so it ROLLS, not just free-falls. The loot-box path never applied
+			// an impulse (unlike SeverZone's limb props) -- the head dropped ~150cm from the neck and settled.
+			// Bias the impulse LATERAL: a randomized horizontal direction at HeadPopLateralImpulse drives the
+			// head-sized sphere to roll ~1m before resting; a modest HeadPopVerticalImpulse gives it a small
+			// pop off the neck so it arcs out instead of dropping straight down. Physics-driven (no anim);
+			// AddImpulse on the sphere PartMesh via the inherited ApplyPopImpulse (the head's restored root).
+			FVector LateralDir = FVector(FMath::VRand());
+			LateralDir.Z = 0.f;                                  // horizontal only -> a true roll bias
+			LateralDir = LateralDir.GetSafeNormal2D();
+			if (LateralDir.IsNearlyZero())                       // VRand landed near-vertical -> pick a default
+			{
+				LateralDir = FVector(1.f, 0.f, 0.f);
+			}
+			const FVector HeadPop =
+				LateralDir * Self->HeadPopLateralImpulse + FVector(0.f, 0.f, Self->HeadPopVerticalImpulse);
+			Loot->ApplyPopImpulse(HeadPop);
+
 			UE_LOG(LogAFLDismember, Display,
-				TEXT("[AFLDismember] head loot-box %s spawned + tied to owner %s"),
-				*GetNameSafe(Loot), *GetNameSafe(Self->GetOwner()));
+				TEXT("[AFLDismember] head loot-box %s spawned + tied to owner %s -- pop+roll impulse=%s"),
+				*GetNameSafe(Loot), *GetNameSafe(Self->GetOwner()), *HeadPop.ToString());
 		}
 	}));
 }
