@@ -128,6 +128,48 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Interaction|HandIK")
 	FName HandIKAlphaControl = FName(TEXT("HandIKAlpha"));
 
+	// --- LEFT-hand weapon-foregrip IK channel (Layer 1, weapon-hold) ---------------------------------
+	// SEPARATE from the right-hand grab channel above. While a weapon is equipped (and NOT grabbing/carrying),
+	// each tick the component queries the weapon's GripPoint_L world transform and pushes it into CR_AFL_IRONICS'
+	// LeftHandIKTarget/LeftHandIKAlpha controls (the cold-verified left-arm Basic IK on upperarm_l/lowerarm_l/
+	// hand_l), so hand_l plants on the foregrip. Cosmetic -> runs on EVERY client (owning + simulated proxies),
+	// driven by the REPLICATED equipment-equipped state; the IK target itself is queried locally, never replicated.
+
+	/** MASTER ENABLE for the left-hand weapon-foregrip IK channel (Layer 1). DEFAULT FALSE: the channel is
+	 *  DORMANT -- never arms, and LeftHandIKAlpha is held at 0, so the rig's LeftHandIK_TwoBone contributes
+	 *  nothing and hand_l stays in the baked two-handed-hold clip pose (strictly better than the broken IK).
+	 *  The CR node, controls, and the whole channel stay intact -- just neutralized. Flip true (EditAnywhere,
+	 *  no rebuild) to re-engage once the weapon-hold is rebuilt the canonical way. Right-hand grab IK, foot IK,
+	 *  and the CR locomotion rig are separate channels and are UNAFFECTED by this flag. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Interaction|HandIK")
+	bool bEnableLeftHandWeaponIK = false;
+
+	/** 0..1 blend weight for the left-hand weapon-IK (eases on when armed, off when not -- never a hard switch). */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Interaction|HandIK")
+	float LeftHandIKAlpha = 0.0f;
+
+	/** Per-frame scratch: the foregrip world location resolved in TickComponent's gate, reused by
+	 *  UpdateLeftHandWeaponIK so the equipped-weapon path is walked once per tick (not twice). */
+	FVector LeftHandIKTargetScratch = FVector::ZeroVector;
+
+	/** Per-frame: "a weapon is equipped AND not carrying" (resolved once in TickComponent, consumed by
+	 *  UpdateLeftHandWeaponIK to pick the alpha goal). Eliminates the double equipment-path walk. */
+	bool bLeftWeaponArmed = false;
+
+	/** Position-control name on CR_AFL_IRONICS the world-space LEFT-hand (foregrip) target drives. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Interaction|HandIK")
+	FName LeftHandIKTargetControl = FName(TEXT("LeftHandIKTarget"));
+
+	/** Float-control name on CR_AFL_IRONICS the LEFT-hand IK weight drives. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Interaction|HandIK")
+	FName LeftHandIKAlphaControl = FName(TEXT("LeftHandIKAlpha"));
+
+	/** REACHABILITY GUARD (Layer 1): one-shot flag so the AFL_LEFTIK_REACH verdict logs exactly once per equip
+	 *  (target-to-shoulder distance vs arm length), NOT every tick. Reset when no weapon is armed so a re-equip
+	 *  re-logs. Measures with the IK gated OFF (alpha 0) -- the guard that proves a weapon's GripPoint_L is within
+	 *  arm's reach BEFORE the dynamic IK channel is ever engaged (an unreachable target = a fully-extended limb). */
+	bool bLeftReachLogged = false;
+
 	/** Thread-safe read of the hand-IK state (kept for any AnimGraph Property Access binding / BP consumer). */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "AFL|Interaction|HandIK", meta = (BlueprintThreadSafe))
 	void GetHandIKState(FVector& OutTarget, bool& bOutEnabled, float& OutAlpha) const;
@@ -168,6 +210,18 @@ private:
 	/** Push HandIKTarget/HandIKAlpha into the cached rig's controls. Called every frame from TickComponent
 	 *  while bHandIKEnabled; pushes alpha=0 on the disabling frame so the hand releases cleanly. */
 	void PushHandIKToControlRig();
+
+	/** LEFT-hand weapon-foregrip channel (Layer 1). Resolves "armed AND not carrying", takes the foregrip world
+	 *  target (the weapon's GripPoint_L socket), FInterpTo's LeftHandIKAlpha toward 1 (armed) / 0 (not), and pushes
+	 *  LeftHandIKTarget + LeftHandIKAlpha into Rig. Shares the SAME resolved rig as the right-hand push (no second
+	 *  resolve). Returns true if the left channel is still active (alpha > ~0) so the tick keeps the rig cached. */
+	bool UpdateLeftHandWeaponIK(float DeltaTime, class UControlRig* Rig);
+
+	/** Resolve the LEFT-grip world target (Layer 1, canonical weapon-hold). ARMED gate: a weapon is equipped
+	 *  (Pawn->EquipMgr->GetSpawnedActors -> the weapon actor). TARGET = that weapon's GripPoint_L USceneComponent
+	 *  world location (the weapon authors its own foregrip point; matched by name). Returns false when unarmed OR
+	 *  when the weapon ships no GripPoint_L (-> the left channel fades off; never IK to a fallback). */
+	bool ResolveEquippedWeaponForegripWorld(FVector& OutWorldLocation) const;
 
 	/** The held actor + the policy captured at grab time (so release never reaches back into the grabbable). */
 	UPROPERTY()
