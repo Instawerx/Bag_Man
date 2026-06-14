@@ -876,12 +876,15 @@ namespace
 		}
 
 		// THE shared confirm path — identical to live Pulse. Emits the
-		// "rewind dt=... entries=... verdict=..." line itself.
-		const bool bAccept = LagComp->ConfirmHit(PC, Delta, Dummy, Coord);
+		// "rewind dt=... entries=... verdict=..." line itself. S4 AFL-0408-FU-GUNFIRE added the
+		// resolved-bone out-param; this RTT-flip proof ignores it (throwaway) -- it only asserts the
+		// accept/reject verdict, which is UNCHANGED.
+		FName ResolvedBoneUnused = NAME_None;
+		const bool bAccept = LagComp->ConfirmHit(PC, Delta, Dummy, Coord, ResolvedBoneUnused);
 
 		UE_LOG(LogAFLCombat, Display,
-			TEXT("AFLCombatCheats: OK TestFire verdict=%s (delta=%.3f, C=(%.2f, %.2f, %.2f))"),
-			bAccept ? TEXT("ACCEPT") : TEXT("REJECT"), Delta, Coord.X, Coord.Y, Coord.Z);
+			TEXT("AFLCombatCheats: OK TestFire verdict=%s bone=%s (delta=%.3f, C=(%.2f, %.2f, %.2f))"),
+			bAccept ? TEXT("ACCEPT") : TEXT("REJECT"), *ResolvedBoneUnused.ToString(), Delta, Coord.X, Coord.Y, Coord.Z);
 	}
 
 	FAutoConsoleCommand GAFLLagCompTestFireCmd(

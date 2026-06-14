@@ -736,7 +736,13 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 			continue;
 		}
 
-		const FAFLAbilityTargetData_Hitscan* HitscanData = static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData);
+		// NON-const: S4 AFL-0408-FU-GUNFIRE overwrites HitscanData->HitResult.BoneName with the lag-comp-
+		// resolved zone bone after ConfirmHit accepts (server-authoritative). This is the server's own working
+		// copy of the received target data; mutating its hit bone before building the damage spec is the intent.
+		// const_cast off RawData (a const* from Data.Get) -- the underlying FAFLAbilityTargetData_Hitscan is the
+		// server-side received instance, safe to mutate here.
+		FAFLAbilityTargetData_Hitscan* HitscanData =
+			const_cast<FAFLAbilityTargetData_Hitscan*>(static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData));
 
 		// AFL-0213 telemetry stub. The real budget is per-pawn and the real
 		// reject (drop the shot, increment reject counter) lands with
@@ -826,11 +832,28 @@ void UAFLAG_Laser_Pulse::ServerApplyTargetData(const FGameplayAbilityTargetDataH
 				// proof exercises this exact shipping path (not a reimplementation).
 				// ConfirmHit emits the "rewind dt=... entries=... verdict=..." log and
 				// owns the rewind/restore internally; it takes the DELTA (ClampedRTT).
-				if (!LagComp->ConfirmHit(SourcePC, ClampedRTT, HitActor, HitscanData->HitResult.ImpactPoint))
+				// S4 AFL-0408-FU-GUNFIRE: ConfirmHit ALSO resolves the nearest tracked bone to the impact
+				// point (server-authoritative) so the dismember zone system gets a real hit bone. The client
+				// Visibility hitscan hits the pawn CAPSULE -> HitResult.BoneName=None -> no zone -> gunfire
+				// never severed. We overwrite the client's BoneName with the resolved value below (spoof-proof).
+				FName ResolvedBone = NAME_None;
+				if (!LagComp->ConfirmHit(SourcePC, ClampedRTT, HitActor, HitscanData->HitResult.ImpactPoint, ResolvedBone))
 				{
 					UE_LOG(LogAFLCombat, Verbose,
 						TEXT("AFL_LAGCOMP: hitscan_reject reason=geometry"));
 					continue;
+				}
+
+				// Server overwrites the hit bone with the lag-comp-resolved zone bone (only when resolved --
+				// if resolution failed, e.g. an ungranted actor with no history component, leave the client
+				// value rather than nuking it). This is what makes gun-fire dismemberment sever; the bone
+				// then rides the EffectContext into the ExecCalc (BoneToZone -> zone-HP absorber).
+				if (!ResolvedBone.IsNone())
+				{
+					HitscanData->HitResult.BoneName = ResolvedBone;
+					UE_LOG(LogAFLCombat, Verbose,
+						TEXT("AFL_GUNSEVER: resolved hit bone=%s on %s"),
+						*ResolvedBone.ToString(), *GetNameSafe(HitActor));
 				}
 			}
 		}

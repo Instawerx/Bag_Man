@@ -17,17 +17,28 @@ UAFLPawnHitboxHistoryComponent::UAFLPawnHitboxHistoryComponent()
 	PrimaryComponentTick.TickGroup             = TG_PostPhysics;
 	PrimaryComponentTick.bStartWithTickEnabled = false; // Enabled in BeginPlay if server.
 
-	// Default 8-bone Lyra hit silhouette. BP children may override. Names match
-	// SKM_Manny / SKM_Quinn (Lyra's stock skeletons); missing bones are silently
-	// skipped at sample time so swapping skeletons narrows the hit profile but
-	// does not crash.
+	// 12-bone ZONE-COMPLETE hit silhouette. BP children may override. Names match SKM_Manny / SKM_Quinn
+	// (Lyra's stock skeletons); missing bones are silently skipped at sample time so swapping skeletons
+	// narrows the hit profile but does not crash.
+	// S4 AFL-0408-FU-GUNFIRE: the lag-comp re-confirm now ALSO resolves the nearest tracked bone to the
+	// impact point (UAFLLagCompensationWorldSubsystem::ConfirmHit out-param) to set HitResult.BoneName
+	// server-authoritatively, so gun-driven dismemberment severs (the client Visibility trace hits the
+	// capsule -> BoneName=None -> no zone). Every one of these 12 is an AFLCore::BoneToZone key, so the
+	// nearest-bone resolver always lands on a zone, never None: head/neck_01->Head, upperarm_l+hand_l->
+	// LeftArm, upperarm_r+hand_r->RightArm, thigh_l+foot_l->LeftLeg, thigh_r+foot_r->RightLeg,
+	// spine_03/pelvis->Torso. The +4 proximal anchors (upperarm/thigh) give each limb a distal+proximal
+	// pair so a mid-limb hit resolves to the correct limb zone (cost: +4 bone transforms/frame).
 	TrackedBones = {
 		TEXT("head"),
 		TEXT("neck_01"),
 		TEXT("spine_03"),
 		TEXT("pelvis"),
+		TEXT("upperarm_l"),
+		TEXT("upperarm_r"),
 		TEXT("hand_l"),
 		TEXT("hand_r"),
+		TEXT("thigh_l"),
+		TEXT("thigh_r"),
 		TEXT("foot_l"),
 		TEXT("foot_r"),
 	};

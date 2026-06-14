@@ -217,8 +217,10 @@ void UAFLLagCompensationWorldSubsystem::RestoreWorld(FAFLLagRewindToken& Token)
 }
 
 bool UAFLLagCompensationWorldSubsystem::ConfirmHit(APlayerController* RequestingPC, float RewindDeltaSeconds,
-	const AActor* TargetActor, const FVector& ImpactPoint)
+	const AActor* TargetActor, const FVector& ImpactPoint, FName& OutResolvedBone)
 {
+	OutResolvedBone = NAME_None;   // additive out-param: stays None unless we accept + resolve below
+
 	const UWorld* World = GetWorld();
 	const float RewindTime = (World ? static_cast<float>(World->GetTimeSeconds()) : 0.0f) - RewindDeltaSeconds;
 
@@ -237,6 +239,36 @@ bool UAFLLagCompensationWorldSubsystem::ConfirmHit(APlayerController* Requesting
 		// header's contract).
 		const FBox PaddedBox = RewoundBox.ExpandBy(30.0f);
 		bGeometricallyValid = PaddedBox.IsInsideOrOn(ImpactPoint);
+	}
+
+	// S4 AFL-0408-FU-GUNFIRE: resolve the nearest TRACKED bone to the impact point for the dismember zone
+	// system. Runs ONLY on accept (a rejected shot deals no damage, so no bone is needed) + only when there
+	// is real rewound data. Reuses the SAME per-pawn rewound samples BuildBoundingBox iterates -- it builds
+	// an enclosing box from Entry.RewoundBones; we scan the same TArray for the single nearest sample
+	// (FAFLHitboxBoneSample.WorldXForm is world space, like ImpactPoint -> no conversion). Every tracked bone
+	// is an AFLCore::BoneToZone key, so the winner always maps to a zone (never None). The Pulse caller then
+	// overwrites HitResult.BoneName with this server-authoritative value before building the damage spec.
+	if (bGeometricallyValid && Token.Entries.Num() > 0)
+	{
+		float BestDistSq = TNumericLimits<float>::Max();
+		for (const FAFLRewindPawnEntry& Entry : Token.Entries)
+		{
+			if (Entry.Pawn.Get() != TargetActor)
+			{
+				continue;   // the token may hold OTHER rewound pawns; resolve only against the hit one
+			}
+			for (const FAFLHitboxBoneSample& Sample : Entry.RewoundBones)
+			{
+				const float DistSq = static_cast<float>(
+					FVector::DistSquared(Sample.WorldXForm.GetLocation(), ImpactPoint));
+				if (DistSq < BestDistSq)
+				{
+					BestDistSq = DistSq;
+					OutResolvedBone = Sample.Bone;
+				}
+			}
+			break;   // found the target's entry; no other entry matches
+		}
 	}
 
 	// 2-client watch instrumentation (watch a): this line IS the lag-comp proof -- the host's own

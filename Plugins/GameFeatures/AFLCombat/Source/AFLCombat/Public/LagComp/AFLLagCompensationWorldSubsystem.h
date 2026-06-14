@@ -190,9 +190,19 @@ public:
 	 * inside. Empty-token default-accept is preserved: a degenerate rewind (client
 	 * world, no registered components, no history yet) returns true so the live
 	 * path isn't gated by missing snapshots.
+	 *
+	 * S4 AFL-0408-FU-GUNFIRE: `OutResolvedBone` is an ADDITIVE out-param (defaults NAME_None) that, ON ACCEPT,
+	 * returns the rewound TRACKED bone NEAREST to ImpactPoint -- the authoritative hit bone for the dismember
+	 * zone system. The client's Visibility hitscan hits the pawn CAPSULE (BoneName=None), so the live damage
+	 * carried no zone bone and gun-fire never severed; the server now overwrites HitResult.BoneName with this
+	 * resolved bone before building the damage spec (spoof-proof: server-side authority). The rewound bones live
+	 * only inside this call (the token is restored before return), so the resolution MUST happen here. Every
+	 * tracked bone is an AFLCore::BoneToZone key, so the result always maps to a zone (never None). On reject /
+	 * off-server / empty-token, OutResolvedBone stays NAME_None and the accept/reject bool is UNCHANGED -- the
+	 * resolution is purely additive.
 	 */
 	bool ConfirmHit(APlayerController* RequestingPC, float RewindDeltaSeconds,
-		const AActor* TargetActor, const FVector& ImpactPoint);
+		const AActor* TargetActor, const FVector& ImpactPoint, FName& OutResolvedBone);
 
 	/** Called by UAFLPawnHitboxHistoryComponent on BeginPlay. Idempotent. */
 	void RegisterComponent(UAFLPawnHitboxHistoryComponent* Component);
