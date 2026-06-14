@@ -8,6 +8,9 @@
 #include "AFLDismemberedPart.h"
 #include "AFLHeadLootBox.h"
 #include "Cosmetics/AFLSkinColorComponent.h"   // victim skin color handoff to the head prop (AFLCombat)
+#include "Materials/MaterialInterface.h"          // GetMaterial(1) return type
+#include "Materials/MaterialInstanceConstant.h"   // the replication-safe per-skin head MIC (layer-2 identity)
+#include "Materials/MaterialInstanceDynamic.h"    // recover the MIC via MID->Parent
 #include "HUD/AFLDismemberSeverMessage.h"   // FAFLDismemberSeverMessage (AFLCombat)
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
@@ -779,6 +782,48 @@ void UAFLDismemberComponent::SpawnHeadLootBox()
 					Self->GetOwner()->FindComponentByClass<UAFLSkinColorComponent>())
 			{
 				Loot->SetHeadSkinColor(SCC->GetSkinColor());
+			}
+
+			// IDENTITY (layer 2 -- MATERIAL): hand the victim's per-skin HEAD MATERIAL (slot-1 base MIC) to the
+			// gib so it looks like that specific robot's head. Recover the REPLICATION-SAFE MIC, never the
+			// transient runtime MID: the skin system MID-ifies slot 1 at runtime, so GetMaterial(1) returns a
+			// UMaterialInstanceDynamic whose ->Parent IS the per-skin MIC (e.g. MI_AFL_FaceMask_Pink). Read it
+			// off the VISIBLE robot mesh (the CharacterPart SKM_Manny, gathered by GatherZoneMeshes; the
+			// invisible CharacterMesh0 anim driver has no 2nd slot / no skin material, so it is skipped).
+			{
+				UMaterialInstanceConstant* HeadMIC = nullptr;
+				for (USkeletalMeshComponent* Mesh : Self->GatherZoneMeshes())
+				{
+					if (!Mesh || Mesh->GetNumMaterials() < 2)
+					{
+						continue;   // invisible CharacterMesh0 driver / any 1-slot mesh -> not the robot head
+					}
+					UMaterialInterface* M = Mesh->GetMaterial(1);   // slot 1 = M_HeadLegs (the head region)
+					UMaterialInstanceConstant* MIC = Cast<UMaterialInstanceConstant>(M);
+					if (!MIC)
+					{
+						if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(M))
+						{
+							MIC = Cast<UMaterialInstanceConstant>(MID->Parent);   // MID -> its source MIC
+						}
+					}
+					if (MIC)
+					{
+						HeadMIC = MIC;
+						break;   // first visible robot mesh wins
+					}
+				}
+				if (HeadMIC)
+				{
+					Loot->SetHeadMaterial(HeadMIC);
+				}
+				else
+				{
+					// Fallback: leave the gib default material (still spawns/rolls/grabs; color params still drive).
+					UE_LOG(LogAFLDismember, Warning,
+						TEXT("[AFL_HEADGIB] %s: could not resolve victim slot-1 head MIC -- gib uses default material"),
+						*GetNameSafe(Self->GetOwner()));
+				}
 			}
 
 			// S4 TUMBLE TIER 2: pop the head so it ROLLS, not just free-falls. The loot-box path never applied
