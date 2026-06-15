@@ -1030,6 +1030,56 @@ namespace
 		TEXT("#43 selection seam: client-issued PURE caller of ServerSetCosmeticSelection. Usage: afl.Cosmetic.SetEdge <NeonPurple|NeonPink|NeonBlue|NeonGreen> (or full AFL.Edge.<color>). NOT NeonRed (absent from BrandEdgeMap)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetEdge));
 
+	// ─── Phase 0 identity seam: afl.Cosmetic.SetIdentity <TeamName> ──────────────
+	// Sets the player's IDENTITY (Team axis) so the CharacterId->robot-part selector (UAFLCharacterPartSelector
+	// Component) resolves a DIFFERENT body per player. The proven SetEdge cheat above only ever pins
+	// IdentityType=Team/TeamId=AFL.Team.ARIA -- this is the missing instrument to exercise per-player
+	// differentiation (e.g. one player IRONICS, another SCARLETT). PURE: client-issued; the server validates +
+	// commits + replicates, and the controller selector re-resolves the body on the next possession.
+	void HandleAFLCosmeticSetIdentity(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetIdentity — usage: afl.Cosmetic.SetIdentity <ARIA|IRONICS|SCARLETT|MAKHIAVELLI|AP-9|MOB-FIGAZ> (or full AFL.Team.<Name>)."));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetIdentity — no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetIdentity — no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		FString IdStr = Args[0].TrimStartAndEnd();
+		if (!IdStr.StartsWith(TEXT("AFL.Team."), ESearchCase::IgnoreCase))
+		{
+			IdStr = FString::Printf(TEXT("AFL.Team.%s"), *IdStr);
+		}
+		const FName TeamId(*IdStr);
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		Request.IdentityType = EAFLIdentityType::Team;
+		Request.TeamId = TeamId;
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetIdentity — client issued ServerSetCosmeticSelection(identity=Team/%s). Re-possess (or it applies on next possession) to see the body swap."),
+			*TeamId.ToString());
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetIdentityCmd(
+		TEXT("afl.Cosmetic.SetIdentity"),
+		TEXT("Phase 0 identity seam: set the player's Team identity so the body selector resolves a different robot. Usage: afl.Cosmetic.SetIdentity <ARIA|IRONICS|SCARLETT|MAKHIAVELLI|AP-9|MOB-FIGAZ> (or full AFL.Team.<Name>)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetIdentity));
+
 	// (RETIRED: afl.Cosmetic.SetHelmet + the helmet part-path it drove. The facemask is now a material
 	//  reskin -- a slot-base-MI cosmetic on the proven logo channel (MI_AFL_FaceMask_Pink) -- not a
 	//  CharacterPart add. See the facemask commit; the part-path apparatus was deleted as a non-problem.)
