@@ -21,5 +21,10 @@ UENUM(BlueprintType)
 enum class EAFLCosmeticAxis : uint8
 {
 	Edge    UMETA(DisplayName = "Edge Glow"),
-	Body    UMETA(DisplayName = "Body Color")
+	Body    UMETA(DisplayName = "Body Color"),
+	// ADR Decision 5 (composable address scheme): a FULL base finish (body TeamColor + emissive +
+	// edge-glow together) vs an edge-only preset. AFL.Finish.<Color> presets carry Axis==Finish; they are
+	// the SOLE color source once identity MIs are color-neutralized (Ruling 1). Additive -- Edge/Body
+	// (shipped AFL.Edge.* presets) are untouched.
+	Finish  UMETA(DisplayName = "Finish (full base color)")
 };

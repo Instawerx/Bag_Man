@@ -59,7 +59,12 @@ enum class EAFLCosmeticType : uint8
 	WeaponAccessory   UMETA(DisplayName = "Weapon Accessory"),     // AFL.Weapon.<Name>   -> weapon-attachment EQUIPMENT cosmetic (ID_/WID_)
 	Beam              UMETA(DisplayName = "Beam"),                 // AFL.Beam.<Name>     -> beam VFX variant
 	Team              UMETA(DisplayName = "Team Identity"),        // AFL.Team.<BRAND>    -> team identity (GrantedFree base)
-	Character         UMETA(DisplayName = "Character Identity")    // AFL.Character.<Name>-> character identity (GrantedFree base)
+	Character         UMETA(DisplayName = "Character Identity"),   // AFL.Character.<Name>-> character identity (GrantedFree base)
+	// ADR Decision 5 (composable address scheme) -- additive types (no existing value renamed/reordered):
+	Finish            UMETA(DisplayName = "Finish"),               // AFL.Finish.<Color>  -> UAFLSkinColorAsset (Axis==Finish); full base finish, SOLE color source
+	Weapon            UMETA(DisplayName = "Weapon"),               // AFL.Weapon.<Name>   -> full-weapon SKU; TSoftClassPtr to the Lyra equipment item-def (owning grants the equipment)
+	Accessory         UMETA(DisplayName = "Accessory"),            // AFL.Accessory.<Name>-> per-identity attachment (composes via AddCharacterPart); distinct from WeaponAccessory
+	Bundle            UMETA(DisplayName = "Bundle")                // AFL.Bundle.<Name>   -> grants a SET of child CosmeticIds on the same ownership spine (buy-once -> grant-N)
 };
 
 /**
@@ -88,6 +93,24 @@ enum class EAFLAcquisition : uint8
 	Direct        UMETA(DisplayName = "Direct (Item Shop)"),
 	BattlePass    UMETA(DisplayName = "Battle Pass"),
 	GrantedFree   UMETA(DisplayName = "Granted Free")
+};
+
+/**
+ * Content tier (ADR Decision 6 / Ruling 2) -- an EXPLICIT management fact stamped on each catalog entry,
+ * NOT inferred from Acquisition+CollectionId. Descriptive/filterable metadata (merchandising), DISTINCT
+ * from the composable address (never in CosmeticId) and from the paid-ladder EAFLCosmeticTier:
+ *  - Base      = the free base layer (the 7 AFL.Finish.* + free base identities; Acquisition GrantedFree).
+ *  - Premium   = the paid branded content (the 30-name identity backlog; Acquisition Direct + a Tier rung).
+ *  - Event     = limited-time event content.
+ *  - Seasonal  = season-track / battle-pass content.
+ */
+UENUM(BlueprintType)
+enum class EAFLContentTier : uint8
+{
+	Base       UMETA(DisplayName = "Base (free)"),
+	Premium    UMETA(DisplayName = "Premium"),
+	Event      UMETA(DisplayName = "Event"),
+	Seasonal   UMETA(DisplayName = "Seasonal")
 };
 
 /**
@@ -132,6 +155,12 @@ struct FAFLCatalogEntry
 	/** Paid ladder rung. IGNORED when Acquisition == GrantedFree (identity / free base carry no tier). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
 	EAFLCosmeticTier Tier = EAFLCosmeticTier::SPARK;
+
+	/** Content tier (ADR Decision 6 / Ruling 2) -- EXPLICIT management metadata, NOT inferred. Descriptive
+	 *  (Base/Premium/Event/Seasonal) for filtering/merchandising; distinct from the paid Tier ladder and
+	 *  never part of CosmeticId. Defaults to Base; the 30-name premium identities stamp Premium. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
+	EAFLContentTier ContentTier = EAFLContentTier::Base;
 
 	/** Hard price in Volts. 0 for GrantedFree. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
