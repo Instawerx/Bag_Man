@@ -175,6 +175,90 @@ void UAFLCombatCheats::SetCosmeticEdge(const FString& EdgeColorId)
 #endif
 }
 
+void UAFLCombatCheats::SetCosmeticCharacter(const FString& CharacterId)
+{
+#if UE_WITH_CHEAT_MANAGER
+	// Per-window: GetLoadoutComponent() -> GetPlayerController() = THIS window's owning client PlayerState,
+	// so two PIE windows drive independently (the fix for the world-global console-cmd one-player collapse).
+	UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
+	if (!Loadout)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("SetCosmeticCharacter: no UAFLCosmeticLoadoutComponent on the player's PlayerState (not spawned yet?)"));
+		return;
+	}
+
+	FString IdStr = CharacterId.TrimStartAndEnd();
+	if (!IdStr.StartsWith(TEXT("AFL.Character."), ESearchCase::IgnoreCase))
+	{
+		IdStr = FString::Printf(TEXT("AFL.Character.%s"), *IdStr);
+	}
+	const FName CharId(*IdStr);
+
+	// Preserve the rest of the selection; switch the identity to the Character axis. PURE: the Server RPC
+	// does validation/entitlement/commit/replicate; the body selector re-resolves on the next possession.
+	FAFLCosmeticSelection Request = Loadout->GetSelection();
+	Request.IdentityType = EAFLIdentityType::Character;
+	Request.CharacterId = CharId;
+
+	Loadout->ServerSetCosmeticSelection(Request);
+
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("[Cheat] SetCosmeticCharacter: client issued ServerSetCosmeticSelection(identity=Character/%s). ")
+		TEXT("Re-possess (kill+respawn) to see the body swap. `afl.SkinDiag 1` to watch."),
+		*CharId.ToString());
+#endif
+}
+
+void UAFLCombatCheats::SetCosmeticTeam(const FString& TeamId)
+{
+#if UE_WITH_CHEAT_MANAGER
+	UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
+	if (!Loadout)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("SetCosmeticTeam: no UAFLCosmeticLoadoutComponent on the player's PlayerState (not spawned yet?)"));
+		return;
+	}
+
+	FString IdStr = TeamId.TrimStartAndEnd();
+	if (!IdStr.StartsWith(TEXT("AFL.Team."), ESearchCase::IgnoreCase))
+	{
+		IdStr = FString::Printf(TEXT("AFL.Team.%s"), *IdStr);
+	}
+	const FName TeamIdName(*IdStr);
+
+	FAFLCosmeticSelection Request = Loadout->GetSelection();
+	Request.IdentityType = EAFLIdentityType::Team;
+	Request.TeamId = TeamIdName;
+
+	Loadout->ServerSetCosmeticSelection(Request);
+
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("[Cheat] SetCosmeticTeam: client issued ServerSetCosmeticSelection(identity=Team/%s). ")
+		TEXT("Re-possess (kill+respawn) to see the body swap. `afl.SkinDiag 1` to watch."),
+		*TeamIdName.ToString());
+#endif
+}
+
+void UAFLCombatCheats::SuicidePawn()
+{
+#if UE_WITH_CHEAT_MANAGER
+	// Per-window kill: drive THIS window's owning-client ASC Health to 0 -> the real OnOutOfHealth death
+	// flow -> respawn -> re-possession -> the body selector re-resolves the current identity. GetPlayerASC()
+	// resolves the cheat-manager's owning PlayerController's PlayerState ASC, so each PIE window kills its
+	// OWN pawn. Uses the genuine death path (not Destroy()) so respawn fires exactly as in real death.
+	UAbilitySystemComponent* ASC = GetPlayerASC();
+	if (!ASC)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("SuicidePawn: no player ASC on this window's PlayerState."));
+		return;
+	}
+	ASC->ApplyModToAttribute(UAFLAttributeSet_Combat::GetHealthAttribute(), EGameplayModOp::Override, 0.0f);
+	UE_LOG(LogAFLCombat, Display, TEXT("[Cheat] SuicidePawn: set Health=0 on this window's pawn (forcing death->respawn->body re-resolve)."));
+#endif
+}
+
 void UAFLCombatCheats::TestDamage(float Base, float Headshot, float Weakpoint, float Distance)
 {
 #if UE_WITH_CHEAT_MANAGER
@@ -1079,6 +1163,57 @@ namespace
 		TEXT("afl.Cosmetic.SetIdentity"),
 		TEXT("Phase 0 identity seam: set the player's Team identity so the body selector resolves a different robot. Usage: afl.Cosmetic.SetIdentity <ARIA|IRONICS|SCARLETT|MAKHIAVELLI|AP-9|MOB-FIGAZ> (or full AFL.Team.<Name>)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetIdentity));
+
+	// ─── Phase 1 CHARACTER axis: afl.Cosmetic.SetCharacter <CharacterName> ───────
+	// Sibling of SetIdentity, one enum-value over: sets the CHARACTER axis (IdentityType=Character + CharacterId)
+	// instead of Team, via the SAME ServerSetCosmeticSelection (which already type-branches Character -- #43).
+	// The proven SetIdentity (Team) cheat is UNTOUCHED so both axes stay independently testable (the parallel
+	// Character/Team model). The body selector reads GetActiveIdentityId(), which returns CharacterId when the
+	// type is Character -> forcing a Character selection here makes the resolver resolve an AFL.Character.* key
+	// (e.g. Big Sixx) in the current solo-context PIE. (Match-type auto-switch = the Phase-2 follow-up.)
+	void HandleAFLCosmeticSetCharacter(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetCharacter — usage: afl.Cosmetic.SetCharacter <BigSixx|...> (or full AFL.Character.<Name>)."));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetCharacter — no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetCharacter — no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		FString IdStr = Args[0].TrimStartAndEnd();
+		if (!IdStr.StartsWith(TEXT("AFL.Character."), ESearchCase::IgnoreCase))
+		{
+			IdStr = FString::Printf(TEXT("AFL.Character.%s"), *IdStr);
+		}
+		const FName CharacterId(*IdStr);
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		Request.IdentityType = EAFLIdentityType::Character;
+		Request.CharacterId = CharacterId;
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetCharacter — client issued ServerSetCosmeticSelection(identity=Character/%s). Re-possess (or it applies on next possession) to see the body swap."),
+			*CharacterId.ToString());
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetCharacterCmd(
+		TEXT("afl.Cosmetic.SetCharacter"),
+		TEXT("Phase 1 Character axis: set the player's Character identity (IdentityType=Character) so the body selector resolves an AFL.Character.* robot (e.g. Big Sixx). Usage: afl.Cosmetic.SetCharacter <BigSixx> (or full AFL.Character.<Name>)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetCharacter));
 
 	// (RETIRED: afl.Cosmetic.SetHelmet + the helmet part-path it drove. The facemask is now a material
 	//  reskin -- a slot-base-MI cosmetic on the proven logo channel (MI_AFL_FaceMask_Pink) -- not a

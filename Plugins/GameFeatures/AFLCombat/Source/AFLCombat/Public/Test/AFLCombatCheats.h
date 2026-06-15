@@ -63,6 +63,35 @@ public:
 	UFUNCTION(Exec)
 	void SetCosmeticEdge(const FString& EdgeColorId);
 
+	/**
+	 * Set the player's CHARACTER identity (IdentityType=Character) so the body selector resolves an
+	 * AFL.Character.* robot (e.g. Big Sixx). Cheat-manager-extension method -> targets the OWNING CLIENT's
+	 * PlayerState via GetPlayerController() (the window you typed in), so two PIE windows can be driven
+	 * INDEPENDENTLY -- unlike the world-global afl.Cosmetic.SetCharacter console command which resolves to
+	 * GetFirstPlayerController() and collapses to one player. NOT BlueprintAuthorityOnly (must run on the
+	 * owning client so the Server RPC makes the real client->server hop).
+	 * Accepts "BigSixx" or the full "AFL.Character.BigSixx".
+	 */
+	UFUNCTION(Exec)
+	void SetCosmeticCharacter(const FString& CharacterId);
+
+	/**
+	 * Set the player's TEAM identity (IdentityType=Team). The per-window sibling of SetCosmeticCharacter for
+	 * the Team axis (the proven roster). Targets the owning client's PlayerState (GetPlayerController()).
+	 * Accepts "IRONICS" or the full "AFL.Team.IRONICS".
+	 */
+	UFUNCTION(Exec)
+	void SetCosmeticTeam(const FString& TeamId);
+
+	/**
+	 * Kill THIS window's pawn (set its Health to 0 via the owning client's ASC) to force a death->respawn->
+	 * re-possession, which is what makes the body selector re-resolve the current identity. Per-window
+	 * (GetPlayerController()'s ASC), so each PIE window respawns ITS OWN pawn -- the matching half of the
+	 * per-window identity cheats (without it, a world-global kill only respawns one player). Test-only.
+	 */
+	UFUNCTION(Exec)
+	void SuicidePawn();
+
 private:
 
 	UAbilitySystemComponent* GetPlayerASC() const;

@@ -78,6 +78,17 @@ protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	//~End
 
+	//~UPlayerStateComponent
+	/** RESPAWN DURABILITY: copy the cosmetic selection across Lyra's inactive-PlayerState swap. On death-
+	 *  respawn AModularPlayerState::CopyProperties iterates its UPlayerStateComponents and calls this hook
+	 *  (old comp -> new comp, matched by class+name) so each component carries its must-survive state to the
+	 *  new PlayerState. Without it the selection (which lives only on the PS) is dropped on the swap and the
+	 *  body/color resolvers read the new PS as empty -> ARIA fallback (the Phase-1 bug). Copying the WHOLE
+	 *  FAFLCosmeticSelection makes BOTH the Character and Team axes (and every cosmetic axis) respawn-durable
+	 *  in one stroke. Respawn-durability is a DESIGNED property of the identity system, not incidental. */
+	virtual void CopyProperties(UPlayerStateComponent* TargetPlayerStateComponent) override;
+	//~End
+
 	/** The replicated selection. Single OnRep -- selection changes are menu-rare, not per-tick. */
 	UPROPERTY(ReplicatedUsing = OnRep_Selection)
 	FAFLCosmeticSelection Selection;

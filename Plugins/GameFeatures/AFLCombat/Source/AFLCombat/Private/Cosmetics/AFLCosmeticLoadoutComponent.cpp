@@ -32,6 +32,32 @@ void UAFLCosmeticLoadoutComponent::GetLifetimeReplicatedProps(TArray<FLifetimePr
 	DOREPLIFETIME(UAFLCosmeticLoadoutComponent, bSelectionLocked);
 }
 
+void UAFLCosmeticLoadoutComponent::CopyProperties(UPlayerStateComponent* TargetPlayerStateComponent)
+{
+	Super::CopyProperties(TargetPlayerStateComponent);
+
+	// RESPAWN DURABILITY (Phase 1): carry the cosmetic selection across Lyra's inactive-PlayerState swap.
+	// AModularPlayerState::CopyProperties(newPS) finds the matching component on the new PS and calls this on
+	// the OLD component with Target = the NEW one. Copy the ENTIRE FAFLCosmeticSelection so EVERY axis
+	// (Character + Team + Edge/Body/Helmet/Weapon/Beam) survives the swap -- the body/color resolvers then
+	// read the new PS and find the selection (no more <none> -> ARIA fallback). bSelectionLocked carries too
+	// so the change-timing gate state survives. Authority-only path (CopyProperties runs server-side during
+	// the handoff); the new value replicates from the new PS via the existing DOREPLIFETIME.
+	if (UAFLCosmeticLoadoutComponent* Target = Cast<UAFLCosmeticLoadoutComponent>(TargetPlayerStateComponent))
+	{
+		Target->Selection = Selection;
+		Target->bSelectionLocked = bSelectionLocked;
+
+		if (AFLSkinDiag::IsOn())
+		{
+			UE_LOG(LogAFLSkinDiag, Log, TEXT("%s[Loadout] CopyProperties -> carried selection identity=%s/%s edge=%s across PS swap"),
+				*AFLSkinDiag::Prefix(this),
+				(Selection.IdentityType == EAFLIdentityType::Character) ? TEXT("Character") : TEXT("Team"),
+				*Selection.GetActiveIdentityId().ToString(), *Selection.EdgeId.ToString());
+		}
+	}
+}
+
 void UAFLCosmeticLoadoutComponent::BeginPlay()
 {
 	Super::BeginPlay();
