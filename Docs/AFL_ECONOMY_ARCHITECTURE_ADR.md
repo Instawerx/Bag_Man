@@ -519,3 +519,39 @@ emissive-ramp gradient-feel; all other finishes stay flat. True-gradient deferre
 `DA_AFL_CharacterPartMap`, `DA_AFL_CosmeticCatalog`, and the character/material assets via the
 editor bridge (no PIE, no writes). Skill citations verified present under
 `Tools/skills/lyra-skin-builder-marketplace/references/`.*
+
+---
+
+## Decision 11 — Authoritative ROSTER SPEC (corrects the loose "30 names")
+
+*Recorded 2026-06-16. Supersedes the informal "30-name roster" framing everywhere it appears.*
+
+**Target: 37 character-axis identities total**, of which **7 are ALSO registered as TEAMS**
+(the dual-register precedent — a single identity carrying both an `AFL.Character.<Name>` and an
+`AFL.Team.<Name>` registration). This is **37 characters, 7 of them dual-registered as teams** —
+NOT 37 + 7. Team registration is a *flag on a character identity*, not a separate roster slot.
+
+**Live count reconciled against disk (`DA_AFL_CharacterPartMap`, 2026-06-16, including the
+pending `b3691d52` commit):**
+
+| Axis | Live count | Target | Backlog |
+|---|---|---|---|
+| `AFL.Character.*` identities | **30** | **37** | **7 remaining** |
+| `AFL.Team.*` registrations | **29** | **7 (intended)** | ⚠️ **+22 over** — see flag |
+
+The **7-remaining** number on the character axis governs the remaining roster batches. **Count
+against 37, not 30.**
+
+**⚠️ FLAG — team-registration count is 29, not the intended 7.** The "dual-register all branded"
+pass (commits `f3ef4100` → `b3691d52`) registered **nearly the entire roster** on both axes. Disk
+shows **29 of 30** characters hold an `AFL.Team.*` row; the lone character-only identity is
+**BigSixx**. The operator's intent is **only 7 identities should be teams**. This is a real
+divergence between intent (7) and disk (29), recorded here as the governing discrepancy — the team
+axis must be **pruned from 29 → 7** (decide which 7 are the canonical teams; de-register the other
+22 `AFL.Team.*` rows). Tracked as open debt; **not** auto-resolved (which 7 stay is an operator call).
+
+**Disk roster (30 character identities, 2026-06-16):** AP-9 · ARIA · Akuma · Astra · Aurelia ·
+Azura · BigSixx · Cielo · Draco · Ember · FANATICS · Halo · IRONICS · Kage · MAKHIAVELLI ·
+MOB-FIGAZ · NovaKai · OnyxPrime · Orion · RiftOne · Ronin · Ryu · SCARLETT · Sable · Solara ·
+Talon · Valkyr · Vanta · Volt · Zen. *(BigSixx = the only character-only identity; the other 29
+also hold a team row pending the 29→7 prune.)*

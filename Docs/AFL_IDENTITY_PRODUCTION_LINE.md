@@ -196,3 +196,19 @@ structs and reassign the WHOLE `entries` array (in-place struct edits don't pers
 Priority-5 (all Tier-1 monogram bakes): **ONYX PRIME** (OP) · **NOVA KAI** (NK) · **VANTA** (V) ·
 **AZURA** (A) · **RIFT ONE** (R1). ONYX PRIME is the canary (first identity whose emblem we
 CREATE — proves STEP A's bake link). Remaining 25 follow once the line is proven.
+
+---
+
+## ⚠️ ROSTER TARGET CORRECTED — count against 37, not 30 (2026-06-16)
+
+The "30-name roster" framing throughout this doc is **superseded**. Authoritative spec
+(see **ADR Decision 11**):
+
+- **Target = 37 character-axis identities**, of which **7 are ALSO teams** (dual-registered:
+  `AFL.Character.<Name>` + `AFL.Team.<Name>`). 37 characters, 7 dual-registered — NOT 37+7.
+- **Live on disk (2026-06-16, incl. pending `b3691d52`): 30 characters** → **7 remaining** to hit 37.
+  Each remaining identity runs this same line (emblem + neutralized MI + default finish + 7 regs).
+- **Team axis is OVER-registered:** 29 of 30 identities currently hold a team row (only **BigSixx**
+  is character-only); intent is **7**. The team axis needs pruning 29 → 7 (operator picks the 7);
+  tracked as open debt in ADR D11. New identities built from here should **NOT** auto-dual-register
+  as teams — character-axis only unless explicitly named a team.
