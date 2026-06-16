@@ -40,6 +40,16 @@ public:
 	 *  only). Safe to call redundantly (idempotent). #38a. */
 	void RefreshSkinForPawn(APawn* Pawn) const;
 
+	/** AUTHORITY: resolve the player's equipped FacemaskId (from the PlayerState loadout selection, catalog
+	 *  resolveVia) to its mask MIC and SWAP the possessed robot's slot-1 base material to it -- the proven
+	 *  facemask path (MI_AFL_FaceMask_Pink is a slot-1 base-MI cosmetic, NOT a param spray). Server-auth: the
+	 *  swap is applied via the pawn component's replicated facemask value so all clients converge (mirrors the
+	 *  SkinColor replicate-then-apply spine). MUST run BEFORE RefreshSkinForPawn at each possession so the
+	 *  finish param-push re-MIDs the SWAPPED material and lands its color params on top (composition order:
+	 *  material swap, then param push -- the swap never strands the finish). NAME_None facemask -> no-op (the
+	 *  robot keeps its BP-default slot-1). Idempotent. Mirrors RefreshSkinForPawn's resolve+apply shape. */
+	void RefreshFacemaskForPawn(APawn* Pawn) const;
+
 protected:
 	virtual void BeginPlay() override;
 

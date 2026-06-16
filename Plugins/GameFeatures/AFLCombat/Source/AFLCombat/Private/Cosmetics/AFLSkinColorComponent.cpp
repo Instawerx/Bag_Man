@@ -5,6 +5,7 @@
 #include "Components/ChildActorComponent.h"
 #include "Cosmetics/AFLCharacterPartActor.h"
 #include "Cosmetics/AFLSkinColorAsset.h"
+#include "Materials/MaterialInstanceConstant.h"   // the equipped facemask MIC (replication-safe content asset)
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "HAL/IConsoleManager.h"
@@ -65,6 +66,7 @@ void UAFLSkinColorComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UAFLSkinColorComponent, SkinColor);
+	DOREPLIFETIME(UAFLSkinColorComponent, Facemask);
 }
 
 void UAFLSkinColorComponent::BeginPlay()
@@ -74,6 +76,9 @@ void UAFLSkinColorComponent::BeginPlay()
 	// Reconcile: if a color + parts are BOTH already present when we begin play (late join, or color set
 	// before our BeginPlay), apply now. Idempotent + null-guarded -> safe no-op otherwise.
 	ReapplyColorToAllParts();
+
+	// Same reconcile for the facemask (a part arriving after the replicated facemask value picks it up here).
+	ReapplyFacemaskToAllParts();
 }
 
 void UAFLSkinColorComponent::SetSkinColor(UAFLSkinColorAsset* NewColor)
@@ -141,6 +146,68 @@ void UAFLSkinColorComponent::ReapplyColorToAllParts()
 	{
 		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : Reapply: found %d parts (color=%s)"),
 			*AFLSkinDiag::Prefix(this), *Owner->GetName(), NumPartsFound,
+			SkinColor ? *SkinColor->GetName() : TEXT("null"));
+	}
+}
+
+// ---- FACEMASK (replicated PARALLEL to SkinColor; same two-path race-safe spine) ------------------
+
+void UAFLSkinColorComponent::SetFacemask(UMaterialInstanceConstant* NewMaterial)
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		Facemask = NewMaterial;
+		// Listen-host: OnRep does NOT fire on authority -> apply locally now (mirrors SetSkinColor).
+		ReapplyFacemaskToAllParts();
+	}
+}
+
+void UAFLSkinColorComponent::OnRep_Facemask()
+{
+	// PATH 2 (facemask-arrives-second): the facemask value replicated in -> swap slot-1 on already-spawned parts.
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : OnRep_Facemask fired: mask=%s"),
+			*AFLSkinDiag::Prefix(this),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
+			Facemask ? *Facemask->GetName() : TEXT("null"));
+	}
+	ReapplyFacemaskToAllParts();
+}
+
+void UAFLSkinColorComponent::ReapplyFacemaskToAllParts()
+{
+	// NOTE: NO early-return on null Facemask -- unlike SkinColor, a NULL facemask is a MEANINGFUL state (un-equip
+	// -> restore the part's authored slot-1). ApplyFacemask(nullptr, ...) does the restore.
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	TArray<UChildActorComponent*> ChildActorComps;
+	Owner->GetComponents<UChildActorComponent>(ChildActorComps);
+
+	const bool bDiag = AFLSkinDiag::IsOn();
+	int32 NumPartsFound = 0;
+	for (UChildActorComponent* CAC : ChildActorComps)
+	{
+		// Same by-construction filter as ReapplyColorToAllParts: only OUR body parts (weapons cast to null).
+		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
+		{
+			++NumPartsFound;
+			// Pass the CURRENT SkinColor so the part re-layers the finish params on top of the swapped material
+			// (composition order: material swap, then param re-push). SkinColor may be null (finish not set yet);
+			// ApplyFacemask handles that (the mask MIC shows raw until the color lands + its OnRep re-applies).
+			Part->ApplyFacemask(Facemask, SkinColor);
+		}
+	}
+
+	if (bDiag)
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : ReapplyFacemask: found %d parts (mask=%s color=%s)"),
+			*AFLSkinDiag::Prefix(this), *Owner->GetName(), NumPartsFound,
+			Facemask ? *Facemask->GetName() : TEXT("null"),
 			SkinColor ? *SkinColor->GetName() : TEXT("null"));
 	}
 }

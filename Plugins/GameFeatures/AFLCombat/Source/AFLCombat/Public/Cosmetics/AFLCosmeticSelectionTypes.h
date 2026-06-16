@@ -78,6 +78,16 @@ struct FAFLCosmeticSelection
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
 	FName BeamId = NAME_None;
 
+	/** AFL.Facemask.<Name>. The equipped facemask key. UNLIKE EdgeId/BodyId (param-push via SetSkinColor), a
+	 *  facemask is a slot-1 base-MATERIAL swap (the proven MI_AFL_FaceMask_Pink path) -- its consumer is
+	 *  UAFLSkinColorControllerComponent::RefreshFacemaskForPawn (resolve CosmeticId -> mask MIC -> swap robot
+	 *  slot-1 material), driven on the SAME possession + OnRep + CopyProperties spine as the rest of this
+	 *  selection. Composes with the finish param-push (disjoint: finish writes color params into the slot MID,
+	 *  facemask swaps the slot's base material -> the controller re-applies the finish AFTER the swap so the
+	 *  swap never strands the finish). NAME_None = no facemask equipped (robot's BP-default slot-1). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
+	FName FacemaskId = NAME_None;
+
 	/** The active identity key for the current type (TeamId or CharacterId). NAME_None if unset. */
 	FName GetActiveIdentityId() const
 	{

@@ -64,7 +64,13 @@ enum class EAFLCosmeticType : uint8
 	Finish            UMETA(DisplayName = "Finish"),               // AFL.Finish.<Color>  -> UAFLSkinColorAsset (Axis==Finish); full base finish, SOLE color source
 	Weapon            UMETA(DisplayName = "Weapon"),               // AFL.Weapon.<Name>   -> full-weapon SKU; TSoftClassPtr to the Lyra equipment item-def (owning grants the equipment)
 	Accessory         UMETA(DisplayName = "Accessory"),            // AFL.Accessory.<Name>-> per-identity attachment (composes via AddCharacterPart); distinct from WeaponAccessory
-	Bundle            UMETA(DisplayName = "Bundle")                // AFL.Bundle.<Name>   -> grants a SET of child CosmeticIds on the same ownership spine (buy-once -> grant-N)
+	Bundle            UMETA(DisplayName = "Bundle"),               // AFL.Bundle.<Name>   -> grants a SET of child CosmeticIds on the same ownership spine (buy-once -> grant-N)
+	// Facemask axis (dedicated type, replaces the SkinColor_Body interim the 31 mask rows used). A facemask is a
+	// FULL slot-1 MATERIAL cosmetic (UAFLSkinColorAsset wrapping the mask MIC, proven path MI_AFL_FaceMask_Pink):
+	// the visual is the slot-1 base-MI swap (HUD-faceplate richness, animated/reactive future), applied at runtime
+	// via the replicated FacemaskId selection (mirrors the EdgeId axis + the Lyra CharacterParts replicate-then-
+	// apply model). DISTINCT from SkinColor_* (param-push) and Helmet (the retired part path). Address AFL.Facemask.<Name>.
+	Facemask          UMETA(DisplayName = "Facemask")              // AFL.Facemask.<Name> -> slot-1 material reskin (the proven facemask path), runtime-equipped + replicated
 };
 
 /**

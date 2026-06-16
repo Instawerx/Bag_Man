@@ -11,6 +11,8 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInstanceConstant.h"   // ApplyFacemask param type (the slot-1 base MIC the facemask swaps in)
+#include "Materials/MaterialInterface.h"           // UMaterialInterface (slot base type used in the swap/restore)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCharacterPartActor)
 
@@ -155,6 +157,71 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 				MID->SetTextureParameterValue(KV.Key, KV.Value);
 			}
 		}
+	}
+}
+
+void AAFLCharacterPartActor::ApplyFacemask(UMaterialInstanceConstant* FacemaskMIC, const UAFLSkinColorAsset* ColorToReapply)
+{
+	const bool bDiag = AFLSkinDiag::IsOn();
+
+	// Slot 1 = M_HeadLegs (the head/visor region) on the BagMan robot's SKM_Manny. The facemask is a slot-1
+	// base-MATERIAL swap (the proven MI_AFL_FaceMask_Pink path) -- NOT a param spray. We swap on slot 1 of every
+	// mesh that has it (the visible CharacterPart SKM_Manny). Slot 0 (M_torso) keeps the body chest material.
+	const int32 FacemaskSlot = 1;
+
+	TArray<UMeshComponent*> Meshes;
+	GetComponents<UMeshComponent>(Meshes);
+	for (UMeshComponent* Mesh : Meshes)
+	{
+		if (!IsValid(Mesh) || Mesh->GetNumMaterials() <= FacemaskSlot)
+		{
+			continue; // 1-slot mesh (e.g. an invisible driver) has no head/visor slot -> skip
+		}
+
+		// Capture the AUTHORED slot-1 base material ONCE (the pre-swap material), so a later nullptr restores it.
+		// We must capture the AUTHORED material, not a runtime MID -> if the current slot mat is one of OUR MIDs,
+		// take its Parent; otherwise it is the authored base MI itself.
+		if (!AuthoredSlot1Material.Contains(Mesh))
+		{
+			UMaterialInterface* Cur = Mesh->GetMaterial(FacemaskSlot);
+			UMaterialInterface* Authored = Cur;
+			if (UMaterialInstanceDynamic* CurMID = Cast<UMaterialInstanceDynamic>(Cur))
+			{
+				Authored = CurMID->Parent; // the base behind our runtime MID
+			}
+			AuthoredSlot1Material.Add(Mesh, Authored);
+		}
+
+		// SWAP: facemask MIC if equipping, else RESTORE the captured authored base material.
+		UMaterialInterface* NewBase =
+			FacemaskMIC ? static_cast<UMaterialInterface*>(FacemaskMIC) : AuthoredSlot1Material.FindRef(Mesh).Get();
+		if (NewBase)
+		{
+			Mesh->SetMaterial(FacemaskSlot, NewBase);
+		}
+
+		// COMPOSITION: the swap replaced whatever was in slot 1, including OUR cached MID (where the finish's
+		// color params lived). FORGET our slot-1 MID so ApplySkinColor below re-MIDs the SWAPPED material and
+		// re-pushes the finish params on top -- material swap THEN param re-push, so the finish is never stranded.
+		if (FAFLSkinMIDSlots* Slots = OwnedMIDs.Find(Mesh))
+		{
+			Slots->SlotMIDs.Remove(FacemaskSlot);
+		}
+
+		if (bDiag)
+		{
+			UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : ApplyFacemask slot[%d] -> %s (reapplyColor=%s)"),
+				*AFLSkinDiag::Prefix(this), *GetName(), FacemaskSlot,
+				NewBase ? *NewBase->GetName() : TEXT("null"),
+				ColorToReapply ? *ColorToReapply->GetName() : TEXT("null"));
+		}
+	}
+
+	// Re-layer the finish color params on top of the swapped material (ApplySkinColor re-creates the slot-1 MID
+	// we just dropped + re-pushes). Null color -> ApplySkinColor early-returns (the facemask MIC still shows raw).
+	if (ColorToReapply)
+	{
+		ApplySkinColor(ColorToReapply);
 	}
 }
 

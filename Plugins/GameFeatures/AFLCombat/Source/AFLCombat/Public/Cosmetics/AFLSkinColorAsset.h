@@ -8,6 +8,7 @@
 #include "AFLSkinColorAsset.generated.h"
 
 class UTexture;
+class UMaterialInstanceConstant;
 
 /**
  * AFL robot-skin COLOR preset (L5). A pure, typed param bag — ZERO reflection.
@@ -35,6 +36,14 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|SkinColor")
 	TMap<FName, TObjectPtr<UTexture>> TextureParameters;
+
+	/** FACEMASK ONLY: the slot-1 base MATERIAL this facemask swaps in (the proven MI_AFL_FaceMask_* MIC). A
+	 *  facemask's VISUAL is a slot-1 base-MI swap, NOT the param maps above (which stay empty for masks) -- so
+	 *  the wrapper carries the MIC here, and the equip path (UAFLSkinColorComponent::SetFacemask via the
+	 *  controller's RefreshFacemaskForPawn) reads it. Null for non-facemask assets (Edge/Body/Finish use the
+	 *  param-push path and never set this). A UMaterialInstanceConstant content asset -> replication-safe. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|SkinColor")
+	TObjectPtr<UMaterialInstanceConstant> FacemaskMaterial = nullptr;
 
 	// --- Cosmetic economy metadata (store / wallet / drops) ---
 
@@ -64,6 +73,9 @@ public:
 	const TMap<FName, float>& GetScalars() const { return ScalarParameters; }
 	const TMap<FName, FLinearColor>& GetColors() const { return ColorParameters; }
 	const TMap<FName, TObjectPtr<UTexture>>& GetTextures() const { return TextureParameters; }
+
+	/** FACEMASK: the slot-1 base MIC this facemask swaps in (null for non-facemask assets). */
+	UMaterialInstanceConstant* GetFacemaskMaterial() const { return FacemaskMaterial; }
 
 	/** Cosmetic-metadata getters (mirror the L5 getter style; UPROPERTYs are the contract). */
 	FName GetCosmeticId() const { return CosmeticId; }

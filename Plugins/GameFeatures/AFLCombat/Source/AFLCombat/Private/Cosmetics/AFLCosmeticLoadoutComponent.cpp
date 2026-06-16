@@ -138,10 +138,11 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	if (bDiag)
 	{
 		// Arrival on the server: the RPC reached authority. Show the requested identity + edge (the wired axis).
-		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s[Loadout] ServerSetCosmeticSelection RX on %s: reqIdentity=%s/%s reqEdge=%s"),
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s[Loadout] ServerSetCosmeticSelection RX on %s: reqIdentity=%s/%s reqEdge=%s reqFacemask=%s"),
 			*AFLSkinDiag::Prefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
 			(Requested.IdentityType == EAFLIdentityType::Character) ? TEXT("Character") : TEXT("Team"),
-			*Requested.GetActiveIdentityId().ToString(), *Requested.EdgeId.ToString());
+			*Requested.GetActiveIdentityId().ToString(), *Requested.EdgeId.ToString(),
+			*Requested.FacemaskId.ToString());
 	}
 
 	// Step 2 -- change-timing gate (D6). STUB-OPEN now; rejects mid-match once the lock lands.
@@ -192,6 +193,12 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	if (Requested.HelmetId != NAME_None && AxisEntitled(Requested.HelmetId)) { NewSelection.HelmetId = Requested.HelmetId; }
 	if (Requested.WeaponId != NAME_None && AxisEntitled(Requested.WeaponId)) { NewSelection.WeaponId = Requested.WeaponId; }
 	if (Requested.BeamId   != NAME_None && AxisEntitled(Requested.BeamId))   { NewSelection.BeamId   = Requested.BeamId;   }
+	// FACEMASK axis: equip a NEW facemask (entitled, non-None), OR un-equip when the request is explicitly
+	// NAME_None. UNLIKE the other axes, NAME_None is a MEANINGFUL un-equip here -- so the request's FacemaskId
+	// ALWAYS overwrites (a None request clears the equipped mask). The entitlement check still gates a non-None
+	// equip; None is always allowed (clearing needs no entitlement). This is the one-line the runtime equip
+	// path was missing: without it, FacemaskId never left the current value -> the server committed <none>.
+	if (Requested.FacemaskId == NAME_None || AxisEntitled(Requested.FacemaskId)) { NewSelection.FacemaskId = Requested.FacemaskId; }
 
 	// Step 4 -- commit -> replicate (OnRep fires on clients; authority applies via the nudge below).
 	Selection = NewSelection;
@@ -199,10 +206,11 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	if (bDiag)
 	{
 		// What landed after gating (edge is the wired axis -> what the controller push will resolve).
-		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s[Loadout] COMMITTED on %s: identity=%s/%s edge=%s (replicating)"),
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s[Loadout] COMMITTED on %s: identity=%s/%s edge=%s facemask=%s (replicating)"),
 			*AFLSkinDiag::Prefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
 			(Selection.IdentityType == EAFLIdentityType::Character) ? TEXT("Character") : TEXT("Team"),
-			*Selection.GetActiveIdentityId().ToString(), *Selection.EdgeId.ToString());
+			*Selection.GetActiveIdentityId().ToString(), *Selection.EdgeId.ToString(),
+			*Selection.FacemaskId.ToString());
 	}
 
 	// Persist through the stub interface (D8). Fire-and-forget; no-op if unbound.
@@ -302,6 +310,9 @@ void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const
 	{
 		if (APawn* Pawn = OwningController->GetPawn())
 		{
+			// Facemask FIRST (slot-1 material swap), THEN skin (param push) -- composition order, so a live
+			// wallet-UI facemask change shows immediately without respawn (the FacemaskId is in this selection).
+			SkinCtrl->RefreshFacemaskForPawn(Pawn);
 			SkinCtrl->RefreshSkinForPawn(Pawn);
 		}
 	}
@@ -326,6 +337,9 @@ void UAFLCosmeticLoadoutComponent::OnPlayerStatePawnSet(APlayerState* /*Player*/
 			if (UAFLSkinColorControllerComponent* SkinCtrl =
 					OwningController->FindComponentByClass<UAFLSkinColorControllerComponent>())
 			{
+				// Facemask FIRST then skin (composition order) -- makes the equipped facemask respawn-durable
+				// on the same spine as the skin/identity (the FacemaskId rides CopyProperties already).
+				SkinCtrl->RefreshFacemaskForPawn(NewPawn);
 				SkinCtrl->RefreshSkinForPawn(NewPawn);
 			}
 		}

@@ -12,6 +12,8 @@
 class UAFLSkinColorAsset;
 class UMeshComponent;
 class UMaterialInstanceDynamic;
+class UMaterialInterface;          // AuthoredSlot1Material member (the captured pre-swap slot-1 base)
+class UMaterialInstanceConstant;   // ApplyFacemask param (the facemask MIC swapped onto slot 1)
 
 /** Per-mesh owned-MID slot map (USTRUCT so it can live in a UPROPERTY TMap value). */
 USTRUCT()
@@ -62,6 +64,20 @@ public:
 	 */
 	void ApplySkinColor(const UAFLSkinColorAsset* ColorAsset);
 
+	/**
+	 * Equip a FACEMASK on THIS part: swap the SLOT-1 base material (M_HeadLegs, the head/visor region) to the
+	 * given mask MIC -- the proven slot-1 base-MI facemask path (MI_AFL_FaceMask_Pink). FacemaskMIC==nullptr
+	 * RESTORES slot 1 to the part's authored base material (cached on first equip). Public so the pawn
+	 * component's OnRep-push (PATH 2) calls it on already-spawned parts.
+	 *
+	 * COMPOSITION (the load-bearing bit): swapping slot 1's base material DROPS our owned MID on that slot
+	 * (the finish's color params lived in that MID). So after the swap we FORGET our slot-1 MID and re-call
+	 * ApplySkinColor(ColorToReapply) -- which re-MIDs the SWAPPED material and re-pushes the finish params on
+	 * top. Order: material swap, then param re-push -> the facemask and the finish coexist (the exact failure
+	 * mode if you swapped without re-applying: a facemask would strand the finish). Idempotent.
+	 */
+	void ApplyFacemask(class UMaterialInstanceConstant* FacemaskMIC, const UAFLSkinColorAsset* ColorToReapply);
+
 #if UE_WITH_CHEAT_MANAGER
 	/**
 	 * PANEL-WATCH INSTRUMENT (afl.Cosmetic.SetParam): poke a single named material param on THIS part's
@@ -86,4 +102,10 @@ protected:
 	// FIX 1 (a): the MIDs WE created, keyed by mesh then slot. ApplySkinColor writes only to these.
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<UMeshComponent>, FAFLSkinMIDSlots> OwnedMIDs;
+
+	// FACEMASK: the part's AUTHORED slot-1 base material per mesh, captured the FIRST time a facemask is
+	// equipped on that mesh -- so equipping nullptr RESTORES the original (the robot's BP-default slot-1, e.g.
+	// MI_<id>_Limbs) instead of leaving the mask stuck. Keyed by mesh; the value is the pre-swap base material.
+	UPROPERTY(Transient)
+	TMap<TObjectPtr<UMeshComponent>, TObjectPtr<UMaterialInterface>> AuthoredSlot1Material;
 };

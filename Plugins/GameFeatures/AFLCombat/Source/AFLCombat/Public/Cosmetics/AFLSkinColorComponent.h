@@ -7,6 +7,7 @@
 #include "AFLSkinColorComponent.generated.h"
 
 class UAFLSkinColorAsset;
+class UMaterialInstanceConstant;
 
 // Skin-color race diagnostics (cvar-gated `afl.SkinDiag`, OFF by default). Shared by the part actor,
 // the pawn component, and the controller component so all log lines share one category + format. Defined
@@ -52,6 +53,19 @@ public:
 	/** Read by the part actor on its BeginPlay (PATH 1). */
 	UAFLSkinColorAsset* GetSkinColor() const { return SkinColor; }
 
+	/** AUTHORITY-ONLY: set the equipped facemask MIC on the server. Replicates to all clients (mirrors
+	 *  SetSkinColor exactly). The facemask is a slot-1 base-MATERIAL swap (the proven MI_AFL_FaceMask_Pink
+	 *  path), DISTINCT from the SkinColor param-push: this swaps the base material on slot 1 of each body
+	 *  part; SkinColor then layers its color params on top (the part's owned-MID re-apply re-MIDs the swapped
+	 *  material). NewMaterial==nullptr clears the facemask (slot 1 falls back to the part's authored material).
+	 *  A UMaterialInstanceConstant (content asset) -> replication-safe by pointer (never a transient MID). */
+	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
+	void SetFacemask(UMaterialInstanceConstant* NewMaterial);
+
+	/** Read by the part actor on its BeginPlay (PATH 1) so a part arriving AFTER the facemask value still
+	 *  picks it up. nullptr = no facemask equipped. */
+	UMaterialInstanceConstant* GetFacemask() const { return Facemask; }
+
 protected:
 	//~UActorComponent interface
 	virtual void BeginPlay() override;
@@ -66,4 +80,17 @@ protected:
 
 	/** PATH 2: push the current color to all already-spawned AAFLCharacterPartActor body parts. Idempotent. */
 	void ReapplyColorToAllParts();
+
+	/** The equipped facemask MIC -- replicated PARALLEL to SkinColor, same race-safe two-path spine. A content
+	 *  asset (UMaterialInstanceConstant) -> safe to replicate by pointer. nullptr = none equipped. */
+	UPROPERTY(ReplicatedUsing = OnRep_Facemask)
+	TObjectPtr<UMaterialInstanceConstant> Facemask = nullptr;
+
+	UFUNCTION()
+	void OnRep_Facemask();
+
+	/** PATH 2 (facemask): swap slot-1 base material to Facemask on all spawned body parts, THEN re-apply the
+	 *  current SkinColor so the finish params land on top of the swapped material (composition order). The part
+	 *  exposes the swap+recolor via AAFLCharacterPartActor::ApplyFacemask. Idempotent. */
+	void ReapplyFacemaskToAllParts();
 };

@@ -6,6 +6,7 @@
 #include "AFLDismemberTypes.h"
 #include "AFLDismemberZoneSet.h"
 #include "AFLDismemberedPart.h"
+#include "AFLDismemberedLimb.h"   // S4 LIMB-GIB: the limb prop carries victim material+color (mirrors the head)
 #include "AFLHeadLootBox.h"
 #include "Cosmetics/AFLSkinColorComponent.h"   // victim skin color handoff to the head prop (AFLCombat)
 #include "Materials/MaterialInterface.h"          // GetMaterial(1) return type
@@ -537,6 +538,51 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
 					FMath::FRandRange(ImpulseXY.X, ImpulseXY.Y),
 					FMath::FRandRange(ImpulseXY.X, ImpulseXY.Y),
 					ImpulseZ));
+
+				// IDENTITY (S4 LIMB-GIB): if the prop is a AAFLDismemberedLimb, hand it the victim's per-skin
+				// slot-1 base MATERIAL + skin color so the limb reads as WHOSE limb it is -- EXACTLY the proven
+				// head path (GetMaterial(1)->Parent recovers the replication-safe MIC behind the runtime MID;
+				// SCC->GetSkinColor() is the replicated color asset). Both server-set -> replicate to all clients
+				// via the limb's OnReps. A base-class placeholder prop (no AAFLDismemberedLimb) just skips this.
+				if (AAFLDismemberedLimb* Limb = Cast<AAFLDismemberedLimb>(Part))
+				{
+					if (const UAFLSkinColorComponent* SCC =
+							Self->GetOwner()->FindComponentByClass<UAFLSkinColorComponent>())
+					{
+						Limb->SetPartSkinColor(SCC->GetSkinColor());
+					}
+
+					// Recover the REPLICATION-SAFE slot-1 base MIC from the VISIBLE robot mesh (the CharacterPart
+					// SKM_Manny). The skin system MID-ifies slot 1 at runtime, so GetMaterial(1) is a transient MID
+					// whose ->Parent IS the per-skin MIC (e.g. MI_<id>_Limbs). Mirrors the head's layer-2 resolve.
+					UMaterialInstanceConstant* LimbMIC = nullptr;
+					for (USkeletalMeshComponent* Mesh : Self->GatherZoneMeshes())
+					{
+						if (!Mesh || Mesh->GetNumMaterials() < 2)
+						{
+							continue; // invisible CharacterMesh0 driver / any 1-slot mesh -> not the robot limbs
+						}
+						UMaterialInterface* M = Mesh->GetMaterial(1); // slot 1 = M_HeadLegs (the limb region)
+						UMaterialInstanceConstant* MIC = Cast<UMaterialInstanceConstant>(M);
+						if (!MIC)
+						{
+							if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(M))
+							{
+								MIC = Cast<UMaterialInstanceConstant>(MID->Parent);
+							}
+						}
+						if (MIC)
+						{
+							LimbMIC = MIC;
+							break; // first visible robot mesh wins
+						}
+					}
+					if (LimbMIC)
+					{
+						Limb->SetPartMaterial(LimbMIC);
+					}
+				}
+
 				UE_LOG(LogAFLDismember, Display,
 					TEXT("[AFLDismember] Part prop spawned on %s -- pop + roll"),
 					*GetNameSafe(Self->GetOwner()));

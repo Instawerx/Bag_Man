@@ -9,6 +9,7 @@
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"  // #43: read the player's replicated selection
 #include "Cosmetics/AFLSkinColorAsset.h"
 #include "Cosmetics/AFLSkinColorComponent.h"
+#include "Materials/MaterialInstanceConstant.h"   // facemask: the resolved mask MIC swapped onto slot 1
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"               // #43: reach the loadout component on the PlayerState
@@ -42,6 +43,9 @@ void UAFLSkinColorControllerComponent::BeginPlay()
 			// Cover the already-possessed case (BeginPlay after possession): push to the current pawn.
 			if (APawn* ControlledPawn = GetPawn<APawn>())
 			{
+				// Facemask FIRST (slot-1 material swap), THEN skin (param push) -> the finish layers on top of
+				// the swapped material; the swap never strands the finish (the composition order, server-side).
+				RefreshFacemaskForPawn(ControlledPawn);
 				RefreshSkinForPawn(ControlledPawn);
 			}
 		}
@@ -63,9 +67,10 @@ void UAFLSkinColorControllerComponent::SetPersistentSkinColor(UAFLSkinColorAsset
 void UAFLSkinColorControllerComponent::OnPossessedPawnChanged(APawn* /*OldPawn*/, APawn* NewPawn)
 {
 	// Authority-only (bound under HasAuthority() in BeginPlay). Re-push so the selection survives
-	// respawn / re-possession.
+	// respawn / re-possession. Facemask FIRST (material swap), THEN skin (param push) -- composition order.
 	if (NewPawn)
 	{
+		RefreshFacemaskForPawn(NewPawn);
 		RefreshSkinForPawn(NewPawn);
 	}
 }
@@ -226,5 +231,64 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 			// the resolved value rides DOREPLIFETIME SkinColor exactly as PersistentSkinColor did.
 			PawnComp->SetSkinColor(EffectiveColor);
 		}
+	}
+}
+
+void UAFLSkinColorControllerComponent::RefreshFacemaskForPawn(APawn* Pawn) const
+{
+	// MIRRORS RefreshSkinForPawn's resolve+push shape, for the FACEMASK axis (a slot-1 base-MATERIAL swap, not
+	// a param push). Resolve the player's equipped FacemaskId off the PlayerState loadout selection (catalog
+	// resolveVia -> the facemask UAFLSkinColorAsset -> its FacemaskMaterial MIC), then push the MIC to the pawn
+	// component's replicated Facemask so all clients converge. NAME_None facemask -> push nullptr (un-equip ->
+	// the part restores its authored slot-1). Authority-only (same guard model as the skin push).
+	if (!Pawn)
+	{
+		return;
+	}
+
+	// Read the selection from the PAWN's PlayerState first (populated in PossessedBy before this refresh),
+	// falling back to the controller's -- the SAME respawn-race-safe PS resolution RefreshSkinForPawn uses.
+	const APlayerState* PawnPS = Pawn->GetPlayerState();
+	const AController* OwningController = GetController<AController>();
+	const APlayerState* CtrlPS = OwningController ? OwningController->PlayerState : nullptr;
+	const APlayerState* SelectionPS = PawnPS ? PawnPS : CtrlPS;
+
+	const UAFLCosmeticLoadoutComponent* Loadout =
+		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+
+	UMaterialInstanceConstant* FacemaskMIC = nullptr; // null = no facemask -> un-equip
+	FName FacemaskId = NAME_None;
+	if (Loadout)
+	{
+		FacemaskId = Loadout->GetSelection().FacemaskId;
+		if (FacemaskId != NAME_None)
+		{
+			if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+			{
+				// The facemask CosmeticId resolves to a UAFLSkinColorAsset whose FacemaskMaterial is the slot-1
+				// MIC (the proven MI_AFL_FaceMask_* path). A miss leaves FacemaskMIC null -> un-equip (fail-safe,
+				// the same unforgiving "no silent fallback" bar the edge axis uses).
+				if (const UAFLSkinColorAsset* MaskAsset = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(FacemaskId)))
+				{
+					FacemaskMIC = MaskAsset->GetFacemaskMaterial();
+				}
+			}
+		}
+	}
+
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : RefreshFacemask facemaskId=%s -> mic=%s"),
+			*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
+			(FacemaskId != NAME_None) ? *FacemaskId.ToString() : TEXT("<none>"),
+			FacemaskMIC ? *FacemaskMIC->GetName() : TEXT("null"));
+	}
+
+	if (UAFLSkinColorComponent* PawnComp = Pawn->FindComponentByClass<UAFLSkinColorComponent>())
+	{
+		// Authority -> replicated Facemask -> all clients swap slot-1 via OnRep_Facemask (PATH 2) + the new
+		// pawn's parts pick it up on BeginPlay (PATH 1). The pawn component re-applies the finish AFTER the swap
+		// (it passes the current SkinColor into ApplyFacemask) so the composition order holds on every client.
+		PawnComp->SetFacemask(FacemaskMIC);
 	}
 }

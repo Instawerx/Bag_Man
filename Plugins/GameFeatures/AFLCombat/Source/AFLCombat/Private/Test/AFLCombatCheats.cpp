@@ -1114,6 +1114,66 @@ namespace
 		TEXT("#43 selection seam: client-issued PURE caller of ServerSetCosmeticSelection. Usage: afl.Cosmetic.SetEdge <NeonPurple|NeonPink|NeonBlue|NeonGreen> (or full AFL.Edge.<color>). NOT NeonRed (absent from BrandEdgeMap)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetEdge));
 
+	// ─── FACEMASK selection seam: afl.Cosmetic.SetFacemask <Name|none> ───────────
+	// MIRRORS HandleAFLCosmeticSetEdge EXACTLY (the proven read-full -> set-one-field -> push pattern). The
+	// only deltas: sets Request.FacemaskId (the new axis), normalizes to AFL.Facemask.<Name>, and accepts
+	// "none"/"off"/"clear" -> NAME_None to UN-EQUIP. The whole runtime equip path then runs server-side:
+	// ServerSetCosmeticSelection (entitlement-gated) -> OnRep -> RefreshFacemaskForPawn -> SetFacemask ->
+	// slot-1 material swap + finish re-layer. Dev-equip now; the eventual wallet UI calls the SAME RPC.
+	void HandleAFLCosmeticSetFacemask(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetFacemask — usage: afl.Cosmetic.SetFacemask <JapanSolar|Kawaii|...|none> (or full AFL.Facemask.<Name>; 'none' to un-equip)."));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetFacemask — no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetFacemask — no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		FString IdStr = Args[0].TrimStartAndEnd();
+		FName FacemaskId = NAME_None; // un-equip default for none/off/clear
+		if (!IdStr.Equals(TEXT("none"), ESearchCase::IgnoreCase)
+			&& !IdStr.Equals(TEXT("off"), ESearchCase::IgnoreCase)
+			&& !IdStr.Equals(TEXT("clear"), ESearchCase::IgnoreCase))
+		{
+			if (!IdStr.StartsWith(TEXT("AFL.Facemask."), ESearchCase::IgnoreCase))
+			{
+				IdStr = FString::Printf(TEXT("AFL.Facemask.%s"), *IdStr);
+			}
+			FacemaskId = FName(*IdStr);
+		}
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		if (Request.GetActiveIdentityId() == NAME_None)
+		{
+			Request.IdentityType = EAFLIdentityType::Team;
+			Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+		}
+		Request.FacemaskId = FacemaskId;
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetFacemask — client issued ServerSetCosmeticSelection(facemask=%s). Watch [SkinDiag] RefreshFacemask/OnRep_Facemask/ApplyFacemask with `afl.SkinDiag 1`."),
+			(FacemaskId != NAME_None) ? *FacemaskId.ToString() : TEXT("<none/un-equip>"));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetFacemaskCmd(
+		TEXT("afl.Cosmetic.SetFacemask"),
+		TEXT("Facemask selection seam: client-issued PURE caller of ServerSetCosmeticSelection (sets FacemaskId). Runtime equip path -> slot-1 material swap + finish re-layer. Usage: afl.Cosmetic.SetFacemask <Name|none> (e.g. JapanSolar, Kawaii; 'none' to un-equip; or full AFL.Facemask.<Name>)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetFacemask));
+
 	// ─── Phase 0 identity seam: afl.Cosmetic.SetIdentity <TeamName> ──────────────
 	// Sets the player's IDENTITY (Team axis) so the CharacterId->robot-part selector (UAFLCharacterPartSelector
 	// Component) resolves a DIFFERENT body per player. The proven SetEdge cheat above only ever pins
