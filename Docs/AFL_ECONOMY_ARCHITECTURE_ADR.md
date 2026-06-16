@@ -470,6 +470,47 @@ relaunch as the brand tags + BrandToEdge rows) so the grouping goes LIVE in this
 
 ---
 
+## DECISION 9 — EMBLEMS HONOR HERITAGE (Latin / symbol / NATIVE-SCRIPT). LOCKED 2026-06-15.
+
+**Decision.** An identity's emblem (the `LogoTexture`) is NOT English-letter-only. Emblems may be:
+Latin monograms, abstract SYMBOLS, or **native-script glyphs** (Japanese kanji, Korean hangul,
+Vietnamese, Spanish/Latin-script accents, Arabic, etc.) when a name implies HERITAGE — the goal is
+**authentic global representation** ("we truly want to represent all"). Decision rule: a name with
+cultural/heritage origin → consider a native-script emblem faithful to that origin (e.g.
+KAGE → 影 "shadow"; RAIJIN/AKUMA/RONIN → Japanese; regional names → their script) over a Latin
+fallback.
+
+**Tier note (extends the production-line emblem path):** the BigNiagaraBundle supplies **Latin
+letters / numbers / symbols ONLY** — a native-script glyph CANNOT be bundle-baked. It routes through
+**Tier-2 (Tripo `text_to_image`)** or Tier-3 (image-gen). **VERIFIED 2026-06-15:** Tripo produces a
+clean, legible single kanji (影) white-on-black with heavy strokes that survive the spec
+(1024² / TC_GRAYSCALE / sRGB=false / TMGS_BLUR5). Caveat: a DENSE glyph needs a tuned `Scale`/`LogoPos`
+so the mip-confinement keeps it readable at chest size — verify in PIE per identity. Heavy-stroke
+prompting is required (fine strokes mush). KAGE ships the 影 kanji as the first heritage emblem.
+
+---
+
+## DECISION 10 — FINISH STYLE: flat OR gradient-feel; TRUE UV gradient is deferred material work. LOCKED 2026-06-15.
+
+**Decision.** Finishes may be **flat** OR use a **neon gradient-feel** — "creative but elegant," used
+where it elevates a premium signature, NOT universally (flat has its place).
+
+**What the material supports TODAY (verified — `M_Mannequin` param surface):** the body material
+exposes `TeamColor` (body) + `EmissiveColor1/2/3` (a 3-tier MIP-BLENDED emissive ramp) + `EdgeGlowColor`
++ `CarbonfiberTint`. There is **NO second body-color param and NO gradient/lerp node.** Therefore:
+- **Gradient-FEEL is buildable NOW as DATA** via the emissive ramp: set `EmissiveColor1/2/3` + `EdgeGlow`
+  to a graded sequence (e.g. ORION navy body → brighter-blue mid → star-white edge; SOLARA deep-orange
+  → gold → white-hot edge). Reads as an elegant glow-gradient without a true UV gradient. No build.
+- **A TRUE UV body gradient** (color-A→color-B across the mesh) **requires a MATERIAL/SHADER change**
+  (a gradient node + new params on `M_Mannequin` or a new master) = a **C++/material build**.
+  RECORDED-BUT-DEFERRED as a future material-upgrade task; NOT done as data. (Flag any future request
+  for it as a build, not a content pass.)
+
+**Applied:** ORION (`AFL.Finish.Blue.Cosmic`) + SOLARA (`AFL.Finish.Orange.Solar`) use the
+emissive-ramp gradient-feel; all other finishes stay flat. True-gradient deferred.
+
+---
+
 *Verifications in this ADR were performed read-only against the working tree on 2026-06-15
 (`AFLWalletComponent.cpp`, `AFLCosmeticServices.h`, `AFLCosmeticSelectionTypes.h`,
 `AFLCosmeticCoreTypes.h`, `AFLCosmeticLoadoutComponent.cpp`, `AFLSkinColorAsset.h`,

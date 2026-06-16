@@ -85,6 +85,18 @@ time-box) AND the BigNiagaraBundle SM-glyph bake (viable geometry exists — `Al
 `Numbers/SM_0..9` — but the geometry→texture step was never cleanly proven; Tripo is simpler +
 proven). Tier-2 (operator-drop PNG) remains the fallback if Tripo is unavailable.
 
+**HERITAGE EMBLEMS (ADR Decision 9):** emblems may be Latin monograms, symbols, OR native-script
+glyphs (kanji/hangul/etc.) when a name implies heritage — authentic global representation. Native
+script CANNOT be bundle-baked (Latin/numbers/symbols only) → route through Tripo (proven: 影 kanji
+renders clean white-on-black with heavy strokes, survives the spec). DENSE glyphs need a tuned
+`Scale`/`LogoPos` so the mip-confinement keeps them legible at chest size — verify in PIE. Prompt for
+HEAVY strokes (fine strokes mush under TC_GRAYSCALE+blur). KAGE = 影 (shadow), first heritage emblem.
+
+**FINISH STYLE (ADR Decision 10):** finishes may be flat OR gradient-FEEL. A true UV body gradient is
+NOT supported (would be a material build — deferred); the buildable-now "gradient" = a graded
+`EmissiveColor1/2/3` + `EdgeGlow` ramp (the 3-tier mip-blended emissive). Use it where it elevates a
+premium signature (e.g. ORION navy→star-white, SOLARA orange→gold→white-hot), not universally.
+
 **Emblem source — TIERED decision rule (historical; Tripo-text_to_image is now the locked default):**
 - **Tier 1 — BigNiagaraBundle glyph bake (PROVEN path, the DEFAULT).** Letters
   `/Game/BigNiagaraBundle/NiagaraSymbols/StaticMeshes/Alphabet/SM_A … SM_Z`, numbers
