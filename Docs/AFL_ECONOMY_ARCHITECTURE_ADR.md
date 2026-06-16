@@ -437,6 +437,39 @@ a fallback. The `asset_naming.py` lint enforces no-color-token-in-identity-id (D
 
 ---
 
+## DECISION 8 — FINISH-LIBRARY NAMING (patterned, manageable, commerce-ready). LOCKED 2026-06-15.
+
+**Decision.** As the finish library scales (30+ identities, each finish a sellable SKU), finishes
+follow a **two-part patterned id** with the family-grouping in metadata.
+
+- **NEW finishes:** `AFL.Finish.<Family>.<Variant>`.
+  - `<Family>` = the color lane (management: "show all Violets") — `Blue / Cyan / Violet / Teal /
+    Red / Green / Pink / Yellow / Orange / Black`.
+  - `<Variant>` = the sellable distinction within the family (commerce: each a SKU) — e.g.
+    `Indigo / Azure / Stealth / Rift`.
+  - Cool-lane examples (authored): `AFL.Finish.Violet.Indigo`, `AFL.Finish.Cyan.Azure`,
+    `AFL.Finish.Violet.Stealth`, `AFL.Finish.Teal.Rift`.
+- **EXISTING 12 shipped finishes** (`AFL.Finish.Blue`, `…OnyxChrome`, `…GlossBlack`, `…Crimson`,
+  `…Scarlet`, `…BurntOrangeCyan`, the 7 base, etc.) are SHIPPED/committed → **NEVER renamed**
+  (Decision 3). They keep their flat ids; their family grouping lives in **`ColorIdentityTag`**
+  (Decision 6 metadata), NOT in the id. New finishes carry both the patterned id AND the tag.
+- **Commerce stamp per finish** (all Decision 6 fields, no new mechanism):
+  `ContentTier` (Base for the 7 base electric-neon colors; Premium for signatures —
+  OnyxChrome, the cool-lane four, the distinct reds) · `ColorIdentityTag` (the family /
+  grouping key) · `Rarity` (Common base → Rare/Epic signature) · optional `CollectionId` (set).
+
+**Why this is sound:** zero shipped-id renames (Decision 3), uses the existing metadata layer
+(Decision 6) for grouping (no new field/code), and gives new finishes a clean `<Family>.<Variant>`
+SKU pattern. Migration path for existing = stamp metadata, never rename.
+
+**TRACKED FOLLOW-UP (the management/commerce HALF — do NOT let it drop):** stamping
+`ColorIdentityTag` on ALL finishes (12 existing + cool-lane + future) requires `Cosmetic.ColorFamily.*`
+gameplay tags declared in the ini → a tag-keyed (post-relaunch) pass. It is the queryable grouping
+that makes the library manageable at 30+. FOLDED INTO the cool-lane batch's Phase-2 relaunch (same
+relaunch as the brand tags + BrandToEdge rows) so the grouping goes LIVE in this batch, not "someday."
+
+---
+
 *Verifications in this ADR were performed read-only against the working tree on 2026-06-15
 (`AFLWalletComponent.cpp`, `AFLCosmeticServices.h`, `AFLCosmeticSelectionTypes.h`,
 `AFLCosmeticCoreTypes.h`, `AFLCosmeticLoadoutComponent.cpp`, `AFLSkinColorAsset.h`,

@@ -132,9 +132,15 @@ Set `StaticGameplayTags` via `import_text('(GameplayTags=((TagName="Cosmetic.Ani
 Pick the identity's signature finish from the existing presets
 (`/Game/BagMan/Characters/Cosmetics/Finishes/DA_AFL_Finish_*`: Pink/Green/Purple/Blue/Red/
 Black/Yellow/Crimson/Scarlet/BurntOrangeCyan/GlossBlack). If the signature color isn't covered,
-author a NEW `DA_AFL_Finish_<Color>` (duplicate a near one, set `axis=unreal.AFLCosmeticAxis.FINISH`,
-`cosmetic_id="AFL.Finish.<Color>"`, set `TeamColor` + `EmissiveColor` + `EdgeGlowColor`). DATA
-only — the enums shipped in `f3ef4100`, so a new finish needs NO C++ build.
+author a NEW finish. **NAMING (ADR Decision 8):** new finishes use the patterned
+`AFL.Finish.<Family>.<Variant>` (e.g. `AFL.Finish.Violet.Indigo`, `AFL.Finish.Cyan.Azure`) —
+`<Family>` = color lane (grouping), `<Variant>` = the sellable SKU distinction. Duplicate a near
+preset, set `axis=unreal.AFLCosmeticAxis.FINISH`, the patterned `cosmetic_id`, `TeamColor` +
+`EmissiveColor` + `EdgeGlowColor`, and the commerce stamp (`ContentTier=Premium` for signatures,
+`Rarity`, and `ColorIdentityTag`=family — the tag is post-relaunch, like brand tags). The 12
+existing shipped finishes keep flat ids (`AFL.Finish.<Color>`) — NEVER renamed (Decision 3),
+grouped via `ColorIdentityTag` only. DATA only — the enums shipped in `f3ef4100`, so a new finish
+needs NO C++ build.
 
 ## STEP E — REGISTER (the 7-point checklist above)
 
