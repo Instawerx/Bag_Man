@@ -5,12 +5,14 @@
 #include "CoreMinimal.h"
 
 #include "AFLDismemberedPart.h"
+#include "AFLBodyZone.h"   // EAFLBodyZone (AFLCore) -- the limb stores its zone for the owner-retrieve RestoreZone
 
 #include "AFLDismemberedLimb.generated.h"
 
 class UStaticMesh;
 class UAFLSkinColorAsset;
 class UMaterialInstanceConstant;
+class UAFLGrabbableComponent;   // COMBAT-LOOT: the grab substrate (AFLMovement) the limb wears to be retrievable
 
 /**
  * S4 LIMB-GIB (PHASE 3, AFL-0408-FU-LIMBMESH): the detached LIMB prop (arm/leg) -- a subclass of the
@@ -33,6 +35,19 @@ class UMaterialInstanceConstant;
  * extracted in Blender by arm/leg bone weight via the blender_mcp bridge, exactly like SM_AFL_RobotHead_Gib
  * (origin-centered, watertight, one convex hull). Until they exist this class works with a placeholder mesh
  * set on the BP child / EditDefaultsOnly LimbGibMesh, mirroring the head's HeadGibMesh slot.
+ *
+ * COMBAT-LOOT (clone of AAFLHeadLootBox, B1 -- the loot behavior lives ON the limb, not a separate class):
+ * the severed limb PERSISTS (InitialLifeSpan=0, limbs-only) and is a retrievable item -- it wears a
+ * UAFLGrabbableComponent (the same grab substrate the head loot-box uses; discovery finds it, carry attaches
+ * it to hand_r) and binds OnGrabbedBy. Initialize(owner, zone, lootWatts) (called at the SeverZone spawn site)
+ * ties it to the victim + stores the zone + the loot value. Pickup branches server-side EXACTLY like the head:
+ *   - OWNER (grabber controller == owner controller) -> UAFLDismemberComponent::RestoreZone(<zone>) (reattach:
+ *     un-hide + revert the consequence GE + refill zone HP -- RestoreZone is already zone-generic) + Destroy.
+ *     NO Watts (you do not profit from your own body).
+ *   - OPPOSING -> UAFLWalletComponent::EarnWattsAuthority(LootWatts="head/8"=20, "limb-loot") on the grabber's
+ *     wallet + consume. Owner-death-vanish is inherited behavior (uncollected limb of a dead owner disappears).
+ * See Docs/IRONICS_ECONOMY_SPEC.md section 3a. The head's own grant goes live in the same increment (its
+ * enemy-collect was a P2 stub); head=160 / limb=20 are tune-at-playtest starting values.
  */
 UCLASS()
 class AFLDISMEMBER_API AAFLDismemberedLimb : public AAFLDismemberedPart
@@ -52,9 +67,25 @@ public:
 	 *  MIC behind the runtime MID). MIRRORS AAFLDismemberedHead::SetHeadMaterial. */
 	void SetPartMaterial(UMaterialInstanceConstant* InMaterial);
 
+	/** SERVER-ONLY (called at the SeverZone spawn site): tie this limb to the pawn it was severed from, store
+	 *  its body zone (for the owner-retrieve RestoreZone) + its COMBAT-LOOT value (granted to an ENEMY
+	 *  collector). Binds owner death so an uncollected limb of a dead owner vanishes. MIRRORS
+	 *  AAFLHeadLootBox::Initialize. */
+	void Initialize(APawn* InOwnerPawn, EAFLBodyZone InZone, int32 InLootWatts);
+
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	/** Bound to the grabbable's OnGrabbedBy (server-auth) -- branches owner self-retrieve (reattach via
+	 *  RestoreZone, no Watts) vs opposing collect (EarnWattsAuthority limb-loot). MIRRORS the head loot-box. */
+	UFUNCTION()
+	void OnGrabbedBy(AActor* Grabber);
+
+	/** Bound to the owner pawn's ULyraHealthComponent::OnDeathStarted -- vanish if uncollected. MIRRORS the head. */
+	UFUNCTION()
+	void OnOwnerDeathStarted(AActor* OwningActor);
 
 	/** VELOCITY pop (bVelChange=true), mirroring AAFLDismemberedHead: the limb gib is a light convex hull,
 	 *  so the base force-pop (impulse/mass) launches it off-screen. Interpret the DA impulse as a target
@@ -74,12 +105,32 @@ protected:
 	UFUNCTION()
 	void OnRep_PartMaterial();
 
+	/** The grab substrate marker + policy (discovery + carry) -- the limb IS retrievable loot. BP child sets
+	 *  GrabAbility = GA_AFL_Grab_C (same as the head loot-box BP). MIRRORS AAFLHeadLootBox::Grabbable. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAFLGrabbableComponent> Grabbable;
+
 private:
 	/** The limb gib mesh -- SM_AFL_RobotArm_Gib / SM_AFL_RobotLeg_Gib (origin-centered static mesh + convex
 	 *  collision). EditDefaultsOnly so the per-limb BP child sets the correct mesh, no code per limb. Mirrors
 	 *  the head's HeadGibMesh. Set on PartMesh in ctor when present. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UStaticMesh> LimbGibMesh;
+
+	/** COMBAT-LOOT: the pawn this limb was severed from (the owner-retrieve target + death source). Weak: the
+	 *  pawn may die. MIRRORS AAFLHeadLootBox::OwnerPawn. */
+	UPROPERTY()
+	TWeakObjectPtr<APawn> OwnerPawn;
+
+	/** COMBAT-LOOT: this limb's body zone -- the owner-retrieve calls RestoreZone(LootZone) to reattach it. */
+	EAFLBodyZone LootZone = EAFLBodyZone::None;
+
+	/** COMBAT-LOOT: Watts granted to an ENEMY collector (from the limb zone row's LootWatts = 20 = head/8).
+	 *  The owner self-retrieving reattaches and is granted nothing. */
+	int32 LootWatts = 0;
+
+	/** Set true when an enemy collects it (owner self-retrieve destroys via reattach instead). */
+	bool bCollected = false;
 
 	/** The victim's skin color, replicated so the limb reads as identity on every client + late-join.
 	 *  MIRRORS AAFLDismemberedHead::HeadSkinColor. */

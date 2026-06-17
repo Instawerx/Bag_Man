@@ -3,9 +3,15 @@
 #include "AFLDismemberedLimb.h"
 
 #include "AFLDismember.h"
+#include "AFLDismemberComponent.h"             // COMBAT-LOOT: owner self-retrieve -> RestoreZone(<zone>)
+#include "Character/LyraHealthComponent.h"     // owner-death-vanish bind (mirrors the head loot-box)
 #include "Components/StaticMeshComponent.h"
 #include "Cosmetics/AFLSkinColorAsset.h"
+#include "Cosmetics/AFLWalletComponent.h"      // COMBAT-LOOT: enemy-collect EarnWattsAuthority
 #include "Engine/StaticMesh.h"
+#include "GameFramework/Controller.h"
+#include "GameFramework/PlayerState.h"         // grabber pawn -> PlayerState -> wallet
+#include "Interaction/AFLGrabbableComponent.h" // the grab substrate the limb wears (AFLMovement)
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Net/UnrealNetwork.h"
@@ -16,10 +22,9 @@ AAFLDismemberedLimb::AAFLDismemberedLimb()
 {
 	// The limb prop IS the base PartMesh (UStaticMeshComponent) -- the base ctor already set
 	// SetSimulatePhysics(true) + PhysicsActor + bReplicates + SetReplicateMovement on it. We only set
-	// the gib mesh when one is assigned (the per-limb BP child sets LimbGibMesh; until the extracted
-	// SM_AFL_RobotArm_Gib / SM_AFL_RobotLeg_Gib data exists, a placeholder rides). No velocity-pop
-	// override (limbs keep the base force-pop) and no roll-audio default (head-specific). Mirrors the
-	// head ctor's mesh-assign, minus those two head-only bits.
+	// the gib mesh when one is assigned (the per-limb BP child sets LimbGibMesh; the BP also sets the
+	// PartMesh component-template static_mesh directly, since this ctor runs before the BP default is
+	// applied). ApplyPopImpulse is overridden (velocity, not force) below. No roll-audio default (head-specific).
 	if (UStaticMeshComponent* Body = GetPartMesh())
 	{
 		if (LimbGibMesh)
@@ -28,6 +33,14 @@ AAFLDismemberedLimb::AAFLDismemberedLimb()
 		}
 		Body->SetCollisionProfileName(TEXT("PhysicsActor"));
 	}
+
+	// COMBAT-LOOT (clone of AAFLHeadLootBox): the severed limb PERSISTS to be retrieved -- override the
+	// base 5s lifespan (limbs-only; the shared base AAFLDismemberedPart and the head keep their own).
+	InitialLifeSpan = 0.0f;
+
+	// The grab substrate marker + policy -- the limb IS retrievable loot (the existing discovery finds it
+	// and offers the grab ability; the carrier attaches it to hand_r). BP child sets GrabAbility = GA_AFL_Grab_C.
+	Grabbable = CreateDefaultSubobject<UAFLGrabbableComponent>(TEXT("Grabbable"));
 }
 
 void AAFLDismemberedLimb::ApplyPopImpulse(const FVector& Impulse)
@@ -60,6 +73,128 @@ void AAFLDismemberedLimb::BeginPlay()
 	// the replicated values before BeginPlay). Each OnRep re-runs the apply so the look completes whenever both
 	// land. MIRRORS AAFLDismemberedHead::BeginPlay (no roll audio).
 	ApplyLimbAppearance();
+
+	// COMBAT-LOOT: react to our own pickup (server broadcasts OnGrabbedBy from GrabActor). Bind on every
+	// machine; OnGrabbedBy guards on authority so only the server reattaches/grants. MIRRORS the head loot-box.
+	if (Grabbable)
+	{
+		Grabbable->OnGrabbedBy.AddDynamic(this, &AAFLDismemberedLimb::OnGrabbedBy);
+	}
+}
+
+void AAFLDismemberedLimb::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (Grabbable)
+	{
+		Grabbable->OnGrabbedBy.RemoveDynamic(this, &AAFLDismemberedLimb::OnGrabbedBy);
+	}
+
+	// Drop the owner-death binding so a destroyed limb never fires into a stale health component.
+	if (OwnerPawn.IsValid())
+	{
+		if (ULyraHealthComponent* Health = ULyraHealthComponent::FindHealthComponent(OwnerPawn.Get()))
+		{
+			Health->OnDeathStarted.RemoveDynamic(this, &AAFLDismemberedLimb::OnOwnerDeathStarted);
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
+void AAFLDismemberedLimb::Initialize(APawn* InOwnerPawn, EAFLBodyZone InZone, int32 InLootWatts)
+{
+	// Server-authority: the SeverZone spawn path calls this right after SpawnActor on the server.
+	// MIRRORS AAFLHeadLootBox::Initialize (with the limb's zone added for the owner-retrieve RestoreZone).
+	if (!HasAuthority() || !InOwnerPawn)
+	{
+		return;
+	}
+
+	OwnerPawn = InOwnerPawn;
+	LootZone  = InZone;
+	LootWatts = InLootWatts;   // COMBAT-LOOT: the enemy-collect grant value (limb zone row's LootWatts = head/8).
+
+	// "Tied to owner life": if the owner dies before this limb is collected, the limb vanishes.
+	if (ULyraHealthComponent* Health = ULyraHealthComponent::FindHealthComponent(InOwnerPawn))
+	{
+		Health->OnDeathStarted.AddDynamic(this, &AAFLDismemberedLimb::OnOwnerDeathStarted);
+	}
+}
+
+void AAFLDismemberedLimb::OnGrabbedBy(AActor* Grabber)
+{
+	// Authoritative consequence (RestoreZone / Watts grant). The grab broadcast is server-side, but guard
+	// regardless so a replicated/late bind can never double-fire on a client. MIRRORS the head loot-box.
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// Grant the loot EXACTLY ONCE per part: once an enemy has collected it, this is spent. Without this the
+	// grab substrate re-broadcasting OnGrabbedBy (drop+regrab, multi-activation, proximity re-grant) pays
+	// +LootWatts every time -- PIE-watched granting +20 ~15x for one limb. The owner self-retrieve below
+	// Destroys the limb instead of setting bCollected, so the owner path is unaffected by this guard.
+	if (bCollected)
+	{
+		return;
+	}
+
+	const APawn* GrabberPawn = Cast<APawn>(Grabber);
+	const AController* GrabberController = GrabberPawn ? GrabberPawn->GetController() : nullptr;
+	const AController* OwnerController = OwnerPawn.IsValid() ? OwnerPawn->GetController() : nullptr;
+
+	// OWNER self-retrieve (match by CONTROLLER -- the stable identity across respawn): reattach the limb and
+	// destroy this prop. RestoreZone is zone-generic (un-hide bone + revert the consequence GE + refill zone HP).
+	const bool bIsSelf = (OwnerController != nullptr) && (GrabberController == OwnerController);
+	if (bIsSelf && OwnerPawn.IsValid())
+	{
+		if (UAFLDismemberComponent* Dismember = OwnerPawn->FindComponentByClass<UAFLDismemberComponent>())
+		{
+			Dismember->RestoreZone(LootZone);
+		}
+		UE_LOG(LogAFLDismember, Display,
+			TEXT("[AFLDismember] limb loot self-retrieved by %s -> RestoreZone(zone=%d) + destroy (no Watts)"),
+			*GetNameSafe(Grabber), static_cast<int32>(LootZone));
+		Destroy();
+		return;
+	}
+
+	// OPPOSING collect: grant the limb's COMBAT-LOOT Watts (= head/8) to the grabber's wallet, then consume.
+	// Reach the wallet the proven way (AFLAG_Extract): grabber pawn -> PlayerState -> UAFLWalletComponent.
+	if (GrabberPawn)
+	{
+		APlayerState* GrabberPS = GrabberPawn->GetPlayerState();
+		if (UAFLWalletComponent* Wallet = GrabberPS ? GrabberPS->FindComponentByClass<UAFLWalletComponent>() : nullptr)
+		{
+			Wallet->EarnWattsAuthority(LootWatts, TEXT("limb-loot"));
+			UE_LOG(LogAFLDismember, Display,
+				TEXT("[AFLDismember] AFL_LIMBLOOT: +%d W -> %s (enemy limb-collect, zone=%d)"),
+				LootWatts, *GetNameSafe(Grabber), static_cast<int32>(LootZone));
+		}
+		else
+		{
+			UE_LOG(LogAFLDismember, Warning,
+				TEXT("[AFLDismember] limb loot collected by enemy %s but no wallet -- no Watts granted"),
+				*GetNameSafe(Grabber));
+		}
+	}
+	bCollected = true;
+}
+
+void AAFLDismemberedLimb::OnOwnerDeathStarted(AActor* OwningActor)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// The owner died before retrieval -> the limb is no longer claimable loot / reattachable. Uncollected -> vanish.
+	if (!bCollected)
+	{
+		UE_LOG(LogAFLDismember, Display,
+			TEXT("[AFLDismember] limb loot owner %s died uncollected -> destroy"), *GetNameSafe(OwningActor));
+		Destroy();
+	}
 }
 
 void AAFLDismemberedLimb::SetPartSkinColor(UAFLSkinColorAsset* InColor)

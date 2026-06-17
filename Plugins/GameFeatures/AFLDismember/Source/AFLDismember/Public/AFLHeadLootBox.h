@@ -45,9 +45,12 @@ public:
 	AAFLHeadLootBox();
 
 	/** Bind this loot-box to the pawn it was severed from (server-side, called right after spawn).
-	 *  Stores the owner + binds its death so the head vanishes if the owner dies uncollected. */
+	 *  Stores the owner + binds its death so the head vanishes if the owner dies uncollected.
+	 *  InLootWatts = the COMBAT-LOOT value granted to an ENEMY collector (head row's LootWatts, e.g.
+	 *  160); the owner self-retrieving reattaches and is granted nothing. Default 0 keeps any prior
+	 *  one-arg caller compiling (grants no loot until the DA value is set). */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Dismember")
-	void Initialize(APawn* InOwnerPawn);
+	void Initialize(APawn* InOwnerPawn, int32 InLootWatts = 0);
 
 	/** True once an enemy has collected this head (scoring reserved for P2). */
 	UFUNCTION(BlueprintPure, Category = "AFL|Dismember")
@@ -73,6 +76,10 @@ private:
 	/** The pawn this head was severed from (the retrieve target + death source). Weak: the pawn may die. */
 	UPROPERTY()
 	TWeakObjectPtr<APawn> OwnerPawn;
+
+	/** COMBAT-LOOT value (Watts) granted to an ENEMY collector (from the head zone row's LootWatts,
+	 *  set at Initialize). The owner self-retrieving reattaches and is granted nothing. */
+	int32 LootWatts = 0;
 
 	/** Set true when an enemy grabs it (self-retrieve destroys instead). */
 	bool bCollected = false;

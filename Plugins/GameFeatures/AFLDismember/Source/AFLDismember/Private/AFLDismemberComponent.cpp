@@ -172,15 +172,18 @@ void UAFLDismemberComponent::OnOverkill(FGameplayTag Channel, const FAFLOverkill
 		return;
 	}
 
-	if (ZoneSet.IsNull())
-	{
-		UE_LOG(LogAFLDismember, Warning,
-			TEXT("[AFLDismember] %s overkilled (bone=%s) but no ZoneSet assigned -- no dismemberment"),
-			*GetNameSafe(GetOwner()), *Payload.BoneName.ToString());
-		return;
-	}
-
-	ResolveAndSever(Payload.BoneName);
+	// SUPERSEDED (LIMB-GIB GO-LIVE): OnSever now owns EVERY zone sever -- the zone-HP absorber broadcasts
+	// Event.Dismember.Sever.AFL for every zone crossing <=0 (head AND limbs), so the sever already fired via
+	// OnSever before this overkill arrives. Calling ResolveAndSever here too was a DOUBLE-SEVER: a hit with
+	// enough EXCESS damage to deplete a limb zone AND overflow-kill the victim fired BOTH OnSever (the zone
+	// sever) and OnOverkill (this) -> TWO limb props for one hit (watched: TestSeverSelf upperarm_l at 200 dmg
+	// -> zoneHP=36 + overflow=164 kill -> two BP_AFL_DismemberedArm spawned). My earlier "the absorber consumes
+	// the hit before it can overkill" assumption was WRONG for excess damage that overflows to health. The zone
+	// sever belongs to OnSever exclusively; this overkill hook no longer severs. Retained (registered) as a
+	// no-op hook in case a future death-only consequence (with no zone depletion) needs it.
+	UE_LOG(LogAFLDismember, Verbose,
+		TEXT("[AFLDismember] %s overkilled (bone=%s) -- zone sever owned by OnSever; OnOverkill no-op (no double-sever)"),
+		*GetNameSafe(GetOwner()), *Payload.BoneName.ToString());
 }
 
 void UAFLDismemberComponent::OnSever(FGameplayTag Channel, const FAFLDismemberSeverMessage& Payload)
@@ -269,7 +272,7 @@ void UAFLDismemberComponent::ResolveAndSever(FName HitBone, bool bIsHeadSever)
 		if (bIsHeadSever)
 		{
 			Self->ApplyDecapitatedEffect();
-			Self->SpawnHeadLootBox();
+			Self->SpawnHeadLootBox(Row->LootWatts);   // COMBAT-LOOT: pass the head zone's enemy-collect value.
 		}
 	}));
 }
@@ -511,9 +514,12 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
 		TWeakObjectPtr<UAFLDismemberComponent> WeakThis(this);
 		const FVector2D ImpulseXY = Row.ImpulseXYRange;
 		const float ImpulseZ = Row.ImpulseZ;
+		// COMBAT-LOOT: the limb prop's zone (for owner-retrieve RestoreZone) + its loot value (enemy grant).
+		const EAFLBodyZone LootZone = Row.Zone;
+		const int32 LootWatts = Row.LootWatts;
 
 		Streamable.RequestAsyncLoad(PropPath, FStreamableDelegate::CreateLambda(
-			[WeakThis, PropPath, SeverXform, ImpulseXY, ImpulseZ]()
+			[WeakThis, PropPath, SeverXform, ImpulseXY, ImpulseZ, LootZone, LootWatts]()
 		{
 			UAFLDismemberComponent* Self = WeakThis.Get();
 			if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority() || !Self->GetWorld())
@@ -549,6 +555,11 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
 				// via the limb's OnReps. A base-class placeholder prop (no AAFLDismemberedLimb) just skips this.
 				if (AAFLDismemberedLimb* Limb = Cast<AAFLDismemberedLimb>(Part))
 				{
+					// COMBAT-LOOT: tie the limb to its owner + zone + loot value (owner-retrieve = reattach via
+					// RestoreZone(LootZone), no Watts; enemy collect = EarnWattsAuthority(LootWatts)). MIRRORS the
+					// head loot-box's Initialize at its spawn site.
+					Limb->Initialize(Cast<APawn>(Self->GetOwner()), LootZone, LootWatts);
+
 					if (const UAFLSkinColorComponent* SCC =
 							Self->GetOwner()->FindComponentByClass<UAFLSkinColorComponent>())
 					{
@@ -774,7 +785,7 @@ void UAFLDismemberComponent::ApplyDecapitatedEffect()
 	}));
 }
 
-void UAFLDismemberComponent::SpawnHeadLootBox()
+void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner || !Owner->HasAuthority() || !GetWorld() || HeadLootBoxClass.IsNull())
@@ -800,7 +811,7 @@ void UAFLDismemberComponent::SpawnHeadLootBox()
 	FStreamableManager& Streamable = UAssetManager::GetStreamableManager();
 	const FSoftObjectPath LootPath = HeadLootBoxClass.ToSoftObjectPath();
 	TWeakObjectPtr<UAFLDismemberComponent> WeakThis(this);
-	Streamable.RequestAsyncLoad(LootPath, FStreamableDelegate::CreateLambda([WeakThis, LootPath, SpawnXform]()
+	Streamable.RequestAsyncLoad(LootPath, FStreamableDelegate::CreateLambda([WeakThis, LootPath, SpawnXform, HeadLootWatts]()
 	{
 		UAFLDismemberComponent* Self = WeakThis.Get();
 		if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority() || !Self->GetWorld())
@@ -822,8 +833,9 @@ void UAFLDismemberComponent::SpawnHeadLootBox()
 			Self->GetWorld()->SpawnActor<AAFLHeadLootBox>(LootClass, SpawnXform, SpawnParams);
 		if (Loot)
 		{
-			// Tie it to the pawn it came from: self-retrieve reattaches, owner-death vanishes it.
-			Loot->Initialize(Cast<APawn>(Self->GetOwner()));
+			// Tie it to the pawn it came from: self-retrieve reattaches, owner-death vanishes it. COMBAT-LOOT:
+			// pass the head zone's LootWatts (the enemy-collect grant value).
+			Loot->Initialize(Cast<APawn>(Self->GetOwner()), HeadLootWatts);
 
 			// IDENTITY: hand the victim's replicated skin color to the head so it reads as WHOSE head it
 			// is (pink robot -> pink head). Server-set -> replicates to all clients via the head's OnRep.

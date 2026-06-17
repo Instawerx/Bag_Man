@@ -166,6 +166,32 @@ namespace
 		SeverBoneOnLocalPawn(World, FName(TEXT("head")), Damage);
 	}
 
+	// AFL.Dismember.TestSeverSelf <bone> [damage=200] -- sever ANY bone on the LOCAL PLAYER pawn (the generic
+	// limb sibling of TestDecapSelf). This makes the COMBAT-LOOT OWNER-retrieve branch SOLO-watchable: the
+	// severed part is owned by YOU, so grabbing it reattaches it (RestoreZone) with NO Watts. (Contrast
+	// AFL.Dismember.TestSever, which severs on the DUMMY -> the part is owned by the dummy, so a player
+	// grabbing it is an ENEMY collect = +LootWatts. Use TestSever for the grant branch, TestSeverSelf for the
+	// reattach branch.)
+	void HandleAFLDismemberTestSeverSelf(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogAFLDismember, Warning,
+				TEXT("AFL.Dismember.TestSeverSelf: usage: AFL.Dismember.TestSeverSelf <BoneName> [damage=25] (e.g. upperarm_l, thigh_l)"));
+			return;
+		}
+		const FName Bone(*Args[0]);
+		// NON-LETHAL default: limb zones are ~36 HP (arm) / ~18 HP (leg) and the limb absorber OVERFLOWS the
+		// remainder to health, so the dummy's 200 default would deplete the zone (sever) + dump ~164 into the
+		// LOCAL player's health = SELF-KILL (watched: zoneHP=36 overflow=164 -> Overkill -> StartDeath -> respawn
+		// -> stale-owner arms -> drag). 50 reliably severs the highest limb zone (36) with <=32 overflow
+		// (non-lethal on ~100 health), keeping the player ALIVE so the SURVIVABLE owner self-retrieve (walk to
+		// your own limb -> grab -> RestoreZone reattach) works as designed. (The head path absorbs the whole hit
+		// -> no overflow -> TestDecapSelf keeps its 60 default.)
+		const float Damage = Args.Num() > 1 ? FCString::Atof(*Args[1]) : 50.0f;
+		SeverBoneOnLocalPawn(World, Bone, Damage);
+	}
+
 	// S4-INC1: generic zone sever -- bone arg picks the zone via the data table.
 	// Usage: AFL.Dismember.TestSever thigh_l [damage]   (thigh_l/thigh_r/calf_*/head/...)
 	void HandleAFLDismemberTestSever(const TArray<FString>& Args)
@@ -300,6 +326,11 @@ namespace
 		TEXT("AFL.Dismember.TestDecapSelf"),
 		TEXT("S4-INC3 B-2: decapitate the LOCAL PLAYER pawn -> head pops (HeadHealth drains), Health bar UNCHANGED, decap camera pushes, head loot-box spawns for self-retrieve. Usage: AFL.Dismember.TestDecapSelf [damage=60]"),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLDismemberTestDecapSelf));
+
+	FAutoConsoleCommand GAFLDismemberTestSeverSelfCmd(
+		TEXT("AFL.Dismember.TestSeverSelf"),
+		TEXT("COMBAT-LOOT owner-branch watch: sever ANY bone on the LOCAL PLAYER pawn (generic sibling of TestDecapSelf). The severed part is owned by YOU -> grab it to reattach (RestoreZone, NO Watts). Usage: AFL.Dismember.TestSeverSelf <BoneName> [damage=200] (e.g. upperarm_l, thigh_l)"),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLDismemberTestSeverSelf));
 
 	// World-args variant: TestLegTag toggles the leg-dismember tag on the LOCAL pawn so the
 	// leg-speed penalty is watchable on the moving hero (the tag->penalty half, isolated).

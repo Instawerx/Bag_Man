@@ -159,8 +159,9 @@ private:
 	/** Grant the State.Decapitated consequence GE (DecapitatedEffect, async-loaded) to the owner ASC. */
 	void ApplyDecapitatedEffect();
 
-	/** A head-sever spawns + Initializes the loot-box once the loot-box class resolves. Server-only. */
-	void SpawnHeadLootBox();
+	/** A head-sever spawns + Initializes the loot-box once the loot-box class resolves. Server-only.
+	 *  HeadLootWatts = the head zone row's LootWatts (the COMBAT-LOOT value an ENEMY collector is granted). */
+	void SpawnHeadLootBox(int32 HeadLootWatts);
 
 	FGameplayMessageListenerHandle ListenerHandle;        // Event.Damage.Overkill.AFL (limbs)
 	FGameplayMessageListenerHandle SeverListenerHandle;   // Event.Dismember.Sever.AFL (head, B-2)

@@ -64,6 +64,14 @@ struct AFLDISMEMBER_API FAFLDismemberZone
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Dismember")
 	float ImpulseZ = 500.0f;
 
+	/** COMBAT-LOOT earn value (Watts) granted to an OPPOSING player who retrieves this zone's severed
+	 *  part (head loot-box / limb gib) -- via UAFLWalletComponent::EarnWattsAuthority. The OWNER
+	 *  self-retrieving REATTACHES (RestoreZone) and is granted NOTHING. Head row = 160, each limb row
+	 *  = 20 (= head/8, flat); Torso/None = 0 (no loot). The DA carries the whole combat-loot economy;
+	 *  head/8 is visible in the data. See Docs/IRONICS_ECONOMY_SPEC.md section 3a (tune-at-playtest). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Dismember")
+	int32 LootWatts = 0;
+
 	/** Cosmetic cue bundle fired at detach (GameplayCue.Combat.Dismember.<Zone>). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Dismember")
 	FGameplayTag CueTag;
