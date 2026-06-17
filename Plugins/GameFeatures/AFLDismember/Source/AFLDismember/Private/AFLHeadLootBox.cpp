@@ -6,11 +6,9 @@
 #include "AFLDismemberComponent.h"
 #include "AFLBodyZone.h"
 #include "Character/LyraHealthComponent.h"
-#include "Cosmetics/AFLWalletComponent.h"   // COMBAT-LOOT: enemy-collect Watts grant (EarnWattsAuthority)
-#include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
-#include "GameFramework/PlayerState.h"      // grabber pawn -> PlayerState -> wallet
 #include "Interaction/AFLGrabbableComponent.h"
+#include "Loot/AFLLootGrantComponent.h"     // COMBAT-LOOT now flows through the shared grant component (Phase 1)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLHeadLootBox)
 
@@ -24,6 +22,10 @@ AAFLHeadLootBox::AAFLHeadLootBox()
 	// discovery (line-trace + proximity) finds it and offers the grab ability; the carrier attaches it
 	// to hand_r. The BP child sets GrabAbility = GA_AFL_Grab_C (and may tune the policy: a head is light).
 	Grabbable = CreateDefaultSubobject<UAFLGrabbableComponent>(TEXT("Grabbable"));
+
+	// The generalized loot grant (Loot Phase 1) -- eligibility + grant-once + the Watts grant, shared with
+	// limbs/caches. Configured at Initialize; OnGrabbedBy routes retrieval to it.
+	LootGrant = CreateDefaultSubobject<UAFLLootGrantComponent>(TEXT("LootGrant"));
 }
 
 void AAFLHeadLootBox::BeginPlay()
@@ -35,6 +37,13 @@ void AAFLHeadLootBox::BeginPlay()
 	if (Grabbable)
 	{
 		Grabbable->OnGrabbedBy.AddDynamic(this, &AAFLHeadLootBox::OnGrabbedBy);
+	}
+
+	// Owner-branch seam: the grant component fires OnOwnerRetrieved when the OWNER retrieves -> reattach +
+	// destroy (the component never references RestoreZone -- the dependency-inversion seam).
+	if (LootGrant)
+	{
+		LootGrant->OnOwnerRetrieved.AddDynamic(this, &AAFLHeadLootBox::HandleOwnerRetrieved);
 	}
 }
 
@@ -66,7 +75,14 @@ void AAFLHeadLootBox::Initialize(APawn* InOwnerPawn, int32 InLootWatts)
 	}
 
 	OwnerPawn = InOwnerPawn;
-	LootWatts = InLootWatts;   // COMBAT-LOOT: the enemy-collect grant value (head zone row's LootWatts).
+
+	// COMBAT-LOOT via the shared grant component (Loot Phase 1): the head grants InLootWatts to an ENEMY
+	// collector; the OWNER (controller match) reattaches instead (HandleOwnerRetrieved), granted nothing.
+	if (LootGrant)
+	{
+		LootGrant->Configure(EAFLLootValueModel::Watts, InLootWatts, EAFLLootEligibility::EnemyOnly,
+			InOwnerPawn, TEXT("head-loot"));
+	}
 
 	// "Tied to owner life": if the owner dies before this head is collected, the head vanishes.
 	if (ULyraHealthComponent* Health = ULyraHealthComponent::FindHealthComponent(InOwnerPawn))
@@ -77,65 +93,33 @@ void AAFLHeadLootBox::Initialize(APawn* InOwnerPawn, int32 InLootWatts)
 
 void AAFLHeadLootBox::OnGrabbedBy(AActor* Grabber)
 {
-	// Authoritative consequence (RestoreZone / collect). The grab broadcast is server-side, but guard
-	// regardless so a replicated/late bind can never double-fire the reattach on a client.
-	if (!HasAuthority())
+	// Route retrieval to the shared grant component (Loot Phase 1): it runs the SAME decision flow this method
+	// used inline (committed 9ac3e0ae) -- server-auth + grant-once + owner-seam (-> HandleOwnerRetrieved) +
+	// eligibility (EnemyOnly) + the Watts grant. No behavior change; the logic is now generalized.
+	if (LootGrant)
 	{
-		return;
+		LootGrant->TryGrant(Grabber);
 	}
+}
 
-	// Grant the loot EXACTLY ONCE per head: once an enemy has collected it, this is spent (mirrors the
-	// limb fix). Without this a re-grab / drop+regrab pays +LootWatts again. Owner self-retrieve below
-	// Destroys instead of setting bCollected, so the reattach path is unaffected.
-	if (bCollected)
+void AAFLHeadLootBox::HandleOwnerRetrieved(AActor* Retriever)
+{
+	// The decapitated OWNER picked up their own head -> reattach (un-hide + clear State.Decapitated -> camera
+	// auto-pops + restore head-HP) and destroy this loot-box. Fired by the grant component's owner-seam on
+	// authority; the component itself never references RestoreZone (the dependency-inversion that keeps it generic).
+	if (UAFLDismemberComponent* Dismember = OwnerPawn.IsValid() ? OwnerPawn->FindComponentByClass<UAFLDismemberComponent>() : nullptr)
 	{
-		return;
+		Dismember->RestoreZone(EAFLBodyZone::Head);
 	}
+	UE_LOG(LogAFLDismember, Display,
+		TEXT("[AFLDismember] head loot-box self-retrieved by %s -> RestoreZone(Head) + destroy"),
+		*GetNameSafe(Retriever));
+	Destroy();
+}
 
-	const APawn* GrabberPawn = Cast<APawn>(Grabber);
-	const AController* GrabberController = GrabberPawn ? GrabberPawn->GetController() : nullptr;
-	const AController* OwnerController = OwnerPawn.IsValid() ? OwnerPawn->GetController() : nullptr;
-
-	// SELF-retrieve: the decapitated owner picked up their own head -> reattach. Match by CONTROLLER
-	// (the stable player identity) rather than the pawn pointer, so a respawned/replaced pawn still
-	// counts as self; decap is survivable so normally GrabberPawn == OwnerPawn anyway.
-	const bool bIsSelf = (OwnerController != nullptr) && (GrabberController == OwnerController);
-
-	if (bIsSelf && OwnerPawn.IsValid())
-	{
-		if (UAFLDismemberComponent* Dismember = OwnerPawn->FindComponentByClass<UAFLDismemberComponent>())
-		{
-			Dismember->RestoreZone(EAFLBodyZone::Head);
-		}
-		UE_LOG(LogAFLDismember, Display,
-			TEXT("[AFLDismember] head loot-box self-retrieved by %s -> RestoreZone(Head) + destroy"),
-			*GetNameSafe(Grabber));
-		Destroy();
-		return;
-	}
-
-	// ENEMY collect: grant the head's COMBAT-LOOT Watts to the grabber's wallet (IRONICS_ECONOMY_SPEC.md
-	// section 3a -- this CLOSES the former P2 "scoring reserved" stub). The owner self-retrieve above is
-	// granted nothing. Reach the wallet the proven way (AFLAG_Extract): grabber pawn -> PlayerState ->
-	// UAFLWalletComponent -> EarnWattsAuthority (the server-auth CommitMutation funnel; reason names the
-	// diag line). The enemy is now holding the head; release drops it as a physics prop (carry flow owns it).
-	if (GrabberPawn)
-	{
-		APlayerState* GrabberPS = GrabberPawn->GetPlayerState();
-		if (UAFLWalletComponent* Wallet = GrabberPS ? GrabberPS->FindComponentByClass<UAFLWalletComponent>() : nullptr)
-		{
-			Wallet->EarnWattsAuthority(LootWatts, TEXT("head-loot"));
-			UE_LOG(LogAFLDismember, Display,
-				TEXT("[AFLDismember] AFL_HEADLOOT: +%d W -> %s (enemy head-collect)"), LootWatts, *GetNameSafe(Grabber));
-		}
-		else
-		{
-			UE_LOG(LogAFLDismember, Warning,
-				TEXT("[AFLDismember] head loot-box collected by enemy %s but no wallet -- no Watts granted"),
-				*GetNameSafe(Grabber));
-		}
-	}
-	bCollected = true;
+bool AAFLHeadLootBox::IsCollected() const
+{
+	return LootGrant && LootGrant->IsSpent();
 }
 
 void AAFLHeadLootBox::OnOwnerDeathStarted(AActor* OwningActor)
@@ -145,9 +129,9 @@ void AAFLHeadLootBox::OnOwnerDeathStarted(AActor* OwningActor)
 		return;
 	}
 
-	// The owner died before retrieval -> the head is no longer claimable loot. If an enemy already
-	// collected it (bCollected) it would have a different lifetime path; uncollected -> vanish.
-	if (!bCollected)
+	// The owner died before retrieval -> the head is no longer claimable loot. Uncollected = the grant
+	// component has not spent (no enemy collected); -> vanish.
+	if (!LootGrant || !LootGrant->IsSpent())
 	{
 		UE_LOG(LogAFLDismember, Display,
 			TEXT("[AFLDismember] head loot-box owner %s died uncollected -> destroy"), *GetNameSafe(OwningActor));

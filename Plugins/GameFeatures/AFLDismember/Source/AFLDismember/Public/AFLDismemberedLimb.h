@@ -6,6 +6,7 @@
 
 #include "AFLDismemberedPart.h"
 #include "AFLBodyZone.h"   // EAFLBodyZone (AFLCore) -- the limb stores its zone for the owner-retrieve RestoreZone
+#include "Loot/AFLLootable.h"   // IAFLLootable contract (AFLCombat)
 
 #include "AFLDismemberedLimb.generated.h"
 
@@ -13,6 +14,7 @@ class UStaticMesh;
 class UAFLSkinColorAsset;
 class UMaterialInstanceConstant;
 class UAFLGrabbableComponent;   // COMBAT-LOOT: the grab substrate (AFLMovement) the limb wears to be retrievable
+class UAFLLootGrantComponent;   // the shared loot grant (AFLCombat, Loot Phase 1)
 
 /**
  * S4 LIMB-GIB (PHASE 3, AFL-0408-FU-LIMBMESH): the detached LIMB prop (arm/leg) -- a subclass of the
@@ -50,7 +52,7 @@ class UAFLGrabbableComponent;   // COMBAT-LOOT: the grab substrate (AFLMovement)
  * enemy-collect was a P2 stub); head=160 / limb=20 are tune-at-playtest starting values.
  */
 UCLASS()
-class AFLDISMEMBER_API AAFLDismemberedLimb : public AAFLDismemberedPart
+class AFLDISMEMBER_API AAFLDismemberedLimb : public AAFLDismemberedPart, public IAFLLootable
 {
 	GENERATED_BODY()
 
@@ -73,6 +75,9 @@ public:
 	 *  AAFLHeadLootBox::Initialize. */
 	void Initialize(APawn* InOwnerPawn, EAFLBodyZone InZone, int32 InLootWatts);
 
+	//~ IAFLLootable -- expose the grant component polymorphically (Phase-3 director/queries; no reparenting).
+	virtual UAFLLootGrantComponent* GetLootGrantComponent() const override { return LootGrant; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -86,6 +91,11 @@ protected:
 	/** Bound to the owner pawn's ULyraHealthComponent::OnDeathStarted -- vanish if uncollected. MIRRORS the head. */
 	UFUNCTION()
 	void OnOwnerDeathStarted(AActor* OwningActor);
+
+	/** Bound to LootGrant->OnOwnerRetrieved -- the owner-branch action: reattach via RestoreZone(LootZone) +
+	 *  destroy. The grant component never references RestoreZone (the dependency-inversion seam). */
+	UFUNCTION()
+	void HandleOwnerRetrieved(AActor* Retriever);
 
 	/** VELOCITY pop (bVelChange=true), mirroring AAFLDismemberedHead: the limb gib is a light convex hull,
 	 *  so the base force-pop (impulse/mass) launches it off-screen. Interpret the DA impulse as a target
@@ -110,6 +120,11 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAFLGrabbableComponent> Grabbable;
 
+	/** The generalized loot grant (eligibility + grant-once + Watts), shared with the head/caches (Loot Phase 1).
+	 *  Configured at Initialize; OnGrabbedBy routes to it. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAFLLootGrantComponent> LootGrant;
+
 private:
 	/** The limb gib mesh -- SM_AFL_RobotArm_Gib / SM_AFL_RobotLeg_Gib (origin-centered static mesh + convex
 	 *  collision). EditDefaultsOnly so the per-limb BP child sets the correct mesh, no code per limb. Mirrors
@@ -124,13 +139,6 @@ private:
 
 	/** COMBAT-LOOT: this limb's body zone -- the owner-retrieve calls RestoreZone(LootZone) to reattach it. */
 	EAFLBodyZone LootZone = EAFLBodyZone::None;
-
-	/** COMBAT-LOOT: Watts granted to an ENEMY collector (from the limb zone row's LootWatts = 20 = head/8).
-	 *  The owner self-retrieving reattaches and is granted nothing. */
-	int32 LootWatts = 0;
-
-	/** Set true when an enemy collects it (owner self-retrieve destroys via reattach instead). */
-	bool bCollected = false;
 
 	/** The victim's skin color, replicated so the limb reads as identity on every client + late-join.
 	 *  MIRRORS AAFLDismemberedHead::HeadSkinColor. */

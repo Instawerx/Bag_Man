@@ -7,11 +7,10 @@
 #include "Character/LyraHealthComponent.h"     // owner-death-vanish bind (mirrors the head loot-box)
 #include "Components/StaticMeshComponent.h"
 #include "Cosmetics/AFLSkinColorAsset.h"
-#include "Cosmetics/AFLWalletComponent.h"      // COMBAT-LOOT: enemy-collect EarnWattsAuthority
 #include "Engine/StaticMesh.h"
-#include "GameFramework/Controller.h"
-#include "GameFramework/PlayerState.h"         // grabber pawn -> PlayerState -> wallet
+#include "GameFramework/Pawn.h"                // APawn (OwnerPawn) -- the wallet/controller reach now lives in the grant component
 #include "Interaction/AFLGrabbableComponent.h" // the grab substrate the limb wears (AFLMovement)
+#include "Loot/AFLLootGrantComponent.h"        // COMBAT-LOOT now flows through the shared grant component (Phase 1)
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Net/UnrealNetwork.h"
@@ -41,6 +40,9 @@ AAFLDismemberedLimb::AAFLDismemberedLimb()
 	// The grab substrate marker + policy -- the limb IS retrievable loot (the existing discovery finds it
 	// and offers the grab ability; the carrier attaches it to hand_r). BP child sets GrabAbility = GA_AFL_Grab_C.
 	Grabbable = CreateDefaultSubobject<UAFLGrabbableComponent>(TEXT("Grabbable"));
+
+	// The generalized loot grant (Loot Phase 1) -- shared with the head/caches. Configured at Initialize.
+	LootGrant = CreateDefaultSubobject<UAFLLootGrantComponent>(TEXT("LootGrant"));
 }
 
 void AAFLDismemberedLimb::ApplyPopImpulse(const FVector& Impulse)
@@ -80,6 +82,13 @@ void AAFLDismemberedLimb::BeginPlay()
 	{
 		Grabbable->OnGrabbedBy.AddDynamic(this, &AAFLDismemberedLimb::OnGrabbedBy);
 	}
+
+	// Owner-branch seam: the grant component fires OnOwnerRetrieved when the OWNER retrieves -> reattach +
+	// destroy (the component never references RestoreZone -- the dependency-inversion seam).
+	if (LootGrant)
+	{
+		LootGrant->OnOwnerRetrieved.AddDynamic(this, &AAFLDismemberedLimb::HandleOwnerRetrieved);
+	}
 }
 
 void AAFLDismemberedLimb::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -112,7 +121,14 @@ void AAFLDismemberedLimb::Initialize(APawn* InOwnerPawn, EAFLBodyZone InZone, in
 
 	OwnerPawn = InOwnerPawn;
 	LootZone  = InZone;
-	LootWatts = InLootWatts;   // COMBAT-LOOT: the enemy-collect grant value (limb zone row's LootWatts = head/8).
+
+	// COMBAT-LOOT via the shared grant component (Loot Phase 1): grant InLootWatts (= head/8) to an ENEMY
+	// collector; the OWNER (controller match) reattaches instead (HandleOwnerRetrieved -> RestoreZone(LootZone)).
+	if (LootGrant)
+	{
+		LootGrant->Configure(EAFLLootValueModel::Watts, InLootWatts, EAFLLootEligibility::EnemyOnly,
+			InOwnerPawn, TEXT("limb-loot"));
+	}
 
 	// "Tied to owner life": if the owner dies before this limb is collected, the limb vanishes.
 	if (ULyraHealthComponent* Health = ULyraHealthComponent::FindHealthComponent(InOwnerPawn))
@@ -123,62 +139,28 @@ void AAFLDismemberedLimb::Initialize(APawn* InOwnerPawn, EAFLBodyZone InZone, in
 
 void AAFLDismemberedLimb::OnGrabbedBy(AActor* Grabber)
 {
-	// Authoritative consequence (RestoreZone / Watts grant). The grab broadcast is server-side, but guard
-	// regardless so a replicated/late bind can never double-fire on a client. MIRRORS the head loot-box.
-	if (!HasAuthority())
+	// Route retrieval to the shared grant component (Loot Phase 1): it runs the SAME decision flow this method
+	// used inline (committed 9ac3e0ae) -- server-auth + grant-once + owner-seam (-> HandleOwnerRetrieved) +
+	// eligibility (EnemyOnly) + the Watts grant. No behavior change; the logic is now generalized.
+	if (LootGrant)
 	{
-		return;
+		LootGrant->TryGrant(Grabber);
 	}
+}
 
-	// Grant the loot EXACTLY ONCE per part: once an enemy has collected it, this is spent. Without this the
-	// grab substrate re-broadcasting OnGrabbedBy (drop+regrab, multi-activation, proximity re-grant) pays
-	// +LootWatts every time -- PIE-watched granting +20 ~15x for one limb. The owner self-retrieve below
-	// Destroys the limb instead of setting bCollected, so the owner path is unaffected by this guard.
-	if (bCollected)
+void AAFLDismemberedLimb::HandleOwnerRetrieved(AActor* Retriever)
+{
+	// The OWNER picked up their own limb -> reattach (RestoreZone is zone-generic: un-hide bone + revert the
+	// consequence GE + refill zone HP) and destroy this prop. Fired by the grant component's owner-seam on
+	// authority; the component itself never references RestoreZone (the dependency-inversion that keeps it generic).
+	if (UAFLDismemberComponent* Dismember = OwnerPawn.IsValid() ? OwnerPawn->FindComponentByClass<UAFLDismemberComponent>() : nullptr)
 	{
-		return;
+		Dismember->RestoreZone(LootZone);
 	}
-
-	const APawn* GrabberPawn = Cast<APawn>(Grabber);
-	const AController* GrabberController = GrabberPawn ? GrabberPawn->GetController() : nullptr;
-	const AController* OwnerController = OwnerPawn.IsValid() ? OwnerPawn->GetController() : nullptr;
-
-	// OWNER self-retrieve (match by CONTROLLER -- the stable identity across respawn): reattach the limb and
-	// destroy this prop. RestoreZone is zone-generic (un-hide bone + revert the consequence GE + refill zone HP).
-	const bool bIsSelf = (OwnerController != nullptr) && (GrabberController == OwnerController);
-	if (bIsSelf && OwnerPawn.IsValid())
-	{
-		if (UAFLDismemberComponent* Dismember = OwnerPawn->FindComponentByClass<UAFLDismemberComponent>())
-		{
-			Dismember->RestoreZone(LootZone);
-		}
-		UE_LOG(LogAFLDismember, Display,
-			TEXT("[AFLDismember] limb loot self-retrieved by %s -> RestoreZone(zone=%d) + destroy (no Watts)"),
-			*GetNameSafe(Grabber), static_cast<int32>(LootZone));
-		Destroy();
-		return;
-	}
-
-	// OPPOSING collect: grant the limb's COMBAT-LOOT Watts (= head/8) to the grabber's wallet, then consume.
-	// Reach the wallet the proven way (AFLAG_Extract): grabber pawn -> PlayerState -> UAFLWalletComponent.
-	if (GrabberPawn)
-	{
-		APlayerState* GrabberPS = GrabberPawn->GetPlayerState();
-		if (UAFLWalletComponent* Wallet = GrabberPS ? GrabberPS->FindComponentByClass<UAFLWalletComponent>() : nullptr)
-		{
-			Wallet->EarnWattsAuthority(LootWatts, TEXT("limb-loot"));
-			UE_LOG(LogAFLDismember, Display,
-				TEXT("[AFLDismember] AFL_LIMBLOOT: +%d W -> %s (enemy limb-collect, zone=%d)"),
-				LootWatts, *GetNameSafe(Grabber), static_cast<int32>(LootZone));
-		}
-		else
-		{
-			UE_LOG(LogAFLDismember, Warning,
-				TEXT("[AFLDismember] limb loot collected by enemy %s but no wallet -- no Watts granted"),
-				*GetNameSafe(Grabber));
-		}
-	}
-	bCollected = true;
+	UE_LOG(LogAFLDismember, Display,
+		TEXT("[AFLDismember] limb loot self-retrieved by %s -> RestoreZone(zone=%d) + destroy (no Watts)"),
+		*GetNameSafe(Retriever), static_cast<int32>(LootZone));
+	Destroy();
 }
 
 void AAFLDismemberedLimb::OnOwnerDeathStarted(AActor* OwningActor)
@@ -188,8 +170,9 @@ void AAFLDismemberedLimb::OnOwnerDeathStarted(AActor* OwningActor)
 		return;
 	}
 
-	// The owner died before retrieval -> the limb is no longer claimable loot / reattachable. Uncollected -> vanish.
-	if (!bCollected)
+	// The owner died before retrieval -> the limb is no longer claimable loot / reattachable. Uncollected =
+	// the grant component has not spent (no enemy collected); -> vanish.
+	if (!LootGrant || !LootGrant->IsSpent())
 	{
 		UE_LOG(LogAFLDismember, Display,
 			TEXT("[AFLDismember] limb loot owner %s died uncollected -> destroy"), *GetNameSafe(OwningActor));
