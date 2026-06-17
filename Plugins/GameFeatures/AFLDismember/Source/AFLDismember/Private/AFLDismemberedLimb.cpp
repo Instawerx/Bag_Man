@@ -30,6 +30,19 @@ AAFLDismemberedLimb::AAFLDismemberedLimb()
 	}
 }
 
+void AAFLDismemberedLimb::ApplyPopImpulse(const FVector& Impulse)
+{
+	// TUMBLE FIX (velocity, not force) -- IDENTICAL to AAFLDismemberedHead::ApplyPopImpulse. bVelChange=TRUE
+	// makes the vector a TARGET VELOCITY (mass/scale-independent) rather than a force the base divides by the
+	// gib's (small) mass. Watched in PIE: the base force-pop launched the light limb gib off-screen with no
+	// visible tumble; this gives the same gentle pop+tumble the head gib gets. Pops the gib PartMesh (the gib
+	// IS the physics body), not a cosmetic child.
+	if (UStaticMeshComponent* Body = GetPartMesh())
+	{
+		Body->AddImpulse(Impulse, NAME_None, /*bVelChange=*/true);
+	}
+}
+
 void AAFLDismemberedLimb::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);

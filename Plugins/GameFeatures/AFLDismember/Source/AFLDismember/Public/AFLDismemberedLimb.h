@@ -21,11 +21,13 @@ class UMaterialInstanceConstant;
  * as that specific robot. The body IS the base PartMesh (UStaticMeshComponent) -> simulates + rolls +
  * replicates + grabs on the SAME path the head + every limb prop uses.
  *
- * DIVERGENCE FROM THE HEAD (justified): the limb KEEPS the base force-pop (ApplyPopImpulse NOT overridden).
- * The head overrode to a VELOCITY pop (bVelChange=true) because a real-head-sized body is light and the
- * base force-pop launched it off-screen; a limb is comparable-or-larger mass and the base force-pop is
- * already tuned for it (the base header documents "Limbs keep the base force-pop"). No roll-audio default
- * (the head's Head_Roll_* is head-specific; a limb-impact sound is a future polish task, not this C++).
+ * POP (matches the head -- VELOCITY, not force): ApplyPopImpulse is overridden to bVelChange=true, exactly
+ * like AAFLDismemberedHead. The earlier assumption that "a limb is comparable-or-larger mass so the base
+ * force-pop is fine" was WRONG once watched in PIE -- the extracted limb gibs are small light convex hulls
+ * (arm ~38x38x62cm), so the base force-pop (impulse / mass) launched them off-screen instantly with no
+ * visible tumble. Treating the same DA impulse vector (ImpulseZ=500, XY +-100) as a TARGET VELOCITY
+ * (mass-independent) gives the gentle pop+tumble the head already gets. No roll-audio default (the head's
+ * Head_Roll_* is head-specific; a limb-impact sound is a future polish task, not this C++).
  *
  * The actual limb GIB MESHES (SM_AFL_RobotArm_Gib / SM_AFL_RobotLeg_Gib) are a separate DATA task --
  * extracted in Blender by arm/leg bone weight via the blender_mcp bridge, exactly like SM_AFL_RobotHead_Gib
@@ -53,6 +55,11 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	/** VELOCITY pop (bVelChange=true), mirroring AAFLDismemberedHead: the limb gib is a light convex hull,
+	 *  so the base force-pop (impulse/mass) launches it off-screen. Interpret the DA impulse as a target
+	 *  velocity instead -> visible pop + tumble. */
+	virtual void ApplyPopImpulse(const FVector& Impulse) override;
 
 	/** Apply the victim appearance to the gib (runs on every client): assign PartMaterial (the MIC) to every
 	 *  slot, then drive the color params on TOP via the proven AAFLCharacterPartActor::ApplySkinColor pattern

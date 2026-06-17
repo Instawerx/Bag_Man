@@ -199,23 +199,26 @@ void UAFLDismemberComponent::OnSever(FGameplayTag Channel, const FAFLDismemberSe
 		return;
 	}
 
-	// B-2 SCOPE: the head is the lit path this increment. Limbs still ride OnOverkill (their proven
-	// trigger) -- guard so a future all-limbs migration to OnSever does not double-sever them today.
+	// LIMB-GIB GO-LIVE (AFL-0408-FU): the zone-HP absorber broadcasts Event.Dismember.Sever.AFL for
+	// EVERY zone crossing <=0 -- head (bLethal=true) AND limbs (bLethal=false). Both now route through
+	// the same ResolveAndSever -> SeverZone path (hide bone + spawn the per-zone PropClass prop + apply
+	// the row's ConsequenceGE). The head adds State.Decapitated + the loot-box; limbs get only the prop
+	// + ConsequenceGE (gated by bIsHeadSever inside ResolveAndSever). The limb props
+	// (BP_AFL_DismemberedArm/Leg on the DA's limb rows) finally spawn here.
+	//
+	// NB double-sever: a normal zone sever does NOT also overkill main health -- the absorber consumes
+	// the hit at the zone before it can reach the OverkillThreshold, so OnOverkill (the other channel)
+	// does not fire for the same event. (A genuinely lethal overkill is a distinct case; SeverZone's
+	// persistent-cue add is idempotent regardless.)
 	const bool bIsHead = (Payload.Zone == EAFLBodyZone::Head);
-	if (!bIsHead)
-	{
-		UE_LOG(LogAFLDismember, Verbose,
-			TEXT("[AFLDismember] sever zone=%d on %s -- limb sever rides OnOverkill this increment, ignored here"),
-			static_cast<int32>(Payload.Zone), *GetNameSafe(GetOwner()));
-		return;
-	}
 
 	UE_LOG(LogAFLDismember, Display,
-		TEXT("[AFLDismember] HEAD SEVER on %s (bone=%s) -- cosmetic detach + State.Decapitated + loot-box"),
-		*GetNameSafe(GetOwner()), *Payload.BoneName.ToString());
+		TEXT("[AFLDismember] %s SEVER on %s (bone=%s zone=%d) -- cosmetic detach + prop%s"),
+		bIsHead ? TEXT("HEAD") : TEXT("LIMB"), *GetNameSafe(GetOwner()), *Payload.BoneName.ToString(),
+		static_cast<int32>(Payload.Zone), bIsHead ? TEXT(" + State.Decapitated + loot-box") : TEXT(""));
 
-	// Cosmetic detach (HideBone + prop + cue) AND spawn the loot-box once the row resolves.
-	ResolveAndSever(Payload.BoneName, /*bIsHeadSever=*/true);
+	// Cosmetic detach (HideBone + prop + cue), plus the head's loot-box/decap, once the row resolves.
+	ResolveAndSever(Payload.BoneName, /*bIsHeadSever=*/bIsHead);
 }
 
 void UAFLDismemberComponent::ResolveAndSever(FName HitBone, bool bIsHeadSever)

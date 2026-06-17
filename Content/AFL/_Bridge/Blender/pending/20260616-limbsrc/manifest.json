@@ -1,0 +1,45 @@
+{
+  "task_id": "20260616-limbsrc",
+  "created_utc": "2026-06-16T00:00:00Z",
+  "flow": "B-extract / A-import",
+  "summary": "SKM_Manny arm + leg gibs -- extracted by limb bone weight from the SAME full-body source FBX the head gib came from (SK_AFL_RobotHead_Src.fbx), origin-centered, watertight, slot1=skin. Severed-limb physics props (arm/leg analogue of SM_AFL_RobotHead_Gib).",
+  "ue_project_root": "C:\\Dev\\Bag_Man",
+  "source_fbx": "pending/20260614-headsrc/SK_AFL_RobotHead_Src.fbx",
+  "source_note": "No separate SK_AFL_RobotLimbs_Src.fbx was produced. SOURCE_SPEC_limbsrc.md assumed Blender was unreachable from this session and a new limb FBX had to be staged on the Claude Desktop side. Both assumptions were false: (1) Blender IS reachable here via the blender_mcp toolset, and (2) the existing head-src FBX already contains the FULL SKM_Manny body (48,779 verts, every arm/leg bone, the 2-slot MI_Manny_02(slot0)/MI_Manny_01(slot1) layout) -- it is the same body the head gib was cut from. Both limb gibs were extracted directly from it.",
+  "items": [
+    {
+      "kind": "mesh",
+      "output_file": "pending/20260616-limbsrc/SM_AFL_RobotArm_Gib.fbx",
+      "destination": "/Game/BagMan/Characters/Dismember/SM_AFL_RobotArm_Gib",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": true,
+        "import_lods": false,
+        "import_materials": false
+      }
+    },
+    {
+      "kind": "mesh",
+      "output_file": "pending/20260616-limbsrc/SM_AFL_RobotLeg_Gib.fbx",
+      "destination": "/Game/BagMan/Characters/Dismember/SM_AFL_RobotLeg_Gib",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": true,
+        "import_lods": false,
+        "import_materials": false
+      }
+    }
+  ],
+  "audit": {
+    "passed": true,
+    "warnings": [
+      "ARM MATERIAL REMAP (spec divergence, by design): on SKM_Manny, slot 1 (MI_Manny_01_Blue = M_HeadLegs skin region) covers HEAD + LEGS only -- the ARMS are slot-0 torso material (MI_Manny_02_Blue). Measured: arm region 8,906 polys/side were 100% slot 0; leg region 3,426 polys/side were 100% slot 1. A raw arm cut would carry skin on slot 0 and NOTHING on slot 1, so the C++ GetMaterial(1)->Parent finish-recovery would fail (per the spec's own warning). FIX: at finish, ALL arm faces were remapped to material slot 1 (= MI_Manny_01_Blue) with slot 0 retained empty, so the arm gib now presents the identical 2-slot contract as head/leg and GetMaterial(1)->Parent recovers the skin MIC unchanged. NO C++ change required (confirmed against AFLDismemberedLimb.cpp + AFLDismemberComponent.cpp L565).",
+      "ARM IS 39 WATERTIGHT SHELLS (accepted, not fused): the robot arm is built from segmented armor plates; after hole-filling it is 39 separate-but-nested closed islands, all spatially coherent within the arm volume (overall extent 38 x 38 x 62 cm). Decision (user-approved): ship as-is. It is watertight (0 open / 0 non-manifold), the full hand+fingers are preserved, and UE auto_collision wraps all shells in a single convex hull -- correct for a tumbling physics prop. Differs from the head's 'shells->1' single-mesh standard but is functionally equivalent for the gib's purpose. The leg is 3 islands (effectively single-piece).",
+      "WATERTIGHT RECIPE differed per limb: LEG used the head's recipe directly (merge-by-distance weld -> n-gon+poke cap of the single hip hole -> 0/0). ARM had 39 boundary loops (shoulder + articulated hand: fingers/knuckles/wrist all open shells); recipe was fill_holes(sides=0) for the bulk (2027 open edges -> 211) then per-loop n-gon+poke for the 6 stragglers (211 -> 0). Voxel remesh was attempted and REJECTED: the raw cut is a thin open shell (no enclosed volume) so voxel remesh produced a degenerate ~500-poly blob regardless of voxel size; it is the wrong tool for an open surface.",
+      "Mesh imported at metre scale (cm-magnitude vertex coords, SKM_Manny ~180 tall); cm thresholds mapped accordingly, mirroring the head gib. Exported with apply_unit_scale / global_scale=1.0 so UE reads the same space the head gib finished in."
+    ],
+    "report": "Both limbs extracted from SK_AFL_RobotHead_Src.fbx by dominant bone weight (>0.5): ARM = upperarm/lowerarm/hand + fingers + twists down-tree of upperarm_l (clavicle excluded = cut at shoulder); LEG = thigh/calf/foot/ball down-tree of thigh_l (cut at hip). Left side used as the canonical mesh for each (symmetric; BP rows can share). Holes capped, normals outward, origin = ORIGIN_CENTER_OF_VOLUME moved to world (0,0,0), transform clean (loc0/rot0/scale1). ARM: 7,813 verts / 13,766 tris, 0 open / 0 non-manifold, bbox 38.0 x 38.0 x 62.4 cm (arm-sized, in the spec's 60-70cm band), all faces slot1=MI_Manny_01_Blue. LEG: 3,878 verts / 7,744 tris, 0 open / 0 non-manifold, bbox 18.7 x 30.6 x 77.8 cm (leg-sized, in the spec's 80-90cm band), all faces slot1=MI_Manny_01_Blue. Both carry 2 material slots (slot0 MI_Manny_02_Blue empty, slot1 MI_Manny_01_Blue = the skin region the sever rebinds via GetMaterial(1)->Parent). Preview renders: _preview_arm.png, _preview_leg.png."
+  }
+}
