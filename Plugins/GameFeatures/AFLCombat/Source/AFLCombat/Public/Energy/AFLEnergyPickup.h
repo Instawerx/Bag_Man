@@ -7,9 +7,8 @@
 
 #include "AFLEnergyPickup.generated.h"
 
-class USphereComponent;
+class UAFLOverlapCollectComponent;
 class UStaticMeshComponent;
-class UPrimitiveComponent;
 
 /**
  * FAFLEnergyCollectedMessage -- broadcast on Event.Energy.Collected when a pickup applies.
@@ -39,17 +38,16 @@ struct AFLCOMBAT_API FAFLEnergyCollectedMessage
  * bReplicateMovement set in the ctor so every spawn replicates from birth; EnergyValue per tier on
  * the BP child) -- no policy-reconstruction assumptions.
  *
- * MAGNETIC PULL: server-authoritative (the cycle-1 grounding C recommendation -- correctness
- * first, no mouth mispredict; bandwidth fits AFL-1402 at burst counts). Server tick scans
- * MagnetRadius for the nearest LIVING pawn with an ASC and VInterpTo-moves toward it; replicated
- * movement carries the result to clients. Client-side visual smoothing of the ~view-age stale
- * stream = NAMED FEEL DEBT (the cycle-3 finding). AFL-1403: DORM_DormantAll at rest +
- * FlushNetDormancy on magnetize-wake + tight NetCullDistanceSquared + NetUpdateFrequency 20.
+ * COLLECT SUBSTRATE (Loot Phase 3): the root CollectSphere is now a UAFLOverlapCollectComponent --
+ * the PROVEN overlap + server-magnet + one-shot guard + viable-collector check that was EXTRACTED
+ * VERBATIM from this very pickup, now shared with the INSTANT loot cache. This actor mirrors
+ * AAFLLootCacheInstant: the component IS the root + collect volume + magnet (500uu pull); the actor
+ * only binds OnCollected and runs the energy-SPECIFIC grant. The magnet (server-auth scan -> VInterpTo
+ * the owner toward the nearest living pawn + dormancy wake/sleep) and the dead-pawn skip live in the
+ * component now -- no duplicated overlap/magnet code on the actor.
  *
- * COLLECT: server-only overlap -> UGE_AFL_EnergyGain_Small with SetByCaller(Data.Energy.Gain) =
- * EnergyValue applied to the collector's ASC -> Event.Energy.Collected broadcast -> Destroy.
- * Dead pawns (Status.Death.*) are ignored by BOTH the magnet and the collect -- a death burst
- * must never re-collect into its own corpse.
+ * COLLECT GRANT: server-only OnCollected -> UGE_AFL_EnergyGain_Small with SetByCaller(Data.Energy.Gain)
+ * = EnergyValue applied to the collector's ASC -> Event.Energy.Collected broadcast -> Destroy.
  */
 UCLASS(Blueprintable)
 class AFLCOMBAT_API AAFLEnergyPickup : public AActor
@@ -60,7 +58,6 @@ public:
 	AAFLEnergyPickup(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	virtual void BeginPlay() override;
-	virtual void Tick(float DeltaSeconds) override;
 
 	float GetEnergyValue() const { return EnergyValue; }
 
@@ -69,37 +66,23 @@ public:
 	void InitEnergyValue(float InValue) { EnergyValue = InValue; }
 
 protected:
+	/** The energy-SPECIFIC grant, bound to CollectSphere->OnCollected. The substrate fires this once,
+	 *  server-auth, for a viable collector (overlap/magnet/guard/viable-check all live in the component);
+	 *  this applies the gain GE + the collected message + Destroy. */
 	UFUNCTION()
-	void OnCollectOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
-		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
-
-	/** True when the pawn is a valid magnet/collect target: has an ASC and is not Status.Death.*. */
-	bool IsViableCollector(const AActor* Candidate) const;
+	void HandleCollected(AActor* Collector);
 
 	/** Energy granted on collect. Tier BPs override (S=10 / M=25 / L=50). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Energy", meta = (ClampMin = "0.0"))
 	float EnergyValue = 10.0f;
 
-	/** Magnet acquisition radius (uu). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Energy", meta = (ClampMin = "0.0"))
-	float MagnetRadius = 500.0f;
-
-	/** VInterpTo speed for the pull (uu/s-ish interp constant). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Energy", meta = (ClampMin = "0.0"))
-	float PullInterpSpeed = 4.0f;
-
-	/** Collision sphere root (prim-as-root per the movable-asset rule; overlap = the collect). */
+	/** Collect volume + root: the proven overlap+magnet substrate (UAFLOverlapCollectComponent, extracted
+	 *  from this pickup -- Loot Phase 3). It IS the collect sphere AND runs the server magnet; the 500uu pull
+	 *  + the radius/collision config are set in the ctor. Mirrors AAFLLootCacheInstant's root composition. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Energy")
-	TObjectPtr<USphereComponent> CollectSphere;
+	TObjectPtr<UAFLOverlapCollectComponent> CollectSphere;
 
 	/** Default visible body (engine sphere, small) so C++-spawned pickups are watchable; tier BPs restyle. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Energy")
 	TObjectPtr<UStaticMeshComponent> VisualMesh;
-
-private:
-	/** One-shot collect guard (overlap can fire multiply before Destroy lands). */
-	bool bCollected = false;
-
-	/** Dormancy state mirror (avoid redundant FlushNetDormancy spam). */
-	bool bMagnetAwake = false;
 };
