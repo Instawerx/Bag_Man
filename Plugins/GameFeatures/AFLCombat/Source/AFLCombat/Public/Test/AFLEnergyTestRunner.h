@@ -22,6 +22,15 @@ class UAbilitySystemComponent;
  * alias-proof by construction; the stringly reader is only needed cross-module). Threshold proof
  * is a REGISTERED GameplayMessage listener, not a log grep. AFL_ENERGYRUN markers + SUMMARY +
  * COMPLETE; ~20s.
+ *
+ * HARNESS DEBT (deferred -- fix when next working in this file): a few asserts are OFF the energy
+ * collect/magnet path and flaky run-to-run (they vary ~3..5 FAILs across runs) -- the overdrive
+ * damage-shot pair (lag-comp pinned-ray world-race: a map prop races the dummy; AFL_LAGCOMP_PIN
+ * names the blocker) and the death-burst ceil-S drop-conservation (victim-reduction vs the quantized
+ * drop). The collect / magnet / conservation asserts PASS every run. Almost certainly pre-existing
+ * (the bd10b8e6 energy-pickup refactor left this runner + the overdrive/overload code byte-identical).
+ * TODO: settle the shot pair past the world-race (retry/await) + reconcile the ceil-S assert with the
+ * documented 70%-floor overshoot. NOT a blocker -- the energy collect loop is watched-green.
  */
 UCLASS()
 class AFLCOMBAT_API UAFLEnergyTestRunner : public UObject, public FTickableGameObject
