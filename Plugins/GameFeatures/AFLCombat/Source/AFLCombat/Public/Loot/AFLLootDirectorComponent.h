@@ -38,7 +38,11 @@ public:
 	TSoftObjectPtr<UAFLLootConfig> LootConfig;
 
 private:
-	/** Server-auth: load the config (if set) + log the baseline (caches/nodes counts). Phase 2 = read + log;
-	 *  the spawn loop lands in Phase 3/4 with the cache/node actors. */
+	/** Server-auth: load the config (if set) + log the baseline (caches/nodes counts), then run the spawn-loop. */
 	void InitializeLootBaseline();
+
+	/** Server-auth spawn-loop: for each FAFLLootCacheDef carrying a SpawnPointTag, spawn its CacheClass at
+	 *  every AAFLLootSpawnPoint whose tag matches (MatchesTag). The proven caches, now director-spawned from
+	 *  config -- closes the Phase-3 director-spawn deferral. Inert for defs with an unset tag. */
+	void SpawnConfiguredCaches(const UAFLLootConfig* Config);
 };

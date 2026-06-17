@@ -4,7 +4,10 @@
 
 #include "AFLCombat.h"                  // LogAFLCombat
 #include "Loot/AFLLootConfig.h"
+#include "Loot/AFLLootSpawnPoint.h"     // the tagged markers the spawn-loop queries
+#include "Engine/World.h"               // SpawnActor + FActorSpawnParameters
 #include "GameFramework/Actor.h"
+#include "Kismet/GameplayStatics.h"     // GetAllActorsOfClass
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLLootDirectorComponent)
 
@@ -59,7 +62,60 @@ void UAFLLootDirectorComponent::InitializeLootBaseline()
 
 	UE_LOG(LogAFLCombat, Display,
 		TEXT("[AFLLoot] LootDirector attached on %s -- config=%s baseline: %d cache(s), %d node(s). "
-			 "On-death value = energy ring + dismember (%s). Spawn loop lands Phase 3/4."),
+			 "On-death value = energy ring + dismember (%s)."),
 		*GetNameSafe(GetOwner()), *Config->GetName(), Config->Caches.Num(), Config->Nodes.Num(),
 		Config->bOnDeathValueIsEnergyRingPlusDismember ? TEXT("confirmed") : TEXT("OVERRIDDEN"));
+
+	// Phase-2 spawn-loop: spawn the configured caches at the tagged markers. Additive + inert for defs with an
+	// unset SpawnPointTag, so the current (hand-placed-cache) config spawns nothing here -- no double-spawn.
+	SpawnConfiguredCaches(Config);
+}
+
+void UAFLLootDirectorComponent::SpawnConfiguredCaches(const UAFLLootConfig* Config)
+{
+	UWorld* World = GetWorld();
+	if (!World || !Config)
+	{
+		return;
+	}
+
+	// All designer-placed markers, gathered once (server-auth -- runs only on the authority path via BeginPlay).
+	TArray<AActor*> AllPoints;
+	UGameplayStatics::GetAllActorsOfClass(World, AAFLLootSpawnPoint::StaticClass(), AllPoints);
+
+	for (const FAFLLootCacheDef& Def : Config->Caches)
+	{
+		// Unset tag = not marker-spawned (hand-placed / future); skip so the loop never double-spawns over a
+		// hand-placed cache. The current config's defs are unset -> this loop is inert until Phase-3 setup.
+		if (!Def.SpawnPointTag.IsValid())
+		{
+			continue;
+		}
+		UClass* CacheClass = Def.CacheClass.LoadSynchronous();
+		if (!CacheClass)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("[AFLLoot] spawn-loop: def tag=%s has no CacheClass -- skipped"),
+				*Def.SpawnPointTag.ToString());
+			continue;
+		}
+
+		int32 Spawned = 0;
+		for (AActor* PointActor : AllPoints)
+		{
+			const AAFLLootSpawnPoint* Point = Cast<AAFLLootSpawnPoint>(PointActor);
+			if (!Point || !Point->GetSpawnPointTag().MatchesTag(Def.SpawnPointTag))
+			{
+				continue;
+			}
+			FActorSpawnParameters Params;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			if (World->SpawnActor<AActor>(CacheClass, Point->GetActorTransform(), Params))
+			{
+				++Spawned;
+			}
+		}
+
+		UE_LOG(LogAFLCombat, Display, TEXT("[AFLLoot] spawn-loop: spawned %d %s at tag=%s marker(s)"),
+			Spawned, *CacheClass->GetName(), *Def.SpawnPointTag.ToString());
+	}
 }
