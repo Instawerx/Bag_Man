@@ -54,6 +54,8 @@ public class AFLCombat : ModuleRules
 				// AFLCombat (a GameFeature) depending on it is the correct load-order direction.
 				// Private: only AFLCombat's own TUs compile the component that implements it.
 				"AFLVFX",
+				// Loot Phase 3: AAFLLootCacheCarry wears UAFLGrabbableComponent (AFLMovement). NON-CIRCULAR (AFLMovement !-> AFLCombat).
+				"AFLMovement",
 				// AFL death system (1b): AAFLTargetDummy subclasses ALyraCharacter, which
 				// implements IGenericTeamAgentInterface (FGenericTeamId / team-attitude). Those
 				// symbols live in AIModule -- LyraGame links it for the same reason

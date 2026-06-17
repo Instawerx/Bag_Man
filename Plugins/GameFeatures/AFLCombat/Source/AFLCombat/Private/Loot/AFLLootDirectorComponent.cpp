@@ -12,6 +12,11 @@ UAFLLootDirectorComponent::UAFLLootDirectorComponent(const FObjectInitializer& O
 	: Super(ObjectInitializer)
 {
 	PrimaryComponentTick.bCanEverTick = false;
+
+	// Loot Phase 3 -- bind the default config so the experience-granted RAW director loads it (closes the
+	// "NO LootConfig set" Phase-2 gap; a BP child / experience override can still repoint it). BeginPlay's
+	// LoadSynchronous reads it + logs the cache-def count. Soft path -> no ctor hard-load.
+	LootConfig = TSoftObjectPtr<UAFLLootConfig>(FSoftObjectPath(TEXT("/Game/BagMan/Loot/DA_AFL_LootConfig.DA_AFL_LootConfig")));
 }
 
 void UAFLLootDirectorComponent::BeginPlay()

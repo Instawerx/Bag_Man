@@ -47,6 +47,10 @@
                         "Enabled":  true
                     },
                     {
+                        "Name":  "AFLMovement",
+                        "Enabled":  true
+                    },
+                    {
                         "Name":  "EnhancedInput",
                         "Enabled":  true
                     },
