@@ -11,6 +11,7 @@
 #include "GameFramework/Pawn.h"                // APawn (OwnerPawn) -- the wallet/controller reach now lives in the grant component
 #include "Interaction/AFLGrabbableComponent.h" // the grab substrate the limb wears (AFLMovement)
 #include "Loot/AFLLootGrantComponent.h"        // COMBAT-LOOT now flows through the shared grant component (Phase 1)
+#include "Loot/AFLOverlapCollectComponent.h"   // E2: the enemy walk-over auto-collect substrate (the INSTANT-cache pattern)
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Net/UnrealNetwork.h"
@@ -31,6 +32,9 @@ AAFLDismemberedLimb::AAFLDismemberedLimb()
 			Body->SetStaticMesh(LimbGibMesh);
 		}
 		Body->SetCollisionProfileName(TEXT("PhysicsActor"));
+		// E2 (align #3): OVERLAP the pawn (no shove -- the "pushing it away" bug) while still Block-ing the world
+		// for the death-tumble. Override only the Pawn response; physics-sim + world collision are untouched.
+		Body->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	}
 
 	// COMBAT-LOOT (clone of AAFLHeadLootBox): the severed limb PERSISTS to be retrieved -- override the
@@ -43,6 +47,15 @@ AAFLDismemberedLimb::AAFLDismemberedLimb()
 
 	// The generalized loot grant (Loot Phase 1) -- shared with the head/caches. Configured at Initialize.
 	LootGrant = CreateDefaultSubobject<UAFLLootGrantComponent>(TEXT("LootGrant"));
+
+	// E2 overlap pivot: the ENEMY walk-over auto-collect trigger (the proven INSTANT-cache substrate -- a
+	// QueryOnly sphere, no shove). Enemy-gated in IsViableCollector via the grant's ResolveRetrievalMode; magnet
+	// off. Attached to the limb prop so it tracks the rolling gib.
+	Overlap = CreateDefaultSubobject<UAFLOverlapCollectComponent>(TEXT("OverlapCollect"));
+	Overlap->SetupAttachment(GetPartMesh());
+	// E2 cause-B: the limb spawns ON the victim + pops/tumbles -- present + land for ~1.5s before it's collectible
+	// (vs the watched instant point-blank absorb). Layered on the grant's bConfigured race fix (cause A).
+	Overlap->ActivationDelay = 1.5f;
 }
 
 void AAFLDismemberedLimb::ApplyPopImpulse(const FVector& Impulse)
@@ -88,6 +101,16 @@ void AAFLDismemberedLimb::BeginPlay()
 	if (LootGrant)
 	{
 		LootGrant->OnOwnerRetrieved.AddDynamic(this, &AAFLDismemberedLimb::HandleOwnerRetrieved);
+		// C3: enemy-collect despawn (Decision B -- the gib disappears into the carried pool). The owner-collect
+		// fires OnOwnerRetrieved instead (TryGrant returns before OnLootGranted), so this never fires for the owner.
+		LootGrant->OnLootGranted.AddDynamic(this, &AAFLDismemberedLimb::HandleLootGranted);
+	}
+
+	// E2 overlap pivot: enemy walk-over auto-collect. The substrate fires OnCollected on authority only, for an
+	// enemy-VIABLE collector (IsViableCollector consults the grant -> EnemyCollect; the owner is excluded).
+	if (Overlap)
+	{
+		Overlap->OnCollected.AddDynamic(this, &AAFLDismemberedLimb::HandleOverlapCollected);
 	}
 }
 
@@ -126,8 +149,11 @@ void AAFLDismemberedLimb::Initialize(APawn* InOwnerPawn, EAFLBodyZone InZone, in
 	// collector; the OWNER (controller match) reattaches instead (HandleOwnerRetrieved -> RestoreZone(LootZone)).
 	if (LootGrant)
 	{
-		LootGrant->Configure(EAFLLootValueModel::Watts, InLootWatts, EAFLLootEligibility::EnemyOnly,
-			InOwnerPawn, TEXT("limb-loot"));
+		// Loot-Carry Phase C3: the limb's value now enters the ENEMY retriever's CARRIED-at-risk pool (banked at
+		// extract), NOT instant-bank Watts -- mirroring Phase B's cache flip + the head. Pass the limb's OWN gib
+		// mesh (LimbGibMesh, the per-limb BP value) so the scattered loot reads as the real arm/leg gib.
+		LootGrant->Configure(EAFLLootValueModel::CarryToExtractEnergy, InLootWatts, EAFLLootEligibility::EnemyOnly,
+			InOwnerPawn, TEXT("limb-loot"), LimbGibMesh);
 	}
 
 	// "Tied to owner life": if the owner dies before this limb is collected, the limb vanishes.
@@ -161,6 +187,36 @@ void AAFLDismemberedLimb::HandleOwnerRetrieved(AActor* Retriever)
 		TEXT("[AFLDismember] limb loot self-retrieved by %s -> RestoreZone(zone=%d) + destroy (no Watts)"),
 		*GetNameSafe(Retriever), static_cast<int32>(LootZone));
 	Destroy();
+}
+
+void AAFLDismemberedLimb::HandleLootGranted(AActor* Retriever, int32 Value)
+{
+	// C3 carry-model: an ENEMY collected the limb -> its value entered their carried-at-risk pool (via the
+	// collect-channel + the grant's CarryToExtractEnergy case). The physical limb now DESPAWNS -- invisible while
+	// carried (Decision B); it reappears as the real arm/leg gib only if that pool scatters. The owner branch
+	// (OnOwnerRetrieved -> RestoreZone + Destroy) is separate + untouched -- OnLootGranted never fires for the owner.
+	UE_LOG(LogAFLDismember, Display,
+		TEXT("[AFLDismember] limb loot collected by ENEMY %s (+%d to carried pool) -> despawn"),
+		*GetNameSafe(Retriever), Value);
+	Destroy();
+}
+
+EAFLRetrievalMode AAFLDismemberedLimb::ResolveRetrievalMode(const AActor* Grabber) const
+{
+	// C3: forward to the grant's owner-vs-enemy SSOT -- the grab ability queries this before the mechanism fork
+	// (owner -> instant CarryObject reattach, untouched; enemy -> the collect-channel).
+	return LootGrant ? LootGrant->ResolveRetrievalMode(Grabber) : EAFLRetrievalMode::Ineligible;
+}
+
+void AAFLDismemberedLimb::HandleOverlapCollected(AActor* Collector)
+{
+	// E2: an ENEMY walked over the limb (the overlap is enemy-gated -> the owner never reaches here). Route to the
+	// SAME grant flow the grab uses -> GrantValue (+carried pool) + OnLootGranted -> HandleLootGranted (despawn).
+	// Grant-once guards a double-pay if a grab also fires. MIRRORS the head loot-box's HandleOverlapCollected.
+	if (LootGrant)
+	{
+		LootGrant->TryGrant(Collector);
+	}
 }
 
 void AAFLDismemberedLimb::OnOwnerDeathStarted(AActor* OwningActor)

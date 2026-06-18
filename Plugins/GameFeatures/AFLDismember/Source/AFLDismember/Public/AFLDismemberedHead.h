@@ -66,6 +66,10 @@ public:
 	virtual void ApplyPopImpulse(const FVector& Impulse) override;
 
 protected:
+	/** Read-only access to the head's own gib mesh asset for subclasses (e.g. AAFLHeadLootBox passes it as the
+	 *  scattered-loot mesh in LootGrant->Configure). The field stays private/EditDefaults-set; subclasses only read it. */
+	UStaticMesh* GetHeadGibMesh() const { return HeadGibMesh; }
+
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 

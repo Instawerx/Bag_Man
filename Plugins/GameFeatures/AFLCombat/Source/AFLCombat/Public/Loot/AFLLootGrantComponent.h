@@ -4,11 +4,13 @@
 
 #include "Components/ActorComponent.h"
 
+#include "Interaction/AFLLootRetrievalRouter.h"   // C3: the relationship-router interface (AFLMovement) the grab ability queries
 #include "Loot/AFLLootTypes.h"
 
 #include "AFLLootGrantComponent.generated.h"
 
 class AController;
+class UStaticMesh;   // C3: the dismember limb's own gib mesh, threaded into the carried form (no path -- the live mesh)
 
 /** Fired (server-auth) when the OWNER of an owner-branch loot retrieves their own loot -- the seam the
  *  CONSUMER binds to its owner action (dismember binds it -> RestoreZone + Destroy). The component itself
@@ -43,9 +45,16 @@ public:
 	UAFLLootGrantComponent();
 
 	/** Configure at spawn (server). OwnerActor = the loot's owner (for EnemyOnly/TeamOnly + the owner seam);
-	 *  null for ownerless Anyone loot. Reason names the wallet diag line ("head-loot"/"limb-loot"/...). */
+	 *  null for ownerless Anyone loot. Reason names the wallet diag line ("head-loot"/"limb-loot"/...).
+	 *  InScatterGibMesh (C3) = the dismember scatter form's gib mesh (null for caches -> the cube form). */
 	void Configure(EAFLLootValueModel InValueModel, int32 InValue, EAFLLootEligibility InEligibility,
-		AActor* InOwnerActor, FName InGrantReason);
+		AActor* InOwnerActor, FName InGrantReason, UStaticMesh* InScatterGibMesh = nullptr);
+
+	/** C3 -- the SSOT owner-vs-enemy resolution for the grab ability's PRE-mechanism routing. The loot consumer
+	 *  (head/limb) exposes this via IAFLLootRetrievalRouter. Reuses the SAME ResolveController/OwnerActor/
+	 *  eligibility TryGrant uses downstream (no duplicate match): owner -> OwnerReattach; eligible non-owner ->
+	 *  EnemyCollect; else -> Ineligible. No grant happens here -- it only routes the mechanism. */
+	EAFLRetrievalMode ResolveRetrievalMode(const AActor* Grabber) const;
 
 	/** Server-auth retrieval entry. Runs: grant-once -> owner-seam (OnOwnerRetrieved, no grant) -> eligibility
 	 *  -> value grant (+ OnLootGranted). Returns true iff a value was granted. The substrate calls this on grab/
@@ -82,4 +91,14 @@ private:
 	TWeakObjectPtr<AActor> OwnerActor;
 	FString GrantReason = TEXT("loot");
 	bool bSpent = false;
+
+	/** E2 cause-A (race fix): true once Configure has run (OwnerActor + LootValue set). Retrieval is refused until
+	 *  then -- the dismember head/limb spawns ON the victim, so a pawn can overlap it before Configure. State-based
+	 *  ordering, race-proof regardless of timing (NOT a timer). "Active vs Registered is real" (afl-cpp-lyra). */
+	bool bConfigured = false;
+
+	/** C3: the scatter form's gib mesh -- the dismember limb's own mesh (null for caches -> the cube form). The
+	 *  CarryToExtractEnergy grant builds Carry->MakeLimbForm(this) so dismember value scatters as the real limb. */
+	UPROPERTY()
+	TObjectPtr<UStaticMesh> ScatterGibMesh = nullptr;
 };

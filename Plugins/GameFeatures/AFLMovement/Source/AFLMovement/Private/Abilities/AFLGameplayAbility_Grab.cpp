@@ -22,6 +22,7 @@
 #include "GameplayEffect.h"
 #include "Interaction/AFLGrabbableComponent.h"
 #include "Interaction/AFLInteractionComponent.h"
+#include "Interaction/AFLLootRetrievalRouter.h"   // C3: relationship-gated routing (owner-vs-enemy) before the mechanism fork
 #include "Interaction/AFLObjectClassAnimSet.h"
 #include "NativeGameplayTags.h"
 
@@ -143,14 +144,34 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 	}
 	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: validated (target=%s)."), *GetNameSafe(Target));
 
-	// 1a. (Loot-Carry Phase B) ROUTING FORK -- before any hand-grab machinery. A CollectLoot grabbable does
-	// NOT attach to hand_r: it routes to the collect-channel (UAFLAG_CollectChannel, AFLCombat) + the carried
-	// pool (NOT hand-occupied). Send the channel's trigger event on this ASC (Target = the cache; the channel
-	// grants from its UAFLLootGrantComponent on complete -- Decision D) and end this grab ability. CarryObject
-	// (the default -- map objects, stress-object, mini-game props) falls through to the proven hand-grab below,
-	// entirely UNCHANGED.
-	if (Grabbable->GetGrabKind() == EAFLGrabKind::CollectLoot)
+	// 1a. ROUTING FORK -- before any hand-grab machinery. Decide channel-vs-instant:
+	//   * DEFAULT (Phase B): the static GrabKind -- CollectLoot (caches) -> channel; CarryObject (map objects,
+	//     stress-object, mini-game props) -> the proven hand-grab below, UNCHANGED.
+	//   * (Loot-Carry Phase C) RELATIONSHIP ROUTER: if the target exposes IAFLLootRetrievalRouter (the loot's
+	//     grant component), it resolves owner-vs-enemy (its SSOT) and OVERRIDES the mechanism so the fork happens
+	//     AFTER the relationship is known: OWNER -> the instant hand-grab (dismember reattach, byte-for-byte
+	//     untouched); ENEMY -> the collect-channel; INELIGIBLE -> cancel. No hard cast (queried by interface, per
+	//     ue5-interaction-ik-expert). The owner never channels; the enemy never hand-attaches-then-despawns.
+	bool bRouteToChannel = (Grabbable->GetGrabKind() == EAFLGrabKind::CollectLoot);
+	if (const IAFLLootRetrievalRouter* Router = Cast<IAFLLootRetrievalRouter>(Target))
 	{
+		const EAFLRetrievalMode Mode = Router->ResolveRetrievalMode(Avatar);
+		if (Mode == EAFLRetrievalMode::Ineligible)
+		{
+			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: %s ineligible to retrieve %s -> cancel."),
+				*GetNameSafe(Avatar), *GetNameSafe(Target));
+			CancelAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateCancelAbility*/ true);
+			return;
+		}
+		// OWNER -> false -> falls through to the hand-grab (instant reattach, untouched); ENEMY -> channel.
+		bRouteToChannel = (Mode == EAFLRetrievalMode::EnemyCollect);
+	}
+
+	if (bRouteToChannel)
+	{
+		// CollectLoot / EnemyCollect: route to the collect-channel (UAFLAG_CollectChannel, AFLCombat) + the
+		// carried pool (NOT hand-occupied). The channel grants from the target's UAFLLootGrantComponent on
+		// complete (Decision D) -> +pool + despawn; then end this grab ability.
 		const FGameplayTag CollectTag = FGameplayTag::RequestGameplayTag(FName(TEXT("Event.Loot.CollectChannel")), /*ErrorIfNotFound*/ false);
 		UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 		if (CollectTag.IsValid() && ASC)
@@ -158,14 +179,14 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 			FGameplayEventData Payload;
 			Payload.EventTag = CollectTag;
 			Payload.Instigator = Avatar;
-			Payload.Target = Target;   // the cache -- the channel resolves its grant component from this
+			Payload.Target = Target;   // the loot -- the channel resolves its grant component from this
 			ASC->HandleGameplayEvent(CollectTag, &Payload);
-			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: CollectLoot %s -> collect-channel event sent."), *GetNameSafe(Target));
+			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: collect-loot %s -> collect-channel event sent."), *GetNameSafe(Target));
 		}
 		else
 		{
 			UE_LOG(LogAFLMovement, Warning,
-				TEXT("AFL_GRAB: CollectLoot but Event.Loot.CollectChannel unregistered / no ASC -- no collect (check AFLCombatTags.ini)."));
+				TEXT("AFL_GRAB: collect-loot but Event.Loot.CollectChannel unregistered / no ASC -- no collect (check AFLCombatTags.ini)."));
 		}
 		EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility*/ true, /*bWasCancelled*/ false);
 		return;

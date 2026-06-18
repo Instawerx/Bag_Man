@@ -17,16 +17,46 @@ UAFLLootGrantComponent::UAFLLootGrantComponent()
 }
 
 void UAFLLootGrantComponent::Configure(EAFLLootValueModel InValueModel, int32 InValue,
-	EAFLLootEligibility InEligibility, AActor* InOwnerActor, FName InGrantReason)
+	EAFLLootEligibility InEligibility, AActor* InOwnerActor, FName InGrantReason, UStaticMesh* InScatterGibMesh)
 {
 	ValueModel  = InValueModel;
 	LootValue   = InValue;
 	Eligibility = InEligibility;
 	OwnerActor  = InOwnerActor;
+	ScatterGibMesh = InScatterGibMesh;   // C3: null for caches (-> cube form); the dismember limb's own gib mesh otherwise
 	if (!InGrantReason.IsNone())
 	{
 		GrantReason = InGrantReason.ToString();
 	}
+	// E2 cause-A (RACE fix -- causal ordering, NOT a timer): the loot is now CONFIGURED. The dismember head/limb
+	// spawns ON the victim, so a pawn can overlap it BEFORE this runs (Initialize calls Configure right after
+	// SpawnActor). Until this flag is set, OwnerActor/LootValue are unset -- the owner would auto-collect his own
+	// head as a +0 "enemy" (the watched bug). Gating retrieval on bConfigured makes that IMPOSSIBLE regardless of
+	// timing/lag (afl-cpp-lyra "Active vs Registered is real" -- registered-but-not-active until configured).
+	bConfigured = true;
+}
+
+EAFLRetrievalMode UAFLLootGrantComponent::ResolveRetrievalMode(const AActor* Grabber) const
+{
+	// E2 cause-A (RACE fix): unconfigured loot is NOT retrievable by anyone -- Ineligible until Configure ran (so
+	// the overlap/grab can never act with a null OwnerActor / 0 LootValue). State-based, race-proof (not a timer).
+	if (!bConfigured)
+	{
+		return EAFLRetrievalMode::Ineligible;
+	}
+	// C3 -- the grab ability's PRE-mechanism query. Reuse the EXACT owner-vs-enemy resolution TryGrant uses
+	// downstream (SSOT -- no duplicate match): owner (controller match) -> instant reattach; eligible non-owner
+	// -> the collect-channel; else -> ineligible. No grant happens here; this only routes the mechanism.
+	const AController* GrabberController = ResolveController(Grabber);
+	if (OwnerActor.IsValid())
+	{
+		const AController* OwnerController = ResolveController(OwnerActor.Get());
+		if (OwnerController != nullptr && GrabberController == OwnerController)
+		{
+			return EAFLRetrievalMode::OwnerReattach;
+		}
+	}
+	return IsEligible(Grabber, GrabberController) ? EAFLRetrievalMode::EnemyCollect : EAFLRetrievalMode::Ineligible;
 }
 
 const AController* UAFLLootGrantComponent::ResolveController(const AActor* Actor)
@@ -93,7 +123,9 @@ void UAFLLootGrantComponent::GrantValue(AActor* Retriever)
 		APawn* Pawn = Cast<APawn>(Retriever);
 		if (UAFLLootCarryComponent* Carry = Pawn ? Pawn->FindComponentByClass<UAFLLootCarryComponent>() : nullptr)
 		{
-			Carry->Collect(LootValue);
+			// C3: enter the pool WITH the scatter form -- MakeLimbForm(ScatterGibMesh) makes dismember value
+			// scatter as the real limb gib (a null mesh -> the cube form, so the caches stay byte-identical).
+			Carry->Collect(LootValue, Carry->MakeLimbForm(ScatterGibMesh));
 			UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOT: +%d -> %s carried pool (%s)"),
 				LootValue, *GetNameSafe(Retriever), *GrantReason);
 		}
@@ -123,6 +155,14 @@ bool UAFLLootGrantComponent::TryGrant(AActor* Retriever)
 	const AActor* MyOwner = GetOwner();
 	// Server-authoritative consequence; guard so a replicated/late substrate bind can never double-fire.
 	if (!MyOwner || !MyOwner->HasAuthority())
+	{
+		return false;
+	}
+
+	// E2 cause-A (RACE fix, defense-in-depth): never grant on UNCONFIGURED loot. A substrate (overlap/grab) that
+	// fires before Initialize->Configure has no OwnerActor/LootValue -> the owner would self-collect for +0. The
+	// IsViableCollector gate already blocks the overlap via ResolveRetrievalMode; this guards every TryGrant path.
+	if (!bConfigured)
 	{
 		return false;
 	}

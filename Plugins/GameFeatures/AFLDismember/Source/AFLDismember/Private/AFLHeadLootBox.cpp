@@ -7,8 +7,10 @@
 #include "AFLBodyZone.h"
 #include "Character/LyraHealthComponent.h"
 #include "GameFramework/Pawn.h"
+#include "Components/StaticMeshComponent.h" // E2: the gib body's pawn-collision override (no shove)
 #include "Interaction/AFLGrabbableComponent.h"
 #include "Loot/AFLLootGrantComponent.h"     // COMBAT-LOOT now flows through the shared grant component (Phase 1)
+#include "Loot/AFLOverlapCollectComponent.h" // E2: the enemy walk-over auto-collect substrate (the INSTANT-cache pattern)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLHeadLootBox)
 
@@ -26,6 +28,23 @@ AAFLHeadLootBox::AAFLHeadLootBox()
 	// The generalized loot grant (Loot Phase 1) -- eligibility + grant-once + the Watts grant, shared with
 	// limbs/caches. Configured at Initialize; OnGrabbedBy routes retrieval to it.
 	LootGrant = CreateDefaultSubobject<UAFLLootGrantComponent>(TEXT("LootGrant"));
+
+	// E2 overlap pivot: the ENEMY walk-over auto-collect trigger (the proven INSTANT-cache substrate -- a
+	// QueryOnly sphere, no shove). Enemy-gated in IsViableCollector via the grant's ResolveRetrievalMode; magnet
+	// off (a head shouldn't fly at you). Attached to the head prop so it tracks the rolling gib.
+	Overlap = CreateDefaultSubobject<UAFLOverlapCollectComponent>(TEXT("OverlapCollect"));
+	Overlap->SetupAttachment(GetPartMesh());
+	// E2 cause-B: the head spawns ON the victim + pops/tumbles -- present + land for ~1.5s before it's collectible
+	// (vs the watched instant point-blank absorb). Layered on the grant's bConfigured race fix (cause A).
+	Overlap->ActivationDelay = 1.5f;
+
+	// E2 (align #3): the head physics body must OVERLAP the pawn (no shove -- the "pushing it away" bug) while
+	// still Block-ing the world for the death-tumble. Override only the Pawn response on the inherited
+	// PhysicsActor profile; physics-sim + world collision are untouched.
+	if (UStaticMeshComponent* Body = GetPartMesh())
+	{
+		Body->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	}
 }
 
 void AAFLHeadLootBox::BeginPlay()
@@ -44,6 +63,16 @@ void AAFLHeadLootBox::BeginPlay()
 	if (LootGrant)
 	{
 		LootGrant->OnOwnerRetrieved.AddDynamic(this, &AAFLHeadLootBox::HandleOwnerRetrieved);
+		// C3: enemy-collect despawn (Decision B -- the gib disappears into the carried pool). The owner-collect
+		// fires OnOwnerRetrieved instead (TryGrant returns before OnLootGranted), so this never fires for the owner.
+		LootGrant->OnLootGranted.AddDynamic(this, &AAFLHeadLootBox::HandleLootGranted);
+	}
+
+	// E2 overlap pivot: enemy walk-over auto-collect. The substrate fires OnCollected on authority only, for an
+	// enemy-VIABLE collector (IsViableCollector consults the grant -> EnemyCollect; the owner is excluded).
+	if (Overlap)
+	{
+		Overlap->OnCollected.AddDynamic(this, &AAFLHeadLootBox::HandleOverlapCollected);
 	}
 }
 
@@ -80,8 +109,11 @@ void AAFLHeadLootBox::Initialize(APawn* InOwnerPawn, int32 InLootWatts)
 	// collector; the OWNER (controller match) reattaches instead (HandleOwnerRetrieved), granted nothing.
 	if (LootGrant)
 	{
-		LootGrant->Configure(EAFLLootValueModel::Watts, InLootWatts, EAFLLootEligibility::EnemyOnly,
-			InOwnerPawn, TEXT("head-loot"));
+		// Loot-Carry Phase C3: the head's value now enters the ENEMY retriever's CARRIED-at-risk pool (banked at
+		// extract), NOT instant-bank Watts -- mirroring Phase B's cache flip. Pass the head's OWN gib mesh
+		// (HeadGibMesh, inherited from AAFLDismemberedHead) so the scattered loot reads as the real head gib.
+		LootGrant->Configure(EAFLLootValueModel::CarryToExtractEnergy, InLootWatts, EAFLLootEligibility::EnemyOnly,
+			InOwnerPawn, TEXT("head-loot"), GetHeadGibMesh());
 	}
 
 	// "Tied to owner life": if the owner dies before this head is collected, the head vanishes.
@@ -117,9 +149,39 @@ void AAFLHeadLootBox::HandleOwnerRetrieved(AActor* Retriever)
 	Destroy();
 }
 
+void AAFLHeadLootBox::HandleLootGranted(AActor* Retriever, int32 Value)
+{
+	// C3 carry-model: an ENEMY collected the head -> its value entered their carried-at-risk pool (via the
+	// collect-channel + the grant's CarryToExtractEnergy case). The physical head now DESPAWNS -- invisible while
+	// carried (Decision B); it reappears as the real head gib only if that pool scatters. The owner branch
+	// (OnOwnerRetrieved -> RestoreZone + Destroy) is separate + untouched -- OnLootGranted never fires for the owner.
+	UE_LOG(LogAFLDismember, Display,
+		TEXT("[AFLDismember] head loot-box collected by ENEMY %s (+%d to carried pool) -> despawn"),
+		*GetNameSafe(Retriever), Value);
+	Destroy();
+}
+
+void AAFLHeadLootBox::HandleOverlapCollected(AActor* Collector)
+{
+	// E2: an ENEMY walked over the head (the overlap is enemy-gated -> the owner never reaches here). Route to the
+	// SAME grant flow the grab uses -> GrantValue (+carried pool) + OnLootGranted -> HandleLootGranted (despawn).
+	// Grant-once guards a double-pay if a grab also fires. MIRRORS the INSTANT cache's HandleCollected -> TryGrant.
+	if (LootGrant)
+	{
+		LootGrant->TryGrant(Collector);
+	}
+}
+
 bool AAFLHeadLootBox::IsCollected() const
 {
 	return LootGrant && LootGrant->IsSpent();
+}
+
+EAFLRetrievalMode AAFLHeadLootBox::ResolveRetrievalMode(const AActor* Grabber) const
+{
+	// C3: forward to the grant's owner-vs-enemy SSOT -- the grab ability queries this before the mechanism fork
+	// (owner -> instant CarryObject reattach, untouched; enemy -> the collect-channel).
+	return LootGrant ? LootGrant->ResolveRetrievalMode(Grabber) : EAFLRetrievalMode::Ineligible;
 }
 
 void AAFLHeadLootBox::OnOwnerDeathStarted(AActor* OwningActor)

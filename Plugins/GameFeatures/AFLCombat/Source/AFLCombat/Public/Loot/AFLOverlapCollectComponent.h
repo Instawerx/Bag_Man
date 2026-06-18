@@ -53,6 +53,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Loot", meta = (ClampMin = "0.0"))
 	float PullInterpSpeed = 4.0f;
 
+	/** E2 cause-B (PRESENTATION delay): seconds AFTER spawn before the collect arms, so a dismember part appears +
+	 *  tumbles + lands before it can be collected (vs instant point-blank absorb). 0 = arm immediately (the placed
+	 *  INSTANT cache / energy pickup -- unchanged). The head/limb set ~1.5s. This is a gameplay beat, not the race
+	 *  fix (the grant's bConfigured gate is the race fix); it layers ON TOP. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Loot", meta = (ClampMin = "0.0"))
+	float ActivationDelay = 0.0f;
+
 protected:
 	UFUNCTION()
 	void OnBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
@@ -61,9 +68,19 @@ protected:
 	/** Pawn + ASC + not Status.Death.* (a death burst must never re-collect into its own corpse). */
 	bool IsViableCollector(const AActor* Candidate) const;
 
+	/** E2 cause-B: arm the collect (called by the ActivationDelay timer, or immediately when the delay is 0). */
+	void Arm();
+
 private:
 	/** One-shot collect guard. */
 	bool bCollected = false;
+
+	/** E2 cause-B (presentation): the collect is inert until armed. Default true (delay 0 -> armed at BeginPlay);
+	 *  set false + timer-armed when ActivationDelay > 0, so a just-spawned part presents before it's collectible. */
+	bool bArmed = true;
+
+	/** Timer that arms the collect after ActivationDelay (the presentation beat). */
+	FTimerHandle ArmTimer;
 
 	/** Dormancy mirror (avoid redundant FlushNetDormancy spam) -- only meaningful when the magnet is on. */
 	bool bMagnetAwake = false;

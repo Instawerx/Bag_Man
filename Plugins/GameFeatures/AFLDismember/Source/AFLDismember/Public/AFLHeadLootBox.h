@@ -3,12 +3,14 @@
 #pragma once
 
 #include "AFLDismemberedHead.h"
+#include "Interaction/AFLLootRetrievalRouter.h"   // C3: route owner-vs-enemy BEFORE the grab mechanism (AFLMovement)
 #include "Loot/AFLLootable.h"          // IAFLLootable contract (AFLCombat)
 
 #include "AFLHeadLootBox.generated.h"
 
 class UAFLGrabbableComponent;
 class UAFLLootGrantComponent;
+class UAFLOverlapCollectComponent;   // E2: the enemy walk-over auto-collect trigger (AFLCombat)
 class ULyraHealthComponent;
 
 /**
@@ -39,7 +41,7 @@ class ULyraHealthComponent;
  * after spawning this in place of the plain head prop for the Head zone.
  */
 UCLASS()
-class AFLDISMEMBER_API AAFLHeadLootBox : public AAFLDismemberedHead, public IAFLLootable
+class AFLDISMEMBER_API AAFLHeadLootBox : public AAFLDismemberedHead, public IAFLLootable, public IAFLLootRetrievalRouter
 {
 	GENERATED_BODY()
 
@@ -61,6 +63,10 @@ public:
 	//~ IAFLLootable -- expose the grant component polymorphically (Phase-3 director/queries; no reparenting).
 	virtual UAFLLootGrantComponent* GetLootGrantComponent() const override { return LootGrant; }
 
+	//~ IAFLLootRetrievalRouter (C3) -- forward to the grant's SSOT owner-vs-enemy resolution so the grab ability
+	//  routes the mechanism (owner = instant reattach, enemy = collect-channel) BEFORE committing. Thin forwarder.
+	virtual EAFLRetrievalMode ResolveRetrievalMode(const AActor* Grabber) const override;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -79,6 +85,18 @@ protected:
 	UFUNCTION()
 	void HandleOwnerRetrieved(AActor* Retriever);
 
+	/** Bound to LootGrant->OnLootGranted (C3 carry-model migration) -- fires ONLY for an ENEMY grant (the owner
+	 *  seam returns before OnLootGranted). The head's value entered the enemy's carried pool -> despawn the gib
+	 *  (invisible while carried, Decision B). MIRRORS the cache's HandleLootGranted. */
+	UFUNCTION()
+	void HandleLootGranted(AActor* Retriever, int32 Value);
+
+	/** Bound to Overlap->OnCollected (E2 overlap pivot) -- an ENEMY walked over the head (the overlap is
+	 *  enemy-gated) -> auto-collect via TryGrant (no grab, no shove). The OWNER is not a viable overlap collector,
+	 *  so his head persists for the deliberate grab -> reattach. MIRRORS the INSTANT cache's HandleCollected. */
+	UFUNCTION()
+	void HandleOverlapCollected(AActor* Collector);
+
 	/** The grab substrate marker + policy (discovery + carry). BP child sets GrabAbility = GA_AFL_Grab_C. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAFLGrabbableComponent> Grabbable;
@@ -87,6 +105,11 @@ protected:
 	 *  Configured at Initialize; OnGrabbedBy routes to it. MIRRORS the proven inline grant, now extracted. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAFLLootGrantComponent> LootGrant;
+
+	/** E2 overlap pivot: the ENEMY walk-over auto-collect trigger (the proven INSTANT-cache substrate -- a
+	 *  QueryOnly sphere, no shove). Enemy-gated via the grant's ResolveRetrievalMode; OnCollected -> TryGrant. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAFLOverlapCollectComponent> Overlap;
 
 private:
 	/** The pawn this head was severed from (the retrieve target + death source). Weak: the pawn may die. */

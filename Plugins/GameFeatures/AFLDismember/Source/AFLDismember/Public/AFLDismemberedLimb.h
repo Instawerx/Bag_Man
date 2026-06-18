@@ -6,6 +6,7 @@
 
 #include "AFLDismemberedPart.h"
 #include "AFLBodyZone.h"   // EAFLBodyZone (AFLCore) -- the limb stores its zone for the owner-retrieve RestoreZone
+#include "Interaction/AFLLootRetrievalRouter.h"   // C3: route owner-vs-enemy BEFORE the grab mechanism (AFLMovement)
 #include "Loot/AFLLootable.h"   // IAFLLootable contract (AFLCombat)
 
 #include "AFLDismemberedLimb.generated.h"
@@ -15,6 +16,7 @@ class UAFLSkinColorAsset;
 class UMaterialInstanceConstant;
 class UAFLGrabbableComponent;   // COMBAT-LOOT: the grab substrate (AFLMovement) the limb wears to be retrievable
 class UAFLLootGrantComponent;   // the shared loot grant (AFLCombat, Loot Phase 1)
+class UAFLOverlapCollectComponent;   // E2: the enemy walk-over auto-collect trigger (AFLCombat)
 
 /**
  * S4 LIMB-GIB (PHASE 3, AFL-0408-FU-LIMBMESH): the detached LIMB prop (arm/leg) -- a subclass of the
@@ -52,7 +54,7 @@ class UAFLLootGrantComponent;   // the shared loot grant (AFLCombat, Loot Phase 
  * enemy-collect was a P2 stub); head=160 / limb=20 are tune-at-playtest starting values.
  */
 UCLASS()
-class AFLDISMEMBER_API AAFLDismemberedLimb : public AAFLDismemberedPart, public IAFLLootable
+class AFLDISMEMBER_API AAFLDismemberedLimb : public AAFLDismemberedPart, public IAFLLootable, public IAFLLootRetrievalRouter
 {
 	GENERATED_BODY()
 
@@ -78,6 +80,10 @@ public:
 	//~ IAFLLootable -- expose the grant component polymorphically (Phase-3 director/queries; no reparenting).
 	virtual UAFLLootGrantComponent* GetLootGrantComponent() const override { return LootGrant; }
 
+	//~ IAFLLootRetrievalRouter (C3) -- forward to the grant's SSOT owner-vs-enemy resolution so the grab ability
+	//  routes the mechanism (owner = instant reattach, enemy = collect-channel) BEFORE committing. Thin forwarder.
+	virtual EAFLRetrievalMode ResolveRetrievalMode(const AActor* Grabber) const override;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -96,6 +102,18 @@ protected:
 	 *  destroy. The grant component never references RestoreZone (the dependency-inversion seam). */
 	UFUNCTION()
 	void HandleOwnerRetrieved(AActor* Retriever);
+
+	/** Bound to LootGrant->OnLootGranted (C3 carry-model migration) -- fires ONLY for an ENEMY grant (the owner
+	 *  seam returns before OnLootGranted). The limb's value entered the enemy's carried pool -> despawn the gib
+	 *  (invisible while carried, Decision B). MIRRORS the head loot-box's HandleLootGranted. */
+	UFUNCTION()
+	void HandleLootGranted(AActor* Retriever, int32 Value);
+
+	/** Bound to Overlap->OnCollected (E2 overlap pivot) -- an ENEMY walked over the limb (enemy-gated) ->
+	 *  auto-collect via TryGrant (no grab, no shove). The OWNER is not a viable overlap collector, so his limb
+	 *  persists for the deliberate grab -> reattach. MIRRORS the head loot-box's HandleOverlapCollected. */
+	UFUNCTION()
+	void HandleOverlapCollected(AActor* Collector);
 
 	/** VELOCITY pop (bVelChange=true), mirroring AAFLDismemberedHead: the limb gib is a light convex hull,
 	 *  so the base force-pop (impulse/mass) launches it off-screen. Interpret the DA impulse as a target
@@ -124,6 +142,11 @@ protected:
 	 *  Configured at Initialize; OnGrabbedBy routes to it. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAFLLootGrantComponent> LootGrant;
+
+	/** E2 overlap pivot: the ENEMY walk-over auto-collect trigger (the proven INSTANT-cache substrate -- a
+	 *  QueryOnly sphere, no shove). Enemy-gated via the grant's ResolveRetrievalMode; OnCollected -> TryGrant. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Dismember", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAFLOverlapCollectComponent> Overlap;
 
 private:
 	/** The limb gib mesh -- SM_AFL_RobotArm_Gib / SM_AFL_RobotLeg_Gib (origin-centered static mesh + convex
