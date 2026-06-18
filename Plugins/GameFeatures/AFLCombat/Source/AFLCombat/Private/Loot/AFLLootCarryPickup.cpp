@@ -61,6 +61,16 @@ void AAFLLootCarryPickup::ApplyVisualMesh()
 	if (OverrideMesh && VisualMesh)
 	{
 		VisualMesh->SetStaticMesh(OverrideMesh);
+		// E1 (BUG-1): gibs are real-limb-sized (~18-27cm). Render at NATIVE scale -- the ctor's 0.3 token-scale
+		// (sized for the loot CUBE) shrinks a head to ~6cm, lost among the 30cm cubes ("boxes not heads"). The
+		// cube default keeps 0.3: with no override this branch never runs, so the cube is untouched.
+		VisualMesh->SetRelativeScale3D(FVector(1.0f));
+		// Instrument (the box-not-head diagnosis hook): confirms the gib mesh LANDED on the scattered pickup, on
+		// each machine (auth=1 = the server apply via SetVisualMesh; auth=0 = the client OnRep apply). If this
+		// fires but the operator still sees a cube -> SetStaticMesh isn't taking; if it never fires client-side
+		// -> OverrideMesh isn't replicating.
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: pickup %s applied gib form %s at scale 1.0 (auth=%d)"),
+			*GetName(), *GetNameSafe(OverrideMesh), HasAuthority() ? 1 : 0);
 	}
 }
 
