@@ -7,6 +7,7 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
+#include "Loot/AFLLootCarryComponent.h"         // the carried-at-risk pool (CarryToExtractEnergy -> Collect)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLLootGrantComponent)
 
@@ -85,9 +86,26 @@ void UAFLLootGrantComponent::GrantValue(AActor* Retriever)
 		break;
 	}
 	case EAFLLootValueModel::CarryToExtractEnergy:
+	{
+		// Loot-Carry Phase B: the value enters the retriever's CARRIED-at-risk pool (UAFLLootCarryComponent;
+		// banks to Watts only at the extraction zone), NOT the wallet. Mirrors the Watts case's pawn
+		// resolution, routed to the pool component. The caches Configure THIS model now (Watts was instant-bank).
+		APawn* Pawn = Cast<APawn>(Retriever);
+		if (UAFLLootCarryComponent* Carry = Pawn ? Pawn->FindComponentByClass<UAFLLootCarryComponent>() : nullptr)
+		{
+			Carry->Collect(LootValue);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOT: +%d -> %s carried pool (%s)"),
+				LootValue, *GetNameSafe(Retriever), *GrantReason);
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOOT: %s looted but no UAFLLootCarryComponent -- not pooled (%s)"),
+				*GetNameSafe(Retriever), *GrantReason);
+		}
+		break;
+	}
 	case EAFLLootValueModel::GameplayResource:
-		// Wired with their phase (energy substrate = Phase 3; the IPickupable bridge = Phase 5). No live
-		// consumer routes these through the component yet -- the dispatch slot is reserved.
+		// Wired with its phase (the IPickupable bridge = Phase 5). No live consumer routes this yet -- reserved.
 		UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_LOOT: value model %d not yet wired (reserved for its phase)"),
 			static_cast<int32>(ValueModel));
 		break;

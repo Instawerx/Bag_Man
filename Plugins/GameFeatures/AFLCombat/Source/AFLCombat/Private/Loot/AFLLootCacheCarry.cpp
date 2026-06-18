@@ -14,18 +14,20 @@ AAFLLootCacheCarry::AAFLLootCacheCarry()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	// Physics-prop posture MIRRORS the proven head loot-box (PhysicsActor + simulate + snapshot replication)
-	// -- the grab attaches it to hand_r, release re-enables physics. Collision so the grab discovery finds it.
+	// Loot-Carry Phase B: a stable CHANNEL-COLLECT target, NOT a carriable physics prop. Migrating to the
+	// collect-channel means the cache is no longer picked up + carried, so it has no reason to simulate --
+	// and a bouncing prop was the operator-flagged "bouncing but can't pick up" issue.
 	bReplicates = true;
 	SetReplicatingMovement(true);
 
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	SetRootComponent(Mesh);
-	// Movable so a MAP-PLACED instance can simulate (StaticMeshComponent defaults to Static, which blocks
-	// physics). Mirrors the runtime-spawned loot-box, which is Movable by default.
+	// Movable (runtime-spawned) + PhysicsActor collision RETAINED -- it is QueryAndPhysics, so the QUERY half
+	// still answers the grab-discovery trace + lets the channel target it -- but SIMULATION OFF: no bounce, a
+	// stable target. Physics-simulation and query-collision are separable; we drop ONLY the simulation.
 	Mesh->SetMobility(EComponentMobility::Movable);
 	Mesh->SetCollisionProfileName(TEXT("PhysicsActor"));
-	Mesh->SetSimulatePhysics(true);
+	Mesh->SetSimulatePhysics(false);   // was true -- the physics-off fix (query collision retained above)
 	Mesh->SetRelativeScale3D(FVector(0.4f));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (CubeMesh.Succeeded())
@@ -39,6 +41,10 @@ AAFLLootCacheCarry::AAFLLootCacheCarry()
 	// CDO-ctor -> a finder fails (the cross-GameFeature load-order trap). A BP default resolves post-mount + is
 	// redirector-safe (the within-Lyra fix; decision C's pure-C++ preference is what produced the defect).
 	Grabbable = CreateDefaultSubobject<UAFLGrabbableComponent>(TEXT("Grabbable"));
+	// Loot-Carry Phase B: the CARRY cache is COLLECT-LOOT -- the grab ability forks to the collect-channel
+	// (UAFLAG_CollectChannel) instead of hand-grabbing. The channel grants from this actor's LootGrant on
+	// complete (-> the carried pool). Set in the ctor so the BP child inherits it (no .uasset edit needed).
+	Grabbable->SetGrabKind(EAFLGrabKind::CollectLoot);
 
 	LootGrant = CreateDefaultSubobject<UAFLLootGrantComponent>(TEXT("LootGrant"));
 }
@@ -54,23 +60,24 @@ void AAFLLootCacheCarry::BeginPlay()
 
 	if (LootGrant)
 	{
-		LootGrant->Configure(EAFLLootValueModel::Watts, LootWatts, Eligibility, /*OwnerActor=*/nullptr, TEXT("cache-carry"));
+		// Loot-Carry Phase B: feed the carried-at-risk POOL (CarryToExtractEnergy), not instant-bank Watts.
+		LootGrant->Configure(EAFLLootValueModel::CarryToExtractEnergy, LootWatts, Eligibility, /*OwnerActor=*/nullptr, TEXT("cache-carry"));
+		// Consume on collect (Decision B collect->despawn): TryGrant fires OnLootGranted on a SUCCESSFUL grant
+		// -> despawn the cache (like the INSTANT cache Destroys). Kills the "re-channel an already-collected
+		// box" loop + the bouncing leftover prop.
+		LootGrant->OnLootGranted.AddDynamic(this, &AAFLLootCacheCarry::HandleLootGranted);
 	}
-	if (Grabbable)
-	{
-		Grabbable->OnGrabbedBy.AddDynamic(this, &AAFLLootCacheCarry::HandleGrabbed);
-	}
+	// No OnGrabbedBy binding: this cache is CollectLoot (set in the ctor), so the grab ability forks to the
+	// collect-channel BEFORE any hand-grab -- OnGrabbedBy never fires. The channel grants from LootGrant on
+	// complete (UAFLAG_CollectChannel::OnChannelComplete -> TryGrant) -> HandleLootGranted despawns the cache.
 }
 
-void AAFLLootCacheCarry::HandleGrabbed(AActor* Grabber)
+void AAFLLootCacheCarry::HandleLootGranted(AActor* Retriever, int32 Value)
 {
-	// Server-auth (the grab broadcast is server-side; TryGrant also guards authority). Grant on grab; the
-	// grant-once guard makes a re-grab a no-op (the looted cache stays a carriable prop, like the loot-box
-	// enemy path). No owner -> Anyone/Team eligibility (no reattach branch).
-	if (LootGrant)
-	{
-		LootGrant->TryGrant(Grabber);
-	}
-	UE_LOG(LogAFLCombat, Display, TEXT("[AFLLoot] CARRY cache %s grabbed by %s -> grant"),
-		*GetName(), *GetNameSafe(Grabber));
+	// Decision B collect->despawn: the value reached the retriever's carried pool (via the collect-channel);
+	// the cache's physical form despawns. Destroy is DEFERRED (end of frame) -> safe inside the TryGrant
+	// OnLootGranted broadcast (LootGrant stays valid for the rest of TryGrant). Re-channel is now impossible.
+	UE_LOG(LogAFLCombat, Display, TEXT("[AFLLoot] CARRY cache %s collected (+%d by %s) -> despawn"),
+		*GetName(), Value, *GetNameSafe(Retriever));
+	Destroy();
 }

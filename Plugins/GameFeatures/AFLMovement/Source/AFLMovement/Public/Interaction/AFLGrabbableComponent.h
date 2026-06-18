@@ -31,6 +31,21 @@ enum class EAFLCarryWeight : uint8
 };
 
 /**
+ * Routing: what picking this object up actually DOES (Loot-Carry Phase B). The grab ability forks on this
+ * BEFORE the reach montage, so the two paths share discovery but split entirely after:
+ *  - CarryObject (default) -- the proven hand-grab (attach to hand_r, carry-pose, holster). Map objects.
+ *  - CollectLoot           -- route to the collect-channel (UAFLAG_CollectChannel) + the carried pool;
+ *                             NOT hand-occupied. Loot caches. The grab ability sends the channel's trigger
+ *                             event instead of attaching; the channel grants from this actor on complete.
+ */
+UENUM(BlueprintType)
+enum class EAFLGrabKind : uint8
+{
+	CarryObject UMETA(DisplayName = "Carry Object (hand-grab)"),
+	CollectLoot UMETA(DisplayName = "Collect Loot (channel -> pool)"),
+};
+
+/**
  * FAFLGrabPolicy -- the per-object rules bundle the grab ability reads on grab. Populated from the
  * grabbable component's UPROPERTYs at grab time and handed to UAFLInteractionComponent::GrabActor so the
  * ability/interaction-component never reaches back into the world actor for policy mid-carry.
@@ -120,6 +135,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Interaction")
 	FAFLGrabPolicy GetGrabPolicy() const;
 
+	/** Routing kind (Loot-Carry Phase B): the grab ability forks on this before the reach montage. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Interaction")
+	EAFLGrabKind GetGrabKind() const { return GrabKind; }
+
+	/** Set the routing kind (loot caches mark themselves CollectLoot at spawn; default stays CarryObject). */
+	void SetGrabKind(EAFLGrabKind InKind) { GrabKind = InKind; }
+
 	/** True while some interaction component is carrying this actor (set by the carrier; blocks double-grab).
 	 *  On clients this reads the REPLICATED value (2-client cycle 1) -- discovery gating is correct remotely. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Interaction")
@@ -153,6 +175,10 @@ protected:
 	FText InteractionText;
 
 	// --- Per-object policy (designer-editable; the forward-compat seam) ---
+
+	/** Routing: hand-grab (default, map objects) vs collect-channel-to-pool (loot caches). Loot-Carry Phase B. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
+	EAFLGrabKind GrabKind = EAFLGrabKind::CarryObject;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Interaction|Policy")
 	FName HoldSocketName = TEXT("hand_r");

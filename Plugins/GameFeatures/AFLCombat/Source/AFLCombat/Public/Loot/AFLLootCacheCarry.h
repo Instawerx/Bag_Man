@@ -16,10 +16,12 @@ class UStaticMeshComponent;
 /**
  * AAFLLootCacheCarry -- a CARRY-mode arena loot cache (Loot Phase 3). The grab half of the per-cache
  * retrieval-mode flag (#2): a physics-prop mesh + a UAFLGrabbableComponent (the proven grab substrate --
- * the hero's interaction discovery finds it + offers GA_AFL_Grab, attaches it to hand_r) + a
- * UAFLLootGrantComponent. On grab the grabbable fires OnGrabbedBy -> the grant component grants the
- * configured (deterministic) Watts (grant-once guard handles re-grab). The CARRY counterpart to
- * AAFLLootCacheInstant -- a higher-value cache you must reach + pick up (vs the safe walk-over INSTANT).
+ * the hero's interaction discovery finds it + offers GA_AFL_Grab) + a UAFLLootGrantComponent.
+ * Loot-Carry Phase B: the grabbable is COLLECT-LOOT (set in the ctor) -- the grab ability forks to the
+ * collect-channel (UAFLAG_CollectChannel) instead of hand-grabbing; on channel-complete the grant component
+ * adds the configured value to the retriever's CARRIED-at-risk POOL (CarryToExtractEnergy; grant-once guards
+ * re-collect), banked to Watts only at extract. The CARRY counterpart to AAFLLootCacheInstant -- a
+ * higher-value cache you must reach + channel (vs the safe walk-over INSTANT).
  *
  * Authored as a BP child (BP_AFL_LootCacheCarry) that sets the inherited Grabbable.GrabAbility =
  * GA_AFL_Grab_C as a default -- MIRRORING the proven AAFLHeadLootBox / BP_AFL_HeadLootBox. The C++ ctor leaves
@@ -42,11 +44,12 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	/** Bound to the grabbable's OnGrabbedBy -- grant on grab (grant-once guards re-grab). */
+	/** Consume on collect (Decision B collect->despawn): bound to LootGrant->OnLootGranted -> Destroy the cache
+	 *  when the channel collects it (despawn the physical form, like the INSTANT cache; no bouncing leftover). */
 	UFUNCTION()
-	void HandleGrabbed(AActor* Grabber);
+	void HandleLootGranted(AActor* Retriever, int32 Value);
 
-	/** Physics-prop body + root (collision so the grab line-trace/proximity finds it). */
+	/** Body + root: collision RETAINED for grab/channel discovery, physics SIMULATION off (stable target, no bounce). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Loot")
 	TObjectPtr<UStaticMeshComponent> Mesh;
 

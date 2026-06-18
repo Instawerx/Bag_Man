@@ -44,7 +44,9 @@ void AAFLLootCacheInstant::BeginPlay()
 
 	if (LootGrant)
 	{
-		LootGrant->Configure(EAFLLootValueModel::Watts, LootWatts, Eligibility, /*OwnerActor=*/nullptr, TEXT("cache-instant"));
+		// Loot-Carry Phase B: INSTANT walk-over now feeds the carried-at-risk POOL (CarryToExtractEnergy),
+		// not instant-bank Watts. LootWatts is the value added to the pool; it banks to Watts only on extract.
+		LootGrant->Configure(EAFLLootValueModel::CarryToExtractEnergy, LootWatts, Eligibility, /*OwnerActor=*/nullptr, TEXT("cache-instant"));
 	}
 	if (Overlap)
 	{

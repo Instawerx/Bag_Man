@@ -143,6 +143,34 @@ void UAFLGameplayAbility_Grab::ActivateAbility(
 	}
 	UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: validated (target=%s)."), *GetNameSafe(Target));
 
+	// 1a. (Loot-Carry Phase B) ROUTING FORK -- before any hand-grab machinery. A CollectLoot grabbable does
+	// NOT attach to hand_r: it routes to the collect-channel (UAFLAG_CollectChannel, AFLCombat) + the carried
+	// pool (NOT hand-occupied). Send the channel's trigger event on this ASC (Target = the cache; the channel
+	// grants from its UAFLLootGrantComponent on complete -- Decision D) and end this grab ability. CarryObject
+	// (the default -- map objects, stress-object, mini-game props) falls through to the proven hand-grab below,
+	// entirely UNCHANGED.
+	if (Grabbable->GetGrabKind() == EAFLGrabKind::CollectLoot)
+	{
+		const FGameplayTag CollectTag = FGameplayTag::RequestGameplayTag(FName(TEXT("Event.Loot.CollectChannel")), /*ErrorIfNotFound*/ false);
+		UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+		if (CollectTag.IsValid() && ASC)
+		{
+			FGameplayEventData Payload;
+			Payload.EventTag = CollectTag;
+			Payload.Instigator = Avatar;
+			Payload.Target = Target;   // the cache -- the channel resolves its grant component from this
+			ASC->HandleGameplayEvent(CollectTag, &Payload);
+			UE_LOG(LogAFLMovement, Log, TEXT("AFL_GRAB: CollectLoot %s -> collect-channel event sent."), *GetNameSafe(Target));
+		}
+		else
+		{
+			UE_LOG(LogAFLMovement, Warning,
+				TEXT("AFL_GRAB: CollectLoot but Event.Loot.CollectChannel unregistered / no ASC -- no collect (check AFLCombatTags.ini)."));
+		}
+		EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility*/ true, /*bWasCancelled*/ false);
+		return;
+	}
+
 	// 1b. (Cycle 4d grab-hold fix) -- the orientation snap is GONE. It did SetActorRotation(TeleportPhysics) +
 	// bUseControllerRotationYaw=false to "face the target," which teleport-snapped the whole body to a different
 	// yaw on every grab (the quarter-spin / "backwards-inverted" symptom). The box attaches to hand_r regardless

@@ -174,6 +174,12 @@ consumer-supplies-specifics generalization the loot abstraction uses throughout 
   form. Don't hardcode the cube pickup as the only form.
 - **Phase C** (dismember migration) **supplies the LIMB GIB MESH** as the physical form for dismember loot,
   wiring collect→hide-gib / scatter→show-gib through the Phase-B hook.
+  > **⚠ Phase-C constraint (recorded during Phase B):** the carried pool is a *fungible int* — it can't tag
+  > which value came from a cache (cube form) vs a dismember gib (limb form), so it can't, on its own, scatter
+  > dismember-value as a *limb* while cache-value scatters as a *cube*. Phase C must resolve this — a
+  > per-source sub-pool, or a scatter form chosen by context — the **same** constraint that forced Decision B
+  > (a fungible int can't track individual gibs). Phase B's `ScatterPickupClass` seam is generic and ready;
+  > it does **not** preclude either resolution.
 
 ---
 
