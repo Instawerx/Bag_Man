@@ -1,8 +1,24 @@
-# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v2
+# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v3
 
-Finalized decision record. **v2 folds in 3 locked operator decisions** (below). Design + plan only —
-Phase A is the first build, separate. Governs how collected loot is held (and, per decision 1 of the
-prior pass, how Phase-4 harvested resources are held too).
+Finalized decision record. **v3 amendment (below) adds the PHYSICAL-OBJECT LIFECYCLE layer and records
+Phase A as SHIPPED with an architecture pivot.** v2's 3 locked operator decisions are still in force.
+Governs how collected loot is held (and Phase-4 harvest too).
+
+**v3 amendment (2026-06-18):**
+- **Phase A SHIPPED (`4d4cba28`) — the value layer pivoted to a WALLET-RAIL int, not inventory.** PIE proved
+  Lyra inventory is *discrete-instance-count* (`GetTotalItemCountByDefinition` counts instances, never sums a
+  stack count — `LyraInventoryManagerComponent.cpp:233`). Per `afl-cpp-lyra-developer` +
+  `lyra-skin-builder-marketplace`, fungible currency-like value belongs in a **wallet-rail replicated `int32`**
+  (the at-risk twin of `UAFLWalletComponent`), **not** an inventory item. `UAFLLootCarryComponent` ships this;
+  `ID_AFL_Loot` was dropped. So the **`ID_AFL_Loot` / `AddItemDefinition` framing in STEP 1.1-1.2, "The
+  inventory cache," and the Phase-A bullet is the decision trail — superseded by the shipped int.** The
+  value-layer *behavior* (collect→pool, portion-on-hit, remainder-on-death, extract→Watts) is unchanged and
+  PIE-proven; only its *storage* changed (int rail, not inventory stack).
+- **NEW: the PHYSICAL-OBJECT LIFECYCLE layer (STEP 2B below).** A loot object has a visible physical presence
+  *distinct from its value*: collected loot HIDES its physical form (invisible-in-cache); scattered loot
+  REAPPEARS as a recoverable physical form. **Decision 1: dismember loot reappears as the LIMB MESH** (a
+  severed-limb gib), not a generic orb. The generic hide/respawn hook lands in **Phase B** (mechanism); the
+  dismember-specific limb-mesh form lands in **Phase C** (the dismember migration supplies the form).
 
 **Locked decisions (this revision):**
 1. **Fungible value-item.** The cache is a single `ID_AFL_Loot` (value + stack) — collected loot adds to a
@@ -115,6 +131,52 @@ drop-on-damage risk + the CARRY channel-exposure. Deterministic values throughou
 
 ---
 
+## STEP 2B — the PHYSICAL-OBJECT LIFECYCLE (the visible-object layer)
+
+Phase A proved the **value** layer (collect→pool, scatter, extract). This is its pair: a loot object also has
+a **physical presence** on screen, distinct from its value, with its own lifecycle.
+
+### The lifecycle
+- **Collect** → value to the carried pool (Phase A, proven) **AND hide/despawn the physical presence** — the
+  object is now *in the cache*, invisible (not in hands, not trailing the carrier).
+- **Scatter** (portion-on-hit / remainder-on-death) → **respawn a physical RECOVERABLE form** carrying its
+  value, on the ground, collectable by anyone.
+- **Re-collect** → hides again. The physical form tracks the value: visible on the ground, hidden while pooled.
+
+This mirrors the **proven head loot-box** (`BP_AFL_HeadLootBox` + the dismember `RestoreZone`-style cue): a
+persistent object whose mesh is hidden/shown by a server-auth state, *not* destroyed-and-rebuilt — the
+hide/respawn precedent to cite.
+
+### The generic HOOK (Phase B's domain — the MECHANISM)
+`UAFLLootCarryComponent` exposes a **generic physical-representation hook**: collect fires *"hide this loot's
+physical form,"* scatter fires *"spawn this loot's physical recoverable form."* The component owns the
+**mechanism** (hide-on-collect / respawn-on-scatter, tied to the value pool); it does **not** know what the
+form *is*. **The consumer supplies the form per loot-type** — the same component-owns-mechanism /
+consumer-supplies-specifics generalization the loot abstraction uses throughout (`IAFLLootable`,
+`OnOwnerRetrieved`, the director config).
+
+### Per-type physical forms
+| Loot type | Physical form | Collect | Scatter | Phase |
+|---|---|---|---|---|
+| **Cache loot** | `AAFLLootCarryPickup` (the pickup actor) | actor **destroyed** | component **spawns** K pickups | **A (done)** / B |
+| **Dismember loot** | the **LIMB GIB MESH** (`SM_AFL_Robot{Arm,Leg}_Gib` / head gib) | **HIDE** the gib mesh (value→pool, mesh invisible) | gib **reappears** as a recoverable severed limb | **C** |
+
+- **Cache loot** (Phase A/B): the form is the pickup actor — already destroys-on-collect / respawns-on-scatter
+  (Phase A proven). **No change**; it's the generic hook's default form.
+- **Dismember loot** (Phase C, **decision 1**): the form is the **limb gib mesh** (arm/leg/head). Collect
+  **hides** the gib mesh (the value goes to the pool; the *mesh* doesn't destroy — it hides, like the head
+  loot-box hides bones via the cue). Scatter makes it **reappear as a recoverable limb gib** — it reads as a
+  *severed limb on the ground*, **not a generic orb**. Re-collect hides it again.
+
+### Phase placement (build the hook in B *knowing* C needs limb-mesh)
+- **Phase B** builds the **generic hide/respawn hook** (the mechanism) into `UAFLLootCarryComponent`, with the
+  cache pickup as the default form but the hook **parameterized** so a consumer can supply a different physical
+  form. Don't hardcode the cube pickup as the only form.
+- **Phase C** (dismember migration) **supplies the LIMB GIB MESH** as the physical form for dismember loot,
+  wiring collect→hide-gib / scatter→show-gib through the Phase-B hook.
+
+---
+
 ## Migrating the SHIPPED loot (re-watch, not rewire-beside)
 
 | Shipped thing | Today | Migrates to | Care |
@@ -146,15 +208,19 @@ it is **stated here and re-watched in Phase C, not silent.** The **owner-reattac
   `OnDeathStarted`; `ExtractAll()` → `EarnWattsAuthority` + clear. + the **INSTANT walk-over collect**.
   Prove on a **new test collectible**: collect → cache grows; confirmed hit → portion scatters as
   recoverable pickups; death → remainder scatters; extract → Watts banked + cache cleared. *No shipped code.*
-- **Phase B ⚠ — routing + the CARRY collect-channel + migrate the caches.** [C++ + data]
+- **Phase B ⚠ — routing + the CARRY collect-channel + the physical hook + migrate the caches.** [C++ + data]
   `EAFLGrabKind` on `UAFLGrabbableComponent` (default `CarryObject`). Author the **`UAFLChannelComponent`**
-  (generic, HARVEST-ready) + the CARRY collect-channel. Migrate **INSTANT + CARRY** caches to `CollectLoot`
-  (INSTANT walk-over, CARRY channel → cache, not Watts). **Re-watch the Phase-3 cache gates** + the new
-  channel + drop/extract; confirm **map-object grab still hand-occupies** (the stress object).
-- **Phase C ⚠ — migrate the dismember enemy-collect.** [C++]
-  Enemy head/limb → `Collect` (the carried-at-risk pool); **owner-reattach unchanged**. **Re-watch:** enemy
-  head/limb value is now **carried-at-risk, not instant-banked** (the stated behavior change); owner reattach
-  still works.
+  (generic, HARVEST-ready) + the CARRY collect-channel. Author the **generic physical-representation hook**
+  (STEP 2B — hide-on-collect / respawn-on-scatter, *parameterized* form, cache pickup as default, **knowing
+  Phase C supplies the limb mesh**). Migrate **INSTANT + CARRY** caches to `CollectLoot` (INSTANT walk-over,
+  CARRY channel → cache, not Watts). **Re-watch the Phase-3 cache gates** + the new channel + drop/extract;
+  confirm **map-object grab still hand-occupies** (the stress object).
+- **Phase C ⚠ — migrate the dismember enemy-collect + the LIMB-MESH physical form.** [C++]
+  Enemy head/limb → `Collect` (the carried-at-risk pool); **owner-reattach unchanged**. Supply the **limb gib
+  mesh** as the physical form through the Phase-B hook: collect → **hide** the gib mesh; scatter → the gib
+  **reappears as a recoverable severed limb** (decision 1, not a generic orb). **Re-watch:** enemy head/limb
+  value is now **carried-at-risk, not instant-banked** (the stated behavior change) + the limb mesh
+  hides-on-collect / reappears-on-scatter; owner reattach still works.
 - **Phase D — tuning + the recovery loop.** [data/CVar + watch]
   `afl.Loot.DropPercent` (the 25-50% pass) + the grace/cooldown; **2-client** scatter-recovery (another
   player collects your dropped loot); balance pass → write the carried-loot values into
