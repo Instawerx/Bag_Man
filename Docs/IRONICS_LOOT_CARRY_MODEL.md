@@ -1,8 +1,9 @@
-# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v3
+# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v4
 
-Finalized decision record. **v3 amendment (below) adds the PHYSICAL-OBJECT LIFECYCLE layer and records
-Phase A as SHIPPED with an architecture pivot.** v2's 3 locked operator decisions are still in force.
-Governs how collected loot is held (and Phase-4 harvest too).
+Finalized decision record. **v4 amendment (below) records Phase B as SHIPPED and resolves the Phase-C
+PROVENANCE fork (skills-grounded); v3 added the PHYSICAL-OBJECT LIFECYCLE layer + recorded Phase A SHIPPED with
+the wallet-rail pivot.** v2's 3 locked operator decisions are still in force. Governs how collected loot is
+held (and Phase-4 harvest too).
 
 **v3 amendment (2026-06-18):**
 - **Phase A SHIPPED (`4d4cba28`) — the value layer pivoted to a WALLET-RAIL int, not inventory.** PIE proved
@@ -19,6 +20,24 @@ Governs how collected loot is held (and Phase-4 harvest too).
   REAPPEARS as a recoverable physical form. **Decision 1: dismember loot reappears as the LIMB MESH** (a
   severed-limb gib), not a generic orb. The generic hide/respawn hook lands in **Phase B** (mechanism); the
   dismember-specific limb-mesh form lands in **Phase C** (the dismember migration supplies the form).
+
+**v4 amendment (2026-06-17) — Phase B SHIPPED + the Phase-C PROVENANCE resolution:**
+- **Phase B SHIPPED (`47d80847`).** Routing (`EAFLGrabKind`), the collect-channel, and the cache migration are
+  PIE-proven. **Architecture correction to STEP 2B / STEP 3:** the collect-channel shipped as a **GAS base
+  ability** (`UAFLGameplayAbility_Channel` → `UAFLAG_CollectChannel`), **not** a `UAFLChannelComponent` — per
+  `unreal-engine-expert`, GAS owns timed, interruptible, predicted/replicated activations (the WaitDelay clock,
+  the lock-GE, the cancel funnel) for free; a component would re-roll that machinery. **Phase-4 HARVEST
+  subclasses this ability**, not a component. The collect-channel is **move-CANCEL, not movement-locked**
+  (Decision 3): moving cancels it; it does not freeze the hero.
+- **The Phase-B physical hook landed as `ScatterPickupClass` + consume-on-collect** (Decision B): the CARRY
+  cache is **destroyed** on collect and the value's recoverable form **respawns** on scatter —
+  `hide-and-show` collapsed to `destroy-and-respawn` because a *fungible int pool can't track an individual
+  hidden object*. The generic `ScatterPickupClass` seam is the parameterized form-supply hook STEP 2B promised.
+- **Phase C provenance RESOLVED (skills-grounded — see STEP 2C below).** The ⚠ constraint Phase B recorded —
+  *a single fungible int can't scatter dismember-value as a LIMB while cache-value scatters as a CUBE* — is
+  resolved by a **thin, SERVER-ONLY provenance ledger** beside the proven int rail. The bulk value stays
+  fungible (Phase A's wallet-rail decision STANDS); a bounded form→value ledger drives form-accurate scatter,
+  and because **scatter is authority-only the ledger needs no replication at all.**
 
 **Locked decisions (this revision):**
 1. **Fungible value-item.** The cache is a single `ID_AFL_Loot` (value + stack) — collected loot adds to a
@@ -174,12 +193,108 @@ consumer-supplies-specifics generalization the loot abstraction uses throughout 
   form. Don't hardcode the cube pickup as the only form.
 - **Phase C** (dismember migration) **supplies the LIMB GIB MESH** as the physical form for dismember loot,
   wiring collect→hide-gib / scatter→show-gib through the Phase-B hook.
-  > **⚠ Phase-C constraint (recorded during Phase B):** the carried pool is a *fungible int* — it can't tag
-  > which value came from a cache (cube form) vs a dismember gib (limb form), so it can't, on its own, scatter
-  > dismember-value as a *limb* while cache-value scatters as a *cube*. Phase C must resolve this — a
-  > per-source sub-pool, or a scatter form chosen by context — the **same** constraint that forced Decision B
-  > (a fungible int can't track individual gibs). Phase B's `ScatterPickupClass` seam is generic and ready;
-  > it does **not** preclude either resolution.
+  > **⚠ Phase-C constraint (recorded during Phase B) — RESOLVED in STEP 2C below.** The carried pool is a
+  > *fungible int* — it can't, alone, tag which value came from a cache (cube form) vs a dismember gib (limb
+  > form). **Resolution (skills-grounded): a thin, SERVER-ONLY provenance ledger beside the proven int rail**
+  > — the value stays fungible; a bounded form→value ledger drives form-accurate scatter; the ledger needs no
+  > replication because scatter is authority-only. See **STEP 2C**. Phase B's `ScatterPickupClass` seam is the
+  > generic form-supply hook this builds on.
+
+---
+
+## STEP 2C — Phase C: the PROVENANCE resolution (skills-grounded) + the dismember migration
+
+Phase C answers the ⚠ constraint Phase B recorded: the carried pool is one fungible `int32` with no provenance
+— it can't, alone, scatter dismember-value as a **limb** while cache-value scatters as a **cube**.
+
+### The decision — a THIN, SERVER-ONLY provenance ledger (resolution **c**, refined)
+**The fungible value stays a rail; a bounded form→value ledger beside it drives form-accurate scatter. The
+ledger is SERVER-ONLY (scatter is authority-only), so it needs no replication.**
+
+**Cited guidance (the skills decided — not the lean):**
+- **`afl-cpp-lyra-developer` (SKILL.md:20-22 — "extend Lyra, don't rewrite it").** The proven Phase-A int rail
+  (collect/scatter/death/extract PIE-proven) is PRESERVED; provenance is an ADDED thin layer, not a REPLACEMENT
+  of the rail with an inventory-shaped typed structure. `UAFLLootCarryComponent`'s own Phase-A doc-comment
+  (`AFLLootCarryComponent.h:23-25`) already encodes the skill's split — *currency = a wallet rail; inventory =
+  discrete owned things; `GetTotalItemCountByDefinition` counts instances, never sums value.* Phase C honors
+  it: the **value** stays a rail.
+- **`unreal-engine-expert` (references/networking.md:175, 177-193).** Scatter is **authority-only** (SpawnActor
+  + the authority pool commit), so the provenance ledger is read only on the server → it needs **no
+  replication** (only `CarriedValue` replicates, for the HUD). The cleanest possible: zero net cost, zero
+  two-property sync risk. The skill's `FFastArraySerializer` (the `FInventoryList` pattern) is the documented
+  **scale-up path** *if* the ledger ever needs client replication or grows large — unneeded for a bounded
+  ~4-form server-only ledger now.
+- **`expert-game-designer` (references/character.md:5-21 — the silhouette test + Visual Weight Hierarchy, HEAD
+  30%).** A scattered head must **read as a head** — scattering it as a generic cube fails the silhouette read.
+  So provenance must be **form-accurate** (per-limb: head→head-gib, arm→arm-gib), justifying a per-form ledger
+  over a binary cache/dismember flag. The skill is **silent** on any "carrying-2-heads-matters" *mechanic* (its
+  scope is visual design) — so there is **no** support for promoting a carried limb to a typed inventory entry.
+
+**Rejected (with the cite):**
+- **(b) contextual / proportional scatter** — non-deterministic provenance ("scatter ~30% as whatever was
+  collected recently") violates the economy's **NO-RANDOMIZED-ACQUISITION** invariant (`AFLLootTypes.h:13-14`).
+- **(d) revisit fungible → a typed inventory entry per limb** — contradicts `afl-cpp-lyra`'s *currency = a rail,
+  not inventory* and the proven Phase-A decision; re-introduces exactly the instance-shaped representation Phase
+  A correctly rejected, with no game-design *mechanic* to justify it.
+- **(a) per-source SUB-POOLS (split the replicated int)** — would re-touch the PROVEN replicated rail
+  (regression risk), and a binary cache-vs-dismember split is coarser than per-form (fails the per-limb read).
+  Superseded by **(c)**: keep the rail intact, go per-form **server-side**.
+
+### The provenance mechanism — concretely
+- **Data:** `USTRUCT FAFLCarriedForm { TSubclassOf<AAFLLootCarryPickup> ScatterForm; TSoftObjectPtr<UStaticMesh>
+  GibMesh; int32 Value; }`. A **server-only** `TArray<FAFLCarriedForm> CarriedForms` on
+  `UAFLLootCarryComponent` (NOT a replicated UPROPERTY). Bounded (~4 entries: cube, head-gib, arm-gib, leg-gib).
+- **The replicated `int32 CarriedValue` is UNCHANGED** — it stays the bank total + the HUD rail (Phase A
+  intact). Invariant: `sum(CarriedForms.Value) == CarriedValue`, maintained on the authority.
+- **Collect** (`Collect(int32 Value, const FAFLCarriedForm& Form)`): `CarriedValue += Value` (unchanged) **and**
+  find-or-add the `Form` bucket, `+= Value`. The **old 1-arg `Collect(int32)` stays** as an overload that
+  defaults to the cube form — the proven caches keep working untouched.
+- **Scatter:** drain the ledger in **collection order** (deterministic), spawning each drained chunk **as its
+  own form** (the gib-mesh pickup for dismember buckets, the cube pickup for cache buckets) — not always
+  `ScatterPickupClass`. Partial drop (on-hit) drains forms in order until the drop amount is met; full scatter
+  (death) drains every bucket as itself. Deterministic throughout (no roll).
+- **Extract:** bank `CarriedValue` (unchanged) + clear the ledger.
+
+### The dismember enemy-collect migration ⚠ (the 2 enum-flips — parallel to Phase B's cache flip)
+Exactly the Phase-B move applied to the shipped dismember loot:
+- `AAFLHeadLootBox.cpp:83` and `AAFLDismemberedLimb.cpp:129`: `Configure(EAFLLootValueModel::Watts, …,
+  EnemyOnly, …)` → **`Configure(EAFLLootValueModel::CarryToExtractEnergy, …, EnemyOnly, …)`** + supply the
+  limb's **gib form** (head-gib / arm-gib / leg-gib mesh).
+- The grant's `CarryToExtractEnergy` case (`AFLLootGrantComponent.cpp:88-105`) passes the form through:
+  `Carry->Collect(LootValue, Form)`. The grant component gains a `ScatterForm`/`GibMesh` field, set by
+  `Configure` from the loot object (which knows its own form).
+- **Result:** +160 (head) / +20 (limb) now enters the ENEMY retriever's **carried-at-risk pool**, tagged with
+  the limb form so it scatters as that limb. ⚠ this re-touches SHIPPED, PIE-watched combat-loot (`9ac3e0ae`).
+
+### The owner-reattach branch — UNCHANGED (re-confirmed; a SEPARATE axis)
+The owner seam is **`EAFLLootEligibility::EnemyOnly` + `OnOwnerRetrieved` → `RestoreZone` + `Destroy`**
+(`AFLLootGrantComponent.cpp:140-144`) — it **never reaches `GrantValue`**, so it is on a **different axis** from
+the value model. The migration flips only the **enemy-collect VALUE MODEL**; the `EnemyOnly` eligibility and
+the owner-reattach (body-restoration, no pool, no scatter) are **literally unchanged.**
+
+### The limb-gib physical form (the `ScatterPickupClass` seam, per-form)
+- The Phase-B `ScatterPickupClass` (the generic cube `AAFLLootCarryPickup`) becomes the **default** form (cache
+  buckets). Dismember buckets carry the **limb-gib mesh** (`SM_AFL_Robot{Arm,Leg}_Gib` / head gib, from the
+  limb-gib extraction work).
+- **Recommended:** ONE `AAFLLootCarryPickup` whose **mesh is set per-spawn** from the bucket's `GibMesh`
+  (reusing the per-spawn-mesh pattern the dismember gibs already use), rather than N near-identical pickup
+  subclasses. The scattered limb-loot is the **lighter recoverable carry-pickup wearing the gib mesh** — *not*
+  a re-spawned full `AAFLDismemberedLimb` (which carries the owner-reattach branch + would risk a double-grant):
+  same silhouette, different (economy-recoverable) actor.
+- Per **Decision B**: collect → the dismember loot object is **consumed** (the limb is picked up); the value
+  rides the pool; it **reappears as a limb-gib pickup only if scattered** (damage/death). On extract it banks
+  silently (the limb "cashed in").
+
+### The behavior change — re-watch in C (stated since v3)
+Enemy head/limb is now **CARRIED-AT-RISK, not instant-banked**: the killer must **survive + extract** to
+realize +160/+20; a hit scatters a portion **as a limb-gib** (recoverable by anyone); death scatters the whole
+pool (the limbs reappear on the ground). Owner-reattach unchanged. The re-watch is the migration's real proof.
+
+### Re-confirm the shipped head-box mechanics survive
+The migration swaps only the enemy-collect value model — these are **untouched** and re-watched: the
+owner-vs-enemy branch (controller-match), the persist (`InitialLifeSpan=0`), the `RestoreZone` reattach, the
+grant-once guard (`bSpent`), and the owner-death-vanish (`OnDeathStarted`; memory-flagged unverified — verify
+in C).
 
 ---
 
@@ -221,12 +336,23 @@ it is **stated here and re-watched in Phase C, not silent.** The **owner-reattac
   Phase C supplies the limb mesh**). Migrate **INSTANT + CARRY** caches to `CollectLoot` (INSTANT walk-over,
   CARRY channel → cache, not Watts). **Re-watch the Phase-3 cache gates** + the new channel + drop/extract;
   confirm **map-object grab still hand-occupies** (the stress object).
-- **Phase C ⚠ — migrate the dismember enemy-collect + the LIMB-MESH physical form.** [C++]
-  Enemy head/limb → `Collect` (the carried-at-risk pool); **owner-reattach unchanged**. Supply the **limb gib
-  mesh** as the physical form through the Phase-B hook: collect → **hide** the gib mesh; scatter → the gib
-  **reappears as a recoverable severed limb** (decision 1, not a generic orb). **Re-watch:** enemy head/limb
-  value is now **carried-at-risk, not instant-banked** (the stated behavior change) + the limb mesh
-  hides-on-collect / reappears-on-scatter; owner reattach still works.
+- **Phase C ⚠ — the provenance ledger + the dismember enemy-collect migration + the LIMB-GIB form.** [C++]
+  Four watched increments (STEP 2C is the design):
+  - **C1 — the provenance ledger (NEW, additive).** `FAFLCarriedForm` + the server-only `CarriedForms` ledger
+    + the 2-arg `Collect(value, form)` overload + form-accurate `ScatterValue` on `UAFLLootCarryComponent`;
+    the 1-arg `Collect` (cube default) preserves the proven caches. **Proves:** collect **two distinct forms**
+    (cube + a test gib) → scatter → **two distinct forms spawn** (the differentiation check — two inputs, two
+    readouts) + `afl.LootCarry.Test.Run` still green (no rail regression).
+  - **C2 — the limb-gib carry-pickup form (NEW content/wiring).** The dismember scatter form (one
+    `AAFLLootCarryPickup` taking the gib mesh per-spawn) + wire the head/arm/leg gib meshes. **Proves:** a
+    scattered dismember-value spawns a recognizable **limb gib** (the silhouette read), not a cube.
+  - **C3 ⚠⚠ — the dismember enemy-collect migration (SHIPPED).** Flip `AAFLHeadLootBox` +
+    `AAFLDismemberedLimb` `Configure` (`Watts → CarryToExtractEnergy`) + supply the gib form + the grant
+    pass-through. **Proves (re-watch the shipped +160/+20):** collect an enemy head → **+160 in the CARRIED
+    pool, not the instant wallet**; owner-reattach re-confirmed unchanged in the same watch.
+  - **C4 ⚠ — the behavior-change + head-box-survival re-watch (SHIPPED behavior).** The full loop: collect
+    enemy head → carried (not banked) → take damage → **head-gib scatters** → recover → extract → **+160
+    banks**. AND owner reattach still `RestoreZone`s; the persist + owner-death-vanish + grant-once survive.
 - **Phase D — tuning + the recovery loop.** [data/CVar + watch]
   `afl.Loot.DropPercent` (the 25-50% pass) + the grace/cooldown; **2-client** scatter-recovery (another
   player collects your dropped loot); balance pass → write the carried-loot values into
