@@ -4,8 +4,10 @@
 
 #include "AFLCombat.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"               // C1: the per-spawn form mesh (SetStaticMesh override)
 #include "Loot/AFLLootCarryComponent.h"
 #include "Loot/AFLOverlapCollectComponent.h"
+#include "Net/UnrealNetwork.h"               // C1: DOREPLIFETIME(OverrideMesh) -- the scattered form replicates
 #include "UObject/ConstructorHelpers.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLLootCarryPickup)
@@ -28,6 +30,37 @@ AAFLLootCarryPickup::AAFLLootCarryPickup()
 	if (CubeMesh.Succeeded())
 	{
 		VisualMesh->SetStaticMesh(CubeMesh.Object);
+	}
+}
+
+void AAFLLootCarryPickup::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AAFLLootCarryPickup, OverrideMesh);
+}
+
+void AAFLLootCarryPickup::SetVisualMesh(UStaticMesh* InMesh)
+{
+	// Authority sets the replicated form mesh + applies locally now (OnRep won't fire on the server); clients
+	// apply it from OnRep_VisualMesh. The scattered limb gib then reads correctly on every machine.
+	if (!HasAuthority())
+	{
+		return;
+	}
+	OverrideMesh = InMesh;
+	ApplyVisualMesh();
+}
+
+void AAFLLootCarryPickup::OnRep_VisualMesh()
+{
+	ApplyVisualMesh();
+}
+
+void AAFLLootCarryPickup::ApplyVisualMesh()
+{
+	if (OverrideMesh && VisualMesh)
+	{
+		VisualMesh->SetStaticMesh(OverrideMesh);
 	}
 }
 

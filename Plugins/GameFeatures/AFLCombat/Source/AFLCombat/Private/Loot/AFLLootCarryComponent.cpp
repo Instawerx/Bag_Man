@@ -5,6 +5,7 @@
 #include "AFLCombat.h"
 #include "Character/LyraHealthComponent.h"
 #include "Cosmetics/AFLWalletComponent.h"     // the BANKED twin -- extract banks the at-risk pool into it
+#include "Engine/StaticMesh.h"                 // C1: the per-form gib mesh (cheat LoadObject + the form-name log)
 #include "Engine/World.h"
 #include "GameFramework/CheatManagerDefines.h" // UE_WITH_CHEAT_MANAGER -- without it the #if reads 0 + the cmd compiles out SILENTLY
 #include "GameFramework/Pawn.h"
@@ -50,14 +51,44 @@ void UAFLLootCarryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 
 void UAFLLootCarryComponent::Collect(int32 Value)
 {
+	// Back-compat (the proven Phase A/B caches call this): collect as the generic CUBE form -- ScatterPickupClass,
+	// no gib mesh -- routed through the form-aware Collect so the single-form path buckets like any other form.
+	FAFLCarriedForm CubeForm;
+	CubeForm.ScatterForm = ScatterPickupClass;
+	Collect(Value, CubeForm);
+}
+
+void UAFLLootCarryComponent::Collect(int32 Value, const FAFLCarriedForm& Form)
+{
 	AActor* Owner = GetOwner();
 	if (Value <= 0 || !Owner || !Owner->HasAuthority())
 	{
 		return;
 	}
-	CommitCarriedDelta(+Value);
-	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s collected +%d -> pool %d"),
-		*GetNameSafe(Owner), Value, CarriedValue);
+	CommitCarriedDelta(+Value);   // the replicated rail -- UNCHANGED (the HUD + the bank total)
+	BucketValue(Form, Value);     // the server-only provenance ledger -- form-accurate scatter (additive)
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s collected +%d (%s) -> pool %d, ledger %d bucket(s)"),
+		*GetNameSafe(Owner), Value, Form.GibMesh ? *Form.GibMesh->GetName() : TEXT("cube"),
+		CarriedValue, Ledger.Num());
+}
+
+void UAFLLootCarryComponent::BucketValue(const FAFLCarriedForm& Form, int32 Value)
+{
+	// Find-or-add by FORM identity (scatter class + gib mesh). Bounded (~4 forms: cube, head/arm/leg gib), so a
+	// linear scan is right. Keeps sum(Ledger) == CarriedValue (Collect just committed the same +Value to the rail).
+	const TSubclassOf<AAFLLootCarryPickup> FormClass = Form.ScatterForm ? Form.ScatterForm : ScatterPickupClass;
+	for (FAFLCarriedForm& Bucket : Ledger)
+	{
+		if (Bucket.ScatterForm == FormClass && Bucket.GibMesh == Form.GibMesh)
+		{
+			Bucket.Value += Value;
+			return;
+		}
+	}
+	FAFLCarriedForm& NewBucket = Ledger.AddDefaulted_GetRef();
+	NewBucket.ScatterForm = FormClass;
+	NewBucket.GibMesh = Form.GibMesh;
+	NewBucket.Value = Value;
 }
 
 void UAFLLootCarryComponent::BeginPlay()
@@ -159,6 +190,7 @@ void UAFLLootCarryComponent::HandleExtractionComplete(FGameplayTag /*Channel*/, 
 		// Bank the at-risk pool into the banked wallet (the at-risk -> banked bridge), then zero the pool.
 		Wallet->EarnWattsAuthority(Pool, TEXT("loot-extract"));
 		CommitCarriedDelta(-Pool);
+		Ledger.Reset();   // banked -> no provenance left to carry (sum-invariant: pool is now 0)
 		UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s extracted -> +%d Watts, pool cleared"),
 			*GetNameSafe(GetOwner()), Pool);
 	}
@@ -183,28 +215,68 @@ void UAFLLootCarryComponent::ScatterValue(int32 Amount)
 		return;
 	}
 
-	// Remove from the pool FIRST (authoritative), then spawn recoverable pickups summing to Amount.
+	// Remove from the replicated rail FIRST (authoritative), then DRAIN the server-only ledger in collection
+	// order -- each drained chunk spawns ITS form (cube vs limb gib), summing to Amount. The rail delta is
+	// identical to the pre-ledger behavior, so the proven value path (and afl.LootCarry.Test.Run) is unchanged.
 	CommitCarriedDelta(-Amount);
 
-	if (!ScatterPickupClass)
+	int32 Remaining = Amount;
+	while (Remaining > 0 && Ledger.Num() > 0)
 	{
-		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOOTCARRY: no ScatterPickupClass -- %d removed but not scattered"), Amount);
+		FAFLCarriedForm& Bucket = Ledger[0];   // FIFO = collection order (oldest-collected scatters first)
+		const int32 Take = FMath::Min(Bucket.Value, Remaining);
+		SpawnFormPickups(Bucket.ScatterForm, Bucket.GibMesh, Take);
+		Bucket.Value -= Take;
+		Remaining -= Take;
+		if (Bucket.Value <= 0)
+		{
+			Ledger.RemoveAt(0);
+		}
+	}
+
+	// Desync safety: a ledger that ever under-counts the rail must never silently swallow value -- scatter the
+	// remainder as the default cube. Does not fire while the sum-invariant holds (it always should).
+	if (Remaining > 0)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOOTCARRY: ledger under-counted by %d -- scattering as cube"), Remaining);
+		SpawnFormPickups(ScatterPickupClass, nullptr, Remaining);
+	}
+}
+
+void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, int32 Value)
+{
+	AActor* Owner = GetOwner();
+	UWorld* World = GetWorld();
+	if (!Owner || !World || Value <= 0)
+	{
 		return;
 	}
+	const TSubclassOf<AAFLLootCarryPickup> SpawnClass = Form ? Form : ScatterPickupClass;
+	if (!SpawnClass)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOOTCARRY: no scatter form -- %d not scattered"), Value);
+		return;
+	}
+	// Quantize this form's value into K recoverable chunks (the proven Phase-A spread), each pickup wearing the
+	// form's gib mesh if set (else the pickup's own cube). Deterministic VALUE per chunk; only POSITION jitters.
 	const int32 ChunkSize = 50;
-	const int32 K = FMath::Clamp(FMath::CeilToInt(Amount / static_cast<float>(ChunkSize)), 1, 8);
+	const int32 K = FMath::Clamp(FMath::CeilToInt(Value / static_cast<float>(ChunkSize)), 1, 8);
 	const FVector Base = Owner->GetActorLocation();
-	int32 Remaining = Amount;
+	int32 Remaining = Value;
 	for (int32 i = 0; i < K && Remaining > 0; ++i)
 	{
-		const int32 Per = (i == K - 1) ? Remaining : FMath::Max(1, Amount / K);
+		const int32 Per = (i == K - 1) ? Remaining : FMath::Max(1, Value / K);
 		Remaining -= Per;
 		const FVector Loc = Base + FVector(FMath::RandRange(-150.0f, 150.0f), FMath::RandRange(-150.0f, 150.0f), 40.0f);
 		FActorSpawnParameters Params;
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		if (AAFLLootCarryPickup* Pickup = World->SpawnActor<AAFLLootCarryPickup>(*ScatterPickupClass, Loc, FRotator::ZeroRotator, Params))
+		if (AAFLLootCarryPickup* Pickup = World->SpawnActor<AAFLLootCarryPickup>(*SpawnClass, Loc, FRotator::ZeroRotator, Params))
 		{
 			Pickup->SetValue(Per);
+			if (GibMesh)
+			{
+				Pickup->SetVisualMesh(GibMesh);   // per-spawn form (the limb gib in C2/C3; the test sphere here)
+			}
 		}
 	}
 }
@@ -257,6 +329,44 @@ namespace
 				Message.Instigator = Pawn;
 				UGameplayMessageSubsystem::Get(World).BroadcastMessage(Message.Verb, Message);
 				Ar.Logf(TEXT("afl.Loot.TestExtract -- broadcast Event.Extraction.Complete for %s (watch AFL_LOOTCARRY)."), *Pawn->GetName());
+			}));
+
+	// Phase C1 DIFFERENTIATION proof: collect TWO distinct scatter FORMS into the host pool -- the default cube
+	// and a TEST sphere (engine basic shape -> visually distinct, no new asset) -- so a following scatter/death
+	// drains the ledger and spawns TWO VISUALLY DISTINCT forms (cube + sphere), proving form-accurate provenance.
+	// Collect-only: the operator then drives the EXISTING damage/death/extract to watch the form-accurate drain.
+	// HOST only. Remove post-Phase-C (the real limb-gib forms arrive in C2/C3).
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLLootCarryTestFormsCmd(
+		TEXT("afl.LootCarry.TestForms"),
+		TEXT("Phase C1: collect a cube form + a TEST sphere form into the host pool (proves form-accurate scatter on the next damage/death drain). HOST only."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
+			[](const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World || World->GetNetMode() == NM_Client)
+				{
+					Ar.Log(TEXT("afl.LootCarry.TestForms -- HOST window only (Collect is an authority op)."));
+					return;
+				}
+				APlayerController* PC = World->GetFirstPlayerController();
+				APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+				UAFLLootCarryComponent* Carry = Pawn ? Pawn->FindComponentByClass<UAFLLootCarryComponent>() : nullptr;
+				if (!Carry)
+				{
+					Ar.Log(TEXT("afl.LootCarry.TestForms -- no possessed pawn with a UAFLLootCarryComponent."));
+					return;
+				}
+				// Form 1: the default CUBE (no gib mesh -> the pickup's own cube body).
+				FAFLCarriedForm CubeForm;
+				CubeForm.ScatterForm = AAFLLootCarryPickup::StaticClass();
+				Carry->Collect(150, CubeForm);
+				// Form 2: a TEST SPHERE (engine basic shape -> a distinct silhouette from the cube; stands in for
+				// the C2 limb gib and exercises the exact per-spawn-mesh path the real gib will use).
+				FAFLCarriedForm SphereForm;
+				SphereForm.ScatterForm = AAFLLootCarryPickup::StaticClass();
+				SphereForm.GibMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+				Carry->Collect(150, SphereForm);
+				Ar.Logf(TEXT("afl.LootCarry.TestForms -- collected cube(150) + sphere(150) for %s (pool=%d). Now damage/die to watch TWO DISTINCT forms scatter; afl.Loot.TestExtract to bank+clear."),
+					*Pawn->GetName(), Carry->GetCarriedValue());
 			}));
 }
 #endif // UE_WITH_CHEAT_MANAGER
