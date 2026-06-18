@@ -86,6 +86,13 @@ public:
 	 *  that form (cube vs limb gib). The dismember migration (C3) calls this with the limb's gib form. */
 	void Collect(int32 Value, const FAFLCarriedForm& Form);
 
+	/** Build the dismember scatter FORM (C2): the SAME recoverable carry-pickup (ScatterPickupClass) as the cube,
+	 *  but WEARING a limb GIB MESH (set per-spawn via the pickup's replicated SetVisualMesh) -- NOT a re-spawned
+	 *  reattachable AAFLDismemberedLimb (that carries the owner-reattach branch + a double-grant risk; this is the
+	 *  lighter loot that merely LOOKS like the limb). C3 passes the live limb's own gib mesh (LimbGibMesh /
+	 *  HeadGibMesh); the form then rides the proven Collect(value, form) + C1 ledger/scatter path unchanged. */
+	FAFLCarriedForm MakeLimbForm(UStaticMesh* GibMesh) const;
+
 	/** The carried-loot pool (replicated; the owner's HUD reads this). */
 	UFUNCTION(BlueprintPure, Category = "AFL|Loot")
 	int32 GetCarriedValue() const { return CarriedValue; }

@@ -91,6 +91,17 @@ void UAFLLootCarryComponent::BucketValue(const FAFLCarriedForm& Form, int32 Valu
 	NewBucket.Value = Value;
 }
 
+FAFLCarriedForm UAFLLootCarryComponent::MakeLimbForm(UStaticMesh* GibMesh) const
+{
+	// C2: the dismember scatter form = the cube's recoverable pickup (ScatterPickupClass) WEARING the limb gib
+	// mesh (applied per-spawn by SpawnFormPickups -> AAFLLootCarryPickup::SetVisualMesh). A null GibMesh degrades
+	// to the plain cube. C3 builds this from the live limb's own LimbGibMesh/HeadGibMesh -- no hardcoded path here.
+	FAFLCarriedForm Form;
+	Form.ScatterForm = ScatterPickupClass;
+	Form.GibMesh = GibMesh;
+	return Form;
+}
+
 void UAFLLootCarryComponent::BeginPlay()
 {
 	Super::BeginPlay();
@@ -367,6 +378,52 @@ namespace
 				Carry->Collect(150, SphereForm);
 				Ar.Logf(TEXT("afl.LootCarry.TestForms -- collected cube(150) + sphere(150) for %s (pool=%d). Now damage/die to watch TWO DISTINCT forms scatter; afl.Loot.TestExtract to bank+clear."),
 					*Pawn->GetName(), Carry->GetCarriedValue());
+			}));
+
+	// Phase C2 REAL-GIB proof: collect a cube + a REAL limb-gib form [arm|leg|head] (the actual dismember gib mesh
+	// from /Game/BagMan/Characters/Dismember/) so a following scatter/death shows the scattered loot READING AS THE
+	// REAL LIMB GIB -- the form the C1 sphere stood in for, flowing through the SAME C1 ledger + form-accurate
+	// scatter path via Carry->MakeLimbForm. C3 (the migration) routes dismember-collect to MakeLimbForm with the
+	// LIVE limb's own gib mesh; this cheat hardcodes the verified paths only for the isolated watch. HOST only.
+	// Remove post-Phase-C (with the TestForms sphere cheat).
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLLootCarryTestLimbFormCmd(
+		TEXT("afl.LootCarry.TestLimbForm"),
+		TEXT("Phase C2: collect a cube + a REAL limb-gib form [arm|leg|head] (default arm) into the host pool -> scatter/die to watch it spawn as the real limb gib (not a cube). HOST only."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World || World->GetNetMode() == NM_Client)
+				{
+					Ar.Log(TEXT("afl.LootCarry.TestLimbForm -- HOST window only (Collect is an authority op)."));
+					return;
+				}
+				APlayerController* PC = World->GetFirstPlayerController();
+				APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+				UAFLLootCarryComponent* Carry = Pawn ? Pawn->FindComponentByClass<UAFLLootCarryComponent>() : nullptr;
+				if (!Carry)
+				{
+					Ar.Log(TEXT("afl.LootCarry.TestLimbForm -- no possessed pawn with a UAFLLootCarryComponent."));
+					return;
+				}
+				// Pick the gib by arg (the verified /Game/BagMan/Characters/Dismember/ gib meshes; default arm).
+				const FString Which = Args.Num() > 0 ? Args[0].ToLower() : TEXT("arm");
+				FString GibPath;
+				if (Which == TEXT("leg"))       { GibPath = TEXT("/Game/BagMan/Characters/Dismember/SM_AFL_RobotLeg_Gib.SM_AFL_RobotLeg_Gib"); }
+				else if (Which == TEXT("head")) { GibPath = TEXT("/Game/BagMan/Characters/Dismember/SM_AFL_RobotHead_Gib.SM_AFL_RobotHead_Gib"); }
+				else                            { GibPath = TEXT("/Game/BagMan/Characters/Dismember/SM_AFL_RobotArm_Gib.SM_AFL_RobotArm_Gib"); }
+				UStaticMesh* Gib = LoadObject<UStaticMesh>(nullptr, *GibPath);
+				if (!Gib)
+				{
+					Ar.Logf(TEXT("afl.LootCarry.TestLimbForm -- could not load gib %s"), *GibPath);
+					return;
+				}
+				// Cube baseline + the REAL limb form (carry-pickup wearing the gib mesh) -> two distinct forms.
+				FAFLCarriedForm CubeForm;
+				CubeForm.ScatterForm = AAFLLootCarryPickup::StaticClass();
+				Carry->Collect(150, CubeForm);
+				Carry->Collect(150, Carry->MakeLimbForm(Gib));
+				Ar.Logf(TEXT("afl.LootCarry.TestLimbForm -- collected cube(150) + %s gib(150) for %s (pool=%d). Damage/die to watch the REAL %s gib scatter (not a cube); afl.Loot.TestExtract to bank+clear."),
+					*Which, *Pawn->GetName(), Carry->GetCarriedValue(), *Which);
 			}));
 }
 #endif // UE_WITH_CHEAT_MANAGER
