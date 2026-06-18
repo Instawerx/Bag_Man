@@ -1,9 +1,10 @@
-# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v4
+# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v5
 
-Finalized decision record. **v4 amendment (below) records Phase B as SHIPPED and resolves the Phase-C
-PROVENANCE fork (skills-grounded); v3 added the PHYSICAL-OBJECT LIFECYCLE layer + recorded Phase A SHIPPED with
-the wallet-rail pivot.** v2's 3 locked operator decisions are still in force. Governs how collected loot is
-held (and Phase-4 harvest too).
+Finalized decision record. **v5 amendment (below) is the OVERLAP-PICKUP pivot — AUTO-PICKUP (walk-over) for body
+parts + all loot EXCEPT map objects, superseding the collect-channel; v4 recorded Phase B SHIPPED + resolved the
+Phase-C provenance fork; v3 added the PHYSICAL-OBJECT LIFECYCLE + recorded Phase A SHIPPED (wallet-rail).** v2's
+3 locked operator decisions stand **EXCEPT Locked Decision 3** (the collect-channel) — superseded by v5. Governs
+how collected loot is held (and Phase-4 harvest too).
 
 **v3 amendment (2026-06-18):**
 - **Phase A SHIPPED (`4d4cba28`) — the value layer pivoted to a WALLET-RAIL int, not inventory.** PIE proved
@@ -38,6 +39,44 @@ held (and Phase-4 harvest too).
   resolved by a **thin, SERVER-ONLY provenance ledger** beside the proven int rail. The bulk value stays
   fungible (Phase A's wallet-rail decision STANDS); a bounded form→value ledger drives form-accurate scatter,
   and because **scatter is authority-only the ledger needs no replication at all.**
+
+**v5 amendment (2026-06-18) — the OVERLAP-PICKUP pivot (B+C reframe; operator-confirmed interaction model):**
+A C3 PIE watch surfaced two failures the spawn-logs hid: **(1)** a knocked-loose head reappears as a **CUBE**,
+not a head; **(2)** a CLIENT can't pick up an enemy head — the physics-prop head **SHOVES** the pawn and **"G"
+doesn't fire**. Root cause: **the GRAB/CHANNEL is the wrong mechanism for body parts.** Operator-confirmed model:
+**AUTO-PICKUP (walk-over) for body parts + ALL loot EXCEPT map objects; the deliberate GRAB is reserved for map
+objects (movable obstacles) + the OWNER-reattach.** This **supersedes Locked Decision 3** (the collect-channel)
+for loot.
+- **Enemy-collect = OVERLAP.** Reuse the proven `UAFLOverlapCollectComponent` (extracted from the energy pickup,
+  worn by the INSTANT cache) — a **QueryOnly sphere that overlaps pawns with ZERO physics shove** → fires
+  `OnCollected` → `TryGrant` → +pool + despawn. Fixes **(2)** for free (no grab, no shove). Skills:
+  `afl-cpp-lyra-developer` (*extend the proven substrate, don't rewrite*) + `ue5-interaction-ik-expert` (passive
+  overlap-trigger for auto-collect vs the deliberate, IK-driven manipulation that is the grab).
+- **Owner-reattach = the GRAB — DELIBERATE + owner-only** (preserved: "owner = a deliberate press"). **align #2
+  nuance:** the overlap is **ENEMY-ONLY** — the owner walking over does **NOT** auto-reattach (reattach stays a
+  deliberate grab). Enemy-only gating: the overlap's `IsViableCollector` consults the grant's
+  `ResolveRetrievalMode` (the C3 SSOT, same-module) → viable **iff `EnemyCollect`**; `OwnerReattach`/`Ineligible`
+  → not viable → the owner's head persists for the deliberate grab.
+- **The C3 grab-ROUTER + the collect-CHANNEL are SUPERSEDED.** The `IAFLLootRetrievalRouter` **interface** + the
+  grab-ability channel-routing **DROP** (the overlap handles enemy-collect; the grab reverts to the proven
+  owner-reattach via `TryGrant`'s owner-seam). **`ResolveRetrievalMode` STAYS on the grant** (the overlap
+  consults it). The channel **BASE** (`UAFLGameplayAbility_Channel`) **SURVIVES for Phase-4 HARVEST**; only the
+  loot USE of it (`UAFLAG_CollectChannel` + `UAFLGE_Channel`) is retired. *(With the overlap auto-collecting the
+  enemy at proximity, an enemy never reaches the grab on a body part — "grab reserved for map objects" holds in
+  practice; an explicit owner-only grab gate can be re-added if ever needed.)*
+- **Caches → overlap too** (align #1): the **CARRY cache drops its channel** + wears the overlap (converging with
+  the INSTANT cache — both walk-over auto-collect; the higher CARRY value is the only difference).
+- **Collision (align #3):** the head/limb **physics body overlaps the PAWN** (no shove) while **world-blocking**
+  (the death-tumble survives); the separate overlap **sphere** is the collect trigger. (`ECC_Pawn` → Overlap on
+  the gib body; Block world.)
+- **WHAT CARRIES OVER (mechanism-agnostic, proven):** the carried pool (A), the C1 provenance ledger, the C2
+  limb-gib form, C3's value-side (`Configure→CarryToExtractEnergy`, `MakeLimbForm`, despawn-on-collect). **ONLY
+  the collection TRIGGER changes** (overlap, not grab-channel). No work is lost.
+- **BUG-1 (the cubes) = a SCALE bug, fixed here:** the scattered gib applies correctly but renders at the cube's
+  `0.3` scale (~6 cm — *smaller than the 30 cm cubes*, so it's lost = "boxes not heads"). `ApplyVisualMesh`
+  resets the pickup's scale to native (`1.0`) when a gib applies (the cube keeps `0.3`) → full-size scattered
+  head/limb. (If full-size is STILL a cube, `SetVisualMesh` isn't landing → deeper diagnosis; an instrument log
+  rides this increment to confirm.)
 
 **Locked decisions (this revision):**
 1. **Fungible value-item.** The cache is a single `ID_AFL_Loot` (value + stack) — collected loot adds to a
@@ -295,6 +334,36 @@ The migration swaps only the enemy-collect value model — these are **untouched
 owner-vs-enemy branch (controller-match), the persist (`InitialLifeSpan=0`), the `RestoreZone` reattach, the
 grant-once guard (`bSpent`), and the owner-death-vanish (`OnDeathStarted`; memory-flagged unverified — verify
 in C).
+
+---
+
+## STEP 2D — the OVERLAP-PICKUP build plan (v5 — the B+C reframe)
+
+The collection TRIGGER changes from grab-channel to overlap auto-pickup; the proven value-side carries over.
+Built in WATCHED increments (✅ = the operator SEES it on screen, never a spawn-log):
+
+- **E1 — the gib SCALE fix (BUG-1).** `AAFLLootCarryPickup::ApplyVisualMesh` resets `VisualMesh` scale to `1.0`
+  when a gib applies (the cube keeps `0.3`) + a one-line instrument log confirming `SetVisualMesh` landed the
+  gib. ⚠ touches the (uncommitted) C1 pickup. **Proves (WATCHED):** a scattered gib (`afl.LootCarry.TestLimbForm`
+  → damage/die) reads as a **FULL-SIZE** head/arm/leg, not a 6 cm token. *If still a cube at full size →
+  `SetVisualMesh` isn't landing → diagnose before proceeding.*
+- **E2 — the enemy OVERLAP auto-collect + the collision (NEW + ⚠ shipped dismember).** The head/limb wear a
+  `UAFLOverlapCollectComponent` (QueryOnly sphere) → `OnCollected` → `TryGrant` → +pool + despawn. The overlap's
+  `IsViableCollector` consults the grant's `ResolveRetrievalMode` → **`EnemyCollect` only**. The gib body's
+  `ECC_Pawn` → Overlap (no shove), Block world (tumble). **Proves (WATCHED):** an ENEMY walks over a head →
+  **auto-collected, NO shove, NO "G"** (+pool, despawn); the OWNER walks over → **does NOT auto-reattach**.
+- **E3 — drop the grab-channel + caches→overlap (⚠ uncommitted C3 + Phase-B cache).** Revert the C3 grab-ability
+  routing (the grab → the proven owner-reattach via `TryGrant`); drop `IAFLLootRetrievalRouter` + retire
+  `UAFLAG_CollectChannel`'s loot use (the channel BASE stays for HARVEST). The CARRY cache drops its channel +
+  wears the overlap. **Proves (WATCHED):** the OWNER grabs (deliberate G) → **reattach** (RestoreZone, no pool);
+  a CARRY/INSTANT cache walk-over → auto-collect; a map stress-object still hand-carries.
+- **E4 — the FULL-loop re-watch (the gate that closes the intent).** Enemy walks over a head → auto-collect →
+  +160 pool → despawn → shot/dies → **a FULL-SIZE head gib on the ground, CROSS-CLIENT (a client sees a head)** →
+  recover → extract → +160 banks. Same arm/leg (+20). **This is the ✅ the C3 watch was missing.**
+
+The channel-window re-grab spam is now **MOOT** (no grab-channel for loot). The C3 work is **not lost** — the
+value-side (`Configure`/`MakeLimbForm`/despawn) + the ledger + the form carry over; only the grab-router/channel
+revert.
 
 ---
 
