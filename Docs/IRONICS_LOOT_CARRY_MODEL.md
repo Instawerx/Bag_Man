@@ -580,20 +580,24 @@ their own tokens -> their Watts; the team total sums the team's extractions). Pa
   unit FOR PARTS (parts are a token list now; the int rail is cache-only). STEP 2E is refined to parts-primary.
 
 ### Phased build plan (each WATCHED; ⚠ = re-touches SHIPPED code)
-- **V7-1 ⚠ — the token + indivisible scatter.** `FAFLCarriedPart` + the `CarriedParts` list (replacing the
-  value-bucket for parts); collect -> append a token; scatter -> drop whole tokens (death = all; a hit = one
-  token, default order). The dismember `Configure` supplies the token (owner-id + zone + fixed value + mesh +
-  material). **WATCHED:** one head collected -> die -> exactly ONE head, ALWAYS -- and in COMBAT (multiple hits),
-  still one whole head, NO fragmentation (the residue is gone); two heads -> two.
-- **V7-2 ⚠ — owner+zone identity + uniform reattach-after-collect.** The pickup carries `{OwnerPlayerId,
-  OriginZone}` (replicated); overlap/grab resolves owner -> `RestoreZone(OriginZone)` vs enemy -> collect.
-  **WATCHED (2-client):** an enemy collects aria's head -> gets hit -> the head drops -> **aria walks over it and
-  REATTACHES it to her head slot**; a non-owner collects it; a left leg reattaches to the LEFT slot.
-- **V7-3 ⚠ — smallest-first drop order.** The hit drops the smallest-`FixedValue` token first (leg -> leg -> arm
-  -> arm -> head). **WATCHED:** take sustained hits -> legs drop first, the head clings, head drops last / on death.
-- **V7-4 ⚠ — extraction count.** `ExtractAll` sums `CarriedParts.FixedValue` -> Watts (+ the cache int); team
-  aggregation. **WATCHED:** carry N parts through extraction -> +sum Watts; tokens clear; team total reflects the
-  team's extractions.
+- **V7-1 ✅ SHIPPED `7c6effc6` — the token + indivisible scatter.** `FAFLCarriedPart` + the `CarriedParts` list
+  (replacing the value-bucket for parts); collect -> append a token; scatter -> drop whole tokens (death = all; a
+  hit = one token). The dismember `Configure` supplies the token (owner-id + zone + fixed value + mesh + material).
+  **WATCHED:** one head collected -> die -> exactly ONE head; combat multi-hit, still one whole head, no fragmentation.
+- **V7-2 ✅ SHIPPED `7c6effc6` — owner+zone identity + uniform reattach-after-collect.** The pickup carries
+  `{OwnerPlayerId, OriginZone}` (replicated); collect resolves owner -> `RestoreZone(OriginZone)` (via
+  `IAFLPartReattachTarget`) vs enemy -> collect. **WATCHED (2-client):** an enemy collected C_1's head -> got hit ->
+  the head dropped as a real gib -> **C_1 walked over it and REATTACHED it** (the CLIENT-side reattach).
+- **V7-3 ✅ SHIPPED `7bd200e7` — smallest-first drop order.** `ScatterOnePart` sorts `CarriedParts` ascending by
+  `FixedValue` before dropping `[0]`. **WATCHED:** sustained hits dropped leg=16, then arm=27, then head=160 (head clings last).
+- **V7-4 ✅ SHIPPED `7bd200e7` — extraction count.** `HandleExtractionComplete` sums `CarriedParts.FixedValue`
+  alongside the cache int and banks BOTH, then clears both (the `Total` early-out banks a parts-only carry — empty
+  rail). **WATCHED:** `+187 Watts (0 cache + 187 parts), pools cleared`.
+  **TEAM AGGREGATION IS A FUTURE PIECE (NOT built):** the bank is **PER-PLAYER** (the wallet is on the extractor's
+  PlayerState, via the existing `EarnWattsAuthority`). The project has **no team-score system** yet — the only
+  `TeamId` is cosmetic (ARIA-faction skin), not a scoreboard. A team-mode-at-BR-scale design must add a team-score
+  system FIRST; extraction banking is per-player today. (Supersedes the "team total reflects the team's extractions"
+  intent above — that's the deferred layer, not the shipped behavior.)
 
 The residue is DESIGNED OUT at V7-1 (indivisibility) -- "one head = one head" holds in combat from the FIRST
 phase, not deferred to a drop-rule phase. Each phase ends operator-WATCHED (✅ = seen on screen).
