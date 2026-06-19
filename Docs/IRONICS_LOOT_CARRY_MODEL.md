@@ -1,4 +1,4 @@
-# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v5
+# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v6
 
 Finalized decision record. **v5 amendment (below) is the OVERLAP-PICKUP pivot — AUTO-PICKUP (walk-over) for body
 parts + all loot EXCEPT map objects, superseding the collect-channel; v4 recorded Phase B SHIPPED + resolved the
@@ -77,6 +77,19 @@ for loot.
   resets the pickup's scale to native (`1.0`) when a gib applies (the cube keeps `0.3`) → full-size scattered
   head/limb. (If full-size is STILL a cube, `SetVisualMesh` isn't landing → deeper diagnosis; an instrument log
   rides this increment to confirm.)
+
+**v6 amendment (2026-06-18) — the DISCRETE-PART-TOKEN model (operator-approved; the coherent dismember-loot spine):**
+Two PIE findings drove it: **(1)** the value-chunk quantizer scatters a 160-head as `ceil(160/50)=4` head-gibs
+("4 heads from 1"); **(2)** the fungible pool drops owner-identity at collect, so a scattered-after-collect part is
+loot-only (can't be reattached). BOTH are data-model limits, not laws. v6 makes a DISMEMBER PART a DISCRETE TOKEN
+(owner-id + origin-zone + unit-value + gib mesh/material) that flows freely — collected, lost, reattached, lost,
+collected — with value crystallizing ONLY at extraction (COUNT the parts you got away with). This supersedes the
+per-form fungible VALUE for PARTS; **caches stay fungible** (cube currency, value-chunked, unchanged). The
+discreteness also DISSOLVES the partial-drop tension (a part is indivisible -> hits eject WHOLE parts, never a
+fraction). The proven spine — C1 server-only ledger, C2 gib-form, the presentation pass (material/pop/landing),
+the Static-cue reattach (`c295de2c`) — ALL carries over; v6 enriches the token + the quantizer + the routing.
+Additive. **See STEP 2E for the whole model + the F1-F4 phased plan.** Supersedes the E4 fungible full-loop intent
+(the loop is now token-based) but keeps E1-E3 as shipped (scale fix, overlap, the cue reattach).
 
 **Locked decisions (this revision):**
 1. **Fungible value-item.** The cache is a single `ID_AFL_Loot` (value + stack) — collected loot adds to a
@@ -364,6 +377,109 @@ Built in WATCHED increments (✅ = the operator SEES it on screen, never a spawn
 The channel-window re-grab spam is now **MOOT** (no grab-channel for loot). The C3 work is **not lost** — the
 value-side (`Configure`/`MakeLimbForm`/despawn) + the ledger + the form carry over; only the grab-router/channel
 revert.
+
+---
+
+## STEP 2E — the DISCRETE-PART-TOKEN model (v6 — the coherent dismember-loot spine)
+
+v6 resolves two PIE-surfaced limits of the fungible-value model AS ONE coherent system: **(1)** the value-chunk
+quantizer fragments one part into many (`K=ceil(Value/50)` -> a 160-head scatters as 4 head-gibs); **(2)** the
+fungible pool drops owner-identity at collect, so a scattered-after-collect part can't be reattached. The fix:
+make a DISMEMBER PART a DISCRETE TOKEN carrying its own identity — collected/lost/reattached/lost/collected
+freely; value crystallizes ONLY at extraction (count). **Caches stay fungible** (cube currency, unchanged).
+
+### Skill-grounding (cited)
+- **`afl-cpp-lyra-developer` (SKILL.md:20-22 "extend Lyra, don't rewrite"; rule 4 / trap #3 net rules).** The
+  token's OWNER ref is NET-SAFE: a stable player-id `int32` (`APlayerState::GetPlayerId()`), NEVER a raw pointer
+  or a hard `APlayerState*` (survives respawn + relevancy). The reattach resolver is SERVER-AUTH (player-id ->
+  PlayerState -> pawn -> `RestoreZone`) — the same server-resolved shape the proven owner-reattach already uses.
+  The carried-parts ledger EXTENDS C1's server-only `CarriedForms` into a token list — not a rewrite.
+- **`unreal-engine-expert` (networking — scatter is authority-only).** The parts ledger stays SERVER-ONLY (no
+  replication): scatter `SpawnActor` is authority-only; the reattach owner-check is server-auth. The SCATTERED
+  PICKUP carries the replicated identity (owner-id + zone + unit-value) on ITS OWN actor (for the check +
+  display) — not the carrier's ledger. The HUD reads a replicated derived `int32` (part count + sum-value).
+  `FFastArraySerializer` stays the scale-up path if the ledger ever needs client replication.
+- **`expert-game-designer` — FLAGGED NOT-COVERING (per doctrine: flag-missing, don't-invent).** This skill is
+  VISUAL/UI design (Apple Glass, HUD, environment, character) — it has NO loot-economy or partial-drop-feel
+  reference (refs: ui-hud/environment/character/pipelines/ue5-design/afl-design). So the economy-feel is grounded
+  in **`IRONICS_ECONOMY_SPEC.md`** instead: head=160 / limb=20 (§3a); NO RANDOMIZED ACQUISITION (§0); integer
+  value conservation; value at-risk until extraction (§3a + the v5 model). The token model honors all of these.
+
+### The token (data model)
+`FAFLCarriedPart` (evolves `FAFLCarriedForm`): `{ int32 OwnerPlayerId; EAFLBodyZone OriginZone; int32 UnitValue;
+TObjectPtr<UStaticMesh> GibMesh; TObjectPtr<UMaterialInterface> GibMaterial; }`. One token = one discrete severed
+part. `OwnerPlayerId = GetPlayerId()` (net-safe, stable); `UnitValue` = 160 (head) / 20 (limb) from the zone row.
+The carrier holds a SERVER-ONLY `TArray<FAFLCarriedPart> CarriedParts` (C1's ledger, now a token list — flat is
+simplest for identity; bounded, a player carries a handful). The fungible cache-value `int32` track (v5) stays
+UNCHANGED beside it. The HUD reads a replicated derived `int32 CarriedPartCount` + `int32 CarriedPartValue`.
+
+### Discrete-whole-part scatter (fixes "4 heads from 1")
+`SpawnFormPickups` QUANTIZER RULE: a PART token scatters as ONE WHOLE part-pickup (one pickup = one whole part,
+carrying its token); a CUBE/cache bucket keeps `K=ceil(Value/50)` value-chunks (fungible currency, correctly
+spread). So N heads + M limbs come out as N+M discrete pickups — never `ceil(160/50)=4`. Each scattered
+part-pickup (`AAFLLootCarryPickup`) carries the token's `{OwnerPlayerId, OriginZone, UnitValue, GibMesh,
+GibMaterial}`, replicated on the pickup actor.
+
+### Dual routing — reattach becomes UNIFORM (off the carried identity)
+A part-pickup, on overlap/grab, resolves the SAME owner-vs-enemy split a FRESH severed part uses — but driven by
+the CARRIED `OwnerPlayerId` now (server-auth):
+- toucher player-id == `pickup.OwnerPlayerId` -> **REATTACH**: resolve the owner's pawn -> `RestoreZone(
+  pickup.OriginZone)` (the proven Static-cue path, `c295de2c`) -> the part returns to the owner's body, the token
+  leaves the world. NO value (body-restoration — consistent with §3a owner-reattach = no-Watts).
+- toucher != owner -> **COLLECT**: the token enters the toucher's `CarriedParts` (as today, now with identity).
+So reattach is UNIFORM: ANY part — fresh-severed OR scattered-after-collect — is owner-reattachable +
+enemy-collectible. An owner can chase their head across the map and reclaim it even after an enemy collected + dropped it.
+- VALUE BOOKKEEPING (operator flag, confirmed conserved): a part is reattachable only while it is a WORLD PICKUP
+  (fresh OR scattered). Once an enemy COLLECTS it (token in their pool, invisible — Decision B), the owner can't
+  reach it until it SCATTERS back out; the enemy LOST the token on scatter (it left their pool when hit), so the
+  owner's reattach takes nothing from the enemy — no double-count. If the enemy carries it to EXTRACTION instead,
+  it's counted + gone (the owner's window closed). Value conserved at every step.
+
+### Extraction — count at the checkpoint (the operator's keystone)
+NO value crystallizes at collect. At the EXTRACTION checkpoint the carrier's `CarriedParts` are COUNTED:
+`sum(UnitValue)` -> Watts (head=160, limb=20) via `EarnWattsAuthority`, tokens clear (cashed in); the fungible
+cache int banks in the same step. **TEAMS:** the count aggregates per TEAM — each player extracts their own
+tokens -> their Watts; the team total = sum of the team's extractions (the team is looked up at count-time from
+each owner's PlayerState; the token carries the player-id, not a team-id). No carry-mechanic change for teams — a
+scoring aggregation. So carried parts are pure PHYSICAL TOKENS until extraction: "got away with cleanly" is the
+only thing that pays.
+
+### Partial-drop — RESOLVED by discreteness (the STEP-1 question)
+The token model dissolves the "33% of a 160-head = 53 (less than a whole part)" tension: a part is INDIVISIBLE,
+so a hit ejects WHOLE part(s), never a fraction. The v5 portion-on-hit principle (decision 2) adapts to a COUNT:
+on a confirmed hit, scatter `K` WHOLE part-tokens; on death, scatter ALL. The fungible cache track keeps its
+percentage drop (divisible currency). **OPERATOR SUB-CHOICE for K (parts-per-hit feel):**
+- **(K-a) one whole part per hit** — simplest, predictable; a hit knocks a single trophy loose.
+- **(K-b) a fraction of the carried part-count** (~33%, rounded, min 1) — scales with load (the v5 portion
+  principle, discretized); a heavily-laden carrier bleeds more per hit.
+- Either drains FIFO (oldest-collected first, like the C1 drain); NO RANDOMIZED ACQUISITION holds (deterministic).
+  **RECOMMENDATION: K-b** (preserves v5's "the more you carry, the more you risk" while staying discrete); K-a if
+  the operator wants a flatter, more readable per-hit feel.
+
+### What carries over (the proven spine — additive)
+C1's server-only ledger, C2's limb-gib form, the presentation pass (material-carry + directional/angular pop +
+collectible-on-settle), the Static-cue reattach (`c295de2c`) ALL carry over. v6 ENRICHES the token (owner-id +
+zone + unit-value), changes the QUANTIZER (whole-part vs value-chunk), and routes the pickup off the carried
+identity. The fungible cache track is untouched.
+
+### Phased build plan (each WATCHED; ⚠ = re-touches SHIPPED code)
+- **F1 ⚠ — discrete-whole-part scatter.** `FAFLCarriedForm` -> token (`+UnitValue`); `SpawnFormPickups`
+  whole-part rule for gib-forms (cube-forms keep the chunk); the dismember `Configure` supplies the unit-value.
+  **WATCHED:** collect ONE enemy head -> scatter -> exactly ONE head-gib (not 4); collect two DIFFERENT players'
+  heads -> scatter -> TWO heads (count correct).
+- **F2 ⚠ — owner-identity carry + the dual reattach routing.** `FAFLCarriedPart` `+OwnerPlayerId +OriginZone`;
+  the pickup carries them (replicated); overlap/grab resolves owner->`RestoreZone` vs enemy->collect off the
+  carried id; the dismember `Configure` supplies the owner-id + zone. **WATCHED (2-client):** an enemy collects
+  player-X's head -> gets hit -> the head scatters -> **player-X walks over it and REATTACHES it**
+  (reattach-after-collect); a non-owner walks over -> collects it.
+- **F3 ⚠ — extraction count.** `ExtractAll` sums `CarriedParts` unit-values -> Watts (+ the cache int); team
+  aggregation at count-time. **WATCHED:** carry N heads + M limbs through extraction -> **+N×160 + M×20 Watts**;
+  tokens clear; in a team match the team total reflects both members' extractions.
+- **F4 ⚠ — discrete partial-drop + tuning.** The chosen K-rule on `Event.Damage.Confirmed`; ALL on death.
+  **WATCHED:** a hit ejects WHOLE part(s) (never fractional); death ejects all; 2-client recovery.
+
+Each F-phase ends operator-WATCHED (✅ = seen on screen). Risk/reward intact: collect freely, but parts are
+at-risk until extraction (drop whole ones per hit, lose all on death, an owner can reclaim theirs).
 
 ---
 
