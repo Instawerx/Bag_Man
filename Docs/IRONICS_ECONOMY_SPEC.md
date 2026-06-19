@@ -111,8 +111,15 @@ your own body).
 
 | Combat-loot item | Watts (to the ENEMY retriever) | Notes |
 |---|---|---|
-| Head | **160** | Severed-head retrieval (the head loot-box's enemy-collect). |
-| Limb (each of 4) | **20** | = head / 8, FLAT across left/right arm + left/right leg. |
+| Head | **160** | Severed-head retrieval. The prize -- head>>arm>leg (the v7 ratio). |
+| Arm (L/R) | **27** | Per arm (left/right same value; the zone is L/R-specific for reattach). |
+| Leg (L/R) | **16** | Per leg. The smallest -- legs drop first under fire (v7 smallest-first), the head clings. |
+
+> **v7 RE-PEG (2026-06-19):** the flat limb=20 (head/8) is superseded by **differentiated arm=27 / leg=16** --
+> the operator's 1500:250:150 (head:arm:leg) ratios re-scaled to the proven head=160 peg (integer, 160>27>16, no
+> collapse). Arm>leg makes the smallest-first drop order meaningful (legs are the cheap thing you bleed first).
+> Each part is now an INDIVISIBLE TOKEN carrying this FIXED value (the v7 PART-TOKEN model -- see
+> IRONICS_LOOT_CARRY_MODEL.md STEP 2F); value is summed at extraction, not banked at collect.
 
 - GRANT MECHANISM: `UAFLWalletComponent::EarnWattsAuthority(<value>, "head-loot" | "limb-loot")`
   on the GRABBER's wallet, server-authority. OWNER self-retrieve = reattach via
