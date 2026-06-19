@@ -78,6 +78,17 @@ void AAFLLootCarryPickup::OnRep_VisualMaterial()
 	ApplyVisualMesh();
 }
 
+void AAFLLootCarryPickup::SetArmDelay(float Seconds)
+{
+	// The overlap stays inert until ActivationDelay seconds after BeginPlay -- so this MUST be set BEFORE BeginPlay
+	// (the cache scatter uses deferred spawn). Without it a scattered cube arms at BeginPlay + is absorbed
+	// point-blank by the stationary dropper. The part scatter sets the same beat inline in InitPartToken below.
+	if (Overlap)
+	{
+		Overlap->ActivationDelay = Seconds;
+	}
+}
+
 void AAFLLootCarryPickup::InitPartToken(int32 InOwnerPlayerId, EAFLBodyZone InZone, int32 InValue, UStaticMesh* InMesh, UMaterialInterface* InMaterial)
 {
 	// AUTHORITY (the carry's SpawnPartPickup): a dismember PART pickup -- the token's identity replicates for the

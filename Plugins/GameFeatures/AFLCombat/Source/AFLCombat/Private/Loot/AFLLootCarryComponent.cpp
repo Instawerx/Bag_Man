@@ -197,27 +197,42 @@ void UAFLLootCarryComponent::HandleExtractionComplete(FGameplayTag /*Channel*/, 
 	{
 		return;   // someone else's extraction
 	}
-	const int32 Pool = CarriedValue;
-	if (Pool <= 0)
+	// V7-4: extraction COUNT -- bank BOTH the fungible cache rail (CarriedValue) AND the carried PART tokens' fixed
+	// values, then clear both. Pre-V7-4 only the rail banked, so a head/limb a player carried to extraction had its
+	// value silently DROPPED (the tokens live on CarriedParts, beside the rail). Sum the indivisible tokens here.
+	int32 PartSum = 0;
+	for (const FAFLCarriedPart& Part : CarriedParts)
 	{
-		return;
+		PartSum += Part.FixedValue;
+	}
+	const int32 Pool = CarriedValue;
+	const int32 Total = Pool + PartSum;
+	if (Total <= 0)
+	{
+		return;   // nothing carried (rail empty AND no part tokens)
 	}
 	APawn* Pawn = Cast<APawn>(GetOwner());
 	APlayerState* PS = Pawn ? Pawn->GetPlayerState() : nullptr;
 	UAFLWalletComponent* Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
 	if (Wallet)
 	{
-		// Bank the at-risk pool into the banked wallet (the at-risk -> banked bridge), then zero the pool.
-		Wallet->EarnWattsAuthority(Pool, TEXT("loot-extract"));
-		CommitCarriedDelta(-Pool);
-		Ledger.Reset();   // banked -> no provenance left to carry (sum-invariant: pool is now 0)
-		UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s extracted -> +%d Watts, pool cleared"),
-			*GetNameSafe(GetOwner()), Pool);
+		// Bank the at-risk pools into the banked wallet -- PER-PLAYER (the wallet is on the EXTRACTOR's PlayerState;
+		// the project has no team-score system, only cosmetic teams). Then zero BOTH so a second extract can't
+		// double-bank (mirrors the rail's CommitCarriedDelta + Ledger.Reset, now extended to the token track).
+		Wallet->EarnWattsAuthority(Total, TEXT("loot-extract"));
+		if (Pool > 0)
+		{
+			CommitCarriedDelta(-Pool);
+		}
+		Ledger.Reset();        // cache provenance banked (sum-invariant: rail now 0)
+		CarriedParts.Empty();  // V7-4: part tokens banked -> cleared
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s extracted -> +%d Watts (%d cache + %d parts), pools cleared"),
+			*GetNameSafe(GetOwner()), Total, Pool, PartSum);
 	}
 	else
 	{
-		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOOTCARRY: %s extracted but no wallet found -- pool %d not banked"),
-			*GetNameSafe(GetOwner()), Pool);
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOOTCARRY: %s extracted but no wallet found -- %d not banked"),
+			*GetNameSafe(GetOwner()), Total);
 	}
 }
 
@@ -288,9 +303,16 @@ void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> F
 		const int32 Per = (i == K - 1) ? Remaining : FMath::Max(1, Value / K);
 		Remaining -= Per;
 		const FVector Loc = Base + FVector(FMath::RandRange(-150.0f, 150.0f), FMath::RandRange(-150.0f, 150.0f), 40.0f);
-		FActorSpawnParameters Params;
-		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		if (AAFLLootCarryPickup* Pickup = World->SpawnActor<AAFLLootCarryPickup>(*SpawnClass, Loc, FRotator::ZeroRotator, Params))
+		const FTransform SpawnTM(FRotator::ZeroRotator, Loc);
+		// CACHE SPAWN-RACE FIX (mirrors the part fix in 7c6effc6): deferred spawn so value/mesh/material + the arm
+		// delay are set BEFORE BeginPlay registers the collect. A plain SpawnActor armed the overlap first -> a cube
+		// spawned point-blank on a stationary dropper self-collected the same frame with its DEFAULT value (50), not
+		// Per. The 1.5s arm-delay then lets the cube land + present (value-fungible, low-risk; the harness asserts
+		// pool deltas, not immediate re-collect, so it holds 10/10).
+		AAFLLootCarryPickup* Pickup = World->SpawnActorDeferred<AAFLLootCarryPickup>(
+			*SpawnClass, SpawnTM, /*Owner=*/nullptr, /*Instigator=*/nullptr,
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+		if (Pickup)
 		{
 			Pickup->SetValue(Per);
 			if (GibMesh)
@@ -301,6 +323,8 @@ void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> F
 			{
 				Pickup->SetVisualMaterial(GibMaterial);   // PRESENTATION: the victim's slot-1 MIC -> skinned gib
 			}
+			Pickup->SetArmDelay(1.5f);   // present-before-collectible -- the same beat the part scatter uses
+			Pickup->FinishSpawning(SpawnTM);
 		}
 	}
 }
@@ -338,7 +362,10 @@ void UAFLLootCarryComponent::ScatterOnePart()
 	{
 		return;   // no parts -> nothing here (the cache %-scatter is separate)
 	}
-	// V7-1: drop ONE WHOLE token. Order ARBITRARY (FIFO, oldest first); V7-3 sorts smallest-FixedValue-first.
+	// V7-3: drop the SMALLEST part first -- sort ascending by FixedValue so [0] is the cheapest token. Legs (16)
+	// bleed first under sustained fire; the head (160) clings, dropping LAST. Selection/order only -- the token data
+	// + every other path are untouched (ScatterAllParts drops the whole set, order-independent).
+	CarriedParts.Sort([](const FAFLCarriedPart& A, const FAFLCarriedPart& B) { return A.FixedValue < B.FixedValue; });
 	const FAFLCarriedPart Part = CarriedParts[0];
 	CarriedParts.RemoveAt(0);
 	SpawnPartPickup(Part);

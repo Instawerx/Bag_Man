@@ -44,6 +44,11 @@ public:
 	 *  MIC so the gib is skinned). Replicated so the skinned FORM reads correctly on every client. */
 	void SetVisualMaterial(UMaterialInterface* InMaterial);
 
+	/** AUTHORITY: set the overlap's present-before-collectible arm delay per-spawn -- the CACHE scatter sets it (via
+	 *  deferred spawn, BEFORE BeginPlay) so a point-blank cube LANDS instead of self-collecting on the dropper. The
+	 *  part scatter sets the same beat inline in InitPartToken. */
+	void SetArmDelay(float Seconds);
+
 	/** AUTHORITY (V7-1): make this a dismember PART pickup -- set the token's {owner, zone, value} + the gib
 	 *  mesh/material. OwnerPlayerId != INDEX_NONE marks it a PART (HandleCollected routes to CollectPart); owner +
 	 *  zone replicate for the V7-2 owner-check. The carry component's SpawnPartPickup calls this. */
