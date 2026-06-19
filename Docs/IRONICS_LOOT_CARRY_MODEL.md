@@ -1,4 +1,4 @@
-# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v6
+# IRONICS — Loot-Carry Model (collect-vs-carry-object split) — v7
 
 Finalized decision record. **v5 amendment (below) is the OVERLAP-PICKUP pivot — AUTO-PICKUP (walk-over) for body
 parts + all loot EXCEPT map objects, superseding the collect-channel; v4 recorded Phase B SHIPPED + resolved the
@@ -90,6 +90,20 @@ fraction). The proven spine — C1 server-only ledger, C2 gib-form, the presenta
 the Static-cue reattach (`c295de2c`) — ALL carries over; v6 enriches the token + the quantizer + the routing.
 Additive. **See STEP 2E for the whole model + the F1-F4 phased plan.** Supersedes the E4 fungible full-loop intent
 (the loop is now token-based) but keeps E1-E3 as shipped (scale fix, overlap, the cue reattach).
+
+**v7 amendment (2026-06-19) — the PART-TOKEN model (parts PRIMARY, INDIVISIBLE):** F1's PIE watch exposed the
+residue's ROOT -- deriving the part COUNT from VALUE (`round(Value/UnitValue)`) + a value-based drain = a
+partial-value scatter ("53 of a head") that FRAGMENTS across sustained combat hits (4 hits -> 4 partial heads).
+v7 makes a part PRIMARY + INDIVISIBLE: a token IS one whole part with a FIXED value -- no quantizer, no derive,
+no value-math, so the residue is DESIGNED OUT (not patched). It ABSORBS F2 (identity = the token's owner +
+SPECIFIC zone) and F4 (drop = whole tokens, SMALLEST-first; the head clings hardest) into ONE model. **F1 is
+SUPERSEDED -- NOT committed** (subsumed by indivisibility; no quantizer at all now). Value-at-extraction (the v6
+keystone) is KEPT; caches stay a fungible int beside the token list (cubes are not tokens). ⚠ the fixed values
+(operator's illustrative leg=150 / arm=250 / head=1500) DIVERGE from §3a (160/20 FLAT) -- the RATIOS (head >> arm
+> leg) are the intent, the MAGNITUDES are the operator's economy decision (the §3a calibration check is in STEP
+2F). The proven spine (C1 server-only ledger, C2 gib-form, the presentation pass material/pop/landing, the
+Static-cue reattach `c295de2c`) ALL carries over. **See STEP 2F for the whole model + the V7-1..4 phased plan.**
+STEP 2E (the v6 value-bucket-with-UnitValue) is the decision trail -- superseded by STEP 2F (parts-primary).
 
 **Locked decisions (this revision):**
 1. **Fungible value-item.** The cache is a single `ID_AFL_Loot` (value + stack) — collected loot adds to a
@@ -480,6 +494,109 @@ identity. The fungible cache track is untouched.
 
 Each F-phase ends operator-WATCHED (✅ = seen on screen). Risk/reward intact: collect freely, but parts are
 at-risk until extraction (drop whole ones per hit, lose all on death, an owner can reclaim theirs).
+
+---
+
+## STEP 2F — the PART-TOKEN model (v7 — parts PRIMARY, indivisible)
+
+v7 supersedes STEP 2E's value-derived quantizer (the source of F1's residue) by making a part PRIMARY and
+INDIVISIBLE: a token IS one whole part with a FIXED value -- no `round(Value/UnitValue)`, no quantizer, no
+value-math, so the "53 of a head" residue is DESIGNED OUT, not patched. It ABSORBS F2 (identity) and F4 (drop
+order) into ONE model.
+
+### Why this supersedes F1 (the residue's root)
+F1 derived the scattered part COUNT from value (`round(Value/UnitValue)`) and kept the drain value-based -- so a
+33%-of-160 hit scattered a "53-value head" (a partial-value token), and 4 sustained hits shed 4 partial heads
+(the PIE watch). The token model removes the derive entirely: a part is one indivisible token; a hit drops ONE
+WHOLE token (or none); there is no fractional value to spawn. No quantizer, no residue -- ever, even in combat.
+
+### The token (data model)
+`FAFLCarriedPart { int32 OwnerPlayerId; EAFLBodyZone OriginZone; int32 FixedValue; TObjectPtr<UStaticMesh> GibMesh;
+TObjectPtr<UMaterialInterface> GibMaterial; }`. One token = one whole part. `OwnerPlayerId = GetPlayerId()`
+(net-safe int32). `OriginZone` is SPECIFIC (Head / LeftArm / RightArm / LeftLeg / RightLeg -- the enum is already
+L/R-distinct, confirmed) so a part reattaches to the CORRECT slot (a left leg to the left-leg slot). `FixedValue`
+is baked per zone-type (the DA zone row's `LootWatts`) -- value is an ATTRIBUTE of the part, never derived.
+The carrier holds a SERVER-ONLY `TArray<FAFLCarriedPart> CarriedParts` (extends C1's server-only ledger -- now a
+token list, not value-buckets). The fungible CACHE int (`CarriedValue`) stays BESIDE it for cube/cache loot. The
+HUD reads a replicated derived `int32` (part count + part-value-sum + cache int). SUPERSEDED: STEP 2E's
+`FAFLCarriedForm` value-bucket + `UnitValue` derive + the `SpawnFormPickups` quantizer.
+
+### Fixed values (the value peg -- ⚠ OPERATOR DECISION, flagged)
+Each part-type's value is baked in the DA zone row (`LootWatts`). Operator's illustrative set: leg=150, arm=250,
+head=1500. **⚠ ECONOMY-SPEC FLAG -- these DIVERGE from `IRONICS_ECONOMY_SPEC.md` §3a (head=160, limb=20 FLAT,
+limb=head/8):**
+- **Invariants HELD:** integer, head-most-valuable (1500 > 250 > 150), no randomized acquisition (fixed). OK.
+- **Calibration BLOWN at face value:** §3a pegs head=160 to ~40% of a ~4,000-Watt/match budget at ~10
+  head-equivalents/match; head=1500 (~9×) makes combat-loot ~15,000/match -- it would DOMINATE the economy.
+- **Two design changes:** arm (250) > leg (150) breaks §3a's FLAT-limb (all 20); the head/8 limb relationship is
+  dropped. The RATIOS (head >> arm > leg) are the v7 intent; the MAGNITUDES must re-peg to the budget.
+- **OPERATOR DECIDES one of:** (a) keep the ratios, re-scale to the ~4,000/match budget (e.g. head~160, arm~27,
+  leg~16 -- arm > leg preserved, head at the proven peg); (b) deliberately grow combat-loot's economy share with
+  higher magnitudes; (c) the 1500/250/150 are illustrative ratios only. Whatever is chosen UPDATES §3a (the spec
+  is the economy's home).
+
+### Scatter -- drop WHOLE tokens, smallest-first (absorbs F4)
+- **On a confirmed hit:** drop ONE whole token, SMALLEST-`FixedValue`-first (leg -> other leg -> arm -> other arm
+  -> head LAST). The head clings hardest -- the prize takes sustained damage / a kill to pry loose. **⚠ OPERATOR
+  CONFIRM: one token per hit** -- the operator's "first shot drops a leg, second shot the other leg" reads as
+  one-per-hit; a small count-per-hit is the alternative. Deterministic (no roll).
+- **On death:** drop ALL remaining tokens.
+- Each dropped token spawns ONE part-pickup (`AAFLLootCarryPickup`) wearing the token's mesh+material (the
+  presentation pass's pop/material/landing -- unchanged) + carrying the replicated `{OwnerPlayerId, OriginZone}`.
+- The cache int (`CarriedValue`) keeps its v5 percentage-scatter beside this (fungible currency, unchanged).
+
+### Collect + uniform reattach (absorbs F2; CATEGORY identity)
+A part-pickup, on overlap/grab, resolves off its carried `{OwnerPlayerId, OriginZone}` (server-auth):
+- toucher player-id == `OwnerPlayerId` -> **REATTACH to that SPECIFIC zone**: resolve id -> GameState PlayerArray
+  -> PlayerState -> pawn, `RestoreZone(OriginZone)` (the proven `c295de2c` path) -> the part returns to the
+  correct slot. Token leaves the world. NO value (body-restoration).
+- toucher != owner -> **COLLECT**: append the token to the toucher's `CarriedParts`.
+Reattach is UNIFORM -- ANY part, fresh OR scattered-after-collect, is owner-reattachable + enemy-lootable. **
+CATEGORY identity, NOT per-instance:** the token carries owner + zone + value (a category, e.g. "aria's head,
+1500") -- there are NO globally-unique per-instance IDs (no mechanic needs per-instance tracking; the net model
+stays minimal).
+
+### Value at extraction (v6 keystone, KEPT)
+No value at collect. At the extraction checkpoint, sum the token list's `FixedValue` -> Watts
+(`EarnWattsAuthority`), tokens clear; the cache int banks in the same step; team-aggregated (each player extracts
+their own tokens -> their Watts; the team total sums the team's extractions). Parts are pure tokens until then.
+
+### Skill-grounding (cited)
+- **`afl-cpp-lyra-developer`:** `OwnerPlayerId` = net-safe `int32 GetPlayerId()` (NEVER a raw `APlayerState*`);
+  the reattach resolver is SERVER-AUTH (id -> GameState PlayerArray -> PlayerState -> pawn -> `RestoreZone`); the
+  token list EXTENDS C1's server-only ledger (server-only, zero-replication). The scattered pickup carries the
+  replicated `{owner, zone}` for the owner-check; the HUD reads a replicated derived int. `FFastArraySerializer`
+  is the scale path IF the token list ever needs client replication at BR scale (not now -- server-only).
+- **`IRONICS_ECONOMY_SPEC.md`:** the fixed values respect integer + no-randomized-acquisition + head-most-valuable
+  + at-risk-until-extraction; the MAGNITUDE re-peg is the flagged operator decision above.
+- **`expert-game-designer` -- FLAGGED NOT-COVERING** (visual/UI skill, no loot-economy reference) -- the economy
+  is grounded in the SPEC, not a fabricated citation.
+
+### Carries over / superseded
+- CARRIES OVER: carry-at-risk (A); C1's server-only ledger (the token list extends it); C2's gib mesh + the
+  presentation pass's material/pop/landing (the token carries mesh+material; the scatter presentation is
+  unchanged); the `c295de2c` Static-cue reattach (the resolver the token's owner-id drives).
+- SUPERSEDED: F1's value-derived quantizer + `UnitValue` (gone -- tokens are indivisible); the int-rail-as-the-
+  unit FOR PARTS (parts are a token list now; the int rail is cache-only). STEP 2E is refined to parts-primary.
+
+### Phased build plan (each WATCHED; ⚠ = re-touches SHIPPED code)
+- **V7-1 ⚠ — the token + indivisible scatter.** `FAFLCarriedPart` + the `CarriedParts` list (replacing the
+  value-bucket for parts); collect -> append a token; scatter -> drop whole tokens (death = all; a hit = one
+  token, default order). The dismember `Configure` supplies the token (owner-id + zone + fixed value + mesh +
+  material). **WATCHED:** one head collected -> die -> exactly ONE head, ALWAYS -- and in COMBAT (multiple hits),
+  still one whole head, NO fragmentation (the residue is gone); two heads -> two.
+- **V7-2 ⚠ — owner+zone identity + uniform reattach-after-collect.** The pickup carries `{OwnerPlayerId,
+  OriginZone}` (replicated); overlap/grab resolves owner -> `RestoreZone(OriginZone)` vs enemy -> collect.
+  **WATCHED (2-client):** an enemy collects aria's head -> gets hit -> the head drops -> **aria walks over it and
+  REATTACHES it to her head slot**; a non-owner collects it; a left leg reattaches to the LEFT slot.
+- **V7-3 ⚠ — smallest-first drop order.** The hit drops the smallest-`FixedValue` token first (leg -> leg -> arm
+  -> arm -> head). **WATCHED:** take sustained hits -> legs drop first, the head clings, head drops last / on death.
+- **V7-4 ⚠ — extraction count.** `ExtractAll` sums `CarriedParts.FixedValue` -> Watts (+ the cache int); team
+  aggregation. **WATCHED:** carry N parts through extraction -> +sum Watts; tokens clear; team total reflects the
+  team's extractions.
+
+The residue is DESIGNED OUT at V7-1 (indivisibility) -- "one head = one head" holds in combat from the FIRST
+phase, not deferred to a drop-rule phase. Each phase ends operator-WATCHED (✅ = seen on screen).
 
 ---
 
