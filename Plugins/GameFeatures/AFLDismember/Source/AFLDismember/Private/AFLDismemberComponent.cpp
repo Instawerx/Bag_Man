@@ -703,6 +703,18 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row, const FVect
 	}
 }
 
+void UAFLDismemberComponent::ReattachPart_Implementation(EAFLBodyZone Zone)
+{
+	// V7-2 owner-reattach (a SCATTERED part reclaimed by its original owner): the FULL restore -- un-hide the
+	// bone (the persistent cue's OnRemove), clear State.Decapitated, refill the zone HP. RestoreZone guards on
+	// authority, so this is server-auth (the scattered pickup calls it on the server). The same path the FRESH
+	// owner-reattach uses (c295de2c) -- now reachable for a part that passed through an enemy's pool.
+	UE_LOG(LogAFLDismember, Display,
+		TEXT("[AFLDismember] ReattachPart zone=%d on %s -- scattered part reclaimed by its owner"),
+		static_cast<int32>(Zone), *GetNameSafe(GetOwner()));
+	RestoreZone(Zone);
+}
+
 void UAFLDismemberComponent::RestoreZone(EAFLBodyZone Zone)
 {
 	AActor* Owner = GetOwner();

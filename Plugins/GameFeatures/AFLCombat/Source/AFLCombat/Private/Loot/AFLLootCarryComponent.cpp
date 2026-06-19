@@ -160,6 +160,9 @@ void UAFLLootCarryComponent::HandleDamageConfirmed(FGameplayTag /*Channel*/, con
 	{
 		return;   // someone else's hit
 	}
+	// V7-1: a confirmed hit drops ONE WHOLE part token (indivisible -- order arbitrary, V7-3 sorts smallest-first),
+	// BESIDE the fungible cache %-scatter below. A part can't fragment -> one head stays one head across hits.
+	ScatterOnePart();
 	const int32 Pool = CarriedValue;
 	if (Pool <= 0)
 	{
@@ -177,6 +180,8 @@ void UAFLLootCarryComponent::HandleDamageConfirmed(FGameplayTag /*Channel*/, con
 
 void UAFLLootCarryComponent::HandleDeathStarted(AActor* /*OwningActor*/)
 {
+	// V7-1: death drops ALL whole part tokens (indivisible -- one pickup per part), beside the cache remainder.
+	ScatterAllParts();
 	const int32 Pool = CarriedValue;
 	if (Pool > 0)
 	{
@@ -300,6 +305,91 @@ void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> F
 	}
 }
 
+void UAFLLootCarryComponent::CollectPart(const FAFLCarriedPart& Part)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority() || Part.FixedValue <= 0)
+	{
+		return;
+	}
+	// One WHOLE indivisible token on the server-only part track -- it NEVER enters the chunking rail, so it can't
+	// fragment (the residue is designed out). Caches stay on CarriedValue; parts are tokens beside it.
+	CarriedParts.Add(Part);
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s collected PART token (owner=%d zone=%d value=%d) -> %d part(s)"),
+		*GetNameSafe(Owner), Part.OwnerPlayerId, static_cast<int32>(Part.OriginZone), Part.FixedValue, CarriedParts.Num());
+}
+
+int32 UAFLLootCarryComponent::ResolvePlayerId(const AActor* Actor)
+{
+	if (!Actor)
+	{
+		return INDEX_NONE;
+	}
+	const APlayerState* PS = nullptr;
+	if (const APawn* Pawn = Cast<APawn>(Actor))                 { PS = Pawn->GetPlayerState(); }
+	else if (const AController* Ctrl = Cast<AController>(Actor)) { PS = Ctrl->PlayerState; }
+	else                                                        { PS = Cast<APlayerState>(Actor); }
+	return PS ? PS->GetPlayerId() : INDEX_NONE;
+}
+
+void UAFLLootCarryComponent::ScatterOnePart()
+{
+	if (CarriedParts.Num() == 0)
+	{
+		return;   // no parts -> nothing here (the cache %-scatter is separate)
+	}
+	// V7-1: drop ONE WHOLE token. Order ARBITRARY (FIFO, oldest first); V7-3 sorts smallest-FixedValue-first.
+	const FAFLCarriedPart Part = CarriedParts[0];
+	CarriedParts.RemoveAt(0);
+	SpawnPartPickup(Part);
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s hit -> drop 1 whole part (zone=%d value=%d) -> %d left"),
+		*GetNameSafe(GetOwner()), static_cast<int32>(Part.OriginZone), Part.FixedValue, CarriedParts.Num());
+}
+
+void UAFLLootCarryComponent::ScatterAllParts()
+{
+	if (CarriedParts.Num() == 0)
+	{
+		return;
+	}
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s death -> drop ALL %d whole part(s)"),
+		*GetNameSafe(GetOwner()), CarriedParts.Num());
+	for (const FAFLCarriedPart& Part : CarriedParts)
+	{
+		SpawnPartPickup(Part);
+	}
+	CarriedParts.Empty();
+}
+
+void UAFLLootCarryComponent::SpawnPartPickup(const FAFLCarriedPart& Part)
+{
+	AActor* Owner = GetOwner();
+	UWorld* World = GetWorld();
+	if (!Owner || !World || !ScatterPickupClass)
+	{
+		return;
+	}
+	// One token = one pickup -- INDIVISIBLE (no quantizer). The pickup wears the gib + carries the token's
+	// {owner, zone, value} so it re-collects as a part (CollectPart) and V7-2 can owner-check it.
+	const FVector Loc = Owner->GetActorLocation() +
+		FVector(FMath::RandRange(-150.0f, 150.0f), FMath::RandRange(-150.0f, 150.0f), 40.0f);
+	const FTransform SpawnTM(FRotator::ZeroRotator, Loc);
+	// DEFERRED spawn (the box-not-head fix): InitPartToken sets the identity (owner/zone/value/gib) AND the overlap
+	// arm-delay BEFORE BeginPlay registers the collect. A plain SpawnActor runs BeginPlay first -> the pickup spawns
+	// ARMED on top of the stationary dropper, its overlap fires immediately, and it self-collects as a DEFAULT +50
+	// cube (losing the gib, the 160 value, and the owner id) before InitPartToken ever runs -- then SpawnActor
+	// returns null (destroyed mid-spawn) so the init is skipped entirely (0 "applied gib form" in the 04:36 log).
+	// Deferred guarantees the token + the inert-until-armed delay are in place when the overlap first registers.
+	AAFLLootCarryPickup* Pickup = World->SpawnActorDeferred<AAFLLootCarryPickup>(
+		*ScatterPickupClass, SpawnTM, /*Owner=*/nullptr, /*Instigator=*/nullptr,
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (Pickup)
+	{
+		Pickup->InitPartToken(Part.OwnerPlayerId, Part.OriginZone, Part.FixedValue, Part.GibMesh, Part.GibMaterial);
+		Pickup->FinishSpawning(SpawnTM);
+	}
+}
+
 void UAFLLootCarryComponent::CommitCarriedDelta(int32 Delta)
 {
 	// The single authority commit point (mirrors UAFLWalletComponent::CommitMutation, minus persistence -- the
@@ -386,6 +476,33 @@ namespace
 				Carry->Collect(150, SphereForm);
 				Ar.Logf(TEXT("afl.LootCarry.TestForms -- collected cube(150) + sphere(150) for %s (pool=%d). Now damage/die to watch TWO DISTINCT forms scatter; afl.Loot.TestExtract to bank+clear."),
 					*Pawn->GetName(), Carry->GetCarriedValue());
+			}));
+
+	// V7-2 deterministic 2-client REATTACH test: force the HOST pawn to DROP all its carried part tokens (the
+	// death-drop without dying), so a part it collected from ANOTHER player hits the ground and THAT player can
+	// walk over it and RECLAIM it (the owner-reattach-after-collect) -- without relying on the carrier being killed.
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLLootCarryDropPartsCmd(
+		TEXT("afl.LootCarry.DropParts"),
+		TEXT("V7-2: force the HOST pawn to drop ALL its carried part tokens as recoverable pickups (so each part's OWNER can reclaim it). HOST only."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
+			[](const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World || World->GetNetMode() == NM_Client)
+				{
+					Ar.Log(TEXT("afl.LootCarry.DropParts -- HOST window only (scatter is an authority op)."));
+					return;
+				}
+				APlayerController* PC = World->GetFirstPlayerController();
+				APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+				UAFLLootCarryComponent* Carry = Pawn ? Pawn->FindComponentByClass<UAFLLootCarryComponent>() : nullptr;
+				if (!Carry)
+				{
+					Ar.Log(TEXT("afl.LootCarry.DropParts -- no possessed pawn with a UAFLLootCarryComponent."));
+					return;
+				}
+				Carry->ForceDropAllParts();
+				Ar.Logf(TEXT("afl.LootCarry.DropParts -- %s dropped all carried part tokens as pickups. Now have each part's OWNER (e.g. CLIENT 1) walk over their own head/limb to RECLAIM it -- the owner-reattach-after-collect."),
+					*Pawn->GetName());
 			}));
 
 	// Phase C2 REAL-GIB proof: collect a cube + a REAL limb-gib form [arm|leg|head] (the actual dismember gib mesh

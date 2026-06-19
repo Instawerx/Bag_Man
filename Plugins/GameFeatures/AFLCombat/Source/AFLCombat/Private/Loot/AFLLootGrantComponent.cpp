@@ -18,13 +18,15 @@ UAFLLootGrantComponent::UAFLLootGrantComponent()
 }
 
 void UAFLLootGrantComponent::Configure(EAFLLootValueModel InValueModel, int32 InValue,
-	EAFLLootEligibility InEligibility, AActor* InOwnerActor, FName InGrantReason, UStaticMesh* InScatterGibMesh)
+	EAFLLootEligibility InEligibility, AActor* InOwnerActor, FName InGrantReason, UStaticMesh* InScatterGibMesh,
+	EAFLBodyZone InOriginZone)
 {
 	ValueModel  = InValueModel;
 	LootValue   = InValue;
 	Eligibility = InEligibility;
 	OwnerActor  = InOwnerActor;
 	ScatterGibMesh = InScatterGibMesh;   // C3: null for caches (-> cube form); the dismember limb's own gib mesh otherwise
+	ScatterZone = InOriginZone;          // V7-1: the part's specific zone (None for caches) -> the token's OriginZone
 	if (!InGrantReason.IsNone())
 	{
 		GrantReason = InGrantReason.ToString();
@@ -124,10 +126,24 @@ void UAFLLootGrantComponent::GrantValue(AActor* Retriever)
 		APawn* Pawn = Cast<APawn>(Retriever);
 		if (UAFLLootCarryComponent* Carry = Pawn ? Pawn->FindComponentByClass<UAFLLootCarryComponent>() : nullptr)
 		{
-			// C3: enter the pool WITH the scatter form -- MakeLimbForm makes dismember value scatter as the real
-			// limb gib (a null mesh -> the cube form, so the caches stay byte-identical). PRESENTATION: also thread
-			// the victim's slot-1 MIC so the scattered gib is SKINNED like the fresh gib (null -> mesh's own material).
-			Carry->Collect(LootValue, Carry->MakeLimbForm(ScatterGibMesh, ScatterGibMaterial));
+			if (ScatterGibMesh)
+			{
+				// V7-1: a dismember PART enters the pool as an INDIVISIBLE token (owner = the victim's player-id,
+				// the specific zone, the fixed value) -- it NEVER touches the chunking rail, so it can't fragment.
+				// Owner + zone RIDE for the V7-2 owner-reattach (not routed in V7-1).
+				FAFLCarriedPart Token;
+				Token.OwnerPlayerId = UAFLLootCarryComponent::ResolvePlayerId(OwnerActor.Get());
+				Token.OriginZone    = ScatterZone;
+				Token.FixedValue    = LootValue;
+				Token.GibMesh       = ScatterGibMesh;
+				Token.GibMaterial   = ScatterGibMaterial;
+				Carry->CollectPart(Token);
+			}
+			else
+			{
+				// A fungible CACHE -> the value rail (UNCHANGED -- the cube form + the chunking spread, byte-identical).
+				Carry->Collect(LootValue, Carry->MakeLimbForm(ScatterGibMesh, ScatterGibMaterial));
+			}
 			UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOT: +%d -> %s carried pool (%s)"),
 				LootValue, *GetNameSafe(Retriever), *GrantReason);
 		}

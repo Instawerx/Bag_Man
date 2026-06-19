@@ -5,6 +5,7 @@
 #include "Components/ActorComponent.h"
 #include "GameFramework/GameplayMessageSubsystem.h"   // FGameplayMessageListenerHandle
 #include "Templates/SubclassOf.h"
+#include "AFLBodyZone.h"   // V7: the part token's OriginZone (EAFLBodyZone, AFLCore -- AFLCombat depends PUBLIC)
 
 #include "AFLLootCarryComponent.generated.h"
 
@@ -47,6 +48,41 @@ struct FAFLCarriedForm
 	/** Accumulated carried value in this form bucket. Invariant (authority): sum over buckets == CarriedValue. */
 	UPROPERTY()
 	int32 Value = 0;
+};
+
+/**
+ * FAFLCarriedPart  (Loot-Carry Model, v7 -- one INDIVISIBLE dismember part token)
+ *
+ * A WHOLE severed part carried at-risk. Value is an ATTRIBUTE (FixedValue, from the DA zone row's LootWatts),
+ * NEVER derived -- so a part can't fragment (the residue the value-derived quantizer produced is DESIGNED OUT).
+ * Owner + zone are CATEGORY identity (the scattered pickup carries them; V7-2 routes owner-reattach off them).
+ * The carrier holds a SERVER-ONLY TArray of these (scatter is authority-only -> the list never replicates, like
+ * the C1 ledger). Beside the fungible CarriedValue rail (caches); a part NEVER touches the chunking rail.
+ */
+USTRUCT()
+struct FAFLCarriedPart
+{
+	GENERATED_BODY()
+
+	/** The VICTIM's player-id (whose part this is) -- net-safe stable int32 (APlayerState::GetPlayerId), NEVER a
+	 *  raw APlayerState*. V7-2's reattach resolver maps it back: id -> PlayerState -> pawn -> RestoreZone(zone). */
+	UPROPERTY()
+	int32 OwnerPlayerId = INDEX_NONE;
+
+	/** The SPECIFIC severed zone (L/R-distinct) -- so the part reattaches to the CORRECT slot in V7-2. */
+	UPROPERTY()
+	EAFLBodyZone OriginZone = EAFLBodyZone::None;
+
+	/** The part's FIXED value (the DA zone row's LootWatts: head=160, arm=27, leg=16). An attribute, never derived. */
+	UPROPERTY()
+	int32 FixedValue = 0;
+
+	/** The gib mesh + the victim's slot-1 MIC -- the scattered pickup wears them (the presentation-pass visual). */
+	UPROPERTY()
+	TObjectPtr<UStaticMesh> GibMesh = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> GibMaterial = nullptr;
 };
 
 /**
@@ -99,6 +135,22 @@ public:
 	 *  HeadGibMesh); the form then rides the proven Collect(value, form) + C1 ledger/scatter path unchanged. */
 	FAFLCarriedForm MakeLimbForm(UStaticMesh* GibMesh, UMaterialInterface* GibMaterial = nullptr) const;
 
+	/** V7-1: collect a discrete dismember PART as an INDIVISIBLE token (the dismember grant calls this; caches keep
+	 *  Collect(value) on the fungible rail). Server-auth. The token rides the server-only CarriedParts track --
+	 *  it NEVER enters the chunking rail, so it can't fragment (the residue is designed out). */
+	void CollectPart(const FAFLCarriedPart& Part);
+
+	/** V7: resolve a pawn / controller / PlayerState actor -> its stable player-id (GetPlayerId), or INDEX_NONE.
+	 *  The net-safe owner key the token carries (NEVER a raw APlayerState*). Used at collect (the victim's id) and
+	 *  by V7-2's reattach resolver (the inverse: id -> pawn). */
+	static int32 ResolvePlayerId(const AActor* Actor);
+
+	/** TEST/cheat (afl.LootCarry.DropParts): force-scatter ALL carried part tokens as recoverable pickups -- the
+	 *  death-drop WITHOUT dying. Lets a 2-client owner-reattach be triggered DETERMINISTICALLY: the carrier drops a
+	 *  head it collected, and that head's OWNER walks over it and reclaims it (owner-reattach-after-collect) --
+	 *  no combat-luck (the carrier getting killed) needed. Server-auth (ScatterAllParts spawns pickups). */
+	void ForceDropAllParts() { ScatterAllParts(); }
+
 	/** The carried-loot pool (replicated; the owner's HUD reads this). */
 	UFUNCTION(BlueprintPure, Category = "AFL|Loot")
 	int32 GetCarriedValue() const { return CarriedValue; }
@@ -140,11 +192,28 @@ private:
 	 *  override). Shared by every drained bucket in ScatterValue + the desync safety net. Authority. */
 	void SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, UMaterialInterface* GibMaterial, int32 Value);
 
+	/** V7-1: scatter ONE whole part token (a confirmed hit -- INDIVISIBLE, one token = one pickup). Order is
+	 *  ARBITRARY here (drops the oldest); V7-3 sorts smallest-first. No quantizer, no value-math, no residue. */
+	void ScatterOnePart();
+
+	/** V7-1: scatter ALL part tokens (death) -- one pickup per whole token. */
+	void ScatterAllParts();
+
+	/** V7-1: spawn one recoverable pickup wearing a part token (mesh + material + value; owner + zone RIDE for the
+	 *  V7-2 owner-check, not routed in V7-1). */
+	void SpawnPartPickup(const FAFLCarriedPart& Part);
+
 	/** SERVER-ONLY provenance ledger (NOT replicated -- scatter is authority-only): which carried value rides
 	 *  which scatter form, so scatter spawns form-accurately. sum(Value) == CarriedValue on the authority; the
 	 *  rail (CarriedValue) stays the ONLY replicated property (the v4 skill-grounded resolution). Bounded (~4). */
 	UPROPERTY()
 	TArray<FAFLCarriedForm> Ledger;
+
+	/** V7 PART-TOKEN track: the server-only list of INDIVISIBLE carried parts (NOT replicated -- scatter is
+	 *  authority-only, like the C1 ledger). Beside the fungible CarriedValue rail (caches); parts never touch it.
+	 *  The SCATTERED pickup replicates the {owner, zone} fields individually for the V7-2 owner-check. */
+	UPROPERTY()
+	TArray<FAFLCarriedPart> CarriedParts;
 
 	FGameplayMessageListenerHandle DamageListenerHandle;
 	FGameplayMessageListenerHandle ExtractListenerHandle;

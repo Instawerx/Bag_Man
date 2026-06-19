@@ -8,6 +8,7 @@
 
 #include "AFLBodyZone.h"   // EAFLBodyZone (AFLCore)
 #include "AFLDismemberCosmeticTarget.h"   // IAFLDismemberCosmeticTarget (AFLVFX) -- the cold-loadable cue's seam
+#include "Loot/AFLPartReattachTarget.h"   // V7-2: IAFLPartReattachTarget (AFLCombat) -- the scattered-part owner-reattach seam
 
 #include "AFLDismemberComponent.generated.h"
 
@@ -42,7 +43,7 @@ struct FGameplayTag;
  * hard cast to any specific pawn/BP (the zone is resolved by bone -> data).
  */
 UCLASS(ClassGroup=(AFL), meta=(BlueprintSpawnableComponent))
-class AFLDISMEMBER_API UAFLDismemberComponent : public UActorComponent, public IAFLDismemberCosmeticTarget
+class AFLDISMEMBER_API UAFLDismemberComponent : public UActorComponent, public IAFLDismemberCosmeticTarget, public IAFLPartReattachTarget
 {
 	GENERATED_BODY()
 
@@ -55,6 +56,11 @@ public:
 	virtual void ApplyZoneHideByLeaf_Implementation(FName ZoneLeaf) override;
 	virtual void ApplyZoneRestoreByLeaf_Implementation(FName ZoneLeaf) override;
 	//~End of IAFLDismemberCosmeticTarget
+
+	//~IAFLPartReattachTarget (v7) -- the seam a scattered part pickup calls when its OWNER reclaims it: the FULL
+	// owner-reattach (RestoreZone -- un-hide the bone + clear State.Decapitated + refill the zone HP). Server-auth.
+	virtual void ReattachPart_Implementation(EAFLBodyZone Zone) override;
+	//~End of IAFLPartReattachTarget
 
 	/** The data-driven zone table (soft, async-loaded at sever time). Authored in PHASE B. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")

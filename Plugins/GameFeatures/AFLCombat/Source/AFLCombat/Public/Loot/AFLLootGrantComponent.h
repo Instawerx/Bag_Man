@@ -6,6 +6,7 @@
 
 #include "Interaction/AFLLootRetrievalRouter.h"   // C3: the relationship-router interface (AFLMovement) the grab ability queries
 #include "Loot/AFLLootTypes.h"
+#include "AFLBodyZone.h"   // V7-1: the part token's OriginZone, threaded through Configure (EAFLBodyZone, AFLCore)
 
 #include "AFLLootGrantComponent.generated.h"
 
@@ -49,7 +50,8 @@ public:
 	 *  null for ownerless Anyone loot. Reason names the wallet diag line ("head-loot"/"limb-loot"/...).
 	 *  InScatterGibMesh (C3) = the dismember scatter form's gib mesh (null for caches -> the cube form). */
 	void Configure(EAFLLootValueModel InValueModel, int32 InValue, EAFLLootEligibility InEligibility,
-		AActor* InOwnerActor, FName InGrantReason, UStaticMesh* InScatterGibMesh = nullptr);
+		AActor* InOwnerActor, FName InGrantReason, UStaticMesh* InScatterGibMesh = nullptr,
+		EAFLBodyZone InOriginZone = EAFLBodyZone::None);
 
 	/** PRESENTATION (material): the scattered gib's material -- the victim's slot-1 MIC. Set by the dismember
 	 *  sever path AFTER the MIC resolves (Configure runs first, before SetHeadMaterial/SetPartMaterial), so it is
@@ -112,4 +114,8 @@ private:
 	 *  form so the scattered pickup is SKINNED like the fresh gib. Null for caches (-> the cube's own material). */
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> ScatterGibMaterial = nullptr;
+
+	/** V7-1: the SPECIFIC origin zone of a dismember part (head / L/R arm / L/R leg) -- threaded into the carried
+	 *  PART TOKEN at collect so it reattaches to the correct slot (V7-2). None for caches (the cube path). */
+	EAFLBodyZone ScatterZone = EAFLBodyZone::None;
 };

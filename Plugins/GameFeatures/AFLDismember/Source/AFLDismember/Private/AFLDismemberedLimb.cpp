@@ -159,7 +159,7 @@ void AAFLDismemberedLimb::Initialize(APawn* InOwnerPawn, EAFLBodyZone InZone, in
 		// extract), NOT instant-bank Watts -- mirroring Phase B's cache flip + the head. Pass the limb's OWN gib
 		// mesh (LimbGibMesh, the per-limb BP value) so the scattered loot reads as the real arm/leg gib.
 		LootGrant->Configure(EAFLLootValueModel::CarryToExtractEnergy, InLootWatts, EAFLLootEligibility::EnemyOnly,
-			InOwnerPawn, TEXT("limb-loot"), LimbGibMesh);
+			InOwnerPawn, TEXT("limb-loot"), LimbGibMesh, LootZone);   // V7-1: the limb's specific L/R zone -> the token
 	}
 
 	// "Tied to owner life": if the owner dies before this limb is collected, the limb vanishes.

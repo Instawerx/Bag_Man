@@ -115,7 +115,7 @@ void AAFLHeadLootBox::Initialize(APawn* InOwnerPawn, int32 InLootWatts)
 		// extract), NOT instant-bank Watts -- mirroring Phase B's cache flip. Pass the head's OWN gib mesh
 		// (HeadGibMesh, inherited from AAFLDismemberedHead) so the scattered loot reads as the real head gib.
 		LootGrant->Configure(EAFLLootValueModel::CarryToExtractEnergy, InLootWatts, EAFLLootEligibility::EnemyOnly,
-			InOwnerPawn, TEXT("head-loot"), GetHeadGibMesh());
+			InOwnerPawn, TEXT("head-loot"), GetHeadGibMesh(), EAFLBodyZone::Head);   // V7-1: the token's specific zone
 	}
 
 	// "Tied to owner life": if the owner dies before this head is collected, the head vanishes.

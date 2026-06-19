@@ -3,6 +3,7 @@
 #pragma once
 
 #include "GameFramework/Actor.h"
+#include "AFLBodyZone.h"   // V7-1: the part token's OriginZone (EAFLBodyZone, AFLCore)
 
 #include "AFLLootCarryPickup.generated.h"
 
@@ -43,6 +44,11 @@ public:
 	 *  MIC so the gib is skinned). Replicated so the skinned FORM reads correctly on every client. */
 	void SetVisualMaterial(UMaterialInterface* InMaterial);
 
+	/** AUTHORITY (V7-1): make this a dismember PART pickup -- set the token's {owner, zone, value} + the gib
+	 *  mesh/material. OwnerPlayerId != INDEX_NONE marks it a PART (HandleCollected routes to CollectPart); owner +
+	 *  zone replicate for the V7-2 owner-check. The carry component's SpawnPartPickup calls this. */
+	void InitPartToken(int32 InOwnerPlayerId, EAFLBodyZone InZone, int32 InValue, UStaticMesh* InMesh, UMaterialInterface* InMaterial);
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -76,6 +82,14 @@ protected:
 	 *  (null = the mesh's own material). Set by SetVisualMaterial on authority; clients apply via OnRep. */
 	UPROPERTY(ReplicatedUsing = OnRep_VisualMaterial)
 	TObjectPtr<UMaterialInterface> OverrideMaterial = nullptr;
+
+	/** V7-1 PART TOKEN -- the scattered part's CATEGORY identity (replicated for the V7-2 owner-check + display).
+	 *  OwnerPlayerId == INDEX_NONE -> this is a fungible CUBE (the value rail); else a dismember PART (CollectPart). */
+	UPROPERTY(Replicated)
+	int32 OwnerPlayerId = INDEX_NONE;
+
+	UPROPERTY(Replicated)
+	EAFLBodyZone OriginZone = EAFLBodyZone::None;
 
 	/** Value added to the collector's carried pool on collect (instance-set; the scatter sets per-chunk). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Loot", meta = (ClampMin = "0"))

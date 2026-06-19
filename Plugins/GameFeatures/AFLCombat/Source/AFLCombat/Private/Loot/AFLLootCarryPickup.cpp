@@ -8,6 +8,7 @@
 #include "Materials/MaterialInterface.h"      // PRESENTATION: the per-spawn gib material (SetMaterial on every slot)
 #include "Loot/AFLLootCarryComponent.h"
 #include "Loot/AFLOverlapCollectComponent.h"
+#include "Loot/AFLPartReattachTarget.h"   // V7-2: the owner-reattach seam (the dismember component implements it)
 #include "Net/UnrealNetwork.h"               // C1: DOREPLIFETIME(OverrideMesh) -- the scattered form replicates
 #include "UObject/ConstructorHelpers.h"
 
@@ -39,6 +40,8 @@ void AAFLLootCarryPickup::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AAFLLootCarryPickup, OverrideMesh);
 	DOREPLIFETIME(AAFLLootCarryPickup, OverrideMaterial);
+	DOREPLIFETIME(AAFLLootCarryPickup, OwnerPlayerId);
+	DOREPLIFETIME(AAFLLootCarryPickup, OriginZone);
 }
 
 void AAFLLootCarryPickup::SetVisualMesh(UStaticMesh* InMesh)
@@ -73,6 +76,34 @@ void AAFLLootCarryPickup::SetVisualMaterial(UMaterialInterface* InMaterial)
 void AAFLLootCarryPickup::OnRep_VisualMaterial()
 {
 	ApplyVisualMesh();
+}
+
+void AAFLLootCarryPickup::InitPartToken(int32 InOwnerPlayerId, EAFLBodyZone InZone, int32 InValue, UStaticMesh* InMesh, UMaterialInterface* InMaterial)
+{
+	// AUTHORITY (the carry's SpawnPartPickup): a dismember PART pickup -- the token's identity replicates for the
+	// V7-2 owner-check; the gib mesh/material apply via the proven SetVisual* path. OwnerPlayerId != INDEX_NONE
+	// marks it a PART so HandleCollected routes to CollectPart (vs Collect for a fungible cube).
+	if (!HasAuthority())
+	{
+		return;
+	}
+	OwnerPlayerId = InOwnerPlayerId;
+	OriginZone = InZone;
+	LootValue = InValue;
+	SetVisualMesh(InMesh);
+	SetVisualMaterial(InMaterial);
+	// PRESENT-BEFORE-COLLECTIBLE (the box-not-head fix): a scattered PART spawns within ~150uu of the dropper, so its
+	// overlap fires point-blank. Without an arm delay it is collectible at BeginPlay and a STATIONARY dropper absorbs
+	// it the same frame -- as a DEFAULT cube, because the absorb beats InitPartToken (the +50/no-gib/no-owner pickup
+	// the 04:36 log caught). The fresh head/limb get this gate from their grant's bConfigured check; the scattered
+	// pickup carries no grant, so set the overlap's arm delay here (the established ~1.5s beat the head/limb use).
+	// RELIES on deferred spawn (SpawnPartPickup) so BeginPlay reads this AFTER it's set. Bonus: a pickup that spawns
+	// already-overlapping the dropper won't auto-collect when it later arms (BeginOverlap only fires on a NEW enter)
+	// -> the part LANDS and stays for the OWNER to walk over (the V7-2 reattach), not the dropper re-absorbing it.
+	if (Overlap)
+	{
+		Overlap->ActivationDelay = 1.5f;
+	}
 }
 
 void AAFLLootCarryPickup::ApplyVisualMesh()
@@ -121,12 +152,45 @@ void AAFLLootCarryPickup::HandleCollected(AActor* Collector)
 	// carried pool -- ANYONE can collect (incl. the original dropper): the risk/recovery loop closes here.
 	if (Collector)
 	{
+		// V7-2 UNIFORM REATTACH: if the OWNER reclaimed their OWN part (collector's player-id == the token's
+		// OwnerPlayerId), REATTACH the specific zone to the owner's (the collector's) pawn -- the FULL RestoreZone
+		// via the IAFLPartReattachTarget seam (no circular AFLCombat->AFLDismember dep) -- do NOT re-loot it.
+		// This closes the operator's keystone: a part is owner-reattachable EVEN after it passed through an enemy's
+		// pool (fresh OR scattered-after-collect). An enemy collecting it still loots it (below).
+		if (OwnerPlayerId != INDEX_NONE && UAFLLootCarryComponent::ResolvePlayerId(Collector) == OwnerPlayerId)
+		{
+			for (UActorComponent* Comp : Collector->GetComponents())
+			{
+				if (Comp && Comp->GetClass()->ImplementsInterface(UAFLPartReattachTarget::StaticClass()))
+				{
+					IAFLPartReattachTarget::Execute_ReattachPart(Comp, OriginZone);
+					UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: pickup %s REATTACHED to OWNER %s (zone=%d)"),
+						*GetName(), *GetNameSafe(Collector), static_cast<int32>(OriginZone));
+					Destroy();
+					return;
+				}
+			}
+		}
+		// Non-owner (or no reattach target) -> COLLECT: a PART as a whole indivisible token; a CUBE to the value rail.
 		if (UAFLLootCarryComponent* Carry = Collector->FindComponentByClass<UAFLLootCarryComponent>())
 		{
-			Carry->Collect(LootValue);
+			if (OwnerPlayerId != INDEX_NONE)
+			{
+				FAFLCarriedPart Token;
+				Token.OwnerPlayerId = OwnerPlayerId;
+				Token.OriginZone    = OriginZone;
+				Token.FixedValue    = LootValue;
+				Token.GibMesh       = OverrideMesh;
+				Token.GibMaterial   = OverrideMaterial;
+				Carry->CollectPart(Token);
+			}
+			else
+			{
+				Carry->Collect(LootValue);   // a fungible CUBE -> the value rail (unchanged)
+			}
 		}
 	}
-	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: pickup %s (+%d) collected by %s"),
-		*GetName(), LootValue, *GetNameSafe(Collector));
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: pickup %s (+%d, %s) collected by %s"),
+		*GetName(), LootValue, OwnerPlayerId != INDEX_NONE ? TEXT("part") : TEXT("cube"), *GetNameSafe(Collector));
 	Destroy();
 }
