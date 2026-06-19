@@ -48,6 +48,8 @@ void UAFLLootCarryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UAFLLootCarryComponent, CarriedValue);
+	DOREPLIFETIME(UAFLLootCarryComponent, CarriedPartsValue);
+	DOREPLIFETIME(UAFLLootCarryComponent, CarriedPartsCount);
 }
 
 void UAFLLootCarryComponent::Collect(int32 Value)
@@ -226,6 +228,7 @@ void UAFLLootCarryComponent::HandleExtractionComplete(FGameplayTag /*Channel*/, 
 		}
 		Ledger.Reset();        // cache provenance banked (sum-invariant: rail now 0)
 		CarriedParts.Empty();  // V7-4: part tokens banked -> cleared
+		RecomputeCarriedAggregates();   // surface the cleared total/count to the owner's HUD
 		UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s extracted -> +%d Watts (%d cache + %d parts), pools cleared"),
 			*GetNameSafe(GetOwner()), Total, Pool, PartSum);
 	}
@@ -339,6 +342,7 @@ void UAFLLootCarryComponent::CollectPart(const FAFLCarriedPart& Part)
 	// One WHOLE indivisible token on the server-only part track -- it NEVER enters the chunking rail, so it can't
 	// fragment (the residue is designed out). Caches stay on CarriedValue; parts are tokens beside it.
 	CarriedParts.Add(Part);
+	RecomputeCarriedAggregates();   // surface the new total/count to the owner's HUD
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s collected PART token (owner=%d zone=%d value=%d) -> %d part(s)"),
 		*GetNameSafe(Owner), Part.OwnerPlayerId, static_cast<int32>(Part.OriginZone), Part.FixedValue, CarriedParts.Num());
 }
@@ -368,6 +372,7 @@ void UAFLLootCarryComponent::ScatterOnePart()
 	CarriedParts.Sort([](const FAFLCarriedPart& A, const FAFLCarriedPart& B) { return A.FixedValue < B.FixedValue; });
 	const FAFLCarriedPart Part = CarriedParts[0];
 	CarriedParts.RemoveAt(0);
+	RecomputeCarriedAggregates();   // surface the reduced total/count to the owner's HUD
 	SpawnPartPickup(Part);
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s hit -> drop 1 whole part (zone=%d value=%d) -> %d left"),
 		*GetNameSafe(GetOwner()), static_cast<int32>(Part.OriginZone), Part.FixedValue, CarriedParts.Num());
@@ -386,6 +391,7 @@ void UAFLLootCarryComponent::ScatterAllParts()
 		SpawnPartPickup(Part);
 	}
 	CarriedParts.Empty();
+	RecomputeCarriedAggregates();   // surface the cleared total/count to the owner's HUD
 }
 
 void UAFLLootCarryComponent::SpawnPartPickup(const FAFLCarriedPart& Part)
@@ -431,6 +437,43 @@ void UAFLLootCarryComponent::OnRep_CarriedValue()
 	// Remote clients: the pool replicated in -- the owner's HUD updates from here (event-driven, mirrors the
 	// wallet's OnRep_Balance).
 	OnCarriedValueChanged.Broadcast(CarriedValue);
+}
+
+void UAFLLootCarryComponent::RecomputeCarriedAggregates()
+{
+	// Authority: re-derive the replicated PART aggregate from the server-only token list + broadcast for the
+	// listen-host's own HUD (OnRep doesn't fire on authority). Remote clients fire the same delegate from the OnReps
+	// below. The token LIST (owner/zone/identity) stays server-only -- only these two ints replicate (mirrors the
+	// CarriedValue rail: aggregate-only net surface).
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+	int32 Sum = 0;
+	for (const FAFLCarriedPart& Part : CarriedParts)
+	{
+		Sum += Part.FixedValue;
+	}
+	CarriedPartsValue = Sum;
+	CarriedPartsCount = CarriedParts.Num();
+	OnCarriedPartsChanged.Broadcast(CarriedPartsValue, CarriedPartsCount);
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s carried aggregate -> %d cache + %d parts (%d tokens) = %d TOTAL (auth=1)"),
+		*GetNameSafe(GetOwner()), CarriedValue, CarriedPartsValue, CarriedPartsCount, GetCarriedTotal());
+}
+
+void UAFLLootCarryComponent::OnRep_CarriedPartsValue()
+{
+	// Remote clients: the part-value aggregate replicated in -- refresh the owner's HUD (event-driven). Value+count
+	// change together (every token has FixedValue>0), so this + OnRep_CarriedPartsCount may both fire one frame; the
+	// HUD refresh is idempotent (reads the getters).
+	OnCarriedPartsChanged.Broadcast(CarriedPartsValue, CarriedPartsCount);
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: %s carried aggregate OnRep -> %d parts (%d tokens) = %d TOTAL (auth=0 CLIENT)"),
+		*GetNameSafe(GetOwner()), CarriedPartsValue, CarriedPartsCount, GetCarriedTotal());
+}
+
+void UAFLLootCarryComponent::OnRep_CarriedPartsCount()
+{
+	OnCarriedPartsChanged.Broadcast(CarriedPartsValue, CarriedPartsCount);
 }
 
 #if UE_WITH_CHEAT_MANAGER

@@ -19,6 +19,11 @@ struct FLyraVerbMessage;
  *  loot HUD binds this -> event-driven readout, NEVER tick (mirrors UAFLWalletComponent::OnWalletChanged). */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAFLOnCarriedValueChanged, int32, CarriedValue);
 
+/** Broadcast whenever the carried PART aggregate changes (collect/scatter/extract). The HUD binds this BESIDE
+ *  OnCarriedValueChanged -> the total (cache + parts) + the parts count, event-driven (same shape as the rail).
+ *  Only the AGGREGATE surfaces -- the per-token {owner, zone, identity} list stays server-only. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FAFLOnCarriedPartsChanged, int32, CarriedPartsValue, int32, CarriedPartsCount);
+
 /**
  * FAFLCarriedForm  (Loot-Carry Model, Phase C1 -- one PROVENANCE bucket in the carried pool's server-only ledger)
  *
@@ -120,6 +125,11 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "AFL|Loot")
 	FAFLOnCarriedValueChanged OnCarriedValueChanged;
 
+	/** Carried PART aggregate changed (value + count) -- the HUD binds this beside OnCarriedValueChanged for the
+	 *  total + parts count (event-driven; the V7 token track surfaced as a replicated aggregate). */
+	UPROPERTY(BlueprintAssignable, Category = "AFL|Loot")
+	FAFLOnCarriedPartsChanged OnCarriedPartsChanged;
+
 	/** Server-auth: add Value to the carried pool as the default CUBE form. Back-compat -- the proven Phase A/B
 	 *  caches call this; it routes through the form-aware Collect below so every collect buckets identically. */
 	void Collect(int32 Value);
@@ -151,9 +161,18 @@ public:
 	 *  no combat-luck (the carrier getting killed) needed. Server-auth (ScatterAllParts spawns pickups). */
 	void ForceDropAllParts() { ScatterAllParts(); }
 
-	/** The carried-loot pool (replicated; the owner's HUD reads this). */
+	/** The carried-loot pool (replicated; the owner's HUD reads this). The fungible CACHE rail only. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Loot")
 	int32 GetCarriedValue() const { return CarriedValue; }
+
+	/** The TOTAL at-risk value the HUD shows: the fungible cache rail + the carried PART tokens' summed value
+	 *  (both replicated to the owner). */
+	UFUNCTION(BlueprintPure, Category = "AFL|Loot")
+	int32 GetCarriedTotal() const { return CarriedValue + CarriedPartsValue; }
+
+	/** How many indivisible PART tokens are carried (the "N parts at risk" readout). Replicated aggregate. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Loot")
+	int32 GetCarriedPartsCount() const { return CarriedPartsCount; }
 
 protected:
 	/** The recoverable pickup spawned on scatter (defaults to AAFLLootCarryPickup; overridable on a BP child). */
@@ -167,6 +186,21 @@ protected:
 
 	UFUNCTION()
 	void OnRep_CarriedValue();
+
+	/** V7 carried-PART AGGREGATE, replicated to the owner so the HUD can show the TOTAL (cache + parts). The token
+	 *  LIST (CarriedParts) stays server-only -- only these aggregate ints surface (mirrors the CarriedValue rail).
+	 *  Recomputed on authority wherever CarriedParts changes (RecomputeCarriedAggregates). */
+	UPROPERTY(ReplicatedUsing = OnRep_CarriedPartsValue)
+	int32 CarriedPartsValue = 0;
+
+	UPROPERTY(ReplicatedUsing = OnRep_CarriedPartsCount)
+	int32 CarriedPartsCount = 0;
+
+	UFUNCTION()
+	void OnRep_CarriedPartsValue();
+
+	UFUNCTION()
+	void OnRep_CarriedPartsCount();
 
 	/** Death -> scatter the remainder. */
 	UFUNCTION()
@@ -183,6 +217,11 @@ private:
 	 *  UAFLWalletComponent::CommitMutation minus persistence (the at-risk pool is ephemeral). Listen-host applies
 	 *  locally here (OnRep does not fire on authority) -> broadcast for the host HUD too. */
 	void CommitCarriedDelta(int32 Delta);
+
+	/** Authority: recompute the replicated PART aggregate (value = sum of CarriedParts[].FixedValue, count = Num)
+	 *  + broadcast OnCarriedPartsChanged locally (the listen-host's own HUD; remote clients fire it from the OnReps).
+	 *  Called at every CarriedParts mutation (CollectPart / ScatterOnePart / ScatterAllParts / extract-clear). */
+	void RecomputeCarriedAggregates();
 
 	/** Add Value to the ledger bucket matching Form's identity (class + gib mesh), else open a new bucket.
 	 *  Authority bookkeeping that mirrors the rail delta (keeps sum(Ledger) == CarriedValue). */
