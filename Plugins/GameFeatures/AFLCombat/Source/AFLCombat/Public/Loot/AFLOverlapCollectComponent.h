@@ -60,6 +60,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Loot", meta = (ClampMin = "0.0"))
 	float ActivationDelay = 0.0f;
 
+	/** PRESENTATION (dismember pass): when true the collect arms on the attach-parent physics body's
+	 *  OnComponentSleep (the gib SETTLED = landed), with ActivationDelay repurposed as the MAX-CAP fallback (a
+	 *  gib that never sleeps). False (caches/energy) keeps the pure ActivationDelay/immediate behavior. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Loot")
+	bool bArmOnSettle = false;
+
 protected:
 	UFUNCTION()
 	void OnBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
@@ -70,6 +76,11 @@ protected:
 
 	/** E2 cause-B: arm the collect (called by the ActivationDelay timer, or immediately when the delay is 0). */
 	void Arm();
+
+	/** PRESENTATION (landing-on-settle): arm when the attach-parent physics body sleeps (the gib LANDED). Bound
+	 *  to UPrimitiveComponent::OnComponentSleep in BeginPlay when bArmOnSettle is set. */
+	UFUNCTION()
+	void OnAttachParentSleep(UPrimitiveComponent* SleepingComponent, FName BoneName);
 
 private:
 	/** One-shot collect guard. */

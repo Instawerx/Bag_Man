@@ -34,9 +34,11 @@ AAFLHeadLootBox::AAFLHeadLootBox()
 	// off (a head shouldn't fly at you). Attached to the head prop so it tracks the rolling gib.
 	Overlap = CreateDefaultSubobject<UAFLOverlapCollectComponent>(TEXT("OverlapCollect"));
 	Overlap->SetupAttachment(GetPartMesh());
-	// E2 cause-B: the head spawns ON the victim + pops/tumbles -- present + land for ~1.5s before it's collectible
-	// (vs the watched instant point-blank absorb). Layered on the grant's bConfigured race fix (cause A).
-	Overlap->ActivationDelay = 1.5f;
+	// E2 cause-B + presentation pass: the head presents + tumbles + lands before it's collectible. Primary signal
+	// is LANDING (bArmOnSettle -> the overlap arms on the gib's physics sleep); ActivationDelay is the MAX-CAP
+	// fallback (a gib that never sleeps). Layered on the grant's bConfigured race fix (cause A).
+	Overlap->bArmOnSettle = true;
+	Overlap->ActivationDelay = 3.0f;
 
 	// E2 (align #3): the head physics body must OVERLAP the pawn (no shove -- the "pushing it away" bug) while
 	// still Block-ing the world for the death-tumble. Override only the Pawn response on the inherited

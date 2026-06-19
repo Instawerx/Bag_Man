@@ -111,6 +111,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
 	float HeadPopVerticalImpulse = 120.f;
 
+	/** PRESENTATION (dismember pass): the gib's end-over-end TUMBLE, as a target ANGULAR velocity in rad/s
+	 *  (AddAngularImpulseInRadians bVelChange=TRUE -- mass/scale-independent). A linear-only pop through the COM
+	 *  is zero torque -> the gib SLIDES; this spins it about the axis perpendicular to travel so it ROLLS. Modest
+	 *  = a clean tumble, not a frenzy. Shared by the head + limb pops. EditDefaultsOnly -> PIE-tunable, no rebuild. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
+	float PopAngularImpulse = 6.f;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -131,7 +138,7 @@ private:
 
 	/** Async-load the ZoneSet, resolve HitBone -> row, then SeverZone(row). Server-only.
 	 *  bIsHeadSever: also grant State.Decapitated + spawn the head loot-box once the row resolves. */
-	void ResolveAndSever(FName HitBone, bool bIsHeadSever = false);
+	void ResolveAndSever(FName HitBone, bool bIsHeadSever = false, const FVector& HitDirection = FVector::ZeroVector);
 
 	/**
 	 * Sever one zone (server-authority). Generalizes the proven head path:
@@ -143,7 +150,7 @@ private:
 	 * Row is copied (not pointer-held) because the async continuations outlive the
 	 * FindZoneForBone scan's array-pointer lifetime.
 	 */
-	void SeverZone(const FAFLDismemberZone& Row);
+	void SeverZone(const FAFLDismemberZone& Row, const FVector& HitDirection = FVector::ZeroVector);
 
 	/**
 	 * S4-INC3 PHASE B-2 FIX: every skeletal mesh a zone-bone hide/un-hide must touch. The hero's own
@@ -161,7 +168,7 @@ private:
 
 	/** A head-sever spawns + Initializes the loot-box once the loot-box class resolves. Server-only.
 	 *  HeadLootWatts = the head zone row's LootWatts (the COMBAT-LOOT value an ENEMY collector is granted). */
-	void SpawnHeadLootBox(int32 HeadLootWatts);
+	void SpawnHeadLootBox(int32 HeadLootWatts, const FVector& HitDirection = FVector::ZeroVector);
 
 	FGameplayMessageListenerHandle ListenerHandle;        // Event.Damage.Overkill.AFL (limbs)
 	FGameplayMessageListenerHandle SeverListenerHandle;   // Event.Dismember.Sever.AFL (head, B-2)

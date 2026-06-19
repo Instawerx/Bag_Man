@@ -37,10 +37,11 @@ public:
 	/**
 	 * Apply the randomized pop impulse (bVelChange=false, NAME_None) to the part mesh.
 	 * Called once by UAFLDismemberComponent right after spawn. Centralizes the proven
-	 * head pop so every zone pops identically. VIRTUAL: the head subclass overrides to
-	 * pop its SKELETAL HeadMesh (the head's physics body) instead of the static PartMesh.
+	 * head pop so every zone pops identically. VIRTUAL: the head/limb subclasses override to
+	 * pop with bVelChange=true (velocity). PRESENTATION PASS: the optional Angular impulse
+	 * adds an end-over-end TUMBLE (a linear-only pop through the COM is zero torque -> a slide).
 	 */
-	virtual void ApplyPopImpulse(const FVector& Impulse);
+	virtual void ApplyPopImpulse(const FVector& Linear, const FVector& Angular = FVector::ZeroVector);
 
 protected:
 	/** The decoupled physics prop mesh. Default mesh/material set by subclass or BP child. */

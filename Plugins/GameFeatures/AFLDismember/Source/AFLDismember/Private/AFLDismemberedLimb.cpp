@@ -53,21 +53,27 @@ AAFLDismemberedLimb::AAFLDismemberedLimb()
 	// off. Attached to the limb prop so it tracks the rolling gib.
 	Overlap = CreateDefaultSubobject<UAFLOverlapCollectComponent>(TEXT("OverlapCollect"));
 	Overlap->SetupAttachment(GetPartMesh());
-	// E2 cause-B: the limb spawns ON the victim + pops/tumbles -- present + land for ~1.5s before it's collectible
-	// (vs the watched instant point-blank absorb). Layered on the grant's bConfigured race fix (cause A).
-	Overlap->ActivationDelay = 1.5f;
+	// E2 cause-B + presentation pass: the limb presents + tumbles + lands before it's collectible. Primary signal
+	// is LANDING (bArmOnSettle -> the overlap arms on the gib's physics sleep); ActivationDelay is the MAX-CAP
+	// fallback (a gib that never sleeps). Layered on the grant's bConfigured race fix (cause A).
+	Overlap->bArmOnSettle = true;
+	Overlap->ActivationDelay = 3.0f;
 }
 
-void AAFLDismemberedLimb::ApplyPopImpulse(const FVector& Impulse)
+void AAFLDismemberedLimb::ApplyPopImpulse(const FVector& Linear, const FVector& Angular)
 {
 	// TUMBLE FIX (velocity, not force) -- IDENTICAL to AAFLDismemberedHead::ApplyPopImpulse. bVelChange=TRUE
 	// makes the vector a TARGET VELOCITY (mass/scale-independent) rather than a force the base divides by the
 	// gib's (small) mass. Watched in PIE: the base force-pop launched the light limb gib off-screen with no
 	// visible tumble; this gives the same gentle pop+tumble the head gib gets. Pops the gib PartMesh (the gib
-	// IS the physics body), not a cosmetic child.
+	// IS the physics body), not a cosmetic child. PRESENTATION PASS: + a modest angular impulse so it ROLLS.
 	if (UStaticMeshComponent* Body = GetPartMesh())
 	{
-		Body->AddImpulse(Impulse, NAME_None, /*bVelChange=*/true);
+		Body->AddImpulse(Linear, NAME_None, /*bVelChange=*/true);
+		if (!Angular.IsNearlyZero())
+		{
+			Body->AddAngularImpulseInRadians(Angular, NAME_None, /*bVelChange=*/true);
+		}
 	}
 }
 

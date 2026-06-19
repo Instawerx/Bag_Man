@@ -19,6 +19,10 @@ AAFLDismemberedPart::AAFLDismemberedPart()
 	PartMesh->SetCollisionProfileName(TEXT("PhysicsActor"));
 	PartMesh->SetSimulatePhysics(true);
 
+	// PRESENTATION (landing-on-settle): emit sleep/wake events so a loot overlap can arm collection when the gib
+	// SETTLES (OnComponentSleep) rather than on a fixed timer. Harmless for non-loot parts (nothing binds it).
+	PartMesh->BodyInstance.bGenerateWakeEvents = true;
+
 	InitialLifeSpan = 5.0f;            // native auto-destroy
 
 	// Pre-init direct-set on bReplicates (protected) -- matches engine ctor convention
@@ -32,10 +36,14 @@ AAFLDismemberedPart::AAFLDismemberedPart()
 	bAlwaysRelevant = true;
 }
 
-void AAFLDismemberedPart::ApplyPopImpulse(const FVector& Impulse)
+void AAFLDismemberedPart::ApplyPopImpulse(const FVector& Linear, const FVector& Angular)
 {
 	if (PartMesh)
 	{
-		PartMesh->AddImpulse(Impulse, NAME_None, /*bVelChange=*/false);
+		PartMesh->AddImpulse(Linear, NAME_None, /*bVelChange=*/false);
+		if (!Angular.IsNearlyZero())
+		{
+			PartMesh->AddAngularImpulseInRadians(Angular, NAME_None, /*bVelChange=*/true);
+		}
 	}
 }

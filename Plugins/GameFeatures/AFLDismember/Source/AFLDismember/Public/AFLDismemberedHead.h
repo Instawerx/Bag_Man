@@ -63,7 +63,7 @@ public:
 	 *  The head gib is real-head-sized and light; the base's force-pop (bVelChange=false) divides by that small
 	 *  mass and LAUNCHES the head off-screen. Velocity-pop is mass/scale-independent + predictable. Limbs keep
 	 *  the base force-pop. (S4 TUMBLE FIX.) */
-	virtual void ApplyPopImpulse(const FVector& Impulse) override;
+	virtual void ApplyPopImpulse(const FVector& Linear, const FVector& Angular = FVector::ZeroVector) override;
 
 protected:
 	/** Read-only access to the head's own gib mesh asset for subclasses (e.g. AAFLHeadLootBox passes it as the

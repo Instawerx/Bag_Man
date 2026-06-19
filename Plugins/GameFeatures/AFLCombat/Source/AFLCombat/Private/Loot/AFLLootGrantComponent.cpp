@@ -8,6 +8,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
 #include "Loot/AFLLootCarryComponent.h"         // the carried-at-risk pool (CarryToExtractEnergy -> Collect)
+#include "Materials/MaterialInterface.h"        // PRESENTATION: ScatterGibMaterial (TObjectPtr UPROPERTY full type)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLLootGrantComponent)
 
@@ -123,9 +124,10 @@ void UAFLLootGrantComponent::GrantValue(AActor* Retriever)
 		APawn* Pawn = Cast<APawn>(Retriever);
 		if (UAFLLootCarryComponent* Carry = Pawn ? Pawn->FindComponentByClass<UAFLLootCarryComponent>() : nullptr)
 		{
-			// C3: enter the pool WITH the scatter form -- MakeLimbForm(ScatterGibMesh) makes dismember value
-			// scatter as the real limb gib (a null mesh -> the cube form, so the caches stay byte-identical).
-			Carry->Collect(LootValue, Carry->MakeLimbForm(ScatterGibMesh));
+			// C3: enter the pool WITH the scatter form -- MakeLimbForm makes dismember value scatter as the real
+			// limb gib (a null mesh -> the cube form, so the caches stay byte-identical). PRESENTATION: also thread
+			// the victim's slot-1 MIC so the scattered gib is SKINNED like the fresh gib (null -> mesh's own material).
+			Carry->Collect(LootValue, Carry->MakeLimbForm(ScatterGibMesh, ScatterGibMaterial));
 			UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOT: +%d -> %s carried pool (%s)"),
 				LootValue, *GetNameSafe(Retriever), *GrantReason);
 		}

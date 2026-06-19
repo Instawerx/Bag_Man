@@ -322,6 +322,20 @@ void UAFLDamageExecCalc::Execute_Implementation(
 						Sever.bLethal    = false;
 						Sever.Overflow   = SeverOverflow;
 
+						// PRESENTATION (dismember pass): the shot vector so the gib pops AWAY from the shooter (the
+						// gib pop biases its linear impulse along this; ZeroVector -> the pop's forward-cone fallback).
+						// Derive from the hit's trace ray (TraceStart->TraceEnd), else the negated surface normal.
+						FVector SeverShotDir = FVector::ZeroVector;
+						if (const FHitResult* SeverHit = Spec.GetEffectContext().GetHitResult())
+						{
+							SeverShotDir = (SeverHit->TraceEnd - SeverHit->TraceStart).GetSafeNormal();
+							if (SeverShotDir.IsNearlyZero())
+							{
+								SeverShotDir = (-SeverHit->ImpactNormal).GetSafeNormal();
+							}
+						}
+						Sever.HitDirection = SeverShotDir;
+
 						UGameplayMessageSubsystem::Get(SeverWorld).BroadcastMessage(
 							FGameplayTag::RequestGameplayTag(NAME_Event_Dismember_Sever_AFL_ExecCalc, false),
 							Sever);

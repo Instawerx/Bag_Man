@@ -6,6 +6,7 @@
 #include "Character/LyraHealthComponent.h"
 #include "Cosmetics/AFLWalletComponent.h"     // the BANKED twin -- extract banks the at-risk pool into it
 #include "Engine/StaticMesh.h"                 // C1: the per-form gib mesh (cheat LoadObject + the form-name log)
+#include "Materials/MaterialInterface.h"       // PRESENTATION: FAFLCarriedForm::GibMaterial (TObjectPtr UPROPERTY full type)
 #include "Engine/World.h"
 #include "GameFramework/CheatManagerDefines.h" // UE_WITH_CHEAT_MANAGER -- without it the #if reads 0 + the cmd compiles out SILENTLY
 #include "GameFramework/Pawn.h"
@@ -79,7 +80,7 @@ void UAFLLootCarryComponent::BucketValue(const FAFLCarriedForm& Form, int32 Valu
 	const TSubclassOf<AAFLLootCarryPickup> FormClass = Form.ScatterForm ? Form.ScatterForm : ScatterPickupClass;
 	for (FAFLCarriedForm& Bucket : Ledger)
 	{
-		if (Bucket.ScatterForm == FormClass && Bucket.GibMesh == Form.GibMesh)
+		if (Bucket.ScatterForm == FormClass && Bucket.GibMesh == Form.GibMesh && Bucket.GibMaterial == Form.GibMaterial)
 		{
 			Bucket.Value += Value;
 			return;
@@ -88,17 +89,20 @@ void UAFLLootCarryComponent::BucketValue(const FAFLCarriedForm& Form, int32 Valu
 	FAFLCarriedForm& NewBucket = Ledger.AddDefaulted_GetRef();
 	NewBucket.ScatterForm = FormClass;
 	NewBucket.GibMesh = Form.GibMesh;
+	NewBucket.GibMaterial = Form.GibMaterial;
 	NewBucket.Value = Value;
 }
 
-FAFLCarriedForm UAFLLootCarryComponent::MakeLimbForm(UStaticMesh* GibMesh) const
+FAFLCarriedForm UAFLLootCarryComponent::MakeLimbForm(UStaticMesh* GibMesh, UMaterialInterface* GibMaterial) const
 {
 	// C2: the dismember scatter form = the cube's recoverable pickup (ScatterPickupClass) WEARING the limb gib
 	// mesh (applied per-spawn by SpawnFormPickups -> AAFLLootCarryPickup::SetVisualMesh). A null GibMesh degrades
 	// to the plain cube. C3 builds this from the live limb's own LimbGibMesh/HeadGibMesh -- no hardcoded path here.
+	// PRESENTATION: GibMaterial = the victim's slot-1 MIC so the scattered gib reads as WHOSE it is (skinned).
 	FAFLCarriedForm Form;
 	Form.ScatterForm = ScatterPickupClass;
 	Form.GibMesh = GibMesh;
+	Form.GibMaterial = GibMaterial;
 	return Form;
 }
 
@@ -236,7 +240,7 @@ void UAFLLootCarryComponent::ScatterValue(int32 Amount)
 	{
 		FAFLCarriedForm& Bucket = Ledger[0];   // FIFO = collection order (oldest-collected scatters first)
 		const int32 Take = FMath::Min(Bucket.Value, Remaining);
-		SpawnFormPickups(Bucket.ScatterForm, Bucket.GibMesh, Take);
+		SpawnFormPickups(Bucket.ScatterForm, Bucket.GibMesh, Bucket.GibMaterial, Take);
 		Bucket.Value -= Take;
 		Remaining -= Take;
 		if (Bucket.Value <= 0)
@@ -250,11 +254,11 @@ void UAFLLootCarryComponent::ScatterValue(int32 Amount)
 	if (Remaining > 0)
 	{
 		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOOTCARRY: ledger under-counted by %d -- scattering as cube"), Remaining);
-		SpawnFormPickups(ScatterPickupClass, nullptr, Remaining);
+		SpawnFormPickups(ScatterPickupClass, nullptr, nullptr, Remaining);
 	}
 }
 
-void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, int32 Value)
+void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, UMaterialInterface* GibMaterial, int32 Value)
 {
 	AActor* Owner = GetOwner();
 	UWorld* World = GetWorld();
@@ -287,6 +291,10 @@ void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> F
 			if (GibMesh)
 			{
 				Pickup->SetVisualMesh(GibMesh);   // per-spawn form (the limb gib in C2/C3; the test sphere here)
+			}
+			if (GibMaterial)
+			{
+				Pickup->SetVisualMaterial(GibMaterial);   // PRESENTATION: the victim's slot-1 MIC -> skinned gib
 			}
 		}
 	}

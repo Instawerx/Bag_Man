@@ -170,13 +170,18 @@ void AAFLDismemberedHead::ApplyHeadAppearance()
 		*GetName(), *GetNameSafe(HeadMaterial), *GetNameSafe(HeadSkinColor), NumSlots);
 }
 
-void AAFLDismemberedHead::ApplyPopImpulse(const FVector& Impulse)
+void AAFLDismemberedHead::ApplyPopImpulse(const FVector& Linear, const FVector& Angular)
 {
 	// S4 TUMBLE FIX (velocity, not force): pop the gib PartMesh (the head's physics body) with bVelChange=TRUE
 	// so the vector is a TARGET VELOCITY (mass/scale-independent), not a force the base divides by mass. Pops the
-	// gib, NOT a cosmetic child -- the gib IS the body. Limbs keep the base force-pop (untouched).
+	// gib, NOT a cosmetic child -- the gib IS the body. PRESENTATION PASS: + a modest angular impulse (also a
+	// velocity-change) so the head TUMBLES end-over-end as it travels (a real roll, not a slide).
 	if (UStaticMeshComponent* Body = GetPartMesh())
 	{
-		Body->AddImpulse(Impulse, NAME_None, /*bVelChange=*/true);
+		Body->AddImpulse(Linear, NAME_None, /*bVelChange=*/true);
+		if (!Angular.IsNearlyZero())
+		{
+			Body->AddAngularImpulseInRadians(Angular, NAME_None, /*bVelChange=*/true);
+		}
 	}
 }

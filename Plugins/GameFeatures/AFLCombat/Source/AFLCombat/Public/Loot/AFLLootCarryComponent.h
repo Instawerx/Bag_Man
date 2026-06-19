@@ -10,6 +10,7 @@
 
 class AAFLLootCarryPickup;
 class UStaticMesh;
+class UMaterialInterface;   // PRESENTATION: the dismember gib's slot-1 MIC carried in the scatter form
 struct FAFLHitConfirmMessage;
 struct FLyraVerbMessage;
 
@@ -37,6 +38,11 @@ struct FAFLCarriedForm
 	/** Optional per-spawn mesh the scattered pickup wears (a limb gib in C2/C3; null = the pickup's own cube). */
 	UPROPERTY()
 	TObjectPtr<UStaticMesh> GibMesh = nullptr;
+
+	/** PRESENTATION: the victim's slot-1 MIC for a dismember gib (so the scattered pickup is SKINNED like the
+	 *  fresh gib). Part of the bucket IDENTITY -- distinct skins bucket separately. Null = the mesh's own material. */
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> GibMaterial = nullptr;
 
 	/** Accumulated carried value in this form bucket. Invariant (authority): sum over buckets == CarriedValue. */
 	UPROPERTY()
@@ -91,7 +97,7 @@ public:
 	 *  reattachable AAFLDismemberedLimb (that carries the owner-reattach branch + a double-grant risk; this is the
 	 *  lighter loot that merely LOOKS like the limb). C3 passes the live limb's own gib mesh (LimbGibMesh /
 	 *  HeadGibMesh); the form then rides the proven Collect(value, form) + C1 ledger/scatter path unchanged. */
-	FAFLCarriedForm MakeLimbForm(UStaticMesh* GibMesh) const;
+	FAFLCarriedForm MakeLimbForm(UStaticMesh* GibMesh, UMaterialInterface* GibMaterial = nullptr) const;
 
 	/** The carried-loot pool (replicated; the owner's HUD reads this). */
 	UFUNCTION(BlueprintPure, Category = "AFL|Loot")
@@ -132,7 +138,7 @@ private:
 
 	/** Spawn recoverable pickups of ONE form summing to Value (the proven per-chunk quantization + the gib-mesh
 	 *  override). Shared by every drained bucket in ScatterValue + the desync safety net. Authority. */
-	void SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, int32 Value);
+	void SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, UMaterialInterface* GibMaterial, int32 Value);
 
 	/** SERVER-ONLY provenance ledger (NOT replicated -- scatter is authority-only): which carried value rides
 	 *  which scatter form, so scatter spawns form-accurately. sum(Value) == CarriedValue on the authority; the

@@ -118,7 +118,7 @@ protected:
 	/** VELOCITY pop (bVelChange=true), mirroring AAFLDismemberedHead: the limb gib is a light convex hull,
 	 *  so the base force-pop (impulse/mass) launches it off-screen. Interpret the DA impulse as a target
 	 *  velocity instead -> visible pop + tumble. */
-	virtual void ApplyPopImpulse(const FVector& Impulse) override;
+	virtual void ApplyPopImpulse(const FVector& Linear, const FVector& Angular = FVector::ZeroVector) override;
 
 	/** Apply the victim appearance to the gib (runs on every client): assign PartMaterial (the MIC) to every
 	 *  slot, then drive the color params on TOP via the proven AAFLCharacterPartActor::ApplySkinColor pattern

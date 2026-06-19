@@ -4,6 +4,7 @@
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "Components/PrimitiveComponent.h"   // bArmOnSettle: bind the attach-parent body's OnComponentSleep
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
@@ -38,16 +39,31 @@ void UAFLOverlapCollectComponent::BeginPlay()
 	{
 		OnComponentBeginOverlap.AddDynamic(this, &UAFLOverlapCollectComponent::OnBeginOverlap);
 
-		// E2 cause-B (presentation): with a delay set, the collect starts INERT and arms after ActivationDelay --
-		// the part presents + tumbles + lands before it's collectible. Delay 0 (placed cache / energy) -> stays
-		// armed (the ctor default), unchanged. (Configure already ran by the time a >0 delay elapses, so this also
-		// sits AFTER the cause-A ordering -- collectible = configured AND presented.)
-		if (ActivationDelay > 0.0f)
+		// E2 cause-B (presentation): with a delay OR arm-on-settle set, the collect starts INERT -- the part
+		// presents + tumbles + lands before it's collectible. Delay 0 + no settle (placed cache / energy) -> stays
+		// armed (the ctor default), unchanged. (Configure already ran by the time it arms, so this sits AFTER the
+		// cause-A ordering -- collectible = configured AND presented.)
+		if (ActivationDelay > 0.0f || bArmOnSettle)
 		{
 			bArmed = false;
-			if (UWorld* World = GetWorld())
+			if (ActivationDelay > 0.0f)
 			{
-				World->GetTimerManager().SetTimer(ArmTimer, this, &UAFLOverlapCollectComponent::Arm, ActivationDelay, /*bLoop=*/false);
+				if (UWorld* World = GetWorld())
+				{
+					// The fixed delay: the presentation beat normally; the MAX-CAP fallback when arming on settle.
+					World->GetTimerManager().SetTimer(ArmTimer, this, &UAFLOverlapCollectComponent::Arm, ActivationDelay, /*bLoop=*/false);
+				}
+			}
+			// LANDING-DRIVEN arm (presentation pass): bind the gib's physics body (our attach-parent) sleep event
+			// so collectible becomes a CONSEQUENCE of the part settling, not a guessed timer -- the delay above is
+			// then only the fallback cap. The body emits sleep events via BodyInstance.bGenerateWakeEvents
+			// (set in AAFLDismemberedPart). Caches/energy leave bArmOnSettle false -> unchanged.
+			if (bArmOnSettle)
+			{
+				if (UPrimitiveComponent* Body = Cast<UPrimitiveComponent>(GetAttachParent()))
+				{
+					Body->OnComponentSleep.AddDynamic(this, &UAFLOverlapCollectComponent::OnAttachParentSleep);
+				}
 			}
 		}
 	}
@@ -62,6 +78,13 @@ void UAFLOverlapCollectComponent::Arm()
 {
 	// E2 cause-B: the presentation beat elapsed -> the collect is now live (a NEW walk-over fires OnBeginOverlap).
 	bArmed = true;
+}
+
+void UAFLOverlapCollectComponent::OnAttachParentSleep(UPrimitiveComponent* /*SleepingComponent*/, FName /*BoneName*/)
+{
+	// PRESENTATION (landing-on-settle): the gib's physics body settled -> the part LANDED -> collectible now. Arm
+	// is idempotent; the ActivationDelay cap may also fire (whichever is first wins -- both just set bArmed).
+	Arm();
 }
 
 bool UAFLOverlapCollectComponent::IsViableCollector(const AActor* Candidate) const

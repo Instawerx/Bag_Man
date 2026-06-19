@@ -11,6 +11,7 @@
 
 class AController;
 class UStaticMesh;   // C3: the dismember limb's own gib mesh, threaded into the carried form (no path -- the live mesh)
+class UMaterialInterface;   // PRESENTATION: the scattered gib's slot-1 MIC (the victim's skin), threaded into the form
 
 /** Fired (server-auth) when the OWNER of an owner-branch loot retrieves their own loot -- the seam the
  *  CONSUMER binds to its owner action (dismember binds it -> RestoreZone + Destroy). The component itself
@@ -49,6 +50,11 @@ public:
 	 *  InScatterGibMesh (C3) = the dismember scatter form's gib mesh (null for caches -> the cube form). */
 	void Configure(EAFLLootValueModel InValueModel, int32 InValue, EAFLLootEligibility InEligibility,
 		AActor* InOwnerActor, FName InGrantReason, UStaticMesh* InScatterGibMesh = nullptr);
+
+	/** PRESENTATION (material): the scattered gib's material -- the victim's slot-1 MIC. Set by the dismember
+	 *  sever path AFTER the MIC resolves (Configure runs first, before SetHeadMaterial/SetPartMaterial), so it is
+	 *  a post-Configure setter, not a Configure param. Null -> the scattered mesh keeps its own material. */
+	void SetScatterGibMaterial(UMaterialInterface* InMaterial) { ScatterGibMaterial = InMaterial; }
 
 	/** C3 -- the SSOT owner-vs-enemy resolution for the grab ability's PRE-mechanism routing. The loot consumer
 	 *  (head/limb) exposes this via IAFLLootRetrievalRouter. Reuses the SAME ResolveController/OwnerActor/
@@ -101,4 +107,9 @@ private:
 	 *  CarryToExtractEnergy grant builds Carry->MakeLimbForm(this) so dismember value scatters as the real limb. */
 	UPROPERTY()
 	TObjectPtr<UStaticMesh> ScatterGibMesh = nullptr;
+
+	/** PRESENTATION (material): the scattered gib's slot-1 MIC (the victim's skin), threaded into the carried
+	 *  form so the scattered pickup is SKINNED like the fresh gib. Null for caches (-> the cube's own material). */
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> ScatterGibMaterial = nullptr;
 };

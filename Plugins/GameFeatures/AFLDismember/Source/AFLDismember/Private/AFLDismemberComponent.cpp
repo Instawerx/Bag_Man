@@ -8,6 +8,7 @@
 #include "AFLDismemberedPart.h"
 #include "AFLDismemberedLimb.h"   // S4 LIMB-GIB: the limb prop carries victim material+color (mirrors the head)
 #include "AFLHeadLootBox.h"
+#include "Loot/AFLLootGrantComponent.h"   // PRESENTATION: hand the scattered-gib material to the loot grant
 #include "Cosmetics/AFLSkinColorComponent.h"   // victim skin color handoff to the head prop (AFLCombat)
 #include "Materials/MaterialInterface.h"          // GetMaterial(1) return type
 #include "Materials/MaterialInstanceConstant.h"   // the replication-safe per-skin head MIC (layer-2 identity)
@@ -34,6 +35,40 @@
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLDismemberComponent)
+
+// PRESENTATION POP SHAPE (dismember pass) -- shared by the head + limb sever pops. A MILD DIRECTIONAL roll with
+// an end-over-end TUMBLE. The linear impulse biases along ShotDir (away from the shooter); when ShotDir is zero
+// (e.g. the cheat sever, no hit) it falls to a randomized forward cone off FallbackFwd. The angular impulse spins
+// the gib about the axis perpendicular to travel so it ROLLS rather than SLIDES (a linear-only impulse through the
+// COM is zero torque -- the reason the gib slid pre-pass). Both call sites pop with bVelChange=true, so the
+// magnitudes are target velocities (mass/scale-independent). Keeps ECC_Pawn->Overlap (no shove) intact -- the roll
+// is impulse + ground + spin, NEVER the (removed) pawn-bounce.
+static void AFLBuildPresentationPop(const FVector& ShotDir, const FVector& FallbackFwd, float LateralMag,
+	float VerticalMag, float SpinMag, FVector& OutLinear, FVector& OutAngular)
+{
+	FVector Lateral = FVector(ShotDir.X, ShotDir.Y, 0.f).GetSafeNormal();   // horizontal shot direction
+	if (Lateral.IsNearlyZero())
+	{
+		FVector Base = FVector(FallbackFwd.X, FallbackFwd.Y, 0.f).GetSafeNormal();
+		if (Base.IsNearlyZero())
+		{
+			Base = FVector(1.f, 0.f, 0.f);
+		}
+		Lateral = FRotator(0.f, FMath::FRandRange(-35.f, 35.f), 0.f).RotateVector(Base);   // forward cone fallback
+	}
+	OutLinear = Lateral * LateralMag + FVector(0.f, 0.f, VerticalMag);
+
+	// Spin axis perpendicular to travel (Lateral x Up) -> an end-over-end tumble in the travel direction, with a
+	// small random lean so two gibs never spin identically. Modest magnitude = a clean roll, not a frenzy.
+	FVector SpinAxis = FVector::CrossProduct(Lateral, FVector::UpVector).GetSafeNormal();
+	if (SpinAxis.IsNearlyZero())
+	{
+		SpinAxis = FVector(0.f, 1.f, 0.f);
+	}
+	const FVector Jitter(FMath::FRandRange(-1.f, 1.f), FMath::FRandRange(-1.f, 1.f), FMath::FRandRange(-1.f, 1.f));
+	SpinAxis = (SpinAxis + 0.25f * Jitter).GetSafeNormal();
+	OutAngular = SpinAxis * SpinMag;
+}
 
 namespace
 {
@@ -221,10 +256,10 @@ void UAFLDismemberComponent::OnSever(FGameplayTag Channel, const FAFLDismemberSe
 		static_cast<int32>(Payload.Zone), bIsHead ? TEXT(" + State.Decapitated + loot-box") : TEXT(""));
 
 	// Cosmetic detach (HideBone + prop + cue), plus the head's loot-box/decap, once the row resolves.
-	ResolveAndSever(Payload.BoneName, /*bIsHeadSever=*/bIsHead);
+	ResolveAndSever(Payload.BoneName, /*bIsHeadSever=*/bIsHead, Payload.HitDirection);
 }
 
-void UAFLDismemberComponent::ResolveAndSever(FName HitBone, bool bIsHeadSever)
+void UAFLDismemberComponent::ResolveAndSever(FName HitBone, bool bIsHeadSever, const FVector& HitDirection)
 {
 	// AAA: async-load the ZoneSet (soft), then resolve the bone -> row on the game thread.
 	// RequestAsyncLoad keeps the asset off the hard-ref graph; the lambda runs once loaded.
@@ -232,7 +267,7 @@ void UAFLDismemberComponent::ResolveAndSever(FName HitBone, bool bIsHeadSever)
 	const FSoftObjectPath ZonePath = ZoneSet.ToSoftObjectPath();
 
 	TWeakObjectPtr<UAFLDismemberComponent> WeakThis(this);
-	Streamable.RequestAsyncLoad(ZonePath, FStreamableDelegate::CreateLambda([WeakThis, HitBone, ZonePath, bIsHeadSever]()
+	Streamable.RequestAsyncLoad(ZonePath, FStreamableDelegate::CreateLambda([WeakThis, HitBone, ZonePath, bIsHeadSever, HitDirection]()
 	{
 		UAFLDismemberComponent* Self = WeakThis.Get();
 		if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority())
@@ -263,7 +298,7 @@ void UAFLDismemberComponent::ResolveAndSever(FName HitBone, bool bIsHeadSever)
 
 		// Copy the row -- the async prop/GE continuations in SeverZone outlive the
 		// array-pointer Row returned by FindZoneForBone.
-		Self->SeverZone(*Row);
+		Self->SeverZone(*Row, HitDirection);
 
 		// HEAD path (B-2): grant State.Decapitated (the survivable consequence -> drives the decap
 		// camera ability) and spawn the head loot-box tied to the owner. Limb consequences come from
@@ -272,7 +307,7 @@ void UAFLDismemberComponent::ResolveAndSever(FName HitBone, bool bIsHeadSever)
 		if (bIsHeadSever)
 		{
 			Self->ApplyDecapitatedEffect();
-			Self->SpawnHeadLootBox(Row->LootWatts);   // COMBAT-LOOT: pass the head zone's enemy-collect value.
+			Self->SpawnHeadLootBox(Row->LootWatts, HitDirection);   // COMBAT-LOOT: pass the head zone's enemy-collect value.
 		}
 	}));
 }
@@ -461,7 +496,7 @@ void UAFLDismemberComponent::ApplyZoneRestoreByLeaf_Implementation(FName ZoneLea
 	ApplyZoneRestoreCosmetic(LeafToZone(ZoneLeaf));
 }
 
-void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
+void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row, const FVector& HitDirection)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner || !Owner->HasAuthority() || !GetWorld())
@@ -519,7 +554,7 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
 		const int32 LootWatts = Row.LootWatts;
 
 		Streamable.RequestAsyncLoad(PropPath, FStreamableDelegate::CreateLambda(
-			[WeakThis, PropPath, SeverXform, ImpulseXY, ImpulseZ, LootZone, LootWatts]()
+			[WeakThis, PropPath, SeverXform, ImpulseXY, ImpulseZ, LootZone, LootWatts, HitDirection]()
 		{
 			UAFLDismemberComponent* Self = WeakThis.Get();
 			if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority() || !Self->GetWorld())
@@ -542,11 +577,18 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
 				Self->GetWorld()->SpawnActor<AAFLDismemberedPart>(PropClass, SeverXform, SpawnParams);
 			if (Part)
 			{
-				// Randomized pop -- matches the proven head (+-100 XY, +500 Z by default).
-				Part->ApplyPopImpulse(FVector(
-					FMath::FRandRange(ImpulseXY.X, ImpulseXY.Y),
-					FMath::FRandRange(ImpulseXY.X, ImpulseXY.Y),
-					ImpulseZ));
+				// DIRECTIONAL + ANGULAR pop (presentation pass): bias the linear impulse along the shot vector
+				// (away from the shooter; forward-cone fallback) and add a modest end-over-end tumble so the gib
+				// ROLLS, not slides. Mild magnitude -- ground + spin make the roll, never the (removed) pawn-bounce.
+				// The row's ImpulseXYRange now sets the lateral MAGNITUDE (direction comes from the shot); ImpulseZ
+				// + PopAngularImpulse unchanged in role.
+				const float LimbLateral =
+					FMath::Max(FMath::Abs(ImpulseXY.X), FMath::Abs(ImpulseXY.Y)) * FMath::FRandRange(0.7f, 1.0f);
+				const FVector LimbFwd = Self->GetOwner() ? Self->GetOwner()->GetActorForwardVector() : FVector::ForwardVector;
+				FVector LimbLinear, LimbAngular;
+				AFLBuildPresentationPop(HitDirection, LimbFwd, LimbLateral, ImpulseZ, Self->PopAngularImpulse,
+					LimbLinear, LimbAngular);
+				Part->ApplyPopImpulse(LimbLinear, LimbAngular);
 
 				// IDENTITY (S4 LIMB-GIB): if the prop is a AAFLDismemberedLimb, hand it the victim's per-skin
 				// slot-1 base MATERIAL + skin color so the limb reads as WHOSE limb it is -- EXACTLY the proven
@@ -594,6 +636,12 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row)
 					if (LimbMIC)
 					{
 						Limb->SetPartMaterial(LimbMIC);
+						// PRESENTATION (material): hand the same slot-1 MIC to the limb's loot grant so the SCATTERED
+						// gib (if this limb's value later scatters) carries the victim's skin too -- mirrors the head.
+						if (UAFLLootGrantComponent* LimbGrant = Limb->FindComponentByClass<UAFLLootGrantComponent>())
+						{
+							LimbGrant->SetScatterGibMaterial(LimbMIC);
+						}
 					}
 				}
 
@@ -785,7 +833,7 @@ void UAFLDismemberComponent::ApplyDecapitatedEffect()
 	}));
 }
 
-void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts)
+void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts, const FVector& HitDirection)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner || !Owner->HasAuthority() || !GetWorld() || HeadLootBoxClass.IsNull())
@@ -811,7 +859,7 @@ void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts)
 	FStreamableManager& Streamable = UAssetManager::GetStreamableManager();
 	const FSoftObjectPath LootPath = HeadLootBoxClass.ToSoftObjectPath();
 	TWeakObjectPtr<UAFLDismemberComponent> WeakThis(this);
-	Streamable.RequestAsyncLoad(LootPath, FStreamableDelegate::CreateLambda([WeakThis, LootPath, SpawnXform, HeadLootWatts]()
+	Streamable.RequestAsyncLoad(LootPath, FStreamableDelegate::CreateLambda([WeakThis, LootPath, SpawnXform, HeadLootWatts, HitDirection]()
 	{
 		UAFLDismemberComponent* Self = WeakThis.Get();
 		if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority() || !Self->GetWorld())
@@ -877,6 +925,12 @@ void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts)
 				if (HeadMIC)
 				{
 					Loot->SetHeadMaterial(HeadMIC);
+					// PRESENTATION (material): hand the same slot-1 MIC to the loot grant so the SCATTERED gib (if
+					// this head's value later scatters) carries the victim's skin too -- mirrors the fresh gib.
+					if (UAFLLootGrantComponent* HeadGrant = Loot->FindComponentByClass<UAFLLootGrantComponent>())
+					{
+						HeadGrant->SetScatterGibMaterial(HeadMIC);
+					}
 				}
 				else
 				{
@@ -893,20 +947,20 @@ void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts)
 			// head-sized sphere to roll ~1m before resting; a modest HeadPopVerticalImpulse gives it a small
 			// pop off the neck so it arcs out instead of dropping straight down. Physics-driven (no anim);
 			// AddImpulse on the sphere PartMesh via the inherited ApplyPopImpulse (the head's restored root).
-			FVector LateralDir = FVector(FMath::VRand());
-			LateralDir.Z = 0.f;                                  // horizontal only -> a true roll bias
-			LateralDir = LateralDir.GetSafeNormal2D();
-			if (LateralDir.IsNearlyZero())                       // VRand landed near-vertical -> pick a default
-			{
-				LateralDir = FVector(1.f, 0.f, 0.f);
-			}
-			const FVector HeadPop =
-				LateralDir * Self->HeadPopLateralImpulse + FVector(0.f, 0.f, Self->HeadPopVerticalImpulse);
-			Loot->ApplyPopImpulse(HeadPop);
+			// DIRECTIONAL + ANGULAR pop (presentation pass): the head pops ALONG the shot vector (away from the
+			// shooter) instead of a pure VRand horizontal -- replacing the shooter-ricochet E2's no-shove removed
+			// AND fixing the point-blank VRand artifact (a random dir could fling the head back at the shooter). A
+			// modest end-over-end tumble makes it ROLL, not slide. Mild magnitude; forward-cone fallback (cheat).
+			const FVector HeadFwd = Self->GetOwner() ? Self->GetOwner()->GetActorForwardVector() : FVector::ForwardVector;
+			FVector HeadPop, HeadSpin;
+			AFLBuildPresentationPop(HitDirection, HeadFwd, Self->HeadPopLateralImpulse, Self->HeadPopVerticalImpulse,
+				Self->PopAngularImpulse, HeadPop, HeadSpin);
+			Loot->ApplyPopImpulse(HeadPop, HeadSpin);
 
 			UE_LOG(LogAFLDismember, Display,
-				TEXT("[AFLDismember] head loot-box %s spawned + tied to owner %s -- pop+roll impulse=%s"),
-				*GetNameSafe(Loot), *GetNameSafe(Self->GetOwner()), *HeadPop.ToString());
+				TEXT("[AFLDismember] head loot-box %s spawned + tied to owner %s -- pop=%s spin=%s dir=%s"),
+				*GetNameSafe(Loot), *GetNameSafe(Self->GetOwner()), *HeadPop.ToString(), *HeadSpin.ToString(),
+				*HitDirection.ToString());
 		}
 	}));
 }

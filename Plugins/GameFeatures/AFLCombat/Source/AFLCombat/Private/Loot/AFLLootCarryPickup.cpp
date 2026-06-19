@@ -5,6 +5,7 @@
 #include "AFLCombat.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"               // C1: the per-spawn form mesh (SetStaticMesh override)
+#include "Materials/MaterialInterface.h"      // PRESENTATION: the per-spawn gib material (SetMaterial on every slot)
 #include "Loot/AFLLootCarryComponent.h"
 #include "Loot/AFLOverlapCollectComponent.h"
 #include "Net/UnrealNetwork.h"               // C1: DOREPLIFETIME(OverrideMesh) -- the scattered form replicates
@@ -37,6 +38,7 @@ void AAFLLootCarryPickup::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AAFLLootCarryPickup, OverrideMesh);
+	DOREPLIFETIME(AAFLLootCarryPickup, OverrideMaterial);
 }
 
 void AAFLLootCarryPickup::SetVisualMesh(UStaticMesh* InMesh)
@@ -56,6 +58,23 @@ void AAFLLootCarryPickup::OnRep_VisualMesh()
 	ApplyVisualMesh();
 }
 
+void AAFLLootCarryPickup::SetVisualMaterial(UMaterialInterface* InMaterial)
+{
+	// Authority sets the replicated form material + applies locally now (OnRep won't fire on the server); clients
+	// apply from OnRep_VisualMaterial. The scattered gib then reads as the victim's skin on every machine.
+	if (!HasAuthority())
+	{
+		return;
+	}
+	OverrideMaterial = InMaterial;
+	ApplyVisualMesh();
+}
+
+void AAFLLootCarryPickup::OnRep_VisualMaterial()
+{
+	ApplyVisualMesh();
+}
+
 void AAFLLootCarryPickup::ApplyVisualMesh()
 {
 	if (OverrideMesh && VisualMesh)
@@ -71,6 +90,18 @@ void AAFLLootCarryPickup::ApplyVisualMesh()
 		// -> OverrideMesh isn't replicating.
 		UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: pickup %s applied gib form %s at scale 1.0 (auth=%d)"),
 			*GetName(), *GetNameSafe(OverrideMesh), HasAuthority() ? 1 : 0);
+	}
+
+	// PRESENTATION (material): skin the scattered gib with the victim's slot-1 MIC on EVERY slot (mirrors the fresh
+	// gib's both-slots assign) so it reads as WHOSE limb/head it is. Independent of the mesh branch -- applies on the
+	// server (SetVisualMaterial) + each client (OnRep_VisualMaterial). Null override -> the mesh keeps its own material.
+	if (OverrideMaterial && VisualMesh)
+	{
+		const int32 NumSlots = VisualMesh->GetNumMaterials();
+		for (int32 Slot = 0; Slot < NumSlots; ++Slot)
+		{
+			VisualMesh->SetMaterial(Slot, OverrideMaterial);
+		}
 	}
 }
 
