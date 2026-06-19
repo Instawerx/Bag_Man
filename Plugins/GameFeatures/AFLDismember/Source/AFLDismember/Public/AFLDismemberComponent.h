@@ -106,16 +106,18 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
 	TSoftClassPtr<class UGameplayEffect> DecapitatedEffect;
 
-	/** S4 TUMBLE TIER 2: the head loot-box pop, as a TARGET VELOCITY in cm/s (the head's ApplyPopImpulse uses
-	 *  bVelChange=TRUE -- mass/scale-independent; a force-pop launches the tiny head-sized sphere off-screen).
-	 *  The loot path applies NO pop otherwise (the head just free-falls + settles). Lateral-dominant so the
-	 *  head ROLLS ~1-1.5m before resting (150 cm/s); a modest vertical pop arcs it off the neck (120 cm/s).
-	 *  EditDefaultsOnly -> PIE-tunable, no rebuild. */
+	/** S4 TUMBLE TIER 2: the head loot-box pop, as a TARGET VELOCITY in cm/s (ApplyPopImpulse uses bVelChange=TRUE --
+	 *  mass/scale-independent; because these are VELOCITIES, not a force-impulse, the proven +500 loft is CONTROLLED
+	 *  here [~1.3m arc], not the off-screen launch a raw force would give). RESTORED to the proven UP-DOMINANT head
+	 *  pop (AFLDismemberTypes: "the proven head pop +-100 XY, +500 Z"): the head POPS OFF with force -- +500 cm/s
+	 *  vertical loft + a small +-100 cm/s random lateral scatter; the gib tumbles on landing (no roll/friction lever).
+	 *  REGRESSED by the presentation pass to a weak lateral-dominant 150/120 = "falls too close to body" -- restored;
+	 *  do NOT re-tune the loft without an explicit task. EditDefaultsOnly -> PIE-tunable, no rebuild. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
-	float HeadPopLateralImpulse = 150.f;
+	float HeadPopLateralImpulse = 100.f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Dismember")
-	float HeadPopVerticalImpulse = 120.f;
+	float HeadPopVerticalImpulse = 500.f;
 
 	/** PRESENTATION (dismember pass): the gib's end-over-end TUMBLE, as a target ANGULAR velocity in rad/s
 	 *  (AddAngularImpulseInRadians bVelChange=TRUE -- mass/scale-independent). A linear-only pop through the COM

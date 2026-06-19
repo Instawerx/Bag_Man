@@ -967,6 +967,16 @@ void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts, const FVector
 			FVector HeadPop, HeadSpin;
 			AFLBuildPresentationPop(HitDirection, HeadFwd, Self->HeadPopLateralImpulse, Self->HeadPopVerticalImpulse,
 				Self->PopAngularImpulse, HeadPop, HeadSpin);
+			// RESTORE the proven UP-DOMINANT loft (AFLDismemberTypes: "the proven head pop +-100 XY, +500 Z"):
+			// AFLBuildPresentationPop biases the LINEAR along the shot vector -- with the gutted 120 vertical that was
+			// lateral-dominant, the "falls too close to body" C-grade. Override the linear back to the proven
+			// RANDOM-XY + strong-UP form (+-HeadPopLateralImpulse XY, +HeadPopVerticalImpulse Z) so the head POPS OFF
+			// with force; the gib tumbles on landing (fine -- no roll/friction lever). HeadSpin's end-over-end tumble
+			// is KEPT (it doesn't fight the vertical loft). FORCE-only restore -- do not re-tune without cause.
+			HeadPop = FVector(
+				FMath::FRandRange(-Self->HeadPopLateralImpulse, Self->HeadPopLateralImpulse),
+				FMath::FRandRange(-Self->HeadPopLateralImpulse, Self->HeadPopLateralImpulse),
+				Self->HeadPopVerticalImpulse);
 			Loot->ApplyPopImpulse(HeadPop, HeadSpin);
 
 			UE_LOG(LogAFLDismember, Display,
