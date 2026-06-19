@@ -86,23 +86,27 @@ namespace
 	}
 }
 
-AAFLCueNotify_ZoneSever::AAFLCueNotify_ZoneSever()
-{
-	// Pure router cue: no tick, no spawned visual. Auto-destroy on remove like the beam (pool-safe).
-	PrimaryActorTick.bCanEverTick = false;
-	bAutoDestroyOnRemove = true;
-}
-
-bool AAFLCueNotify_ZoneSever::OnActive_Implementation(AActor* MyTarget, const FGameplayCueParameters& Parameters)
+bool UAFLCueNotify_ZoneSever::OnActive_Implementation(AActor* MyTarget, const FGameplayCueParameters& Parameters) const
 {
 	// Cue ADDED -> hide the zone bone on THIS client (server + every remote, incl. late-join via the container).
 	RouteToCosmeticTarget(MyTarget, Parameters, /*bHide=*/true);
 	return Super::OnActive_Implementation(MyTarget, Parameters);
 }
 
-bool AAFLCueNotify_ZoneSever::OnRemove_Implementation(AActor* MyTarget, const FGameplayCueParameters& Parameters)
+bool UAFLCueNotify_ZoneSever::WhileActive_Implementation(AActor* MyTarget, const FGameplayCueParameters& Parameters) const
 {
-	// Cue REMOVED (server RemoveGameplayCue at reattach) -> un-hide on every client. Symmetric.
+	// Cue ALREADY ACTIVE when THIS client became relevant -- GAS calls WhileActive (NOT OnActive) on a relevance/
+	// late-join. Re-apply the SAME hide so a player entering relevance of an already-dismembered robot sees the
+	// missing part (Battle-Royale scale: relevance-joins are constant; OnActive only fired for clients present at
+	// sever time). ApplyZoneHideByLeaf is idempotent -> safe to re-route; the un-hide stays OnRemove-only.
+	RouteToCosmeticTarget(MyTarget, Parameters, /*bHide=*/true);
+	return Super::WhileActive_Implementation(MyTarget, Parameters);
+}
+
+bool UAFLCueNotify_ZoneSever::OnRemove_Implementation(AActor* MyTarget, const FGameplayCueParameters& Parameters) const
+{
+	// Cue REMOVED (server RemoveGameplayCue at reattach) -> un-hide on every client. Symmetric. Static notify ->
+	// OnRemove fires on the CDO directly (no instance to GC) -> the un-hide is reliable across sever/reattach cycles.
 	RouteToCosmeticTarget(MyTarget, Parameters, /*bHide=*/false);
 	return Super::OnRemove_Implementation(MyTarget, Parameters);
 }
