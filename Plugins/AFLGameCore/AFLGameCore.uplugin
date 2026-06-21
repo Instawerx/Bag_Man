@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "AFL Game Core",
+	"Description": "Always-loaded home for AFL game-framework classes that must exist at WORLD INIT -- before any GameFeature loads. AAFLGameMode lives here: a GameMode set as a map default is instantiated at world init and itself bootstraps experience (GameFeature) loading, so it CANNOT live in the GameFeature it loads -- it would be absent/unregistered at map load. MUST stay a plain Default-phase runtime plugin -- NOT a GameFeature. Cross-module seams (e.g. IAFLRoundRestartPolicy) decouple it from the GameFeature components that IMPLEMENT them, keeping the dependency direction GameFeature -> always-loaded.",
+	"Category": "AFL",
+	"CreatedBy": "C12 AI Gaming",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AFLGameCore",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

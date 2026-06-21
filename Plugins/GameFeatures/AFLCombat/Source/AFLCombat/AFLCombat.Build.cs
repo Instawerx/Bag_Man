@@ -22,6 +22,12 @@ public class AFLCombat : ModuleRules
 				"GameplayMessageRuntime",
 				"LyraGame",
 				"AFLCore",
+				// Arena round wrapper: AAFLGameMode (the round respawn gate) was RELOCATED to the
+				// always-loaded AFLGameCore plugin -- a map-default GameMode is instantiated at world init,
+				// before this GameFeature loads, so it cannot live here. UAFLRoundManagerComponent
+				// implements AFLGameCore's IAFLRoundRestartPolicy seam (GameFeature -> always-loaded, the
+				// correct direction; AAFLGameMode keeps ZERO dependency back into AFLCombat).
+				"AFLGameCore",
 				// AFL-0106 net fix: FAFLAbilityTargetData_Hitscan (the client-built hitscan
 				// payload Pulse/Beam ship via ServerSetReplicatedTargetData) lives here, an
 				// always-loaded non-GameFeature module, so it is in GAS's once-built

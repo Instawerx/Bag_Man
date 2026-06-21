@@ -4,6 +4,7 @@
 
 #include "Components/GameStateComponent.h"
 #include "GameFramework/GameplayMessageSubsystem.h"   // FGameplayMessageListenerHandle (member)
+#include "AFLRoundRestartPolicy.h"                     // IAFLRoundRestartPolicy (the always-loaded AFLGameCore seam)
 
 #include "AFLRoundManagerComponent.generated.h"
 
@@ -61,7 +62,7 @@ enum class EAFLRoundWinReason : uint8
  *                  ControllerCanRestart is private/non-virtual -> the gate lives on the game mode).
  */
 UCLASS(ClassGroup = (AFL), meta = (BlueprintSpawnableComponent))
-class AFLCOMBAT_API UAFLRoundManagerComponent : public UGameStateComponent
+class AFLCOMBAT_API UAFLRoundManagerComponent : public UGameStateComponent, public IAFLRoundRestartPolicy
 {
 	GENERATED_BODY()
 
@@ -97,7 +98,9 @@ public:
 
 	// -- respawn-gate query surface (AAFLGameMode::ControllerCanRestart consults these) --
 	UFUNCTION(BlueprintPure, Category = "AFL|Round") bool IsRoundActive() const { return Phase == EAFLRoundPhase::RoundActive; }
-	bool ShouldBlockRestart() const { return IsRoundActive() && !bAllowMidRoundRespawn; }
+	//~IAFLRoundRestartPolicy -- the seam AAFLGameMode (always-loaded AFLGameCore) queries; routes to the
+	// existing logic unchanged.
+	virtual bool ShouldBlockRestart() const override { return IsRoundActive() && !bAllowMidRoundRespawn; }
 	bool AreSidesSwapped() const { return bSidesSwapped; }
 
 protected:
