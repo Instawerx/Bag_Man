@@ -19,7 +19,10 @@ UAFLLootDirectorComponent::UAFLLootDirectorComponent(const FObjectInitializer& O
 	// Loot Phase 3 -- bind the default config so the experience-granted RAW director loads it (closes the
 	// "NO LootConfig set" Phase-2 gap; a BP child / experience override can still repoint it). BeginPlay's
 	// LoadSynchronous reads it + logs the cache-def count. Soft path -> no ctor hard-load.
-	LootConfig = TSoftObjectPtr<UAFLLootConfig>(FSoftObjectPath(TEXT("/Game/BagMan/Loot/DA_AFL_LootConfig.DA_AFL_LootConfig")));
+	// AFLBagMan migration: DA_AFL_LootConfig was relocated out of /Game into the AFLBagMan GameFeature (resolves
+	// the /Game-references-GameFeature-content illegal refs). FOLLOW-UP (post-migration cleanup): replace this
+	// hardcoded string literal with a data-driven/EditDefaultsOnly default -- a path literal is fragile to renames.
+	LootConfig = TSoftObjectPtr<UAFLLootConfig>(FSoftObjectPath(TEXT("/AFLBagMan/Loot/DA_AFL_LootConfig.DA_AFL_LootConfig")));
 }
 
 void UAFLLootDirectorComponent::BeginPlay()

@@ -394,6 +394,10 @@
                     {
                         "Name":  "AFLDismember",
                         "Enabled":  true
+                    },
+                    {
+                        "Name":  "AFLBagMan",
+                        "Enabled":  true
                     }
                 ],
     "EpicSampleNameHash":  "451731683"
