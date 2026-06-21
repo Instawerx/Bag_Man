@@ -57,3 +57,50 @@ void FAFLCombatTelemetry::EmitHeadshotRatio(const AActor* Source, int32 Headshot
 		TotalHits,
 		Ratio);
 }
+
+// --- Round / extraction / spatial events (ADDITIVE; same sink + prefix as the three above) ---
+
+void FAFLCombatTelemetry::EmitRoundStart(int32 Round)
+{
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_TELEMETRY: afl_round_start round=%d"),
+		Round);
+}
+
+void FAFLCombatTelemetry::EmitRoundResolved(int32 Round, int32 WinningTeam, const FName& Reason)
+{
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_TELEMETRY: afl_round_resolved round=%d team=%d reason=%s"),
+		Round,
+		WinningTeam,
+		*Reason.ToString());
+}
+
+void FAFLCombatTelemetry::EmitExtractContest(const AActor* Channeler, bool bContested, const FVector& Location)
+{
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_TELEMETRY: afl_extract_contest source=%s contested=%d x=%.0f y=%.0f z=%.0f"),
+		*GetNameSafe(Channeler),
+		bContested ? 1 : 0,
+		Location.X, Location.Y, Location.Z);
+}
+
+void FAFLCombatTelemetry::EmitExtractOutcome(const AActor* Channeler, int32 TeamId, bool bSuccess, const FVector& Location)
+{
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_TELEMETRY: afl_extract_outcome source=%s team=%d success=%d x=%.0f y=%.0f z=%.0f"),
+		*GetNameSafe(Channeler),
+		TeamId,
+		bSuccess ? 1 : 0,
+		Location.X, Location.Y, Location.Z);
+}
+
+void FAFLCombatTelemetry::EmitElimination(const AActor* Victim, const AActor* Killer, int32 VictimTeam, const FVector& Location)
+{
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_TELEMETRY: afl_elimination victim=%s killer=%s team=%d x=%.0f y=%.0f z=%.0f"),
+		*GetNameSafe(Victim),
+		*GetNameSafe(Killer),
+		VictimTeam,
+		Location.X, Location.Y, Location.Z);
+}

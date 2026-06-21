@@ -74,4 +74,28 @@ public:
 	 *   AFL_TELEMETRY: headshot_ratio source=<SourceName> headshots=<H> hits=<N> ratio=<R>
 	 */
 	static void EmitHeadshotRatio(const AActor* Source, int32 Headshots, int32 TotalHits);
+
+	// ---------------------------------------------------------------------------------------------
+	// Round / extraction / spatial events (the Arena round wrapper + Task-2 per-level z-heatmaps).
+	// ADDITIVE -- the three events above are unchanged in meaning. Same UE_LOG sink + line prefix.
+	// ---------------------------------------------------------------------------------------------
+
+	/** Round began. Emits: AFL_TELEMETRY: afl_round_start round=<R> */
+	static void EmitRoundStart(int32 Round);
+
+	/** Round resolved. Emits: AFL_TELEMETRY: afl_round_resolved round=<R> team=<T> reason=<Reason> */
+	static void EmitRoundResolved(int32 Round, int32 WinningTeam, const FName& Reason);
+
+	/** Was an extraction contested (a live enemy near the bank point). World-Z carried for per-level heatmaps.
+	 *  Emits: AFL_TELEMETRY: afl_extract_contest source=<S> contested=<0|1> x=<X> y=<Y> z=<Z> */
+	static void EmitExtractContest(const AActor* Channeler, bool bContested, const FVector& Location);
+
+	/** Extraction outcome (success/fail) by team, with world-Z.
+	 *  Emits: AFL_TELEMETRY: afl_extract_outcome source=<S> team=<T> success=<0|1> x=<X> y=<Y> z=<Z> */
+	static void EmitExtractOutcome(const AActor* Channeler, int32 TeamId, bool bSuccess, const FVector& Location);
+
+	/** A player elimination, with world-Z (the kill/death spatial datum Task-2 per-level heatmaps need --
+	 *  there was no prior kill/death emit; this adds one WITH Z, without touching the combat/damage code).
+	 *  Emits: AFL_TELEMETRY: afl_elimination victim=<V> killer=<K> team=<T> x=<X> y=<Y> z=<Z> */
+	static void EmitElimination(const AActor* Victim, const AActor* Killer, int32 VictimTeam, const FVector& Location);
 };
