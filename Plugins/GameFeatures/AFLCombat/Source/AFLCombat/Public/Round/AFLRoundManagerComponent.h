@@ -79,10 +79,17 @@ public:
 	// -- replicated state (drives the HUD via OnRep) --
 	UPROPERTY(ReplicatedUsing = OnRep_Phase, BlueprintReadOnly, Category = "AFL|Round") EAFLRoundPhase Phase = EAFLRoundPhase::WarmUp;
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|Round") int32 CurrentRound = 0;
+	// Score SLOTS (not team ids): slot 0/1 == ParticipatingTeams[0]/[1]. Names kept to avoid replication churn.
 	UPROPERTY(ReplicatedUsing = OnRep_Score, BlueprintReadOnly, Category = "AFL|Round") int32 Team0Score = 0;
 	UPROPERTY(ReplicatedUsing = OnRep_Score, BlueprintReadOnly, Category = "AFL|Round") int32 Team1Score = 0;
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|Round") float RoundTimeRemaining = 0.f;
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|Round") bool  bSidesSwapped = false;
+
+	/** The two participating team ids, resolved from ULyraTeamSubsystem at ServerStartMatch (NO magic
+	 *  numbers -- the ShooterCore two-team stack uses ids 1/2, not 0/1). Slot 0/1 maps to Team0Score/
+	 *  Team1Score. Replicated so the client HUD maps its local team to the right slot via SlotForTeam().
+	 *  INDEX_NONE until the match starts. (C-array UPROPERTY -> not BlueprintReadOnly; read via SlotForTeam.) */
+	UPROPERTY(Replicated) int32 ParticipatingTeams[2];
 
 	/** Last resolution, replicated so OnRep can fire OnRoundResolved on clients (winner + reason for a UI toast). */
 	UPROPERTY(ReplicatedUsing = OnRep_RoundResolved, BlueprintReadOnly, Category = "AFL|Round") int32 LastWinningTeam = INDEX_NONE;
@@ -102,6 +109,19 @@ public:
 	// existing logic unchanged.
 	virtual bool ShouldBlockRestart() const override { return IsRoundActive() && !bAllowMidRoundRespawn; }
 	bool AreSidesSwapped() const { return bSidesSwapped; }
+
+	/** The score slot (0 or 1) for a team id, or INDEX_NONE if not a participating team. The client HUD
+	 *  maps its local team -> Team0Score/Team1Score with this; the server FSM uses it for all team attribution. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Round")
+	int32 SlotForTeam(int32 TeamId) const
+	{
+		if (TeamId != INDEX_NONE)
+		{
+			if (TeamId == ParticipatingTeams[0]) { return 0; }
+			if (TeamId == ParticipatingTeams[1]) { return 1; }
+		}
+		return INDEX_NONE;
+	}
 
 protected:
 	virtual void BeginPlay() override;

@@ -29,8 +29,8 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Extracting_Round, "State.Extracting");
 
 namespace
 {
-	constexpr int32 AFLRoundTeam0 = 0;
-	constexpr int32 AFLRoundTeam1 = 1;
+	// NO team-id magic numbers -- the two participating ids are resolved from ULyraTeamSubsystem at
+	// ServerStartMatch into the replicated ParticipatingTeams[2] (the ShooterCore two-team stack uses 1/2, not 0/1).
 	// BetweenRounds requests respawns (gate open: Phase=RoundEnd/HalfTime); we delay BeginRound past the
 	// next-frame restart so Phase=RoundActive does not re-lock the gate before the fresh pawns land.
 	constexpr float AFLRoundPostResetBeginDelay = 1.0f;
@@ -47,6 +47,8 @@ UAFLRoundManagerComponent::UAFLRoundManagerComponent(const FObjectInitializer& O
 	PrimaryComponentTick.TickInterval = 0.25f;   // 4 Hz, not per-frame
 	// DIVERGENCE: the sibling is server-only; this component replicates its state to drive the HUD.
 	SetIsReplicatedByDefault(true);
+	ParticipatingTeams[0] = INDEX_NONE;
+	ParticipatingTeams[1] = INDEX_NONE;
 }
 
 void UAFLRoundManagerComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -58,6 +60,7 @@ void UAFLRoundManagerComponent::GetLifetimeReplicatedProps(TArray<FLifetimePrope
 	DOREPLIFETIME(UAFLRoundManagerComponent, Team1Score);
 	DOREPLIFETIME(UAFLRoundManagerComponent, RoundTimeRemaining);
 	DOREPLIFETIME(UAFLRoundManagerComponent, bSidesSwapped);
+	DOREPLIFETIME(UAFLRoundManagerComponent, ParticipatingTeams);
 	DOREPLIFETIME(UAFLRoundManagerComponent, LastWinningTeam);
 	DOREPLIFETIME(UAFLRoundManagerComponent, LastWinReason);
 }
@@ -129,13 +132,28 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	{
 		return;
 	}
+	// Resolve the two participating team ids DYNAMICALLY (no magic numbers). ULyraTeamCreationComponent
+	// creates the teams at experience load (its GameState-component BeginPlay); ServerStartMatch fires
+	// post-load (the afl.Round.Start cheat / the match-phase trigger), so the teams exist by now.
+	const ULyraTeamSubsystem* Teams = GetWorld() ? GetWorld()->GetSubsystem<ULyraTeamSubsystem>() : nullptr;
+	TArray<int32> Ids = Teams ? Teams->GetTeamIDs() : TArray<int32>();
+	Ids.Sort();   // ascending -- slot 0 = lowest id, slot 1 = next
+	if (Ids.Num() < 2)
+	{
+		UE_LOG(LogAFLCombat, Error, TEXT("AFL_ROUND: cannot START -- need 2 teams, ULyraTeamSubsystem::GetTeamIDs found %d. Aborting (retry once teams exist)."), Ids.Num());
+		return;   // abort WITHOUT marking started -- a later call retries once teams exist
+	}
+	ParticipatingTeams[0] = Ids[0];
+	ParticipatingTeams[1] = Ids[1];
+
 	bMatchStarted = true;
 	CurrentRound = 0;
 	Team0Score = 0;
 	Team1Score = 0;
 	bSidesSwapped = false;
 	OnRep_Score();   // listen-host local HUD
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: match START (first to %d; half-swap after round %d)."), RoundsToWin, HalfTimeAfterRound);
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: match START (teams %d v %d; first to %d; half-swap after round %d)."),
+		ParticipatingTeams[0], ParticipatingTeams[1], RoundsToWin, HalfTimeAfterRound);
 	Server_BeginRound();
 }
 
@@ -179,19 +197,19 @@ void UAFLRoundManagerComponent::HandlePlayerDeath(AActor* OwningActor)
 	FAFLCombatTelemetry::EmitElimination(OwningActor, /*Killer=*/nullptr, VictimTeam, Loc);
 
 	// Team-wipe check -- recompute alive counts authoritatively (the just-dead pawn already reads IsDeadOrDying).
-	const int32 Alive0 = AliveCount(AFLRoundTeam0);
-	const int32 Alive1 = AliveCount(AFLRoundTeam1);
+	const int32 Alive0 = AliveCount(ParticipatingTeams[0]);   // slot 0
+	const int32 Alive1 = AliveCount(ParticipatingTeams[1]);   // slot 1
 	if (Alive0 == 0 && Alive1 == 0)
 	{
-		Server_ResolveRound(INDEX_NONE, EAFLRoundWinReason::Replay);          // simultaneous double-wipe -> no-score
+		Server_ResolveRound(INDEX_NONE, EAFLRoundWinReason::Replay);                  // simultaneous double-wipe -> no-score
 	}
 	else if (Alive0 == 0)
 	{
-		Server_ResolveRound(AFLRoundTeam1, EAFLRoundWinReason::Elimination);
+		Server_ResolveRound(ParticipatingTeams[1], EAFLRoundWinReason::Elimination);  // slot-0 team wiped -> slot-1 wins
 	}
 	else if (Alive1 == 0)
 	{
-		Server_ResolveRound(AFLRoundTeam0, EAFLRoundWinReason::Elimination);
+		Server_ResolveRound(ParticipatingTeams[0], EAFLRoundWinReason::Elimination);  // slot-1 team wiped -> slot-0 wins
 	}
 }
 
@@ -215,8 +233,9 @@ void UAFLRoundManagerComponent::HandleExtractionBanked(FGameplayTag /*Channel*/,
 	const int32 BankValue = FMath::Max(0, static_cast<int32>(Message.Magnitude));
 
 	// Accumulate per-team banked (the timeout tiebreak source). In practice the first complete ends the round.
-	if (TeamId == AFLRoundTeam0) { Team0Banked += BankValue; }
-	else if (TeamId == AFLRoundTeam1) { Team1Banked += BankValue; }
+	const int32 BankSlot = SlotForTeam(TeamId);
+	if (BankSlot == 0) { Team0Banked += BankValue; }
+	else if (BankSlot == 1) { Team1Banked += BankValue; }
 
 	// Telemetry: a contest read (any LIVE enemy near the bank point) + the outcome -- both with world-Z.
 	bool bContested = false;
@@ -233,7 +252,7 @@ void UAFLRoundManagerComponent::HandleExtractionBanked(FGameplayTag /*Channel*/,
 	FAFLCombatTelemetry::EmitExtractContest(Channeler, bContested, Loc);
 	FAFLCombatTelemetry::EmitExtractOutcome(Channeler, TeamId, /*bSuccess=*/true, Loc);
 
-	if (TeamId == AFLRoundTeam0 || TeamId == AFLRoundTeam1)
+	if (BankSlot != INDEX_NONE)
 	{
 		Server_ResolveRound(TeamId, EAFLRoundWinReason::Extraction);   // completing a central bank wins the round
 	}
@@ -251,8 +270,8 @@ void UAFLRoundManagerComponent::Server_OnRoundTimeout()
 
 int32 UAFLRoundManagerComponent::ComputeTimeoutWinner() const
 {
-	if (Team0Banked > Team1Banked) { return AFLRoundTeam0; }
-	if (Team1Banked > Team0Banked) { return AFLRoundTeam1; }
+	if (Team0Banked > Team1Banked) { return ParticipatingTeams[0]; }
+	if (Team1Banked > Team0Banked) { return ParticipatingTeams[1]; }
 	return TeamHoldingCore();   // banked tie -> core holder; INDEX_NONE on double-tie -> Replay (no-score)
 }
 
@@ -269,9 +288,10 @@ void UAFLRoundManagerComponent::Server_ResolveRound(int32 WinningTeamId, EAFLRou
 	}
 	UnbindDeathDelegates();
 
-	if (WinningTeamId == AFLRoundTeam0) { ++Team0Score; }
-	else if (WinningTeamId == AFLRoundTeam1) { ++Team1Score; }
-	// INDEX_NONE (Replay) -> no score change
+	const int32 WinSlot = SlotForTeam(WinningTeamId);
+	if (WinSlot == 0) { ++Team0Score; }
+	else if (WinSlot == 1) { ++Team1Score; }
+	// INDEX_NONE (Replay / non-participating) -> no score change
 
 	LastWinningTeam = WinningTeamId;
 	LastWinReason = Reason;
@@ -283,8 +303,8 @@ void UAFLRoundManagerComponent::Server_ResolveRound(int32 WinningTeamId, EAFLRou
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: round %d RESOLVED -- winner team %d, reason %s. Score %d-%d."),
 		CurrentRound, WinningTeamId, *UEnum::GetValueAsString(Reason), Team0Score, Team1Score);
 
-	if (Team0Score >= RoundsToWin) { Server_EndMatch(AFLRoundTeam0); return; }
-	if (Team1Score >= RoundsToWin) { Server_EndMatch(AFLRoundTeam1); return; }
+	if (Team0Score >= RoundsToWin) { Server_EndMatch(ParticipatingTeams[0]); return; }
+	if (Team1Score >= RoundsToWin) { Server_EndMatch(ParticipatingTeams[1]); return; }
 
 	if (UWorld* World = GetWorld())
 	{
@@ -395,8 +415,8 @@ int32 UAFLRoundManagerComponent::TeamHoldingCore() const
 		return INDEX_NONE;
 	}
 	const FGameplayTag Extracting = TAG_State_Extracting_Round;
-	bool bTeam0 = false;
-	bool bTeam1 = false;
+	bool bSlot0 = false;
+	bool bSlot1 = false;
 	for (APlayerState* PS : GS->PlayerArray)
 	{
 		if (!PS) { continue; }
@@ -404,12 +424,12 @@ int32 UAFLRoundManagerComponent::TeamHoldingCore() const
 		if (!P) { continue; }
 		const UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(P);
 		if (!ASC || !ASC->HasMatchingGameplayTag(Extracting)) { continue; }
-		const int32 T = Teams->FindTeamFromObject(PS);
-		if (T == AFLRoundTeam0) { bTeam0 = true; }
-		else if (T == AFLRoundTeam1) { bTeam1 = true; }
+		const int32 Slot = SlotForTeam(Teams->FindTeamFromObject(PS));
+		if (Slot == 0) { bSlot0 = true; }
+		else if (Slot == 1) { bSlot1 = true; }
 	}
-	if (bTeam0 && !bTeam1) { return AFLRoundTeam0; }
-	if (bTeam1 && !bTeam0) { return AFLRoundTeam1; }
+	if (bSlot0 && !bSlot1) { return ParticipatingTeams[0]; }
+	if (bSlot1 && !bSlot0) { return ParticipatingTeams[1]; }
 	return INDEX_NONE;   // none or both channeling -> Replay
 }
 
