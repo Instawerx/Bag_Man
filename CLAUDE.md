@@ -87,6 +87,16 @@ Full detail in the skill above; the rules Claude Code must always honor:
   `NS_AFL_HitSpark`, `M_AFL_NeonMaster` (as a beam material), and the marketplace
   `BP_Laser`/`BP_Laser_Orb` (reference-only tick-trace demos).
 
+## Map Phase — design SSOT + per-map build gate
+
+- **Map Phase reference (SSOT):** `Docs/IRONICS_MAP_MODE_SPEC.md` (v2) — governs the mode
+  ladder, the 10-map tiered roster, the data-science iteration loop, build sequencing, and the
+  Shrink system. Read it IN FULL before any map/mode design or build work.
+- **Per-map design gate (doctrine, non-negotiable):** No map enters greybox build until its
+  per-map design brief (`Docs/maps/<MapName>_DESIGN.md`, template in spec §11) exists and is
+  **operator-approved**. Order: brief → approval → greybox → telemetry → balance → art →
+  PIE sign-off.
+
 ## Naming
 
 `AFLAG_`/`UAFLAG_` abilities · `GE_AFL_*` effects · `NS_AFL_*` Niagara · `M_AFL_*_Master`

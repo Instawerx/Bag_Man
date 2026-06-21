@@ -1760,7 +1760,9 @@ const PILLARS = [
     picks:[{sprint:'S16', label:'Arena_02', ids:['AFL-1601','AFL-1602','AFL-1603']},
            {sprint:'S18', label:'Arena_03–04', ids:['AFL-1801','AFL-1802','AFL-1803']},
            {sprint:'S20', label:'Arena_05–06', ids:['AFL-2001','AFL-2002']}],
-    xlinks:['Operator has map details to add. Arena↔arena looped portals = travel.'] },
+    xlinks:['Map Phase reference (SSOT): Docs/IRONICS_MAP_MODE_SPEC.md (v2) — governs the mode ladder, the 10-map tiered roster, the data-science iteration loop, build sequencing, and the Shrink system.',
+            'Per-map design gate (doctrine): no map enters greybox build until its per-map design brief in Docs/maps/ (one _DESIGN.md per map, template in spec §11) exists and is operator-approved. Order: brief → approval → greybox → telemetry → balance → art → PIE sign-off.',
+            'Operator has map details to add. Arena↔arena looped portals = travel.'] },
 
   // ---- CROSS-CUTTING lanes (thread under all pillars; not pillars) ----
   { id:'X-AUDIO', tone:'cyan', state:'cross-cut', label:'Audio — weapon report, hit-confirm, dash doppler, spatial',
