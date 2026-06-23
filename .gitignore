@@ -96,3 +96,14 @@ Tools/_gate2_live.png
 # Operator: copy the .example to DefaultEngine.ini, fill the 6 values, never commit.
 Config/Custom/EOS/DefaultEngine.ini
 !Config/Custom/EOS/DefaultEngine.ini.example
+
+# === AFL hygiene (2026-06-23): marketplace demo dupes + parked vendor plugin ===
+# Marketplace / anim-pack Demo/ subtrees are unreferenced demo dupes. Verified safe: the only
+# tracked content that reaches into Demo/ (the FreeAnimationLibrary climb anims -> SK_Mannequin)
+# depends solely on already-committed assets; the ignored remainder (SKM_Manny_Simple, demo
+# materials/textures/maps) has no inbound refs. gitignore never untracks, so nothing committed is
+# affected -- this only keeps the dupes out of `git status`.
+**/Demo/
+# OmniWalk vendor plugin: PARKED (kept on disk, not committed, not deleted) -- needed later for the
+# gravity-gun lane. Untracked + ignored so it stops cluttering status without being lost.
+/Plugins/OmniWalk07f218f7e14eV2/
