@@ -137,12 +137,13 @@ void UAFLLootGrantComponent::GrantValue(AActor* Retriever)
 				Token.FixedValue    = LootValue;
 				Token.GibMesh       = ScatterGibMesh;
 				Token.GibMaterial   = ScatterGibMaterial;
+				Token.GibSkinColor  = ScatterGibSkinColor;
 				Carry->CollectPart(Token);
 			}
 			else
 			{
 				// A fungible CACHE -> the value rail (UNCHANGED -- the cube form + the chunking spread, byte-identical).
-				Carry->Collect(LootValue, Carry->MakeLimbForm(ScatterGibMesh, ScatterGibMaterial));
+				Carry->Collect(LootValue, Carry->MakeLimbForm(ScatterGibMesh, ScatterGibMaterial, ScatterGibSkinColor));
 			}
 			UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOT: +%d -> %s carried pool (%s)"),
 				LootValue, *GetNameSafe(Retriever), *GrantReason);

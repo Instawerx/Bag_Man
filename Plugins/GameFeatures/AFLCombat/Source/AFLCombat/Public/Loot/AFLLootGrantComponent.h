@@ -13,6 +13,7 @@
 class AController;
 class UStaticMesh;   // C3: the dismember limb's own gib mesh, threaded into the carried form (no path -- the live mesh)
 class UMaterialInterface;   // PRESENTATION: the scattered gib's slot-1 MIC (the victim's skin), threaded into the form
+class UAFLSkinColorAsset;   // PRESENTATION (finish, layer 2): the victim's painted finish, threaded beside the base MIC
 
 /** Fired (server-auth) when the OWNER of an owner-branch loot retrieves their own loot -- the seam the
  *  CONSUMER binds to its owner action (dismember binds it -> RestoreZone + Destroy). The component itself
@@ -57,6 +58,11 @@ public:
 	 *  sever path AFTER the MIC resolves (Configure runs first, before SetHeadMaterial/SetPartMaterial), so it is
 	 *  a post-Configure setter, not a Configure param. Null -> the scattered mesh keeps its own material. */
 	void SetScatterGibMaterial(UMaterialInterface* InMaterial) { ScatterGibMaterial = InMaterial; }
+
+	/** PRESENTATION (finish, layer 2): the scattered gib's painted finish -- the victim's color params, applied on
+	 *  TOP of the base MIC so the scattered pickup reads the SAME color as the fresh gib (the base alone is neutral).
+	 *  Set by the dismember sever path beside SetScatterGibMaterial (same source the gib's PartSkinColor uses). */
+	void SetScatterGibSkinColor(UAFLSkinColorAsset* InSkinColor) { ScatterGibSkinColor = InSkinColor; }
 
 	/** C3 -- the SSOT owner-vs-enemy resolution for the grab ability's PRE-mechanism routing. The loot consumer
 	 *  (head/limb) exposes this via IAFLLootRetrievalRouter. Reuses the SAME ResolveController/OwnerActor/
@@ -114,6 +120,11 @@ private:
 	 *  form so the scattered pickup is SKINNED like the fresh gib. Null for caches (-> the cube's own material). */
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> ScatterGibMaterial = nullptr;
+
+	/** PRESENTATION (finish, layer 2): the scattered gib's painted finish (the victim's color params), threaded into
+	 *  the carried form so the scattered pickup reads the same color as the fresh gib. Null for caches / pre-finish. */
+	UPROPERTY()
+	TObjectPtr<UAFLSkinColorAsset> ScatterGibSkinColor = nullptr;
 
 	/** V7-1: the SPECIFIC origin zone of a dismember part (head / L/R arm / L/R leg) -- threaded into the carried
 	 *  PART TOKEN at collect so it reattaches to the correct slot (V7-2). None for caches (the cube path). */

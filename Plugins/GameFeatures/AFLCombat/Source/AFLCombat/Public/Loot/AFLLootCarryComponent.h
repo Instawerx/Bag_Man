@@ -12,6 +12,7 @@
 class AAFLLootCarryPickup;
 class UStaticMesh;
 class UMaterialInterface;   // PRESENTATION: the dismember gib's slot-1 MIC carried in the scatter form
+class UAFLSkinColorAsset;   // PRESENTATION (finish, layer 2): the victim's painted finish carried beside the base MIC
 struct FAFLHitConfirmMessage;
 struct FLyraVerbMessage;
 
@@ -49,6 +50,12 @@ struct FAFLCarriedForm
 	 *  fresh gib). Part of the bucket IDENTITY -- distinct skins bucket separately. Null = the mesh's own material. */
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> GibMaterial = nullptr;
+
+	/** PRESENTATION (finish, layer 2): the victim's painted finish (color params), applied on TOP of GibMaterial so
+	 *  the scattered pickup reads the SAME color as the fresh gib (the base MIC alone is color-neutral). Part of the
+	 *  bucket IDENTITY -- distinct finishes bucket separately. Null = base material only (the pre-finish behavior). */
+	UPROPERTY()
+	TObjectPtr<UAFLSkinColorAsset> GibSkinColor = nullptr;
 
 	/** Accumulated carried value in this form bucket. Invariant (authority): sum over buckets == CarriedValue. */
 	UPROPERTY()
@@ -88,6 +95,11 @@ struct FAFLCarriedPart
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> GibMaterial = nullptr;
+
+	/** PRESENTATION (finish, layer 2): the victim's painted finish (color params), applied on TOP of GibMaterial so
+	 *  the re-dropped pickup reads the SAME color as the fresh gib (the base MIC alone is color-neutral). */
+	UPROPERTY()
+	TObjectPtr<UAFLSkinColorAsset> GibSkinColor = nullptr;
 };
 
 /**
@@ -143,7 +155,8 @@ public:
 	 *  reattachable AAFLDismemberedLimb (that carries the owner-reattach branch + a double-grant risk; this is the
 	 *  lighter loot that merely LOOKS like the limb). C3 passes the live limb's own gib mesh (LimbGibMesh /
 	 *  HeadGibMesh); the form then rides the proven Collect(value, form) + C1 ledger/scatter path unchanged. */
-	FAFLCarriedForm MakeLimbForm(UStaticMesh* GibMesh, UMaterialInterface* GibMaterial = nullptr) const;
+	FAFLCarriedForm MakeLimbForm(UStaticMesh* GibMesh, UMaterialInterface* GibMaterial = nullptr,
+		UAFLSkinColorAsset* GibSkinColor = nullptr) const;
 
 	/** V7-1: collect a discrete dismember PART as an INDIVISIBLE token (the dismember grant calls this; caches keep
 	 *  Collect(value) on the fungible rail). Server-auth. The token rides the server-only CarriedParts track --
@@ -229,7 +242,8 @@ private:
 
 	/** Spawn recoverable pickups of ONE form summing to Value (the proven per-chunk quantization + the gib-mesh
 	 *  override). Shared by every drained bucket in ScatterValue + the desync safety net. Authority. */
-	void SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, UMaterialInterface* GibMaterial, int32 Value);
+	void SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, UMaterialInterface* GibMaterial,
+		UAFLSkinColorAsset* GibSkinColor, int32 Value);
 
 	/** V7-1: scatter ONE whole part token (a confirmed hit -- INDIVISIBLE, one token = one pickup). Order is
 	 *  ARBITRARY here (drops the oldest); V7-3 sorts smallest-first. No quantizer, no value-math, no residue. */

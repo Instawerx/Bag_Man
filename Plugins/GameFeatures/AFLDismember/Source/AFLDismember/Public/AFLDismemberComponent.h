@@ -13,6 +13,7 @@
 #include "AFLDismemberComponent.generated.h"
 
 class UAFLDismemberZoneSet;
+class UAFLSkinColorAsset;        // DEFECT-2: ResolveVictimPaintedFinish() return type (the victim part's painted finish)
 class USkeletalMeshComponent;   // B-2 FIX: GatherZoneMeshes() return type
 struct FAFLDismemberZone;
 struct FAFLOverkillMessage;
@@ -170,6 +171,16 @@ private:
 	 * a post-anim render state, so it survives the per-frame CopyPose (the standard dismember approach).
 	 */
 	TArray<USkeletalMeshComponent*> GatherZoneMeshes() const;
+
+	/**
+	 * DEFECT-2: the finish ACTUALLY painted onto the victim's live part MID -- read from the visible robot
+	 * CharacterPart actor's recorded UAFLSkinColorAsset (AAFLCharacterPartActor::GetLastAppliedColor), NOT the
+	 * pawn component's GetSkinColor() (which can drift to the ARIA-pink default). The head AND limb gib color
+	 * sources read THIS (one shared source) so a severed gib reproduces the live part's finish. Iterates
+	 * GatherZoneMeshes for the first >=2-slot visible robot mesh (its owner is the part actor); null -> the
+	 * caller falls back to GetSkinColor() so the gib is never worse than today. Server-side caller.
+	 */
+	UAFLSkinColorAsset* ResolveVictimPaintedFinish() const;
 
 	/** Grant the State.Decapitated consequence GE (DecapitatedEffect, async-loaded) to the owner ASC. */
 	void ApplyDecapitatedEffect();

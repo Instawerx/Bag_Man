@@ -10,6 +10,8 @@
 #include "AFLHeadLootBox.h"
 #include "Loot/AFLLootGrantComponent.h"   // PRESENTATION: hand the scattered-gib material to the loot grant
 #include "Cosmetics/AFLSkinColorComponent.h"   // victim skin color handoff to the head prop (AFLCombat)
+#include "Cosmetics/AFLCharacterPartActor.h"   // DEFECT-2: read the victim part's recorded painted finish (GetLastAppliedColor)
+#include "Cosmetics/AFLSkinColorAsset.h"       // DEFECT-2: UAFLSkinColorAsset (the painted finish type the gib applies)
 #include "Materials/MaterialInterface.h"          // GetMaterial(1) return type
 #include "Materials/MaterialInstanceConstant.h"   // the replication-safe per-skin head MIC (layer-2 identity)
 #include "Materials/MaterialInstanceDynamic.h"    // recover the MIC via MID->Parent
@@ -415,6 +417,31 @@ TArray<USkeletalMeshComponent*> UAFLDismemberComponent::GatherZoneMeshes() const
 	return Meshes;
 }
 
+UAFLSkinColorAsset* UAFLDismemberComponent::ResolveVictimPaintedFinish() const
+{
+	// DEFECT-2: the finish ACTUALLY on the live part's runtime MID -- recorded by AAFLCharacterPartActor::
+	// ApplySkinColor as it painted (GetLastAppliedColor). Read THIS, not the pawn component's possibly-drifted
+	// GetSkinColor(), so a severed gib reproduces the live part's color. The visible robot mesh (>=2 slots) is a
+	// component on the CharacterPart actor, so its owner IS the part actor; CharacterMesh0 (the 1-slot invisible
+	// driver) is skipped. Mirrors the ->Parent loop's "first visible robot mesh wins". Server-side caller (both
+	// gib paths are authority-only); null -> the caller falls back to GetSkinColor() so the gib is never worse.
+	for (USkeletalMeshComponent* Mesh : GatherZoneMeshes())
+	{
+		if (!Mesh || Mesh->GetNumMaterials() < 2)
+		{
+			continue;   // invisible CharacterMesh0 driver / any 1-slot mesh -> not the robot body
+		}
+		if (const AAFLCharacterPartActor* PartActor = Cast<AAFLCharacterPartActor>(Mesh->GetOwner()))
+		{
+			if (UAFLSkinColorAsset* Painted = PartActor->GetLastAppliedColor())
+			{
+				return Painted;   // first visible robot part's painted finish wins
+			}
+		}
+	}
+	return nullptr;
+}
+
 void UAFLDismemberComponent::ApplyZoneHideCosmetic(EAFLBodyZone Zone)
 {
 	// ALL-CLIENT cosmetic (no authority guard -- called by the cue notify on every client). Resolve
@@ -602,11 +629,20 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row, const FVect
 					// head loot-box's Initialize at its spawn site.
 					Limb->Initialize(Cast<APawn>(Self->GetOwner()), LootZone, LootWatts);
 
-					if (const UAFLSkinColorComponent* SCC =
-							Self->GetOwner()->FindComponentByClass<UAFLSkinColorComponent>())
+					// DEFECT-2 FIX (mirror the head): hand the limb the finish the live part was PAINTED with
+					// (ResolveVictimPaintedFinish -> AAFLCharacterPartActor::GetLastAppliedColor = what is really on
+					// the live MID), NOT the pawn component's GetSkinColor() (which drifts to the ARIA-pink default
+					// -> severed limbs went pink too). Fall back to GetSkinColor() if no part recorded one.
+					UAFLSkinColorAsset* LimbFinish = Self->ResolveVictimPaintedFinish();
+					if (!LimbFinish)
 					{
-						Limb->SetPartSkinColor(SCC->GetSkinColor());
+						if (const UAFLSkinColorComponent* SCC =
+								Self->GetOwner()->FindComponentByClass<UAFLSkinColorComponent>())
+						{
+							LimbFinish = SCC->GetSkinColor();
+						}
 					}
+					Limb->SetPartSkinColor(LimbFinish);
 
 					// Recover the REPLICATION-SAFE slot-1 base MIC from the VISIBLE robot mesh (the CharacterPart
 					// SKM_Manny). The skin system MID-ifies slot 1 at runtime, so GetMaterial(1) is a transient MID
@@ -641,6 +677,7 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row, const FVect
 						if (UAFLLootGrantComponent* LimbGrant = Limb->FindComponentByClass<UAFLLootGrantComponent>())
 						{
 							LimbGrant->SetScatterGibMaterial(LimbMIC);
+							LimbGrant->SetScatterGibSkinColor(LimbFinish);   // layer 2: the SAME finish the gib's PartSkinColor uses
 						}
 					}
 				}
@@ -897,13 +934,22 @@ void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts, const FVector
 			// pass the head zone's LootWatts (the enemy-collect grant value).
 			Loot->Initialize(Cast<APawn>(Self->GetOwner()), HeadLootWatts);
 
-			// IDENTITY: hand the victim's replicated skin color to the head so it reads as WHOSE head it
-			// is (pink robot -> pink head). Server-set -> replicates to all clients via the head's OnRep.
-			if (const UAFLSkinColorComponent* SCC =
-					Self->GetOwner()->FindComponentByClass<UAFLSkinColorComponent>())
+			// IDENTITY: hand the victim's ACTUAL painted finish to the head so it reads as WHOSE head it is.
+			// DEFECT-2 FIX: read the finish the live part was PAINTED with (ResolveVictimPaintedFinish ->
+			// AAFLCharacterPartActor::GetLastAppliedColor = what is really on the live MID), NOT the pawn
+			// component's GetSkinColor() (which drifts to the ARIA-pink default -> the severed head went pink
+			// while the body stayed correct). Fall back to GetSkinColor() only if no part recorded one -> never
+			// worse than today. Server-set -> replicates to all clients via the head's OnRep (unchanged path).
+			UAFLSkinColorAsset* HeadFinish = Self->ResolveVictimPaintedFinish();
+			if (!HeadFinish)
 			{
-				Loot->SetHeadSkinColor(SCC->GetSkinColor());
+				if (const UAFLSkinColorComponent* SCC =
+						Self->GetOwner()->FindComponentByClass<UAFLSkinColorComponent>())
+				{
+					HeadFinish = SCC->GetSkinColor();
+				}
 			}
+			Loot->SetHeadSkinColor(HeadFinish);
 
 			// IDENTITY (layer 2 -- MATERIAL): hand the victim's per-skin HEAD MATERIAL (slot-1 base MIC) to the
 			// gib so it looks like that specific robot's head. Recover the REPLICATION-SAFE MIC, never the
@@ -942,6 +988,7 @@ void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts, const FVector
 					if (UAFLLootGrantComponent* HeadGrant = Loot->FindComponentByClass<UAFLLootGrantComponent>())
 					{
 						HeadGrant->SetScatterGibMaterial(HeadMIC);
+						HeadGrant->SetScatterGibSkinColor(HeadFinish);   // layer 2: the SAME finish the gib's HeadSkinColor uses
 					}
 				}
 				else

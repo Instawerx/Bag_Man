@@ -78,6 +78,14 @@ public:
 	 */
 	void ApplyFacemask(class UMaterialInstanceConstant* FacemaskMIC, const UAFLSkinColorAsset* ColorToReapply);
 
+	/**
+	 * DEFECT-2: the exact UAFLSkinColorAsset this part last painted its MIDs with in ApplySkinColor -- the finish
+	 * ACTUALLY on the live runtime MID. The dismember gib color source reads THIS (server-side) instead of the
+	 * pawn component's GetSkinColor() (which can drift to the ARIA-pink default), so a severed head/limb gib
+	 * reproduces the live part's finish. A content asset -> replication-safe; null until the first ApplySkinColor.
+	 */
+	UAFLSkinColorAsset* GetLastAppliedColor() const { return LastAppliedColor; }
+
 #if UE_WITH_CHEAT_MANAGER
 	/**
 	 * PANEL-WATCH INSTRUMENT (afl.Cosmetic.SetParam): poke a single named material param on THIS part's
@@ -108,4 +116,14 @@ protected:
 	// MI_<id>_Limbs) instead of leaving the mask stuck. Keyed by mesh; the value is the pre-swap base material.
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<UMeshComponent>, TObjectPtr<UMaterialInterface>> AuthoredSlot1Material;
+
+	// DEFECT-2: the asset ApplySkinColor last painted THIS part's MIDs with -- the finish ACTUALLY on the live
+	// runtime MID. Recorded each apply. The dismember gib color source reads it (server-side) so a severed gib
+	// reproduces the live finish, not a default. Transient + per-machine (NOT Replicated): the part is a
+	// locally-spawned cosmetic child actor (color derives from the pawn's REPLICATED SkinColor), so ApplySkinColor
+	// runs + records on EVERY machine (server on the authority paint, clients on OnRep). The gib's OWN replicated
+	// color (HeadSkinColor/PartSkinColor) carries it to clients -- the existing server-read + gib-replicate path --
+	// so this property need not (and the local child actor cannot, without an architecture change) network-replicate.
+	UPROPERTY(Transient)
+	TObjectPtr<UAFLSkinColorAsset> LastAppliedColor = nullptr;
 };

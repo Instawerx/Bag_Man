@@ -82,7 +82,8 @@ void UAFLLootCarryComponent::BucketValue(const FAFLCarriedForm& Form, int32 Valu
 	const TSubclassOf<AAFLLootCarryPickup> FormClass = Form.ScatterForm ? Form.ScatterForm : ScatterPickupClass;
 	for (FAFLCarriedForm& Bucket : Ledger)
 	{
-		if (Bucket.ScatterForm == FormClass && Bucket.GibMesh == Form.GibMesh && Bucket.GibMaterial == Form.GibMaterial)
+		if (Bucket.ScatterForm == FormClass && Bucket.GibMesh == Form.GibMesh && Bucket.GibMaterial == Form.GibMaterial
+			&& Bucket.GibSkinColor == Form.GibSkinColor)
 		{
 			Bucket.Value += Value;
 			return;
@@ -92,10 +93,12 @@ void UAFLLootCarryComponent::BucketValue(const FAFLCarriedForm& Form, int32 Valu
 	NewBucket.ScatterForm = FormClass;
 	NewBucket.GibMesh = Form.GibMesh;
 	NewBucket.GibMaterial = Form.GibMaterial;
+	NewBucket.GibSkinColor = Form.GibSkinColor;
 	NewBucket.Value = Value;
 }
 
-FAFLCarriedForm UAFLLootCarryComponent::MakeLimbForm(UStaticMesh* GibMesh, UMaterialInterface* GibMaterial) const
+FAFLCarriedForm UAFLLootCarryComponent::MakeLimbForm(UStaticMesh* GibMesh, UMaterialInterface* GibMaterial,
+	UAFLSkinColorAsset* GibSkinColor) const
 {
 	// C2: the dismember scatter form = the cube's recoverable pickup (ScatterPickupClass) WEARING the limb gib
 	// mesh (applied per-spawn by SpawnFormPickups -> AAFLLootCarryPickup::SetVisualMesh). A null GibMesh degrades
@@ -105,6 +108,7 @@ FAFLCarriedForm UAFLLootCarryComponent::MakeLimbForm(UStaticMesh* GibMesh, UMate
 	Form.ScatterForm = ScatterPickupClass;
 	Form.GibMesh = GibMesh;
 	Form.GibMaterial = GibMaterial;
+	Form.GibSkinColor = GibSkinColor;
 	return Form;
 }
 
@@ -263,7 +267,7 @@ void UAFLLootCarryComponent::ScatterValue(int32 Amount)
 	{
 		FAFLCarriedForm& Bucket = Ledger[0];   // FIFO = collection order (oldest-collected scatters first)
 		const int32 Take = FMath::Min(Bucket.Value, Remaining);
-		SpawnFormPickups(Bucket.ScatterForm, Bucket.GibMesh, Bucket.GibMaterial, Take);
+		SpawnFormPickups(Bucket.ScatterForm, Bucket.GibMesh, Bucket.GibMaterial, Bucket.GibSkinColor, Take);
 		Bucket.Value -= Take;
 		Remaining -= Take;
 		if (Bucket.Value <= 0)
@@ -277,11 +281,12 @@ void UAFLLootCarryComponent::ScatterValue(int32 Amount)
 	if (Remaining > 0)
 	{
 		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOOTCARRY: ledger under-counted by %d -- scattering as cube"), Remaining);
-		SpawnFormPickups(ScatterPickupClass, nullptr, nullptr, Remaining);
+		SpawnFormPickups(ScatterPickupClass, nullptr, nullptr, nullptr, Remaining);
 	}
 }
 
-void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, UMaterialInterface* GibMaterial, int32 Value)
+void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> Form, UStaticMesh* GibMesh, UMaterialInterface* GibMaterial,
+	UAFLSkinColorAsset* GibSkinColor, int32 Value)
 {
 	AActor* Owner = GetOwner();
 	UWorld* World = GetWorld();
@@ -324,7 +329,11 @@ void UAFLLootCarryComponent::SpawnFormPickups(TSubclassOf<AAFLLootCarryPickup> F
 			}
 			if (GibMaterial)
 			{
-				Pickup->SetVisualMaterial(GibMaterial);   // PRESENTATION: the victim's slot-1 MIC -> skinned gib
+				Pickup->SetVisualMaterial(GibMaterial);   // PRESENTATION (layer 1): the victim's slot-1 base MIC
+			}
+			if (GibSkinColor)
+			{
+				Pickup->SetVisualSkinColor(GibSkinColor);   // PRESENTATION (layer 2): the victim's finish color params on top
 			}
 			Pickup->SetArmDelay(1.5f);   // present-before-collectible -- the same beat the part scatter uses
 			Pickup->FinishSpawning(SpawnTM);
@@ -418,7 +427,7 @@ void UAFLLootCarryComponent::SpawnPartPickup(const FAFLCarriedPart& Part)
 		ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
 	if (Pickup)
 	{
-		Pickup->InitPartToken(Part.OwnerPlayerId, Part.OriginZone, Part.FixedValue, Part.GibMesh, Part.GibMaterial);
+		Pickup->InitPartToken(Part.OwnerPlayerId, Part.OriginZone, Part.FixedValue, Part.GibMesh, Part.GibMaterial, Part.GibSkinColor);
 		Pickup->FinishSpawning(SpawnTM);
 	}
 }

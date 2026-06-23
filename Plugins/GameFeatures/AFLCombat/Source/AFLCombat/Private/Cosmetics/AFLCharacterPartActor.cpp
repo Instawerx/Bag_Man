@@ -93,6 +93,12 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 		return; // GUARD: no color -> never touch materials -> never create a MID
 	}
 
+	// DEFECT-2: record the asset we are painting THIS part's MIDs with -- this IS the finish that ends up on the
+	// live runtime MID. The dismember gib color source reads it back (server-side) so a severed head/limb gib
+	// reproduces the live part's finish, not the pawn component's possibly-drifted GetSkinColor(). Additive: the
+	// param-writing below is byte-unchanged. const_cast: we only ever READ it back (a const-correctness artifact).
+	LastAppliedColor = const_cast<UAFLSkinColorAsset*>(ColorAsset);
+
 	TArray<UMeshComponent*> Meshes;
 	GetComponents<UMeshComponent>(Meshes);
 	for (UMeshComponent* Mesh : Meshes)

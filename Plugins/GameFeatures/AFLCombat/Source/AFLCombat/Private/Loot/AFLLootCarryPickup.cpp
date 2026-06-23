@@ -6,6 +6,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"               // C1: the per-spawn form mesh (SetStaticMesh override)
 #include "Materials/MaterialInterface.h"      // PRESENTATION: the per-spawn gib material (SetMaterial on every slot)
+#include "Materials/MaterialInstanceDynamic.h"   // PRESENTATION (layer 2): per-slot MID for the finish color params
+#include "Cosmetics/AFLSkinColorAsset.h"          // PRESENTATION (layer 2): the finish's GetScalars/GetColors/GetTextures
 #include "Loot/AFLLootCarryComponent.h"
 #include "Loot/AFLOverlapCollectComponent.h"
 #include "Loot/AFLPartReattachTarget.h"   // V7-2: the owner-reattach seam (the dismember component implements it)
@@ -40,6 +42,7 @@ void AAFLLootCarryPickup::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AAFLLootCarryPickup, OverrideMesh);
 	DOREPLIFETIME(AAFLLootCarryPickup, OverrideMaterial);
+	DOREPLIFETIME(AAFLLootCarryPickup, OverrideSkinColor);
 	DOREPLIFETIME(AAFLLootCarryPickup, OwnerPlayerId);
 	DOREPLIFETIME(AAFLLootCarryPickup, OriginZone);
 }
@@ -78,6 +81,24 @@ void AAFLLootCarryPickup::OnRep_VisualMaterial()
 	ApplyVisualMesh();
 }
 
+void AAFLLootCarryPickup::SetVisualSkinColor(UAFLSkinColorAsset* InSkinColor)
+{
+	// Authority sets the replicated form finish + applies locally now (OnRep won't fire on the server); clients apply
+	// from OnRep_VisualSkinColor. The scattered gib then reads the victim's COLOR (not the neutral base) on every
+	// machine -- mirrors SetVisualMaterial for the second (finish) layer.
+	if (!HasAuthority())
+	{
+		return;
+	}
+	OverrideSkinColor = InSkinColor;
+	ApplyVisualMesh();
+}
+
+void AAFLLootCarryPickup::OnRep_VisualSkinColor()
+{
+	ApplyVisualMesh();
+}
+
 void AAFLLootCarryPickup::SetArmDelay(float Seconds)
 {
 	// The overlap stays inert until ActivationDelay seconds after BeginPlay -- so this MUST be set BEFORE BeginPlay
@@ -89,7 +110,8 @@ void AAFLLootCarryPickup::SetArmDelay(float Seconds)
 	}
 }
 
-void AAFLLootCarryPickup::InitPartToken(int32 InOwnerPlayerId, EAFLBodyZone InZone, int32 InValue, UStaticMesh* InMesh, UMaterialInterface* InMaterial)
+void AAFLLootCarryPickup::InitPartToken(int32 InOwnerPlayerId, EAFLBodyZone InZone, int32 InValue, UStaticMesh* InMesh,
+	UMaterialInterface* InMaterial, UAFLSkinColorAsset* InSkinColor)
 {
 	// AUTHORITY (the carry's SpawnPartPickup): a dismember PART pickup -- the token's identity replicates for the
 	// V7-2 owner-check; the gib mesh/material apply via the proven SetVisual* path. OwnerPlayerId != INDEX_NONE
@@ -103,6 +125,7 @@ void AAFLLootCarryPickup::InitPartToken(int32 InOwnerPlayerId, EAFLBodyZone InZo
 	LootValue = InValue;
 	SetVisualMesh(InMesh);
 	SetVisualMaterial(InMaterial);
+	SetVisualSkinColor(InSkinColor);
 	// PRESENT-BEFORE-COLLECTIBLE (the box-not-head fix): a scattered PART spawns within ~150uu of the dropper, so its
 	// overlap fires point-blank. Without an arm delay it is collectible at BeginPlay and a STATIONARY dropper absorbs
 	// it the same frame -- as a DEFAULT cube, because the absorb beats InitPartToken (the +50/no-gib/no-owner pickup
@@ -144,6 +167,41 @@ void AAFLLootCarryPickup::ApplyVisualMesh()
 		{
 			VisualMesh->SetMaterial(Slot, OverrideMaterial);
 		}
+	}
+
+	// PRESENTATION (finish, layer 2): drive the victim's finish color params on TOP via per-slot MIDs -- the EXACT
+	// mirror of AAFLDismemberedLimb::ApplyLimbAppearance's layer 2. The base OverrideMaterial alone is color-NEUTRAL;
+	// the finish (OverrideSkinColor) is what makes the gib red/etc. Require BOTH (the params only mean anything over
+	// the MIC base, just set above) so the re-dropped pickup reads the SAME color as the fresh gib, not grey. Runs on
+	// the server (SetVisual*) + each client (OnRep_VisualSkinColor) -- the collect->drop round-trip keeps color everywhere.
+	if (OverrideMaterial && OverrideSkinColor && VisualMesh)
+	{
+		const int32 NumSlots = VisualMesh->GetNumMaterials();
+		for (int32 Slot = 0; Slot < NumSlots; ++Slot)
+		{
+			UMaterialInstanceDynamic* MID = VisualMesh->CreateAndSetMaterialInstanceDynamic(Slot);
+			if (!MID)
+			{
+				continue;
+			}
+			for (const TPair<FName, float>& KV : OverrideSkinColor->GetScalars())
+			{
+				MID->SetScalarParameterValue(KV.Key, KV.Value);
+			}
+			for (const TPair<FName, FLinearColor>& KV : OverrideSkinColor->GetColors())
+			{
+				MID->SetVectorParameterValue(KV.Key, FVector(KV.Value));
+			}
+			for (const TPair<FName, TObjectPtr<UTexture>>& KV : OverrideSkinColor->GetTextures())
+			{
+				MID->SetTextureParameterValue(KV.Key, KV.Value);
+			}
+		}
+		// Instrument (mirrors the mesh block's "applied gib form" line): confirms the FINISH layer landed on each
+		// machine (auth=1 server / auth=0 client). If grey persists but this fires auth=0 -> the finish asset itself
+		// isn't replicating; if it never fires auth=0 -> OverrideSkinColor isn't replicating.
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_LOOTCARRY: pickup %s applied finish %s over %s (auth=%d)"),
+			*GetName(), *GetNameSafe(OverrideSkinColor), *GetNameSafe(OverrideMaterial), HasAuthority() ? 1 : 0);
 	}
 }
 
@@ -193,6 +251,7 @@ void AAFLLootCarryPickup::HandleCollected(AActor* Collector)
 				Token.FixedValue    = LootValue;
 				Token.GibMesh       = OverrideMesh;
 				Token.GibMaterial   = OverrideMaterial;
+				Token.GibSkinColor  = OverrideSkinColor;
 				Carry->CollectPart(Token);
 			}
 			else
