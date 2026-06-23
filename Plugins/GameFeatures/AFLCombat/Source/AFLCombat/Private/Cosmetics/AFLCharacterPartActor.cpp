@@ -74,6 +74,15 @@ void AAFLCharacterPartActor::BeginPlay()
 
 	if (ColorComp)
 	{
+		// PATH 1 (facemask): self-apply the CURRENT facemask FIRST (slot-1 swap), mirroring the possess
+		// composition order (facemask then skin). The facemask previously had ONLY PATH 2 (the pawn component's
+		// OnRep-push to already-spawned parts) -- a part that spawned AFTER the facemask replicated on a client
+		// was MISSED (no self-apply to catch it) -> bare head on THAT machine while the other showed the visor
+		// (the per-window asymmetry: the visor is on the head where it shows, and drops with the severed head).
+		// This closes the race exactly as the color PATH 1 below does for SkinColor. GetFacemask() null (not set
+		// yet) -> ApplyFacemask restores authored slot-1; the later OnRep (PATH 2) swaps the visor in.
+		ApplyFacemask(ColorComp->GetFacemask(), ResolvedColor);
+
 		ApplySkinColor(ResolvedColor); // null -> ApplySkinColor early-returns (guard)
 	}
 }
