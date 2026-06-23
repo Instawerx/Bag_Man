@@ -4,6 +4,7 @@
 
 #include "Components/ControllerComponent.h"
 #include "GameplayTagContainer.h"
+#include "UObject/SoftObjectPtr.h"
 
 #include "AFLSkinColorControllerComponent.generated.h"
 
@@ -26,6 +27,8 @@ class AFLCOMBAT_API UAFLSkinColorControllerComponent : public UControllerCompone
 	GENERATED_BODY()
 
 public:
+	UAFLSkinColorControllerComponent(const FObjectInitializer& ObjectInitializer);
+
 	/** AUTHORITY-ONLY: set the persistent color (survives respawn) + push to the current pawn now. */
 	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
 	void SetPersistentSkinColor(UAFLSkinColorAsset* NewColor);
@@ -65,6 +68,15 @@ protected:
 	 *  EditDefaultsOnly: the GameFeatureAction-added component carries this as a per-class default. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics")
 	TObjectPtr<UAFLBrandEdgeMap> BrandEdgeMap = nullptr;
+
+	/** Base facemask equipped when the player has NO facemask selection (FacemaskId == None). Mirrors
+	 *  BrandEdgeMap's role for the finish -- a configured DATA ASSET resolved DIRECTLY (not by CosmeticId), so
+	 *  the base visor shows regardless of the facemask catalog's id state. Defaults (ctor) to the IRONICS HUD
+	 *  visor (DA_AFL_Facemask_IroVisor / T_AFL_Visor_Ironics) per SSOT player-flow 9.2. EditDefaultsOnly
+	 *  (overridable in the details, like BrandEdgeMap); soft so it isn't force-loaded until a fallback fires.
+	 *  Empty -> the old un-equip (bare-head) behavior. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics")
+	TSoftObjectPtr<UAFLSkinColorAsset> BaseFacemask;
 
 	/** Bound (authority) to the controller's public OnPossessedPawnChanged; re-pushes color to the new pawn. */
 	UFUNCTION()

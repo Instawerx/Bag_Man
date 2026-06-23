@@ -28,6 +28,18 @@ namespace
 	}
 }
 
+UAFLSkinColorControllerComponent::UAFLSkinColorControllerComponent(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	// BASE FACEMASK default (SSOT player-flow 9.2): the IRONICS HUD visor. A SOFT path -> the CDO carries the
+	// cook reference but the asset isn't force-loaded until RefreshFacemaskForPawn actually falls back to it.
+	// Configured as a DATA ASSET (resolved directly, never through the CosmeticId catalog), mirroring
+	// BrandEdgeMap -> robust to the facemask catalog's id state. A plugin->/Game C++ asset ref is the
+	// established AFL pattern (cf. AAFLDismemberedHead's gib FObjectFinder); only /Game->plugin is restricted.
+	BaseFacemask = TSoftObjectPtr<UAFLSkinColorAsset>(FSoftObjectPath(
+		TEXT("/Game/BagMan/Characters/Cosmetics/SkinColors/DA_AFL_Facemask_IroVisor.DA_AFL_Facemask_IroVisor")));
+}
+
 void UAFLSkinColorControllerComponent::BeginPlay()
 {
 	Super::BeginPlay();
@@ -236,11 +248,12 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 
 void UAFLSkinColorControllerComponent::RefreshFacemaskForPawn(APawn* Pawn) const
 {
-	// MIRRORS RefreshSkinForPawn's resolve+push shape, for the FACEMASK axis (a slot-1 base-MATERIAL swap, not
-	// a param push). Resolve the player's equipped FacemaskId off the PlayerState loadout selection (catalog
-	// resolveVia -> the facemask UAFLSkinColorAsset -> its FacemaskMaterial MIC), then push the MIC to the pawn
-	// component's replicated Facemask so all clients converge. NAME_None facemask -> push nullptr (un-equip ->
-	// the part restores its authored slot-1). Authority-only (same guard model as the skin push).
+	// MIRRORS RefreshSkinForPawn's resolve+push shape, for the FACEMASK axis (a slot-1 base-MATERIAL swap, not a
+	// param push). TWO TIERS like the skin's selection > brand-default: resolve the player's equipped FacemaskId
+	// off the PlayerState loadout (catalog resolveVia -> the facemask UAFLSkinColorAsset -> its FacemaskMaterial
+	// MIC); on no selection (or a catalog miss) fall to the configured BaseFacemask DATA ASSET (the base visor) so
+	// robots are never bare-headed. Push the resolved MIC to the pawn component's replicated Facemask so all
+	// clients converge. Only an empty BaseFacemask leaves it null -> un-equip. Authority-only (skin-push guard).
 	if (!Pawn)
 	{
 		return;
@@ -256,31 +269,47 @@ void UAFLSkinColorControllerComponent::RefreshFacemaskForPawn(APawn* Pawn) const
 	const UAFLCosmeticLoadoutComponent* Loadout =
 		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
 
-	UMaterialInstanceConstant* FacemaskMIC = nullptr; // null = no facemask -> un-equip
-	FName FacemaskId = NAME_None;
-	if (Loadout)
+	UMaterialInstanceConstant* FacemaskMIC = nullptr;
+	const FName FacemaskId = Loadout ? Loadout->GetSelection().FacemaskId : NAME_None;
+	const bool bSelection = (FacemaskId != NAME_None);
+	const TCHAR* Tier = TEXT("none");
+
+	if (bSelection)
 	{
-		FacemaskId = Loadout->GetSelection().FacemaskId;
-		if (FacemaskId != NAME_None)
+		// SELECTION TIER: the player's equipped facemask, resolved through the catalog id->asset registry. The
+		// facemask CosmeticId resolves to a UAFLSkinColorAsset whose FacemaskMaterial is the slot-1 MIC (the
+		// proven MI_AFL_FaceMask_* path). A miss leaves FacemaskMIC null -> falls to the base-default tier below.
+		if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
 		{
-			if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+			if (const UAFLSkinColorAsset* MaskAsset = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(FacemaskId)))
 			{
-				// The facemask CosmeticId resolves to a UAFLSkinColorAsset whose FacemaskMaterial is the slot-1
-				// MIC (the proven MI_AFL_FaceMask_* path). A miss leaves FacemaskMIC null -> un-equip (fail-safe,
-				// the same unforgiving "no silent fallback" bar the edge axis uses).
-				if (const UAFLSkinColorAsset* MaskAsset = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(FacemaskId)))
-				{
-					FacemaskMIC = MaskAsset->GetFacemaskMaterial();
-				}
+				FacemaskMIC = MaskAsset->GetFacemaskMaterial();
+				if (FacemaskMIC) { Tier = TEXT("selection"); }
 			}
+		}
+	}
+
+	if (!FacemaskMIC)
+	{
+		// BASE-DEFAULT TIER -- the exact mirror of RefreshSkinForPawn's brand-default, which resolves a configured
+		// DATA ASSET (BrandEdgeMap->ResolveEdge -> a UAFLSkinColorAsset), NOT a CosmeticId. So this resolves the
+		// configured BaseFacemask DATA ASSET DIRECTLY: no selection (or a selection that missed the catalog) falls
+		// to the base visor (DA_AFL_Facemask_IroVisor / T_AFL_Visor_Ironics, SSOT player-flow 9.2) instead of
+		// un-equipping -> robots are never bare-headed. Resolving the DATA ASSET directly (not via the CosmeticId
+		// catalog) keeps the base visor robust to the facemask catalog's id state. Empty BaseFacemask -> un-equip.
+		if (const UAFLSkinColorAsset* BaseMask = BaseFacemask.LoadSynchronous())
+		{
+			FacemaskMIC = BaseMask->GetFacemaskMaterial();
+			if (FacemaskMIC) { Tier = TEXT("base-default"); }
 		}
 	}
 
 	if (AFLSkinDiag::IsOn())
 	{
-		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : RefreshFacemask facemaskId=%s -> mic=%s"),
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : RefreshFacemask facemaskId=%s tier=%s -> mic=%s"),
 			*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
-			(FacemaskId != NAME_None) ? *FacemaskId.ToString() : TEXT("<none>"),
+			bSelection ? *FacemaskId.ToString() : TEXT("<none>"),
+			Tier,
 			FacemaskMIC ? *FacemaskMIC->GetName() : TEXT("null"));
 	}
 
