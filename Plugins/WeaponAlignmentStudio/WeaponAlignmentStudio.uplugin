@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Weapon Alignment Studio",
+	"Description": "Editor-only tool for authoring weapon IK grip/elbow offsets and baking them to UDataAsset.",
+	"Category": "AFL Tools",
+	"CreatedBy": "AFL Team",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "WeaponAlignmentStudio",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}
