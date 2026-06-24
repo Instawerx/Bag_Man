@@ -5,6 +5,7 @@
 #include "AFLCombat.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
+#include "Animation/AnimMontage.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
@@ -157,6 +158,17 @@ UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
 	if (TuningFinder.Succeeded())
 	{
 		TuningData = TuningFinder.Object;
+	}
+
+	// Third-person fire montage: the trigger-pull + additive recoil kick the character plays per
+	// shot. Defaulted to the stock rifle's CharacterFireMontage (AM_MM_Rifle_Fire) -- the SAME asset
+	// GA_Weapon_Fire plays, authored on SK_Mannequin (the hero's invisible driving skeleton) so it
+	// matches the cloned-rifle hands the grip rail proved. BP children may override on the CDO.
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> FireMontageFinder(
+		TEXT("/Game/Weapons/Rifle/Animations/AM_MM_Rifle_Fire.AM_MM_Rifle_Fire"));
+	if (FireMontageFinder.Succeeded())
+	{
+		CharacterFireMontage = FireMontageFinder.Object;
 	}
 }
 
@@ -595,6 +607,26 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 	// it under us. Pattern lifted from ULyraGameplayAbility_RangedWeapon.
 	FGameplayAbilityTargetDataHandle LocalTargetDataHandle(
 		MoveTemp(const_cast<FGameplayAbilityTargetDataHandle&>(InData)));
+
+	// CHARACTER FIRE MONTAGE -- the trigger-pull + recoil KICK. Mirrors GA_Weapon_Fire's
+	// CharacterFireMontage play. AM_MM_Rifle_Fire is an AAT_ROTATION_OFFSET_MESH_SPACE ADDITIVE on
+	// SK_Mannequin, so it LAYERS on the held aim pose (never replaces it). Fired here -- inside the
+	// shared prediction window, role-agnostic -- so the owner PREDICTS it and the authority
+	// REPLICATES it to proxies, the same predicted+replicated shape as the cosmetic cues below
+	// (GAS dedups the owner's predicted play against the authority multicast: no double, no mirror).
+	//
+	// FIRE-AND-FORGET via ASC->PlayMontage (the GAS primitive UAbilityTask_PlayMontageAndWait wraps),
+	// NOT the AndWait task: this ability's PROVEN single-shot lifecycle EndAbility's at the bottom of
+	// this very callback, so the task's bStopWhenAbilityEnds blend-out would cut the kick short.
+	// ClearAnimatingAbility (run by EndAbility) nulls the ability<->montage link WITHOUT stopping the
+	// montage, so the short additive plays out cleanly while the ability ends on schedule -- the
+	// proven firing/prediction path is untouched. COSMETIC ONLY (no trace/damage/aim coupling): the
+	// procedural AddPitch/AddYaw recoil in ClientPredictAndSend stays the SEPARATE aim-punishment
+	// half of recoil -- camera kick (gameplay, owner-only) vs this mesh kick (visual, everyone).
+	if (CharacterFireMontage)
+	{
+		ASC->PlayMontage(this, CurrentActivationInfo, CharacterFireMontage, 1.0f);
+	}
 
 	const bool bIsAuthority       = CurrentActorInfo->IsNetAuthority();
 	const bool bIsLocallyControlled = CurrentActorInfo->IsLocallyControlled();

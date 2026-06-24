@@ -9,6 +9,7 @@
 #include "AFLAG_Laser_Pulse.generated.h"
 
 class UAFLPulseTuningData;
+class UAnimMontage;
 class UGameplayEffect;
 struct FGameplayAbilityTargetDataHandle;
 
@@ -116,6 +117,18 @@ protected:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="AFL|Tuning")
 	TObjectPtr<UAFLPulseTuningData> TuningData;
+
+	/**
+	 * Third-person CHARACTER fire montage -- the trigger-pull + recoil KICK, played per shot.
+	 * Mirrors ULyraGameplayAbility_RangedWeapon::CharacterFireMontage (the property GA_Weapon_Fire
+	 * plays via PlayMontageAndWait). Defaulted in the ctor to AM_MM_Rifle_Fire: an
+	 * AAT_ROTATION_OFFSET_MESH_SPACE ADDITIVE on SK_Mannequin, so it LAYERS on the held aim pose
+	 * instead of replacing it. This is the VISUAL half of recoil (mesh kick + trigger pull, seen by
+	 * everyone); TuningData above is the SEPARATE procedural half (camera/aim punishment, owner-only)
+	 * -- the two complement, they do not double a single kick. BP children may override per-weapon.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Pulse|FX")
+	TObjectPtr<UAnimMontage> CharacterFireMontage;
 
 public:
 
