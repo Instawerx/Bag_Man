@@ -2,12 +2,13 @@
 
 #pragma once
 
-#include "AbilitySystem/Abilities/LyraGameplayAbility.h"
+#include "Abilities/AFLAG_Laser_Base.h"
 #include "Abilities/GameplayAbilityTargetTypes.h"
 #include "Engine/EngineTypes.h"
 
 #include "AFLAG_BeamChannel_v2.generated.h"
 
+class UAnimMontage;
 class UGameplayEffect;
 class UAFLBeamChannelComponent;
 class UAFLBeamVisualComponent;
@@ -44,7 +45,7 @@ struct FGameplayAbilityTargetDataHandle;
  * architecture ships; stamp variants. Fail -> caught in this one canary, control intact.
  */
 UCLASS()
-class AFLCOMBAT_API UAFLAG_BeamChannel_v2 : public ULyraGameplayAbility
+class AFLCOMBAT_API UAFLAG_BeamChannel_v2 : public UAFLAG_Laser_Base
 {
 	GENERATED_BODY()
 
@@ -85,12 +86,23 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BeamV2|Trace")
 	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 
+	/**
+	 * Character fire montage -- the 2H brace / trigger-pull, played ONCE at beam-start via the
+	 * GAS-replicated PlayMontage path (ASC->PlayMontage in ActivateAbility, which runs on the
+	 * autonomous proxy + authority for this LocalPredicted ability), so the authority's
+	 * RepAnimMontageInfo replicates the brace down to REMOTE clients (sim proxies) -- riding the SAME
+	 * already-replicated delivery the beam visual uses (replicated UAFLBeamVisualComponent), no new
+	 * plumbing. Null by default (the live Beam_v2 is unaffected); the Shotgun-Beam BP child sets
+	 * AM_MM_Shotgun_Fire (2H additive).
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BeamV2|FX")
+	TObjectPtr<UAnimMontage> CharacterFireMontage;
+
 private:
 	/** Locally-controlled per-tick trace + publish (timer-driven). */
 	void TickChannel();
 
-	/** Pulse's proven muzzle resolve (attached SMC "Muzzle" socket; weapon_r fallback; never origin). */
-	FVector ResolveMuzzleLocation(class APawn* AvatarPawn) const;
+	// ResolveMuzzleLocation now lives on UAFLAG_Laser_Base (shared with Pulse -- one resolver, no twin).
 
 	/** The pawn's UAFLBeamChannelComponent (published-endpoint bridge, Q1=b). Authority creates if absent. */
 	UAFLBeamChannelComponent* ResolveBeamChannel();

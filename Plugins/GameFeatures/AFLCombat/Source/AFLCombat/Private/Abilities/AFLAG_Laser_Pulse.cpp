@@ -259,78 +259,12 @@ void UAFLAG_Laser_Pulse::EndAbility(
 	}
 }
 
-FVector UAFLAG_Laser_Pulse::ResolveMuzzleLocation(APawn* AvatarPawn) const
-{
-	// Fallback to weapon_r hand socket -- the cue never spawns at origin when
-	// the muzzle socket can't be found (un-armed, or a future weapon w/o the
-	// "Muzzle" socket convention).
-	FVector MuzzleLocation = FVector::ZeroVector;
-	if (!AvatarPawn)
-	{
-		return MuzzleLocation;
-	}
-
-	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
-	{
-		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
-		{
-			MuzzleLocation = CharMesh->GetSocketLocation(FName("weapon_r"));
-		}
-	}
-
-	// Path A: pawn->GetAttachedActors (root-attached weapons). UMeshComponent covers static AND skeletal --
-	// the harvest-clone Carbine is a SKELETAL mesh (SK_Rifle, "Muzzle" socket at the barrel tip); the old
-	// UStaticMeshComponent-only query missed it and silently fell back to weapon_r (mid-gun / chamber).
-	TArray<AActor*> AttachedActors;
-	AvatarPawn->GetAttachedActors(AttachedActors, /*bResetArray=*/true, /*bRecursivelyIncludeAttachedActors=*/true);
-	UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE: pawn->GetAttachedActors returned %d"), AttachedActors.Num());
-	for (AActor* Attached : AttachedActors)
-	{
-		TInlineComponentArray<UMeshComponent*> SMCs;
-		Attached->GetComponents<UMeshComponent>(SMCs);
-		UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE:  attached=%s SMCs=%d"), *Attached->GetName(), SMCs.Num());
-		bool bFound = false;
-		for (UMeshComponent* SMC : SMCs)
-		{
-			if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
-			{
-				MuzzleLocation = SMC->GetSocketLocation(FName("Muzzle"));
-				UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE:   FOUND on SMC=%s at world=%s"), *SMC->GetName(), *MuzzleLocation.ToString());
-				bFound = true;
-				break;
-			}
-		}
-		if (bFound) return MuzzleLocation;
-	}
-
-	// Path B: fallback -- walk the character mesh's attached actors (Lyra's equipment
-	// attaches the weapon to Char->GetMesh(), NOT to the pawn root -- so pawn->Get-
-	// AttachedActors above returns empty for equipped weapons). Try the mesh too.
-	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
-	{
-		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
-		{
-			TArray<USceneComponent*> MeshChildren;
-			CharMesh->GetChildrenComponents(/*bIncludeAllDescendants=*/true, MeshChildren);
-			UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE: mesh->GetChildrenComponents returned %d"), MeshChildren.Num());
-			for (USceneComponent* Child : MeshChildren)
-			{
-				if (UMeshComponent* SMC = Cast<UMeshComponent>(Child))
-				{
-					if (SMC->DoesSocketExist(FName("Muzzle")))
-					{
-						MuzzleLocation = SMC->GetSocketLocation(FName("Muzzle"));
-						UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE:  FOUND via mesh-child SMC=%s at world=%s"), *SMC->GetName(), *MuzzleLocation.ToString());
-						return MuzzleLocation;
-					}
-				}
-			}
-		}
-	}
-
-	UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE: NOT FOUND -- falling back to weapon_r at %s"), *MuzzleLocation.ToString());
-	return MuzzleLocation;
-}
+// ResolveMuzzleLocation moved to UAFLAG_Laser_Base -- the ONE shared resolver (UMeshComponent +
+// ordered MuzzleSocketCandidates {"Muzzle","Barrel","Slide"}) that Pulse and Beam both inherit, so
+// no laser weapon can grow a third verbatim twin. Pulse's calls below are unchanged; they now route
+// through the base. The Carbine still resolves "Muzzle" first (zero behaviour change); the Pistol,
+// which has no "Muzzle" socket, now falls through to "Barrel"/"Slide" -- the pending Pistol L2
+// (FX-at-barrel instead of weapon_r/hand) delivered by this same lift.
 
 void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 {

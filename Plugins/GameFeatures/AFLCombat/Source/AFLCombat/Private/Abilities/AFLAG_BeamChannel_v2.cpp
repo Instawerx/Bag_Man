@@ -21,6 +21,8 @@
 #include "NativeGameplayTags.h"
 #include "Targeting/AFLAbilityTargetData_Hitscan.h"
 #include "TimerManager.h"
+#include "Animation/AnimMontage.h"
+#include "UObject/ConstructorHelpers.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_BeamChannel_v2)
 
@@ -62,6 +64,22 @@ UAFLAG_BeamChannel_v2::UAFLAG_BeamChannel_v2()
 
 	DamageEffectClass          = UGE_AFL_Damage_BeamTick::StaticClass();
 	ReleaseCooldownEffectClass = UGE_AFL_Cooldown_Beam::StaticClass();
+
+	// CharacterFireMontage default. NOT picked blindly: the canonical / most-common beam weapon (the
+	// live Beam_v2) is a B_WeaponInstance_Rifle child -- 2H rifle-class -- so the rifle 2H fire brace is
+	// the class-correct SHARED default that every beam weapon inherits. AM_MM_Rifle_Fire is an
+	// AAT_ROTATION_OFFSET_MESH_SPACE ADDITIVE that LAYERS on the held aim pose (proven on the Carbine,
+	// 66ed384d). It plays once at beam-start via the GAS-replicated PlayMontage already wired into
+	// ActivateAbility this turn -> remote clients see the brace by construction, no new plumbing.
+	// DOCUMENTED OVERRIDE POINT: a non-rifle beam chassis sets its own montage on its BP child -- the
+	// Shotgun-Beam child overrides this to AM_MM_Shotgun_Fire (now a trap-free modify-existing, because
+	// this base default is non-null).
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> BeamFireMontageFinder(
+		TEXT("/Game/Weapons/Rifle/Animations/AM_MM_Rifle_Fire.AM_MM_Rifle_Fire"));
+	if (BeamFireMontageFinder.Succeeded())
+	{
+		CharacterFireMontage = BeamFireMontageFinder.Object;
+	}
 }
 
 void UAFLAG_BeamChannel_v2::ActivateAbility(
@@ -85,6 +103,19 @@ void UAFLAG_BeamChannel_v2::ActivateAbility(
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility=*/true, /*bWasCancelled=*/true);
 		return;
+	}
+
+	// Character fire montage (2H brace / trigger-pull), played ONCE at beam-start via the GAS-
+	// replicated PlayMontage path. ActivateAbility runs on the autonomous proxy (predict) + the
+	// authority for this LocalPredicted ability -- the authority's RepAnimMontageInfo replicates the
+	// montage to sim proxies, so REMOTE clients see the brace, not just the firing client. This rides
+	// the SAME already-replicated delivery the beam visual uses (replicated UAFLBeamVisualComponent +
+	// server-auth endpoint) -- no new plumbing. Role-agnostic in the activation prediction window
+	// (Pulse's proven montage shape, 66ed384d). The base ctor defaults this non-null (Option A: the rifle
+	// 2H brace), so the live Beam_v2 inherits a brace too -- accepted, it is the discard candidate.
+	if (CharacterFireMontage)
+	{
+		ASC->PlayMontage(this, CurrentActivationInfo, CharacterFireMontage, 1.0f);
 	}
 
 	// Bind the target-data delegate on BOTH sides (same pattern as the proven beam).
@@ -432,58 +463,13 @@ void UAFLAG_BeamChannel_v2::OnInputReleased(float /*TimeHeld*/)
 		/*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
 }
 
-FVector UAFLAG_BeamChannel_v2::ResolveMuzzleLocation(APawn* AvatarPawn) const
-{
-	FVector MuzzleLocation = FVector::ZeroVector;
-	if (!AvatarPawn)
-	{
-		return MuzzleLocation;
-	}
-	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
-	{
-		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
-		{
-			MuzzleLocation = CharMesh->GetSocketLocation(FName("weapon_r"));
-		}
-	}
-
-	// Path A: pawn's attached actors (the weapon display actor) — find the "Muzzle"-socketed SMC.
-	TArray<AActor*> AttachedActors;
-	AvatarPawn->GetAttachedActors(AttachedActors);
-	for (AActor* Attached : AttachedActors)
-	{
-		TInlineComponentArray<UStaticMeshComponent*> SMCs;
-		Attached->GetComponents<UStaticMeshComponent>(SMCs);
-		for (UStaticMeshComponent* SMC : SMCs)
-		{
-			if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
-			{
-				return SMC->GetSocketLocation(FName("Muzzle"));
-			}
-		}
-	}
-
-	// Path B: walk the character mesh's descendants (Lyra attaches to Char->GetMesh()).
-	if (ACharacter* AvatarChar = Cast<ACharacter>(AvatarPawn))
-	{
-		if (USkeletalMeshComponent* CharMesh = AvatarChar->GetMesh())
-		{
-			TArray<USceneComponent*> MeshChildren;
-			CharMesh->GetChildrenComponents(/*bIncludeAllDescendants=*/true, MeshChildren);
-			for (USceneComponent* Child : MeshChildren)
-			{
-				if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Child))
-				{
-					if (SMC->DoesSocketExist(FName("Muzzle")))
-					{
-						return SMC->GetSocketLocation(FName("Muzzle"));
-					}
-				}
-			}
-		}
-	}
-	return MuzzleLocation;
-}
+// ResolveMuzzleLocation moved to UAFLAG_Laser_Base -- the ONE shared resolver Pulse and v2 both
+// inherit. This copy was UStaticMeshComponent-only; the harvest-clone shotgun chassis is SKELETAL
+// (SKM_Shotgun), so it read no muzzle here and fell back to weapon_r -- the barrel-up/beam-down V.
+// The base resolver (UMeshComponent + {"Muzzle","Barrel","Slide"}) resolves SKM_Shotgun's real
+// "Muzzle" socket, and the result still flows out through the existing replicated PublishMuzzle path
+// (TickChannel + ServerApplyTargetData -> UAFLBeamChannelComponent), so sim proxies get the barrel-
+// accurate start too. This is the fold that makes the no-twin guarantee real for the LIVE beam.
 
 void UAFLAG_BeamChannel_v2::ApplyReleaseCooldown()
 {

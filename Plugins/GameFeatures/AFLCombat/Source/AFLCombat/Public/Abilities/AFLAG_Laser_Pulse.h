@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "AbilitySystem/Abilities/LyraGameplayAbility.h"
+#include "Abilities/AFLAG_Laser_Base.h"
 #include "Abilities/GameplayAbilityTargetTypes.h"
 #include "Engine/EngineTypes.h"
 
@@ -33,7 +33,7 @@ struct FGameplayAbilityTargetDataHandle;
  * line only — see ServerApplyTargetData.
  */
 UCLASS()
-class AFLCOMBAT_API UAFLAG_Laser_Pulse : public ULyraGameplayAbility
+class AFLCOMBAT_API UAFLAG_Laser_Pulse : public UAFLAG_Laser_Base
 {
 	GENERATED_BODY()
 
@@ -153,15 +153,7 @@ private:
 	/** Server-only: validate (stub) + ApplyGameplayEffectSpecToTarget. */
 	void ServerApplyTargetData(const FGameplayAbilityTargetDataHandle& Data);
 
-	/**
-	 * AFL-0301/0302: resolve the muzzle world location off the avatar's attached
-	 * weapon actor. Walks AvatarPawn->GetAttachedActors(), finds the first SMC
-	 * carrying a "Muzzle" socket, returns its world location. Falls back to the
-	 * weapon_r hand socket on the character mesh if no muzzle socket resolves --
-	 * cues never silently no-show with zero/origin spawn. Shared by the Fire cue
-	 * (ClientPredictAndSend) and the Tracer cue (OnTargetDataReadyCallback).
-	 */
-	FVector ResolveMuzzleLocation(APawn* AvatarPawn) const;
+	// ResolveMuzzleLocation now lives on UAFLAG_Laser_Base (shared with Beam -- one resolver, no twin).
 
 	FDelegateHandle OnTargetDataReadyCallbackDelegateHandle;
 
