@@ -10,6 +10,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
 #include "Effects/GE_AFL_Damage_Pulse.h"
+#include "Components/MeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/HitResult.h"
@@ -277,17 +278,19 @@ FVector UAFLAG_Laser_Pulse::ResolveMuzzleLocation(APawn* AvatarPawn) const
 		}
 	}
 
-	// Path A: pawn->GetAttachedActors (root-attached weapons).
+	// Path A: pawn->GetAttachedActors (root-attached weapons). UMeshComponent covers static AND skeletal --
+	// the harvest-clone Carbine is a SKELETAL mesh (SK_Rifle, "Muzzle" socket at the barrel tip); the old
+	// UStaticMeshComponent-only query missed it and silently fell back to weapon_r (mid-gun / chamber).
 	TArray<AActor*> AttachedActors;
-	AvatarPawn->GetAttachedActors(AttachedActors);
+	AvatarPawn->GetAttachedActors(AttachedActors, /*bResetArray=*/true, /*bRecursivelyIncludeAttachedActors=*/true);
 	UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE: pawn->GetAttachedActors returned %d"), AttachedActors.Num());
 	for (AActor* Attached : AttachedActors)
 	{
-		TInlineComponentArray<UStaticMeshComponent*> SMCs;
-		Attached->GetComponents<UStaticMeshComponent>(SMCs);
+		TInlineComponentArray<UMeshComponent*> SMCs;
+		Attached->GetComponents<UMeshComponent>(SMCs);
 		UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE:  attached=%s SMCs=%d"), *Attached->GetName(), SMCs.Num());
 		bool bFound = false;
-		for (UStaticMeshComponent* SMC : SMCs)
+		for (UMeshComponent* SMC : SMCs)
 		{
 			if (SMC && SMC->DoesSocketExist(FName("Muzzle")))
 			{
@@ -312,7 +315,7 @@ FVector UAFLAG_Laser_Pulse::ResolveMuzzleLocation(APawn* AvatarPawn) const
 			UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_PULSE/MUZZLE: mesh->GetChildrenComponents returned %d"), MeshChildren.Num());
 			for (USceneComponent* Child : MeshChildren)
 			{
-				if (UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Child))
+				if (UMeshComponent* SMC = Cast<UMeshComponent>(Child))
 				{
 					if (SMC->DoesSocketExist(FName("Muzzle")))
 					{
