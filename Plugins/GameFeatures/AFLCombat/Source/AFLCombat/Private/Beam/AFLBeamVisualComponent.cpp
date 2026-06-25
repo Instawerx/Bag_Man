@@ -3,7 +3,10 @@
 #include "Beam/AFLBeamVisualComponent.h"
 
 #include "AFLCombat.h"
+#include "AFLLaserVisualProvider.h"
 #include "Beam/AFLBeamChannelComponent.h"
+#include "Equipment/LyraEquipmentInstance.h"
+#include "Equipment/LyraEquipmentManagerComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "NiagaraComponent.h"
@@ -100,9 +103,22 @@ void UAFLBeamVisualComponent::ApplyBeamActiveState(bool bActive)
 				EAttachLocation::KeepRelativeOffset,
 				/*bAutoDestroy=*/ false,
 				/*bAutoActivate=*/ false);
-			if (BeamNC && BeamColorOverride.A > 0.0f)
+			if (BeamNC)
 			{
-				BeamNC->SetVariableLinearColor(ColorParam, BeamColorOverride);
+				// UNIFIED FX tint: read the weapon's IAFLLaserVisualProvider::GetBeamColor -- the SAME
+				// per-weapon tint the pulse cues drive User.Color from. One tint input across beams +
+				// pulses; the cosmetic resolver writes only GetBeamColor. BeamColorOverride is a
+				// DEPRECATED migration fallback, honoured only while a beam weapon still lacks a
+				// GetBeamColor override (so this switch preserves the current look by construction).
+				FLinearColor Tint = ResolveProviderTint();
+				if (Tint.A <= 0.0f)
+				{
+					Tint = BeamColorOverride;
+				}
+				if (Tint.A > 0.0f)
+				{
+					BeamNC->SetVariableLinearColor(ColorParam, Tint);
+				}
 			}
 		}
 		if (BeamNC)
@@ -183,4 +199,50 @@ UAFLBeamChannelComponent* UAFLBeamVisualComponent::ResolveChannel() const
 		return nullptr;
 	}
 	return OwningPawn->FindComponentByClass<UAFLBeamChannelComponent>();
+}
+
+FLinearColor UAFLBeamVisualComponent::ResolveProviderTint() const
+{
+	// The weapon DISPLAY actor (our owner) is spawned by a ULyraEquipmentInstance with the firing pawn
+	// as Owner (Lyra SpawnEquipmentActors). Walk owner-actor -> pawn -> equipment manager, find the
+	// instance whose spawned actors include us, and read its IAFLLaserVisualProvider::GetBeamColor --
+	// the SAME provider the FX cues read (mirrors AFLAG_Laser_Base::ResolveLaserVisualProvider). The
+	// colour is editor-authored data, identical on every machine, so resolving locally needs no replication.
+	AActor* DisplayActor = GetOwner();
+	if (!DisplayActor)
+	{
+		return FLinearColor(0.f, 0.f, 0.f, 0.f);
+	}
+
+	APawn* OwningPawn = Cast<APawn>(DisplayActor->GetOwner());
+	if (!OwningPawn)
+	{
+		OwningPawn = DisplayActor->GetInstigator();
+	}
+	if (!OwningPawn)
+	{
+		return FLinearColor(0.f, 0.f, 0.f, 0.f);
+	}
+
+	ULyraEquipmentManagerComponent* EquipMgr = OwningPawn->FindComponentByClass<ULyraEquipmentManagerComponent>();
+	if (!EquipMgr)
+	{
+		return FLinearColor(0.f, 0.f, 0.f, 0.f);
+	}
+
+	// The instance that spawned this display actor IS the laser-visual provider (the BP weapon instance
+	// implements IAFLLaserVisualProvider directly). Match by spawned-actor containment.
+	const TArray<ULyraEquipmentInstance*> Instances =
+		EquipMgr->GetEquipmentInstancesOfType(ULyraEquipmentInstance::StaticClass());
+	for (ULyraEquipmentInstance* Instance : Instances)
+	{
+		if (Instance
+			&& Instance->GetSpawnedActors().Contains(DisplayActor)
+			&& Instance->GetClass()->ImplementsInterface(UAFLLaserVisualProvider::StaticClass()))
+		{
+			return IAFLLaserVisualProvider::Execute_GetBeamColor(Instance);
+		}
+	}
+
+	return FLinearColor(0.f, 0.f, 0.f, 0.f);
 }

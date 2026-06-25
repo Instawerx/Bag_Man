@@ -77,6 +77,17 @@ protected:
 	/** Find the firing pawn's UAFLBeamChannelComponent (the published-endpoint bridge, Q1=b). */
 	UAFLBeamChannelComponent* ResolveChannel() const;
 
+	/**
+	 * THE UNIFIED FX TINT INPUT. Reads the weapon's IAFLLaserVisualProvider::GetBeamColor -- the SAME
+	 * per-weapon tint the pulse Fire/Tracer cues drive User.Color from. Walks owner-actor -> pawn ->
+	 * equipment manager -> the instance that spawned us, and reads its GetBeamColor. The colour is
+	 * editor-authored data (identical on every machine), so it resolves locally with no replication.
+	 * Returns A<=0 when no provider tint is set -> the caller falls back to the deprecated
+	 * BeamColorOverride during beam-weapon migration. ONE tint input for beams + pulses; the cosmetic
+	 * resolver writes only GetBeamColor.
+	 */
+	FLinearColor ResolveProviderTint() const;
+
 	/** The beam NS to play. Set on the canary weapon (reuse NS_AFL_Laser_Twist). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Beam")
 	TObjectPtr<UNiagaraSystem> BeamSystem = nullptr;
@@ -88,7 +99,11 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "AFL|Beam")
 	FName ColorParam = FName("User.Color");
 
-	/** Per-weapon recolor (A>0 overrides the NS default; A==0 leaves the authored colour). Data, not code. */
+	/**
+	 * DEPRECATED legacy tint input -- superseded by the unified IAFLLaserVisualProvider::GetBeamColor
+	 * (see ResolveProviderTint). Read ONLY as a migration fallback while a beam weapon still lacks a
+	 * GetBeamColor override; remove once every beam weapon drives GetBeamColor. Do NOT add new uses.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Beam")
 	FLinearColor BeamColorOverride = FLinearColor(0, 0, 0, 0);
 
