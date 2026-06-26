@@ -13,17 +13,29 @@ do not read any surface (beam included) as "done."
 
 ## Goal architecture
 
-Color lives in ONE place: `DA_AFL_ColorIdentityRegistry`. Every surface (Skins,
-Visors, Weapons, Beams) resolves `ColorIdentityTag -> registry -> {Primary, Accent}`
-and drives its own material/Niagara sink from that value.
+**SCOPE (corrected 2026-06-26):** this plan is the **PALETTE/COLOR axis ONLY** -- the free,
+always-on, registry-driven color *attribute* that overlays certain products. It is NOT the
+PRODUCT/CATALOG axis (the SKU economy). The two axes are distinct (confirmed from the SSOTs +
+`FAFLCatalogEntry`, where `ColorIdentityTag` is ONE field alongside `Type`/`Acquisition`/price/
+`RarityTag`/`MintCap`/`bTradeable`/`Asset`):
 
-- Adding a color = ONE registry row + ONE ini tag.
-- Adding a SKU = pick a tag.
-- No surface stores a color.
+- **PALETTE/COLOR axis = THIS plan.** One registry (`DA_AFL_ColorIdentityRegistry`), free,
+  swappable, no entitlement, no `OwnedCosmeticIds` write. Applies ONLY where color is a FREE
+  attribute: **WEAPONS** (`AccentColor` -- proven), **BEAMS** (`User.Color` -- proven), **SKINS
+  body palette** (the always-on `AFL.Finish.*` -- TBD). A SKU's `ColorIdentityTag` resolves here.
+- **PRODUCT/CATALOG axis = NOT this plan** (separate Store/economy workstream). The named
+  entitled SKUs (`FAFLCatalogEntry`: `Type`, `Acquisition`, price-rung, `MintCap`, `bTradeable`,
+  `Asset`), one base free + rest priced/minted/tradeable per the pricing SSOT. The product unit
+  is the named DESIGN. **VISORS and LOGO EMBLEMS live here** -- design catalogs whose color is
+  INTRINSIC to the design, not a free registry axis.
 
-The audit (this session) proved we are the opposite today: color is FIXED
-PER-SURFACE, stored in SIX places, the registry is PARTIAL (5 of 11) and BYPASSED by
-all 4 surfaces. This plan converges them.
+For the palette-axis surfaces, color lives in ONE place; each resolves `ColorIdentityTag ->
+registry -> {Primary, Accent}` and drives its sink from that value.
+- Adding a palette color = ONE registry row + ONE ini tag. No palette-axis surface stores a color.
+
+The audit (this session) proved the opposite today: palette color is FIXED PER-SURFACE, stored
+in SIX places, the registry PARTIAL/BYPASSED. This plan converges the **3 palette-axis surfaces**
+(weapons + beams done; skins body TBD). Visors/emblems are out of scope -- see section 3.
 
 ### What the audit found (the baseline this plan corrects)
 
@@ -199,45 +211,128 @@ highest regression exposure (convergence + Race A/B/C + replication all PIE-prov
 - RISK: moderate; the MID mechanism is proven, the fix is the known param convergence.
   Regression low (per-color MIs are static content).
 
-### 3. VISORS (facemask) -- behind its proven baseline
-- CURRENT: 32 baked `MI_AFL_FaceMask_*` (baked `EmissiveColor` + per-visor `LogoTexture`).
-  PROVEN on screen.
-- TARGET: emblem (texture) stays per-visor; COLOR migrates to the registry. One base
-  visor MI with the emblem texture + a registry-driven `EmissiveColor` (MID).
-- STEPS:
-  (a) RE-PROVE the current baseline first (IroVisor on screen) -- regression gate.
-  (b) split emblem-texture from color in the MI.
-  (c) resolver drives `EmissiveColor` from the SKU tag, emblem from the visor's texture.
-  (d) migrate one visor, prove, then the rest.
-- PROOF GATE: equip visor -> select a registry color -> VISOR SHOWS IT on screen, emblem
-  intact; baseline IroVisor unchanged when no color override.
-- RISK: high regression -- proven + shipped. Never remove a working visor color without
-  the re-prove. Migrate incrementally (one visor at a time).
+### 3. VISORS (facemask) -- NOT a palette-axis surface (mis-scoped; CORRECTED 2026-06-26)
+- **CORRECTION.** Visors are a **DESIGN / ENTITLEMENT catalog**, not a color migration. The
+  earlier "migrate `EmissiveColor` to the registry" framing was WRONG and is removed.
+- **ASSET REALITY** (verified on disk): the 33 `DA_AFL_Facemask_*` are NAMED DESIGNS (national
+  flags, JollyRoger, Anarchy, Kawaii, TechCircuit, pattern masks: Stripe/Dot/Grille...). Each MI
+  carries its OWN `LogoTexture` (`T_AFL_Visor_<name>`) -- the emblem IS the product -- plus a
+  themed `EmissiveColor` that MATCHES the design by intent (BrazilVerde green *because Brazil*;
+  JapanSolar red *because Japan*; MexicoEagle green; Kawaii pink). Color does NOT vary
+  independently -- it is baked because it is MEANT to be that color. Overriding it from the
+  registry would BREAK the design.
+- **THE SKU:** a visor is the emblem/design itself, keyed `AFL.Facemask.<Name>`, entitlement-gated
+  (1 base free + account-bound; the other 32 priced at the SPARK rung -- $10 / 10,000 V / 100,000 W
+  per the pricing SSOT, `bTradeable` once bought). Color is an INTRINSIC attribute, not a
+  migratable axis.
+- **ONLY registry link:** the IroVisor *base* mask is wired `AFL.Facemask.IroVisor ->
+  Cosmetic.Identity.IronicsVisor` as the IRONICS free-brand default -- one base default, not a
+  per-visor color axis. (`Cosmetic.Identity.IronicsVisor` stays in the registry only for that.)
+- **OWNER:** the PRODUCT/CATALOG axis (Store/economy workstream, `FAFLCatalogEntry`), NOT this
+  palette plan. Logo emblems are the same shape (design = the SKU). Nothing to do here for color.
 
-### 4. SKINS (body) -- last, highest regression
-- CURRENT: ~38 baked `UAFLSkinColorAsset` presets (Edge + Finish, each baked
-  `Emissive` / `EdgeGlow` / `TeamColor`). FULLY PROVEN (convergence, Race A/B/C,
-  replication).
-- TARGET: preset = PARAM-SHAPE ONLY (which params / masks); the COLOR comes from the
-  registry via the SKU tag.
-- STEPS:
-  (a) RE-PROVE the full baseline first (incl. the replication races) -- regression gate.
-  (b) separate param-shape from color in `UAFLSkinColorAsset`.
-  (c) the controller component resolves the SKU tag -> registry -> drives the existing
-      param writes in `ApplySkinColor`.
-  (d) collapse the ~38 presets to {shape + registry color}.
-- PROOF GATE: equip skin -> select a registry color -> SKIN SHOWS IT on screen; then
-  RE-RUN Race A/B/C + replication (server-only change converges to clients) -- the
-  migration must not regress the proven multiplayer behavior.
-- RISK: highest -- the most-proven pillar. Behind its full baseline; re-prove the races
-  before declaring done.
+### 4. SKINS (body) -- SPEC LOCKED 2026-06-26; behind its full baseline, highest regression
+CURRENT: ~38 baked `UAFLSkinColorAsset` presets in TWO axes -- 6 Edge (`DA_AFL_Edge_*`:
+EmissiveColor1/2/3 + EdgeGlow, NO Team) + ~33 Finish (`DA_AFL_Finish_*`: + TeamColor). FULLY
+PROVEN (convergence, Race A/B/C, replication). Color is read straight from the baked
+`ColorParameters`; the registry is NOT consulted by the skin path.
 
-### REGRESSION GATE (Skins + Visors -- the 2 proven-baked surfaces)
-Both must RE-PROVE their baseline BEFORE migration (so we know the starting state is
-green on THIS build) AND AFTER migration (so the registry path did not regress what
-ships). For SKINS this explicitly includes Race A/B/C + replication (server-only color
-change converges to clients). Never rip out a working color path without the
-before-and-after re-prove.
+DECISION (operator, 2026-06-26): **ONE BRAND IDENTITY PER COLOR.** Each color is a SINGLE
+registry identity holding BOTH proven looks -- the edge tones from `Edge_<color>` AND the body
+tone from `Finish_<color>`, every value transcribed VERBATIM from its proven preset. Not a
+blended compromise: both looks, one identity. The edge reader reads the emissive ramp +
+EdgeGlow; the body reader reads TeamColor. **Option A (flatten to 2 colors, leave the ramp
+baked) is REJECTED** -- it contradicts the design (THE MODEL below) and leaves color scattered.
+
+THE MODEL (grounded, not invented):
+- A color identity = a FULL coherent finish, NOT a flat hue. `AFL_ECONOMY_ARCHITECTURE_ADR`
+  Decision 10: the body material exposes "`TeamColor` (body) + `EmissiveColor1/2/3` (a 3-tier
+  MIP-BLENDED emissive ramp) + `EdgeGlowColor`", set to a "graded sequence (ORION navy ->
+  brighter-blue mid -> star-white edge)". `AFLCosmeticTypes.h:25`: a color = "a FULL base finish
+  (body TeamColor + emissive + edge-glow together)".
+- The marketplace skill (lyra-skin-builder-marketplace) models the same two separable axes:
+  "EDGE/glow color = EmissiveColor1-3 + EdgeGlowColor" and "BODY color = TeamColor" -- with the
+  registry named as the "TeamColorPalette pattern (Fortnite/Valorant/CS2)".
+- So the flat `{Primary, Accent}` was the INCOMPLETE thing. AAA = full-tone, single-sourced.
+
+THE STRUCT EXTENSION (additive C++ change -- EXECUTION PHASE, operator build; NOT done here):
+FAFLColorIdentity gains a SkinFinish bundle; Primary/Accent stay top-level UNTOUCHED (weapons +
+beams SHIP reading them -- byte-identical, additive only):
+
+    FAFLColorIdentity {
+      FGameplayTag IdentityTag;       // key -- unchanged
+      FLinearColor PrimaryColor;      // cross-surface dominant (weapon AccentColor, beam tint) -- UNTOUCHED
+      FLinearColor AccentColor;       // cross-surface contrast (pink<->purple, red<->orange)   -- UNTOUCHED
+      FAFLSkinFinish SkinFinish;      // NEW -- the full body look
+    }
+    FAFLSkinFinish {
+      FLinearColor TeamColor;         // BODY axis -- body base shade  (from Finish_<color>)
+      FLinearColor EmissiveColor1;    // EDGE axis -- emissive base    (from Edge_<color>)
+      FLinearColor EmissiveColor2;    // EDGE axis -- emissive bright  (from Edge_<color>)
+      FLinearColor EmissiveColor3;    // EDGE axis -- emissive mid     (from Edge_<color>)
+      FLinearColor EdgeGlowColor;     // EDGE axis -- rim glow          (from Edge_<color>)
+    }
+
+Scalars/textures (`EmissiveStrength*`, `EdgeGlowMagnitude`, masks) STAY in the preset -- they
+are SHAPE/intensity, not color. The registry carries color only. Store tones EXPLICITLY (not
+derived): the ramp is art-directed AND the baked tones are not a clean midpoint, so deriving
+would re-tune the proven look.
+
+THE UNIFIED IDENTITY TABLE -- the 5 fully-covered Neon (verbatim from baked, zero shift):
+
+  | Identity   | EmissiveColor1 | EmissiveColor2 | EmissiveColor3 | EdgeGlow     | TeamColor       |
+  |------------|----------------|----------------|----------------|--------------|-----------------|
+  | NeonBlue   | 0,0.42,1       | 0,0.896,1      | 0,0.723,1      | 0,0.42,1     | 0.05,0.25,0.85  |
+  | NeonGreen  | 0,1,0.25       | 0.2,1,0.45     | 0,0.9,0.35     | 0,1,0.30     | 0.06,0.55,0.12  |
+  | NeonPink   | 1,0.1,0.6      | 1,0.4,0.75     | 0.95,0.05,0.5  | 1,0.1,0.6    | 0.9,0.1,0.45    |
+  | NeonPurple | 0.6,0,1        | 0.8,0.35,1     | 0.5,0,0.9      | 0.6,0,1      | 0.4,0.1,0.7     |
+  | NeonRed    | 1,0.05,0.05    | 1,0.25,0.15    | 0.9,0.05,0.05  | 1,0.05,0.05  | 0.75,0.06,0.06  |
+
+  EmissiveColor1/2/3 + EdgeGlow <- `Edge_<color>` exact; TeamColor <- `Finish_<color>` exact.
+  NeonGreen carries the BAKED 0.25 (NOT the registry's rounded 0.30) -- every value verbatim =
+  ZERO shift. Primary/Accent already in the registry, unchanged.
+
+  THE 6 PHASE-0 COLORS -- partial coverage; flag the absent axis, DO NOT invent the tone:
+
+  | Identity   | Edge ramp (emissive)   | TeamColor                          |
+  |------------|------------------------|------------------------------------|
+  | NeonYellow | NO Edge preset -- GAP  | Finish_Yellow = 0.95,0.85,0.05     |
+  | Crimson    | NO Edge preset -- GAP  | Finish_Crimson = 0.55,0,0.08       |
+  | Indigo     | NO Edge preset -- GAP  | Finish_Violet_Indigo? (map TBD)    |
+  | Solar      | NO Edge preset -- GAP  | Finish_Orange_Solar? (map TBD)     |
+  | Magenta    | NO Edge preset -- GAP  | NO Finish (robot-sourced) -- GAP   |
+  | Lime       | NO Edge preset -- GAP  | NO Finish (robot-sourced) -- GAP   |
+
+  These 6 have NO `Edge_<color>` preset, so their emissive RAMP is a DESIGN GAP -- author it (or
+  source it from a baked asset) at execution; do not fabricate tones. The 5 Neon (full coverage)
+  migrate FIRST; the 6 Phase-0 follow once their ramps are design-resolved.
+
+MIGRATION SHAPE (replication BYTE-IDENTICAL -- confirmed by the read):
+- Add `FGameplayTag ColorIdentityTag` to `UAFLSkinColorAsset`. The preset becomes SHAPE + TAG.
+- `ApplySkinColor` resolves `preset.ColorIdentityTag -> registry -> SkinFinish` and writes the
+  tones to the OWNED MID (Emissive1/2/3 + EdgeGlow; TeamColor for body presets) INSTEAD of the
+  baked `GetColors()`. `GetColors()` stays as the `A<=0` fallback for the first migration (the
+  proven beam/weapon sentinel pattern).
+- REPLICATION UNTOUCHED: the `FLinearColor` never crosses the wire. Selection FNames
+  (`EdgeId`/`BodyId`) replicate on PlayerState; the resolved `UAFLSkinColorAsset*` replicates on
+  the Pawn; each client resolves the color LOCALLY in `ApplySkinColor`. The proven convergence
+  path (selection + pointer + OnRep + both apply triggers) is byte-identical. Scalars/textures
+  stay in the preset.
+
+PROOF GATES (LOCKED):
+  1. RE-PROVE BASELINE FIRST -- skin renders its current FULL look + Race A/B/C + replication
+     convergence, on screen, BEFORE any edit.
+  2. MIGRATE ONE -- `Edge_NeonBlue` (EXACT delta). Tag it; resolve from the registry.
+  3. WATCH THE FULL LOOK -- the 3-tone gradient + edge, pixel-match to baseline (NOT just the
+     dominant hue -- the registry carries Emissive2/3, so it can).
+  4. RE-PROVE THE RACES AFTER -- server-only color change converges to clients. The gate that
+     matters MOST; multiplayer must not regress.
+  5. ZERO-SHIFT GATE -- every tone transcribed verbatim from baked (incl. NeonGreen 0.25,
+     Emissive2/3, Team); any nonzero delta is a BUG, not a re-tune.
+
+SCALING TEST: +1 color = ONE registry row (full identity: Primary/Accent + the 5 SkinFinish
+tones) -> skin reads SkinFinish (full look), weapon reads Primary (AccentColor), beam reads
+Primary (User.Color), UI reads Primary/Accent. NO per-preset edits -- presets are shape + tag.
 
 ---
 
@@ -284,10 +379,15 @@ in; no surface bakes color.
       NOT on M_AFL_Weapon_Master -> can't tint via this MID (needs reskin-to-master or tint-Tripo,
       separate); (2) BrandColor retire (strip from master + base MIs) = follow-up; (3) shipping
       resolver (FAFLCosmeticSelection.WeaponId) writes AccentColor (canonical, recorded).
-- [ ] VISORS migrated. Proof: visor shows a registry color ON SCREEN, emblem intact.
-      Baseline IroVisor re-proved BEFORE and AFTER.
-- [ ] SKINS migrated. Proof: skin shows a registry color ON SCREEN. Race A/B/C +
-      replication re-proved BEFORE and AFTER.
+- [--] VISORS -- REMOVED from this plan (mis-scoped). A DESIGN/ENTITLEMENT catalog (33 named
+      masks, themed color intrinsic by design), NOT a palette-axis surface. Belongs to the
+      PRODUCT/CATALOG (Store/economy) workstream. Only IroVisor-base links to the registry
+      (`AFL.Facemask.IroVisor -> Cosmetic.Identity.IronicsVisor`, the IRONICS free default).
+- [SPEC LOCKED] SKINS -- spec locked 2026-06-26 (one-identity-per-color, full-tone SkinFinish;
+      Edge emissive + Finish Team verbatim, zero shift). The struct extension
+      (FAFLColorIdentity += FAFLSkinFinish) is a C++ change flagged for the EXECUTION phase
+      (operator build). NOT STARTED. Proof when migrated: skin shows the registry color's FULL
+      look ON SCREEN (3-tone gradient + edge); Race A/B/C + replication re-proved BEFORE & AFTER.
 - [ ] GLOBAL SCALE TEST. Proof: add the 12th color = 1 registry row + 1 ini tag -> all 4
       surfaces show it in PIE with ZERO per-surface asset edits.
 
