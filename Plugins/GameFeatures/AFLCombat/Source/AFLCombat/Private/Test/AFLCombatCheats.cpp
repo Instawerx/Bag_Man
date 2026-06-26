@@ -22,7 +22,7 @@
 #include "Equipment/LyraEquipmentInstance.h"          // WeaponSkin: GetSpawnedActors (the weapon display actor)
 #include "Weapons/LyraRangedWeaponInstance.h"         // WeaponSkin: the equipped ranged weapon type
 #include "Components/MeshComponent.h"                 // WeaponSkin: the mesh to MID
-#include "Materials/MaterialInstanceDynamic.h"        // WeaponSkin: runtime BrandColor MID
+#include "Materials/MaterialInstanceDynamic.h"        // WeaponSkin: runtime AccentColor MID
 #include "Effects/GE_AFL_Damage_Pulse.h"
 #include "Effects/GE_AFL_EnergyGain_Small.h"
 #include "Effects/GE_AFL_Heat_SetByCaller.h"
@@ -403,7 +403,7 @@ void UAFLCombatCheats::WeaponSkin(const FString& CosmeticId)
 		}
 	}
 
-	// The weapon's display-actor mesh (the BrandColor MI lives on slot 0).
+	// The weapon's display-actor mesh (the M_AFL_Weapon_Master MI -- AccentColor -- on slot 0; Pistol).
 	UMeshComponent* Mesh = nullptr;
 	for (AActor* Spawned : Weapon->GetSpawnedActors())
 	{
@@ -453,22 +453,27 @@ void UAFLCombatCheats::ApplyWeaponSkin(UObject* WeaponInstance, UMeshComponent* 
 		}
 	}
 
-	// Mesh surface: runtime MID on slot 0 + BrandColor.
+	// Mesh surface: runtime MID on slot 0 + AccentColor. AccentColor is the CANONICAL body-colour
+	// param -- the M_AFL_Weapon_Master graph proves it drives EmissiveColor (seam/engrave/Fresnel-rim)
+	// and every shipped per-colour MI overrides ONLY AccentColor; BrandColor is vestigial (feeds no
+	// output). RETIRE-IT follow-up: strip BrandColor from the master + base MIs. NOTE: only meshes
+	// whose slot-0 material is M_AFL_Weapon_Master tint here (Pistol); the Tripo multi-part Carbine
+	// has no AccentColor on its parts -> reports AS-AUTHORED (separate issue).
 	if (Mesh)
 	{
 		if (UMaterialInstanceDynamic* MID = Mesh->CreateDynamicMaterialInstance(0))
 		{
 			FLinearColor Existing;
-			if (MID->GetVectorParameterValue(FMaterialParameterInfo(FName(TEXT("BrandColor"))), Existing))
+			if (MID->GetVectorParameterValue(FMaterialParameterInfo(FName(TEXT("AccentColor"))), Existing))
 			{
-				MID->SetVectorParameterValue(FName(TEXT("BrandColor")), Color);
+				MID->SetVectorParameterValue(FName(TEXT("AccentColor")), Color);
 				UE_LOG(LogAFLCombat, Display,
-					TEXT("[Cheat]   Mesh surface: BrandColor SET via runtime MID on %s slot 0."), *Mesh->GetName());
+					TEXT("[Cheat]   Mesh surface: AccentColor SET via runtime MID on %s slot 0."), *Mesh->GetName());
 			}
 			else
 			{
 				UE_LOG(LogAFLCombat, Warning,
-					TEXT("[Cheat]   Mesh surface: %s slot-0 material has NO BrandColor param -> mesh AS-AUTHORED."), *Mesh->GetName());
+					TEXT("[Cheat]   Mesh surface: %s slot-0 material has NO AccentColor param -> mesh AS-AUTHORED."), *Mesh->GetName());
 			}
 		}
 		else

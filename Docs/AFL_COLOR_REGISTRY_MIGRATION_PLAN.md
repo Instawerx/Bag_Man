@@ -267,10 +267,23 @@ in; no surface bakes color.
       canonical param visibly changes the gun body.
 - [ ] P-BUG-2 -- Tracer clean `User.Color` ribbon. Proof: pulse tracer renders a forced
       `User.Color` red.
-- [ ] BEAMS migrated. Proof: equipped beam shows registry NeonBlue then NeonGreen ON
-      SCREEN; no-color -> original.
-- [ ] WEAPONS migrated. Proof: gun body shows a registry color ON SCREEN; no per-color
-      MI in the loop.
+- [x] BEAMS (live beam) migrated -- DONE 2026-06-26, commit 0abaa729. Proof: ShotgunBeam
+      tinted NeonPurple ON SCREEN, green default held with no selection. Fix = reflection-read
+      LaserTintColor at the consumer (the bridge-wired BNE GetBeamColor override does NOT
+      dispatch at runtime). CAVEATS, not yet done: (1) pulse TRACER gated on P-BUG-2
+      (curve-baked NS exposes "User.Linear Color" not "User.Color" -- dispatch fixed, NS can't
+      consume yet); (2) the ShotgunBeam flash + impact ALSO render purple (operator-confirmed
+      2026-06-26) -- its full FX is the beam component NS, so the 3 laser cue-notifies
+      (LaserBeam/BeamFlash/Impact, which still call the phantom Execute_GetBeamColor) do NOT
+      fire for it; their live-status (Pulse? legacy?) is TBD before treating as a follow-up.
+- [x] WEAPONS (Pistol body) migrated -- DONE 2026-06-26. Proof: Pistol body tinted NeonPurple
+      ON SCREEN (green default held); log "AccentColor SET via runtime MID on SkeletalMesh slot 0".
+      P-BUG-1 resolved: AccentColor is canonical (master graph -> EmissiveColor; per-color MIs
+      override ONLY AccentColor); BrandColor is VESTIGIAL (feeds no output) -- the cheat used to
+      write the dead BrandColor = silent no-op. CAVEATS: (1) CARBINE body is ~20 Tripo part-meshes
+      NOT on M_AFL_Weapon_Master -> can't tint via this MID (needs reskin-to-master or tint-Tripo,
+      separate); (2) BrandColor retire (strip from master + base MIs) = follow-up; (3) shipping
+      resolver (FAFLCosmeticSelection.WeaponId) writes AccentColor (canonical, recorded).
 - [ ] VISORS migrated. Proof: visor shows a registry color ON SCREEN, emblem intact.
       Baseline IroVisor re-proved BEFORE and AFTER.
 - [ ] SKINS migrated. Proof: skin shows a registry color ON SCREEN. Race A/B/C +
