@@ -102,9 +102,11 @@ Solar (1.00,0.45,0.00) -- the 4 sourced-from-baked -- plus:
   (`MI_SHOWFM_RIFTONE`/`MI_SHOWMASK_RIFTONE` EdgeGlowColor == `DA_AFL_Finish_Teal_Rift`
   edge), the most-saturated magenta on-screen. NOTE: close to NeonPink (1.00,0.10,0.60);
   the distinct-from-Pink alternative is SABLE (0.70,0.20,1.00) if separability is preferred.
-- Lime: NOT WRITTEN -- no yellow-green exists on ANY robot/finish asset (scanned 223 MIs +
-  32 finishes: greens are pure-green R<0.3, yellows are R>=G; zero lime). Needs an operator
-  RGBA or an authored asset; NOT invented.
+- Lime (0.80,1.00,0.00) accent (0.80,1.00,0.00) -- OPERATOR-PROVIDED Electric Lime
+  (RGB 204,255,0 = #CCFF00). No yellow-green existed on ANY robot/finish asset (223 MIs +
+  32 finishes scanned: greens pure-green R<0.3, yellows R>=G), so this is an explicit
+  operator value -- not asset-sourced, not invented. (The operator's #7FFF00 was
+  inconsistent with the RGB+name, which agree on #CCFF00 = Electric Lime; used #CCFF00.)
 
 GATE (registry readback = the authoritative data proof): 10/11 palette colors present, all
 valid=True, all PrimaryColor/AccentColor correct. The `GetEntryPrimaryColor` /
@@ -113,7 +115,8 @@ PIE, out of scope) -- the readback proves the same data directly. Existing-5 vs 
 confirmed pre-existing (NeonBlue 0.00,0.42,1.00 vs baked 0.10,0.40,1.00; etc.) -- report-only,
 NOT re-tuned.
 
-Phase 0 = 10 of 11 DONE. Lime is the one remaining, blocked on a value decision.
+Phase 0 = 11 of 11 DONE (2026-06-25). Registry = 14 identities; gate 11/11
+readback-verified, all valid=True. Phase 0 COMPLETE.
 
 ---
 
@@ -255,12 +258,11 @@ in; no surface bakes color.
 
 ## EXECUTION CHECKLIST (tracks state across sessions -- check a box only after ON-SCREEN proof)
 
-- [~] PHASE 0 -- Registry holds all 11 (10/11 DONE). Proof: `GetEntryPrimaryColor` returns
-      correct RGBA for every identity; the 5 shipping colors match their baked source values.
-      2026-06-25: 5 rows written (8->13 identities), 10/11 palette colors valid +
-      readback-verified (4 sourced-from-baked + Magenta robot-sourced from the Rift edge).
-      LIME PENDING -- no yellow-green on any robot/finish asset; needs operator RGBA or an
-      authored asset. See Phase 0 POST-RESTART RESULT above.
+- [x] PHASE 0 -- Registry holds all 11. DONE 2026-06-25. Proof: registry readback = 11/11
+      palette colors present, all valid=True. 6 rows written (8->14 identities):
+      NeonYellow/Crimson/Indigo/Solar (sourced-from-baked) + Magenta (1.00,0.10,0.70 robot
+      Rift edge) + Lime (0.80,1.00,0.00 operator Electric Lime). Existing-5 designer-rounded
+      deltas vs baked = report-only, not re-tuned. See Phase 0 POST-RESTART RESULT above.
 - [ ] P-BUG-1 -- Weapons param converged to one canonical param. Proof: a MID set on the
       canonical param visibly changes the gun body.
 - [ ] P-BUG-2 -- Tracer clean `User.Color` ribbon. Proof: pulse tracer renders a forced
