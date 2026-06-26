@@ -92,7 +92,24 @@ public:
 	UFUNCTION(Exec)
 	void SuicidePawn();
 
+	/**
+	 * GENERIC weapon-skin resolver harness -- a STAND-IN for the real caller (the shipping
+	 * FAFLCosmeticSelection.WeaponId -> resolver path, NEXT LAYER, consumed by nothing yet).
+	 * Resolves a catalog CosmeticId -> the ONE identity color (GetEntry -> GetEntryPrimaryColor; falls
+	 * back to a bare ColorIdentity like "NeonBlue" so it is testable before the matrix is filled), then
+	 * pushes that one color to the EQUIPPED weapon's two cosmetic surfaces through a SINGLE code path
+	 * with NO per-weapon branching:
+	 *   - FX:   reflection-set LaserTintColor -> GetBeamColor -> the unified User.Color input.
+	 *   - Mesh: a runtime MID's BrandColor param (slot 0).
+	 * Each surface is GUARDED and logs its coverage ("set" vs "as-authored") -- never a silent no-op.
+	 */
+	UFUNCTION(Exec)
+	void WeaponSkin(const FString& CosmeticId);
+
 private:
+
+	/** The one generic resolver body: push Color to the weapon's FX + mesh surfaces, guarded + reported. */
+	void ApplyWeaponSkin(UObject* WeaponInstance, class UMeshComponent* Mesh, FLinearColor Color);
 
 	UAbilitySystemComponent* GetPlayerASC() const;
 

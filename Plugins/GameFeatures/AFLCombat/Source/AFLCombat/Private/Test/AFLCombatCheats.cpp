@@ -11,10 +11,18 @@
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
 #include "Cosmetics/AFLWalletComponent.h"            // S-ECON-WALLET: balance/gate/earn-spend cheats
+#include "Teams/LyraTeamSubsystem.h"                 // afl.Cosmetic.Test.Readability: opposing gameplay-team assignment
 #include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
 #include "Components/ChildActorComponent.h"           // panel-watch: reach the body part actor (a child-actor on the pawn)
 #include "AFLCosmeticCatalogSubsystem.h"             // S-ECON-CAT: catalog resolve cheats (AFLCosmeticCore)
 #include "AFLAbilityCosmeticAsset.h"                  // S-ECON-CAT: EMP ability-cosmetic resolve target (AFLCosmeticCore)
+#include "AFLCosmeticCoreTypes.h"                     // WeaponSkin: FAFLCatalogEntry
+#include "AFLColorIdentityRegistry.h"                 // WeaponSkin: FAFLColorIdentity (color-identity fallback)
+#include "Equipment/LyraEquipmentManagerComponent.h" // WeaponSkin: resolve the equipped weapon instance
+#include "Equipment/LyraEquipmentInstance.h"          // WeaponSkin: GetSpawnedActors (the weapon display actor)
+#include "Weapons/LyraRangedWeaponInstance.h"         // WeaponSkin: the equipped ranged weapon type
+#include "Components/MeshComponent.h"                 // WeaponSkin: the mesh to MID
+#include "Materials/MaterialInstanceDynamic.h"        // WeaponSkin: runtime BrandColor MID
 #include "Effects/GE_AFL_Damage_Pulse.h"
 #include "Effects/GE_AFL_EnergyGain_Small.h"
 #include "Effects/GE_AFL_Heat_SetByCaller.h"
@@ -335,6 +343,143 @@ void UAFLCombatCheats::SetCombatAttribute(const FString& Name, float Value)
 
 	ASC->ApplyModToAttribute(Attr, EGameplayModOp::Override, Value);
 	UE_LOG(LogAFLCombat, Display, TEXT("[Cheat] %s = %.2f"), *Name, Value);
+#endif
+}
+
+void UAFLCombatCheats::WeaponSkin(const FString& CosmeticId)
+{
+#if UE_WITH_CHEAT_MANAGER
+	const APlayerController* PC = GetPlayerController();
+	APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	if (!Pawn)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Cheat] WeaponSkin: no pawn on this window's controller."));
+		return;
+	}
+
+	ULyraEquipmentManagerComponent* EquipMgr = Pawn->FindComponentByClass<ULyraEquipmentManagerComponent>();
+	ULyraRangedWeaponInstance* Weapon = EquipMgr ? EquipMgr->GetFirstInstanceOfType<ULyraRangedWeaponInstance>() : nullptr;
+	if (!Weapon)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Cheat] WeaponSkin: no equipped ULyraRangedWeaponInstance (equip a weapon first)."));
+		return;
+	}
+
+	// Resolve the ONE identity color: catalog row (CosmeticId) -> GetEntryPrimaryColor. Falls back to a
+	// bare ColorIdentity ("NeonBlue" -> Cosmetic.Identity.NeonBlue) so the resolver is testable before the
+	// matrix is filled. NOTE: this stand-in applies to the ALREADY-equipped weapon; it does not re-equip
+	// the row's chassis (Entry.Asset) -- the WeaponId -> equip wiring is the named NEXT LAYER.
+	UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this);
+	FLinearColor Color(0.0f, 0.42f, 1.0f, 1.0f); // cyber-blue fallback
+	FString Source(TEXT("fallback (unresolved)"));
+	if (Catalog)
+	{
+		FAFLCatalogEntry Entry;
+		if (Catalog->GetEntry(FName(*CosmeticId), Entry))
+		{
+			Color = UAFLCosmeticCatalogSubsystem::GetEntryPrimaryColor(this, Entry);
+			Source = FString::Printf(TEXT("catalog row '%s' (identity %s)"), *CosmeticId, *Entry.ColorIdentityTag.ToString());
+		}
+		else
+		{
+			FString TagStr = CosmeticId.TrimStartAndEnd();
+			if (!TagStr.StartsWith(TEXT("Cosmetic.Identity."), ESearchCase::IgnoreCase))
+			{
+				TagStr = FString::Printf(TEXT("Cosmetic.Identity.%s"), *TagStr);
+			}
+			const FGameplayTag IdentityTag = FGameplayTag::RequestGameplayTag(FName(*TagStr), false);
+			FAFLColorIdentity Identity;
+			if (IdentityTag.IsValid() && UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(this, IdentityTag, Identity))
+			{
+				Color = Identity.PrimaryColor;
+				Source = FString::Printf(TEXT("color-identity fallback '%s'"), *IdentityTag.ToString());
+			}
+			else
+			{
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("[Cheat] WeaponSkin: '%s' is neither a catalog row nor a ColorIdentity; using fallback color."),
+					*CosmeticId);
+			}
+		}
+	}
+
+	// The weapon's display-actor mesh (the BrandColor MI lives on slot 0).
+	UMeshComponent* Mesh = nullptr;
+	for (AActor* Spawned : Weapon->GetSpawnedActors())
+	{
+		if (Spawned)
+		{
+			if (UMeshComponent* Found = Spawned->FindComponentByClass<UMeshComponent>())
+			{
+				Mesh = Found;
+				break;
+			}
+		}
+	}
+
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("[Cheat] WeaponSkin: resolved %s -> color (%.3f,%.3f,%.3f); applying to %s via ONE generic path (no per-weapon branch)."),
+		*Source, Color.R, Color.G, Color.B, *Weapon->GetName());
+
+	ApplyWeaponSkin(Weapon, Mesh, Color);
+#endif
+}
+
+void UAFLCombatCheats::ApplyWeaponSkin(UObject* WeaponInstance, UMeshComponent* Mesh, FLinearColor Color)
+{
+#if UE_WITH_CHEAT_MANAGER
+	// ONE code path, NO per-weapon branching. Each surface is GUARDED and reports its coverage.
+
+	// FX surface: reflection-set LaserTintColor (-> GetBeamColor -> the unified User.Color input).
+	if (WeaponInstance)
+	{
+		FProperty* Prop = WeaponInstance->GetClass()->FindPropertyByName(FName(TEXT("LaserTintColor")));
+		FStructProperty* StructProp = CastField<FStructProperty>(Prop);
+		if (StructProp && StructProp->Struct == TBaseStructure<FLinearColor>::Get())
+		{
+			FLinearColor Tint = Color;
+			Tint.A = 1.0f; // A>0 -> the DriveLaserTint / beam A>0 gate fires
+			*StructProp->ContainerPtrToValuePtr<FLinearColor>(WeaponInstance) = Tint;
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("[Cheat]   FX surface: LaserTintColor SET on %s (var OK). Renders where the weapon's FX reads the unified input ")
+				TEXT("(beam = consumes now; marketplace pulse tracer = AS-AUTHORED until its NS reads User.Color)."),
+				*WeaponInstance->GetName());
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("[Cheat]   FX surface: %s has NO LaserTintColor -> FX AS-AUTHORED (weapon does not expose the unified tint input)."),
+				*WeaponInstance->GetName());
+		}
+	}
+
+	// Mesh surface: runtime MID on slot 0 + BrandColor.
+	if (Mesh)
+	{
+		if (UMaterialInstanceDynamic* MID = Mesh->CreateDynamicMaterialInstance(0))
+		{
+			FLinearColor Existing;
+			if (MID->GetVectorParameterValue(FMaterialParameterInfo(FName(TEXT("BrandColor"))), Existing))
+			{
+				MID->SetVectorParameterValue(FName(TEXT("BrandColor")), Color);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("[Cheat]   Mesh surface: BrandColor SET via runtime MID on %s slot 0."), *Mesh->GetName());
+			}
+			else
+			{
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("[Cheat]   Mesh surface: %s slot-0 material has NO BrandColor param -> mesh AS-AUTHORED."), *Mesh->GetName());
+			}
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("[Cheat]   Mesh surface: could not create MID on %s slot 0 -> mesh AS-AUTHORED."), *Mesh->GetName());
+		}
+	}
+	else
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Cheat]   Mesh surface: no mesh component on the weapon display actor -> mesh AS-AUTHORED."));
+	}
 #endif
 }
 
@@ -1601,6 +1746,74 @@ namespace
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletGrantCmd(TEXT("afl.Wallet.Grant"),
 		TEXT("S-ECON-WALLET (b) gate: dev-grant ownership without spending (test the entitlement gate). Usage: afl.Wallet.Grant <CosmeticId>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletGrant));
+
+	// ─── AUTOMATED readability/variety test: afl.Cosmetic.Test.Readability ────────
+	//
+	// ONE server-authoritative command that configures the WHOLE visual test so the
+	// operator only has to WATCH (no per-window manual cheats): every player gets an
+	// OPPOSING gameplay LyraTeam (so per-viewer enemy nameplates differ) + a DISTINCT
+	// finish (so the bodies read apart). Because it runs server-side, the entitlement
+	// grant lands for EVERY player -- the client-side afl.Wallet.Grant cannot (no
+	// authority on a client). Run it in the LISTEN-SERVER / host window. Repeatable.
+	void HandleAFLCosmeticTestReadability(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Cosmetic.Test.Readability - run inside PIE.")); return; }
+		if (World->GetNetMode() == NM_Client) { Ar.Log(TEXT("afl.Cosmetic.Test.Readability - run on the LISTEN-SERVER/host window (server-authoritative).")); return; }
+
+		ULyraTeamSubsystem* TeamSub = UWorld::GetSubsystem<ULyraTeamSubsystem>(World);
+		TArray<int32> TeamIds = TeamSub ? TeamSub->GetTeamIDs() : TArray<int32>();
+		TeamIds.Sort();
+
+		// Distinct finishes (all four resolve through DA_AFL_BrandEdgeMap; NOT NeonRed -- absent).
+		static const FName Edges[] = {
+			FName(TEXT("AFL.Edge.NeonBlue")),  FName(TEXT("AFL.Edge.NeonGreen")),
+			FName(TEXT("AFL.Edge.NeonPink")),  FName(TEXT("AFL.Edge.NeonPurple")) };
+
+		int32 PlayerIdx = 0;
+		for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+		{
+			APlayerController* PC = It->Get();
+			if (!PC || !PC->PlayerState) { continue; }
+			APlayerState* PS = PC->PlayerState;
+
+			// 1) Opposing GAMEPLAY team (round-robin over the existing team ids; needs >= 2 teams to differ).
+			int32 AssignedTeam = -1;
+			if (TeamSub && TeamIds.Num() >= 2)
+			{
+				AssignedTeam = TeamIds[PlayerIdx % TeamIds.Num()];
+				TeamSub->ChangeTeamForActor(PC, AssignedTeam);
+			}
+
+			// 2) Distinct FINISH: grant (server authority -> works for EVERY player) then commit the selection.
+			const FName Edge = Edges[PlayerIdx % UE_ARRAY_COUNT(Edges)];
+			if (UAFLWalletComponent* Wallet = PS->FindComponentByClass<UAFLWalletComponent>())
+			{
+				Wallet->DebugGrantOwnership(Edge);
+			}
+			if (UAFLCosmeticLoadoutComponent* Loadout = PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
+			{
+				FAFLCosmeticSelection Sel = Loadout->GetSelection();
+				if (Sel.GetActiveIdentityId() == NAME_None)
+				{
+					Sel.IdentityType = EAFLIdentityType::Team;
+					Sel.TeamId = FName(TEXT("AFL.Team.IRONICS"));
+				}
+				Sel.EdgeId = Edge;
+				Loadout->ServerSetCosmeticSelection(Sel);
+			}
+
+			Ar.Logf(TEXT("[AFL_TEST_READABILITY] player %d (%s): gameplayTeam=%d finish=%s"),
+				PlayerIdx, *PS->GetName(), AssignedTeam, *Edge.ToString());
+			++PlayerIdx;
+		}
+		Ar.Logf(TEXT("[AFL_TEST_READABILITY] configured %d player(s). WATCH: distinct body finishes + per-viewer enemy nameplates. ")
+			TEXT("Logs: [AFL_TEST_READABILITY] (team+finish per player) and [W_Nameplate_C] (TeamId each nameplate received)."),
+			PlayerIdx);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticTestReadabilityCmd(TEXT("afl.Cosmetic.Test.Readability"),
+		TEXT("AUTOMATED readability/variety test (server-auth, run on host): give every player an OPPOSING gameplay team + a DISTINCT finish, then WATCH (distinct bodies + per-viewer enemy nameplates). Repeatable; replaces the manual per-window cheat dance."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticTestReadability));
 
 	// ─── S-ECON-STORE: afl.Store.Open / afl.Store.Close (push the cosmetic store onto UI.Layer.Menu) ──
 	//

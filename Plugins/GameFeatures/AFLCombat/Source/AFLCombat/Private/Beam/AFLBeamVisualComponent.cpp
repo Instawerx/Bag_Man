@@ -4,6 +4,7 @@
 
 #include "AFLCombat.h"
 #include "AFLLaserVisualProvider.h"
+#include "AFLLaserVisualStatics.h"
 #include "Beam/AFLBeamChannelComponent.h"
 #include "Equipment/LyraEquipmentInstance.h"
 #include "Equipment/LyraEquipmentManagerComponent.h"
@@ -103,26 +104,24 @@ void UAFLBeamVisualComponent::ApplyBeamActiveState(bool bActive)
 				EAttachLocation::KeepRelativeOffset,
 				/*bAutoDestroy=*/ false,
 				/*bAutoActivate=*/ false);
-			if (BeamNC)
-			{
-				// UNIFIED FX tint: read the weapon's IAFLLaserVisualProvider::GetBeamColor -- the SAME
-				// per-weapon tint the pulse cues drive User.Color from. One tint input across beams +
-				// pulses; the cosmetic resolver writes only GetBeamColor. BeamColorOverride is a
-				// DEPRECATED migration fallback, honoured only while a beam weapon still lacks a
-				// GetBeamColor override (so this switch preserves the current look by construction).
-				FLinearColor Tint = ResolveProviderTint();
-				if (Tint.A <= 0.0f)
-				{
-					Tint = BeamColorOverride;
-				}
-				if (Tint.A > 0.0f)
-				{
-					BeamNC->SetVariableLinearColor(ColorParam, Tint);
-				}
-			}
 		}
 		if (BeamNC)
 		{
+			// UNIFIED FX tint -- re-read on EVERY activation, not just the first spawn. The NS persists
+			// (spawned once, toggled), so a once-on-spawn read would FREEZE the colour at its first value;
+			// a runtime tint change (the cosmetic resolver writing LaserTintColor) must be picked up on the
+			// next fire. ResolveProviderTint reflection-reads LaserTintColor (the unified input the pulse
+			// cues also drive); BeamColorOverride is the DEPRECATED fallback when LaserTintColor is unset.
+			FLinearColor Tint = ResolveProviderTint();
+			if (Tint.A <= 0.0f)
+			{
+				Tint = BeamColorOverride;
+			}
+			if (Tint.A > 0.0f)
+			{
+				BeamNC->SetVariableLinearColor(ColorParam, Tint);
+			}
+
 			BeamNC->Activate(/*bReset=*/ true);
 			SetComponentTickEnabled(true);   // start feeding the endpoint
 		}
@@ -240,9 +239,13 @@ FLinearColor UAFLBeamVisualComponent::ResolveProviderTint() const
 			&& Instance->GetSpawnedActors().Contains(DisplayActor)
 			&& Instance->GetClass()->ImplementsInterface(UAFLLaserVisualProvider::StaticClass()))
 		{
-			return IAFLLaserVisualProvider::Execute_GetBeamColor(Instance);
+			// Reflection read (dispatch-proof) -- replaces Execute_GetBeamColor, whose bridge-wired BP
+			// override returns the C++ default at runtime. A<=0 sentinel keeps the proven green: the
+			// A<=0 fallback in ApplyBeamActiveState still applies BeamColorOverride exactly as today.
+			return UAFLLaserVisualStatics::ReadLaserTint(Instance);
 		}
 	}
 
+	// No matching provider -> A<=0 sentinel -> caller keeps the BeamColorOverride default.
 	return FLinearColor(0.f, 0.f, 0.f, 0.f);
 }
