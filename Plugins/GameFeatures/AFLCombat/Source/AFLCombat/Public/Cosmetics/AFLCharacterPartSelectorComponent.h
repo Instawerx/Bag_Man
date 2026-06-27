@@ -57,8 +57,8 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics")
 	TObjectPtr<UAFLCharacterPartMap> PartMap = nullptr;
 
-	/** The default robot body when no identity resolves (preserves the prior hardcoded behavior). Set to
-	 *  B_AFL_Robot_ARIA_C in the details panel. EditDefaultsOnly: a per-class default on the added component.
+	/** The default robot body when no identity resolves (the free-grant brand-default base identity). Set to
+	 *  B_AFL_Robot_IRONICS_C in the details panel. EditDefaultsOnly: a per-class default on the added component.
 	 *  Soft so the default robot BP isn't force-loaded until a fallback actually occurs. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics")
 	TSoftClassPtr<AActor> FallbackPartClass;

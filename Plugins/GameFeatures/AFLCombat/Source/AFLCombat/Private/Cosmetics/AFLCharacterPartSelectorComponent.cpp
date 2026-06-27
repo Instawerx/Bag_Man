@@ -78,7 +78,7 @@ void UAFLCharacterPartSelectorComponent::ResolveBodyForPawn(APawn* Pawn) const
 	// --- RESOLUTION ---------------------------------------------------------------------------------
 	// The player's identity id (AFL.Team.<Name> / AFL.Character.<Name>) -> the robot body class via the map;
 	// on any miss (no loadout / unset id / unmapped / null map) fall back to the configured default body
-	// (FallbackPartClass = B_AFL_Robot_ARIA, preserving the prior hardcoded behavior).
+	// (FallbackPartClass = B_AFL_Robot_IRONICS, the free-grant brand-default base identity).
 	const FName IdentityId = ResolveIdentityId(Pawn);
 
 	TSoftClassPtr<AActor> ResolvedSoft;
