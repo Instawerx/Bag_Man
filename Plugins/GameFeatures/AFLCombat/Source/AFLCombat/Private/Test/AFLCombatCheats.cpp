@@ -34,6 +34,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "TimerManager.h"                            // afl.SkinTest.RunAll: timed FTimerHandle gate sequencer
 // EOS-AUTH-C2: the OSSv2 UE::Online path for the afl.EOS.* cheats (auth status + friends query).
 // OnlineResult.h + OnlineAsyncOpHandle.h carry the FULL TOnlineResult / TOnlineAsyncOpHandle
 // definitions (Auth.h/Social.h only forward-declare them) -- include them FIRST so the result/
@@ -1264,6 +1265,59 @@ namespace
 		TEXT("#43 selection seam: client-issued PURE caller of ServerSetCosmeticSelection. Usage: afl.Cosmetic.SetEdge <NeonPurple|NeonPink|NeonBlue|NeonGreen> (or full AFL.Edge.<color>). NOT NeonRed (absent from BrandEdgeMap)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetEdge));
 
+	// --- BODY selection seam: afl.Cosmetic.SetBody <color> (Option B body axis) ---
+	// MIRRORS HandleAFLCosmeticSetEdge EXACTLY, but sets BodyId (AFL.Body.<color> -> a Finish preset via the
+	// catalog) instead of EdgeId. The two axes are INDEPENDENT -> mix-and-match (purple body x green edge). PURE
+	// caller: read the current replicated selection, seed AFL.Team.ARIA if identity unset (so _Validate passes),
+	// set ONLY BodyId, hand to ServerSetCosmeticSelection. Server does all validation/gating/commit/replicate.
+	void HandleAFLCosmeticSetBody(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetBody - usage: afl.Cosmetic.SetBody <NeonBlue|NeonPurple|...|Lime> (or full AFL.Body.<color>)."));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetBody - no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetBody - no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		FString IdStr = Args[0].TrimStartAndEnd();
+		if (!IdStr.StartsWith(TEXT("AFL.Body."), ESearchCase::IgnoreCase))
+		{
+			IdStr = FString::Printf(TEXT("AFL.Body.%s"), *IdStr);
+		}
+		const FName BodyId(*IdStr);
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		if (Request.GetActiveIdentityId() == NAME_None)
+		{
+			Request.IdentityType = EAFLIdentityType::Team;
+			Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+		}
+		Request.BodyId = BodyId;
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetBody - client issued ServerSetCosmeticSelection(body=%s). Watch [Loadout] RX/COMMIT/OnRep with `afl.SkinDiag 1`."),
+			*BodyId.ToString());
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetBodyCmd(
+		TEXT("afl.Cosmetic.SetBody"),
+		TEXT("Option B body axis: client-issued PURE caller of ServerSetCosmeticSelection (sets BodyId -> a Finish preset). Independent of SetEdge -> mix-and-match. Usage: afl.Cosmetic.SetBody <color> (or full AFL.Body.<color>)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetBody));
+
 	// ─── FACEMASK selection seam: afl.Cosmetic.SetFacemask <Name|none> ───────────
 	// MIRRORS HandleAFLCosmeticSetEdge EXACTLY (the proven read-full -> set-one-field -> push pattern). The
 	// only deltas: sets Request.FacemaskId (the new axis), normalizes to AFL.Facemask.<Name>, and accepts
@@ -1751,6 +1805,127 @@ namespace
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletGrantCmd(TEXT("afl.Wallet.Grant"),
 		TEXT("S-ECON-WALLET (b) gate: dev-grant ownership without spending (test the entitlement gate). Usage: afl.Wallet.Grant <CosmeticId>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletGrant));
+
+	// --- SKINTEST one-command 6-gate driver: afl.SkinTest.RunAll ------------------
+	// Sequences the EXISTING cheats (Grant/SetBody/SetEdge/SetFacemask) with timed FTimerHandle pauses + [SKINTEST]
+	// log + on-screen markers, so the operator runs ONE command and just WATCHES each gate. Calls the named handlers
+	// directly (same file) -> no console-routing risk; each gets the captured host World + *GLog. RUN ON THE HOST
+	// (listen-server) WINDOW: Grant is authority-side (DebugGrantOwnership) and SetBody/SetEdge commit locally there;
+	// the host is also a client so it watches the result. GATE 3 (no-selection brand default) runs FIRST: there is
+	// NO body/edge CLEAR cheat (the commit only sets non-None), so the genuine no-selection state is the FRESH SPAWN
+	// -- read it before any SetBody/SetEdge. GATE 5 race-converge is the only 2-client item (logged, not automatable).
+	static const TCHAR* const GSkinTestGap[6] = { TEXT("NeonYellow"), TEXT("Crimson"), TEXT("Indigo"), TEXT("Solar"), TEXT("Magenta"), TEXT("Lime") };
+	static TWeakObjectPtr<UWorld> GSkinTestWorld;
+	static int32 GSkinTestStep = 0;
+	static FTimerHandle GSkinTestTimer;
+
+	static void SkinTest_Mark(const FString& Line)
+	{
+		// LogAFLCombat (already visible here, always-on at Display) so the gate markers show regardless of
+		// afl.SkinDiag -- which step 0 enables separately to surface the [SkinDiag] resolve internals alongside.
+		UE_LOG(LogAFLCombat, Display, TEXT("[SKINTEST] %s"), *Line);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 6.0f, FColor::Yellow, FString::Printf(TEXT("[SKINTEST] %s"), *Line));
+		}
+	}
+
+	static void SkinTest_Body(const TCHAR* Color)
+	{
+		UWorld* W = GSkinTestWorld.Get();
+		if (!W) { return; }
+		HandleAFLWalletGrant(TArray<FString>{ FString::Printf(TEXT("AFL.Body.%s"), Color) }, W, *GLog); // entitle the axis
+		HandleAFLCosmeticSetBody(TArray<FString>{ FString(Color) }, W, *GLog);
+	}
+
+	static void SkinTest_Edge(const TCHAR* Color)
+	{
+		UWorld* W = GSkinTestWorld.Get();
+		if (!W) { return; }
+		HandleAFLWalletGrant(TArray<FString>{ FString::Printf(TEXT("AFL.Edge.%s"), Color) }, W, *GLog);
+		HandleAFLCosmeticSetEdge(TArray<FString>{ FString(Color) }, W, *GLog);
+	}
+
+	static void SkinTest_Advance();
+
+	static void SkinTest_Wait(float Seconds)
+	{
+		if (UWorld* W = GSkinTestWorld.Get())
+		{
+			W->GetTimerManager().SetTimer(GSkinTestTimer, FTimerDelegate::CreateStatic(&SkinTest_Advance), Seconds, false);
+		}
+	}
+
+	static void SkinTest_Advance()
+	{
+		UWorld* W = GSkinTestWorld.Get();
+		if (!W) { return; }
+		const int32 S = GSkinTestStep++;
+		switch (S)
+		{
+		case 0:
+			if (IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.SkinDiag"))) { CVar->Set(TEXT("1")); }
+			SkinTest_Mark(TEXT("START (run on the HOST/listen-server window). SkinDiag ON. ~32s, 6 gates."));
+			SkinTest_Wait(1.5f);
+			break;
+		case 1: // GATE 3 first = genuine no-selection (fresh-spawn) brand default
+			SkinTest_Mark(TEXT("GATE3 BRAND-DEFAULT: no selection (fresh spawn) -> WATCH: IRONICS RED body. BLOCK if grey/default. (Fresh PIE = clean read.)"));
+			SkinTest_Wait(4.0f);
+			break;
+		case 2: // GATE 1 MIX-AND-MATCH (the core proof)
+			SkinTest_Body(TEXT("NeonPurple"));
+			SkinTest_Edge(TEXT("NeonGreen"));
+			SkinTest_Mark(TEXT("GATE1 MIX: body=NeonPurple edge=NeonGreen -> WATCH: PURPLE body + GREEN edge, independent. The core proof."));
+			SkinTest_Wait(4.0f);
+			break;
+		case 3: // GATE 2 UNIFIED LIME
+			SkinTest_Body(TEXT("Lime"));
+			SkinTest_Edge(TEXT("Lime"));
+			SkinTest_Mark(TEXT("GATE2 LIME: body+edge=Lime (incl created Finish_Lime) -> WATCH: full LIME identity."));
+			SkinTest_Wait(4.0f);
+			break;
+		case 4: // GATE 4 FACEMASK (can BLOCK)
+		{
+			HandleAFLWalletGrant(TArray<FString>{ FString(TEXT("AFL.Facemask.JapanSolar")) }, W, *GLog);
+			HandleAFLCosmeticSetFacemask(TArray<FString>{ FString(TEXT("JapanSolar")) }, W, *GLog);
+			SkinTest_Body(TEXT("NeonPurple"));
+			SkinTest_Mark(TEXT("GATE4 FACEMASK: visor=JapanSolar body=NeonPurple -> WATCH: visor shows ITS design color, NOT purple. BLOCK if it bleeds."));
+			SkinTest_Wait(4.0f);
+			break;
+		}
+		case 5: // GATE 5 RACE (2-client item)
+			SkinTest_Mark(TEXT("GATE5 RACE: needs 2 clients (manual/deferred). Server resolved + replicated above; watch a 2nd client mirror the host body. Single-client cannot prove converge."));
+			SkinTest_Wait(2.0f);
+			break;
+		case 6: case 7: case 8: case 9: case 10: case 11: // GATE 6 GAP COLORS (6)
+		{
+			const int32 G = S - 6;
+			SkinTest_Body(GSkinTestGap[G]);
+			SkinTest_Mark(FString::Printf(TEXT("GAP %d/6: body=%s -> WATCH: body takes its registry TeamColor."), G + 1, GSkinTestGap[G]));
+			SkinTest_Wait(2.0f);
+			break;
+		}
+		default:
+			HandleAFLCosmeticSetFacemask(TArray<FString>{ FString(TEXT("none")) }, W, *GLog); // tidy: un-equip the test visor
+			SkinTest_Mark(TEXT("DONE. Report per gate: PASS or BLOCK (esp. #3 grey, #4 bleed)."));
+			GSkinTestWorld.Reset();
+			break;
+		}
+	}
+
+	void HandleAFLSkinTestRunAll(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.SkinTest.RunAll - run inside PIE (the HOST/listen-server window).")); return; }
+		GSkinTestWorld = World;
+		GSkinTestStep = 0;
+		Ar.Log(TEXT("afl.SkinTest.RunAll - starting the 6-gate Option B watch. Watch the screen + [SKINTEST] markers. ~32s. (Run on the HOST window; GATE5 race wants a 2nd client.)"));
+		SkinTest_Advance();
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLSkinTestRunAllCmd(
+		TEXT("afl.SkinTest.RunAll"),
+		TEXT("One-command Option B body-axis watch: SkinDiag + grant + SetBody/SetEdge/SetFacemask sequenced across the 6 gates with timed pauses + [SKINTEST] markers. Run on the HOST window; watch each gate. GATE5 race needs 2 clients (flagged)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLSkinTestRunAll));
 
 	// ─── AUTOMATED readability/variety test: afl.Cosmetic.Test.Readability ────────
 	//

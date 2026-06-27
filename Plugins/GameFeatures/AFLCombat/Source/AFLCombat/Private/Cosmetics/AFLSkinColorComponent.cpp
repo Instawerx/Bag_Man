@@ -66,6 +66,7 @@ void UAFLSkinColorComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UAFLSkinColorComponent, SkinColor);
+	DOREPLIFETIME(UAFLSkinColorComponent, BodyColor);
 	DOREPLIFETIME(UAFLSkinColorComponent, Facemask);
 }
 
@@ -76,6 +77,9 @@ void UAFLSkinColorComponent::BeginPlay()
 	// Reconcile: if a color + parts are BOTH already present when we begin play (late join, or color set
 	// before our BeginPlay), apply now. Idempotent + null-guarded -> safe no-op otherwise.
 	ReapplyColorToAllParts();
+
+	// Same reconcile for the body finish (the TeamColor axis) -- re-applies body THEN edge (composition order).
+	ReapplyBodyColorToAllParts();
 
 	// Same reconcile for the facemask (a part arriving after the replicated facemask value picks it up here).
 	ReapplyFacemaskToAllParts();
@@ -150,6 +154,68 @@ void UAFLSkinColorComponent::ReapplyColorToAllParts()
 	}
 }
 
+// ---- BODY FINISH (replicated PARALLEL to SkinColor; the TeamColor axis of the unified identity) ---
+
+void UAFLSkinColorComponent::SetBodyColor(UAFLSkinColorAsset* NewColor)
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		BodyColor = NewColor;
+		// Listen-host: OnRep does NOT fire on authority -> apply locally now (mirrors SetSkinColor).
+		ReapplyBodyColorToAllParts();
+	}
+}
+
+void UAFLSkinColorComponent::OnRep_BodyColor()
+{
+	// PATH 2 (body-arrives-second): the body finish replicated in -> re-apply to already-spawned parts.
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : OnRep_BodyColor fired: body=%s"),
+			*AFLSkinDiag::Prefix(this),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
+			BodyColor ? *BodyColor->GetName() : TEXT("null"));
+	}
+	ReapplyBodyColorToAllParts();
+}
+
+void UAFLSkinColorComponent::ReapplyBodyColorToAllParts()
+{
+	// COMPOSITION LAYER: apply the body Finish FIRST (TeamColor + its emissive), THEN re-apply the edge SkinColor
+	// (emissive overlays -> edge WINS the shared emissive keys; the Finish supplies the TeamColor). That is the
+	// mix-and-match: body = Finish TeamColor, edge = Edge emissive. BodyColor may be null (no body) -> ApplySkinColor
+	// early-returns (guarded no-op) and the edge still re-applies. Idempotent (the part's owned-MID create-once).
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	TArray<UChildActorComponent*> ChildActorComps;
+	Owner->GetComponents<UChildActorComponent>(ChildActorComps);
+
+	const bool bDiag = AFLSkinDiag::IsOn();
+	int32 NumPartsFound = 0;
+	for (UChildActorComponent* CAC : ChildActorComps)
+	{
+		// Same by-construction filter as ReapplyColorToAllParts: only OUR body parts (weapons cast to null).
+		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
+		{
+			++NumPartsFound;
+			Part->ApplySkinColor(BodyColor); // body finish (TeamColor + emissive); null -> guarded no-op
+			Part->ApplySkinColor(SkinColor); // edge overlays (restores the edge emissive on top of the body)
+		}
+	}
+
+	if (bDiag)
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : ReapplyBody: found %d parts (body=%s edge=%s)"),
+			*AFLSkinDiag::Prefix(this), *Owner->GetName(), NumPartsFound,
+			BodyColor ? *BodyColor->GetName() : TEXT("null"),
+			SkinColor ? *SkinColor->GetName() : TEXT("null"));
+	}
+}
+
 // ---- FACEMASK (replicated PARALLEL to SkinColor; same two-path race-safe spine) ------------------
 
 void UAFLSkinColorComponent::SetFacemask(UMaterialInstanceConstant* NewMaterial)
@@ -196,10 +262,14 @@ void UAFLSkinColorComponent::ReapplyFacemaskToAllParts()
 		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
 		{
 			++NumPartsFound;
-			// Pass the CURRENT SkinColor so the part re-layers the finish params on top of the swapped material
-			// (composition order: material swap, then param re-push). SkinColor may be null (finish not set yet);
-			// ApplyFacemask handles that (the mask MIC shows raw until the color lands + its OnRep re-applies).
-			Part->ApplyFacemask(Facemask, SkinColor);
+			// Re-establish the FULL finish on the swapped material so the BODY is not STRANDED (Option B). The swap
+			// DROPS our slot-1 MID, and slot 1 = M_HeadLegs is SHARED -- the body finish params live here too. The
+			// old code re-layered ONLY the edge (SkinColor) -> the body was lost whenever THIS facemask reapply ran
+			// AFTER the body reapply on a machine. That order differs server (BeginPlay) vs client (OnRep arrival),
+			// which was the host/client HEAD SPLIT. Compose facemask -> BODY (TeamColor + emissive) -> EDGE (emissive
+			// wins the shared keys). Each null -> ApplySkinColor early-returns (guard), so an unset axis is a no-op.
+			Part->ApplyFacemask(Facemask, BodyColor); // swap slot 1 + re-layer the body finish
+			Part->ApplySkinColor(SkinColor);          // edge overlays on top (emissive wins)
 		}
 	}
 

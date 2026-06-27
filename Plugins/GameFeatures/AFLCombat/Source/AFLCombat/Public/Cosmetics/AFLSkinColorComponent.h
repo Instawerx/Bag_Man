@@ -53,6 +53,15 @@ public:
 	/** Read by the part actor on its BeginPlay (PATH 1). */
 	UAFLSkinColorAsset* GetSkinColor() const { return SkinColor; }
 
+	/** AUTHORITY-ONLY: set the active BODY finish (TeamColor axis) on the server. Replicates PARALLEL to
+	 *  SkinColor (the edge axis) -- same two-path race-safe spine. The body Finish drives the TeamColor; the
+	 *  edge (SkinColor) overlays its emissive on top (composition: body first, edge wins the shared keys). */
+	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
+	void SetBodyColor(UAFLSkinColorAsset* NewColor);
+
+	/** Read by the part actor on its BeginPlay (PATH 1) -- the body finish (TeamColor axis). nullptr = none. */
+	UAFLSkinColorAsset* GetBodyColor() const { return BodyColor; }
+
 	/** AUTHORITY-ONLY: set the equipped facemask MIC on the server. Replicates to all clients (mirrors
 	 *  SetSkinColor exactly). The facemask is a slot-1 base-MATERIAL swap (the proven MI_AFL_FaceMask_Pink
 	 *  path), DISTINCT from the SkinColor param-push: this swaps the base material on slot 1 of each body
@@ -80,6 +89,18 @@ protected:
 
 	/** PATH 2: push the current color to all already-spawned AAFLCharacterPartActor body parts. Idempotent. */
 	void ReapplyColorToAllParts();
+
+	/** The BODY finish -- replicated PARALLEL to SkinColor (the edge axis), same race-safe two-path spine.
+	 *  Drives the TeamColor axis. A content asset (UAFLSkinColorAsset) -> safe to replicate by pointer. nullptr = none. */
+	UPROPERTY(ReplicatedUsing = OnRep_BodyColor)
+	TObjectPtr<UAFLSkinColorAsset> BodyColor = nullptr;
+
+	UFUNCTION()
+	void OnRep_BodyColor();
+
+	/** PATH 2 (body): re-apply BodyColor (Finish: TeamColor + emissive) THEN SkinColor (edge: emissive overlays)
+	 *  to all spawned parts -- the composition LAYER order (body first, edge wins shared keys). Idempotent. */
+	void ReapplyBodyColorToAllParts();
 
 	/** The equipped facemask MIC -- replicated PARALLEL to SkinColor, same race-safe two-path spine. A content
 	 *  asset (UMaterialInstanceConstant) -> safe to replicate by pointer. nullptr = none equipped. */

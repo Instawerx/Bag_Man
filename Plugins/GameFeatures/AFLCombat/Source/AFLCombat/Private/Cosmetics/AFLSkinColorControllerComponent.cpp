@@ -205,43 +205,69 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 				SelResolveVia);  // S-ECON-CAT: "catalog" = catalog resolved the id; "-" = no id set OR catalog miss (stopgap retired -> a real-selection miss shows here, falls to brand default below)
 		}
 
-		// Three-tier priority (#43): the player's selection wins; else the #38a brand default; else the
-		// PersistentSkinColor fallback (preserves current behavior -- an unmapped/un-tagged robot still gets
-		// a non-null default).
-		// .Get() so all ternary arms are raw UAFLSkinColorAsset* (PersistentSkinColor is a TObjectPtr;
-		// mixing it with a raw arm is the C2445 ambiguous-conditional error otherwise).
-		UAFLSkinColorAsset* EffectiveColor =
-			bSelectionResolved ? SelectedEdge
-			: bBrandResolved   ? ResolvedEdge
+		// OPTION B dual-resolve. The brand default is a Finish (a BODY color, not an edge glow) -> it, and the
+		// PersistentSkinColor fallback, belong on the BODY axis. The EDGE axis is therefore SELECTION-ONLY now:
+		// a player edge choice or nothing. This is the #1 correctness re-route (approved): fresh spawn / no
+		// selection -> the brand-default Finish drives the body (IRONICS red via the body axis), edge overlay absent.
+		// .Get() so all ternary arms are raw UAFLSkinColorAsset* (PersistentSkinColor is a TObjectPtr; mixing it
+		// with a raw arm is the C2445 ambiguous-conditional error otherwise).
+		UAFLSkinColorAsset* EffectiveEdge = bSelectionResolved ? SelectedEdge : nullptr;
+
+		// BODY axis (TeamColor): resolve the player's BodyId -> a Finish via the SAME catalog the edge uses; else
+		// the brand-default Finish; else the persistent fallback (keeps the non-null default an unmapped robot shows).
+		UAFLSkinColorAsset* SelectedBody = nullptr;
+		FName SelectedBodyId = NAME_None;
+		const TCHAR* BodyResolveVia = TEXT("-");
+		if (Loadout)
+		{
+			SelectedBodyId = Loadout->GetSelection().BodyId;
+			if (SelectedBodyId != NAME_None)
+			{
+				if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+				{
+					SelectedBody = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(SelectedBodyId));
+					if (SelectedBody)
+					{
+						BodyResolveVia = TEXT("catalog");
+					}
+				}
+			}
+		}
+		UAFLSkinColorAsset* EffectiveBody =
+			(SelectedBody != nullptr) ? SelectedBody
+			: bBrandResolved          ? ResolvedEdge
 			: PersistentSkinColor.Get();
 
 		if (AFLSkinDiag::IsOn())
 		{
-			// Report the TRUE winning tier by name -- the respawn re-proof is read FROM this line, so the
-			// instrument must not claim "brand" when the SELECTION produced EffectiveColor.
-			const TCHAR* WinningTier =
-				bSelectionResolved ? TEXT("selection")
-				: bBrandResolved   ? TEXT("brand")
+			// Report BOTH axes by name -- the respawn re-proof AND the #1 fresh-spawn gate are read FROM this line.
+			const TCHAR* BodyTier =
+				(SelectedBody != nullptr) ? TEXT("selection")
+				: bBrandResolved          ? TEXT("brand")
 				: TEXT("fallback");
 
 			UE_LOG(LogAFLSkinDiag, Log,
-				TEXT("%s%s : PushToPawn brandTag=%s mapSet=%s tier=%s edge=%s (selection=%s brandDefault=%s persistentFallback=%s)"),
+				TEXT("%s%s : PushToPawn(dual) brandTag=%s mapSet=%s | EDGE edge=%s (sel=%s) | BODY tier=%s body=%s (selBody=%s via=%s brandDefault=%s persistent=%s)"),
 				*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
 				BrandTag.IsValid() ? *BrandTag.ToString() : TEXT("<none>"),
 				BrandEdgeMap ? TEXT("y") : TEXT("n"),
-				WinningTier,
-				EffectiveColor ? *EffectiveColor->GetName() : TEXT("null"),
+				EffectiveEdge ? *EffectiveEdge->GetName() : TEXT("<none>"),
 				bSelectionResolved ? *SelectedEdge->GetName() : TEXT("<none>"),
+				BodyTier,
+				EffectiveBody ? *EffectiveBody->GetName() : TEXT("null"),
+				(SelectedBody != nullptr) ? *SelectedBody->GetName() : TEXT("<none>"),
+				BodyResolveVia,
 				bBrandResolved ? *ResolvedEdge->GetName() : TEXT("<none>"),
 				PersistentSkinColor ? *PersistentSkinColor->GetName() : TEXT("null"));
 		}
 
 		if (UAFLSkinColorComponent* PawnComp = Pawn->FindComponentByClass<UAFLSkinColorComponent>())
 		{
-			// Authority -> sets the replicated SkinColor -> all clients re-apply via OnRep (PATH 2) +
-			// the new pawn's parts self-color on their BeginPlay (PATH 1). UNCHANGED propagation route:
-			// the resolved value rides DOREPLIFETIME SkinColor exactly as PersistentSkinColor did.
-			PawnComp->SetSkinColor(EffectiveColor);
+			// Authority -> sets the replicated BodyColor + SkinColor (two DOREPLIFETIME props) -> all clients
+			// re-apply via OnRep (PATH 2) + the new pawn's parts self-color on their BeginPlay (PATH 1). The body
+			// rides DOREPLIFETIME BodyColor exactly as the edge rides DOREPLIFETIME SkinColor (parallel axes).
+			PawnComp->SetBodyColor(EffectiveBody);   // body finish (TeamColor)
+			PawnComp->SetSkinColor(EffectiveEdge);   // edge overlay (emissive); null = no edge
 		}
 	}
 }

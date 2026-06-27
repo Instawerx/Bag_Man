@@ -85,7 +85,12 @@ void AAFLCharacterPartActor::BeginPlay()
 		// yet) -> ApplyFacemask restores authored slot-1; the later OnRep (PATH 2) swaps the visor in.
 		ApplyFacemask(ColorComp->GetFacemask(), ResolvedColor);
 
-		ApplySkinColor(ResolvedColor); // null -> ApplySkinColor early-returns (guard)
+		// PATH 1 (composition, Option B): body Finish FIRST (TeamColor + emissive), then the edge (emissive
+		// overlays -> edge wins the shared emissive keys; the Finish supplies the TeamColor). Each axis null ->
+		// ApplySkinColor early-returns (guard), so an unset axis is a safe no-op. Mirrors the pawn component's
+		// ReapplyBodyColorToAllParts apply order so PATH 1 (part-second) and PATH 2 (color-second) agree.
+		ApplySkinColor(ColorComp->GetBodyColor()); // body finish (TeamColor axis); null -> guarded no-op
+		ApplySkinColor(ResolvedColor);             // edge overlays (emissive); null -> guarded no-op
 	}
 }
 
