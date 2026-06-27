@@ -5,6 +5,8 @@
 #include "Cosmetics/AFLSkinColorAsset.h"
 #include "Cosmetics/AFLSkinColorComponent.h"
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
+#include "AFLColorIdentityRegistry.h"        // FAFLColorIdentity / FAFLSkinFinish -- the resolve target (AFLCosmeticCore)
+#include "AFLCosmeticCatalogSubsystem.h"     // UAFLCosmeticCatalogSubsystem::ResolveColorIdentity (tag -> identity)
 #include "Components/MeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/CheatManagerDefines.h"        // UE_WITH_CHEAT_MANAGER guard for the panel-watch DebugSetMID* (undefined macro would silently compile them out -> cheat link error)
@@ -108,6 +110,18 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 	// param-writing below is byte-unchanged. const_cast: we only ever READ it back (a const-correctness artifact).
 	LastAppliedColor = const_cast<UAFLSkinColorAsset*>(ColorAsset);
 
+	// SKIN PALETTE MIGRATION (locked plan section 4, ADDITIVE). Resolve this preset's ColorIdentityTag ONCE ->
+	// the registry's full color identity (one identity -> the multi-tone SkinFinish). bIdentityResolved == false
+	// (un-tagged preset, OR registry unloaded / tag absent) -> the baked ColorParameters are used below, EXACTLY
+	// as before -- the fallback that keeps every un-migrated preset byte-identical. REPLICATION UNTOUCHED: the
+	// FLinearColor never crosses the wire -- the selection FName + the resolved UAFLSkinColorAsset* are what
+	// replicate; this resolve is LOCAL on every machine (the registry asset is identical everywhere), so the
+	// proven selection->resolve->OnRep convergence path stays byte-identical.
+	FAFLColorIdentity ResolvedIdentity;
+	const bool bIdentityResolved =
+		ColorAsset->GetColorIdentityTag().IsValid() &&
+		UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(this, ColorAsset->GetColorIdentityTag(), ResolvedIdentity);
+
 	TArray<UMeshComponent*> Meshes;
 	GetComponents<UMeshComponent>(Meshes);
 	for (UMeshComponent* Mesh : Meshes)
@@ -163,9 +177,15 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 			{
 				MID->SetScalarParameterValue(KV.Key, KV.Value);
 			}
+			// COLOR (the migration seam): the preset's GetColors() KEYS still decide WHICH params are written
+			// (the param SHAPE -- an Edge preset writes emissive+edge, a Finish preset also writes TeamColor);
+			// only the VALUE source swaps. Resolved identity -> the registry tone for that param; un-tagged /
+			// unresolved / unknown-key param -> the baked value (byte-identical to before). Scalars + textures
+			// (the loops above and below) are SHAPE -- read straight from the preset, untouched.
 			for (const TPair<FName, FLinearColor>& KV : ColorAsset->GetColors())
 			{
-				MID->SetVectorParameterValue(KV.Key, FVector(KV.Value));
+				const FLinearColor* RegistryTone = bIdentityResolved ? ResolvedIdentity.SkinFinish.FindToneForParam(KV.Key) : nullptr;
+				MID->SetVectorParameterValue(KV.Key, FVector(RegistryTone ? *RegistryTone : KV.Value));
 			}
 			for (const TPair<FName, TObjectPtr<UTexture>>& KV : ColorAsset->GetTextures())
 			{

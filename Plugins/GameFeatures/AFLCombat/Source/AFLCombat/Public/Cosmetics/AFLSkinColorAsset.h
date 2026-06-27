@@ -4,6 +4,7 @@
 
 #include "Cosmetics/AFLCosmeticTypes.h"
 #include "Engine/DataAsset.h"
+#include "GameplayTagContainer.h"
 
 #include "AFLSkinColorAsset.generated.h"
 
@@ -51,6 +52,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic|Identity")
 	FName CosmeticId;
 
+	/** SKIN PALETTE MIGRATION (locked plan section 4): the color identity this preset resolves its COLOR from
+	 *  (Cosmetic.Identity.<Name>). When SET + resolvable, ApplySkinColor pulls the tones from the registry (one
+	 *  identity -> full multi-tone look) and writes them to the MID INSTEAD of the baked ColorParameters above.
+	 *  UNSET (default) -> the baked ColorParameters are used EXACTLY as before -- the fallback that keeps every
+	 *  un-migrated preset byte-identical. The preset is thus SHAPE (scalars/textures/which params) + this TAG. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic|Identity", meta = (Categories = "Cosmetic.Identity"))
+	FGameplayTag ColorIdentityTag;
+
 	/** Player-facing, localizable. Marketing owns this; safe to change. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Cosmetic|Identity")
 	FText DisplayName;
@@ -79,6 +88,7 @@ public:
 
 	/** Cosmetic-metadata getters (mirror the L5 getter style; UPROPERTYs are the contract). */
 	FName GetCosmeticId() const { return CosmeticId; }
+	const FGameplayTag& GetColorIdentityTag() const { return ColorIdentityTag; }
 	const FText& GetDisplayName() const { return DisplayName; }
 	EAFLCosmeticRarity GetRarity() const { return Rarity; }
 	FName GetCollectionId() const { return CollectionId; }

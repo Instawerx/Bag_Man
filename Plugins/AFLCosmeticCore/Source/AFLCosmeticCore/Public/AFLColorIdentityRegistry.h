@@ -9,6 +9,61 @@
 #include "AFLColorIdentityRegistry.generated.h"
 
 /**
+ * FAFLSkinFinish -- the full skin-body color look (multi-tone finish) for a color identity.
+ *
+ * Per AFL_ECONOMY_ARCHITECTURE_ADR Decision 10 + the lyra-skin-builder-marketplace skill, a color is a FULL
+ * coherent finish: body TeamColor + a 3-tier emissive ramp (EmissiveColor1/2/3) + an EdgeGlow rim -- NOT a
+ * flat hue. The skin pillar's ApplySkinColor resolves a preset's ColorIdentityTag -> this -> the MID writes.
+ * Values are transcribed VERBATIM from the proven baked presets (Edge_<color> emissive/edge + Finish_<color>
+ * TeamColor) -> lossless by construction. SEPARATE from PrimaryColor/AccentColor (the cross-surface 2-color
+ * scheme weapons + beams already ship reading) -- purely additive; those are untouched. Scalars + textures
+ * stay in UAFLSkinColorAsset (SHAPE, not color); the registry carries color only.
+ */
+USTRUCT(BlueprintType)
+struct FAFLSkinFinish
+{
+	GENERATED_BODY()
+
+	/** BODY axis: body base shade (Finish presets write this; Edge presets have no TeamColor param). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity|SkinFinish", meta = (HideAlphaChannel = "false"))
+	FLinearColor TeamColor = FLinearColor(0.05f, 0.25f, 0.85f, 1.0f);
+
+	/** EDGE axis: emissive base tone -- maps to the preset param named "EmissiveColor". */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity|SkinFinish", meta = (HideAlphaChannel = "false"))
+	FLinearColor EmissiveColor1 = FLinearColor(0.0f, 0.42f, 1.0f, 1.0f);
+
+	/** EDGE axis: emissive bright tone -- preset param "EmissiveColor2". */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity|SkinFinish", meta = (HideAlphaChannel = "false"))
+	FLinearColor EmissiveColor2 = FLinearColor(0.0f, 0.896f, 1.0f, 1.0f);
+
+	/** EDGE axis: emissive mid tone -- preset param "EmissiveColor3". */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity|SkinFinish", meta = (HideAlphaChannel = "false"))
+	FLinearColor EmissiveColor3 = FLinearColor(0.0f, 0.723f, 1.0f, 1.0f);
+
+	/** EDGE axis: rim glow -- preset param "EdgeGlowColor". */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity|SkinFinish", meta = (HideAlphaChannel = "false"))
+	FLinearColor EdgeGlowColor = FLinearColor(0.0f, 0.42f, 1.0f, 1.0f);
+
+	/** Map a skin preset's ColorParameters KEY -> the matching tone, so ApplySkinColor keeps the preset's param
+	 *  SHAPE (which params it writes) and only swaps the VALUE source (baked -> registry). nullptr on an unknown
+	 *  key -> caller keeps that param's baked value. */
+	const FLinearColor* FindToneForParam(const FName& ParamName) const
+	{
+		static const FName NEmissive1(TEXT("EmissiveColor"));
+		static const FName NEmissive2(TEXT("EmissiveColor2"));
+		static const FName NEmissive3(TEXT("EmissiveColor3"));
+		static const FName NEdgeGlow(TEXT("EdgeGlowColor"));
+		static const FName NTeam(TEXT("TeamColor"));
+		if (ParamName == NEmissive1) { return &EmissiveColor1; }
+		if (ParamName == NEmissive2) { return &EmissiveColor2; }
+		if (ParamName == NEmissive3) { return &EmissiveColor3; }
+		if (ParamName == NEdgeGlow)  { return &EdgeGlowColor; }
+		if (ParamName == NTeam)      { return &TeamColor; }
+		return nullptr;
+	}
+};
+
+/**
  * FAFLColorIdentity — one DECLARED color identity (S-ECON / cosmetic-identity foundation).
  *
  * A named product/collection identity (NOT an abstract color): "Neon Edge", "EMP", "Ironics Visor".
@@ -42,6 +97,13 @@ struct FAFLColorIdentity
 	/** The contrast/secondary neon: card edge accent + inner detail, showroom rim. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity", meta = (HideAlphaChannel = "false"))
 	FLinearColor AccentColor = FLinearColor(0.0f, 0.941f, 1.0f, 1.0f);
+
+	/** The full skin-body finish (multi-tone) for this identity: TeamColor + emissive ramp + edge. The skin
+	 *  pillar's ApplySkinColor resolves a preset tag -> here -> the MID writes. ADDITIVE: PrimaryColor +
+	 *  AccentColor above are unchanged (weapons read Primary->AccentColor, beams read Primary->User.Color --
+	 *  both unaffected by this new field). Populated in STEP 2 (data), verbatim from the baked presets. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity")
+	FAFLSkinFinish SkinFinish;
 };
 
 /**
