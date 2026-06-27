@@ -107,3 +107,16 @@ FVector UAFLAG_Laser_Base::ResolveMuzzleLocation(APawn* AvatarPawn) const
 		*MuzzleLocation.ToString());
 	return MuzzleLocation;
 }
+
+UObject* UAFLAG_Laser_Base::ResolveLaserVisualProvider() const
+{
+	// The WID AbilitySet grant sets the spec's SourceObject to the equipment/weapon instance (which
+	// implements IAFLLaserVisualProvider directly -- the BP weapon implements the interface). The FX cues cast it
+	// and read GetBeamColor. Folds AFLAG_Laser_Beam::GetAFLLaserWeaponInstance's per-ability copy into
+	// the shared base, exactly like ResolveMuzzleLocation -- one tint contract for every laser weapon.
+	if (FGameplayAbilitySpec* Spec = GetCurrentAbilitySpec())
+	{
+		return Spec->SourceObject.Get();
+	}
+	return nullptr;
+}

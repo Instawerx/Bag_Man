@@ -21,7 +21,7 @@ class USceneComponent;
  *  BlueprintNativeEvent form is the canonical one; it adds GetMuzzleMeshComponent so the
  *  cue can attach to the weapon mesh without guessing the equipment internals.)
  */
-UINTERFACE(BlueprintType, MinimalAPI)
+UINTERFACE(BlueprintType, Blueprintable, MinimalAPI)
 class UAFLLaserVisualProvider : public UInterface
 {
 	GENERATED_BODY()

@@ -591,7 +591,12 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 			APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
 			if (AvatarPawn)
 			{
-				const FAFLAbilityTargetData_Hitscan* HitscanData =
+				// AFL-L4: the equipped weapon instance (which implements IAFLLaserVisualProvider directly)
+					// passed as the cue SourceObject below, so the pulse Fire/Tracer cues read GetBeamColor + drive
+					// User.Color -- the SAME contract the beam flash/impact cues use. Null -> the pawn (no provider)
+					// -> the NS keeps its baked colour. Instigator stays the pawn (ownership).
+					UObject* const TintProvider = ResolveLaserVisualProvider();
+					const FAFLAbilityTargetData_Hitscan* HitscanData =
 					static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData);
 				const FHitResult& HitRef = *RawData->GetHitResult();
 
@@ -601,7 +606,7 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 					FireCueParams.Location     = HitscanData->ClaimedMuzzleLocation;
 					FireCueParams.Normal       = HitscanData->ClaimedAimDirection.GetSafeNormal();
 					FireCueParams.Instigator   = AvatarPawn;
-					FireCueParams.SourceObject = AvatarPawn;
+					FireCueParams.SourceObject = TintProvider ? TintProvider : static_cast<UObject*>(AvatarPawn);
 					K2_ExecuteGameplayCueWithParams(TAG_GameplayCue_Weapon_Pulse_Fire_PulseAbility, FireCueParams);
 				}
 
@@ -620,7 +625,7 @@ void UAFLAG_Laser_Pulse::OnTargetDataReadyCallback(const FGameplayAbilityTargetD
 					FGameplayCueParameters TracerParams;
 					TracerParams.Location     = HitscanData->ClaimedMuzzleLocation;
 					TracerParams.Instigator   = AvatarPawn;
-					TracerParams.SourceObject = AvatarPawn;
+					TracerParams.SourceObject = TintProvider ? TintProvider : static_cast<UObject*>(AvatarPawn);
 
 					FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
 					Ctx.AddHitResult(HitRef);

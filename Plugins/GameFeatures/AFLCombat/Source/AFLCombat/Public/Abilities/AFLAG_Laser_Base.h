@@ -57,4 +57,14 @@ protected:
 	 * the rifle muzzle at +69.8cm. Shared by Pulse (Fire/Tracer cues) and Beam (PublishMuzzle each tick).
 	 */
 	FVector ResolveMuzzleLocation(APawn* AvatarPawn) const;
+
+	/**
+	 * The equipped weapon instance that granted this ability -- the cue SourceObject the AFL laser FX
+	 * cues read IAFLLaserVisualProvider::GetBeamColor (the per-weapon tint) off. Reads the current
+	 * ability spec's SourceObject (the WID AbilitySet grant sets it to the equipment instance),
+	 * mirroring ULyraGameplayAbility_FromEquipment::GetAssociatedEquipment without reparenting. Shared by
+	 * Pulse (Fire/Tracer cues) and Beam so pulse + beam tint by ONE colour contract -- the same
+	 * one-resolver consolidation as ResolveMuzzleLocation. Null if there is no current spec.
+	 */
+	UObject* ResolveLaserVisualProvider() const;
 };
