@@ -120,9 +120,33 @@ void UAFLRoundManagerComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 	{
 		return;
 	}
-	if (UWorld* World = GetWorld())
+	UWorld* World = GetWorld();
+	if (World)
 	{
 		RoundTimeRemaining = World->GetTimerManager().GetTimerRemaining(RoundTimerHandle);
+	}
+
+	// s6 TRAVERSAL SAMPLER (additive): throttled per-LIVING-pawn position emit -- the traversal-density heatmap
+	// source. Server-side only (the HasAuth + RoundActive gate above). Mirrors the living-pawn iteration in
+	// HandleExtractionBanked. The accumulator makes this tick-rate-agnostic (fires every TraverseSampleInterval s).
+	TraverseSampleAccum += DeltaTime;
+	if (World && TraverseSampleAccum >= TraverseSampleInterval)
+	{
+		TraverseSampleAccum = 0.f;
+		const AGameStateBase* GS = World->GetGameState<AGameStateBase>();
+		const ULyraTeamSubsystem* Teams = World->GetSubsystem<ULyraTeamSubsystem>();
+		if (GS && Teams)
+		{
+			for (APlayerState* PS : GS->PlayerArray)
+			{
+				if (!PS) { continue; }
+				const APawn* P = PS->GetPawn();
+				if (!P) { continue; }
+				const ULyraHealthComponent* HC = ULyraHealthComponent::FindHealthComponent(P);
+				if (HC && HC->IsDeadOrDying()) { continue; }   // living pawns only
+				FAFLCombatTelemetry::EmitTraverse(P, Teams->FindTeamFromObject(PS), P->GetActorLocation());
+			}
+		}
 	}
 }
 

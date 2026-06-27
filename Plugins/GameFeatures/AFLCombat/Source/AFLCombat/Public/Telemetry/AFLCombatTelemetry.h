@@ -98,4 +98,9 @@ public:
 	 *  there was no prior kill/death emit; this adds one WITH Z, without touching the combat/damage code).
 	 *  Emits: AFL_TELEMETRY: afl_elimination victim=<V> killer=<K> team=<T> x=<X> y=<Y> z=<Z> */
 	static void EmitElimination(const AActor* Victim, const AActor* Killer, int32 VictimTeam, const FVector& Location);
+
+	/** Periodic per-LIVING-pawn position sample (server-side, throttled by the round manager) -- the s6
+	 *  traversal-density heatmap source. ADDITIVE: no prior traversal emit existed.
+	 *  Emits: AFL_TELEMETRY: afl_traverse pawn=<P> team=<T> x=<X> y=<Y> z=<Z> */
+	static void EmitTraverse(const AActor* Pawn, int32 TeamId, const FVector& Location);
 };

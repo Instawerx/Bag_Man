@@ -104,3 +104,14 @@ void FAFLCombatTelemetry::EmitElimination(const AActor* Victim, const AActor* Ki
 		VictimTeam,
 		Location.X, Location.Y, Location.Z);
 }
+
+void FAFLCombatTelemetry::EmitTraverse(const AActor* Pawn, int32 TeamId, const FVector& Location)
+{
+	// AFL-0213 / s6 traversal-density source: a periodic per-LIVING-pawn position sample. The round manager
+	// throttles the cadence + iterates living pawns; this is the pure log sink (same prefix as every emit).
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_TELEMETRY: afl_traverse pawn=%s team=%d x=%.0f y=%.0f z=%.0f"),
+		*GetNameSafe(Pawn),
+		TeamId,
+		Location.X, Location.Y, Location.Z);
+}

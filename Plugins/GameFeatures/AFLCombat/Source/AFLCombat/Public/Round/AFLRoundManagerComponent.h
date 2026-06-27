@@ -76,6 +76,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") bool  bAllowMidRoundRespawn = false;
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float RoundResetCountdown = 5.f;
 
+	/** s6 traversal-density sampler: server-side per-living-pawn position emit cadence (seconds), the
+	 *  traversal heatmap's data source. ~1-1.5s = cheap + dense enough for a flow read. Telemetry-tunable. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float TraverseSampleInterval = 1.25f;
+
 	// -- replicated state (drives the HUD via OnRep) --
 	UPROPERTY(ReplicatedUsing = OnRep_Phase, BlueprintReadOnly, Category = "AFL|Round") EAFLRoundPhase Phase = EAFLRoundPhase::WarmUp;
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|Round") int32 CurrentRound = 0;
@@ -160,6 +164,7 @@ private:
 	bool bMatchStarted = false;
 	int32 Team0Banked = 0;                               // per-round banked accumulator (timeout tiebreak)
 	int32 Team1Banked = 0;
+	float TraverseSampleAccum = 0.f;                     // s6 traversal sampler throttle accumulator (Tick)
 	FTimerHandle RoundTimerHandle;                       // round timeout
 	FTimerHandle ResetTimerHandle;                       // RoundEnd -> between-rounds -> begin
 	FGameplayMessageListenerHandle ExtractListenerHandle;

@@ -61,6 +61,13 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Weapon_Pulse_Fire_PulseAbility, "G
 // Color, Trigger). Same _PulseAbility file-specific suffix as Fire above.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GameplayCue_Weapon_Pulse_Tracer_PulseAbility, "GameplayCue.Weapon.Pulse.Tracer");
 
+// AI-FIRE PARITY (bot-fire trigger): the tag ShooterCore BTS_Shoot sends as a
+// GameplayEvent to fire the equipped weapon ("Send Gameplay Event to Actor"). Same
+// canonical string as the player's AbilitySet InputTag binding; declared native-static
+// for CDO-safe ctor use (the RequestGameplayTag-in-ctor crash rationale is documented in
+// the block above). Mirrors the in-module precedent in AFLAG_CollectChannel.cpp.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_InputTag_Weapon_Fire_PulseTrigger, "InputTag.Weapon.Fire");
+
 // SetByCaller magnitude tags consumed by UAFLDamageExecCalc::Execute_Implementation
 // step 2. File-specific suffix on the C++ symbol (the FName *value* stays as the
 // canonical "Data.Damage.*" string). Required because UBT Unity builds merge
@@ -118,6 +125,27 @@ UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
 	ReplicationPolicy  = EGameplayAbilityReplicationPolicy::ReplicateNo;
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
 	InstancingPolicy   = EGameplayAbilityInstancingPolicy::InstancedPerActor;
+
+	// AI-FIRE PARITY: Lyra bots have no input -- they fire by sending a GameplayEvent
+	// (InputTag.Weapon.Fire) to the pawn (ShooterCore BTS_Shoot -> "Send Gameplay Event
+	// to Actor"). Stock Lyra weapon fire abilities carry a matching GameplayEvent
+	// AbilityTrigger; the harvested Pulse kept only the player InputTag binding (on the
+	// AbilitySet) and dropped this trigger -> 0 triggers vs stock's 1 -> bots could not
+	// fire it. Re-add it. The GameplayEvent source is SEPARATE from the input path
+	// (ULyraASC::AbilityInputTagPressed matches the AbilitySet InputTag via
+	// DynamicSpecSourceTags; it never sends a gameplay event), so the player trigger-pull
+	// is unchanged -- no double-activation. The Pulse cooldown GE rate-limits the bot's
+	// per-tick events to the normal fire cadence, exactly like the player holding fire.
+	// Scoped to Pulse, NOT the shared _Base: the other _Base child UAFLAG_BeamChannel_v2
+	// is a WhileInputActive channel (its header warns of ~6x/sec re-cycle thrash); a
+	// per-tick bot fire event would re-trigger that channel every tick. Same trigger
+	// pattern as the in-module AFLAG_CollectChannel.cpp.
+	{
+		FAbilityTriggerData FireEventTrigger;
+		FireEventTrigger.TriggerTag    = TAG_InputTag_Weapon_Fire_PulseTrigger;
+		FireEventTrigger.TriggerSource = EGameplayAbilityTriggerSource::GameplayEvent;
+		AbilityTriggers.Add(FireEventTrigger);
+	}
 
 	// AbilityTags advertise this ability's identity (granted-by-class lookup
 	// in DA_AFL_AbilitySet_*, and used by ActivationOwnedTags to apply
