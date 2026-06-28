@@ -16,6 +16,7 @@
 #include "Messages/LyraVerbMessage.h"
 #include "NativeGameplayTags.h"
 #include "Net/UnrealNetwork.h"
+#include "Phases/AFLMatchPhaseComponent.h"
 #include "Teams/LyraTeamSubsystem.h"
 #include "Telemetry/AFLCombatTelemetry.h"
 #include "TimerManager.h"
@@ -191,6 +192,17 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	// respawn node while State.Round.NoRespawn is on the owning ASC, so the round FSM is the LONE respawn
 	// authority (the round-start force-respawn -- no BP-latent death-respawn competing). Human + bot.
 	SetRoundRespawnSuppressed(true);
+
+	// Round-based mode: the round FSM is the SOLE match-end authority -- tell the resident match-phase
+	// component (present for the extraction-window cadence) NOT to time-conclude at its 480s ActiveDuration
+	// (a clock ending a best-of mid-series is illogical). The window cadence stays; only its match-END no-ops.
+	if (const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr)
+	{
+		if (UAFLMatchPhaseComponent* MatchPhase = GS->FindComponentByClass<UAFLMatchPhaseComponent>())
+		{
+			MatchPhase->SetExternalMatchEndAuthority(true);
+		}
+	}
 
 	Server_BeginRound();
 }
@@ -390,9 +402,25 @@ void UAFLRoundManagerComponent::Server_EndMatch(int32 WinningTeamId)
 	UnbindDeathDelegates();
 	SetRoundRespawnSuppressed(false);   // match over -> restore normal auto-respawn (warmup / non-round / next match)
 	SetPhaseAuthoritative(EAFLRoundPhase::MatchEnd);
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: MATCH END -- team %d wins %d-%d (terminal this build)."),
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: MATCH END -- team %d wins %d-%d -> concluding."),
 		WinningTeamId, Team0Score, Team1Score);
-	// Terminal -- a rematch wrapper is future work, mirroring the match-phase PostGame HOLD.
+
+	// Officially conclude via the PROVEN PostGame machinery on the resident match-phase component (CALL,
+	// not replicate -- residency verified from the log: AFL_ROUND + AFL_PHASE both run this experience).
+	// ConcludeMatch frees fire/movement (State.Match.Ended) + starts PostGame + broadcasts per-player Watts
+	// (-> the MATCH COMPLETE banner). bMatchEnded makes it idempotent. Null-guarded defensively despite the
+	// confirmed residency -- a missing component logs + skips rather than crashing.
+	if (const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr)
+	{
+		if (UAFLMatchPhaseComponent* MatchPhase = GS->FindComponentByClass<UAFLMatchPhaseComponent>())
+		{
+			MatchPhase->ConcludeMatch();
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_ROUND: MATCH END but no UAFLMatchPhaseComponent resident -- conclusion (freeze/PostGame/Watts) SKIPPED."));
+		}
+	}
 }
 
 void UAFLRoundManagerComponent::SetRoundRespawnSuppressed(bool bSuppressed)

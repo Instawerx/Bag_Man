@@ -209,15 +209,29 @@ void UAFLMatchPhaseComponent::EnterPlaying()
 
 void UAFLMatchPhaseComponent::EnterPostGame()
 {
+	// The 480s match-duration ActiveTimer fired (the TIME-based match-end). In round-based mode the round
+	// FSM is the SOLE match-end authority (set via SetExternalMatchEndAuthority at match-start) -- a clock
+	// ending a best-of mid-series is illogical -- so this time-conclude no-ops. The extraction-WINDOW
+	// cadence (separate WindowOpen/WindowDuration timers) is untouched; ONLY the match-END is suppressed.
+	if (bExternalMatchEndAuthority)
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: 480s time-conclude SUPPRESSED -- round FSM is the match-end authority (windows continue)."));
+		return;
+	}
+	ConcludeMatch();
+}
+
+void UAFLMatchPhaseComponent::ConcludeMatch()
+{
 	if (!GetGameStateChecked<AGameStateBase>()->HasAuthority() || bMatchEnded)
 	{
-		return;
+		return;   // idempotent -- whichever authority fires first concludes; the other no-ops
 	}
 	bMatchEnded = true; // the cadence (ScheduleNextWindow/OpenWindow) no-ops from here -- terminal.
 
 	if (UWorld* World = GetWorld())
 	{
-		World->GetTimerManager().ClearTimer(WindowOpenTimer);   // C subtlety: no window reopens under PostGame
+		World->GetTimerManager().ClearTimer(WindowOpenTimer);   // no window reopens under PostGame
 		World->GetTimerManager().ClearTimer(WindowDurationTimer);
 	}
 
@@ -228,7 +242,7 @@ void UAFLMatchPhaseComponent::EnterPostGame()
 	bWindowOpen = false;
 	GrantMatchTagToAllPawns(TAG_State_Match_Ended_Driver);     // fire/movement frozen, terminal
 	BroadcastMatchEnded();                                     // per-player dual-broadcast w/ Watts
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: POSTGAME (terminal -- Playing+Window cancelled, match frozen, ended-broadcast sent)."));
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: POSTGAME (match concluded -- Playing+Window cancelled, frozen, ended-broadcast sent)."));
 }
 
 void UAFLMatchPhaseComponent::StartPhaseByClass(TSubclassOf<ULyraGamePhaseAbility> PhaseClass, const FGameplayTag& PhaseTag)

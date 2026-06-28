@@ -81,6 +81,17 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Match")
 	TSubclassOf<ULyraGamePhaseAbility> PostGamePhaseClass;
 
+	/** Conclude the match NOW -- the proven PostGame conclusion (PostGame phase + State.Match.Ended freeze
+	 *  + per-player Watts MATCH-COMPLETE broadcast). Idempotent via bMatchEnded. Called by the 480s time
+	 *  path (EnterPostGame, when this component IS the authority) AND by an external match-end authority
+	 *  (UAFLRoundManagerComponent at its win condition -- the round path). */
+	void ConcludeMatch();
+
+	/** Round-based mode hands match-end authority to the round FSM (sole authority, like it owns respawn):
+	 *  the 480s time-based conclusion then no-ops (a clock ending a best-of mid-series is illogical). The
+	 *  extraction-window cadence is UNAFFECTED. Default false = this component is the authority (time path). */
+	void SetExternalMatchEndAuthority(bool bExternal) { bExternalMatchEndAuthority = bExternal; }
+
 private:
 	// -- the match spine --
 	void StartSpineFromWarmup();        // shared by BeginPlay + RestartMatch (reads cvars fresh)
@@ -109,6 +120,7 @@ private:
 	FTimerHandle WindowDurationTimer;   // this window's lifetime
 	bool bWindowOpen = false;
 	bool bMatchEnded = false;           // PostGame reached -> cadence no-ops, terminal
+	bool bExternalMatchEndAuthority = false;   // round FSM owns match-end -> the 480s time-conclude no-ops
 
 	/** Per-player Watts at Playing start, keyed by PlayerState. The match-end payload per player =
 	 *  GetWatts() - this snapshot (the wallet is per-player; each client shows its own). */
