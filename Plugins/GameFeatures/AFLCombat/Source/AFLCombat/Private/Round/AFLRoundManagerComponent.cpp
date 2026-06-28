@@ -438,6 +438,24 @@ void UAFLRoundManagerComponent::Server_ResetRoundActors()
 	{
 		if (AController* C = PS ? PS->GetOwningController() : nullptr)
 		{
+			// Round-end SURVIVORS (alive at resolve) still possess a live pawn. RequestPlayerRestartNextFrame
+			// resets only the CONTROLLER (AController::Reset clears StartSpot -- never unpossesses or ChangeState),
+			// NOT the pawn. The canonical Lyra "reset everyone" (AGameModeBase::ResetLevel) also resets the PAWN:
+			// ALyraCharacter::Reset() -> UninitAndDestroy -> DetachFromControllerPendingDestroy (UnPossess +
+			// ChangeState(NAME_Inactive)) + SetLifeSpan. Skipping it left a surviving BOT reaching
+			// ServerRestartController NAME_Playing-with-a-pawn -> ensure((pawn==null)&&Inactive) trips (stack-walk
+			// + ~5s hitch), AND the Inactive restart-guard skipped it -> the survivor never reset, keeping its
+			// pawn/position into the next round (breaks the fresh-start round design). Mirror the canonical
+			// teardown for EVERY survivor (bot AND human): Reset() the live pawn so the controller reaches the
+			// restart pawn-null + Inactive -- the exact clean state a DEAD controller already reached via the
+			// death flow's UninitAndDestroy. NO-OP for the usually-dead human (no pawn here) -> the proven
+			// dead-human respawn path is untouched; this acts only on the rare ALIVE survivor (the case that
+			// needs the fresh reset). Pawn->Reset() is a teardown, not a death -> fires no respawn ability; the
+			// PlayerState ASC + its State.Round.NoRespawn suppression tag persist across it (one restart = one pawn).
+			if (APawn* OldPawn = C->GetPawn())
+			{
+				OldPawn->Reset();   // ALyraCharacter::Reset -> UninitAndDestroy -> pawn-null + NAME_Inactive
+			}
 			GM->RequestPlayerRestartNextFrame(C, /*bForceReset=*/true);
 		}
 	}
