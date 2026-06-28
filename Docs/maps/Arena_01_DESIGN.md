@@ -1,6 +1,6 @@
 # Arena_01 — Per-Map Design Brief
 
-**Status:** DRAFT for operator approval · 2026-06-26 · gates greybox per `IRONICS_MAP_MODE_SPEC` §11
+**Status:** APPROVED 2026-06-28 -- loop PIE-proven 3v3+4v4 (commits 638e5bbd / c079f0a7 / e326247e / 8874fca4); greybox gate cleared per `IRONICS_MAP_MODE_SPEC` section 11. (Originally DRAFT for operator approval, 2026-06-26.)
 **Tier:** B (Mid-Arena — the competitive heart) · **Source:** tracker (Arena_01, "neon-cyber combat surfaces — production baseline")
 **Purpose:** the FIRST map of the pillar. Per §11 build order ("begin briefs with Tier B"), Arena_01 is the minimum arena that hosts the **proven** loop end-to-end in PIE — **no signature mechanic**, so the map proves `round → fight → drop → collect → extract → bank` cleanly before any exotic-mechanic map layers on. P-MAPS is the last unproven pillar; this is where it gets its `✅ watched in PIE`.
 
