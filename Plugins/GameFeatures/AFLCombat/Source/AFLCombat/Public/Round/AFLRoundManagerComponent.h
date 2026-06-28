@@ -160,6 +160,7 @@ private:
 	void BindDeathDelegates();                           // bind OnDeathStarted on every current pawn
 	void UnbindDeathDelegates();
 	void SetPhaseAuthoritative(EAFLRoundPhase NewPhase);  // set + drive OnRep locally (listen-host)
+	void SetRoundRespawnSuppressed(bool bSuppressed);     // apply/remove State.Round.NoRespawn on every player ASC -> round FSM is the lone respawn authority
 
 	bool bMatchStarted = false;
 	int32 Team0Banked = 0;                               // per-round banked accumulator (timeout tiebreak)

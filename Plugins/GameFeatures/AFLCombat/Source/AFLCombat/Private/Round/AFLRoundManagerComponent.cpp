@@ -27,6 +27,14 @@
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Extraction_Complete_Round, "Event.Extraction.Complete");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Extracting_Round, "State.Extracting");
 
+// S-ROUND-RESPAWN: applied to every player's PlayerState ASC for the match (ServerStartMatch ->
+// Server_EndMatch). The cloned GA_AFL_AutoRespawn's branch reads this off the owning ASC and SKIPS its
+// RequestPlayerRestartNextFrame node while present -- so a mid-round death stays dead (ragdoll + death-cam =
+// tactical spectate) and the round FSM's round-start force-respawn is the lone respawn authority (no BP-latent
+// death-respawn competing -> no double, no orphan). Native-static for CDO-safe use; AFLCombatTags.ini is the
+// spec source-of-truth (UE dedups native+ini).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Round_NoRespawn, "State.Round.NoRespawn");
+
 namespace
 {
 	// NO team-id magic numbers -- the two participating ids are resolved from ULyraTeamSubsystem at
@@ -178,6 +186,12 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	OnRep_Score();   // listen-host local HUD
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: match START (teams %d v %d; first to %d; half-swap after round %d)."),
 		ParticipatingTeams[0], ParticipatingTeams[1], RoundsToWin, HalfTimeAfterRound);
+
+	// Suppress the ShooterCore auto-respawn for the whole match: the cloned GA_AFL_AutoRespawn skips its
+	// respawn node while State.Round.NoRespawn is on the owning ASC, so the round FSM is the LONE respawn
+	// authority (the round-start force-respawn -- no BP-latent death-respawn competing). Human + bot.
+	SetRoundRespawnSuppressed(true);
+
 	Server_BeginRound();
 }
 
@@ -374,10 +388,38 @@ void UAFLRoundManagerComponent::Server_EndMatch(int32 WinningTeamId)
 		World->GetTimerManager().ClearTimer(ResetTimerHandle);
 	}
 	UnbindDeathDelegates();
+	SetRoundRespawnSuppressed(false);   // match over -> restore normal auto-respawn (warmup / non-round / next match)
 	SetPhaseAuthoritative(EAFLRoundPhase::MatchEnd);
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: MATCH END -- team %d wins %d-%d (terminal this build)."),
 		WinningTeamId, Team0Score, Team1Score);
 	// Terminal -- a rematch wrapper is future work, mirroring the match-phase PostGame HOLD.
+}
+
+void UAFLRoundManagerComponent::SetRoundRespawnSuppressed(bool bSuppressed)
+{
+	const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr;
+	if (!GS)
+	{
+		return;
+	}
+	int32 Count = 0;
+	for (APlayerState* PS : GS->PlayerArray)
+	{
+		if (!PS)
+		{
+			continue;
+		}
+		// The ASC lives on the PlayerState in Lyra, so the tag persists across pawn deaths/respawns -- one
+		// apply at match-start covers every round. SetLooseGameplayTagCount is idempotent. Server-side suffices:
+		// the cloned GA's respawn branch runs on authority (RequestPlayerRestartNextFrame is authority-only).
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(PS))
+		{
+			ASC->SetLooseGameplayTagCount(TAG_State_Round_NoRespawn, bSuppressed ? 1 : 0);
+			++Count;
+		}
+	}
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: round-respawn suppression %s on %d player ASC(s) (State.Round.NoRespawn -> GA_AFL_AutoRespawn branch)."),
+		bSuppressed ? TEXT("APPLIED") : TEXT("REMOVED"), Count);
 }
 
 void UAFLRoundManagerComponent::Server_ResetRoundActors()
