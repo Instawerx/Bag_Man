@@ -24,9 +24,9 @@ class UTextBlock;
  * WindowOpen -> "EXTRACTION WINDOW OPEN" (green), WindowClosed -> "WINDOW CLOSED" (red), each for
  * ~3s then collapse.
  *
- * Also listens for Event.Match.Ended (match spine cycle 1) -- the per-player dual-broadcast with the
- * this-match Watts in Magnitude. Filters Target == own PlayerState, shows "MATCH COMPLETE -- N WATTS
- * EARNED" HELD (terminal, never collapses). Full scoreboard (kills/energy) = named S-later debt.
+ * Match-end is NO LONGER handled here: the MATCH COMPLETE surface + per-player results moved to
+ * UAFLW_MatchScoreboard (Surface 4), which rides the same per-player Event.Match.Ended broadcast. This
+ * widget keeps only its extraction-window announces (the match-end role folded into the scoreboard).
  */
 UCLASS(Abstract)
 class AFLCOMBAT_API UAFLW_ExtractionAnnounce : public UUserWidget
@@ -47,22 +47,16 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Extraction")
 	FLinearColor ClosedColor = FLinearColor(1.0f, 0.3f, 0.15f);
 
-	UPROPERTY(EditDefaultsOnly, Category = "AFL|Match")
-	FLinearColor MatchEndColor = FLinearColor(1.0f, 0.85f, 0.1f);
-
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Extraction")
 	float HoldSeconds = 3.0f;
 
 private:
 	void HandleWindowOpen(FGameplayTag Channel, const struct FLyraVerbMessage& Msg);
 	void HandleWindowClosed(FGameplayTag Channel, const struct FLyraVerbMessage& Msg);
-	void HandleMatchEnded(FGameplayTag Channel, const struct FLyraVerbMessage& Msg);
 	void Show(const FText& Message, const FLinearColor& Color);
-	void ShowHeld(const FText& Message, const FLinearColor& Color); // terminal -- no collapse timer
 	void Collapse();
 
 	FGameplayMessageListenerHandle OpenListener;
 	FGameplayMessageListenerHandle ClosedListener;
-	FGameplayMessageListenerHandle MatchEndedListener;
 	FTimerHandle CollapseTimer;
 };
