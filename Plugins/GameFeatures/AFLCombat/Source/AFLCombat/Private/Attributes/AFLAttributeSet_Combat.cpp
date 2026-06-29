@@ -5,7 +5,11 @@
 #include "AFLCombat.h"
 #include "AbilitySystemComponent.h"
 #include "Effects/GE_AFL_Heat_VentingComplete.h"
+#include "GameFramework/GameplayMessageSubsystem.h"
+#include "GameFramework/PlayerState.h"
 #include "GameplayEffectExtension.h"
+#include "Messages/LyraVerbMessage.h"
+#include "Messages/LyraVerbMessageHelpers.h"
 #include "NativeGameplayTags.h"
 #include "Net/UnrealNetwork.h"
 
@@ -16,6 +20,11 @@
 // at file scope registers the tag at module init, strictly before any CDO of
 // a class in this module is constructed (per the 2026-05-20 crash post-mortem).
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overheated_AttrSet, "State.Overheated");
+
+// AFL's ExecCalc writes Health directly and never travels ULyraHealthSet, where Lyra fires the standardized
+// damage message. Firing it here feeds the ShooterCore assist processor (which sums per-victim damage history
+// to credit assists at elimination) -- the same AFL-bypass we fixed for the elimination message.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Lyra_Damage_Message_AttrSet, "Lyra.Damage.Message");
 
 
 UAFLAttributeSet_Combat::UAFLAttributeSet_Combat()
@@ -134,6 +143,24 @@ void UAFLAttributeSet_Combat::PostGameplayEffectExecute(const FGameplayEffectMod
 		const float Magnitude = Data.EvaluatedData.Magnitude;  // signed delta actually applied
 
 		OnHealthChanged.Broadcast(Instigator, Causer, Magnitude);
+
+		// Fire the canonical Lyra damage message on actual damage (Magnitude < 0 = Health decreased; healing
+		// and the overload restore are positive, excluded). Mirrors ULyraHealthSet -- the source the assist
+		// processor sums into per-victim damage history. Instigator resolves the SAME way as the elimination
+		// message (GetOriginalInstigator -> PlayerState) so the processor's killer-exclusion lines up; Magnitude
+		// is the positive damage dealt. Self-damage / null instigator are filtered by the processor.
+		if (Magnitude < 0.0f)
+		{
+			if (UWorld* DmgWorld = GetWorld())
+			{
+				FLyraVerbMessage DamageMessage;
+				DamageMessage.Verb = TAG_Lyra_Damage_Message_AttrSet;
+				DamageMessage.Instigator = ULyraVerbMessageHelpers::GetPlayerStateFromObject(Instigator);
+				DamageMessage.Target = ULyraVerbMessageHelpers::GetPlayerStateFromObject(GetOwningActor());
+				DamageMessage.Magnitude = -Magnitude;
+				UGameplayMessageSubsystem::Get(DmgWorld).BroadcastMessage(DamageMessage.Verb, DamageMessage);
+			}
+		}
 
 		// Death trigger: Health reached 0. StartDeath() is idempotent (guards DeathState), and
 		// UAFLDeathComponent::HandleAFLOutOfHealth has its own bDeathStarted guard, so repeat
