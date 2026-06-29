@@ -15,8 +15,10 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
+#include "GameFramework/PlayerState.h"
 #include "HAL/IConsoleManager.h"
 #include "Messages/LyraVerbMessage.h"
+#include "Messages/LyraVerbMessageHelpers.h"
 #include "NativeGameplayTags.h"
 #include "TimerManager.h"
 
@@ -29,6 +31,12 @@
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overloaded_Death, "State.Overloaded");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Data_Health_Restore_Death, "Data.Health.Restore");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Combat_Overload_Death, "Event.Combat.Overload");
+
+// AFL's custom death (CombatSet->StartDeath) bypasses ULyraHealthComponent::HandleOutOfHealth, where Lyra
+// normally fires this. Firing it from the AFL death path drives EVERY Lyra elimination-consumer: the
+// ShooterCore scoring component (K/D StatTags -> the match scoreboard), the assist/elim-streak processors,
+// and the kill feed -- all silent in AFL without it.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Lyra_Elimination_Message, "Lyra.Elimination.Message");
 
 static TAutoConsoleVariable<float> CVarAFLOverloadMinEnergy(
 	TEXT("afl.Overload.MinEnergy"),
@@ -293,6 +301,20 @@ void UAFLDeathComponent::HandleAFLOutOfHealth(AActor* Instigator, AActor* Causer
 
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_DEATH: %s out of AFL Health -> StartDeath (killer=%s)"),
 		*GetNameSafe(Owner), *GetNameSafe(Causer ? Causer : Instigator));
+
+	// Fire the canonical Lyra elimination message (server-side; authority-gated above). AFL's death path
+	// does NOT travel ULyraHealthComponent::HandleOutOfHealth, where Lyra fires this -- so every Lyra
+	// elimination-consumer (scoring K/D StatTags, assists, accolades, kill feed) is silent without it.
+	// Instigator = killer PlayerState, Target = victim PlayerState (a null instigator -- environment/suicide
+	// -- is handled by the scoring component's own team/self checks as a death with no kill credited).
+	if (UWorld* DeathWorld = GetWorld())
+	{
+		FLyraVerbMessage ElimMsg;
+		ElimMsg.Verb = TAG_Lyra_Elimination_Message;
+		ElimMsg.Instigator = ULyraVerbMessageHelpers::GetPlayerStateFromObject(Instigator);
+		ElimMsg.Target = ULyraVerbMessageHelpers::GetPlayerStateFromObject(Owner);
+		UGameplayMessageSubsystem::Get(DeathWorld).BroadcastMessage(ElimMsg.Verb, ElimMsg);
+	}
 
 	// REUSE Lyra's shipped, networked death sequence. StartDeath/FinishDeath are HealthSet-
 	// independent (drive DeathState + Status.Death.* tags + OnDeathStarted/Finished + ForceNetUpdate);
