@@ -28,10 +28,11 @@ beyond the type ramp + semantic mapping, which are flagged for approval):**
 - **AFL is the code prefix only - NEVER shown player-facing** (`BAG_MAN_MASTER_BUILD_v2.0.md:141,145`).
 - **IRONICS is also the default/free robot identity** ("the house robot, the ONLY free identity",
   `IRONICS_PLAYER_FLOW.md` sec1) - so "IRONICS" is both the game brand and the name a fresh player wears.
-- **Wordmark/lockup:** no lockup asset exists yet (gap). Until authored: IRONICS set in the display
-  face (sec4), all-caps, house-cyan emissive on dark glass. The wordmark is a Tier-2 front-end
-  deliverable (shell branding), produced via the expert-game-designer pipeline; do not improvise a
-  logo on a HUD surface before the lockup is blessed.
+- **Wordmark/lockup: BOLT (voltage monogram - the "I" is a lightning bolt) + a standalone diamond-bolt icon.**
+  LOCKED 2026-06-30; cyan-core / Arc-Violet-rim treatment (sec2.1 blend rule). Dual-purpose: full lockup
+  (menu/branding) + standalone icon (match tiles / app icon / loading / HUD watermark, cyan-dominant at small
+  sizes per the size-gate). Final 2D UI texture + the 3D hero emblem (Tripo->Blender->material) integrate as
+  produced. Source: `Docs/IRONICS_BOLT_Assets.html`.
 
 ## 2. PALETTE
 
@@ -42,11 +43,20 @@ LINEAR values are authoritative; hex is for mockups only.
 ### 2.1 House colors (the IRONICS identity - the only brand chrome the HUD uses)
 | Token | Linear RGB (canonical) | sRGB hex (approx) | Use |
 |---|---|---|---|
-| `UI.House.Cyan` (IronicsVisor primary) | (0.00, 0.94, 1.00) | #00F8FF | primary brand accent: borders, active glow, key lines |
-| `UI.House.Blue` (IronicsVisor accent / NeonBlue) | (0.00, 0.42, 1.00) | #00ADFF | secondary brand accent: fills, inactive states |
+| `UI.House.Cyan` (IronicsVisor primary) | (0.00, 0.94, 1.00) | #00F8FF | PRIMARY accent / LEAD: borders, active glow, key lines, readable core |
+| `UI.House.Violet` (Arc Violet) | (0.40, 0.09, 0.93) approx | #A855F7 | SECONDARY / electric-arc RIM: edge-glow, focus/hover, logo rim, accent pops - NEVER core/fill/readable-text |
+| `UI.House.Blue` (IronicsVisor accent / NeonBlue) | (0.00, 0.42, 1.00) | #00ADFF | tertiary: fills, inactive states |
 
-The IRONICS house reads **cyan + blue** (the `IronicsVisor` row, `IRONICS_STORE_COLOR_SPEC.md:18-29`).
-That is the HUD/menu chrome identity.
+The IRONICS house reads **cyan (lead) + arc-violet (electric-arc accent) + blue** (`IRONICS_STORE_COLOR_SPEC.md:18-29`
++ Arc-Violet locked by operator 2026-06-30). That is the HUD/menu chrome identity.
+
+**THE BLEND RULE (LAW):** cyan CORE + arc-violet RIM = the electric-arc accent. Cyan LEADS (core / fill /
+readable text / active state); arc-violet SUPPORTS (rim / edge-glow / halo / focus / hover) and NEVER touches
+the readable core, fill, or text. The rim is **size-gated**: ON at >=64px (lockups, hub emblem, large tiles);
+the mark goes **cyan-dominant at <=32px** (HUD watermark, 16px icon) for crisp legibility. Arc-Violet is
+deliberately bluer (hue ~271) than the identity-axis NeonPurple `#CB00FF` (sec2.2), so it blends with cyan
+through electric-blue rather than clashing; the two purples never share a role (Arc-Violet = brand chrome;
+NeonPurple = team/store identity).
 
 ### 2.2 The neon registry (the broader palette - identity/team/store, NOT default HUD chrome)
 From `IRONICS_STORE_COLOR_SPEC.md:18-29` + `AFL_COLOR_REGISTRY_MIGRATION_PLAN.md:109-131`:
@@ -71,6 +81,9 @@ BEAM hues are **MAGENTA, INDIGO, SOLAR, CRIMSON, LIME** (`IRONICS_WEAPONS_SSOT.m
 - **Team identification is outline/rim + nameplate, NOT HUD body-color or post-process**
   (`IRONICS_PLAYER_FLOW.md` sec7-C4; material EdgeGlow, not post-process). The HUD shows team via the
   score header + nameplates; it does not recolor the world.
+- **Arc-Violet (sec2.1) is brand CHROME, not a combat-overlay marker hue.** It rims menu / front-end /
+  header glass (edge-glow, focus, hover, the lockup). On solid combat-overlay surfaces the cyan/white/glass
+  rule above still holds - Arc-Violet stays a thin edge-glow there, never a fill, so it clears the INDIGO beam hue.
 
 ### 2.5 Semantic colors (DERIVED recommendation - flagged for approval)
 Chosen to stay readable over combat and clear of the beam hues. Solid accents use house chrome;
@@ -156,6 +169,11 @@ Each maps to an EXISTING widget to extend (sec ref) or is a NEW primitive. All i
 | `UIChip.Value` | integer Watts/Volts chip, mono, value-accent | EXTEND CarriedValue; front-end wallet |
 | `UIBadge.Rarity` | rarity label on the SEPARATE color axis (sec2.3) | NEW (store/inventory) |
 
+**Arc-Violet accent variant (sec2.1 blend rule) - applies to EVERY token:** the focus / hover / active
+STATE of any glass token adds an Arc-Violet edge-glow (`UIPanel.Glass` focus = House-Cyan border + Arc-Violet
+outer rim; `UIButton.Glass` hover = cyan fill-glow + Arc-Violet rim). The accent is a STATE layer
+(focus/hover/selected), NEVER the resting fill. This keeps the electric-arc read consistent across HUD + front-end.
+
 **Pipeline for every surface (expert-game-designer):** SVG/HTML mock -> design spec (grid/spacing/
 tokens/motion) -> AIK/UMG authoring -> CommonUI/LyraHUDLayout wire (C++ base owns bindings, WBP child
 owns layout - the proven AFL split). No surface bypasses this SSOT.
@@ -166,6 +184,7 @@ owns layout - the proven AFL split). No surface bypasses this SSOT.
 1. **Type ramp (sec4)** - confirm faces + licensing (Chakra Petch / SF-equiv / JetBrains Mono are
    recommendations from precedent, not blessed).
 2. **Semantic mapping (sec2.5)** - confirm danger/warning treatment (kept subtle to clear the beam hues).
-3. **IRONICS wordmark/lockup** - no asset exists; Tier-2 deliverable.
+3. **IRONICS wordmark/lockup** - RESOLVED 2026-06-30: BOLT locked (sec1), cyan-core/Arc-Violet-rim; final art
+   (UI texture + 3D hero) in production. **Arc-Violet #A855F7 secondary locked (sec2.1, sec2.4, sec6).**
 4. **sRGB vs linear** - linear (store spec) is canonical; confirm the gamma-converted hex set above for
    design tools, or supply a measured hex set.
