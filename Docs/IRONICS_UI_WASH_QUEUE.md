@@ -76,7 +76,14 @@ palette + the cyan-sweep cross-inheritance LAW, sec2.6).
 
 ---
 
-## QUEUE ITEM 3: BATCH 3 -- gameplay/team HUD cyan (GOVERNED pass, scoped 2026-06-30)
+## QUEUE ITEM 3: BATCH 3 -- gameplay/team HUD cyan (GOVERNED pass, **DONE** 2026-06-30, commit 17c8a5f5)
+
+**STATUS: COMPLETE + PIE-proven in a live 2-team match.** Group A (22 instances) recolored -> electric-blue at
+the instance level (masters untouched); Group B kept per governance: blue-team ControlRing marker KEPT, TeamScore
+KEPT (verified team-colored -- `_Enemy` red variants exist, so own cyan IS the team-read), healing GREEN kept.
+Team-distinction (blue vs red) confirmed intact in live play; log clean. This completes the cyan-sweep (menus +
+gameplay HUD). The scope below is retained as the record.
+
 
 The LAST held cyan. 26 cyan materials, ALL in `/Game/UI/Hud/Art`, ALL **instances** -- the 6 masters
 (`M_UI_Base_AmmoCounter/Control/HealthBar/ReticleBuilder/SimpleIcon/WeaponCard`) are clean templates that

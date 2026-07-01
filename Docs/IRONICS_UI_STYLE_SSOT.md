@@ -111,8 +111,11 @@ Migrating Lyra-era cyan to the electric-blue lead: fix at the SAFE level, NEVER 
 - **Recolor at the intermediate instances** (`MI_UI_*Button_Base`, `MI_UI_*` menu instances) - the safe
   leverage that cascades to the menu without touching gameplay. (The `C_UI_*` curves are NOT the menu root.)
 - **Sequence:** map the cascade (parents / curves / cross-inheritance) FIRST, then sweep in batches at the
-  instance level. Menu batches go first; the **gameplay/team HUD batch is HELD for a governed pass** (Teams/
-  HealthBar/Ammo/ElimFeed/etc., governed by the sec2.4 readability law, not a blind recolor).
+  instance level. Menu batches go first; the **gameplay/team HUD governed pass is DONE**
+  (Batch 3, commit 17c8a5f5 -- cyan-sweep COMPLETE): Group A non-team chrome (Ammo/Dash/RespawnTimer/Accolade/
+  WeaponCard/ElimFeed-glows/HealthBar-fill) recolored -> electric-blue at the INSTANCE level; **team-read cyan
+  KEPT by governance** (blue-team ControlRing marker, TeamScore own-vs-enemy, healing green) per the sec2.4
+  readability law + operator decision. No forward-facing cyan remains.
 - Widget tints don't cover baked-in material color: a cyan-looking button is usually the MI (`_Glow`/`_Ring`),
   not the brush tint - trace to the material source, don't tint blind. Proven by the surface #1/#2 sweep
   (40 `MI_UI_*` recolored at the instance level, masters untouched; commit 512e9ab2).
