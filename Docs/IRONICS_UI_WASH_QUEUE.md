@@ -83,7 +83,22 @@ load: IRONICS shows, no Lyra, log clean. Scope below retained as the record.
   themselves mature + the Lyra washes are done; the greybox/gameplay shots are honest placeholders now).
   Capture recipe: editor SceneCapture2D (elevated auto-frame, FOV 78, SCS_FinalColorLDR, fixed exposure) for
   non-WP maps; operator in-PIE `HighResShot 1920x960` for WP maps.
-- **3D hero emblem** -- Tripo/Blender from the logo.
+- **3D hero emblem -- STATIC hero DONE + committed (3033733c), visually-proven on operator screenshot.** Tripo
+  image-to-3D from the logo -> Blender clean/retopo/2-slot emissive split -> UE import: `SM_IRONICS_Emblem` +
+  `M_IRONICS_Emblem_Metal` (chrome) + `MI_IRONICS_Emblem_Core` (electric-blue emissive, tunable `EmissiveIntensity`)
+  + 4x 4096 PBR maps, all `/Game/UI/Menu/Art/Emblem3D/`. Placed in `L_LyraFrontEnd` at loc(-12,0,2)/yaw90/scale0.55
+  + `Emblem_Key`/`Emblem_Fill` point-lights (R monogram + glowing blue core + chrome ring composed behind the menu
+  glass). Placed BP = `BP_IRONICS_Emblem_Spinner`.
+  **SPIN = DEFERRED (separate polish item -- NOT re-attempt-via-bridge):** attempted 7x, FAILED every time, root
+  cause NOT identified. What was proven-correct yet still didn't spin: the graph `Event Tick->AddActorLocalRotation`
+  (connected + AALR enabled + Lerp pin-valued, via `read_graph`/`get_pin` -- so the "detached copy" theory was
+  DISPROVEN, the bridge authored it right); a `RotatingMovementComponent` (`bStartWithTickEnabled=True` via
+  `export_text`); mesh follows actor rotation; actor ticks in the front-end. We do NOT claim to know why -- the
+  agent cannot watch PIE to observe the failing state. **FIX PATH when revisited:** FIRST establish an observable
+  feedback loop (watched PIE / on-screen debug), THEN add the spin BY HAND in a live editor (`Event Tick->
+  AddActorLocalRotation` or a `RotatingMovementComponent`, ~30s) or a tiny C++ Tick. Do NOT re-attempt via the
+  bridge blind (it burned a full session). Memories: `project_ironics_3d_emblem_static_done_spin_deferred`,
+  `feedback_stop_blind_loop_without_observable_feedback`.
 - **Batch-3 gameplay/team palette** -- the governed HUD pass (Teams/HealthBar/Ammo/ElimFeed/etc.), readability-law
   bound (SSOT sec2.4). HELD -- NOT a blind chrome recolor.
 - **Post-match results + store/identity** -- remaining Tier surfaces.
