@@ -80,11 +80,14 @@ load: IRONICS shows, no Lyra, log clean. Scope below retained as the record.
 - **Batch-3 gameplay/team palette** -- the governed HUD pass (Teams/HealthBar/Ammo/ElimFeed/etc.), readability-law
   bound (SSOT sec2.4). HELD -- NOT a blind chrome recolor.
 - **Post-match results + store/identity** -- remaining Tier surfaces.
-- **Credits screen Lyra logo** (`W_Credits`) -- shares `MI_UI_Logo_DefaultLoadingScreen` (the Lyra-shaped logo
-  material, also on stock/unused `W_LyraStartup`); found during the item-1 ref-check. The loading screen was
-  swapped at the WIDGET level (loading-only), so the credits screen still shows the Lyra logo via that material.
-  Swap: a widget-level IRONICS logo on `W_Credits` (targeted), OR the shared material (blast radius = credits +
-  stock `W_LyraStartup`). Player-facing (credits are shown), so it belongs in the sweep.
+- **Credits screen** (`W_Credits`) -- **logo swap DONE** (widget-level `Logo` -> `T_IRONICS_Logo_Transparent`,
+  340px centered, glows hidden; renders IRONICS, compiles clean). **OPEN BUG (low-priority, do NOT chase):** the
+  **CREDITS button on the hub does NOTHING when clicked**. Ruled out: `W_Credits` valid `LyraActivatableWidget` +
+  compiles clean + logo intact; `CreditsButton` `IsDisabled=False` + `OnClicked` wired (graph-traced) to
+  `PushContentToLayerForPlayer(W_Credits, UI.Layer.Menu)` -- byte-identical on disk to the WORKING
+  `OptionsButton -> Settings` push; a FULL editor reload did NOT fix it (so NOT stale-live-class). Interaction
+  fails despite correct wiring -- fresh investigation needed (input routing / delegate actually firing / a
+  different push path than Settings). See memory `reference_ironics_credits_button_dead_click_bug`.
 
 ---
 
