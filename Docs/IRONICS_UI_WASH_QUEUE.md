@@ -12,7 +12,14 @@ palette + the cyan-sweep cross-inheritance LAW, sec2.6).
 
 ---
 
-## QUEUE ITEM 1: LOADING / TRANSITION SCREENS (scoped 2026-06-30, NOT executed)
+## QUEUE ITEM 1: LOADING / TRANSITION SCREENS (logo swap DONE + PIE-proven 2026-06-30)
+
+**STATUS: COMPLETE.** The one remaining item -- the Lyra logo -- is swapped. `W_LyraLogo_LoadingScreen`: `Logo`
+-> IRONICS mark (`T_IRONICS_Logo_Transparent`, 460px square centered), `LogoGlow`+`LogoSoftGlow` hidden, the
+electric-blue loading spinner (`Constellation` = `MI_UI_LoadingSymbol_Sine`) KEPT. **Widget-level swap
+(loading-only per the ref-check)** -- the shared material `MI_UI_Logo_DefaultLoadingScreen` was NOT touched, so
+the CREDITS screen still shows the Lyra logo via it (new wash item, QUEUE ITEM 2). PIE-proven on a REAL level
+load: IRONICS shows, no Lyra, log clean. Scope below retained as the record.
 
 ### Surfaces + where-set + bucket
 | Surface | Path | Where set | Bucket | State |
@@ -73,6 +80,11 @@ palette + the cyan-sweep cross-inheritance LAW, sec2.6).
 - **Batch-3 gameplay/team palette** -- the governed HUD pass (Teams/HealthBar/Ammo/ElimFeed/etc.), readability-law
   bound (SSOT sec2.4). HELD -- NOT a blind chrome recolor.
 - **Post-match results + store/identity** -- remaining Tier surfaces.
+- **Credits screen Lyra logo** (`W_Credits`) -- shares `MI_UI_Logo_DefaultLoadingScreen` (the Lyra-shaped logo
+  material, also on stock/unused `W_LyraStartup`); found during the item-1 ref-check. The loading screen was
+  swapped at the WIDGET level (loading-only), so the credits screen still shows the Lyra logo via that material.
+  Swap: a widget-level IRONICS logo on `W_Credits` (targeted), OR the shared material (blast radius = credits +
+  stock `W_LyraStartup`). Player-facing (credits are shown), so it belongs in the sweep.
 
 ---
 
