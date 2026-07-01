@@ -29,8 +29,8 @@ beyond the type ramp + semantic mapping, which are flagged for approval):**
 - **IRONICS is also the default/free robot identity** ("the house robot, the ONLY free identity",
   `IRONICS_PLAYER_FLOW.md` sec1) - so "IRONICS" is both the game brand and the name a fresh player wears.
 - **Wordmark/lockup: BOLT (voltage monogram - the "I" is a lightning bolt) + a standalone diamond-bolt icon.**
-  LOCKED 2026-06-30; cyan-core / Arc-Violet-rim treatment (sec2.1 blend rule). Dual-purpose: full lockup
-  (menu/branding) + standalone icon (match tiles / app icon / loading / HUD watermark, cyan-dominant at small
+  LOCKED 2026-06-30; electric-blue-core / Arc-Violet-rim treatment (sec2.1 blend rule). Dual-purpose: full lockup
+  (menu/branding) + standalone icon (match tiles / app icon / loading / HUD watermark, core-dominant at small
   sizes per the size-gate). Final 2D UI texture + the 3D hero emblem (Tripo->Blender->material) integrate as
   produced. Source: `Docs/IRONICS_BOLT_Assets.html`.
 
@@ -41,22 +41,29 @@ materials author against). sRGB hex below is the gamma-converted design-tool app
 LINEAR values are authoritative; hex is for mockups only.
 
 ### 2.1 House colors (the IRONICS identity - the only brand chrome the HUD uses)
-| Token | Linear RGB (canonical) | sRGB hex (approx) | Use |
-|---|---|---|---|
-| `UI.House.Cyan` (IronicsVisor primary) | (0.00, 0.94, 1.00) | #00F8FF | PRIMARY accent / LEAD: borders, active glow, key lines, readable core |
-| `UI.House.Violet` (Arc Violet) | (0.40, 0.09, 0.93) approx | #A855F7 | SECONDARY / electric-arc RIM: edge-glow, focus/hover, logo rim, accent pops - NEVER core/fill/readable-text |
-| `UI.House.Blue` (IronicsVisor accent / NeonBlue) | (0.00, 0.42, 1.00) | #00ADFF | tertiary: fills, inactive states |
+The IRONICS house is a **4-color ROLE palette** - each color has ONE job. Locked by operator 2026-06-30
+(house color cyan -> electric neon blue, sampled from the operator IRONICS logo `T_IRONICS_Color_Logo_BC`).
+| Token | Role | Linear RGB (canonical) | sRGB hex | Job |
+|---|---|---|---|---|
+| `UI.House.Electric` (IRONICS blue) | PRIMARY | (0.013, 0.102, 1.00) | #1E5AFF | Glass fill/tint, active+selected state, the house LEAD (replaces Lyra cyan) |
+| `UI.House.Violet` (Arc Violet) | ACCENT | (0.40, 0.09, 0.93) | #A855F7 | Neon-pipe edge-glow, focus/hover, rim + logo-rim - NEVER core/fill/readable-text |
+| `UI.House.Black` (depth) | DEPTH | ~(0.002, 0.003, 0.006) | #05080F | Panel-depth backing, contrast behind text, the dark base the neon reads against |
+| `UI.House.White` (text) | TEXT | (1.00, 1.00, 1.00) | #FFFFFF | Readable labels, key specular highlights on glass edges, max-contrast text |
+| `UI.House.Cyan` (DEPRECATED) | -- | (0.00, 0.94, 1.00) | #00F8FF | DEPRECATED-not-deleted: the Lyra-era primary; kept for lineage, NOT the new lead |
+| `UI.House.Blue` (NeonBlue) | tertiary | (0.00, 0.42, 1.00) | #00ADFF | tertiary fills, inactive states |
 
-The IRONICS house reads **cyan (lead) + arc-violet (electric-arc accent) + blue** (`IRONICS_STORE_COLOR_SPEC.md:18-29`
-+ Arc-Violet locked by operator 2026-06-30). That is the HUD/menu chrome identity.
+The IRONICS house reads **electric-blue (lead) + arc-violet (accent) + black (depth) + white (text)**
+(`IRONICS_STORE_COLOR_SPEC.md:18-29` + house-color + Arc-Violet locked by operator 2026-06-30). That is the
+menu/HUD chrome identity. **ROLE LOGIC:** blue LEADS (fill/active) - violet ACCENTS (edge/focus) - black gives
+DEPTH/contrast - white carries TEXT/highlights; one primary job each, not all four everywhere.
 
-**THE BLEND RULE (LAW):** cyan CORE + arc-violet RIM = the electric-arc accent. Cyan LEADS (core / fill /
-readable text / active state); arc-violet SUPPORTS (rim / edge-glow / halo / focus / hover) and NEVER touches
+**THE BLEND RULE (LAW):** electric-blue CORE + arc-violet RIM = the electric-arc accent. Electric-blue LEADS
+(core / fill / active state); arc-violet SUPPORTS (rim / edge-glow / halo / focus / hover) and NEVER touches
 the readable core, fill, or text. The rim is **size-gated**: ON at >=64px (lockups, hub emblem, large tiles);
-the mark goes **cyan-dominant at <=32px** (HUD watermark, 16px icon) for crisp legibility. Arc-Violet is
-deliberately bluer (hue ~271) than the identity-axis NeonPurple `#CB00FF` (sec2.2), so it blends with cyan
-through electric-blue rather than clashing; the two purples never share a role (Arc-Violet = brand chrome;
-NeonPurple = team/store identity).
+the mark goes **core-dominant at <=32px** (HUD watermark, 16px icon) for crisp legibility. Arc-Violet is
+deliberately bluer (hue ~271) than the identity-axis NeonPurple `#CB00FF` (sec2.2), so it blends with the
+electric-blue core rather than clashing; the two purples never share a role (Arc-Violet = brand chrome;
+NeonPurple = team/store identity). (Cyan #00F8FF was the pre-2026-06-30 core; DEPRECATED-not-deleted.)
 
 ### 2.2 The neon registry (the broader palette - identity/team/store, NOT default HUD chrome)
 From `IRONICS_STORE_COLOR_SPEC.md:18-29` + `AFL_COLOR_REGISTRY_MIGRATION_PLAN.md:109-131`:
@@ -95,6 +102,20 @@ state washes use the Apple-Glass tints (sec3, low-alpha, so they never read as a
 | Danger / at-risk / damage | `Glass.Tint.Danger` wash (rgba 255,80,80,0.15) over neutral | skill token; subtle, not solid Crimson |
 | Warning / contested / timer-low | Amber #FFB300 (NeonRed accent) | `IRONICS_STORE_COLOR_SPEC.md` warm-pair |
 | Enemy / hostile marker | neutral red rim, NOT a beam hue | readability law sec2.4 |
+
+### 2.6 Palette migration discipline (the cyan -> electric-blue sweep - cross-inheritance LAW)
+Migrating Lyra-era cyan to the electric-blue lead: fix at the SAFE level, NEVER the masters.
+- **The `M_UI_Base_*` masters are CROSS-INHERITANCE HAZARDS** - they feed BOTH the menu chrome AND the
+  gameplay/team-blue HUD. Recoloring a master re-tints team-read + combat overlays (breaks sec2.4). Never
+  edit a master for a chrome sweep.
+- **Recolor at the intermediate instances** (`MI_UI_*Button_Base`, `MI_UI_*` menu instances) - the safe
+  leverage that cascades to the menu without touching gameplay. (The `C_UI_*` curves are NOT the menu root.)
+- **Sequence:** map the cascade (parents / curves / cross-inheritance) FIRST, then sweep in batches at the
+  instance level. Menu batches go first; the **gameplay/team HUD batch is HELD for a governed pass** (Teams/
+  HealthBar/Ammo/ElimFeed/etc., governed by the sec2.4 readability law, not a blind recolor).
+- Widget tints don't cover baked-in material color: a cyan-looking button is usually the MI (`_Glow`/`_Ring`),
+  not the brush tint - trace to the material source, don't tint blind. Proven by the surface #1/#2 sweep
+  (40 `MI_UI_*` recolored at the instance level, masters untouched; commit 512e9ab2).
 
 ## 3. PANEL SYSTEM (Apple-Glass - `expert-game-designer/SKILL.md:50-96`)
 
