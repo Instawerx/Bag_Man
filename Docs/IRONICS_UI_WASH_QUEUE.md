@@ -75,7 +75,14 @@ load: IRONICS shows, no Lyra, log clean. Scope below retained as the record.
 ---
 
 ## QUEUE ITEM 2: OTHER WASH (parallel, non-blocking)
-- **Real IRONICS map-tile thumbnails** -- NanoWatt/Infineon landscape art -> the DAs' `tile_icon` (interim = the emblem).
+- **Map-tile thumbnails -- DONE (Option A, real map shots), PIE-proven.** NanoWatt = `T_IRONICS_MapTile_NanoWatt`
+  (L_Arena_01 greybox, elevated editor SceneCapture2D); Infineon = `T_IRONICS_MapTile_Infineon` (L_Expanse arena,
+  operator in-PIE HighResShot -- WP geometry streams in PIE, bare-editor capture was empty; a real gameplay shot,
+  character in-frame, operator-approved). Both 1024x512 -> DAs' `tile_icon`. **Option B (designed electric-theme
+  art / polished beauty renders) still QUEUED -- tied to MAP-CATALOG MATURITY** (final thumbnails come when the maps
+  themselves mature + the Lyra washes are done; the greybox/gameplay shots are honest placeholders now).
+  Capture recipe: editor SceneCapture2D (elevated auto-frame, FOV 78, SCS_FinalColorLDR, fixed exposure) for
+  non-WP maps; operator in-PIE `HighResShot 1920x960` for WP maps.
 - **3D hero emblem** -- Tripo/Blender from the logo.
 - **Batch-3 gameplay/team palette** -- the governed HUD pass (Teams/HealthBar/Ammo/ElimFeed/etc.), readability-law
   bound (SSOT sec2.4). HELD -- NOT a blind chrome recolor.
