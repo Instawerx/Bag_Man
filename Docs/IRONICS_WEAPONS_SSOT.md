@@ -14,6 +14,14 @@
 > (`GA_BagMan_EMP`) · `afl-laser-beam-system` (weapon contract + `User.Color` beam tint) ·
 > `ue5-interaction-ik-expert` (socket/IK) · `afl-asset-pipeline` (import/LOD) · the Lyra anim layers.
 > **Resolves:** `IRONICS_PLAYER_FLOW` §9.1. **Defers:** gravity/shrink *mechanics* → the Gravity SSOT.
+>
+> **[SUPERSEDED-AS-BASE-SET -- 2026-07-01, operator ruling W1]** This 10-TYPE roster is now the
+> **BASE-TYPE SET** that a **50+ weapon Claude/Blender MODIFICATION-FACTORY** derives FROM. Each base
+> type (the purchased packs + the shipped Pulse / Beam_v2 / Pistol / Shotgun-Beam) is a PARENT that
+> Claude Desktop + Blender remesh / re-beam / modify into unique derived variants (target 50+ total).
+> Both this 10-type roster AND the master-build 12-weapon ability-named roster are superseded as the
+> *final* roster; they persist as the parent/base set the factory derives from -- **not deleted**. The
+> factory pipeline is its own deliverable (next). See `BAG_MAN_LIVE_TRACKER` amendments banner 2026-07-01.
 
 ---
 
