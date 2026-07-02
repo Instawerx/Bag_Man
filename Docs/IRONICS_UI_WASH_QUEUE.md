@@ -101,7 +101,14 @@ load: IRONICS shows, no Lyra, log clean. Scope below retained as the record.
   `feedback_stop_blind_loop_without_observable_feedback`.
 - **Batch-3 gameplay/team palette** -- the governed HUD pass (Teams/HealthBar/Ammo/ElimFeed/etc.), readability-law
   bound (SSOT sec2.4). HELD -- NOT a blind chrome recolor.
-- **Post-match results + store/identity** -- remaining Tier surfaces.
+- **Post-match results (Surface #4) -- DONE: AAA full-screen TAKEOVER** (Apex/ARC-style; HUD hidden,
+  edge-to-edge dim+blur, electric-blue liquid-glass panel + Arc-Violet neon-pipe, W_LyraMenuButton CONTINUE
+  -> IRONICS hub). Commit `c936814e`, 2-client PIE-proven (VICTORY 7-1, no cyan, no crash). **AFL-1911
+  (return-to-lobby) CLOSED. Tier-2 front-end shell COMPLETE.** Recipe: memory
+  `reference_afl_fullscreen_takeover_pattern`. Store/identity -- remaining Tier surfaces.
+- **Round-header "5" cyan straggler (NEW, low-pri)** -- the local-team score in `WBP_AFL_RoundHeader` still
+  shows house-cyan; a Batch-3 gameplay-HUD straggler the sweep missed. It is a HUD-slot widget (UI.Layer.Game),
+  hidden during the Surface #4 takeover, so it only shows mid-match. Recolor to electric-blue #1E5AFF.
 - **Credits screen** (`W_Credits`) -- **logo swap DONE** (widget-level `Logo` -> `T_IRONICS_Logo_Transparent`,
   340px centered, glows hidden; renders IRONICS, compiles clean). **OPEN BUG (low-priority, do NOT chase):** the
   **CREDITS button on the hub does NOTHING when clicked**. Ruled out: `W_Credits` valid `LyraActivatableWidget` +
