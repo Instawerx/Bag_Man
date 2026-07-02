@@ -213,13 +213,26 @@ void UGameFeatureAction_AddAbilities::AddActorAbilities(AActor* Actor, const FGa
 			}
 		}
 
-		ULyraAbilitySystemComponent* LyraASC = CastChecked<ULyraAbilitySystemComponent>(AbilitySystemComponent);
-		for (const TSoftObjectPtr<const ULyraAbilitySet>& SetPtr : AbilitiesEntry.GrantedAbilitySets)
+		// BM-DEBT-004 guard: an unpossessed map/menu ALyraCharacter carries a plain engine
+		// UAbilitySystemComponent (Lyra injects the typed ULyraAbilitySystemComponent only on
+		// PlayerState possession). CastChecked<> here was a hard assert -> fatal crash whenever a
+		// GameFeature's AddAbilities swept such a pawn (e.g. AFLCore active while a front-end
+		// LyraCharacter exists). Cast<> and skip the Lyra ability-set grant: a non-Lyra ASC should
+		// not receive Lyra ability sets. The attribute-set block above + ActiveExtensions.Add below
+		// are unaffected (both operate on a base UAbilitySystemComponent).
+		if (ULyraAbilitySystemComponent* LyraASC = Cast<ULyraAbilitySystemComponent>(AbilitySystemComponent))
 		{
-			if (const ULyraAbilitySet* Set = SetPtr.Get())
+			for (const TSoftObjectPtr<const ULyraAbilitySet>& SetPtr : AbilitiesEntry.GrantedAbilitySets)
 			{
-				Set->GiveToAbilitySystem(LyraASC, &AddedExtensions.AbilitySetHandles.AddDefaulted_GetRef());
+				if (const ULyraAbilitySet* Set = SetPtr.Get())
+				{
+					Set->GiveToAbilitySystem(LyraASC, &AddedExtensions.AbilitySetHandles.AddDefaulted_GetRef());
+				}
 			}
+		}
+		else
+		{
+			UE_LOG(LogGameFeatures, Warning, TEXT("AddAbilities: '%s' has a non-Lyra AbilitySystemComponent; skipping Lyra ability-set grant (BM-DEBT-004 guard)."), *Actor->GetPathName());
 		}
 
 		ActiveData.ActiveExtensions.Add(Actor, AddedExtensions);
@@ -246,10 +259,16 @@ void UGameFeatureAction_AddAbilities::RemoveActorAbilities(AActor* Actor, FPerCo
 				AbilitySystemComponent->SetRemoveAbilityOnEnd(AbilityHandle);
 			}
 
-			ULyraAbilitySystemComponent* LyraASC = CastChecked<ULyraAbilitySystemComponent>(AbilitySystemComponent);
-			for (FLyraAbilitySet_GrantedHandles& SetHandle : ActorExtensions->AbilitySetHandles)
+			// BM-DEBT-004 guard, symmetric to AddActorAbilities: the ability-set REMOVE also hard-cast the ASC,
+			// crashing on game-feature deactivation / PIE teardown. A non-Lyra ASC never received Lyra ability
+			// sets (the add was skipped), so AbilitySetHandles is empty -- Cast<> and skip. The attribute +
+			// ability removal above run on the base ASC; ActiveExtensions.Remove below still runs.
+			if (ULyraAbilitySystemComponent* LyraASC = Cast<ULyraAbilitySystemComponent>(AbilitySystemComponent))
 			{
-				SetHandle.TakeFromAbilitySystem(LyraASC);
+				for (FLyraAbilitySet_GrantedHandles& SetHandle : ActorExtensions->AbilitySetHandles)
+				{
+					SetHandle.TakeFromAbilitySystem(LyraASC);
+				}
 			}
 		}
 
