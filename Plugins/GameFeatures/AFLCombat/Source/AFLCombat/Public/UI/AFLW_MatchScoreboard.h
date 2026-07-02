@@ -2,49 +2,59 @@
 
 #pragma once
 
-#include "Blueprint/UserWidget.h"
-#include "GameFramework/GameplayMessageSubsystem.h"
+#include "CommonActivatableWidget.h"
 #include "Templates/SubclassOf.h"
 
 #include "AFLW_MatchScoreboard.generated.h"
 
 class UTextBlock;
 class UVerticalBox;
+class UWidget;
+class UCommonButtonBase;
 class UAFLW_ScoreboardRow;
 class UAFLRoundManagerComponent;
 class APlayerState;
+struct FUIInputConfig;
 
 /**
- * UAFLW_MatchScoreboard  (Surface 4 -- the match-end results board; the ExtractionAnnounce S-later debt)
+ * UAFLW_MatchScoreboard  (Surface 4 -- the match-end results TAKEOVER)
  *
- * Plain UUserWidget (passive auto-show, NOT Lyra's activatable W_MatchScoreBoard). C++ owns bindings; the
- * WBP child owns layout (BindWidget). Renders on PostGame, driven by the per-player Event.Match.Ended
- * message -- the SAME signal the MATCH-COMPLETE banner rode (UAFLW_ExtractionAnnounce's match-end line is
- * now folded OUT into this board). Mirrors the surfaces-1+2 split (the round header / result toast).
+ * A UCommonActivatableWidget PUSHED full-screen onto UI.Layer.Menu at match-end (Apex/ARC-style
+ * takeover), NOT a HUD-slot overlay. UAFLMatchEndUISubsystem owns the Event.Match.Ended trigger
+ * and the per-player EARNED collection, then pushes this widget and calls ShowResults() with the
+ * data. On activate this widget renders the board AND hides the in-match HUD (UI.Layer.Game), so
+ * the full viewport dims/blurs edge-to-edge (the Menu layer fills the screen -- no content-sizing,
+ * no corner problem). C++ owns bindings; the WBP child owns layout + the AAA styling.
+ *
+ * (Subclasses UCommonActivatableWidget directly + drives Menu input via GetDesiredInputConfig --
+ * ULyraActivatableWidget is module-private to LyraGame, so it cannot be a cross-module base here.)
  *
  * STAT SOURCES (zero new backend except the future EXTRACTED column):
- *  - TEAM RESULT: the already-replicated UAFLRoundManagerComponent (a UGameStateComponent). The match
- *    winner is NOT stored, it is DERIVED: winner = LastWinningTeam (== the team whose score crossed the
- *    win target at MatchEnd), final score = Team0Score/Team1Score. RoundsToWin is server-only, so there
- *    is NO client-side ">= N" test -- the winner comes from LastWinningTeam vs the local slot.
- *  - K / D / A: ALyraPlayerState::GetStatTagStackCount(ShooterGame.Score.Eliminations/Deaths/Assists),
- *    written by the ShooterCore scoring component wired into the experience -- replicated StatTags.
- *  - WATTS EARNED: collected from the per-player Event.Match.Ended broadcast (Target = PlayerState,
- *    Magnitude = this-match Watts = kills + extraction; the client can't self-compute it -- the start
- *    snapshot is server-only). HONEST label EARNED, not extracted. The true per-player EXTRACTED column
- *    (option B) is future backend -- the row already reserves its optional cell.
+ *  - TEAM RESULT: the replicated UAFLRoundManagerComponent -- winner DERIVED (LastWinningTeam vs
+ *    the local slot), final score = Team0Score/Team1Score.
+ *  - K / D / A: ALyraPlayerState::GetStatTagStackCount(ShooterGame.Score.*) -- replicated StatTags.
+ *  - WATTS EARNED: collected by UAFLMatchEndUISubsystem from the per-player Event.Match.Ended
+ *    broadcast and handed in via ShowResults(). HONEST label EARNED, not extracted.
  *
- * LastWinReason is the DECIDING ROUND's reason -- shown captioned ("FINAL ROUND - ...") so it is never
- * mis-read as a match-level reason.
+ * LastWinReason is the DECIDING ROUND's reason -- captioned ("FINAL ROUND - ...").
  */
 UCLASS(Abstract)
-class AFLCOMBAT_API UAFLW_MatchScoreboard : public UUserWidget
+class AFLCOMBAT_API UAFLW_MatchScoreboard : public UCommonActivatableWidget
 {
 	GENERATED_BODY()
 
+public:
+	/** Called by the match-end subsystem right after the push: hand in the collected EARNED map + render. */
+	void ShowResults(const TMap<TWeakObjectPtr<APlayerState>, int32>& InEarnedWatts);
+
 protected:
-	virtual void NativeConstruct() override;
-	virtual void NativeDestruct() override;
+	//~UCommonActivatableWidget interface
+	virtual void NativeOnActivated() override;
+	virtual void NativeOnDeactivated() override;
+	virtual UWidget* NativeGetDesiredFocusTarget() const override;
+	/** Menu input while active -> clickable CONTINUE + visible cursor (mirrors ULyraActivatableWidget's Menu mode). */
+	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
+	//~End of UCommonActivatableWidget interface
 
 	/** "VICTORY" / "DEFEAT" / "DRAW" from the local team vs the derived winner. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget)) TObjectPtr<UTextBlock> OutcomeText;
@@ -59,11 +69,15 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget)) TObjectPtr<UVerticalBox> Team0RowBox;
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget)) TObjectPtr<UVerticalBox> Team1RowBox;
 
+	/** CONTINUE -> clean return to the IRONICS hub (ReturnToMainMenu). A CommonUI button (the proven
+	 *  W_LyraMenuButton treatment). Optional so a pre-Continue WBP still binds. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UCommonButtonBase> ContinueButton;
+
 	/** The per-player row widget (a WBP child of UAFLW_ScoreboardRow), set on the WBP. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard")
 	TSubclassOf<UAFLW_ScoreboardRow> RowWidgetClass;
 
-	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard") FLinearColor VictoryColor = FLinearColor(0.0f, 0.94f, 1.0f); // house cyan
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard") FLinearColor VictoryColor = FLinearColor(0.013f, 0.102f, 1.0f); // electric-blue #1E5AFF
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard") FLinearColor DefeatColor  = FLinearColor(1.0f, 0.25f, 0.25f); // hostile red
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard") FLinearColor DrawColor    = FLinearColor(1.0f, 0.70f, 0.0f);  // amber
 
@@ -72,18 +86,18 @@ protected:
 	void OnBoardShown(int32 InLocalSlot, bool bVictory);
 
 private:
-	void TryArm();
-	void HandleMatchEnded(FGameplayTag Channel, const struct FLyraVerbMessage& Msg);
 	void RebuildBoard();
+
+	/** Apex-style takeover: hide/restore the in-match HUD (UI.Layer.Game) while the results own the screen. */
+	void SetHUDHidden(bool bHidden);
+
+	/** CONTINUE click -> UGameInstance::ReturnToMainMenu (framework clean session-teardown + travel to the hub). */
+	void HandleContinueClicked();
 
 	TWeakObjectPtr<UAFLRoundManagerComponent> Round;
 	int32 LocalSlot = INDEX_NONE;
-	bool bShown = false;
+	bool bContinueBound = false;
 
-	/** Per-player this-match Watts EARNED, collected from the Event.Match.Ended per-player broadcast. */
+	/** Per-player this-match Watts EARNED, handed in by the match-end subsystem via ShowResults(). */
 	TMap<TWeakObjectPtr<APlayerState>, int32> EarnedWatts;
-
-	FGameplayMessageListenerHandle MatchEndedListener;
-	FTimerHandle ArmRetryTimer;
-	FTimerHandle RebuildTimer;   // coalesces the N per-player messages into one paint
 };
