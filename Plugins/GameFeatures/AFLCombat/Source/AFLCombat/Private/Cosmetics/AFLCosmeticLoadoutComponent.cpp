@@ -314,6 +314,9 @@ void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const
 			// wallet-UI facemask change shows immediately without respawn (the FacemaskId is in this selection).
 			SkinCtrl->RefreshFacemaskForPawn(Pawn);
 			SkinCtrl->RefreshSkinForPawn(Pawn);
+			// #43 WeaponId consumer: equip the selected weapon (D2 replace) on the SAME spine. Independent
+			// subsystem (equipment, not material) -> order-free; server-only + Lyra fast-array-replicated.
+			SkinCtrl->RefreshWeaponForPawn(Pawn);
 		}
 	}
 }
@@ -341,6 +344,9 @@ void UAFLCosmeticLoadoutComponent::OnPlayerStatePawnSet(APlayerState* /*Player*/
 				// on the same spine as the skin/identity (the FacemaskId rides CopyProperties already).
 				SkinCtrl->RefreshFacemaskForPawn(NewPawn);
 				SkinCtrl->RefreshSkinForPawn(NewPawn);
+				// #43 WeaponId consumer: equip the selected weapon on possession/respawn (WeaponId rides
+				// CopyProperties -> respawn-durable, same spine as facemask/skin).
+				SkinCtrl->RefreshWeaponForPawn(NewPawn);
 			}
 		}
 	}

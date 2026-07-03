@@ -106,6 +106,19 @@ public:
 	UFUNCTION(Exec)
 	void WeaponSkin(const FString& CosmeticId);
 
+	/**
+	 * #43 WeaponId seam -- the sibling of SetCosmeticEdge for the weapon-EQUIP axis (own->select->equip->fire).
+	 * PURE CLIENT-ISSUED caller of ServerSetCosmeticSelection with WeaponId set: preserves the rest of the
+	 * selection, seeds a default team if no identity yet (the RPC's _Validate requires a non-None identity).
+	 * After the server commits, the WeaponId consumer (UAFLSkinColorControllerComponent::RefreshWeaponForPawn)
+	 * equips the selected weapon (replacing the primary), and Lyra's equipment fast-array replicates the held
+	 * weapon to all clients. The axis is entitlement-gated -- own it first (afl.Wallet.Buy AFL.Weapon.<Name>).
+	 * NOT BlueprintAuthorityOnly (must run on the OWNING CLIENT so the Server RPC makes the real client->server
+	 * hop). Accepts "Arclight" or the full "AFL.Weapon.Arclight".
+	 */
+	UFUNCTION(Exec)
+	void SetCosmeticWeapon(const FString& WeaponCosmeticId);
+
 private:
 
 	/** The one generic resolver body: push Color to the weapon's FX + mesh surfaces, guarded + reported. */

@@ -14,6 +14,11 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"               // #43: reach the loadout component on the PlayerState
 #include "GameplayTagContainer.h"
+// #43 WeaponId consumer -- resolve the selected weapon SKU to its equipment def + equip it on the pawn.
+#include "Cosmetics/AFLWeaponCosmeticAsset.h"         // the carrier (WeaponId -> EquipmentDefinition); AFLCombat-homed, brings the full ULyraEquipmentDefinition type
+#include "Equipment/LyraEquipmentManagerComponent.h"  // EquipItem / UnequipItem / GetEquipmentInstancesOfType
+#include "Equipment/LyraEquipmentInstance.h"          // the equipped instance we track + unequip
+#include "Weapons/LyraRangedWeaponInstance.h"         // the weapon instance type we replace (AFL weapons derive from it)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLSkinColorControllerComponent)
 
@@ -58,6 +63,8 @@ void UAFLSkinColorControllerComponent::BeginPlay()
 				// Facemask FIRST (slot-1 material swap), THEN skin (param push) -> the finish layers on top of
 				// the swapped material; the swap never strands the finish (the composition order, server-side).
 				RefreshFacemaskForPawn(ControlledPawn);
+				// #43 WeaponId consumer: equip the selected weapon (D2 replace) -- already-possessed-at-BeginPlay case.
+				RefreshWeaponForPawn(ControlledPawn);
 				RefreshSkinForPawn(ControlledPawn);
 			}
 		}
@@ -83,6 +90,8 @@ void UAFLSkinColorControllerComponent::OnPossessedPawnChanged(APawn* /*OldPawn*/
 	if (NewPawn)
 	{
 		RefreshFacemaskForPawn(NewPawn);
+		// #43 WeaponId consumer: equip the selected weapon (D2 replace) on possession/respawn.
+		RefreshWeaponForPawn(NewPawn);
 		RefreshSkinForPawn(NewPawn);
 	}
 }
@@ -345,5 +354,124 @@ void UAFLSkinColorControllerComponent::RefreshFacemaskForPawn(APawn* Pawn) const
 		// pawn's parts pick it up on BeginPlay (PATH 1). The pawn component re-applies the finish AFTER the swap
 		// (it passes the current SkinColor into ApplyFacemask) so the composition order holds on every client.
 		PawnComp->SetFacemask(FacemaskMIC);
+	}
+}
+
+void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
+{
+	// #43 WeaponId consumer -- the weapon-EQUIP axis on the SAME proven spine as RefreshSkin/Facemask (possession
+	// + OnRep + nudge). D2 = REPLACE via an owned instance: resolve the selected WeaponId -> a
+	// UAFLWeaponCosmeticAsset carrier -> its ULyraEquipmentDefinition -> EquipItem, having first unequipped the
+	// current primary so the selection REPLACES rather than stacks. Server-only (EquipItem is authority-only);
+	// Lyra's FLyraEquipmentList fast-array replicates the equipped weapon to every client -- no client push here.
+	if (!Pawn)
+	{
+		return;
+	}
+
+	// AUTHORITY GATE: only the server equips. On a remote client the pawn is simulated -> bail; it converges via
+	// the equipment fast-array (mirrors SetSkinColor's internal authority guard). NudgeControllerReapply reaches
+	// here on clients (OnRep) too, so this guard is load-bearing.
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// NEW-PAWN RESET (respawn / first possession): the prior pawn's instance died with it -> drop stale tracking
+	// so the fresh pawn re-equips clean (and a cross-pawn idempotency false-positive can't skip the equip).
+	if (WeaponTrackedPawn.Get() != Pawn)
+	{
+		WeaponTrackedPawn = Pawn;
+		SelectedWeaponInstance = nullptr;
+		EquippedWeaponId = NAME_None;
+	}
+
+	// Read the selected WeaponId off the PAWN's PlayerState first (respawn-race-safe -- the exact PS resolution
+	// RefreshSkinForPawn uses), falling back to the controller's.
+	const APlayerState* PawnPS = Pawn->GetPlayerState();
+	const AController* OwningController = GetController<AController>();
+	const APlayerState* CtrlPS = OwningController ? OwningController->PlayerState : nullptr;
+	const APlayerState* SelectionPS = PawnPS ? PawnPS : CtrlPS;
+
+	const UAFLCosmeticLoadoutComponent* Loadout =
+		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+	const FName WeaponId = Loadout ? Loadout->GetSelection().WeaponId : NAME_None;
+
+	// IDEMPOTENT: already realized this WeaponId on this pawn -> no-op. The dual spine re-runs (possession + OnRep
+	// + nudge) MUST NOT re-equip/stack. A dropped instance (id set but the instance went stale) falls through ->
+	// self-heals by re-equipping.
+	if (WeaponId == EquippedWeaponId && (WeaponId == NAME_None || SelectedWeaponInstance.IsValid()))
+	{
+		return;
+	}
+
+	ULyraEquipmentManagerComponent* EquipMgr = Pawn->FindComponentByClass<ULyraEquipmentManagerComponent>();
+	if (!EquipMgr)
+	{
+		// Equipment manager not ready this early in possession -> bail; the dual spine re-drives later (OnRep /
+		// next possession), the same idempotent re-apply the skin path relies on. Leave tracking so the retry
+		// re-resolves.
+		return;
+	}
+
+	// Resolve the equipment definition BEFORE tearing anything down: a catalog/carrier MISS must NOT strip the
+	// current primary (fail SAFE for the weapon, and LOUD in the diag -- mirrors the edge axis' no-silent-ride).
+	TSubclassOf<ULyraEquipmentDefinition> EquipDef = nullptr;
+	if (WeaponId != NAME_None)
+	{
+		if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+		{
+			// UNIFORM resolution (D1): ResolveAsset -> the UAFLWeaponCosmeticAsset carrier -> EquipmentDefinition.
+			if (const UAFLWeaponCosmeticAsset* WeaponAsset =
+					Cast<UAFLWeaponCosmeticAsset>(Catalog->ResolveAsset(WeaponId)))
+			{
+				EquipDef = WeaponAsset->EquipmentDefinition.LoadSynchronous();
+			}
+		}
+		if (!EquipDef)
+		{
+			if (AFLSkinDiag::IsOn())
+			{
+				UE_LOG(LogAFLSkinDiag, Warning, TEXT("%s%s : RefreshWeapon weaponId=%s MISS (no carrier/EquipDef) -> primary kept"),
+					*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString());
+			}
+			EquippedWeaponId = WeaponId; // record so we don't re-resolve the same miss every spine tick
+			return;
+		}
+	}
+
+	if (EquipDef) // a valid, entitled weapon selection -> REPLACE the primary
+	{
+		// D2 REPLACE (self-contained -- NO AFLHeroComponent coupling, the standing hazard): unequip every
+		// currently-equipped weapon (the hero default primary AND any prior selection) so the new selection
+		// replaces rather than stacks a second held weapon. Targeted to the ranged-weapon instance type (all AFL
+		// weapons derive from it); broaden to ULyraWeaponInstance if a melee weapon ever lands.
+		for (ULyraEquipmentInstance* Existing : EquipMgr->GetEquipmentInstancesOfType(ULyraRangedWeaponInstance::StaticClass()))
+		{
+			if (Existing)
+			{
+				EquipMgr->UnequipItem(Existing);
+			}
+		}
+		// EQUIP -> Lyra's FLyraEquipmentList fast-array replicates to all clients (OnEquipped -> SpawnedActors).
+		// Proven rail; zero new replication code.
+		SelectedWeaponInstance = EquipMgr->EquipItem(EquipDef);
+	}
+	else // WeaponId == NAME_None -> deselect: remove only OUR tracked selection (first cut: no default restore --
+	{    // the QuickBar era owns slot restore; the D5 near-horizon).
+		if (SelectedWeaponInstance.IsValid())
+		{
+			EquipMgr->UnequipItem(SelectedWeaponInstance.Get());
+		}
+		SelectedWeaponInstance = nullptr;
+	}
+	EquippedWeaponId = WeaponId;
+
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : RefreshWeapon weaponId=%s -> instance=%s"),
+			*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
+			(WeaponId != NAME_None) ? *WeaponId.ToString() : TEXT("<none>"),
+			SelectedWeaponInstance.IsValid() ? *SelectedWeaponInstance->GetName() : TEXT("none"));
 	}
 }

@@ -250,6 +250,54 @@ void UAFLCombatCheats::SetCosmeticTeam(const FString& TeamId)
 #endif
 }
 
+void UAFLCombatCheats::SetCosmeticWeapon(const FString& WeaponCosmeticId)
+{
+#if UE_WITH_CHEAT_MANAGER
+	// #43 WeaponId seam -- the sibling of SetCosmeticEdge for the weapon-equip axis (own->select->EQUIP->fire).
+	// Per-window: GetLoadoutComponent() -> this window's owning-client PlayerState loadout.
+	UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
+	if (!Loadout)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("SetCosmeticWeapon: no UAFLCosmeticLoadoutComponent on the player's PlayerState (not spawned yet?)"));
+		return;
+	}
+
+	// Normalize the arg to a full CosmeticId. Accept "Arclight" or "AFL.Weapon.Arclight".
+	FString IdStr = WeaponCosmeticId.TrimStartAndEnd();
+	if (!IdStr.StartsWith(TEXT("AFL.Weapon."), ESearchCase::IgnoreCase))
+	{
+		IdStr = FString::Printf(TEXT("AFL.Weapon.%s"), *IdStr);
+	}
+	const FName WeaponId(*IdStr);
+
+	// Build from the CURRENT selection so we don't clobber identity/other axes; change only the weapon. The RPC's
+	// _Validate requires a non-None identity -- seed a default team if none yet (the seam is under test, not
+	// identity), exactly as SetCosmeticEdge does. The WeaponId axis is entitlement-gated: own it first
+	// (afl.Wallet.Buy AFL.Weapon.<Name>) or the server drops the unentitled selection.
+	FAFLCosmeticSelection Request = Loadout->GetSelection();
+	if (Request.GetActiveIdentityId() == NAME_None)
+	{
+		Request.IdentityType = EAFLIdentityType::Team;
+		Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+	}
+	Request.WeaponId = WeaponId;
+
+	// PURE CALL: the real Server RPC does validation/entitlement/gate/commit/replicate; the WeaponId consumer
+	// (UAFLSkinColorControllerComponent::RefreshWeaponForPawn) then equips the selected weapon (replacing the
+	// primary), and Lyra's equipment fast-array replicates the held weapon to every client.
+	Loadout->ServerSetCosmeticSelection(Request);
+
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("[Cheat] SetCosmeticWeapon: client issued ServerSetCosmeticSelection(weapon=%s identity=%s/%s). ")
+		TEXT("Own it first (afl.Wallet.Buy %s). `afl.SkinDiag 1` to watch RefreshWeapon equip the pawn."),
+		*WeaponId.ToString(),
+		(Request.IdentityType == EAFLIdentityType::Character) ? TEXT("Character") : TEXT("Team"),
+		*Request.GetActiveIdentityId().ToString(),
+		*WeaponId.ToString());
+#endif
+}
+
 void UAFLCombatCheats::SuicidePawn()
 {
 #if UE_WITH_CHEAT_MANAGER

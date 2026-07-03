@@ -11,6 +11,7 @@
 class APawn;
 class UAFLSkinColorAsset;
 class UAFLBrandEdgeMap;
+class ULyraEquipmentInstance;
 
 /**
  * Controller-side PERSISTENT home for the robot-skin color selection (L5, Option F).
@@ -53,6 +54,24 @@ public:
 	 *  robot keeps its BP-default slot-1). Idempotent. Mirrors RefreshSkinForPawn's resolve+apply shape. */
 	void RefreshFacemaskForPawn(APawn* Pawn) const;
 
+	/**
+	 * AUTHORITY (server-only): resolve the player's selected WeaponId (PlayerState loadout -> catalog -> a
+	 * UAFLWeaponCosmeticAsset carrier -> its EquipmentDefinition) and EQUIP it on the pawn's
+	 * ULyraEquipmentManagerComponent, REPLACING the current primary (D2: own the instance, no stacking). Lyra's
+	 * FLyraEquipmentList fast-array replicates the equip to every client -- no client push here (mirrors the
+	 * SetSkinColor spine's server-auth-then-replicate shape). Idempotent: a re-run for the same WeaponId + a live
+	 * instance is a no-op, so the dual spine (possession + OnRep + nudge) never stacks. NAME_None -> our selection
+	 * is removed. #43 WeaponId consumer -- closes the "replicates but nothing consumes" axis; completes own->
+	 * select->equip->fire. NOT const (it tracks the equipped instance).
+	 *
+	 * D3 DEBT (tracked, not now): this component now consumes skin + facemask + weapon -> it is really a
+	 * UAFLCosmeticControllerComponent; the "SkinColor" name lags. Rename deferred (churn), logged as debt.
+	 * D5 HORIZON: direct EquipItem mirrors AFLHeroComponent (proven). Weapon-switching (primary/secondary/pickups
+	 * = the QuickBar path) is genre-core for an extraction shooter -- NEAR-horizon. The equip/replace logic is
+	 * isolated in RefreshWeaponForPawn so the QuickBar transition swaps THIS body, not the spine.
+	 */
+	void RefreshWeaponForPawn(APawn* Pawn);
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -86,4 +105,13 @@ private:
 	/** #38a: read the possessed robot's Cosmetic.Brand.* tag off its AAFLCharacterPartActor parts (via the
 	 *  existing IGameplayTagAssetInterface). Invalid tag if the pawn has no brand-tagged body part. */
 	FGameplayTag ResolveBrandTag(APawn* Pawn) const;
+
+	// --- #43 WeaponId consumer state (D2: own the selected instance, replace the primary, no stacking) ---
+	// Server-only, NOT replicated (the equip itself replicates via Lyra's FLyraEquipmentList fast-array). Tracked
+	// per-pawn: the instance dies with its pawn, so WeaponTrackedPawn guards a stale cross-pawn read -- a respawn
+	// resets tracking and the new pawn re-equips clean.
+	TWeakObjectPtr<APawn> WeaponTrackedPawn;
+	TWeakObjectPtr<ULyraEquipmentInstance> SelectedWeaponInstance;
+	/** The WeaponId currently realized on WeaponTrackedPawn (idempotency key; NAME_None = none). */
+	FName EquippedWeaponId = NAME_None;
 };
