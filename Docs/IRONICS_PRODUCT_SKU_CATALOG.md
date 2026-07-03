@@ -10,7 +10,7 @@ the Register-As-Created rule at the bottom).
   `UAFLCosmeticCatalogSubsystem`.
 - Pricing/scarcity SSOT: `Docs/IRONICS_PRICING_SCARCITY_SSOT.md`.
 - Economy SSOT: `Docs/IRONICS_ECONOMY_SPEC.md`. Architecture: `Docs/AFL_ECONOMY_ARCHITECTURE_ADR.md`.
-- Snapshot taken live from the editor 2026-07-02: **122 registered SKUs.**
+- Snapshot: **131 registered SKUs** (2026-07-02) = 122 baseline + 9 weapon-factory Arclight (base + 8 skins), registered 2026-07-02.
 
 ================================================================================
 ## VOCABULARY LOCK -- the REAL on-disk names (use these, not paraphrases)
@@ -32,7 +32,7 @@ CosmeticId format (immutable key, ADR D3): **`AFL.<Type>.<Name>`** (fully type-q
 bare name; never encode color in identity names).
 
 ================================================================================
-## SUMMARY -- 122 registered SKUs by type
+## SUMMARY -- 131 registered SKUs by type
 ================================================================================
 | Type (`EAFLCosmeticType`) | Count | Acquisition | Notes |
 |---|---|---|---|
@@ -41,7 +41,7 @@ bare name; never encode color in identity names).
 | FINISH | 39 | mixed | full-body finish (color); 10 `AFL.Body.*` @ SPARK, rest `AFL.Finish.*` (free base + RARE named) |
 | FACEMASK | 32 | mixed | faceplate; 10 Basic free, flags RARE, icons/riot LEGENDARY |
 | SKIN_COLOR_EDGE | 11 | DIRECT | edge-glow color @ SPARK |
-| WEAPON | 2 | DIRECT | `AFL.Weapon.<Base>.<Color>` -- Pistol.NeonGreen, ShotgunBeam.NeonBlue |
+| WEAPON | 11 | DIRECT | `AFL.Weapon.<Base>.<Color>` -- Pistol, ShotgunBeam (2) + Arclight base + 8 skins (9, factory 2026-07-02) |
 | ABILITY_COSMETIC | 1 | DIRECT | EMP @ ARC |
 
 **Paid tiers (`EAFLCosmeticTier`):** SPARK ($10 = 10,000V / 100,000W, Watts-buyable) · SURGE ($16 =
@@ -52,11 +52,20 @@ limited-edition rarity tiers (Static->Singularity) are in the pricing SSOT, enfo
 ## THE CATALOG (all 122, by type)
 ================================================================================
 
-### WEAPON (2) -- `AFL.Weapon.<Base>.<Color>`
-| CosmeticId | Tier | Acq | Rarity | Price |
-|---|---|---|---|---|
-| AFL.Weapon.Pistol.NeonGreen | SPARK | DIRECT | Common | V0 W0 |
-| AFL.Weapon.ShotgunBeam.NeonBlue | SPARK | DIRECT | Common | V0 W0 |
+### WEAPON (11) -- `AFL.Weapon.<Base>.<Color>`
+| CosmeticId | Tier | Acq | Rarity | Price | Source |
+|---|---|---|---|---|---|
+| AFL.Weapon.Pistol.NeonGreen | SPARK | DIRECT | Common | V0 W0 | (existing) |
+| AFL.Weapon.ShotgunBeam.NeonBlue | SPARK | DIRECT | Common | V0 W0 | (existing) |
+| AFL.Weapon.Arclight | SPARK | DIRECT | Common | V0 W0 | factory base |
+| AFL.Weapon.Arclight.ElectricBlue | SPARK | DIRECT | Common | V0 W0 | factory skin |
+| AFL.Weapon.Arclight.ArcViolet | SPARK | DIRECT | Common | V0 W0 | factory skin |
+| AFL.Weapon.Arclight.ToxicGreen | SPARK | DIRECT | Common | V0 W0 | factory skin |
+| AFL.Weapon.Arclight.IceCyan | SPARK | DIRECT | Common | V0 W0 | factory skin |
+| AFL.Weapon.Arclight.Amber | SPARK | DIRECT | Common | V0 W0 | factory skin |
+| AFL.Weapon.Arclight.CyanMagenta | SPARK | DIRECT | Common | V0 W0 | factory combo |
+| AFL.Weapon.Arclight.GreenGold | SPARK | DIRECT | Common | V0 W0 | factory combo |
+| AFL.Weapon.Arclight.GlitchLegend | SURGE | DIRECT | Legendary | V0 W0 | factory legendary |
 
 ### ABILITY_COSMETIC (1)
 | CosmeticId | Tier | Acq | Rarity | Price |
@@ -94,28 +103,26 @@ Solara, Talon, Valkyr, Vanta, Volt, Zen.
 AP-9, ARIA, FANATICS, IRONICS, MAKHIAVELLI, MOB-FIGAZ, SCARLETT.
 
 ================================================================================
-## WEAPON-FACTORY OUTPUT -- PRODUCED, **PENDING CATALOG REGISTRATION**
+## WEAPON-FACTORY OUTPUT -- REGISTERED (LIVE 2026-07-02)
 ================================================================================
-Committed to disk (foundation commit `73998a11`) but **NOT yet registered as `FAFLCatalogEntry`
-rows** -- registration is blocked on the skin-carrier decision (a `UAFLWeaponSkinAsset` carrier +
-full-material apply path; the `FAFLCatalogEntry.Asset` needs a `UPrimaryDataAsset`, and a factory
-skin is a bare `MaterialInstanceConstant`). When that lands, these become the rows below:
+The 9 Arclight SKUs are now `FAFLCatalogEntry` rows in `DA_AFL_CosmeticCatalog` (122 -> 131),
+matching the existing weapon-SKU footprint EXACTLY: Type=WEAPON, **Asset=None**, DIRECT,
+ContentTier=BASE, V0/W0 -- the color is implied by the CosmeticId suffix (the existing convention;
+the runtime color path resolves it). Base singles/combos = SPARK/COMMON (same shape as the existing
+Pistol/ShotgunBeam SKUs); GlitchLegend = SURGE/LEGENDARY (the tier-doctrine legendary
+differentiation). Pricing is V0 across the ENTIRE weapon category (matching the existing 2 -- weapon
+Volt/Watt pricing is a separate pass; Tier + Rarity carry the base-vs-legendary distinction until
+then). Live rows are in the WEAPON table above.
 
-| Planned CosmeticId | Type | Tier (planned) | Asset (on disk) | Status |
-|---|---|---|---|---|
-| AFL.Weapon.Arclight | Weapon | base (FLICKER/SPARK) | SK_IRONICS_Arclight + equipment | produced; pending row |
-| AFL.Weapon.Arclight.ElectricBlue | Weapon (skin) | base | MI_...ElectricBlue | produced; pending row |
-| AFL.Weapon.Arclight.ArcViolet | Weapon (skin) | base | MI_...ArcViolet | produced; pending row |
-| AFL.Weapon.Arclight.ToxicGreen | Weapon (skin) | base | MI_...ToxicGreen | produced; pending row |
-| AFL.Weapon.Arclight.IceCyan | Weapon (skin) | base | MI_...IceCyan | produced; pending row |
-| AFL.Weapon.Arclight.Amber | Weapon (skin) | base | MI_...Amber | produced; pending row |
-| AFL.Weapon.Arclight.CyanMagenta | Weapon (combo) | combo | MI_...CyanMagenta | produced; pending row |
-| AFL.Weapon.Arclight.GreenGold | Weapon (combo) | combo | MI_...GreenGold | produced; pending row |
-| AFL.Weapon.Arclight.GlitchLegend | Weapon (legendary) | legendary | MI_...GlitchLegend | produced; pending row |
-| AFL.Bundle.Arclight.DualNeon | Bundle | combo | {ElectricBlue + ArcViolet} | produced (2-slot); pending row |
+**Register-as-created status:** MACHINE registry (FAFLCatalogEntry rows) = DONE + HUMAN mirror (this
+doc) = DONE. Remaining gate = the material's **gameplay-PIE** (equip/fire/beam/reactive on a live
+pawn) -- the ✅ that flips these from "registered" to fully "done" per the =PIE doctrine.
 
-BEAM / PULSE: not yet cosmetic-representable -- the weapon-material-system's beam/pulse profiles
-need the same carrier extension (`BeamId`/`WeaponId` axes replicate but are not consumer-wired).
+**Not in this batch (still pending):** the DualNeon bundle (`AFL.Bundle.Arclight.DualNeon`) needs the
+Bundle grant-set fields; BEAM / PULSE SKUs need the beam/pulse carrier + `BeamId`/`WeaponId`
+consumer-wiring (the axes replicate but nothing equips them); full-material weapon-skin runtime apply
+(the plasma material, not just a color) is the same deferred wiring. **PlayFab persistence remains the
+economy blocker** -- registration != durable ownership.
 
 ================================================================================
 ## THE RULE -- REGISTER-AS-CREATED (both mirrors, part of definition-of-done)
