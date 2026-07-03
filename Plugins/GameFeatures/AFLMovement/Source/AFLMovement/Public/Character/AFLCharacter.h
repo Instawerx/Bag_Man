@@ -29,4 +29,12 @@ class AFLMOVEMENT_API AAFLCharacter : public ALyraCharacter
 
 public:
 	AAFLCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+
+private:
+	/** Fleet-wide support(left)-hand weapon IK (PATH B overhaul). Computes component-space target/pole/alpha for
+	 *  the equipped weapon's handling class and pushes them to CR_AFL_IRONICS' LeftHandIK controls. Cosmetic /
+	 *  LOCAL-only, always-on (no-ops without an equipped weapon + reachable foregrip). Added natively here so every
+	 *  AFLCharacter carries it deterministically -- this IS the "real reason to extend" the minimal base. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|IK", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UAFLWeaponIKComponent> WeaponIKComponent;
 };

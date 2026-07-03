@@ -128,7 +128,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Interaction|HandIK")
 	FName HandIKAlphaControl = FName(TEXT("HandIKAlpha"));
 
-	// --- LEFT-hand weapon-foregrip IK channel (Layer 1, weapon-hold) ---------------------------------
+	// --- LEFT-hand weapon-foregrip IK channel (Layer 1) -- RETIRED / SUPERSEDED (PATH B) --------------
+	// >>> SUPERSEDED by UAFLWeaponIKComponent (component-space, delta-driven support-hand IK). THIS is the
+	// >>> flung channel: it pushes a WORLD-space GripPoint_L into the component-space CR effector on the
+	// >>> UN-MIRRORED (right-arm) CR_AFL_IRONICS chain. Kept DORMANT (bEnableLeftHandWeaponIK=false, never
+	// >>> flipped) so it does nothing; physically removed WITH the CR_AFL_IRONICS LeftHandIK_TwoBone node in
+	// >>> Tier 2 (the pair goes together, else a dangling push to a removed control). Do NOT re-enable.
 	// SEPARATE from the right-hand grab channel above. While a weapon is equipped (and NOT grabbing/carrying),
 	// each tick the component queries the weapon's GripPoint_L world transform and pushes it into CR_AFL_IRONICS'
 	// LeftHandIKTarget/LeftHandIKAlpha controls (the cold-verified left-arm Basic IK on upperarm_l/lowerarm_l/
