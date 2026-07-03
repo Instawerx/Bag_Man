@@ -10,8 +10,9 @@ the Register-As-Created rule at the bottom).
   `UAFLCosmeticCatalogSubsystem`.
 - Pricing/scarcity SSOT: `Docs/IRONICS_PRICING_SCARCITY_SSOT.md`.
 - Economy SSOT: `Docs/IRONICS_ECONOMY_SPEC.md`. Architecture: `Docs/AFL_ECONOMY_ARCHITECTURE_ADR.md`.
-- Snapshot: **131 registered SKUs** (2026-07-02) = 122 baseline + 9 weapon-factory Arclight (base + 8 skins), registered 2026-07-02.
-- **Arclight PIE-PROVEN + committed `7c6ff612`** (2026-07-02): the own->select->equip->fire arc proven live (grant -> `SetCosmeticWeapon` -> Arclight equips + fires; camo/grip/montage/L4/L5 all watched). **#43 WeaponId->equip consumer CLOSED** (the session-long "axes replicate but nothing consumes them" gap). Arclight = the **COMPLETE factory template** the volume build replicates from. One deferred fleet-wide item: support-hand IK -> the operator-spec'd IK-system overhaul (not per-weapon).
+- Snapshot: **140 registered SKUs** (2026-07-03) = 122 baseline + 9 weapon-factory Arclight (base + 8 skins) + 9 weapon-factory Voltaic (base + 8 skins), registered 2026-07-02 / 2026-07-03.
+- **Arclight PIE-PROVEN + committed `7c6ff612`** (2026-07-02): the own->select->equip->fire arc proven live (grant -> `SetCosmeticWeapon` -> Arclight equips + fires; camo/grip/montage/L4/L5 all watched). **#43 WeaponId->equip consumer CLOSED** (the session-long "axes replicate but nothing consumes them" gap). Arclight = the **COMPLETE factory template** the volume build replicates from. One deferred fleet-wide item: support-hand IK -> the operator-spec'd IK-system overhaul (not per-weapon) -- **now PROVEN in PIE** (comp-space `UAFLWeaponIKComponent` -> CR; per-weapon = a `GripPoint_L` mesh socket).
+- **Voltaic (axis A) REGISTERED `2026-07-03`:** the 2nd factory weapon (mesh-mod on the shipped ShotgunBeam) -- 9 SKUs (base + 8 skins), carrier `DA_AFL_Weapon_Voltaic`, ElectricBlue NeonCamo skin + electric-blue beam + `GripPoint_L` socket. **PIE-PROVEN `2026-07-03`** -- equip/fire/beam/skin/grip all watched: neon-blue skin, matched blue beam, grip correct, AAA.
 
 ================================================================================
 ## VOCABULARY LOCK -- the REAL on-disk names (use these, not paraphrases)
@@ -33,7 +34,7 @@ CosmeticId format (immutable key, ADR D3): **`AFL.<Type>.<Name>`** (fully type-q
 bare name; never encode color in identity names).
 
 ================================================================================
-## SUMMARY -- 131 registered SKUs by type
+## SUMMARY -- 140 registered SKUs by type
 ================================================================================
 | Type (`EAFLCosmeticType`) | Count | Acquisition | Notes |
 |---|---|---|---|
@@ -42,7 +43,7 @@ bare name; never encode color in identity names).
 | FINISH | 39 | mixed | full-body finish (color); 10 `AFL.Body.*` @ SPARK, rest `AFL.Finish.*` (free base + RARE named) |
 | FACEMASK | 32 | mixed | faceplate; 10 Basic free, flags RARE, icons/riot LEGENDARY |
 | SKIN_COLOR_EDGE | 11 | DIRECT | edge-glow color @ SPARK |
-| WEAPON | 11 | DIRECT | `AFL.Weapon.<Base>.<Color>` -- Pistol, ShotgunBeam (2) + Arclight base + 8 skins (9, factory 2026-07-02) |
+| WEAPON | 20 | DIRECT | `AFL.Weapon.<Base>.<Color>` -- Pistol, ShotgunBeam (2) + Arclight base+8 skins (9, 2026-07-02) + Voltaic base+8 skins (9, 2026-07-03) |
 | ABILITY_COSMETIC | 1 | DIRECT | EMP @ ARC |
 
 **Paid tiers (`EAFLCosmeticTier`):** SPARK ($10 = 10,000V / 100,000W, Watts-buyable) · SURGE ($16 =
@@ -50,10 +51,10 @@ bare name; never encode color in identity names).
 limited-edition rarity tiers (Static->Singularity) are in the pricing SSOT, enforcement PlayFab-gated.
 
 ================================================================================
-## THE CATALOG (all 122, by type)
+## THE CATALOG (all 140, by type)
 ================================================================================
 
-### WEAPON (11) -- `AFL.Weapon.<Base>.<Color>`
+### WEAPON (20) -- `AFL.Weapon.<Base>.<Color>`
 | CosmeticId | Tier | Acq | Rarity | Price | Source |
 |---|---|---|---|---|---|
 | AFL.Weapon.Pistol.NeonGreen | SPARK | DIRECT | Common | V0 W0 | (existing) |
@@ -67,6 +68,15 @@ limited-edition rarity tiers (Static->Singularity) are in the pricing SSOT, enfo
 | AFL.Weapon.Arclight.CyanMagenta | SPARK | DIRECT | Common | V0 W0 | factory combo |
 | AFL.Weapon.Arclight.GreenGold | SPARK | DIRECT | Common | V0 W0 | factory combo |
 | AFL.Weapon.Arclight.GlitchLegend | SURGE | DIRECT | Legendary | V0 W0 | factory legendary |
+| AFL.Weapon.Voltaic | SPARK | DIRECT | Common | V0 W0 | factory base (2026-07-03, axis A) |
+| AFL.Weapon.Voltaic.ElectricBlue | SPARK | DIRECT | Common | V0 W0 | factory skin (mesh default) |
+| AFL.Weapon.Voltaic.ArcViolet | SPARK | DIRECT | Common | V0 W0 | factory skin |
+| AFL.Weapon.Voltaic.ToxicGreen | SPARK | DIRECT | Common | V0 W0 | factory skin |
+| AFL.Weapon.Voltaic.IceCyan | SPARK | DIRECT | Common | V0 W0 | factory skin |
+| AFL.Weapon.Voltaic.Amber | SPARK | DIRECT | Common | V0 W0 | factory skin |
+| AFL.Weapon.Voltaic.CyanMagenta | SPARK | DIRECT | Common | V0 W0 | factory combo |
+| AFL.Weapon.Voltaic.GreenGold | SPARK | DIRECT | Common | V0 W0 | factory combo |
+| AFL.Weapon.Voltaic.GlitchLegend | SURGE | DIRECT | Legendary | V0 W0 | factory legendary |
 
 ### ABILITY_COSMETIC (1)
 | CosmeticId | Tier | Acq | Rarity | Price |
@@ -114,6 +124,16 @@ Pistol/ShotgunBeam SKUs); GlitchLegend = SURGE/LEGENDARY (the tier-doctrine lege
 differentiation). Pricing is V0 across the ENTIRE weapon category (matching the existing 2 -- weapon
 Volt/Watt pricing is a separate pass; Tier + Rarity carry the base-vs-legendary distinction until
 then). Live rows are in the WEAPON table above.
+
+**VOLTAIC registered LIVE 2026-07-03 (131 -> 140):** the 2nd factory weapon (axis A -- mesh-mod on the
+shipped ShotgunBeam). 9 `FAFLCatalogEntry` rows (`AFL.Weapon.Voltaic` base + 8 skins; same footprint
+WEAPON / DIRECT / BASE / V0 W0; GlitchLegend = SURGE). Unlike the Arclight `Asset=None` note above (now
+stale -- Arclight has a carrier too), Voltaic points every row at its own **carrier**
+`DA_AFL_Weapon_Voltaic` (`AFLWeaponCosmeticAsset` -> `WID_AFL_Voltaic` -> spawns `SK_IRONICS_Voltaic`);
+the #43 WeaponId consumer resolves it. Skin = `MI_AFL_WeaponSkin_NeonCamo_ElectricBlue` (Body); beam =
+electric-blue `LaserTintColor`; support hand = `GripPoint_L` mesh socket. **PIE-PROVEN `2026-07-03`**:
+equip spawned the Voltaic mesh, fired, neon-blue skin + matched blue beam (the `LaserTintColor` override
+now PROVEN -- `GetBeamColor` honors it), grip correct, AAA. The mesh-mod-on-shipped-ShotgunBeam axis is proven.
 
 **Register-as-created status:** MACHINE registry (FAFLCatalogEntry rows) = DONE + HUMAN mirror (this
 doc) = DONE. Remaining gate = the material's **gameplay-PIE** (equip/fire/beam/reactive on a live
