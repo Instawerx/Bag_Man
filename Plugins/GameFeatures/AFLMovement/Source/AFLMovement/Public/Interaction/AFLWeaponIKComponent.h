@@ -98,9 +98,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|IK|Settings")
 	float DynamicPoleVectorOutwardOffset = 45.0f;
 
-	/** The 94% reach-gate backstop threshold (spec). Past this fraction of the real arm length, alpha -> 0. */
+	/** Reach-gate backstop threshold: past this fraction of the real arm length, alpha -> 0 (a flung/over-
+	 *  stretched arm can never ship). Tuned 0.94 -> 0.97 for Arclight's rear-handguard reach (+~2cm forward).
+	 *  Higher = a straighter arm at the limit (the pole matters less near-locked) -> revert toward 0.94 if any
+	 *  weapon starts to fling at the reach edge. Do NOT push toward 1.0 (locked arm = the flung-arm danger zone). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|IK|Settings", meta = (ClampMin = "0.5", ClampMax = "1.0"))
-	float ArmLengthBufferPercent = 0.94f;
+	float ArmLengthBufferPercent = 0.97f;
 
 	/** Too-close guard (spec): target closer than this to the shoulder -> alpha 0 (weapon jammed to chest). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|IK|Settings")
@@ -133,6 +136,8 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|IK|Rig") FName LeftHandTargetControl = FName(TEXT("LeftHandIKTarget"));
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|IK|Rig") FName LeftHandPoleControl   = FName(TEXT("AFL_LeftHandPole"));
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|IK|Rig") FName LeftHandAlphaControl  = FName(TEXT("LeftHandIKAlpha"));
+	// The socket's ROTATION orients the hand (fingers/palm wrap) -- the load-bearing IK interface's 2nd axis.
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|IK|Rig") FName LeftHandRotControl    = FName(TEXT("AFL_LeftHandRot"));
 
 protected:
 	virtual void BeginPlay() override;
@@ -149,13 +154,6 @@ private:
 	float UpperArmLength = 0.0f;
 	float LowerArmLength = 0.0f;
 	float TotalArmLength = 0.0f;
-
-	// On-screen debug (1 Hz): PIE SHOWS handling / target-found / dist-vs-reach / alpha so reachability is
-	// visible, not guessed (the banked trap: a too-forward foregrip exceeds cross-body reach -> gate declines).
-	float DebugAccumulator = 0.0f;
-	bool  bDbgHaveTarget   = false;
-	float DbgDistToTarget  = 0.0f;
-	float DbgSafeReach     = 0.0f;
 
 	USkeletalMeshComponent* GetOwnerMesh() const;
 	void EnsureArmLengths(USkeletalMeshComponent* Mesh);

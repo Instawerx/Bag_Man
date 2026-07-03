@@ -5,7 +5,6 @@
 #include "AFLMovement.h"                               // LogAFLMovement
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
-#include "Engine/Engine.h"                             // GEngine (on-screen debug)
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Controller.h"
@@ -107,10 +106,9 @@ EAFLWeaponHandling UAFLWeaponIKComponent::ResolveHandling(const ULyraEquipmentMa
 	//    here -- AND it is the more robust signal: it is exactly the point the IK solves to (no GripPoint_L ->
 	//    nothing to two-hand -> 1H), with no fragile layer-name string match. A 2H weapon that (mis)ships no
 	//    GripPoint_L reads as 1H and gets the cup stance rather than a flail -- fail-safe by construction.
-	TInlineComponentArray<USceneComponent*> Comps(OutWeaponActor);
-	for (const USceneComponent* C : Comps)
+	if (const USkeletalMeshComponent* WeaponMesh = OutWeaponActor->FindComponentByClass<USkeletalMeshComponent>())
 	{
-		if (C && C->GetFName().ToString().Contains(ForegripSocket.ToString()))
+		if (WeaponMesh->DoesSocketExist(ForegripSocket)) // a real bone-parented mesh socket, NOT a loose component
 		{
 			return EAFLWeaponHandling::TwoHanded;
 		}
@@ -124,25 +122,19 @@ bool UAFLWeaponIKComponent::ResolveForegripComponentSpace(AActor* WeaponActor, U
 	{
 		return false;
 	}
-	// Match the weapon's GripPoint_L scene component by name (proven pattern; each 2H weapon authors its own).
-	const USceneComponent* Grip = nullptr;
-	TInlineComponentArray<USceneComponent*> Comps(WeaponActor);
-	for (USceneComponent* C : Comps)
+	// Read the GripPoint_L SOCKET on the weapon's skeletal mesh -- the canonical IK interface: a real bone-parented
+	// mesh socket carrying position AND rotation, NOT a loose scene component. No GripPoint_L socket -> don't engage
+	// (never IK to a fallback = the old flail).
+	const USkeletalMeshComponent* WeaponMesh = WeaponActor->FindComponentByClass<USkeletalMeshComponent>();
+	if (!WeaponMesh || !WeaponMesh->DoesSocketExist(ForegripSocket))
 	{
-		if (C && C->GetFName().ToString().Contains(ForegripSocket.ToString()))
-		{
-			Grip = C;
-			break;
-		}
+		return false;
 	}
-	if (!Grip)
-	{
-		return false; // a 2H weapon shipping no GripPoint_L -> don't engage (never IK to a fallback = the old flail)
-	}
-	// FIX 2: world grip transform -> COMPONENT space of the character mesh. No world-space target ever leaves here.
-	const FTransform GripComp = Grip->GetComponentTransform().GetRelativeTransform(Mesh->GetComponentTransform());
+	// FIX 2: world SOCKET transform -> COMPONENT space of the character mesh. No world-space target ever leaves here.
+	const FTransform GripWorld = WeaponMesh->GetSocketTransform(ForegripSocket, RTS_World);
+	const FTransform GripComp = GripWorld.GetRelativeTransform(Mesh->GetComponentTransform());
 	OutCompLoc = GripComp.GetLocation();
-	OutCompRot = GripComp.GetRotation(); // FIX 3: FQuat (no Euler)
+	OutCompRot = GripComp.GetRotation(); // FIX 3: FQuat -- the SOCKET's rotation orients the hand
 	return true;
 }
 
@@ -214,16 +206,11 @@ void UAFLWeaponIKComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 
 	// --- REACH-GATE SECOND (the 94% backstop): a flung / over-stretched arm can never ship ---------------
 	TargetAlpha = 0.0f;
-	bDbgHaveTarget  = bHaveTarget;                          // debug capture
-	DbgDistToTarget = 0.0f;
-	DbgSafeReach    = TotalArmLength * ArmLengthBufferPercent;
 	if (bHaveTarget && bArmLenCached)
 	{
 		const FVector ShoulderComp = Mesh->GetBoneLocation(ShoulderBone, EBoneSpaces::ComponentSpace); // upperarm_l = chain root
 		const float DistToTarget = FVector::Dist(ShoulderComp, TargetCompLoc);
 		const float SafeReach = TotalArmLength * ArmLengthBufferPercent;
-		DbgDistToTarget = DistToTarget;                    // debug capture (shown even when the gate declines)
-		DbgSafeReach    = SafeReach;
 		if (DistToTarget <= SafeReach && DistToTarget >= MinReachDistance)
 		{
 			TargetAlpha = 1.0f;
@@ -246,25 +233,6 @@ void UAFLWeaponIKComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 		PushToControlRig();
 	}
 
-	// --- On-screen debug (1 Hz, local player only) so PIE SHOWS reachability rather than guessing it -----
-	// The banked trap: a too-forward foregrip exceeds the left hand's cross-body reach -> gate declines ->
-	// alpha 0 -> baked pose. This line makes that visible (dist vs reach + REACHABLE/OUT-OF-REACH + alpha).
-	DebugAccumulator += DeltaTime;
-	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	if (DebugAccumulator >= 1.0f && GEngine && OwnerPawn && OwnerPawn->IsLocallyControlled() && OwnerPawn->IsPlayerControlled())
-	{
-		DebugAccumulator = 0.0f;
-		const TCHAR* HandStr =
-			CurrentHandling == EAFLWeaponHandling::TwoHanded ? TEXT("2H") :
-			CurrentHandling == EAFLWeaponHandling::OneHanded ? TEXT("1H-cup") :
-			CurrentHandling == EAFLWeaponHandling::Thrown    ? TEXT("Thrown") : TEXT("None");
-		const bool bReachable = bDbgHaveTarget && DbgDistToTarget <= DbgSafeReach && DbgDistToTarget >= MinReachDistance;
-		const FColor Col = (CurrentAlpha > 0.05f) ? FColor::Green : (bDbgHaveTarget ? FColor::Yellow : FColor::Red);
-		GEngine->AddOnScreenDebugMessage((uint64)(UPTRINT)this, 1.2f, Col, FString::Printf(
-			TEXT("AFL_WEAPONIK  hand=%s  Grip=%s  dist=%.1f / reach=%.1f  %s  alpha=%.2f"),
-			HandStr, bDbgHaveTarget ? TEXT("FOUND") : TEXT("none"),
-			DbgDistToTarget, DbgSafeReach, bReachable ? TEXT("REACHABLE") : TEXT("OUT-OF-REACH"), CurrentAlpha));
-	}
 }
 
 UControlRig* UAFLWeaponIKComponent::ResolveOwnerControlRig(USkeletalMeshComponent* Mesh)
@@ -317,4 +285,7 @@ void UAFLWeaponIKComponent::PushToControlRig()
 	Rig->SetControlValue<FVector3f>(LeftHandTargetControl, FVector3f(CachedIKOutputs.LeftHandTargetLocation), /*bNotify*/ false);
 	Rig->SetControlValue<FVector3f>(LeftHandPoleControl,   FVector3f(CachedIKOutputs.LeftElbowPoleVector),    /*bNotify*/ false);
 	Rig->SetControlValue<float>(LeftHandAlphaControl,      CachedIKOutputs.LeftHandIKAlpha,                    /*bNotify*/ false);
+	// FIX 3 delivery: the socket's ROTATION (component-space FQuat) orients the hand at the grip. The native
+	// CR_AFL_CoreIK Basic IK reads AFL_LeftHandRot into its Effector.Rotation (the load-bearing socket's 2nd axis).
+	Rig->SetControlValue<FRotator>(LeftHandRotControl, CachedIKOutputs.LeftHandTargetRotation.Rotator(),      /*bNotify*/ false);
 }
