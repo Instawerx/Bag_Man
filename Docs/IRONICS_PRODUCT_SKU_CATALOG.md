@@ -11,6 +11,7 @@ the Register-As-Created rule at the bottom).
 - Pricing/scarcity SSOT: `Docs/IRONICS_PRICING_SCARCITY_SSOT.md`.
 - Economy SSOT: `Docs/IRONICS_ECONOMY_SPEC.md`. Architecture: `Docs/AFL_ECONOMY_ARCHITECTURE_ADR.md`.
 - Snapshot: **131 registered SKUs** (2026-07-02) = 122 baseline + 9 weapon-factory Arclight (base + 8 skins), registered 2026-07-02.
+- **Arclight PIE-PROVEN + committed `7c6ff612`** (2026-07-02): the own->select->equip->fire arc proven live (grant -> `SetCosmeticWeapon` -> Arclight equips + fires; camo/grip/montage/L4/L5 all watched). **#43 WeaponId->equip consumer CLOSED** (the session-long "axes replicate but nothing consumes them" gap). Arclight = the **COMPLETE factory template** the volume build replicates from. One deferred fleet-wide item: support-hand IK -> the operator-spec'd IK-system overhaul (not per-weapon).
 
 ================================================================================
 ## VOCABULARY LOCK -- the REAL on-disk names (use these, not paraphrases)
