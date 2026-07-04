@@ -6,12 +6,13 @@ Build to it COMPLETELY -- nothing skipped; **register-as-created** fills each ce
 
 - Flat registry mirror (per-SKU rows + running total): `Docs/IRONICS_PRODUCT_SKU_CATALOG.md`.
 - Machine registry (SSOT): `DA_AFL_CosmeticCatalog` (`/AFLBagMan/Cosmetics/`).
-- Status snapshot: **2026-07-03** -- weapon PILOT COMPLETE (3 axes); COLOR SYSTEM = **48** (36 SPARK
-  APPROVED + 12 SURGE legendary PROPOSED); beams/pulses NOT started.
+- Status snapshot: **2026-07-03** -- weapon PILOT COMPLETE (3 axes); COLOR SYSTEM = **48 BUILT** (49 MIs
+  incl. legacy); 48-color skin GRID REGISTERED per weapon (Arclight/Voltaic/Ioncaster = 50 SKUs each,
+  272 catalog rows); beams/pulses NOT started (next stage).
 
-> **APPROVED (build to these):** the 36 SPARK palette + the per-weapon originals.
-> **PROPOSED (pending approval):** the 12 SURGE legendaries + the high-quality-base principle.
-> Build the color MIs + register AFTER the 12 + principle are approved.
+> **BUILT 2026-07-03:** all 48 colors (49 MIs off the locked master) + the 48-color skin grid registered
+> per weapon. 36 SPARK + 12 SURGE legendary + per-weapon originals + the high-quality-base principle =
+> APPROVED + built. **NEXT: beams + pulses (48 each).**
 
 ================================================================================
 ## THE 5 AXES
@@ -39,6 +40,8 @@ product -- NOT a samey reskin. The addable colors/skins (the other 47) layer ON 
 - **Customization layer** = the 47 addable colors (owned + equipped via the WeaponId/skin system).
 - **Quality is the separator:** every anchor mesh meets the **"smoothly integrated" quality bar**
   (the mid/top-tier finish, NOT block-artifact fast conversions) -- the anchor carries the product's value.
+- **Block-tolerance RETIRED for bases (2026-07-03 ruling):** supersedes the old base-tier block-artifact
+  tolerance. Arclight's block-mag flagged for an uplift pass (don't fix now); Voltaic + Ioncaster meet the bar.
 - Recorded also in `IRONICS_WEAPON_HANDOFF_CONTRACT.md` as a factory build rule.
 
 ================================================================================
@@ -47,7 +50,7 @@ product -- NOT a samey reskin. The addable colors/skins (the other 47) layer ON 
 All via the LOCKED master `M_AFL_WeaponSkin_NeonCamo` -- each = one MI (near-zero cost = the economy
 multiplier). Every family is its OWN sub-spectrum (a range within the hue, not one flat color).
 
-### 36 SPARK  [APPROVED]   (* = one of the legacy 8, already built)
+### 36 SPARK  [APPROVED + BUILT 2026-07-03]   (* = one of the legacy 8)
 | Family | v1 | v2 | v3 | v4 | v5 | v6 |
 |---|---|---|---|---|---|---|
 | **RED** | CrimsonArc | NeonScarlet | InfernoRed | BloodPlasma | RubyGlow | RoseEmber |
@@ -60,7 +63,7 @@ multiplier). Every family is its OWN sub-spectrum (a range within the hue, not o
 Legacy-8 map: EBlue+IceCyan->BLUE, ToxicGreen+GreenGold->GREEN, ArcViolet->PURPLE, CyanMagenta->PINK,
 Amber->YELLOW (7 mapped). => 36 SPARK = 7 built + 29 new.
 
-### 12 SURGE LEGENDARY -- 2 per family  [PROPOSED -- approve]
+### 12 SURGE LEGENDARY -- 2 per family  [APPROVED + BUILT 2026-07-03]
 The **prismatic/glitch premium** off the SAME locked master: `Enable_Glitch_Elements` ON, elevated
 `Neon_Glow_Intensity`, prismatic/shifting hue. Tier = SURGE/LEGENDARY, scarce + premium-priced (pricing
 SSOT). Generalizes the legacy single `GlitchLegend` prototype into 2 per family:
@@ -120,11 +123,11 @@ all future weapons/patterns.  Per weapon (1 pattern): 48 color skins + base.
 ================================================================================
 | Category | Built | Planned |
 |---|---|---|
-| Colors (MIs) | 8 legacy | **48** (36 SPARK: 7 built + 29 new; 12 SURGE legendary) |
+| Colors (MIs) | **49 BUILT** (8 legacy + 41 new) | 48 palette (+ GlitchLegend legacy) |
 | Weapons (bases) | 3 (+2 legacy) | 3 + ~14 harvestable candidates |
-| Weapon-skins (pattern x color) | 27 | Weapons x Patterns x 48 |
-| Beams (color) | 0 | 48 |
-| Pulses (color) | 0 | 48 |
+| Weapon-skins (pattern x color) | **150 BUILT** (3 weapons x [base + 48 + GlitchLegend]) | Weapons x Patterns x 48 |
+| Beams (color) | 0 | 48 (NEXT stage) |
+| Pulses (color) | 0 | 48 (NEXT stage) |
 
 Formulae: weapon-skins = **Weapons x Patterns x 48** ; beams = **48** ; pulses = **48**.
 

@@ -11,7 +11,7 @@ the Register-As-Created rule at the bottom).
 - Pricing/scarcity SSOT: `Docs/IRONICS_PRICING_SCARCITY_SSOT.md`.
 - Economy SSOT: `Docs/IRONICS_ECONOMY_SPEC.md`. Architecture: `Docs/AFL_ECONOMY_ARCHITECTURE_ADR.md`.
 - **Full product matrix (the build target): `Docs/IRONICS_CATALOG_MATRIX.md`** -- weapons x patterns x colors x beams x pulses, each cell a SKU with build/pending status. This doc is the flat per-SKU mirror; the matrix is the complete plan we build to (nothing skipped).
-- Snapshot: **149 registered SKUs** (2026-07-03) = 122 baseline + 9 Arclight + 9 Voltaic + 9 Ioncaster (each base + 8 skins), registered 2026-07-02 / 2026-07-03. **All 3 pilot axes PIE-PROVEN** (Arclight ballistic->beam, Voltaic shipped-beam mesh-mod, Ioncaster attachment-recombine) -- the factory's full vocabulary is proven.
+- Snapshot: **272 registered SKUs** (2026-07-03) = 122 baseline + 3 factory weapons x 50 (base + 48-color grid + GlitchLegend). **All 3 pilot axes PIE-PROVEN** + the **48-color system BUILT** (49 MIs off the locked master; 6 families x 6 SPARK + 12 SURGE legendary). Full palette: `IRONICS_CATALOG_MATRIX.md`.
 - **Arclight PIE-PROVEN + committed `7c6ff612`** (2026-07-02): the own->select->equip->fire arc proven live (grant -> `SetCosmeticWeapon` -> Arclight equips + fires; camo/grip/montage/L4/L5 all watched). **#43 WeaponId->equip consumer CLOSED** (the session-long "axes replicate but nothing consumes them" gap). Arclight = the **COMPLETE factory template** the volume build replicates from. One deferred fleet-wide item: support-hand IK -> the operator-spec'd IK-system overhaul (not per-weapon) -- **now PROVEN in PIE** (comp-space `UAFLWeaponIKComponent` -> CR; per-weapon = a `GripPoint_L` mesh socket).
 - **Voltaic (axis A) REGISTERED `2026-07-03`:** the 2nd factory weapon (mesh-mod on the shipped ShotgunBeam) -- 9 SKUs (base + 8 skins), carrier `DA_AFL_Weapon_Voltaic`, ElectricBlue NeonCamo skin + electric-blue beam + `GripPoint_L` socket. **PIE-PROVEN `2026-07-03`** -- equip/fire/beam/skin/grip all watched: neon-blue skin, matched blue beam, grip correct, AAA.
 - **Ioncaster (axis C) REGISTERED `2026-07-03`:** the 3rd/last factory weapon (attachment-recombine, UE-side zero-Blender) -- V014 SMG base (`SK_IRONICS_Ioncaster`) + Holographic-scope + suppressor attachments, 9 SKUs, carrier `DA_AFL_Weapon_Ioncaster`, ArcViolet NeonCamo skin + matched violet beam + `GripPoint_L` socket; accessories skinned (scope ArcViolet, suppressor CyanMagenta). **PIE-PROVEN `2026-07-03`** -- weapon + beam + grip all watched, AAA. **COMPLETES THE PILOT** (all 3 axes proven).
@@ -36,7 +36,7 @@ CosmeticId format (immutable key, ADR D3): **`AFL.<Type>.<Name>`** (fully type-q
 bare name; never encode color in identity names).
 
 ================================================================================
-## SUMMARY -- 149 registered SKUs by type
+## SUMMARY -- 272 registered SKUs by type
 ================================================================================
 | Type (`EAFLCosmeticType`) | Count | Acquisition | Notes |
 |---|---|---|---|
@@ -45,7 +45,7 @@ bare name; never encode color in identity names).
 | FINISH | 39 | mixed | full-body finish (color); 10 `AFL.Body.*` @ SPARK, rest `AFL.Finish.*` (free base + RARE named) |
 | FACEMASK | 32 | mixed | faceplate; 10 Basic free, flags RARE, icons/riot LEGENDARY |
 | SKIN_COLOR_EDGE | 11 | DIRECT | edge-glow color @ SPARK |
-| WEAPON | 29 | DIRECT | `AFL.Weapon.<Base>.<Color>` -- Pistol, ShotgunBeam (2) + Arclight (9) + Voltaic (9) + Ioncaster (9, 2026-07-03) -- all 3 factory axes |
+| WEAPON | 152 | DIRECT | `AFL.Weapon.<Base>.<Color>` -- Pistol, ShotgunBeam (2) + Arclight/Voltaic/Ioncaster x 50 each (base + 48-color grid + GlitchLegend, 2026-07-03) |
 | ABILITY_COSMETIC | 1 | DIRECT | EMP @ ARC |
 
 **Paid tiers (`EAFLCosmeticTier`):** SPARK ($10 = 10,000V / 100,000W, Watts-buyable) · SURGE ($16 =
@@ -53,10 +53,10 @@ bare name; never encode color in identity names).
 limited-edition rarity tiers (Static->Singularity) are in the pricing SSOT, enforcement PlayFab-gated.
 
 ================================================================================
-## THE CATALOG (all 149, by type)
+## THE CATALOG (all 272, by type)
 ================================================================================
 
-### WEAPON (29) -- `AFL.Weapon.<Base>.<Color>`
+### WEAPON (152) -- `AFL.Weapon.<Base>.<Color>`  (rows below = the legacy-8 sample; full 48-grid in the matrix)
 | CosmeticId | Tier | Acq | Rarity | Price | Source |
 |---|---|---|---|---|---|
 | AFL.Weapon.Pistol.NeonGreen | SPARK | DIRECT | Common | V0 W0 | (existing) |
@@ -88,6 +88,13 @@ limited-edition rarity tiers (Static->Singularity) are in the pricing SSOT, enfo
 | AFL.Weapon.Ioncaster.CyanMagenta | SPARK | DIRECT | Common | V0 W0 | factory combo |
 | AFL.Weapon.Ioncaster.GreenGold | SPARK | DIRECT | Common | V0 W0 | factory combo |
 | AFL.Weapon.Ioncaster.GlitchLegend | SURGE | DIRECT | Legendary | V0 W0 | factory legendary |
+
+**2026-07-03 -- 48-COLOR GRID REGISTERED:** each factory weapon (Arclight/Voltaic/Ioncaster) now carries
+the FULL 48-color grid = 36 SPARK (6 families x 6: Red/Blue/Green/Purple/Pink/Yellow) + 12 SURGE legendary
+(2/family, prismatic/glitch) + GlitchLegend = **50 SKUs each** (150 total). The 8 rows/weapon above are
+the legacy sample; the 41 new colors/weapon (29 SPARK + 12 legendary) are live in the machine catalog
+(272 rows) -- full color list + build status in `IRONICS_CATALOG_MATRIX.md`. All via the locked
+`M_AFL_WeaponSkin_NeonCamo` master (49 MIs). Weapon Volt/Watt pricing = a later pass (V0 for now).
 
 ### ABILITY_COSMETIC (1)
 | CosmeticId | Tier | Acq | Rarity | Price |

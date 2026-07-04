@@ -48,6 +48,10 @@ product, NOT a samey reskin. The addable colors (the other 47) layer ON TOP of t
   the "MODIFY the clean 5.4 mesh, keep topology/UVs, NOT Tripo" rule in Sec 1.)
 - The ORIGINAL color is a REQUIRED, identity-fit SKU field (the default-equipped color). Full 48-color
   palette + per-weapon originals: `IRONICS_CATALOG_MATRIX.md`.
+- **BLOCK-TOLERANCE RETIRED for bases (operator ruling 2026-07-03):** the old base-tier "fast conversion,
+  minor block artifacts OK" is SUPERSEDED -- no anchor base ships with block-artifact tolerance. FLAG for
+  UPLIFT (don't fix now): Arclight's energy-cell block-mag is below the bar -> queue a reshape pass;
+  Voltaic + Ioncaster meet the bar.
 
 ================================================================================
 ## PART 1 -- THE HAND-OFF CONTRACT (pinned; both agents adhere)
