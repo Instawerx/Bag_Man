@@ -6,13 +6,17 @@ Build to it COMPLETELY -- nothing skipped; **register-as-created** fills each ce
 
 - Flat registry mirror (per-SKU rows + running total): `Docs/IRONICS_PRODUCT_SKU_CATALOG.md`.
 - Machine registry (SSOT): `DA_AFL_CosmeticCatalog` (`/AFLBagMan/Cosmetics/`).
-- Status snapshot: **2026-07-03** -- weapon PILOT COMPLETE (3 axes); COLOR SYSTEM = **48 BUILT** (49 MIs
-  incl. legacy); 48-color skin GRID REGISTERED per weapon (Arclight/Voltaic/Ioncaster = 50 SKUs each,
-  272 catalog rows); beams/pulses NOT started (next stage).
+- Status snapshot: **2026-07-03** -- weapon PILOT COMPLETE (3 axes); 49 color MIs BUILT (real assets);
+  48-color grid REGISTERED per weapon (272 rows) **but PENDING-PROOF** -- the runtime color-APPLY is a GAP
+  (the WeaponId consumer equips the weapon but IGNORES the `.<Color>` suffix -> the weapon shows its BAKED
+  Body-slot default; selecting a color does NOT apply its MI). Only the 3 baked defaults (Voltaic=ElectricBlue,
+  Ioncaster=ArcViolet, Arclight) are PIE-PROVEN. beams/pulses NOT started.
 
-> **BUILT 2026-07-03:** all 48 colors (49 MIs off the locked master) + the 48-color skin grid registered
-> per weapon. 36 SPARK + 12 SURGE legendary + per-weapon originals + the high-quality-base principle =
-> APPROVED + built. **NEXT: beams + pulses (48 each).**
+> **STATUS 2026-07-03 (CORRECTED -- registered != done):** 49 MIs BUILT (real) + 48-color grid REGISTERED
+> (272 rows). BUT the runtime color-APPLY is NOT wired (gap: the WeaponId consumer ignores the color suffix
+> -> baked default shows). Only the 3 baked-default colors are PIE-PROVEN; the grid is **PENDING-PROOF**
+> until the consumer applies the selected MI at runtime + it's PIE-watched (batch harness). **GAP fix +
+> pipeline proof = IN PROGRESS.**
 
 ================================================================================
 ## THE 5 AXES
@@ -125,7 +129,7 @@ all future weapons/patterns.  Per weapon (1 pattern): 48 color skins + base.
 |---|---|---|
 | Colors (MIs) | **49 BUILT** (8 legacy + 41 new) | 48 palette (+ GlitchLegend legacy) |
 | Weapons (bases) | 3 (+2 legacy) | 3 + ~14 harvestable candidates |
-| Weapon-skins (pattern x color) | **150 BUILT** (3 weapons x [base + 48 + GlitchLegend]) | Weapons x Patterns x 48 |
+| Weapon-skins (pattern x color) | **150 REGISTERED / 3 PIE-PROVEN** (only the baked defaults apply; runtime color-apply = GAP) | Weapons x Patterns x 48 |
 | Beams (color) | 0 | 48 (NEXT stage) |
 | Pulses (color) | 0 | 48 (NEXT stage) |
 
