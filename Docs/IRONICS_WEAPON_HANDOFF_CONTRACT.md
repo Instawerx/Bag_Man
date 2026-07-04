@@ -36,6 +36,20 @@ Baton flips at **BASE-EXPORTED** (AIK->Desktop) and **FBX-RETURNED** (Desktop->A
 report names each weapon's current state in this vocabulary.
 
 ================================================================================
+## PART 0.5 -- THE HIGH-QUALITY-BASE PRINCIPLE (market separation -- factory rule)
+================================================================================
+**Every weapon = 1 ORIGINAL HIGH-QUALITY UNIQUE MESH + its identity-fit ORIGINAL color = the weapon's
+DISTINCT BASE IDENTITY.** This is the market separator -- each weapon is a genuinely distinct, high-quality
+product, NOT a samey reskin. The addable colors (the other 47) layer ON TOP of that distinct base.
+- **Anchor product** = the base weapon (unique mesh + original color, HIGH quality). **Customization
+  layer** = the 47 addable colors (owned + equipped via the WeaponId/skin system).
+- **Quality bar for the anchor mesh = "smoothly integrated"** (the mid/top-tier finish, NOT block-artifact
+  fast conversions). The anchor carries the product's value; **quality is the separator**. (Reinforces
+  the "MODIFY the clean 5.4 mesh, keep topology/UVs, NOT Tripo" rule in Sec 1.)
+- The ORIGINAL color is a REQUIRED, identity-fit SKU field (the default-equipped color). Full 48-color
+  palette + per-weapon originals: `IRONICS_CATALOG_MATRIX.md`.
+
+================================================================================
 ## PART 1 -- THE HAND-OFF CONTRACT (pinned; both agents adhere)
 ================================================================================
 
