@@ -77,13 +77,24 @@ public:
 
 	/** AUTHORITY-ONLY: set the equipped weapon's skin MI on the server. Replicates to all clients (MIRRORS
 	 *  SetFacemask exactly, for the weapon axis). Applied to the equipped weapon mesh's material slots (the
-	 *  48-color NeonCamo MIs off the locked master). nullptr = no override (the weapon keeps its baked default).
-	 *  Completes the #43 WeaponId generalization: RefreshWeaponForPawn is the EQUIP half, this is the COLOR half. */
+	 *  48-color NeonCamo MIs off the locked master). nullptr = no override (the weapon keeps its baked original).
+	 *  Driven by the INDEPENDENT WeaponSkinId axis (RefreshWeaponSkinForPawn) -- a skin applies to ANY weapon. */
 	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
 	void SetWeaponSkin(UMaterialInstanceConstant* NewMaterial);
 
 	/** Read by the re-apply paths; nullptr = no weapon-skin override. */
 	UMaterialInstanceConstant* GetWeaponSkin() const { return WeaponSkinMaterial; }
+
+	/** AUTHORITY-ONLY: set the equipped weapon's BEAM color asset on the server. Replicates to all clients
+	 *  (MIRRORS SetWeaponSkin, for the INDEPENDENT BeamId axis -- FAFLCosmeticSelection.BeamId, DECOUPLED from
+	 *  the weapon-skin selection). A beam is its OWN owned item (choose-2-from-catalog, IRONICS_PLAYER_FLOW):
+	 *  the selected beam applies to ANY equipped weapon, OVERRIDING its default beam, EXCEPT a weapon whose
+	 *  bLockedSignatureBeam is set (special guns keep their signature beam). nullptr = no beam override. */
+	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
+	void SetBeamColor(UAFLSkinColorAsset* NewBeamColor);
+
+	/** Read by the re-apply paths; nullptr = no beam override (weapon keeps its default beam). */
+	UAFLSkinColorAsset* GetBeamColor() const { return BeamColorAsset; }
 
 protected:
 	//~UActorComponent interface
@@ -138,4 +149,22 @@ protected:
 	 *  ULyraEquipmentManagerComponent -> the ranged-weapon instance -> its spawned actor -> SkeletalMesh),
 	 *  NOT the pawn's body parts. Null WeaponSkinMaterial = no-op (keep the weapon's baked default). Idempotent. */
 	void ApplyWeaponSkinToEquipped();
+
+	/** The equipped weapon's BEAM color -- replicated PARALLEL to WeaponSkinMaterial (same race-safe two-path
+	 *  spine), for the INDEPENDENT BeamId axis. A content asset (UAFLSkinColorAsset carrying the beam tint in
+	 *  ColorParameters["BeamColor"]) -> replication-safe by pointer, exactly like SkinColor/BodyColor. nullptr =
+	 *  no beam override. */
+	UPROPERTY(ReplicatedUsing = OnRep_BeamColor)
+	TObjectPtr<UAFLSkinColorAsset> BeamColorAsset = nullptr;
+
+	UFUNCTION()
+	void OnRep_BeamColor();
+
+	/** PATH 2 (beam-color): reflection-WRITE LaserTintColor = (the asset's ColorParameters["BeamColor"], A=1)
+	 *  onto the equipped weapon INSTANCE(s) -- the ability/cue re-reads LaserTintColor on the next fire (no
+	 *  live-beam surgery; the exact seam AFLLaserVisualStatics::ReadLaserTint reflects). MIRRORS
+	 *  ApplyWeaponSkinToEquipped's reach (the pawn's ULyraEquipmentManagerComponent -> ranged-weapon instances)
+	 *  but the target is the INSTANCE's LaserTintColor (the beam seam), NOT the actor mesh. A weapon whose
+	 *  bLockedSignatureBeam=true is SKIPPED (its signature beam is locked). Null asset = no-op. Idempotent. */
+	void ApplyBeamColorToEquipped();
 };

@@ -113,6 +113,24 @@ projectile that STICKS to a target or wall, then applies its effect.** Structura
 - **2H (rifle/beam/Pulse/gravity):** mesh = grip + `Muzzle` + **foregrip socket**; `ABP_RifleAnimLayers`.
 - **1H (hand pistol):** mesh = grip + `Muzzle` **only**; `ABP_PistolAnimLayers`; left hand free.
 
+### 3.3 SPECIAL-GUN category — LOCKED SIGNATURE BEAM (operator-directed 2026-07-03)
+A **special gun** is a weapon whose **beam is a locked signature**: the independent `BeamId` cosmetic axis
+(a player's owned beam applies to **ANY** weapon, overriding its default beam — see the beam re-grounding)
+**does NOT apply** to it. A special gun **keeps its own signature beam** regardless of the equipped beam.
+- **A defined category (more members will be added); FIRST member = the Gravity Gun** (`OmniWalk`, §3
+  roster — ULTRA-RARE, map-gated). Its signature-beam *spec* is authored when the gravity gun is built
+  (→ Gravity SSOT); this section lands the **category + the mechanism** only, not the gravity gun's beam.
+- **Mechanism (wired in AFLCombat 2026-07-03):** a per-weapon-instance bool **`bLockedSignatureBeam`**. The
+  beam consumer (`UAFLSkinColorComponent::ApplyBeamColorToEquipped`, driven by
+  `UAFLSkinColorControllerComponent::RefreshBeamColorForPawn`) **reflection-reads** it on the equipped
+  `B_WeaponInstance_AFL_*`: **`true` → SKIP the `BeamId` override** (keep the authored signature beam);
+  **absent / `false` → the beam override applies** (every normal weapon). A special gun opts in by setting
+  `bLockedSignatureBeam=true` on its weapon-instance BP.
+- **Rationale:** a signature beam is part of an ultra-rare weapon's identity — not overridable by a common
+  owned beam. This is the beam-axis analogue of "a base weapon's original color is its identity" (the
+  high-quality-base principle): the special gun's beam is baked-identity, the `BeamId` axis is opt-in
+  cosmetic, and identity wins.
+
 ---
 
 ## 4. THE TWO GENERATION LISTS — build A once, tint B (never conflate)
@@ -164,6 +182,12 @@ this look — translucent energy + neon + tracers, not opaque/metallic.
   carries the **same data shape** (PriceRung / RarityTier / MintCap / bundle / discountable / tradeable)
   and can be **any rarity tier or part of a bundle** — exactly like a finish or identity SKU. The color
   variants (§4 LIST B) are these SKUs.
+- **⚠ INDEPENDENT-AXIS ALIGNMENT (2026-07-03, operator-ruled):** a weapon skin is its **OWN item axis**
+  `AFL.WeaponSkin.<Pattern>.<Color>` (`WeaponSkinId`) — **ONE skin applies to ANY weapon**, overriding the
+  weapon's baked original color. This SUPERSEDES the earlier per-weapon `AFL.Weapon.<W>.<Color>` coupling (a
+  skin was wrongly a weapon property — the same drift class as beam-into-skin). The weapon's own SKU
+  `AFL.Weapon.<W>` = the gun + its baked ORIGINAL color (identity); the skin OVERRIDES. Canonical model:
+  `IRONICS_CATALOG_MATRIX.md` → **THE INDEPENDENT-AXIS ECONOMY MODEL** (every cosmetic = an independent owned+applied item).
 
 ---
 
@@ -198,8 +222,9 @@ this look — translucent energy + neon + tracers, not opaque/metallic.
 ---
 
 ## 9. Cross-links
-- **`IRONICS_PLAYER_FLOW.md`** — §9.1 resolved here; weapon skins are `AFL.Weapon.*` SKUs, the separate
-  paid axis (§6), bound-if-free (§8.4).
+- **`IRONICS_PLAYER_FLOW.md`** — §9.1 resolved here; weapon skins are their OWN `AFL.WeaponSkin.<Pattern>.<Color>`
+  axis (`WeaponSkinId` — independent item, applies to ANY weapon; aligned 2026-07-03, superseding the retired
+  per-weapon `AFL.Weapon.<W>.<Color>` coupling), the separate paid axis (§6), bound-if-free (§8.4).
 - **`IRONICS_PRICING_SCARCITY_SSOT.md`** — weapon **and weapon-skin** SKUs ride this (base→FLICKER;
   limited skins → rarity ladder; same data shape).
 - **Gravity SSOT (to be authored)** — gravity + shrink **mechanics** (this doc declares the shells).

@@ -73,14 +73,27 @@ public:
 	void RefreshWeaponForPawn(APawn* Pawn);
 
 	/** AUTHORITY-spine (const; NOT authority-gated in the body -- SetWeaponSkin's HasAuthority guard + OnRep
-	 *  handle clients, exactly like RefreshFacemaskForPawn): resolve the selected WeaponId's ".<Color>" suffix
-	 *  -> the NeonCamo color MI (/Game/Weapons/AFL/Skins/MI_AFL_WeaponSkin_NeonCamo_<Color>) and push it to the
-	 *  pawn's UAFLSkinColorComponent replicated WeaponSkin (all clients converge via OnRep_WeaponSkin ->
-	 *  ApplyWeaponSkinToEquipped). MIRRORS RefreshFacemaskForPawn for the weapon COLOR axis. MUST run AFTER
-	 *  RefreshWeaponForPawn on the spine (the weapon must be equipped before the color applies). No suffix / no
-	 *  MI -> null push (the weapon keeps its baked default). Completes the #43 WeaponId generalization (the
-	 *  equip-half is RefreshWeaponForPawn; this is the color-half). Idempotent. */
+	 *  handle clients, exactly like RefreshFacemaskForPawn): consume the INDEPENDENT WeaponSkinId axis
+	 *  (FAFLCosmeticSelection.WeaponSkinId, "AFL.WeaponSkin.<Pattern>.<Color>" -- a weapon skin is its OWN owned
+	 *  item that applies to ANY equipped weapon, OVERRIDING the weapon's baked original color). Resolve the
+	 *  pattern+color -> the MI (/Game/Weapons/AFL/Skins/MI_AFL_WeaponSkin_<Pattern>_<Color>) and push it to the
+	 *  pawn's UAFLSkinColorComponent replicated WeaponSkin (clients converge via OnRep_WeaponSkin ->
+	 *  ApplyWeaponSkinToEquipped -> the weapon-mesh slots). MIRRORS RefreshFacemaskForPawn. Runs beside
+	 *  RefreshWeaponForPawn / RefreshBeamColorForPawn on the spine. No selection / no MI -> null push (the weapon
+	 *  keeps its baked ORIGINAL color). REPLACES the retired per-weapon WeaponId ".<Color>" suffix. Idempotent. */
 	void RefreshWeaponSkinForPawn(APawn* Pawn) const;
+
+	/** AUTHORITY-spine (const; not authority-gated in the body -- SetBeamColor's HasAuthority guard + OnRep handle
+	 *  clients, exactly like RefreshWeaponSkinForPawn): consume the INDEPENDENT BeamId axis (FAFLCosmeticSelection.
+	 *  BeamId -- a beam is its OWN owned item, decoupled from the weapon AND its skin). Resolve BeamId via the catalog
+	 *  to a UAFLSkinColorAsset (the SAME catalog->asset resolve as Edge/Body/Facemask), then push it to the pawn's
+	 *  UAFLSkinColorComponent replicated BeamColor (clients converge via OnRep_BeamColor -> ApplyBeamColorToEquipped ->
+	 *  reflection-write LaserTintColor on the equipped weapon instance). The selected beam applies to ANY equipped
+	 *  weapon, OVERRIDING its default beam (special-gun-locked weapons excepted -- in ApplyBeamColorToEquipped). Runs
+	 *  beside RefreshWeaponForPawn/RefreshWeaponSkinForPawn on the same possession/OnRep/nudge spine. NAME_None /
+	 *  unresolved -> null push (weapon keeps its default beam). Idempotent. The 3rd independent axis: weapon +
+	 *  weapon-skin + beam. */
+	void RefreshBeamColorForPawn(APawn* Pawn) const;
 
 protected:
 	virtual void BeginPlay() override;

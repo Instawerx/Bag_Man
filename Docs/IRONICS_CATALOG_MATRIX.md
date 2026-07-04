@@ -6,17 +6,23 @@ Build to it COMPLETELY -- nothing skipped; **register-as-created** fills each ce
 
 - Flat registry mirror (per-SKU rows + running total): `Docs/IRONICS_PRODUCT_SKU_CATALOG.md`.
 - Machine registry (SSOT): `DA_AFL_CosmeticCatalog` (`/AFLBagMan/Cosmetics/`).
-- Status snapshot: **2026-07-03** -- weapon PILOT COMPLETE (3 axes); 49 color MIs BUILT (real assets);
-  48-color grid REGISTERED per weapon (272 rows) **but PENDING-PROOF** -- the runtime color-APPLY is a GAP
-  (the WeaponId consumer equips the weapon but IGNORES the `.<Color>` suffix -> the weapon shows its BAKED
-  Body-slot default; selecting a color does NOT apply its MI). Only the 3 baked defaults (Voltaic=ElectricBlue,
-  Ioncaster=ArcViolet, Arclight) are PIE-PROVEN. beams/pulses NOT started.
+- Status snapshot: **2026-07-03** -- weapon PILOT COMPLETE (3 axes); 49 color MIs BUILT (real assets).
+  **Runtime skin-apply consumer BUILT** (applies the selected MI to the equipped weapon mesh) + **RE-KEYED to
+  the independent `WeaponSkinId` axis** (aligned 2026-07-03: a skin is its OWN item applied to ANY weapon, NOT
+  the retired per-weapon `AFL.Weapon.<W>.<Color>` suffix). Beam `BeamId` axis BUILT (same build). SKUs migrating
+  **144 per-weapon skins -> 48 universal `AFL.WeaponSkin.NeonCamo.<Color>`**. **PENDING:** the one build (skin
+  re-key + beam axis) + the migration + PIE-proof. Only the 3 baked ORIGINAL colors (Voltaic=ElectricBlue,
+  Ioncaster=ArcViolet, Arclight) are PIE-PROVEN; pulses NOT started (need a `PulseId` axis).
 
-> **STATUS 2026-07-03 (CORRECTED -- registered != done):** 49 MIs BUILT (real) + 48-color grid REGISTERED
-> (272 rows). BUT the runtime color-APPLY is NOT wired (gap: the WeaponId consumer ignores the color suffix
-> -> baked default shows). Only the 3 baked-default colors are PIE-PROVEN; the grid is **PENDING-PROOF**
-> until the consumer applies the selected MI at runtime + it's PIE-watched (batch harness). **GAP fix +
-> pipeline proof = IN PROGRESS.**
+> **STATUS 2026-07-04 (FULL PALETTE PIE-PROVEN via the `afl.Cosmetic.Cycle` harness + auto-fire):** the runtime
+> cosmetic system is COMPLETE + PROVEN. The harness auto-cycled the whole palette on the listen-host; the log
+> confirms **`DONE axis=WeaponSkin count=49`** + **`DONE axis=Beam count=49`** with **zero resolve failures** (no
+> `mic=null` / `asset=null` in the driven axis; `ApplyBeamColor wrote LaserTintColor` x every beam), and the
+> operator watched both cycles green. **49 WeaponSkin SKUs + 49 Beam SKUs PIE-PROVEN** -- each skin resolved its MI
+> + applied to the mesh; each beam resolved its `DA_AFL_BeamColor` asset + wrote `LaserTintColor`, rendered live by
+> the beam-axis auto-fire (`InputTag.Weapon.Fire` pulse). Both are INDEPENDENT axes (`WeaponSkinId` / `BeamId`),
+> each applies to ANY weapon. The Cycle harness is the standing volume-proof tool (reusable for Pulse when its axis
+> lands, #21). See THE INDEPENDENT-AXIS ECONOMY MODEL below.
 
 ================================================================================
 ## THE 5 AXES
@@ -29,9 +35,52 @@ Build to it COMPLETELY -- nothing skipped; **register-as-created** fills each ce
 5. **PULSES** -- pulse-color cosmetics (one SKU per color = 48).
 
 Multiplication (each cell = one SKU):
-- **Weapon skins** = PATTERNS x 48 COLORS, per weapon.
+- **Weapon skins** = PATTERNS x 48 COLORS -- **UNIVERSAL** (aligned 2026-07-03: `AFL.WeaponSkin.<Pattern>.<Color>`,
+  one skin applies to ANY weapon; NOT per-weapon). See THE INDEPENDENT-AXIS ECONOMY MODEL below.
 - **Beams** = 48 COLORS.  **Pulses** = 48 COLORS.
 - **Weapons** = the harvested bases (each = unique high-quality mesh + original color + addable colors).
+
+================================================================================
+## THE INDEPENDENT-AXIS ECONOMY MODEL  [CANONICAL -- every cosmetic is its OWN item]
+================================================================================
+**THE MODEL (locked 2026-07-03, operator-ruled).** Every cosmetic category is an INDEPENDENT ownable +
+applicable ITEM -- its own SKU namespace, its own selection field in `FAFLCosmeticSelection`, its own
+consumer. A player OWNS items per-category and MIXES them to build a loadout. **No category is a
+sub-property of another.** This is LAW -- it stops the coupling drift hit twice (beam-into-skin, skin-into-weapon).
+
+| Category | SKU namespace | Selection field | Consumer | Applies to |
+|---|---|---|---|---|
+| Identity | `AFL.Team.<X>` / `AFL.Character.<X>` | TeamId / CharacterId | RefreshSkin / possession | the robot |
+| Robot skin / body finish | `AFL.Body.<X>` (`AFL.Finish.*`) | BodyId | body-color path | the robot body |
+| Edge | `AFL.Edge.<X>` | EdgeId | RefreshSkinForPawn | the robot edge |
+| Facemask | `AFL.Facemask.<X>` | FacemaskId | RefreshFacemaskForPawn | the robot face |
+| Helmet | `AFL.Helmet.<X>` | HelmetId | *(staged -- axis exists, consumer pending)* | the robot head |
+| **Weapon** | `AFL.Weapon.<W>` | WeaponId | RefreshWeaponForPawn | equips the gun (+ baked ORIGINAL color) |
+| **Weapon skin** | `AFL.WeaponSkin.<Pattern>.<Color>` | WeaponSkinId | RefreshWeaponSkinForPawn | ANY equipped weapon (overrides original) |
+| **Beam** | `AFL.Beam.<Color>` | BeamId | RefreshBeamColorForPawn | ANY equipped weapon (except special-guns) |
+| **Pulse** | `AFL.Pulse.<Color>` | *PulseId (NOT YET)* | *(NOT BUILT)* | ANY equipped weapon (planned) |
+
+**The WEAPON side is FOUR independent axes a player mixes:** WeaponId (which gun) + WeaponSkinId (which skin,
+any gun) + BeamId (which beam, any gun) + [PulseId when built] -- plus the robot-side axes (body / edge /
+facemask / helmet / identity). Own each separately; combine freely.
+
+**RETIRED coupling (do NOT reintroduce):**
+- `AFL.Weapon.<W>.<Color>` (skin baked as a per-weapon suffix) -> **RETIRED 2026-07-03.** A weapon skin is its
+  own `AFL.WeaponSkin.<Pattern>.<Color>` item applied to any weapon. The per-weapon **base** row
+  `AFL.Weapon.<W>` STAYS (the gun + its baked original color); skins OVERRIDE it.
+- Beam color folded into the weapon skin -> **rejected at design.** The beam is `BeamId` (its own axis).
+
+**FLAGGED (still coupled / missing -- fix when built, mirror this model):**
+- **PULSE [QUEUED TASK -- tracked 2026-07-03, `BAG_MAN_LIVE_TRACKER`]:** currently COUPLED/MISSING -- no
+  `PulseId` field in `FAFLCosmeticSelection`, no consumer, no namespace/gate/cheat. **REQUIREMENT (fold in
+  when pulses are built, do NOT forget):** mirror the Beam axis EXACTLY -- add `PulseId` to
+  `FAFLCosmeticSelection` + a `RefreshPulseColorForPawn` consumer + the `AFL.Pulse.<Color>` namespace +
+  an entitlement-gate line + an `afl.Cosmetic.SetPulse` cheat. Until then pulses are UN-OWNABLE at runtime.
+  (The 3rd coupling flagged this pass: beam-into-skin [fixed], skin-into-weapon [fixed], pulse-missing [queued].)
+- **HELMET:** `HelmetId` exists + replicates but its consumer is staged (like Beam was) -- not drift, just
+  unconsumed; wire when helmets are built.
+- **Special guns** keep a LOCKED signature beam (`bLockedSignatureBeam`) -> BeamId does not override them
+  (`IRONICS_WEAPONS_SSOT` §3.3; gravity gun = first member).
 
 ================================================================================
 ## THE HIGH-QUALITY-BASE PRINCIPLE (market separation)  [PROPOSED -- approve]
@@ -129,9 +178,9 @@ all future weapons/patterns.  Per weapon (1 pattern): 48 color skins + base.
 |---|---|---|
 | Colors (MIs) | **49 BUILT** (8 legacy + 41 new) | 48 palette (+ GlitchLegend legacy) |
 | Weapons (bases) | 3 (+2 legacy) | 3 + ~14 harvestable candidates |
-| Weapon-skins (pattern x color) | **150 REGISTERED / 3 PIE-PROVEN** (only the baked defaults apply; runtime color-apply = GAP) | Weapons x Patterns x 48 |
-| Beams (color) | 0 | 48 (NEXT stage) |
-| Pulses (color) | 0 | 48 (NEXT stage) |
+| Weapon-skins (universal) | **49 UNIVERSAL PIE-PROVEN 2026-07-04** (`AFL.WeaponSkin.NeonCamo.<Color>` / WeaponSkinId -- applies to ANY weapon; cycle-proven) | + more patterns x 48 |
+| Beams (color) | **49 PIE-PROVEN 2026-07-04** (`AFL.Beam.<Color>` / BeamId -- independent axis, auto-fire cycle-proven) | 48-color palette DONE |
+| Pulses (color) | 0 -- needs the **`PulseId` axis** (mirror Beam, #21) | 48 (axis pending) |
 
 Formulae: weapon-skins = **Weapons x Patterns x 48** ; beams = **48** ; pulses = **48**.
 

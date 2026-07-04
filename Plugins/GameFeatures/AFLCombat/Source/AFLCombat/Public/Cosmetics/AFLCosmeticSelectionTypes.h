@@ -74,6 +74,13 @@ struct FAFLCosmeticSelection
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
 	FName WeaponId = NAME_None;
 
+	/** AFL.WeaponSkin.<Pattern>.<Color>. INDEPENDENT weapon-skin axis (parallel to BeamId): a skin is its OWN
+	 *  owned item that applies to ANY equipped weapon, OVERRIDING the weapon's baked original color -- NOT the
+	 *  retired per-weapon AFL.Weapon.<W>.<Color> coupling (own one skin, wear it on any gun). Consumer =
+	 *  RefreshWeaponSkinForPawn (resolve pattern+color -> the NeonCamo MI -> the weapon-mesh slots). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
+	FName WeaponSkinId = NAME_None;
+
 	/** AFL.Beam.<Name>. Axis taxonomy generalizes in S-ECON-CAT. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
 	FName BeamId = NAME_None;

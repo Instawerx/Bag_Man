@@ -1366,6 +1366,326 @@ namespace
 		TEXT("Option B body axis: client-issued PURE caller of ServerSetCosmeticSelection (sets BodyId -> a Finish preset). Independent of SetEdge -> mix-and-match. Usage: afl.Cosmetic.SetBody <color> (or full AFL.Body.<color>)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetBody));
 
+	// --- BEAM selection seam: afl.Cosmetic.SetBeam <color> (INDEPENDENT BeamId axis) ---
+	// MIRRORS HandleAFLCosmeticSetBody EXACTLY, but sets BeamId (AFL.Beam.<color> -> a beam-color SKU via the
+	// catalog) instead of BodyId. The beam is its OWN owned item, INDEPENDENT of the weapon AND its skin -> a
+	// blue weapon can fire a red beam (mix-and-match). PURE caller: read the current replicated selection, seed
+	// AFL.Team.ARIA if identity unset (so _Validate passes), set ONLY BeamId, hand to ServerSetCosmeticSelection.
+	// The BeamId consumer (RefreshBeamColorForPawn -> SetBeamColor -> OnRep_BeamColor -> ApplyBeamColorToEquipped)
+	// then reflection-writes LaserTintColor on the equipped weapon instance; the beam re-reads it on the next fire.
+	void HandleAFLCosmeticSetBeam(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetBeam - usage: afl.Cosmetic.SetBeam <CrimsonArc|ElectricBlue|...> (or full AFL.Beam.<color>)."));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetBeam - no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetBeam - no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		FString IdStr = Args[0].TrimStartAndEnd();
+		if (!IdStr.StartsWith(TEXT("AFL.Beam."), ESearchCase::IgnoreCase))
+		{
+			IdStr = FString::Printf(TEXT("AFL.Beam.%s"), *IdStr);
+		}
+		const FName BeamId(*IdStr);
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		if (Request.GetActiveIdentityId() == NAME_None)
+		{
+			Request.IdentityType = EAFLIdentityType::Team;
+			Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+		}
+		Request.BeamId = BeamId;
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetBeam - client issued ServerSetCosmeticSelection(beam=%s). Own it first (afl.Wallet.Buy %s). Watch [SkinDiag] RefreshBeamColor/OnRep_BeamColor/ApplyBeamColor with `afl.SkinDiag 1`."),
+			*BeamId.ToString(), *BeamId.ToString());
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetBeamCmd(
+		TEXT("afl.Cosmetic.SetBeam"),
+		TEXT("INDEPENDENT beam axis: client-issued PURE caller of ServerSetCosmeticSelection (sets BeamId -> a beam-color SKU). Independent of the weapon + its skin -> a blue weapon can fire a red beam. Usage: afl.Cosmetic.SetBeam <color> (or full AFL.Beam.<color>). Entitlement-gated: afl.Wallet.Buy AFL.Beam.<color> first."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetBeam));
+
+	// --- WEAPON-SKIN selection seam: afl.Cosmetic.SetWeaponSkin <[Pattern.]Color> (INDEPENDENT WeaponSkinId axis) ---
+	// MIRRORS HandleAFLCosmeticSetBeam. Sets WeaponSkinId (AFL.WeaponSkin.<Pattern>.<Color>) -- a weapon skin is its
+	// OWN owned item, applies to ANY equipped weapon (OVERRIDES its baked original color), NOT the retired per-weapon
+	// AFL.Weapon.<W>.<Color> coupling. A bare "<Color>" arg defaults the NeonCamo pattern.
+	void HandleAFLCosmeticSetWeaponSkin(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetWeaponSkin - usage: afl.Cosmetic.SetWeaponSkin <CrimsonArc | NeonCamo.CrimsonArc> (or full AFL.WeaponSkin.<Pattern>.<Color>)."));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetWeaponSkin - no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetWeaponSkin - no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		FString IdStr = Args[0].TrimStartAndEnd();
+		if (!IdStr.StartsWith(TEXT("AFL.WeaponSkin."), ESearchCase::IgnoreCase))
+		{
+			// bare "<Color>" defaults the NeonCamo pattern; "<Pattern>.<Color>" passes through.
+			if (!IdStr.Contains(TEXT(".")))
+			{
+				IdStr = FString::Printf(TEXT("NeonCamo.%s"), *IdStr);
+			}
+			IdStr = FString::Printf(TEXT("AFL.WeaponSkin.%s"), *IdStr);
+		}
+		const FName WeaponSkinId(*IdStr);
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		if (Request.GetActiveIdentityId() == NAME_None)
+		{
+			Request.IdentityType = EAFLIdentityType::Team;
+			Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+		}
+		Request.WeaponSkinId = WeaponSkinId;
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetWeaponSkin - client issued ServerSetCosmeticSelection(weaponSkin=%s). Own it first (afl.Wallet.Buy %s). Watch [SkinDiag] RefreshWeaponSkin/OnRep_WeaponSkin/ApplyWeaponSkin with `afl.SkinDiag 1`."),
+			*WeaponSkinId.ToString(), *WeaponSkinId.ToString());
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetWeaponSkinCmd(
+		TEXT("afl.Cosmetic.SetWeaponSkin"),
+		TEXT("INDEPENDENT weapon-skin axis: client-issued PURE caller of ServerSetCosmeticSelection (sets WeaponSkinId -> the NeonCamo MI on ANY equipped weapon, overriding its baked original). Usage: afl.Cosmetic.SetWeaponSkin <[Pattern.]Color> (e.g. CrimsonArc, NeonCamo.CrimsonArc, or full AFL.WeaponSkin.<Pattern>.<Color>). Entitlement-gated: afl.Wallet.Buy first."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetWeaponSkin));
+
+	// =====================================================================================================
+	// afl.Cosmetic.Cycle <axis> [holdSeconds] -- the STANDING VOLUME-PROOF HARNESS (reusable per-axis).
+	// Auto-cycles EVERY purchasable SKU of one cosmetic AXIS on the equipped weapon: grants ownership (so the
+	// entitlement gate passes) + applies each in sequence, holding ~holdSeconds each with an on-screen label,
+	// so the operator just WATCHES (no per-SKU typing). DUAL VERIFICATION: (1) the operator watches VISUAL
+	// correctness (hue / liquid-glass / legendaries glitch-on); (2) the LOG proves the mechanism -- each apply
+	// emits [AFL_TEST_CYCLE] (issued) and, with afl.SkinDiag auto-enabled, the CONSUMER emits [SkinDiag]
+	// Refresh...->mic (resolved). AIK reads the log ONLY AFTER PIE closes (never mid-PIE) + correlates the two
+	// markers by SKU id -> a SKU flips PIE-PROVEN only when BOTH pass (watched-correct AND resolved-in-log).
+	// Parameterized by axis -> reusable for WeaponSkin, Beam, and Pulse (when its axis lands). LISTEN-HOST
+	// window (grant = authority). Equip a weapon first (afl.Cosmetic.SetCosmeticWeapon or SetCosmeticWeapon).
+	struct FAFLCosmeticCycleState
+	{
+		TArray<FName> Ids;
+		int32 Index = -1;
+		FString Axis;
+		float Hold = 2.5f;
+		FTimerHandle Timer;
+		FTimerHandle FireTimer; // beam-axis auto-fire (the beam renders only when the weapon fires)
+		TWeakObjectPtr<UAFLCosmeticLoadoutComponent> Loadout;
+		TWeakObjectPtr<UWorld> World;
+	};
+	static TWeakPtr<FAFLCosmeticCycleState> GActiveCosmeticCycle;
+	static const uint64 GCosmeticCycleMsgKey = 0x41464C43; // fixed on-screen key -> the label updates in place
+
+	static void CosmeticCycleApplyNext(TSharedPtr<FAFLCosmeticCycleState> State)
+	{
+		UWorld* W = State.IsValid() ? State->World.Get() : nullptr;
+		UAFLCosmeticLoadoutComponent* L = State.IsValid() ? State->Loadout.Get() : nullptr;
+		if (!W || !L) { return; } // PIE torn down -> the world's timer manager is gone; nothing to do
+
+		State->Index++;
+		if (!State->Ids.IsValidIndex(State->Index))
+		{
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(GCosmeticCycleMsgKey, 8.0f, FColor::Green,
+					FString::Printf(TEXT("CYCLE [%s] DONE -- %d SKUs. Close PIE; AIK reads [AFL_TEST_CYCLE]+[SkinDiag]."),
+						*State->Axis, State->Ids.Num()));
+			}
+			UE_LOG(LogAFLCombat, Display, TEXT("[AFL_TEST_CYCLE] DONE axis=%s count=%d"), *State->Axis, State->Ids.Num());
+			W->GetTimerManager().ClearTimer(State->Timer);
+			W->GetTimerManager().ClearTimer(State->FireTimer);
+			GActiveCosmeticCycle.Reset();
+			return;
+		}
+
+		const FName Id = State->Ids[State->Index];
+		FAFLCosmeticSelection Req = L->GetSelection();
+		if (Req.GetActiveIdentityId() == NAME_None)
+		{
+			Req.IdentityType = EAFLIdentityType::Team;
+			Req.TeamId = FName(TEXT("AFL.Team.ARIA"));
+		}
+		if (State->Axis.Equals(TEXT("WeaponSkin"), ESearchCase::IgnoreCase)) { Req.WeaponSkinId = Id; }
+		else if (State->Axis.Equals(TEXT("Beam"), ESearchCase::IgnoreCase)) { Req.BeamId = Id; }
+		L->ServerSetCosmeticSelection(Req);
+
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(GCosmeticCycleMsgKey, State->Hold + 1.0f, FColor::Cyan,
+				FString::Printf(TEXT("CYCLE [%s]  %d / %d   %s"), *State->Axis, State->Index + 1, State->Ids.Num(), *Id.ToString()));
+		}
+		// [AFL_TEST_CYCLE] = issued; the consumer's [SkinDiag] (auto-enabled) logs the resolve. Same SKU id on both.
+		UE_LOG(LogAFLCombat, Display, TEXT("[AFL_TEST_CYCLE] axis=%s idx=%d/%d sku=%s issued"),
+			*State->Axis, State->Index + 1, State->Ids.Num(), *Id.ToString());
+	}
+
+	// Beam-axis AUTO-FIRE: the beam renders only when the weapon FIRES, so a fast repeating timer pulses the
+	// equipped weapon's fire GameplayEvent (InputTag.Weapon.Fire -- the same event Lyra bots fire with) during a
+	// Beam cycle. The beam sustains + re-reads the cycling LaserTintColor -> the operator just WATCHES (like the
+	// skin cycle). Equip a BEAM weapon first. Cooldown-throttled extra fires are harmlessly dropped. WeaponSkin
+	// cycles do NOT start this (the mesh is always visible).
+	static void CosmeticCycleFire(TSharedPtr<FAFLCosmeticCycleState> State)
+	{
+		if (!State.IsValid()) { return; }
+		UAFLCosmeticLoadoutComponent* L = State->Loadout.Get();
+		APlayerState* PS = L ? Cast<APlayerState>(L->GetOwner()) : nullptr;
+		APawn* Pawn = PS ? PS->GetPawn() : nullptr;
+		if (!Pawn) { return; }
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn))
+		{
+			FGameplayEventData Payload;
+			ASC->HandleGameplayEvent(FGameplayTag::RequestGameplayTag(FName("InputTag.Weapon.Fire")), &Payload);
+		}
+	}
+
+	void HandleAFLCosmeticCycle(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.Cycle - usage: afl.Cosmetic.Cycle <WeaponSkin|Beam> [holdSeconds=2.5]. Equip a weapon first; run on the LISTEN-HOST window."));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.Cycle - no game world (run inside PIE)."));
+			return;
+		}
+
+		const FString Axis = Args[0].TrimStartAndEnd();
+		FString Prefix;
+		if (Axis.Equals(TEXT("WeaponSkin"), ESearchCase::IgnoreCase)) { Prefix = TEXT("AFL.WeaponSkin."); }
+		else if (Axis.Equals(TEXT("Beam"), ESearchCase::IgnoreCase)) { Prefix = TEXT("AFL.Beam."); }
+		else { Ar.Logf(TEXT("afl.Cosmetic.Cycle - unknown axis '%s' (WeaponSkin | Beam; Pulse pending its axis)."), *Axis); return; }
+
+		const float Hold = (Args.Num() >= 2) ? FMath::Max(0.5f, FCString::Atof(*Args[1])) : 2.5f;
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		UAFLWalletComponent* Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+		if (!Loadout || !Wallet)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.Cycle - no loadout/wallet on the local PlayerState."));
+			return;
+		}
+		if (!PS->HasAuthority())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.Cycle - run on the LISTEN-HOST window (grant-ownership needs authority)."));
+			return;
+		}
+
+		UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Catalog)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.Cycle - catalog subsystem not ready."));
+			return;
+		}
+
+		// Enumerate every PURCHASABLE SKU (DIRECT skins/beams) whose id matches the axis prefix, and GRANT each
+		// (DebugGrantOwnership -> the entitlement gate passes for the cycle without a real purchase).
+		TArray<FAFLCatalogEntry> All;
+		Catalog->GetPurchasableEntries(All);
+		TSharedPtr<FAFLCosmeticCycleState> State = MakeShared<FAFLCosmeticCycleState>();
+		State->Axis = Axis;
+		State->Hold = Hold;
+		State->Loadout = Loadout;
+		State->World = World;
+		for (const FAFLCatalogEntry& E : All)
+		{
+			if (E.CosmeticId.ToString().StartsWith(Prefix, ESearchCase::IgnoreCase))
+			{
+				State->Ids.Add(E.CosmeticId);
+				Wallet->DebugGrantOwnership(E.CosmeticId);
+			}
+		}
+		State->Ids.Sort([](const FName& A, const FName& B) { return A.ToString() < B.ToString(); });
+
+		if (State->Ids.Num() == 0)
+		{
+			Ar.Logf(TEXT("afl.Cosmetic.Cycle - no SKUs found for axis '%s' (prefix %s). Author/register the SKUs first."), *Axis, *Prefix);
+			return;
+		}
+
+		// Auto-enable the consumer resolve-diag so the LOG carries [SkinDiag] Refresh...->mic per apply.
+		if (IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.SkinDiag"))) { CVar->Set(TEXT("1")); }
+
+		GActiveCosmeticCycle = State;
+		Ar.Logf(TEXT("afl.Cosmetic.Cycle - START axis=%s count=%d hold=%.1fs granted=%d. WATCH the weapon (each SKU ~%.1fs + on-screen label). Close PIE when done -> AIK reads [AFL_TEST_CYCLE]+[SkinDiag]. afl.Cosmetic.CycleStop to abort."),
+			*Axis, State->Ids.Num(), Hold, State->Ids.Num(), Hold);
+		UE_LOG(LogAFLCombat, Display, TEXT("[AFL_TEST_CYCLE] START axis=%s count=%d hold=%.1f"), *Axis, State->Ids.Num(), Hold);
+
+		FTimerDelegate Del;
+		Del.BindLambda([State]() { CosmeticCycleApplyNext(State); });
+		World->GetTimerManager().SetTimer(State->Timer, Del, Hold, /*bLoop*/ true, /*FirstDelay*/ 0.0f);
+
+		// Beam axis: auto-fire fast so the beam is visible without manual firing (equip a beam weapon first).
+		if (Axis.Equals(TEXT("Beam"), ESearchCase::IgnoreCase))
+		{
+			FTimerDelegate FireDel;
+			FireDel.BindLambda([State]() { CosmeticCycleFire(State); });
+			World->GetTimerManager().SetTimer(State->FireTimer, FireDel, 0.15f, /*bLoop*/ true, /*FirstDelay*/ 0.1f);
+		}
+	}
+
+	void HandleAFLCosmeticCycleStop(const TArray<FString>& /*Args*/, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		TSharedPtr<FAFLCosmeticCycleState> State = GActiveCosmeticCycle.Pin();
+		if (State.IsValid() && State->World.IsValid())
+		{
+			State->World->GetTimerManager().ClearTimer(State->Timer);
+			State->World->GetTimerManager().ClearTimer(State->FireTimer);
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(GCosmeticCycleMsgKey, 4.0f, FColor::Yellow,
+					FString::Printf(TEXT("CYCLE [%s] STOPPED at %d/%d"), *State->Axis, State->Index + 1, State->Ids.Num()));
+			}
+			Ar.Logf(TEXT("afl.Cosmetic.CycleStop - stopped axis=%s at %d/%d."), *State->Axis, State->Index + 1, State->Ids.Num());
+			UE_LOG(LogAFLCombat, Display, TEXT("[AFL_TEST_CYCLE] STOPPED axis=%s at=%d"), *State->Axis, State->Index + 1);
+			GActiveCosmeticCycle.Reset();
+		}
+		else
+		{
+			Ar.Log(TEXT("afl.Cosmetic.CycleStop - no active cycle."));
+		}
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticCycleCmd(
+		TEXT("afl.Cosmetic.Cycle"),
+		TEXT("STANDING VOLUME-PROOF HARNESS: auto-cycles every SKU of a cosmetic axis (grant+apply each, hold ~2.5s, on-screen label + [AFL_TEST_CYCLE] log; auto-enables afl.SkinDiag for the [SkinDiag] resolve log). Operator WATCHES visual; AIK reads the log AFTER PIE. Reusable per-axis. Usage: afl.Cosmetic.Cycle <WeaponSkin|Beam> [holdSeconds]. Equip a weapon first; LISTEN-HOST window."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticCycle));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticCycleStopCmd(
+		TEXT("afl.Cosmetic.CycleStop"),
+		TEXT("Abort the active afl.Cosmetic.Cycle harness run."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticCycleStop));
+
 	// ─── FACEMASK selection seam: afl.Cosmetic.SetFacemask <Name|none> ───────────
 	// MIRRORS HandleAFLCosmeticSetEdge EXACTLY (the proven read-full -> set-one-field -> push pattern). The
 	// only deltas: sets Request.FacemaskId (the new axis), normalizes to AFL.Facemask.<Name>, and accepts

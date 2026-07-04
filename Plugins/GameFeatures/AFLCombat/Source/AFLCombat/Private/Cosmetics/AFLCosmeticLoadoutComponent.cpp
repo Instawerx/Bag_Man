@@ -192,6 +192,7 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	if (Requested.BodyId   != NAME_None && AxisEntitled(Requested.BodyId))   { NewSelection.BodyId   = Requested.BodyId;   }
 	if (Requested.HelmetId != NAME_None && AxisEntitled(Requested.HelmetId)) { NewSelection.HelmetId = Requested.HelmetId; }
 	if (Requested.WeaponId != NAME_None && AxisEntitled(Requested.WeaponId)) { NewSelection.WeaponId = Requested.WeaponId; }
+	if (Requested.WeaponSkinId != NAME_None && AxisEntitled(Requested.WeaponSkinId)) { NewSelection.WeaponSkinId = Requested.WeaponSkinId; }
 	if (Requested.BeamId   != NAME_None && AxisEntitled(Requested.BeamId))   { NewSelection.BeamId   = Requested.BeamId;   }
 	// FACEMASK axis: equip a NEW facemask (entitled, non-None), OR un-equip when the request is explicitly
 	// NAME_None. UNLIKE the other axes, NAME_None is a MEANINGFUL un-equip here -- so the request's FacemaskId
@@ -318,6 +319,7 @@ void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const
 			// subsystem (equipment, not material) -> order-free; server-only + Lyra fast-array-replicated.
 			SkinCtrl->RefreshWeaponForPawn(Pawn);
 				SkinCtrl->RefreshWeaponSkinForPawn(Pawn); // weapon COLOR (WeaponId suffix) -- AFTER equip so the mesh exists
+				SkinCtrl->RefreshBeamColorForPawn(Pawn);  // INDEPENDENT BeamId axis -- beam applies to ANY equipped weapon
 		}
 	}
 }
@@ -349,6 +351,7 @@ void UAFLCosmeticLoadoutComponent::OnPlayerStatePawnSet(APlayerState* /*Player*/
 				// CopyProperties -> respawn-durable, same spine as facemask/skin).
 				SkinCtrl->RefreshWeaponForPawn(NewPawn);
 					SkinCtrl->RefreshWeaponSkinForPawn(NewPawn); // weapon COLOR (WeaponId suffix) -- AFTER equip so the mesh exists
+					SkinCtrl->RefreshBeamColorForPawn(NewPawn);  // INDEPENDENT BeamId axis -- beam applies to ANY equipped weapon
 			}
 		}
 	}

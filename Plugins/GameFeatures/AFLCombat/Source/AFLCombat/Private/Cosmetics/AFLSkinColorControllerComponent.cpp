@@ -67,6 +67,8 @@ void UAFLSkinColorControllerComponent::BeginPlay()
 				RefreshWeaponForPawn(ControlledPawn);
 				// ... then apply the weapon COLOR (the WeaponId suffix) -- AFTER equip so the weapon mesh exists.
 				RefreshWeaponSkinForPawn(ControlledPawn);
+				// INDEPENDENT BeamId axis: apply the selected beam to the equipped weapon (overrides its default beam).
+				RefreshBeamColorForPawn(ControlledPawn);
 				RefreshSkinForPawn(ControlledPawn);
 			}
 		}
@@ -96,6 +98,8 @@ void UAFLSkinColorControllerComponent::OnPossessedPawnChanged(APawn* /*OldPawn*/
 		RefreshWeaponForPawn(NewPawn);
 		// ... then apply the weapon COLOR (the WeaponId suffix) -- AFTER equip so the weapon mesh exists.
 		RefreshWeaponSkinForPawn(NewPawn);
+		// INDEPENDENT BeamId axis: apply the selected beam to the equipped weapon (overrides its default beam).
+		RefreshBeamColorForPawn(NewPawn);
 		RefreshSkinForPawn(NewPawn);
 	}
 }
@@ -482,13 +486,13 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 
 void UAFLSkinColorControllerComponent::RefreshWeaponSkinForPawn(APawn* Pawn) const
 {
-	// MIRRORS RefreshFacemaskForPawn's resolve+push shape, for the weapon COLOR axis. The weapon color rides in
-	// the WeaponId SUFFIX ("AFL.Weapon.<W>.<Color>"): RefreshWeaponForPawn consumed the equip-half (resolve ->
-	// carrier -> EquipItem); THIS consumes the color-half (parse the suffix -> the NeonCamo MI -> push to the
-	// pawn component's replicated WeaponSkin so all clients converge via OnRep_WeaponSkin). Rides the EXISTING
-	// FAFLCosmeticSelection WeaponId axis -- completes the #43 generalization, no new axis, no new net code (the
-	// WeaponSkin MI replicates on the pawn component exactly like Facemask). Called AFTER RefreshWeaponForPawn on
-	// the spine so the weapon is equipped before the color applies. NAME_None / no suffix -> null (baked default).
+	// INDEPENDENT WeaponSkin axis consumer (aligned 2026-07-03). MIRRORS RefreshFacemaskForPawn's resolve+push
+	// shape. The weapon skin is its OWN owned item (FAFLCosmeticSelection.WeaponSkinId, "AFL.WeaponSkin.<Pattern>.
+	// <Color>") -- it applies to ANY equipped weapon, OVERRIDING the weapon's baked ORIGINAL color. This REPLACES
+	// the retired per-weapon WeaponId ".<Color>" suffix coupling (a skin was wrongly a weapon property; now it is
+	// an independent item, exactly like Beam/Facemask/Edge). Push the resolved MI to the pawn component's
+	// replicated WeaponSkin so all clients converge via OnRep_WeaponSkin. Runs beside RefreshWeaponForPawn /
+	// RefreshBeamColorForPawn on the spine. NAME_None / unresolved -> null (weapon keeps its baked original).
 	if (!Pawn)
 	{
 		return;
@@ -503,29 +507,32 @@ void UAFLSkinColorControllerComponent::RefreshWeaponSkinForPawn(APawn* Pawn) con
 
 	const UAFLCosmeticLoadoutComponent* Loadout =
 		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
-	const FName WeaponId = Loadout ? Loadout->GetSelection().WeaponId : NAME_None;
+	const FName WeaponSkinId = Loadout ? Loadout->GetSelection().WeaponSkinId : NAME_None;
 
-	// Parse the ".<Color>" suffix: "AFL.Weapon.<W>.<Color>" -> the 4th token. No 4th token -> no override.
+	// "AFL.WeaponSkin.<Pattern>.<Color>" -> MI_AFL_WeaponSkin_<Pattern>_<Color>. token[2]=pattern (e.g. NeonCamo),
+	// token[3]=color. Fewer than 4 tokens -> no override. The MI is triplanar (weapon-agnostic) -> it lands on
+	// ANY equipped weapon's mesh; the SKU is independent of which weapon is held.
 	UMaterialInstanceConstant* SkinMIC = nullptr;
-	if (WeaponId != NAME_None)
+	if (WeaponSkinId != NAME_None)
 	{
 		TArray<FString> Tokens;
-		WeaponId.ToString().ParseIntoArray(Tokens, TEXT("."));
+		WeaponSkinId.ToString().ParseIntoArray(Tokens, TEXT("."));
 		if (Tokens.Num() >= 4)
 		{
+			const FString& Pattern = Tokens[2];
 			const FString& Color = Tokens[3];
 			const FString MIPath = FString::Printf(
-				TEXT("/Game/Weapons/AFL/Skins/MI_AFL_WeaponSkin_NeonCamo_%s.MI_AFL_WeaponSkin_NeonCamo_%s"),
-				*Color, *Color);
+				TEXT("/Game/Weapons/AFL/Skins/MI_AFL_WeaponSkin_%s_%s.MI_AFL_WeaponSkin_%s_%s"),
+				*Pattern, *Color, *Pattern, *Color);
 			SkinMIC = Cast<UMaterialInstanceConstant>(FSoftObjectPath(MIPath).TryLoad());
 		}
 	}
 
 	if (AFLSkinDiag::IsOn())
 	{
-		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : RefreshWeaponSkin weaponId=%s -> mic=%s"),
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : RefreshWeaponSkin weaponSkinId=%s -> mic=%s"),
 			*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
-			(WeaponId != NAME_None) ? *WeaponId.ToString() : TEXT("<none>"),
+			(WeaponSkinId != NAME_None) ? *WeaponSkinId.ToString() : TEXT("<none>"),
 			SkinMIC ? *SkinMIC->GetName() : TEXT("null"));
 	}
 
@@ -533,5 +540,54 @@ void UAFLSkinColorControllerComponent::RefreshWeaponSkinForPawn(APawn* Pawn) con
 	{
 		// Authority -> replicated WeaponSkin -> all clients apply via OnRep_WeaponSkin (mirrors SetFacemask).
 		PawnComp->SetWeaponSkin(SkinMIC);
+	}
+}
+
+void UAFLSkinColorControllerComponent::RefreshBeamColorForPawn(APawn* Pawn) const
+{
+	// INDEPENDENT BeamId axis consumer (the 3rd axis: weapon + weapon-skin + beam). Mirrors RefreshWeaponSkinForPawn's
+	// resolve+push shape, but reads BeamId (NOT the WeaponId suffix) and resolves it the SAME way Edge/Body/Facemask
+	// resolve -- catalog -> UAFLSkinColorAsset. The asset (its ColorParameters["BeamColor"] tint) is pushed to the
+	// pawn component's replicated BeamColor so all clients converge (OnRep_BeamColor -> ApplyBeamColorToEquipped ->
+	// reflection-write LaserTintColor). A beam is its OWN owned item and applies to ANY equipped weapon (special-gun-
+	// locked excepted in the apply). NAME_None / unresolved -> null push (the weapon keeps its default beam).
+	if (!Pawn)
+	{
+		return;
+	}
+
+	// Read the selection off the PAWN's PlayerState first (respawn-race-safe -- the same PS resolution the other
+	// consumers use), falling back to the controller's.
+	const APlayerState* PawnPS = Pawn->GetPlayerState();
+	const AController* OwningController = GetController<AController>();
+	const APlayerState* CtrlPS = OwningController ? OwningController->PlayerState : nullptr;
+	const APlayerState* SelectionPS = PawnPS ? PawnPS : CtrlPS;
+
+	const UAFLCosmeticLoadoutComponent* Loadout =
+		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+	const FName BeamId = Loadout ? Loadout->GetSelection().BeamId : NAME_None;
+
+	// Resolve BeamId -> the beam-color SKU (a UAFLSkinColorAsset) via the catalog -- the SAME resolve as Edge/Body.
+	UAFLSkinColorAsset* BeamAsset = nullptr;
+	if (BeamId != NAME_None)
+	{
+		if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+		{
+			BeamAsset = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(BeamId));
+		}
+	}
+
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : RefreshBeamColor beamId=%s -> asset=%s"),
+			*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
+			(BeamId != NAME_None) ? *BeamId.ToString() : TEXT("<none>"),
+			BeamAsset ? *BeamAsset->GetName() : TEXT("null"));
+	}
+
+	if (UAFLSkinColorComponent* PawnComp = Pawn->FindComponentByClass<UAFLSkinColorComponent>())
+	{
+		// Authority -> replicated BeamColor -> all clients apply via OnRep_BeamColor (mirrors SetWeaponSkin/SetFacemask).
+		PawnComp->SetBeamColor(BeamAsset);
 	}
 }

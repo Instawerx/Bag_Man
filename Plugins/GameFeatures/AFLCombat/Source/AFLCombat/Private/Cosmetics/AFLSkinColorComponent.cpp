@@ -14,6 +14,7 @@
 #include "Equipment/LyraEquipmentInstance.h"            //  -> its spawned actor
 #include "Weapons/LyraRangedWeaponInstance.h"           // the ranged-weapon instance type (AFL weapons derive from it)
 #include "Components/SkeletalMeshComponent.h"           //  -> SetMaterial on the weapon mesh's slots
+#include "UObject/UnrealType.h"                          // beam-color: reflection read/write of LaserTintColor + bLockedSignatureBeam on the weapon instance
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLSkinColorComponent)
 
@@ -73,6 +74,7 @@ void UAFLSkinColorComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	DOREPLIFETIME(UAFLSkinColorComponent, BodyColor);
 	DOREPLIFETIME(UAFLSkinColorComponent, Facemask);
 	DOREPLIFETIME(UAFLSkinColorComponent, WeaponSkinMaterial);
+	DOREPLIFETIME(UAFLSkinColorComponent, BeamColorAsset);
 }
 
 void UAFLSkinColorComponent::BeginPlay()
@@ -91,6 +93,10 @@ void UAFLSkinColorComponent::BeginPlay()
 
 	// Same reconcile for the weapon-skin (a weapon equipped/replicated after our BeginPlay picks it up here).
 	ApplyWeaponSkinToEquipped();
+
+	// Same reconcile for the beam color (the INDEPENDENT BeamId axis) -- a weapon equipped/replicated after our
+	// BeginPlay picks up the selected beam tint here.
+	ApplyBeamColorToEquipped();
 }
 
 void UAFLSkinColorComponent::SetSkinColor(UAFLSkinColorAsset* NewColor)
@@ -357,7 +363,9 @@ void UAFLSkinColorComponent::ApplyWeaponSkinToEquipped()
 			if (USkeletalMeshComponent* Mesh = WeaponActor->FindComponentByClass<USkeletalMeshComponent>())
 			{
 				++NumMeshesFound;
-				// Apply the color MI to EVERY material slot (Body + Emitter) so the whole weapon reads the hue.
+				// The weapon SKIN colors the WHOLE weapon mesh (Body + Emitter -- BOTH are weapon-mesh slots). The
+				// BEAM is the INDEPENDENT thing (the Niagara, driven by the BeamId axis / LaserTintColor) and is
+				// already decoupled -- so coloring every weapon-mesh slot here never touches the beam.
 				const int32 NumMats = Mesh->GetNumMaterials();
 				for (int32 Slot = 0; Slot < NumMats; ++Slot)
 				{
@@ -372,5 +380,106 @@ void UAFLSkinColorComponent::ApplyWeaponSkinToEquipped()
 		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : ApplyWeaponSkin: found %d weapon-mesh(es) (mi=%s)"),
 			*AFLSkinDiag::Prefix(this), *Owner->GetName(), NumMeshesFound,
 			WeaponSkinMaterial ? *WeaponSkinMaterial->GetName() : TEXT("null"));
+	}
+}
+
+// ---- INDEPENDENT BeamId axis (the 3rd axis: weapon + weapon-skin + beam) ------------------------
+// Mirrors the WeaponSkin spine EXACTLY (replicated asset + OnRep + reconcile), but the apply writes the
+// weapon INSTANCE's LaserTintColor (the beam seam) instead of the mesh material. The beam is DECOUPLED
+// from the weapon skin: it is its own owned item and applies to ANY equipped weapon.
+
+void UAFLSkinColorComponent::SetBeamColor(UAFLSkinColorAsset* NewBeamColor)
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		BeamColorAsset = NewBeamColor;
+
+		// Listen-host: OnRep does NOT fire on the authority -> apply locally now so the host's own beam updates.
+		ApplyBeamColorToEquipped();
+	}
+}
+
+void UAFLSkinColorComponent::OnRep_BeamColor()
+{
+	// PATH 2 (beam-color-arrives-second): the beam asset replicated in -> apply to the already-equipped weapon.
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : OnRep_BeamColor fired: beam=%s"),
+			*AFLSkinDiag::Prefix(this),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
+			BeamColorAsset ? *BeamColorAsset->GetName() : TEXT("null"));
+	}
+	ApplyBeamColorToEquipped();
+}
+
+void UAFLSkinColorComponent::ApplyBeamColorToEquipped()
+{
+	// GUARD: a null asset = NO beam override -> keep the weapon's DEFAULT beam (its authored LaserTintColor, or
+	// the Niagara's authored colour when that is unset). This axis simply isn't driving; a real selection
+	// overwrites LaserTintColor on the next apply.
+	if (BeamColorAsset == nullptr)
+	{
+		return;
+	}
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	// The beam tint lives in the asset's ColorParameters under "BeamColor" (the beam-axis contract; the skin
+	// param maps are unused for a beam SKU, exactly as FacemaskMaterial is the facemask-only field). Force A=1
+	// so ReadLaserTint treats it as a REAL tint (A<=0 is its "unset -> keep default" sentinel).
+	FLinearColor Tint = BeamColorAsset->GetColors().FindRef(FName("BeamColor"));
+	Tint.A = 1.0f;
+
+	// Reach the equipped weapon the SAME way ApplyWeaponSkinToEquipped does: the pawn's equipment manager -> the
+	// ranged-weapon instance(s). The INSTANCE (not the actor) carries LaserTintColor -- it is the ability's
+	// SourceObject that AFLLaserVisualStatics::ReadLaserTint reflects, so we write that seam directly on it.
+	ULyraEquipmentManagerComponent* EquipMgr = Owner->FindComponentByClass<ULyraEquipmentManagerComponent>();
+	if (!EquipMgr)
+	{
+		return; // equipment not ready this early -> the spine re-drives (idempotent), like the skin path
+	}
+
+	const bool bDiag = AFLSkinDiag::IsOn();
+	int32 NumApplied = 0;
+	for (ULyraEquipmentInstance* Inst : EquipMgr->GetEquipmentInstancesOfType(ULyraRangedWeaponInstance::StaticClass()))
+	{
+		if (!Inst)
+		{
+			continue;
+		}
+
+		// SPECIAL-GUN LOCK: a weapon whose bLockedSignatureBeam bool is TRUE keeps its authored signature beam --
+		// the BeamId override does NOT apply to it (reflection-read; absent property = false = not locked = apply).
+		if (const FBoolProperty* LockProp =
+				CastField<FBoolProperty>(Inst->GetClass()->FindPropertyByName(FName("bLockedSignatureBeam"))))
+		{
+			if (LockProp->GetPropertyValue_InContainer(Inst))
+			{
+				continue;
+			}
+		}
+
+		// Reflection-WRITE LaserTintColor (mirrors ReadLaserTint's reflection-read -- the proven HOP3 write). The
+		// beam re-reads it on the NEXT fire; there is no live-beam component to touch.
+		if (const FStructProperty* TintProp =
+				CastField<FStructProperty>(Inst->GetClass()->FindPropertyByName(FName("LaserTintColor"))))
+		{
+			if (TintProp->Struct == TBaseStructure<FLinearColor>::Get())
+			{
+				*TintProp->ContainerPtrToValuePtr<FLinearColor>(Inst) = Tint;
+				++NumApplied;
+			}
+		}
+	}
+
+	if (bDiag)
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : ApplyBeamColor: wrote LaserTintColor to %d instance(s) (beam=%s rgb=%.2f,%.2f,%.2f)"),
+			*AFLSkinDiag::Prefix(this), *Owner->GetName(), NumApplied,
+			BeamColorAsset ? *BeamColorAsset->GetName() : TEXT("null"), Tint.R, Tint.G, Tint.B);
 	}
 }
