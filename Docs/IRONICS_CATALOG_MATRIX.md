@@ -7,127 +7,119 @@ Build to it COMPLETELY -- nothing skipped; **register-as-created** fills each ce
 - Flat registry mirror (per-SKU rows + running total): `Docs/IRONICS_PRODUCT_SKU_CATALOG.md`.
 - Machine registry (SSOT): `DA_AFL_CosmeticCatalog` (`/AFLBagMan/Cosmetics/`).
 - This doc = the **definition of the full set** (the plan); the two above = what is built so far.
-- Status snapshot: **2026-07-03** -- weapon PILOT COMPLETE (3 axes proven); beams/pulses NOT started.
+- Status snapshot: **2026-07-03** -- weapon PILOT COMPLETE (3 axes); COLOR SYSTEM locked to 36; beams/pulses NOT started.
 
-> **STATUS OF THIS DOC: PROPOSED -- pending operator confirm of the two multipliers**
-> (the BASE-COLOR set + the PATTERN list). Once confirmed, this is the build target.
+> **STATUS: PROPOSED -- pending operator approval of (a) the 36-color palette + (b) the per-weapon
+> ORIGINAL colors. DEFINE first; build the color MIs + register AFTER approval.**
 
 ================================================================================
 ## THE 5 AXES
 ================================================================================
-1. **WEAPONS** -- the base models, harvested from the Customizable Weapon Pack 5.4 (+ shipped beams).
-2. **SKIN PATTERNS** -- the neon-liquid treatment applied to a weapon; NeonCamo (locked) + more (pending).
-3. **BASE COLORS** -- the color multiplier that runs through skins, beams, and pulses.
-4. **BEAMS** -- beam-color cosmetics (one SKU per base color).
-5. **PULSES** -- pulse-color cosmetics (one SKU per base color).
+1. **WEAPONS** -- the base models, harvested from Customizable Weapon Pack 5.4 (+ shipped beams). Each
+   weapon has ONE assigned **ORIGINAL** color (its identity default) + can wear any of the other 35.
+2. **SKIN PATTERNS** -- the neon-liquid treatment; NeonCamo (locked) + more (pending).
+3. **COLORS** -- **6 families x 6 variations = 36 neon-liquid colors** (the locked multiplier).
+4. **BEAMS** -- beam-color cosmetics (one SKU per color = 36).
+5. **PULSES** -- pulse-color cosmetics (one SKU per color = 36).
 
-The multiplication (each cell = one SKU):
-- **Weapon skins** = PATTERNS x BASE-COLORS (every pattern in every color), per weapon.
-- **Beams** = BASE-COLORS (each color a beam SKU).
-- **Pulses** = BASE-COLORS (each color a pulse SKU).
-- **Weapons** = the harvested bases (each its own base + skin family).
+Multiplication (each cell = one SKU):
+- **Weapon skins** = PATTERNS x 36 COLORS (every pattern in every color), per weapon.
+- **Beams** = 36 COLORS (each a beam SKU).  **Pulses** = 36 COLORS (each a pulse SKU).
+- **Weapons** = the harvested bases (each = base + assigned original + addable colors).
 
 ================================================================================
-## AXIS 3 -- BASE COLORS  [MULTIPLIER -- CONFIRM]
+## AXIS 3 -- THE 36 COLORS  [6 FAMILIES x 6 VARIATIONS -- APPROVE]
 ================================================================================
-Proposed canonical set (confirmed present on all 3 factory weapons, each color x3):
+All 36 via the LOCKED master `M_AFL_WeaponSkin_NeonCamo` -- each = one MI with different color params
+(near-zero cost each = the economy multiplier). Every family is its OWN sub-spectrum (a range within
+the hue, not one flat color).  **[* = EXISTS/BUILT (7 of the legacy 8 map in); rest = new-to-build.]**
 
-| # | Color | Tier | Kind |
-|---|---|---|---|
-| 1 | ElectricBlue | SPARK | single (Voltaic default) |
-| 2 | ArcViolet | SPARK | single (Ioncaster default) |
-| 3 | ToxicGreen | SPARK | single |
-| 4 | IceCyan | SPARK | single |
-| 5 | Amber | SPARK | single |
-| 6 | CyanMagenta | SPARK | combo |
-| 7 | GreenGold | SPARK | combo |
-| L | GlitchLegend | SURGE | legendary (premium variant, not a plain hue) |
+| Family | v1 | v2 | v3 | v4 | v5 | v6 |
+|---|---|---|---|---|---|---|
+| **RED** | CrimsonArc | NeonScarlet | InfernoRed | BloodPlasma | RubyGlow | RoseEmber |
+| **BLUE** | ElectricBlue* | IceCyan* | CobaltDeep | SapphireNight | AzureSurge | GlacierFrost |
+| **GREEN** | ToxicGreen* | GreenGold* | EmeraldPlasma | NeonLime | JadeVenom | MintFrost |
+| **PURPLE** | ArcViolet* | PlasmaIndigo | DeepAmethyst | NeonOrchid | LavenderGlow | VoidViolet |
+| **PINK** | CyanMagenta* | NeonMagenta | HotPink | RosePlasma | FuchsiaGlow | BubblegumFrost |
+| **YELLOW** | Amber* | GoldPlasma | NeonYellow | AcidLemon | SolarFlare | PaleCitrine |
 
-= **7 SPARK colors + 1 SURGE legendary.** This SAME set is the multiplier for weapon-skins, beams,
-and pulses. **NOTE:** distinct from the **11-neon Edge/Body** vocabulary (Crimson, Indigo, Lime,
-Magenta, NeonBlue, NeonGreen, NeonPink, NeonPurple, NeonRed, NeonYellow, Solar) -- that set is the
-character skin-color axis, NOT the weapon/beam/pulse set. **CONFIRM: is the weapon/beam/pulse color
-set these 7+legendary, or should it align to the 11-neon set (or a merge)?**
+**Legacy-8 mapping:** ElectricBlue+IceCyan -> BLUE; ToxicGreen+GreenGold -> GREEN; ArcViolet -> PURPLE;
+CyanMagenta -> PINK; Amber -> YELLOW  (= 7 mapped). **GlitchLegend** = NOT one of the 36 -- it is the
+**SURGE legendary tier** (a prismatic/glitch premium variant, per-weapon, sits above the SPARK grid).
+
+So: **36 SPARK colors (7 built + 29 new) + GlitchLegend (SURGE legendary).**
+**APPROVE / ADJUST the 36 names + family assignments before any MI is built.**
 
 ================================================================================
 ## AXIS 2 -- SKIN PATTERNS  [MULTIPLIER -- CONFIRM]
 ================================================================================
 | Pattern | Master material | Treatment | Status |
 |---|---|---|---|
-| NeonCamo | `M_AFL_WeaponSkin_NeonCamo` | liquid-glass plasma camo (LOCKED, AAA-approved) | BUILT |
-| Pattern 2 | (to design) | neon-liquid, new design | PENDING |
-| Pattern 3 | (to design) | neon-liquid, new design | PENDING |
-| ...       | (to design) | neon-liquid | PENDING |
+| NeonCamo | `M_AFL_WeaponSkin_NeonCamo` | liquid-glass plasma camo (LOCKED, AAA) | BUILT |
+| Pattern 2..N | (to design) | neon-liquid, new designs | PENDING |
 
-**CONFIRM: how many additional patterns, and any named concepts?** (Each new pattern multiplies the
-skin count by the base-color set: +1 pattern = +8 skins per weapon.)
++1 pattern = +36 skins per weapon (the whole color grid again). **CONFIRM count + named concepts.**
 
 ================================================================================
-## AXIS 1 -- WEAPONS (harvested bases)
+## AXIS 1 -- WEAPONS + their ORIGINAL color  [APPROVE the originals]
 ================================================================================
-DONE (3, all PIE-PROVEN -- the pilot; all 3 factory axes):
+**Mechanic:** each weapon's **ORIGINAL** = a REQUIRED identity-fit SKU field = the color it ships/
+default-equips in. The other 35 colors are ADDABLE skin SKUs the player owns + equips onto the weapon
+via the proven WeaponId/skin system ([[project_43_weaponid_equip_consumer_authored]]). A weapon is NOT
+locked to one color -- original is the default; the rest are ownable + equippable.
 
-| Weapon | Base mesh | Category | Factory axis | Default color |
-|---|---|---|---|---|
-| Arclight | AK-110 | Assault | ballistic->beam conversion (Blender) | (multi) |
-| Voltaic | ShotgunBeam (shipped) | Shotgun | shipped-beam mesh-mod (Blender) | ElectricBlue |
-| Ioncaster | V014 | SMG | attachment-recombine (UE, zero-Blender) | ArcViolet |
+DONE (3, PIE-PROVEN) -- proposed originals (2 already built as such):
+| Weapon | Base | Identity | Proposed ORIGINAL | Family | Built? |
+|---|---|---|---|---|---|
+| Voltaic | ShotgunBeam | voltage / electric | **ElectricBlue** | BLUE | YES (its default) |
+| Ioncaster | V014 SMG | ion / plasma | **ArcViolet** | PURPLE | YES (its default) |
+| Arclight | AK-110 | electric ARC (blue/violet dual-neon) | **PlasmaIndigo** | PURPLE | new (blue-violet; alt=ElectricBlue) |
 
-LEGACY (2, pre-existing stock beam weapons): `AFL.Weapon.Pistol.NeonGreen`, `AFL.Weapon.ShotgunBeam.NeonBlue`.
+CANDIDATES -- proposed identity-fit originals (finalize at build, by name/look):
+| Candidate | Identity read | Proposed ORIGINAL | Family |
+|---|---|---|---|
+| PR-9 Raygun | classic sci-fi ray | **NeonLime** (ray-green) | GREEN |
+| Sniper (CM-2000/SCB-750) | cold precision | **IceCyan** | BLUE |
+| LMG (N90) | heavy / aggressive | **InfernoRed** | RED |
+| Assault (M4/ACWI) | clean rifle | **AzureSurge** | BLUE |
+| SMG (GTM/PP9) | fast / punchy | **HotPink** or **NeonScarlet** | PINK/RED |
+| Shotgun (M890/Remore) | brute | **SolarFlare** | YELLOW |
+| GrenadeLauncher | AOE / pulse | **GoldPlasma** | YELLOW |
+| ("toxic"-named future) | venom | **ToxicGreen** | GREEN |
 
-CANDIDATES (harvestable from the 5.4 pack -- all convertible to the IRONICS beam identity; the beam
-look comes from the skin + beam, so any base qualifies -- listed by silhouette variety):
-
-| Candidate | Base | Category | Suggested axis | IRONICS fit |
-|---|---|---|---|---|
-| (Assault) | ACWI / ACWI_Var / M4 | Assault | conversion or recombine | strong (rifle beams) |
-| (SMG) | GTM / PP9 | SMG | recombine | strong (compact) |
-| (LMG) | N90 | LMG | recombine / mesh-mod | strong (heavy caster) |
-| (Sniper) | CM-2000 / SCB-750 | Sniper | recombine / mesh-mod | strong (precision, 117cm -- scale-conform) |
-| (Shotgun) | M890 / Remore | Shotgun | mesh-mod | strong |
-| (Pistol) | DE-42 / Judge-45 / NFP-16 | Pistol | recombine (1H, no GripPoint_L) | good |
-| **Raygun** | **PR-9_Raygun** | Pistol | mesh-mod (energy-native!) | **best -- already a raygun** |
-| (Special) | GrenadeLauncher | Other | mesh-mod | pulse/AOE weapon candidate |
-
-**CONFIRM: which candidates to build, and in what order?** (Recommend the PR-9 Raygun next -- it is
-energy-native, the least conversion work.)
+**APPROVE / ADJUST each weapon's original.** (Rule of thumb: name/identity -> family -> a variation.)
 
 ================================================================================
 ## THE MATRIX -- multiplication + status (each cell = a SKU)
 ================================================================================
-### Weapon skins = PATTERNS x BASE-COLORS (per weapon)
-Current: **1 pattern (NeonCamo) x 8 colors + base = 9 SKUs per weapon.**
-- Arclight: 9 BUILT.  Voltaic: 9 BUILT.  Ioncaster: 9 BUILT.  (= 27 weapon-skin SKUs live.)
-- Per new weapon: +9 (1 pattern). Per new pattern (all weapons): + (weapons x 8).
+### Weapon skins = PATTERNS x 36 COLORS (per weapon)
+Current: **1 pattern (NeonCamo) x 36 colors** per weapon. Built so far = the legacy 8 colors x 3 weapons
+(27 rows) -- the OTHER 28 colors x 3 weapons + all future weapons/patterns are PENDING.
+- Per weapon (1 pattern): 36 color skins + base.  Per new pattern (all weapons): + (weapons x 36).
 
-### Beams = BASE-COLORS   ->  `AFL.Beam.<Color>`   [0 built, PENDING]
-| ElectricBlue | ArcViolet | ToxicGreen | IceCyan | Amber | CyanMagenta | GreenGold | GlitchLegend |
-| PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
-
-### Pulses = BASE-COLORS  ->  `AFL.Pulse.<Color>`  [0 built, PENDING]
-| ElectricBlue | ArcViolet | ToxicGreen | IceCyan | Amber | CyanMagenta | GreenGold | GlitchLegend |
-| PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
+### Beams = 36 COLORS  ->  `AFL.Beam.<Color>`   [0 built, 36 PENDING]
+### Pulses = 36 COLORS ->  `AFL.Pulse.<Color>`  [0 built, 36 PENDING]
 
 ================================================================================
 ## TOTALS (built vs planned)
 ================================================================================
 | Category | Built | Planned (this matrix) |
 |---|---|---|
-| Weapons (bases) | 3 (+2 legacy) | 3 + candidates (~14 harvestable) |
-| Weapon-skins (pattern x color) | 27 (3 weapons x 1 pattern x 8 + 3 base) | weapons x patterns x 8 |
-| Beams (color) | 0 | 8 (per color) |
-| Pulses (color) | 0 | 8 (per color) |
+| Colors (MIs) | 8 legacy | **36** (7 map in + 29 new) + GlitchLegend legendary |
+| Weapons (bases) | 3 (+2 legacy) | 3 + ~14 harvestable candidates |
+| Weapon-skins (pattern x color) | 27 | Weapons x Patterns x 36 |
+| Beams (color) | 0 | 36 |
+| Pulses (color) | 0 | 36 |
 
-Formula once the multipliers are locked:
-- weapon-skin SKUs = **Weapons x Patterns x (BaseColors+base)**
-- beam SKUs = **BaseColors** ; pulse SKUs = **BaseColors**
+Formulae (once locked): weapon-skins = **Weapons x Patterns x 36** ; beams = **36** ; pulses = **36**.
 
 ================================================================================
 ## RULE -- REGISTER-AS-CREATED (definition of done)
 ================================================================================
 Every new cell registers in BOTH the machine catalog (`FAFLCatalogEntry` row) AND the flat mirror
-(`IRONICS_PRODUCT_SKU_CATALOG.md`) as it is made -- and this matrix's status flips built. A cell is
-not "done" until PIE-proven (the =PIE doctrine). Build to the matrix; do not skip cells.
+(`IRONICS_PRODUCT_SKU_CATALOG.md`) as it is made -- and this matrix's status flips built. A cell is not
+"done" until PIE-proven. Build to the matrix; do not skip cells. Colors are cheap (an MI off the locked
+master); the multiplier is the point -- 36 colors x every surface (skins/beams/pulses) x every weapon.
 
 Cross-ref: `IRONICS_PRODUCT_SKU_CATALOG.md` (flat mirror), `IRONICS_WEAPON_HANDOFF_CONTRACT.md`
-(the 3 build axes + socket/skin contract), `afl-laser-beam-system` skill (beam/pulse system).
+(the 3 build axes), `afl-laser-beam-system` skill (beam/pulse system).
