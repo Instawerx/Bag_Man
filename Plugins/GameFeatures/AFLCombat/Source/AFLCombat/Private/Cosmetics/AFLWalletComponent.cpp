@@ -2,6 +2,7 @@
 
 #include "Cosmetics/AFLWalletComponent.h"
 
+#include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
 #include "AFLCosmeticCatalogSubsystem.h"            // catalog price/tier lookup for the purchase path (AFLCosmeticCore)
 #include "AFLCosmeticCoreTypes.h"                   // FAFLCatalogEntry, EAFLAcquisition, EAFLCosmeticTier
 #include "GameFramework/PlayerState.h"
@@ -339,9 +340,11 @@ ALyraPlayerState* UAFLWalletComponent::GetLyraPlayerState() const
 
 IAFLCosmeticPersistence* UAFLWalletComponent::GetPersistence() const
 {
-	// Stub now -> null (load/save no-op; balance lives in the replicated UPROPERTY for the session). The real
-	// in-memory/SaveGame stub or PlayFab (Phase 3) resolves here behind the SAME interface -- one swap point.
-	return nullptr;
+	// Phase A0: the local SaveGame persistence subsystem -- the FIRST impl of the seam. Balance + owned-set
+	// now SURVIVE a session boundary (buy -> restart -> still owned). Behind the SAME interface, A1 swaps this
+	// for the Bag_Man_Backend Lambda tier (server-auth) with no call-site change. Null-tolerant: if the
+	// subsystem isn't up yet, load/save no-op exactly as the stub did.
+	return UAFLEconomyPersistenceSubsystem::Get(this);
 }
 
 FAFLPlayerId UAFLWalletComponent::MakePlayerId() const

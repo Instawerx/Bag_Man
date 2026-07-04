@@ -3,6 +3,7 @@
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
 
 #include "Cosmetics/AFLCosmeticServices.h"
+#include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
 #include "Cosmetics/AFLWalletComponent.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
 #include "Cosmetics/AFLSkinColorComponent.h"          // AFLSkinDiag (shared cvar-gated diag: LogAFLSkinDiag / IsOn / Prefix)
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
@@ -272,10 +273,10 @@ IAFLEntitlementSource* UAFLCosmeticLoadoutComponent::GetEntitlementSource() cons
 
 IAFLCosmeticPersistence* UAFLCosmeticLoadoutComponent::GetPersistence() const
 {
-	// #43 stub: no persistence backend wired yet -> null (load/save no-op). The real stub impl
-	// (in-memory / SaveGame) or PlayFab (Phase 3) is resolved here behind the SAME interface. One
-	// function to change; the BeginPlay load + the RPC save call through the interface regardless.
-	return nullptr;
+	// Phase A0: the local SaveGame persistence subsystem (first impl of the seam). The BeginPlay
+	// LoadSelection + the RPC SaveSelection now round-trip to disk -> the loadout survives a session
+	// boundary. A1 swaps this backing (Bag_Man_Backend Lambda, server-auth) behind the SAME interface.
+	return UAFLEconomyPersistenceSubsystem::Get(this);
 }
 
 FAFLPlayerId UAFLCosmeticLoadoutComponent::MakePlayerId() const
