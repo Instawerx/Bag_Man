@@ -317,6 +317,7 @@ void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const
 			// #43 WeaponId consumer: equip the selected weapon (D2 replace) on the SAME spine. Independent
 			// subsystem (equipment, not material) -> order-free; server-only + Lyra fast-array-replicated.
 			SkinCtrl->RefreshWeaponForPawn(Pawn);
+				SkinCtrl->RefreshWeaponSkinForPawn(Pawn); // weapon COLOR (WeaponId suffix) -- AFTER equip so the mesh exists
 		}
 	}
 }
@@ -347,6 +348,7 @@ void UAFLCosmeticLoadoutComponent::OnPlayerStatePawnSet(APlayerState* /*Player*/
 				// #43 WeaponId consumer: equip the selected weapon on possession/respawn (WeaponId rides
 				// CopyProperties -> respawn-durable, same spine as facemask/skin).
 				SkinCtrl->RefreshWeaponForPawn(NewPawn);
+					SkinCtrl->RefreshWeaponSkinForPawn(NewPawn); // weapon COLOR (WeaponId suffix) -- AFTER equip so the mesh exists
 			}
 		}
 	}

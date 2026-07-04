@@ -72,6 +72,16 @@ public:
 	 */
 	void RefreshWeaponForPawn(APawn* Pawn);
 
+	/** AUTHORITY-spine (const; NOT authority-gated in the body -- SetWeaponSkin's HasAuthority guard + OnRep
+	 *  handle clients, exactly like RefreshFacemaskForPawn): resolve the selected WeaponId's ".<Color>" suffix
+	 *  -> the NeonCamo color MI (/Game/Weapons/AFL/Skins/MI_AFL_WeaponSkin_NeonCamo_<Color>) and push it to the
+	 *  pawn's UAFLSkinColorComponent replicated WeaponSkin (all clients converge via OnRep_WeaponSkin ->
+	 *  ApplyWeaponSkinToEquipped). MIRRORS RefreshFacemaskForPawn for the weapon COLOR axis. MUST run AFTER
+	 *  RefreshWeaponForPawn on the spine (the weapon must be equipped before the color applies). No suffix / no
+	 *  MI -> null push (the weapon keeps its baked default). Completes the #43 WeaponId generalization (the
+	 *  equip-half is RefreshWeaponForPawn; this is the color-half). Idempotent. */
+	void RefreshWeaponSkinForPawn(APawn* Pawn) const;
+
 protected:
 	virtual void BeginPlay() override;
 

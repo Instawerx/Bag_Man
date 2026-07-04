@@ -75,6 +75,16 @@ public:
 	 *  picks it up. nullptr = no facemask equipped. */
 	UMaterialInstanceConstant* GetFacemask() const { return Facemask; }
 
+	/** AUTHORITY-ONLY: set the equipped weapon's skin MI on the server. Replicates to all clients (MIRRORS
+	 *  SetFacemask exactly, for the weapon axis). Applied to the equipped weapon mesh's material slots (the
+	 *  48-color NeonCamo MIs off the locked master). nullptr = no override (the weapon keeps its baked default).
+	 *  Completes the #43 WeaponId generalization: RefreshWeaponForPawn is the EQUIP half, this is the COLOR half. */
+	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
+	void SetWeaponSkin(UMaterialInstanceConstant* NewMaterial);
+
+	/** Read by the re-apply paths; nullptr = no weapon-skin override. */
+	UMaterialInstanceConstant* GetWeaponSkin() const { return WeaponSkinMaterial; }
+
 protected:
 	//~UActorComponent interface
 	virtual void BeginPlay() override;
@@ -114,4 +124,18 @@ protected:
 	 *  current SkinColor so the finish params land on top of the swapped material (composition order). The part
 	 *  exposes the swap+recolor via AAFLCharacterPartActor::ApplyFacemask. Idempotent. */
 	void ReapplyFacemaskToAllParts();
+
+	/** The equipped weapon's skin MI -- replicated PARALLEL to Facemask, same race-safe two-path spine. A content
+	 *  asset (UMaterialInstanceConstant) -> safe to replicate by pointer. nullptr = no override (baked default). */
+	UPROPERTY(ReplicatedUsing = OnRep_WeaponSkin)
+	TObjectPtr<UMaterialInstanceConstant> WeaponSkinMaterial = nullptr;
+
+	UFUNCTION()
+	void OnRep_WeaponSkin();
+
+	/** PATH 2 (weapon-skin): apply WeaponSkinMaterial to the equipped weapon mesh's material slots. MIRRORS
+	 *  ReapplyFacemaskToAllParts, but the target is the equipped weapon actor (found via the pawn's
+	 *  ULyraEquipmentManagerComponent -> the ranged-weapon instance -> its spawned actor -> SkeletalMesh),
+	 *  NOT the pawn's body parts. Null WeaponSkinMaterial = no-op (keep the weapon's baked default). Idempotent. */
+	void ApplyWeaponSkinToEquipped();
 };

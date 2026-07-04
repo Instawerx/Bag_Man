@@ -10,6 +10,10 @@
 #include "GameFramework/Actor.h"
 #include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
+#include "Equipment/LyraEquipmentManagerComponent.h"   // weapon-skin: find the equipped weapon instance
+#include "Equipment/LyraEquipmentInstance.h"            //  -> its spawned actor
+#include "Weapons/LyraRangedWeaponInstance.h"           // the ranged-weapon instance type (AFL weapons derive from it)
+#include "Components/SkeletalMeshComponent.h"           //  -> SetMaterial on the weapon mesh's slots
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLSkinColorComponent)
 
@@ -68,6 +72,7 @@ void UAFLSkinColorComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	DOREPLIFETIME(UAFLSkinColorComponent, SkinColor);
 	DOREPLIFETIME(UAFLSkinColorComponent, BodyColor);
 	DOREPLIFETIME(UAFLSkinColorComponent, Facemask);
+	DOREPLIFETIME(UAFLSkinColorComponent, WeaponSkinMaterial);
 }
 
 void UAFLSkinColorComponent::BeginPlay()
@@ -83,6 +88,9 @@ void UAFLSkinColorComponent::BeginPlay()
 
 	// Same reconcile for the facemask (a part arriving after the replicated facemask value picks it up here).
 	ReapplyFacemaskToAllParts();
+
+	// Same reconcile for the weapon-skin (a weapon equipped/replicated after our BeginPlay picks it up here).
+	ApplyWeaponSkinToEquipped();
 }
 
 void UAFLSkinColorComponent::SetSkinColor(UAFLSkinColorAsset* NewColor)
@@ -279,5 +287,90 @@ void UAFLSkinColorComponent::ReapplyFacemaskToAllParts()
 			*AFLSkinDiag::Prefix(this), *Owner->GetName(), NumPartsFound,
 			Facemask ? *Facemask->GetName() : TEXT("null"),
 			SkinColor ? *SkinColor->GetName() : TEXT("null"));
+	}
+}
+
+// ---- WEAPON SKIN (replicated PARALLEL to Facemask; same two-path race-safe spine, weapon-actor target) ----
+// Completes the #43 WeaponId generalization: RefreshWeaponForPawn EQUIPS the weapon (fast-array replicated);
+// this applies the selected COLOR MI to the equipped weapon mesh. MIRRORS the proven SetFacemask/OnRep spine
+// exactly -- the only difference is the target (the equipped weapon actor's mesh vs the pawn's body parts).
+
+void UAFLSkinColorComponent::SetWeaponSkin(UMaterialInstanceConstant* NewMaterial)
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		WeaponSkinMaterial = NewMaterial;
+		// Listen-host: OnRep does NOT fire on authority -> apply locally now (mirrors SetFacemask).
+		ApplyWeaponSkinToEquipped();
+	}
+}
+
+void UAFLSkinColorComponent::OnRep_WeaponSkin()
+{
+	// PATH 2 (weapon-skin-arrives-second): the MI replicated in -> apply to the already-spawned weapon mesh.
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : OnRep_WeaponSkin fired: mi=%s"),
+			*AFLSkinDiag::Prefix(this),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
+			WeaponSkinMaterial ? *WeaponSkinMaterial->GetName() : TEXT("null"));
+	}
+	ApplyWeaponSkinToEquipped();
+}
+
+void UAFLSkinColorComponent::ApplyWeaponSkinToEquipped()
+{
+	// GUARD: a null MI = NO override -> keep the weapon's baked default (UNLIKE facemask, where null = un-equip).
+	if (WeaponSkinMaterial == nullptr)
+	{
+		return;
+	}
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	// Reach the equipped weapon the SAME way RefreshWeaponForPawn does: the pawn's equipment manager -> the
+	// ranged-weapon instance (all AFL weapons derive from it) -> its spawned actor -> the SkeletalMesh.
+	ULyraEquipmentManagerComponent* EquipMgr = Owner->FindComponentByClass<ULyraEquipmentManagerComponent>();
+	if (!EquipMgr)
+	{
+		return; // equipment not ready this early -> the spine re-drives (idempotent), like RefreshWeaponForPawn
+	}
+
+	const bool bDiag = AFLSkinDiag::IsOn();
+	int32 NumMeshesFound = 0;
+	for (ULyraEquipmentInstance* Inst : EquipMgr->GetEquipmentInstancesOfType(ULyraRangedWeaponInstance::StaticClass()))
+	{
+		if (!Inst)
+		{
+			continue;
+		}
+		for (AActor* WeaponActor : Inst->GetSpawnedActors())
+		{
+			if (!WeaponActor)
+			{
+				continue;
+			}
+			if (USkeletalMeshComponent* Mesh = WeaponActor->FindComponentByClass<USkeletalMeshComponent>())
+			{
+				++NumMeshesFound;
+				// Apply the color MI to EVERY material slot (Body + Emitter) so the whole weapon reads the hue.
+				const int32 NumMats = Mesh->GetNumMaterials();
+				for (int32 Slot = 0; Slot < NumMats; ++Slot)
+				{
+					Mesh->SetMaterial(Slot, WeaponSkinMaterial);
+				}
+			}
+		}
+	}
+
+	if (bDiag)
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : ApplyWeaponSkin: found %d weapon-mesh(es) (mi=%s)"),
+			*AFLSkinDiag::Prefix(this), *Owner->GetName(), NumMeshesFound,
+			WeaponSkinMaterial ? *WeaponSkinMaterial->GetName() : TEXT("null"));
 	}
 }
