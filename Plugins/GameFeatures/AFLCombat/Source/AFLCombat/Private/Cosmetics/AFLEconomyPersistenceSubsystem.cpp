@@ -7,6 +7,9 @@
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
 
+#include "AFLOnlineSubsystem.h"   // A1.1: PlayFab login + REST transport (the LOAD-from-PlayFab path)
+#include "Dom/JsonObject.h"       // parse GetUserInventory (VirtualCurrency + Inventory)
+
 DEFINE_LOG_CATEGORY_STATIC(LogAFLEconPersist, Log, All);
 
 namespace
@@ -25,6 +28,14 @@ static TAutoConsoleVariable<int32> CVarEconForceLocalSlot(
 	TEXT("afl.Econ.ForceLocalSlot"),
 	1,
 	TEXT("Phase A0: collapse all economy-persistence keys to one stable local slot (deterministic PIE logout/login proof). Set 0 at A1 once login provides a real account id."),
+	ECVF_Default);
+
+// A1.1: LOAD balance/owned from PlayFab (the player's own token) when logged in; else the local cache
+// (A0 / offline last-known-good). 0 = force A0 local-only (bypass PlayFab entirely).
+static TAutoConsoleVariable<int32> CVarEconUsePlayFab(
+	TEXT("afl.Econ.UsePlayFab"),
+	1,
+	TEXT("Phase A1.1: LOAD balance/owned from PlayFab when logged in (player's own token); else the local cache. 0 = A0 local-only."),
 	ECVF_Default);
 
 UAFLEconomyPersistenceSubsystem* UAFLEconomyPersistenceSubsystem::Get(const UObject* WorldContext)
@@ -90,6 +101,16 @@ void UAFLEconomyPersistenceSubsystem::Flush() const
 
 FAFLPlayerId UAFLEconomyPersistenceSubsystem::ResolveKey(const FAFLPlayerId& In) const
 {
+	// A1.1: once logged in, the incoming key IS the durable PlayFabId (MakePlayerId returns it) -> honor it,
+	// so the local cache is account-scoped (matches the PlayFab truth it mirrors).
+	if (const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+	{
+		if (Online->IsLoggedIn() && In.IsValid())
+		{
+			return In;
+		}
+	}
+	// Not logged in -> A0 behavior: ForceLocalSlot (default on) or an invalid id -> one stable local slot.
 	if (CVarEconForceLocalSlot.GetValueOnGameThread() != 0 || !In.IsValid())
 	{
 		return FAFLPlayerId::MakeFromBacking(GLocalKeyBacking);
@@ -103,21 +124,166 @@ FAFLEconomyRecord& UAFLEconomyPersistenceSubsystem::RecordFor(const FAFLPlayerId
 	return SaveData->Records.FindOrAdd(ResolveKey(Player));
 }
 
+//~ A1.1 -- PlayFab LOAD path -------------------------------------------------------------------------
+
+bool UAFLEconomyPersistenceSubsystem::ShouldUsePlayFab() const
+{
+	if (CVarEconUsePlayFab.GetValueOnGameThread() == 0) { return false; }
+	return UAFLOnlineSubsystem::Get(this) != nullptr;
+}
+
+void UAFLEconomyPersistenceSubsystem::FetchInventoryFromPlayFab(const FAFLPlayerId& Player,
+	TFunction<void(bool, int32, int32, const TArray<FName>&)> OnDone)
+{
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online) { OnDone(false, 0, 0, TArray<FName>()); return; }
+
+	TWeakObjectPtr<UAFLEconomyPersistenceSubsystem> WeakThis(this);
+	Online->CallWhenLoggedIn([WeakThis, Player, OnDone](bool bLoggedIn)
+	{
+		UAFLEconomyPersistenceSubsystem* Self = WeakThis.Get();
+		if (!Self) { return; }
+		if (!bLoggedIn) { OnDone(false, 0, 0, TArray<FName>()); return; }
+
+		UAFLOnlineSubsystem* O = UAFLOnlineSubsystem::Get(Self);
+		if (!O) { OnDone(false, 0, 0, TArray<FName>()); return; }
+
+		const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+		O->PostClientApi(TEXT("GetUserInventory"), Body,
+			[WeakThis, Player, OnDone](bool bOk, TSharedPtr<FJsonObject> Data)
+			{
+				UAFLEconomyPersistenceSubsystem* S = WeakThis.Get();
+				if (!S) { return; }
+				if (!bOk || !Data.IsValid()) { OnDone(false, 0, 0, TArray<FName>()); return; }
+
+				int32 VO = 0, WA = 0;
+				TArray<FName> Owned;
+
+				const TSharedPtr<FJsonObject>* VC = nullptr;
+				if (Data->TryGetObjectField(TEXT("VirtualCurrency"), VC) && VC)
+				{
+					(*VC)->TryGetNumberField(TEXT("VO"), VO);
+					(*VC)->TryGetNumberField(TEXT("WA"), WA);
+				}
+
+				const TArray<TSharedPtr<FJsonValue>>* Inv = nullptr;
+				if (Data->TryGetArrayField(TEXT("Inventory"), Inv) && Inv)
+				{
+					for (const TSharedPtr<FJsonValue>& Item : *Inv)
+					{
+						const TSharedPtr<FJsonObject> Obj = Item.IsValid() ? Item->AsObject() : nullptr;
+						FString ItemId;
+						if (Obj.IsValid() && Obj->TryGetStringField(TEXT("ItemId"), ItemId) && !ItemId.IsEmpty())
+						{
+							Owned.Add(FName(*ItemId));
+						}
+					}
+				}
+
+				// Mirror the authoritative PlayFab state into the local cache (A1's offline last-known-good).
+				S->EnsureLoaded();
+				FAFLEconomyRecord& Rec = S->SaveData->Records.FindOrAdd(S->ResolveKey(Player));
+				Rec.Volts = VO;
+				Rec.Watts = WA;
+				Rec.bHasBalance = true;
+				Rec.OwnedCosmeticIds = Owned;
+				S->Flush();
+
+				UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] PlayFab GetUserInventory OK VO=%d WA=%d owned=%d (mirrored to cache)"), VO, WA, Owned.Num());
+				OnDone(true, VO, WA, Owned);
+			}, /*bRequireAuth*/ true);
+	}, /*TimeoutSeconds*/ 6.0f);
+}
+
+void UAFLEconomyPersistenceSubsystem::ReadBalanceFromCache(const FAFLPlayerId& Player, FAFLOnBalanceLoaded OnLoaded)
+{
+	EnsureLoaded();
+	if (const FAFLEconomyRecord* Rec = SaveData->Records.Find(ResolveKey(Player)))
+	{
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadBalance cache HIT V=%d W=%d"), Rec->Volts, Rec->Watts);
+		OnLoaded.ExecuteIfBound(Rec->bHasBalance, Rec->Volts, Rec->Watts);
+	}
+	else
+	{
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadBalance cache MISS (new player) -> seed defaults"));
+		OnLoaded.ExecuteIfBound(false, 0, 0);
+	}
+}
+
+void UAFLEconomyPersistenceSubsystem::ReadOwnedFromCache(const FAFLPlayerId& Player, FAFLOnOwnedSetLoaded OnLoaded)
+{
+	EnsureLoaded();
+	if (const FAFLEconomyRecord* Rec = SaveData->Records.Find(ResolveKey(Player)))
+	{
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadOwnedSet cache HIT count=%d"), Rec->OwnedCosmeticIds.Num());
+		OnLoaded.ExecuteIfBound(true, Rec->OwnedCosmeticIds);
+	}
+	else
+	{
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadOwnedSet cache MISS (new player)"));
+		OnLoaded.ExecuteIfBound(false, TArray<FName>());
+	}
+}
+
+//~ Dev VERIFY harness (A1.1) -------------------------------------------------------------------------
+
+void UAFLEconomyPersistenceSubsystem::DebugWipeLocalCache()
+{
+	if (UGameplayStatics::DoesSaveGameExist(GEconomySlot, GEconomyUserIndex))
+	{
+		UGameplayStatics::DeleteGameInSlot(GEconomySlot, GEconomyUserIndex);
+	}
+	SaveData = nullptr;   // drop the in-memory mirror too, so nothing masks a fresh load
+	EnsureLoaded();        // recreate an empty SaveGame (records=0)
+	UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] DebugWipeLocalCache -- slot '%s' deleted, cache reset to empty."), GEconomySlot);
+}
+
+void UAFLEconomyPersistenceSubsystem::DebugProbePlayFabLoad(
+	TFunction<void(bool, const FString&, int32, int32, const TArray<FName>&, bool)> OnDone)
+{
+	if (!UAFLOnlineSubsystem::Get(this))
+	{
+		OnDone(false, FString(), 0, 0, TArray<FName>(), false);
+		return;
+	}
+	TWeakObjectPtr<UAFLEconomyPersistenceSubsystem> WeakThis(this);
+	FetchInventoryFromPlayFab(FAFLPlayerId(), [WeakThis, OnDone](bool bOk, int32 VO, int32 WA, const TArray<FName>& Owned)
+	{
+		UAFLEconomyPersistenceSubsystem* Self = WeakThis.Get();
+		const UAFLOnlineSubsystem* O = Self ? UAFLOnlineSubsystem::Get(Self) : nullptr;
+		const bool bLoginOk = (O != nullptr) && O->IsLoggedIn();
+		const FString PfId = O ? O->GetPlayFabId() : FString();
+		OnDone(bLoginOk, PfId, VO, WA, Owned, bOk);
+	});
+}
+
 //~ IAFLCosmeticPersistence ---------------------------------------------------------------------------
 
 void UAFLEconomyPersistenceSubsystem::LoadBalance(const FAFLPlayerId& Player, FAFLOnBalanceLoaded OnLoaded)
 {
 	EnsureLoaded();
-	if (const FAFLEconomyRecord* Rec = SaveData->Records.Find(ResolveKey(Player)))
+	// A1.1: prefer PlayFab (authoritative server truth) when logged in; else the local cache (A0 / offline).
+	if (ShouldUsePlayFab())
 	{
-		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadBalance HIT V=%d W=%d"), Rec->Volts, Rec->Watts);
-		OnLoaded.ExecuteIfBound(Rec->bHasBalance, Rec->Volts, Rec->Watts);
+		TWeakObjectPtr<UAFLEconomyPersistenceSubsystem> WeakThis(this);
+		FetchInventoryFromPlayFab(Player, [WeakThis, Player, OnLoaded](bool bOk, int32 V, int32 W, const TArray<FName>&)
+		{
+			UAFLEconomyPersistenceSubsystem* Self = WeakThis.Get();
+			if (!Self) { return; }
+			if (bOk)
+			{
+				UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadBalance from PlayFab VO=%d WA=%d"), V, W);
+				OnLoaded.ExecuteIfBound(true, V, W);
+			}
+			else
+			{
+				UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadBalance PlayFab miss/offline -> cache"));
+				Self->ReadBalanceFromCache(Player, OnLoaded);
+			}
+		});
+		return;
 	}
-	else
-	{
-		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadBalance MISS (new player) -> seed defaults"));
-		OnLoaded.ExecuteIfBound(false, 0, 0);
-	}
+	ReadBalanceFromCache(Player, OnLoaded);
 }
 
 void UAFLEconomyPersistenceSubsystem::SaveBalance(const FAFLPlayerId& Player, int32 Volts, int32 Watts)
@@ -133,16 +299,28 @@ void UAFLEconomyPersistenceSubsystem::SaveBalance(const FAFLPlayerId& Player, in
 void UAFLEconomyPersistenceSubsystem::LoadOwnedSet(const FAFLPlayerId& Player, FAFLOnOwnedSetLoaded OnLoaded)
 {
 	EnsureLoaded();
-	if (const FAFLEconomyRecord* Rec = SaveData->Records.Find(ResolveKey(Player)))
+	// A1.1: prefer PlayFab (authoritative owned-set) when logged in; else the local cache (A0 / offline).
+	if (ShouldUsePlayFab())
 	{
-		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadOwnedSet HIT count=%d"), Rec->OwnedCosmeticIds.Num());
-		OnLoaded.ExecuteIfBound(true, Rec->OwnedCosmeticIds);
+		TWeakObjectPtr<UAFLEconomyPersistenceSubsystem> WeakThis(this);
+		FetchInventoryFromPlayFab(Player, [WeakThis, Player, OnLoaded](bool bOk, int32, int32, const TArray<FName>& Owned)
+		{
+			UAFLEconomyPersistenceSubsystem* Self = WeakThis.Get();
+			if (!Self) { return; }
+			if (bOk)
+			{
+				UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadOwnedSet from PlayFab count=%d"), Owned.Num());
+				OnLoaded.ExecuteIfBound(true, Owned);
+			}
+			else
+			{
+				UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadOwnedSet PlayFab miss/offline -> cache"));
+				Self->ReadOwnedFromCache(Player, OnLoaded);
+			}
+		});
+		return;
 	}
-	else
-	{
-		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadOwnedSet MISS (new player)"));
-		OnLoaded.ExecuteIfBound(false, TArray<FName>());
-	}
+	ReadOwnedFromCache(Player, OnLoaded);
 }
 
 void UAFLEconomyPersistenceSubsystem::SaveOwnedSet(const FAFLPlayerId& Player, const TArray<FName>& OwnedCosmeticIds)

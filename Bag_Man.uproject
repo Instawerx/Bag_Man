@@ -398,6 +398,10 @@
                     {
                         "Name":  "AFLBagMan",
                         "Enabled":  true
+                    },
+                    {
+                        "Name":  "AFLOnline",
+                        "Enabled":  true
                     }
                 ],
     "EpicSampleNameHash":  "451731683"

@@ -43,6 +43,10 @@
                         "Enabled":  true
                     },
                     {
+                        "Name":  "AFLOnline",
+                        "Enabled":  true
+                    },
+                    {
                         "Name":  "AFLVFX",
                         "Enabled":  true
                     },

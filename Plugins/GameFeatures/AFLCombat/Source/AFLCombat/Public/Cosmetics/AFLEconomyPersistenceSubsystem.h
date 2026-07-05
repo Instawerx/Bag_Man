@@ -4,6 +4,7 @@
 
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "GameFramework/SaveGame.h"
+#include "Templates/Function.h"                     // TFunction (async PlayFab fetch callback, A1.1)
 
 #include "Cosmetics/AFLCosmeticServices.h"        // IAFLCosmeticPersistence, FAFLPlayerId, the load delegates
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"  // FAFLCosmeticSelection
@@ -89,6 +90,16 @@ public:
 	virtual void LoadBalance(const FAFLPlayerId& Player, FAFLOnBalanceLoaded OnLoaded) override;
 	virtual void SaveBalance(const FAFLPlayerId& Player, int32 Volts, int32 Watts) override;
 
+	//~ Dev VERIFY harness (A1.1 -- afl.Online.VerifyA11; the standing backend-verify pattern) ------------
+
+	/** Delete the local SaveGame cache + reset in-memory state, so a subsequent load canNOT read stale local
+	 *  data -- the "wipe" that makes a correct PlayFab read PROVE account-not-machine (cross-device in 1 PIE). */
+	void DebugWipeLocalCache();
+
+	/** Login (if needed) then load balance+owned STRAIGHT from PlayFab, reporting whether the data actually
+	 *  came from PlayFab (bFromPlayFab) vs a cache/miss fallback. The verify cheat asserts on this. */
+	void DebugProbePlayFabLoad(TFunction<void(bool bLoginOk, const FString& PlayFabId, int32 VO, int32 WA, const TArray<FName>& Owned, bool bFromPlayFab)> OnDone);
+
 private:
 	/** In-memory mirror of the on-disk slot. UPROPERTY -> GC-rooted by the subsystem. */
 	UPROPERTY()
@@ -108,4 +119,18 @@ private:
 
 	/** Find-or-add the record for the normalized player key (ensures SaveData first). */
 	FAFLEconomyRecord& RecordFor(const FAFLPlayerId& Player);
+
+	//~ A1.1 -- PlayFab LOAD path (behind the identical interface; the A0 cache = offline fallback) --------
+
+	/** True when the PlayFab LOAD path should run (cvar afl.Econ.UsePlayFab on + AFLOnline present). */
+	bool ShouldUsePlayFab() const;
+
+	/** Fetch VO/WA + owned items from PlayFab (waits for login, mirrors the result into the cache). OnDone
+	 *  gets bOk=false on any failure/offline -> the caller falls back to Read*FromCache (last-known-good). */
+	void FetchInventoryFromPlayFab(const FAFLPlayerId& Player,
+		TFunction<void(bool bOk, int32 Volts, int32 Watts, const TArray<FName>& Owned)> OnDone);
+
+	/** A0 cache reads -- also the offline / not-logged-in fallback under the PlayFab path. */
+	void ReadBalanceFromCache(const FAFLPlayerId& Player, FAFLOnBalanceLoaded OnLoaded);
+	void ReadOwnedFromCache(const FAFLPlayerId& Player, FAFLOnOwnedSetLoaded OnLoaded);
 };

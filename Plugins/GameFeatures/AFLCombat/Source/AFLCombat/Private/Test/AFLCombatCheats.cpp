@@ -11,6 +11,8 @@
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
 #include "Cosmetics/AFLWalletComponent.h"            // S-ECON-WALLET: balance/gate/earn-spend cheats
+#include "Cosmetics/AFLEconomyPersistenceSubsystem.h" // A1.1: afl.Online.VerifyA11 (wipe-local -> load -> assert PlayFab)
+#include "Engine/GameInstance.h"                      // A1.1: GetSubsystem<UAFLEconomyPersistenceSubsystem>()
 #include "Teams/LyraTeamSubsystem.h"                 // afl.Cosmetic.Test.Readability: opposing gameplay-team assignment
 #include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
 #include "Components/ChildActorComponent.h"           // panel-watch: reach the body part actor (a child-actor on the pawn)
@@ -2173,6 +2175,69 @@ namespace
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletGrantCmd(TEXT("afl.Wallet.Grant"),
 		TEXT("S-ECON-WALLET (b) gate: dev-grant ownership without spending (test the entitlement gate). Usage: afl.Wallet.Grant <CosmeticId>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletGrant));
+
+	// ─── A1.1 backend-verify harness: afl.Online.VerifyA11 ───────────────────────
+	// Automates the cross-device proof in ONE PIE (mirror of afl.Cosmetic.Cycle's dual-verify): WIPE local
+	// cache -> PlayFab login -> load -> ASSERT the seeded truth + source=PlayFab. Because local is wiped
+	// FIRST, a correct read can ONLY come from the account (PlayFab), not the machine -> "wiped-local +
+	// still-loaded" == cross-device proven, no 2nd machine. Sibling verifies for A1.2/A1.3 follow the same
+	// afl.Online.Verify<phase> shape (the standing backend-verify pattern, like afl.Cosmetic.Cycle for skins).
+	void HandleAFLOnlineVerifyA11(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifyA11 - run inside PIE.")); return; }
+		UGameInstance* GI = World->GetGameInstance();
+		UAFLEconomyPersistenceSubsystem* Persist = GI ? GI->GetSubsystem<UAFLEconomyPersistenceSubsystem>() : nullptr;
+		if (!Persist) { Ar.Log(TEXT("afl.Online.VerifyA11 - no economy persistence subsystem.")); return; }
+
+		// The SEEDED PlayFab truth this asserts against (one-time seed on AFL_DEV_TEST_01).
+		const int32 ExpectVO = 1234;
+		const int32 ExpectWA = 5678;
+		const FName ExpectSku(TEXT("AFL.Beam.CrimsonArc"));
+
+		// STEP 1 -- WIPE LOCAL: remove any local cache so a correct read PROVES it came from the account.
+		Persist->DebugWipeLocalCache();
+		UE_LOG(LogTemp, Display, TEXT("AFL_TEST[A11] local-wiped"));
+		Ar.Log(TEXT("AFL_TEST[A11] local-wiped -> login -> load -> assert. WATCH the on-screen PASS/FAIL; AIK reads the log after PIE closes."));
+		if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Yellow, TEXT("[A11] local wiped -> loading from PlayFab...")); }
+
+		// STEP 2/3/4 -- login -> load straight from PlayFab -> assert (async).
+		Persist->DebugProbePlayFabLoad([ExpectVO, ExpectWA, ExpectSku](bool bLoginOk, const FString& PfId, int32 VO, int32 WA, const TArray<FName>& Owned, bool bFromPlayFab)
+		{
+			UE_LOG(LogTemp, Display, TEXT("AFL_TEST[A11] login %s PlayFabId=%s"),
+				bLoginOk ? TEXT("OK") : TEXT("FAIL"), PfId.IsEmpty() ? TEXT("<none>") : *PfId);
+
+			FString OwnedStr;
+			for (const FName& Id : Owned) { OwnedStr += (OwnedStr.IsEmpty() ? TEXT("") : TEXT(",")); OwnedStr += Id.ToString(); }
+			UE_LOG(LogTemp, Display, TEXT("AFL_TEST[A11] loaded VO=%d WA=%d owned=[%s] source=%s"),
+				VO, WA, *OwnedStr, bFromPlayFab ? TEXT("PLAYFAB") : TEXT("CACHE_OR_MISS"));
+
+			const bool bOwns = Owned.Contains(ExpectSku);
+			const bool bPass = bLoginOk && bFromPlayFab && VO == ExpectVO && WA == ExpectWA && bOwns;
+
+			if (bPass)
+			{
+				UE_LOG(LogTemp, Display, TEXT("AFL_TEST[A11] PASS source=PlayFab(not-local) VO=%d WA=%d owns=%s -- cross-device proven (local wiped, still loaded from the account)."),
+					VO, WA, *ExpectSku.ToString());
+				if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Green, FString::Printf(TEXT("[A11] PASS  PlayFab VO=%d WA=%d + CrimsonArc  (local was wiped)"), VO, WA)); }
+			}
+			else
+			{
+				FString Reason;
+				if (!bLoginOk)                             { Reason = TEXT("login-failed"); }
+				else if (!bFromPlayFab)                    { Reason = TEXT("source-not-PlayFab (offline/HTTP-fail -> cache/miss)"); }
+				else if (VO != ExpectVO || WA != ExpectWA) { Reason = FString::Printf(TEXT("balance-mismatch got VO=%d WA=%d want VO=%d WA=%d (seeded?)"), VO, WA, ExpectVO, ExpectWA); }
+				else if (!bOwns)                           { Reason = TEXT("missing AFL.Beam.CrimsonArc (seeded?)"); }
+				else                                       { Reason = TEXT("unknown"); }
+				UE_LOG(LogTemp, Warning, TEXT("AFL_TEST[A11] FAIL %s (login=%d source=%s VO=%d WA=%d owns=%d)"),
+					*Reason, bLoginOk ? 1 : 0, bFromPlayFab ? TEXT("PLAYFAB") : TEXT("CACHE_OR_MISS"), VO, WA, bOwns ? 1 : 0);
+				if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Red, FString::Printf(TEXT("[A11] FAIL: %s"), *Reason)); }
+			}
+		});
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLOnlineVerifyA11Cmd(TEXT("afl.Online.VerifyA11"),
+		TEXT("A1.1 backend-verify harness: WIPE local cache -> PlayFab login -> load -> ASSERT seeded truth (VO=1234 WA=5678 + AFL.Beam.CrimsonArc) with source=PlayFab. Wiped-local + still-loaded == cross-device proven in ONE PIE (no 2nd machine). Dual-verify: watch the on-screen PASS/FAIL; AIK reads AFL_TEST[A11] from the log after PIE. Seed AFL_DEV_TEST_01 first."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLOnlineVerifyA11));
 
 	// --- SKINTEST one-command 6-gate driver: afl.SkinTest.RunAll ------------------
 	// Sequences the EXISTING cheats (Grant/SetBody/SetEdge/SetFacemask) with timed FTimerHandle pauses + [SKINTEST]

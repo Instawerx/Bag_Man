@@ -4,6 +4,7 @@
 
 #include "Cosmetics/AFLCosmeticServices.h"
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
+#include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
 #include "Cosmetics/AFLWalletComponent.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
 #include "Cosmetics/AFLSkinColorComponent.h"          // AFLSkinDiag (shared cvar-gated diag: LogAFLSkinDiag / IsOn / Prefix)
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
@@ -281,9 +282,15 @@ IAFLCosmeticPersistence* UAFLCosmeticLoadoutComponent::GetPersistence() const
 
 FAFLPlayerId UAFLCosmeticLoadoutComponent::MakePlayerId() const
 {
-	// Opaque key from the PlayerState's net-id string (stub backing). #43 does not own cross-session
-	// identity -- the account system / PlayFab fills the real backing in later, inside FAFLPlayerId,
-	// with no call-site change (the wrapper is opaque).
+	// A1.1: the account-system/PlayFab backing the #43 stub deferred -- now the PlayFabId (durable, cross-
+	// session AND cross-device). Fall back to the net-id (A0 behavior) when not logged in.
+	if (const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+	{
+		if (Online->IsLoggedIn() && !Online->GetPlayFabId().IsEmpty())
+		{
+			return FAFLPlayerId::MakeFromBacking(Online->GetPlayFabId());
+		}
+	}
 	if (const APlayerState* PS = GetLyraPlayerState())
 	{
 		const FUniqueNetIdRepl& NetId = PS->GetUniqueId();

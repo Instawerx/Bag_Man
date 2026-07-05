@@ -1,0 +1,20 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "AFL Online",
+	"Description": "Always-loaded home for AFL online-services integration: PlayFab client LOGIN (LoginWithCustomID dev-only / LoginWithSteam|OpenId shipped) -> PlayFabId + SessionTicket + EntityToken (the durable cross-session/device account key), plus a thin PlayFab Client REST transport (FHttpModule). MUST stay a plain Default-phase runtime plugin -- NOT a GameFeature: login must be RESIDENT at GameInstance init (the persistence LOAD path + MakePlayerId consume the PlayFabId early), and a late-loading GameFeature would miss that window (same reasoning AFLNetTypes documents). SECRET-FREE: only the player's own token (client APIs). The title secret + the Lambda live in Bag_Man_Backend, NEVER here (the firewall).",
+	"Category": "AFL",
+	"CreatedBy": "C12 AI Gaming",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AFLOnline",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": []
+}

@@ -82,6 +82,12 @@ public class AFLCombat : ModuleRules
 				// matchmaking stays PlayFab->GameLift (the tentpole, separate repo).
 				"OnlineServicesInterface",
 				"CoreOnline",
+				// A1.1 economy persistence PlayFab LOAD path: UAFLOnlineSubsystem (PlayFab client login +
+				// the thin REST transport) + FJsonObject parsing of the GetUserInventory response. Private:
+				// only the persistence subsystem + the two MakePlayerId bodies compile them. GameFeature ->
+				// always-loaded AFLOnline is the correct load-order direction (login resident before BeginPlay).
+				"AFLOnline",
+				"Json",
 			}
 		);
 	}

@@ -3,6 +3,7 @@
 #include "Cosmetics/AFLWalletComponent.h"
 
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
+#include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
 #include "AFLCosmeticCatalogSubsystem.h"            // catalog price/tier lookup for the purchase path (AFLCosmeticCore)
 #include "AFLCosmeticCoreTypes.h"                   // FAFLCatalogEntry, EAFLAcquisition, EAFLCosmeticTier
 #include "GameFramework/PlayerState.h"
@@ -349,6 +350,15 @@ IAFLCosmeticPersistence* UAFLWalletComponent::GetPersistence() const
 
 FAFLPlayerId UAFLWalletComponent::MakePlayerId() const
 {
+	// A1.1: the durable account key is the PlayFabId (cross-session AND cross-device). Fall back to the
+	// net-id (A0 behavior) when not logged in -- the persistence layer's ForceLocalSlot then applies.
+	if (const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+	{
+		if (Online->IsLoggedIn() && !Online->GetPlayFabId().IsEmpty())
+		{
+			return FAFLPlayerId::MakeFromBacking(Online->GetPlayFabId());
+		}
+	}
 	if (const APlayerState* PS = GetLyraPlayerState())
 	{
 		const FUniqueNetIdRepl& NetId = PS->GetUniqueId();
