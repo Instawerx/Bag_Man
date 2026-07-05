@@ -5,6 +5,7 @@
 #include "Components/PlayerStateComponent.h"
 
 #include "Cosmetics/AFLCosmeticServices.h"   // IAFLEntitlementSource (this component IS the real impl), FAFLPlayerId, persistence seam
+#include "Templates/Function.h"              // TFunction (A1.2 client-purchase completion callbacks)
 
 #include "AFLWalletComponent.generated.h"
 
@@ -31,6 +32,19 @@ enum class EAFLPayCurrency : uint8
  *  store wallet/grid widgets bind this -> event-driven UI refresh, NEVER tick (the marketplace-ui mandate).
  *  Carries the current Volts/Watts so a listener can update without a second read. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FAFLOnWalletChanged, int32, Volts, int32, Watts);
+
+/** A1.2 verify (afl.Online.VerifyA12): the server-side facts the harness asserts against. */
+struct FAFLPurchaseVerifyResult
+{
+	bool    bLoginOk = false;
+	int32   VoBefore = -1;
+	int32   VoAfter = -1;                  // PlayFab balance after the legit buy (== VoBefore - price -> server deducted)
+	bool    bLegitOwnedOnPlayFab = false;  // token count increased on PlayFab -> server granted
+	bool    bMirrorDeducted = false;       // the wallet's LOCAL balance reflected the deduct (display)
+	bool    bSpoofRejected = false;        // PurchaseItem(price=1) rejected -> can't cheat the price
+	bool    bSpendSpoofRejected = false;   // over-balance PurchaseItem rejected -> faked LOCAL balance UNSPENDABLE
+	FString FailNote;
+};
 
 /**
  * UAFLWalletComponent -- the server-authoritative player WALLET + entitlement source (S-ECON-WALLET).
@@ -117,6 +131,26 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Wallet")
 	void ServerPurchaseCosmetic(FName CosmeticId, EAFLPayCurrency PayWith = EAFLPayCurrency::Auto);
 
+	//~ A1.2 -- PlayFab-native purchase (the anti-spoof path; replaces ServerPurchaseCosmetic for shipping) --
+
+	/**
+	 * The REAL purchase path. CLIENT-side: resolve the FAFLCatalogEntry price -> PlayFab Client/PurchaseItem
+	 * (server-enforced catalog price + ATOMIC server-side deduct+grant, the player's OWN token) -> reflect
+	 * (Option A): re-read OWNERSHIP from PlayFab (authoritative) + mirror-deduct the BALANCE locally (display;
+	 * NOT a PlayFab balance overwrite -> preserves the proven local earn loop). A faked LOCAL balance is
+	 * UNSPENDABLE (PlayFab spends only PlayFab-held currency). Authority context (front-end / standalone);
+	 * purchases happen between matches, never on the untrusted in-match listen-host.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Wallet")
+	void ClientRequestPurchase(FName CosmeticId, EAFLPayCurrency PayWith = EAFLPayCurrency::Auto);
+
+	/** Native overload with a completion callback (the verify harness awaits it; bSuccess = PlayFab committed). */
+	void ClientRequestPurchase(FName CosmeticId, EAFLPayCurrency PayWith, TFunction<void(bool bSuccess)> OnComplete);
+
+	/** A1.2 verify driver (afl.Online.VerifyA12): legit buy (server deduct+grant) + fake-price-reject +
+	 *  over-balance-reject (faked local UNSPENDABLE). Reports the server-side facts; the cheat asserts. */
+	void DebugVerifyA12(FName TokenId, FName PremiumId, TFunction<void(const FAFLPurchaseVerifyResult&)> OnDone);
+
 	/** Gameplay earn (extraction cash-out etc.): authority-only NATIVE call into the CommitMutation
 	 *  funnel with a caller-named Reason for the diag line. Not an RPC -- gameplay sources already
 	 *  run on the server (the Server RPCs above are the client->server cheat/UI hop). Clamps
@@ -181,6 +215,12 @@ private:
 	UAFLCosmeticCatalogSubsystem* GetCatalog() const;
 
 	/** Apply an authority balance delta + (optionally) an ownership grant, then replicate + persist + diag.
-	 *  The single commit point all server mutations funnel through. */
+	 *  The single commit point all server mutations funnel through. A1.2: this + its callers (Purchase/Earn/
+	 *  Debug) are DEV/ADVISORY for the BALANCE -- PlayFab is the sole SPEND + OWNERSHIP truth. */
 	void CommitMutation(int32 DeltaVolts, int32 DeltaWatts, FName GrantId, const TCHAR* Reason);
+
+	/** A1.2 -- reflect a committed PlayFab purchase (Option A): re-read OWNERSHIP from PlayFab (authoritative;
+	 *  REQ-2 bounded-retry, display lags-then-reconciles on failure, NEVER a local patch) + mirror-deduct the
+	 *  balance locally (display). Authority-context. */
+	void ApplyPurchaseResult(FName CosmeticId, int32 CostVolts, int32 CostWatts, TFunction<void(bool)> OnComplete);
 };

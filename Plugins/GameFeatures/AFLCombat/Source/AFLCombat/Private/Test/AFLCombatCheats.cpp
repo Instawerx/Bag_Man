@@ -2239,6 +2239,60 @@ namespace
 		TEXT("A1.1 backend-verify harness: WIPE local cache -> PlayFab login -> load -> ASSERT seeded truth (VO=1234 WA=5678 + AFL.Beam.CrimsonArc) with source=PlayFab. Wiped-local + still-loaded == cross-device proven in ONE PIE (no 2nd machine). Dual-verify: watch the on-screen PASS/FAIL; AIK reads AFL_TEST[A11] from the log after PIE. Seed AFL_DEV_TEST_01 first."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLOnlineVerifyA11));
 
+	// ─── A1.2 backend-verify harness: afl.Online.VerifyA12 ───────────────────────
+	// Automates the anti-spoof PURCHASE proof (sibling of VerifyA11): fake a HIGH local balance -> the wallet
+	// buys a stackable test token via PlayFab -> asserts (a) PlayFab deducted+granted SERVER-SIDE + mirror-
+	// deducted locally, (b) a fake-price buy is REJECTED, (c) an over-balance buy is REJECTED (the faked local
+	// balance is UNSPENDABLE = spend spoof closed). AFL_TEST[A12] PASS = all. Needs AFL.Test.Token + Premium
+	// in the catalog (run setup:economy after the manifest add).
+	void HandleAFLOnlineVerifyA12(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifyA12 - run inside PIE.")); return; }
+		UAFLWalletComponent* Wallet = GetPlayerWallet(World);
+		if (!Wallet) { Ar.Log(TEXT("afl.Online.VerifyA12 - no wallet on the local PlayerState.")); return; }
+
+		// Fake a HIGH local balance -> the spend-spoof step proves PlayFab ignores it (spends PlayFab-held only).
+		Wallet->DebugSetBalance(9999999, 9999999);
+		UE_LOG(LogTemp, Display, TEXT("AFL_TEST[A12] start -- faked local balance HIGH (9999999); buying via PlayFab..."));
+		Ar.Log(TEXT("AFL_TEST[A12] start -> buy token via PlayFab -> assert deduct+grant + spoof-rejected + faked-local-unspendable. Watch the on-screen result; AIK reads the log after PIE."));
+		if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Yellow, TEXT("[A12] local balance faked HIGH -> buying via PlayFab...")); }
+
+		const FName TokenId(TEXT("AFL.Test.Token"));
+		const FName PremiumId(TEXT("AFL.Test.Premium"));
+		Wallet->DebugVerifyA12(TokenId, PremiumId, [](const FAFLPurchaseVerifyResult& R)
+		{
+			const bool bServerDeducted = (R.VoBefore >= 0 && R.VoAfter >= 0 && R.VoAfter == R.VoBefore - 10);
+			UE_LOG(LogTemp, Display, TEXT("AFL_TEST[A12] login=%d serverVO %d->%d (deducted=%d) grantedOnPlayFab=%d mirrorDeducted=%d spoofRejected=%d spendSpoofRejected=%d"),
+				R.bLoginOk ? 1 : 0, R.VoBefore, R.VoAfter, bServerDeducted ? 1 : 0,
+				R.bLegitOwnedOnPlayFab ? 1 : 0, R.bMirrorDeducted ? 1 : 0, R.bSpoofRejected ? 1 : 0, R.bSpendSpoofRejected ? 1 : 0);
+
+			const bool bPass = R.bLoginOk && bServerDeducted && R.bLegitOwnedOnPlayFab && R.bMirrorDeducted
+				&& R.bSpoofRejected && R.bSpendSpoofRejected;
+			if (bPass)
+			{
+				UE_LOG(LogTemp, Display, TEXT("AFL_TEST[A12] PASS -- PlayFab deducted+granted server-side; fake-price REJECTED; faked-local-balance UNSPENDABLE (spend spoof CLOSED)."));
+				if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Green, TEXT("[A12] PASS  server deduct+grant | fake-price rejected | faked-local unspendable")); }
+			}
+			else
+			{
+				FString Why;
+				if (!R.bLoginOk) { Why = TEXT("login"); }
+				else if (!bServerDeducted) { Why = FString::Printf(TEXT("server-deduct (VO %d->%d want -10; token seeded/enough?)"), R.VoBefore, R.VoAfter); }
+				else if (!R.bLegitOwnedOnPlayFab) { Why = TEXT("token not granted on PlayFab"); }
+				else if (!R.bMirrorDeducted) { Why = TEXT("local mirror-deduct"); }
+				else if (!R.bSpoofRejected) { Why = TEXT("fake-price NOT rejected (!!)"); }
+				else if (!R.bSpendSpoofRejected) { Why = TEXT("over-balance NOT rejected (!!)"); }
+				else { Why = R.FailNote.IsEmpty() ? TEXT("unknown") : R.FailNote; }
+				UE_LOG(LogTemp, Warning, TEXT("AFL_TEST[A12] FAIL: %s"), *Why);
+				if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Red, FString::Printf(TEXT("[A12] FAIL: %s"), *Why)); }
+			}
+		});
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLOnlineVerifyA12Cmd(TEXT("afl.Online.VerifyA12"),
+		TEXT("A1.2 backend-verify harness: fake a HIGH local balance, then buy a stackable test token via PlayFab -> assert (a) PlayFab deducted+granted server-side + mirror-deducted locally, (b) fake-price buy REJECTED, (c) over-balance buy REJECTED (faked local balance UNSPENDABLE = spend spoof closed). AFL_TEST[A12] PASS = all. Needs AFL.Test.Token + AFL.Test.Premium in the catalog (run setup:economy)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLOnlineVerifyA12));
+
 	// --- SKINTEST one-command 6-gate driver: afl.SkinTest.RunAll ------------------
 	// Sequences the EXISTING cheats (Grant/SetBody/SetEdge/SetFacemask) with timed FTimerHandle pauses + [SKINTEST]
 	// log + on-screen markers, so the operator runs ONE command and just WATCHES each gate. Calls the named handlers

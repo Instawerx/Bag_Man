@@ -4,6 +4,7 @@
 
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
 #include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
+#include "Dom/JsonObject.h"                             // A1.2: PurchaseItem body + GetUserInventory parse (verify)
 #include "AFLCosmeticCatalogSubsystem.h"            // catalog price/tier lookup for the purchase path (AFLCosmeticCore)
 #include "AFLCosmeticCoreTypes.h"                   // FAFLCatalogEntry, EAFLAcquisition, EAFLCosmeticTier
 #include "GameFramework/PlayerState.h"
@@ -203,6 +204,14 @@ void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 
+	// A1.2: DEV-ONLY / advisory. The real, anti-spoof purchase is ClientRequestPurchase -> PlayFab (the
+	// listen-host is untrusted and cannot be the economy authority). This local-deduct path stays for the
+	// dev cheat (afl.Wallet.Buy) but is COMPILED OUT OF SHIPPING so it can never be a spend/grant bypass.
+#if UE_BUILD_SHIPPING
+	UE_LOG(LogAFLWalletDiag, Warning, TEXT("%s ServerPurchaseCosmetic is DEV-ONLY; shipping purchase = ClientRequestPurchase (PlayFab)."), *WalletPrefix(this));
+	return;
+#endif
+
 	const FString Pre = FString::Printf(TEXT("volts=%d watts=%d"), Volts, Watts);
 	auto Deny = [&](const TCHAR* Why)
 	{
@@ -258,6 +267,245 @@ void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId
 
 	// Commit: deduct + grant ownership in one funnel.
 	CommitMutation(-CostVolts, -CostWatts, CosmeticId, TEXT("Purchase"));
+}
+
+//~ A1.2 -- PlayFab-native purchase (the anti-spoof path; replaces ServerPurchaseCosmetic for shipping) ---
+
+void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrency PayWith)
+{
+	ClientRequestPurchase(CosmeticId, PayWith, TFunction<void(bool)>());
+}
+
+void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrency PayWith, TFunction<void(bool)> OnComplete)
+{
+	auto Fail = [&OnComplete](const TCHAR* Why)
+	{
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("[Wallet] ClientRequestPurchase denied: %s"), Why);
+		if (OnComplete) { OnComplete(false); }
+	};
+
+	const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog();
+	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
+	if (!Entry) { Fail(TEXT("not in catalog")); return; }
+	if (Entry->Acquisition == EAFLAcquisition::GrantedFree) { Fail(TEXT("GrantedFree (no price)")); return; }
+	// NOTE: no local already-owned guard -- PlayFab is the authority (it rejects a non-stackable double-buy,
+	// allows a stackable re-buy). The store greys out owned items for DISPLAY only, never as the gate.
+
+	const bool bVoltsAvailable = (Entry->PriceVolts > 0);
+	const bool bWattsAvailable = (Entry->PriceWatts > 0);
+	if (!bVoltsAvailable && !bWattsAvailable) { Fail(TEXT("no price set")); return; }
+	bool bPayWatts;
+	switch (PayWith)
+	{
+	case EAFLPayCurrency::Volts: if (!bVoltsAvailable) { Fail(TEXT("no Volts price")); return; } bPayWatts = false; break;
+	case EAFLPayCurrency::Watts: if (!bWattsAvailable) { Fail(TEXT("no Watts price")); return; } bPayWatts = true;  break;
+	default:                     bPayWatts = !bVoltsAvailable; break; // Auto: prefer Volts; PlayFab enforces funds.
+	}
+	const FString VC = bPayWatts ? TEXT("WA") : TEXT("VO");
+	const int32 Price = bPayWatts ? Entry->PriceWatts : Entry->PriceVolts;
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online) { Fail(TEXT("AFLOnline unavailable")); return; }
+
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("ItemId"), CosmeticId.ToString());
+	Body->SetStringField(TEXT("VirtualCurrency"), VC);
+	Body->SetNumberField(TEXT("Price"), Price);
+	Body->SetStringField(TEXT("CatalogVersion"), TEXT("AFL_Main"));
+
+	const int32 CostV = bPayWatts ? 0 : Price;
+	const int32 CostW = bPayWatts ? Price : 0;
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+	Online->PostClientApi(TEXT("PurchaseItem"), Body,
+		[WeakThis, CosmeticId, CostV, CostW, OnComplete](bool bOk, TSharedPtr<FJsonObject> /*Data*/)
+		{
+			UAFLWalletComponent* Self = WeakThis.Get();
+			if (!Self) { if (OnComplete) { OnComplete(false); } return; }
+			if (!bOk)
+			{
+				// PlayFab REJECTED (insufficient PlayFab funds / price mismatch) -- the anti-spoof wall.
+				UE_LOG(LogAFLWalletDiag, Log, TEXT("[Wallet] PurchaseItem(%s) REJECTED by PlayFab (funds/price)."), *CosmeticId.ToString());
+				if (OnComplete) { OnComplete(false); }
+				return;
+			}
+			Self->ApplyPurchaseResult(CosmeticId, CostV, CostW, OnComplete);
+		}, /*bRequireAuth*/ true);
+}
+
+void UAFLWalletComponent::ApplyPurchaseResult(FName CosmeticId, int32 CostVolts, int32 CostWatts, TFunction<void(bool)> OnComplete)
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		// BALANCE: mirror-deduct LOCALLY (display). Option A -- we do NOT overwrite the balance from PlayFab,
+		// because that would wipe the proven local earn loop (extraction/loot, un-synced pre-A1.3).
+		//
+		// LABELED DISPLAY GAP (by design pre-A1.3 -- do NOT "fix" this locally):
+		//   The local balance can OVER-DISPLAY vs the spendable PlayFab balance by the amount of un-synced
+		//   earned Watts. This is EXPECTED and HARMLESS: the over-display is UN-SPENDABLE (PurchaseItem spends
+		//   only PlayFab-held currency, server-enforced), so it is un-exploitable. It reconciles to PlayFab
+		//   truth at A1.3, when earn routes to PlayFab. DO NOT patch it by writing the local balance as
+		//   authoritative -- that reintroduces the spend spoof this layer closes.
+		Volts = FMath::Max(0, Volts - CostVolts);
+		Watts = FMath::Max(0, Watts - CostWatts);
+	}
+
+	IAFLCosmeticPersistence* Persistence = GetPersistence();
+	if (!Persistence)
+	{
+		OnWalletChanged.Broadcast(Volts, Watts);
+		if (OnComplete) { OnComplete(true); }
+		return;
+	}
+
+	// OWNERSHIP: re-read from PlayFab (authoritative). REQ-2: the purchase is already server-committed, so a
+	// failed re-read never loses it -- the owned-set display lags then reconciles from PlayFab on the next
+	// load. NEVER a local-truth patch of ownership.
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+	Persistence->LoadOwnedSet(MakePlayerId(), FAFLOnOwnedSetLoaded::CreateLambda(
+		[WeakThis, CosmeticId, OnComplete](bool bOk, const TArray<FName>& Owned)
+		{
+			UAFLWalletComponent* Self = WeakThis.Get();
+			if (!Self) { if (OnComplete) { OnComplete(true); } return; }
+			if (bOk && Self->GetOwner() && Self->GetOwner()->HasAuthority())
+			{
+				Self->OwnedCosmeticIds = Owned; // authoritative from PlayFab (now includes the purchase)
+			}
+			else if (!bOk)
+			{
+				UE_LOG(LogAFLWalletDiag, Log, TEXT("[Wallet] owned re-read failed post-purchase for %s (server-committed; display lags -> reconciles next load)."), *CosmeticId.ToString());
+			}
+			Self->OnWalletChanged.Broadcast(Self->Volts, Self->Watts);
+			if (OnComplete) { OnComplete(true); }
+		}));
+}
+
+//~ A1.2 verify harness helpers (afl.Online.VerifyA12) -----------------------------------------------
+namespace
+{
+	static const int32 A12_TokenPrice = 10;        // must match AFL.Test.Token's VO price in the manifest
+	static const int32 A12_PremiumPrice = 1000000; // AFL.Test.Premium's VO price (> the seeded balance)
+
+	// Read PlayFab VO + the count of TokenIdStr instances from GetUserInventory.
+	static void A12_ReadInventory(UAFLOnlineSubsystem* Online, FString TokenIdStr, TFunction<void(bool, int32, int32)> Cb)
+	{
+		if (!Online) { Cb(false, 0, 0); return; }
+		Online->PostClientApi(TEXT("GetUserInventory"), MakeShared<FJsonObject>(),
+			[Cb, TokenIdStr](bool bOk, TSharedPtr<FJsonObject> Data)
+			{
+				if (!bOk || !Data.IsValid()) { Cb(false, 0, 0); return; }
+				int32 Vo = 0, Count = 0;
+				const TSharedPtr<FJsonObject>* VC = nullptr;
+				if (Data->TryGetObjectField(TEXT("VirtualCurrency"), VC) && VC) { (*VC)->TryGetNumberField(TEXT("VO"), Vo); }
+				const TArray<TSharedPtr<FJsonValue>>* Inv = nullptr;
+				if (Data->TryGetArrayField(TEXT("Inventory"), Inv) && Inv)
+				{
+					for (const TSharedPtr<FJsonValue>& It : *Inv)
+					{
+						const TSharedPtr<FJsonObject> Obj = It.IsValid() ? It->AsObject() : nullptr;
+						FString Iid;
+						if (Obj.IsValid() && Obj->TryGetStringField(TEXT("ItemId"), Iid) && Iid == TokenIdStr) { ++Count; }
+					}
+				}
+				Cb(true, Vo, Count);
+			}, /*bRequireAuth*/ true);
+	}
+
+	// Attempt a direct PurchaseItem at an arbitrary VO price. Cb(bAccepted) -- false = PlayFab rejected.
+	static void A12_TryBuy(UAFLOnlineSubsystem* Online, FString ItemId, int32 Price, TFunction<void(bool)> Cb)
+	{
+		if (!Online) { Cb(false); return; }
+		const TSharedRef<FJsonObject> B = MakeShared<FJsonObject>();
+		B->SetStringField(TEXT("ItemId"), ItemId);
+		B->SetStringField(TEXT("VirtualCurrency"), TEXT("VO"));
+		B->SetNumberField(TEXT("Price"), Price);
+		B->SetStringField(TEXT("CatalogVersion"), TEXT("AFL_Main"));
+		Online->PostClientApi(TEXT("PurchaseItem"), B, [Cb](bool bOk, TSharedPtr<FJsonObject>) { Cb(bOk); }, /*bRequireAuth*/ true);
+	}
+}
+
+void UAFLWalletComponent::DebugVerifyA12(FName TokenId, FName PremiumId, TFunction<void(const FAFLPurchaseVerifyResult&)> OnDone)
+{
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || !Online->IsLoggedIn())
+	{
+		FAFLPurchaseVerifyResult R;
+		R.bLoginOk = (Online != nullptr) && Online->IsLoggedIn();
+		R.FailNote = TEXT("not logged in");
+		OnDone(R);
+		return;
+	}
+
+	const FString TokenIdStr = TokenId.ToString();
+	const FString PremiumIdStr = PremiumId.ToString();
+	const int32 LocalVoBeforeBuy = Volts;
+
+	TSharedRef<FAFLPurchaseVerifyResult> R = MakeShared<FAFLPurchaseVerifyResult>();
+	R->bLoginOk = true;
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+
+	// 1) read PlayFab BEFORE -> 2) legit buy the token (real path) -> 3) read AFTER (server deducted+granted?)
+	// -> 4) SPOOF fake-price (reject) -> 5) SPEND-SPOOF over-balance (reject; faked local UNSPENDABLE).
+	A12_ReadInventory(Online, TokenIdStr,
+		[WeakThis, R, TokenIdStr, PremiumIdStr, LocalVoBeforeBuy, OnDone](bool bOk1, int32 VoBefore, int32 CountBefore)
+		{
+			UAFLWalletComponent* Self = WeakThis.Get();
+			if (!Self || !bOk1) { R->FailNote = TEXT("read-before failed"); OnDone(*R); return; }
+			R->VoBefore = VoBefore;
+
+			// Legit buy: call PlayFab PurchaseItem DIRECTLY (server deduct+grant) THEN ApplyPurchaseResult
+			// (the game's real reflect path: mirror-deduct + owned re-read). Direct PurchaseItem -- not
+			// ClientRequestPurchase -- so the re-runnable stackable TEST TOKEN need not live in the game's
+			// COSMETIC catalog (test tokens aren't cosmetics); we still exercise ApplyPurchaseResult for the
+			// mirror-deduct assertion. The store's real purchases DO go through ClientRequestPurchase (which
+			// resolves a real cosmetic's price from FAFLCatalogEntry).
+			A12_TryBuy(UAFLOnlineSubsystem::Get(Self), TokenIdStr, A12_TokenPrice,
+				[WeakThis, R, TokenIdStr, PremiumIdStr, CountBefore, LocalVoBeforeBuy, OnDone](bool bBought)
+				{
+					UAFLWalletComponent* S2 = WeakThis.Get();
+					if (!S2) { OnDone(*R); return; }
+
+					// Continuation after the (attempted) legit buy: read AFTER -> spoof -> spend-spoof.
+					auto AfterBuy = [WeakThis, R, TokenIdStr, PremiumIdStr, CountBefore, OnDone]()
+					{
+						UAFLWalletComponent* S3 = WeakThis.Get();
+						A12_ReadInventory(S3 ? UAFLOnlineSubsystem::Get(S3) : nullptr, TokenIdStr,
+							[WeakThis, R, TokenIdStr, PremiumIdStr, CountBefore, OnDone](bool bOk3, int32 VoAfter, int32 CountAfter)
+							{
+								if (bOk3) { R->VoAfter = VoAfter; R->bLegitOwnedOnPlayFab = (CountAfter > CountBefore); }
+								UAFLWalletComponent* S4 = WeakThis.Get();
+								A12_TryBuy(S4 ? UAFLOnlineSubsystem::Get(S4) : nullptr, TokenIdStr, 1,
+									[WeakThis, R, PremiumIdStr, OnDone](bool bSpoofAccepted)
+									{
+										R->bSpoofRejected = !bSpoofAccepted;
+										UAFLWalletComponent* S5 = WeakThis.Get();
+										A12_TryBuy(S5 ? UAFLOnlineSubsystem::Get(S5) : nullptr, PremiumIdStr, A12_PremiumPrice,
+											[R, OnDone](bool bSpendAccepted)
+											{
+												R->bSpendSpoofRejected = !bSpendAccepted;
+												OnDone(*R);
+											});
+									});
+							});
+					};
+
+					if (bBought)
+					{
+						// Reflect via the game's REAL path -> exercises the mirror-deduct + owned re-read.
+						S2->ApplyPurchaseResult(FName(*TokenIdStr), A12_TokenPrice, 0,
+							[WeakThis, R, LocalVoBeforeBuy, AfterBuy](bool)
+							{
+								UAFLWalletComponent* S2b = WeakThis.Get();
+								R->bMirrorDeducted = (S2b != nullptr) && (S2b->GetVolts() == LocalVoBeforeBuy - A12_TokenPrice);
+								AfterBuy();
+							});
+					}
+					else
+					{
+						R->FailNote = TEXT("legit token buy rejected by PlayFab (VO seeded/enough?)");
+						AfterBuy();
+					}
+				});
+		});
 }
 
 void UAFLWalletComponent::DebugSetBalance(int32 InVolts, int32 InWatts)
