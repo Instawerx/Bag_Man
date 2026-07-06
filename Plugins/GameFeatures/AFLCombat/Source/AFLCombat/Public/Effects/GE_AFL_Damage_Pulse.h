@@ -21,8 +21,6 @@
  * Shape (per master doc Sec. 8.3):
  *   - DurationPolicy: Instant
  *   - Modifier: Damage meta, EGameplayModOp::Override, magnitude 18
- *   - InheritableOwnedTagsContainer adds Event.Damage.Pulse on application,
- *     so listeners (FX, audio cues, telemetry) can subscribe via that tag.
  *
  * NOTE: the Damage modifier feeds UAFLDamageExecCalc which routes the value
  * through Armor -> Shield -> Health. This GE itself does NOT capture target

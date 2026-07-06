@@ -21,8 +21,8 @@
  * cadence.
  *
  * The negative-Heat write triggers UAFLAttributeSet_Combat::PostGameplayEffectExecute,
- * which clears State.Overheated and broadcasts Event.Combat.HeatVentingComplete
- * once Heat drops below MaxHeat * 0.3.
+ * which clears State.Overheated once Heat drops below MaxHeat * 0.3 (the
+ * vent-complete boundary is emitted as the AFL_LOG: heat_vented log line).
  *
  * Shape:
  *   - DurationPolicy: Infinite

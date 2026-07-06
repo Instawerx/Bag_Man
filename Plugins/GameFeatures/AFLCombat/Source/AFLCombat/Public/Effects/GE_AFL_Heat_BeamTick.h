@@ -20,9 +20,6 @@
  * Shape (parallel to UGE_AFL_Damage_BeamTick):
  *   - DurationPolicy: Instant
  *   - Modifier: HeatPerBeamTick meta, EGameplayModOp::Override, magnitude 4.0
- *   - GrantedTags: Event.Combat.HeatVentingStart on application (designers /
- *     listeners can subscribe to the overheat boundary without coupling to
- *     the Heat attribute directly).
  *
  * Applied source-to-source by UAFLAG_Laser_Beam from the same delegate that
  * dispatches GE_AFL_Damage_BeamTick to the hit target.

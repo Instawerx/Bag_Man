@@ -4,7 +4,6 @@
 
 #include "AFLCombat.h"
 #include "AbilitySystemComponent.h"
-#include "Effects/GE_AFL_Heat_VentingComplete.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
 #include "GameFramework/PlayerState.h"
 #include "GameplayEffectExtension.h"
@@ -236,25 +235,16 @@ void UAFLAttributeSet_Combat::PostGameplayEffectExecute(const FGameplayEffectMod
 	{
 		// Decay GE writes negative deltas into Heat. When the cooled value
 		// drops below MaxHeat * 0.3 and the target still carries
-		// State.Overheated, clear the tag and apply the venting-complete
-		// marker GE — the GE grants Event.Combat.HeatVentingComplete on
-		// application so listeners (HUD pulse, audio cue, telemetry) get the
-		// boundary without coupling to Heat directly.
+		// State.Overheated, clear the tag. (The old venting-complete marker GE
+		// apply was removed -- it only granted a dead Event tag on an
+		// Instant GE: never registered, zero consumers. The vent boundary is
+		// the AFL_LOG line below.)
 		UAbilitySystemComponent* TargetASC = &Data.Target;
 		if (TargetASC->HasMatchingGameplayTag(TAG_State_Overheated_AttrSet)
 			&& GetHeat() <= GetMaxHeat() * 0.3f)
 		{
 			TargetASC->SetReplicatedLooseGameplayTagCount(TAG_State_Overheated_AttrSet, 0);
 			TargetASC->RemoveLooseGameplayTag(TAG_State_Overheated_AttrSet);
-
-			FGameplayEffectContextHandle Context = TargetASC->MakeEffectContext();
-			Context.AddInstigator(TargetASC->GetOwnerActor(), TargetASC->GetAvatarActor());
-			FGameplayEffectSpecHandle SpecHandle = TargetASC->MakeOutgoingSpec(
-				UGE_AFL_Heat_VentingComplete::StaticClass(), /*Level=*/1.0f, Context);
-			if (SpecHandle.IsValid())
-			{
-				TargetASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
-			}
 
 			// Acceptance log line — orchestrator log-stream scrape looks for
 			// `AFL_LOG: heat_vented` at the vent-complete boundary.

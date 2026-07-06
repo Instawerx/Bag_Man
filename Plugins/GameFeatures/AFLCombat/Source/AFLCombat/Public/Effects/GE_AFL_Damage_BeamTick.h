@@ -18,7 +18,6 @@
  * Shape (parallel to UGE_AFL_Damage_Pulse):
  *   - DurationPolicy: Instant
  *   - Modifier: Damage meta, EGameplayModOp::Override, magnitude 1.2
- *   - GrantedTags: Event.Damage.BeamTick on application
  *
  * The Damage modifier feeds UAFLDamageExecCalc, which routes through
  * Armor -> Shield -> Health (master doc Sec. 8.3). This GE does NOT

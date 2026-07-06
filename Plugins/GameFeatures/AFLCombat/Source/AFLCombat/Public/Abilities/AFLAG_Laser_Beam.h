@@ -68,9 +68,9 @@ protected:
 		bool bWasCancelled) override;
 
 	/**
-	 * Per-tick damage GE. Defaults to GE_AFL_Damage_BeamTick (1.2 dmg, grants
-	 * Event.Damage.BeamTick). BP children can swap in designer-tuned variants
-	 * once AFL-0214 lands (parallel to Pulse).
+	 * Per-tick damage GE. Defaults to GE_AFL_Damage_BeamTick (1.2 dmg). BP
+	 * children can swap in designer-tuned variants once AFL-0214 lands
+	 * (parallel to Pulse).
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam")
 	TSubclassOf<UGameplayEffect> DamageEffectClass;
