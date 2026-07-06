@@ -182,6 +182,14 @@ bool UAFLWalletComponent::OwnsIdentity(const ALyraPlayerState* /*Player*/, EAFLI
 // =====================================================================================================
 void UAFLWalletComponent::ServerEarnWatts_Implementation(int32 Amount)
 {
+	// A1.3a EARN-FORGE CLOSURE (mirror of ServerPurchaseCosmetic's dev-only shipping guard below): this
+	// client-callable Server RPC (Validate=true; clamps only negatives) would let a shipping client forge
+	// arbitrary positive currency. The ONLY legitimate earn is authority-only EarnWattsAuthority (extraction);
+	// this RPC exists solely for the afl.Wallet.Earn dev cheat -> inert in shipping.
+#if UE_BUILD_SHIPPING
+	UE_LOG(LogAFLWalletDiag, Warning, TEXT("%s ServerEarnWatts is DEV-ONLY; ignored in shipping (legit earn = authority-only EarnWattsAuthority)."), *WalletPrefix(this));
+	return;
+#endif
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 	const int32 Clamped = FMath::Max(0, Amount); // server-validated: no negative earn.
 	CommitMutation(/*dVolts*/0, /*dWatts*/Clamped, /*grant*/NAME_None, TEXT("EarnWatts"));
@@ -189,6 +197,11 @@ void UAFLWalletComponent::ServerEarnWatts_Implementation(int32 Amount)
 
 void UAFLWalletComponent::ServerEarnVolts_Implementation(int32 Amount)
 {
+	// A1.3a: same dev-only shipping guard as ServerEarnWatts (no client-forged Volts in shipping).
+#if UE_BUILD_SHIPPING
+	UE_LOG(LogAFLWalletDiag, Warning, TEXT("%s ServerEarnVolts is DEV-ONLY; ignored in shipping."), *WalletPrefix(this));
+	return;
+#endif
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 	const int32 Clamped = FMath::Max(0, Amount);
 	CommitMutation(Clamped, 0, NAME_None, TEXT("EarnVolts"));

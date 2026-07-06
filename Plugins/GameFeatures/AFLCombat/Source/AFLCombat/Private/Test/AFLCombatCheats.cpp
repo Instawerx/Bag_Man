@@ -2160,6 +2160,54 @@ namespace
 		Ar.Logf(TEXT("afl.Wallet.Grant - requested ownership of %s (authority). The entitlement gate now resolves it owned."), *Id.ToString());
 	}
 
+	// A1.3a PROOF-2 regression harness (extends the DebugVerifyA12 pattern). Asserts the shipping earn-guard
+	// did NOT break either legit earn path -- run on the LISTEN-HOST window (both mutate via the authority
+	// commit funnel synchronously). The forge-closure itself is the #if UE_BUILD_SHIPPING early-return
+	// (cook-confirmable by shipping-inertness, not a PIE runtime check).
+	void HandleAFLWalletVerifyA13a(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Wallet.VerifyA13a - run inside PIE (listen-host window).")); return; }
+		UAFLWalletComponent* W = GetPlayerWallet(World);
+		if (!W) { Ar.Log(TEXT("afl.Wallet.VerifyA13a - no wallet component.")); return; }
+		if (!W->GetOwner() || !W->GetOwner()->HasAuthority())
+		{
+			Ar.Log(TEXT("afl.Wallet.VerifyA13a - not authority; run on the listen-host window."));
+			UE_LOG(LogTemp, Warning, TEXT("AFL_A13A FAIL: not authority (run on host)."));
+			return;
+		}
+
+		// PROOF-2a: the AUTHORITY earn sink -- EarnWattsAuthority, the EXACT method extraction uses
+		// (AFLAG_Extract.cpp:135). Untouched by A1.3a; must still credit.
+		const int32 W0 = W->GetWatts();
+		W->EarnWattsAuthority(100, TEXT("VerifyA13a"));
+		const int32 W1 = W->GetWatts();
+		const bool bAuthorityOk = (W1 == W0 + 100);
+		UE_LOG(LogTemp, Display, TEXT("AFL_A13A[authority-earn] %s (watts %d->%d, +100 via EarnWattsAuthority = extraction's sink)"),
+			bAuthorityOk ? TEXT("PASS") : TEXT("FAIL"), W0, W1);
+
+		// PROOF-2b: the DEV earn tool -- ServerEarnWatts/Volts, now #if UE_BUILD_SHIPPING body-guarded so INERT
+		// in shipping but LIVE here in the editor/dev build; must still credit (proves the guard didn't break dev).
+		const int32 V0 = W->GetVolts();
+		W->ServerEarnWatts(50);
+		W->ServerEarnVolts(25);
+		const int32 W2 = W->GetWatts();
+		const int32 V1 = W->GetVolts();
+		const bool bToolOk = (W2 == W1 + 50) && (V1 == V0 + 25);
+		UE_LOG(LogTemp, Display, TEXT("AFL_A13A[dev-earn-tool] %s (watts %d->%d +50, volts %d->%d +25 via ServerEarnWatts/Volts dev RPCs)"),
+			bToolOk ? TEXT("PASS") : TEXT("FAIL"), W1, W2, V0, V1);
+
+		const bool bAll = bAuthorityOk && bToolOk;
+		UE_LOG(LogTemp, Display, TEXT("AFL_A13A COMPLETE authority=%d devTool=%d -- %s. (Forge-closure = shipping body-guard, cook-confirmable; not a PIE check.)"),
+			bAuthorityOk ? 1 : 0, bToolOk ? 1 : 0, bAll ? TEXT("PASS") : TEXT("FAIL"));
+		Ar.Logf(TEXT("afl.Wallet.VerifyA13a - authority=%d devTool=%d. WATCH the on-screen AFL_A13A PASS/FAIL; AIK reads the log after PIE closes."),
+			bAuthorityOk ? 1 : 0, bToolOk ? 1 : 0);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 12.f, bAll ? FColor::Green : FColor::Red,
+				FString::Printf(TEXT("[A13a] earn regression %s (authority=%d devTool=%d)"), bAll ? TEXT("PASS") : TEXT("FAIL"), bAuthorityOk ? 1 : 0, bToolOk ? 1 : 0));
+		}
+	}
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletGetCmd(TEXT("afl.Wallet.Get"),
 		TEXT("S-ECON-WALLET: print the player's replicated Volts/Watts balance."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletGet));
@@ -2175,6 +2223,9 @@ namespace
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletGrantCmd(TEXT("afl.Wallet.Grant"),
 		TEXT("S-ECON-WALLET (b) gate: dev-grant ownership without spending (test the entitlement gate). Usage: afl.Wallet.Grant <CosmeticId>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletGrant));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletVerifyA13aCmd(TEXT("afl.Wallet.VerifyA13a"),
+		TEXT("A1.3a regression: assert both legit earn paths survive the shipping earn-guard -- (a) EarnWattsAuthority (extraction's authority sink) credits +100 Watts, (b) the dev ServerEarnWatts/Volts RPCs credit +50/+25. AFL_A13A PASS = both. Forge-closure itself = the #if UE_BUILD_SHIPPING early-return (cook-confirmable). Listen-host window."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletVerifyA13a));
 
 	// ─── A1.1 backend-verify harness: afl.Online.VerifyA11 ───────────────────────
 	// Automates the cross-device proof in ONE PIE (mirror of afl.Cosmetic.Cycle's dual-verify): WIPE local
