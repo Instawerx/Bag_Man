@@ -2227,6 +2227,46 @@ namespace
 		TEXT("A1.3a regression: assert both legit earn paths survive the shipping earn-guard -- (a) EarnWattsAuthority (extraction's authority sink) credits +100 Watts, (b) the dev ServerEarnWatts/Volts RPCs credit +50/+25. AFL_A13A PASS = both. Forge-closure itself = the #if UE_BUILD_SHIPPING early-return (cook-confirmable). Listen-host window."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletVerifyA13a));
 
+	// ─── A1.3 step-3 earn-hook proof: afl.Wallet.VerifyA13s3 ───────────────────────
+	// Drives the REAL earn funnel (EarnWattsAuthority) deterministically -- no in-game extraction needed. Same
+	// method + reason tag AFLAG_Extract.cpp:135 uses, so it hits the IDENTICAL path: CommitMutation (local +50)
+	// THEN the A1.3 step-3 PlayFab-push hook (gate -> skip on non-dedicated PIE, or push on a true dedicated
+	// server). Authority-only like the extraction commit -> run on a listen-host/standalone (local = authority).
+	void HandleAFLWalletVerifyA13s3(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Wallet.VerifyA13s3 - run inside PIE (listen-host/standalone).")); return; }
+		UAFLWalletComponent* W = GetPlayerWallet(World);
+		if (!W) { Ar.Log(TEXT("afl.Wallet.VerifyA13s3 - no wallet component.")); return; }
+		if (!W->GetOwner() || !W->GetOwner()->HasAuthority())
+		{
+			Ar.Log(TEXT("afl.Wallet.VerifyA13s3 - not authority; run on a listen-host/standalone (EarnWattsAuthority is authority-only, exactly like the extraction commit)."));
+			return;
+		}
+
+		// Drive the REAL funnel with the real reason tag + a fixed test amount -- EXACTLY what a real extraction
+		// does: Wallet->EarnWattsAuthority(Reward, TEXT("extraction")). No re-implementation, no gate bypass.
+		const int32 W0 = W->GetWatts();
+		UE_LOG(LogTemp, Display, TEXT("AFL_A13S3_CHEAT fired amount=50 reason=extraction"));
+		W->EarnWattsAuthority(50, TEXT("extraction"));
+		const int32 W1 = W->GetWatts();
+
+		// Local credit must have banked (CommitMutation ran first; the step-3 hook runs AFTER and never affects it).
+		const bool bCredited = (W1 == W0 + 50);
+		UE_LOG(LogTemp, Display, TEXT("AFL_A13S3_CHEAT local credit %s (watts %d->%d, +50). The step-3 hook then fires -> expect AFL_A13S3 skip: not dedicated server in PIE (the grant is dedicated-server-only)."),
+			bCredited ? TEXT("PASS") : TEXT("FAIL"), W0, W1);
+		Ar.Logf(TEXT("afl.Wallet.VerifyA13s3 - EarnWattsAuthority(50) -> watts %d->%d (+50 %s). Read the log for AFL_A13S3 skip: not dedicated server (the anti-spoof gate)."),
+			W0, W1, bCredited ? TEXT("credited") : TEXT("NO-CREDIT!!"));
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 12.f, bCredited ? FColor::Green : FColor::Red,
+				FString::Printf(TEXT("[A13s3] real funnel -> local +50 %s (watts %d->%d); step-3 hook gate-skips on non-dedicated"), bCredited ? TEXT("PASS") : TEXT("FAIL"), W0, W1));
+		}
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWalletVerifyA13s3Cmd(TEXT("afl.Wallet.VerifyA13s3"),
+		TEXT("A1.3 step-3 earn-hook proof: drive the REAL earn funnel EarnWattsAuthority(50,\"extraction\") -- the EXACT path a real extraction hits. Runs CommitMutation (local +50) THEN the step-3 PlayFab-push hook (gate skips on non-dedicated PIE, pushes on a true dedicated server). Watch: +50 credited + AFL_A13S3 skip: not dedicated server. Authority-only -- run on a listen-host/standalone."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWalletVerifyA13s3));
+
 	// ─── A1.1 backend-verify harness: afl.Online.VerifyA11 ───────────────────────
 	// Automates the cross-device proof in ONE PIE (mirror of afl.Cosmetic.Cycle's dual-verify): WIPE local
 	// cache -> PlayFab login -> load -> ASSERT the seeded truth + source=PlayFab. Because local is wiped

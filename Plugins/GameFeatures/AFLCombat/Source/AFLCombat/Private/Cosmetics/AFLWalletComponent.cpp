@@ -11,6 +11,16 @@
 #include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/LyraPlayerState.h"
+// A1.3 step-3 earn hook -- compose the proven, committed accessors (identity/matchId) + the transport.
+#include "Cosmetics/AFLPlayerIdentityComponent.h"   // GetResolvedPlayFabId (A1.4)
+#include "Round/AFLRoundManagerComponent.h"          // GetMatchId (A1.3b)
+#include "Engine/World.h"                            // GetWorld()->GetGameState()
+#include "GameFramework/GameStateBase.h"             // AGameStateBase::FindComponentByClass
+#include "Misc/CoreMisc.h"                           // IsRunningDedicatedServer()
+#include "Misc/DateTime.h"                           // contract ts
+#include "Misc/Guid.h"                               // nonce
+#include "Serialization/JsonReader.h"                // parse newBalance from the earn response
+#include "Serialization/JsonSerializer.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLWalletComponent)
 
@@ -211,6 +221,78 @@ void UAFLWalletComponent::EarnWattsAuthority(int32 Amount, const TCHAR* Reason)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 	CommitMutation(/*dVolts*/0, /*dWatts*/FMath::Max(0, Amount), /*grant*/NAME_None, Reason);
+
+	// A1.3 step 3 -- THE EARN HOOK: mirror the server-authoritative committed Watts delta to the player's PlayFab
+	// wallet via the /earn Lambda. Runs AFTER CommitMutation above (the LOCAL wallet has already banked + persisted;
+	// PlayFab mirrors the authoritative delta). Every gate below is a FAIL-SAFE SKIP (log + return) -- never a bad
+	// grant. Composes the proven, committed accessors (identity/matchId/transport); modifies none of them.
+
+	// (a) ANTI-SPOOF GATE: push ONLY on the trusted dedicated server. A listen-host is an untrusted client-authority
+	// and must NOT push (NO || GIsEditor -- that was canary-only; a real PIE extraction must not grant real currency).
+	if (!IsRunningDedicatedServer())
+	{
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%sAFL_A13S3 skip: not dedicated server"), *WalletPrefix(this));
+		return;
+	}
+	// (b) the committed delta (the contract requires amount > 0).
+	const int32 PushAmount = FMath::Max(0, Amount);
+	if (PushAmount == 0)
+	{
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%sAFL_A13S3 skip: zero amount"), *WalletPrefix(this));
+		return;
+	}
+	// (c) the earning player's server-VERIFIED PlayFabId (A1.4). Empty -> skip: never push with an empty id (the
+	// safe failure that avoids misgranting).
+	const UAFLPlayerIdentityComponent* Identity = GetOwner()->FindComponentByClass<UAFLPlayerIdentityComponent>();
+	const FString PlayFabId = Identity ? Identity->GetResolvedPlayFabId() : FString();
+	if (PlayFabId.IsEmpty())
+	{
+		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sAFL_A13S3 skip: no resolved PlayFabId (identity unresolved)"), *WalletPrefix(this));
+		return;
+	}
+	// (d) the match this earn belongs to (A1.3b). Absent (non-Arena / no round manager) -> skip (decision #1: no
+	// non-Arena push; the contract requires a non-empty matchId).
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GS = World ? World->GetGameState() : nullptr;
+	const UAFLRoundManagerComponent* Round = GS ? GS->FindComponentByClass<UAFLRoundManagerComponent>() : nullptr;
+	const FString MatchId = Round ? Round->GetMatchId() : FString();
+	if (MatchId.IsEmpty())
+	{
+		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sAFL_A13S3 skip: no matchId (no RoundManager / non-Arena)"), *WalletPrefix(this));
+		return;
+	}
+	// (e) build the contract body (docs/earn-endpoint-contract.md): integer amount + ts, fresh server nonce. Reason
+	// is the funnel's tag ("extraction" / "loot:*") -- a controlled internal literal (audit/dedupe only).
+	const FString Nonce = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	const int64 Ts = FDateTime::UtcNow().ToUnixTimestamp();
+	const TCHAR* ReasonTag = (Reason && *Reason) ? Reason : TEXT("earn");
+	const FString Body = FString::Printf(
+		TEXT("{\"playFabId\":\"%s\",\"currencyCode\":\"WA\",\"amount\":%d,\"reason\":\"%s\",\"matchId\":\"%s\",\"nonce\":\"%s\",\"ts\":%lld}"),
+		*PlayFabId, PushAmount, ReasonTag, *MatchId, *Nonce, static_cast<long long>(Ts));
+
+	// (f) push to the server-authoritative /earn Lambda (A1.3b). PostServerEarn self-gates on the server env
+	// key/URL; the completion logs the grant result. Capture only value copies (no dangling this / component ptr).
+	if (UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+	{
+		Online->PostServerEarn(Body, [PlayFabId, PushAmount](bool bOk, const FString& Resp)
+		{
+			if (bOk)
+			{
+				int32 NewBal = -1;
+				TSharedPtr<FJsonObject> Root;
+				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Resp);
+				if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+				{
+					Root->TryGetNumberField(TEXT("newBalance"), NewBal);
+				}
+				UE_LOG(LogAFLWalletDiag, Log, TEXT("AFL_A13S3 earn ok pid=%s +%d newBal=%d"), *PlayFabId, PushAmount, NewBal);
+			}
+			else
+			{
+				UE_LOG(LogAFLWalletDiag, Warning, TEXT("AFL_A13S3 earn FAIL %s"), *Resp.Left(300));
+			}
+		});
+	}
 }
 
 void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId, EAFLPayCurrency PayWith)
