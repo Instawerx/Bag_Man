@@ -71,6 +71,11 @@ public:
 	 *  SERVER-ONLY: if the earn key/URL are unset (not a dedicated server) it logs a skip and returns without signing. */
 	void PostServerEarn(const FString& EarnJsonBody, TFunction<void(bool, const FString&)> OnComplete);
 
+	/** A1.4: POST a signed body to the server-authoritative /resolve-identity Lambda (SessionTicket -> verified
+	 *  PlayFabId). SAME signer + HMAC key + server gate as PostServerEarn (one game-server caller); only the URL
+	 *  differs. Server-only. OnComplete(bOk = HTTP 200, RespBody = the raw {playFabId} or the error body). */
+	void PostServerResolve(const FString& ResolveJsonBody, TFunction<void(bool, const FString&)> OnComplete);
+
 private:
 	enum class EAFLLoginState : uint8 { NotStarted, InFlight, LoggedIn, Failed };
 	EAFLLoginState LoginState = EAFLLoginState::NotStarted;
@@ -89,6 +94,13 @@ private:
 	 *  server (production) or in the editor (dev canary) -- never in a cooked client process. Empty otherwise. */
 	FString EarnHmacKey;
 	FString EarnUrl;
+	/** A1.4 /resolve-identity endpoint URL (env AFL_RESOLVE_URL), read once under the SAME gate as EarnUrl. */
+	FString ResolveUrl;
+
+	/** Shared signed-POST transport for the server-authoritative endpoints (A1.3b earn + A1.4 resolve): sign the
+	 *  EXACT Body with EarnHmacKey, POST it to Url with X-Signature, plain-HTTP-200 completion. Server-only
+	 *  (empty key/URL -> logged skip). PostServerEarn/PostServerResolve are thin wrappers over this. */
+	void PostServerSigned(const FString& Url, const FString& Body, TFunction<void(bool, const FString&)> OnComplete);
 
 	/** Queued one-shot login waiters (fired on resolve). */
 	TArray<TFunction<void(bool)>> PendingLoginCallbacks;

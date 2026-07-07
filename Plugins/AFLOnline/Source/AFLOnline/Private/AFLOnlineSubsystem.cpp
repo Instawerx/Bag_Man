@@ -89,10 +89,12 @@ void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	{
 		EarnHmacKey = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_EARN_HMAC_KEY"));
 		EarnUrl     = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_EARN_URL"));
-		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Earn signer (%s): key=%s url=%s"),
+		ResolveUrl  = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_RESOLVE_URL"));   // A1.4 (reuses the earn HMAC key)
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer (%s): key=%s earnUrl=%s resolveUrl=%s"),
 			IsRunningDedicatedServer() ? TEXT("dedicated server") : TEXT("editor"),
 			EarnHmacKey.IsEmpty() ? TEXT("MISSING") : TEXT("held"),
-			EarnUrl.IsEmpty() ? TEXT("MISSING") : *EarnUrl);
+			EarnUrl.IsEmpty() ? TEXT("MISSING") : *EarnUrl,
+			ResolveUrl.IsEmpty() ? TEXT("MISSING") : *ResolveUrl);
 	}
 }
 
@@ -317,52 +319,64 @@ FString UAFLOnlineSubsystem::SignHmacSha256Hex(const FString& Body, const FStrin
 #endif
 }
 
-void UAFLOnlineSubsystem::PostServerEarn(const FString& EarnJsonBody, TFunction<void(bool, const FString&)> OnComplete)
+void UAFLOnlineSubsystem::PostServerSigned(const FString& Url, const FString& Body, TFunction<void(bool, const FString&)> OnComplete)
 {
-	// SERVER-ONLY: the key + URL are read only on a dedicated server (Initialize). Empty here => not a server (or
-	// env unset) => refuse to sign. This is the belt to the env-var braces: no client process ever signs an earn.
-	if (EarnHmacKey.IsEmpty() || EarnUrl.IsEmpty())
+	// SERVER-ONLY: the HMAC key + the target URL are read only on a dedicated server / editor (Initialize). Empty
+	// => not a server (or env unset) => refuse to sign. No client process ever signs a server-authoritative call.
+	if (EarnHmacKey.IsEmpty() || Url.IsEmpty())
 	{
-		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerEarn SKIP -- earn key/URL unavailable. Set AFL_EARN_HMAC_KEY + AFL_EARN_URL in the launching shell (server or editor). IsRunningDedicatedServer()=%d GIsEditor=%d."),
+		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerSigned SKIP -- key/URL unavailable (server/editor only; set AFL_EARN_HMAC_KEY + the endpoint URL env). IsRunningDedicatedServer()=%d GIsEditor=%d."),
 			IsRunningDedicatedServer() ? 1 : 0, GIsEditor ? 1 : 0);
-		OnComplete(false, TEXT("skip: earn key/URL unavailable (server-only)"));
+		OnComplete(false, TEXT("skip: key/URL unavailable (server-only)"));
 		return;
 	}
 
 	// Sign-what-you-send: sign the EXACT FString handed to SetContentAsString below -- no re-serialize between.
-	const FString Signature = SignHmacSha256Hex(EarnJsonBody, EarnHmacKey);
+	const FString Signature = SignHmacSha256Hex(Body, EarnHmacKey);
 	if (Signature.IsEmpty())
 	{
-		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerEarn SKIP -- empty signature (OpenSSL unavailable?)."));
+		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerSigned SKIP -- empty signature (OpenSSL unavailable?)."));
 		OnComplete(false, TEXT("skip: empty signature"));
 		return;
 	}
 
 	const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
-	Req->SetURL(EarnUrl);                                       // the FULL /earn endpoint (NOT BaseUrl()/PlayFab)
+	Req->SetURL(Url);                                          // the FULL endpoint (NOT BaseUrl()/PlayFab)
 	Req->SetVerb(TEXT("POST"));
 	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-	Req->SetHeader(TEXT("X-Signature"), Signature);            // HMAC-SHA256(body) hex, lowercase
-	Req->SetContentAsString(EarnJsonBody);                     // the SAME FString that was signed
+	Req->SetHeader(TEXT("X-Signature"), Signature);           // HMAC-SHA256(body) hex, lowercase
+	Req->SetContentAsString(Body);                            // the SAME FString that was signed
 
 	Req->OnProcessRequestComplete().BindLambda(
 		[OnComplete](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnectedOk)
 		{
 			if (!bConnectedOk || !Response.IsValid())
 			{
-				UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerEarn HTTP failed (no response)."));
+				UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerSigned HTTP failed (no response)."));
 				OnComplete(false, TEXT("no response"));
 				return;
 			}
-			// Plain HTTP (NOT the PlayFab envelope): success == 200; surface the raw body either way so the canary
-			// can print the 200 {success,newBalance,nonce} OR the 401/400/502 error body for diagnosis.
+			// Plain HTTP (NOT the PlayFab envelope): success == 200; surface the raw body either way for diagnosis.
 			const int32 Http = Response->GetResponseCode();
 			const FString RespBody = Response->GetContentAsString();
 			const bool bOk = (Http == 200);
-			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] PostServerEarn -> http=%d ok=%d"), Http, bOk ? 1 : 0);
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] PostServerSigned -> http=%d ok=%d"), Http, bOk ? 1 : 0);
 			OnComplete(bOk, RespBody);
 		});
 	Req->ProcessRequest();
+}
+
+// A1.3b earn + A1.4 resolve: thin wrappers over the shared signed-POST transport. PostServerEarn's WIRE behavior
+// is byte-identical to before the extraction (URL=EarnUrl, X-Signature=HMAC(body), body-as-sent, 200-check,
+// OnComplete(bOk,body)) -- the earn canary (3c69e132) stays valid; only the diag log prefix changed.
+void UAFLOnlineSubsystem::PostServerEarn(const FString& EarnJsonBody, TFunction<void(bool, const FString&)> OnComplete)
+{
+	PostServerSigned(EarnUrl, EarnJsonBody, MoveTemp(OnComplete));
+}
+
+void UAFLOnlineSubsystem::PostServerResolve(const FString& ResolveJsonBody, TFunction<void(bool, const FString&)> OnComplete)
+{
+	PostServerSigned(ResolveUrl, ResolveJsonBody, MoveTemp(OnComplete));
 }
 
 bool UAFLOnlineSubsystem::ParseEnvelope(const FString& Body, TSharedPtr<FJsonObject>& OutData, int32& OutCode)
