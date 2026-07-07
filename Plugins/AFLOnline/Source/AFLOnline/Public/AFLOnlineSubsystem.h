@@ -64,6 +64,13 @@ public:
 	void PostClientApi(const FString& ApiName, const TSharedRef<FJsonObject>& Body,
 		TFunction<void(bool, TSharedPtr<FJsonObject>)> OnComplete, bool bRequireAuth = true);
 
+	/** A1.3b: POST a signed earn to the server-authoritative /earn Lambda -- a SIBLING to PostClientApi, not a
+	 *  reuse (PostClientApi is PlayFab-hardwired: base URL, X-Authorization, {code,status,data} envelope). Signs
+	 *  the EXACT EarnJsonBody with the server-only earn HMAC key and sends that same body. Plain HTTP:
+	 *  OnComplete(bOk = HTTP 200, RespBody = the raw {success,newBalance,nonce} or the error body for diagnosis).
+	 *  SERVER-ONLY: if the earn key/URL are unset (not a dedicated server) it logs a skip and returns without signing. */
+	void PostServerEarn(const FString& EarnJsonBody, TFunction<void(bool, const FString&)> OnComplete);
+
 private:
 	enum class EAFLLoginState : uint8 { NotStarted, InFlight, LoggedIn, Failed };
 	EAFLLoginState LoginState = EAFLLoginState::NotStarted;
@@ -71,6 +78,17 @@ private:
 	FString PlayFabId;
 	FString SessionTicket;
 	FString EntityToken;
+
+	// -- A1.3b earn signer (server-only) --
+	/** HMAC-SHA256(Body, Key) as LOWERCASE hex (the backend compares lowercase, constant-time). UTF-8 bytes for
+	 *  BOTH inputs; returns the digest length HMAC reports (32 for sha256), never a hardcoded 32. OpenSSL-backed;
+	 *  returns empty if OpenSSL is unavailable on the platform. The Body signed MUST equal the body sent. */
+	static FString SignHmacSha256Hex(const FString& Body, const FString& Key);
+
+	/** The earn HMAC key + full /earn endpoint URL, read from the environment ONCE on init, only on a dedicated
+	 *  server (production) or in the editor (dev canary) -- never in a cooked client process. Empty otherwise. */
+	FString EarnHmacKey;
+	FString EarnUrl;
 
 	/** Queued one-shot login waiters (fired on resolve). */
 	TArray<TFunction<void(bool)>> PendingLoginCallbacks;
