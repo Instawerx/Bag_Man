@@ -63,6 +63,7 @@ UAFLRoundManagerComponent::UAFLRoundManagerComponent(const FObjectInitializer& O
 void UAFLRoundManagerComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UAFLRoundManagerComponent, MatchId);   // A1.3b: per-match id (Arena series)
 	DOREPLIFETIME(UAFLRoundManagerComponent, Phase);
 	DOREPLIFETIME(UAFLRoundManagerComponent, CurrentRound);
 	DOREPLIFETIME(UAFLRoundManagerComponent, Team0Score);
@@ -180,6 +181,11 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	ParticipatingTeams[1] = Ids[1];
 
 	bMatchStarted = true;
+	// A1.3b: author the per-MATCH id ONCE here -- past the bMatchStarted guard (~:164) + the <2-teams abort
+	// (which returns WITHOUT marking started), so it is set exactly once per match and cannot re-roll. Stable
+	// for the whole Arena series; the earn push (later cycle) sends it as the contract's matchId.
+	MatchId = FGuid::NewGuid();
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_A13B_MATCHID assigned %s"), *GetMatchId());
 	CurrentRound = 0;
 	Team0Score = 0;
 	Team1Score = 0;
@@ -606,6 +612,14 @@ void UAFLRoundManagerComponent::OnRep_Score()
 void UAFLRoundManagerComponent::OnRep_RoundResolved()
 {
 	OnRoundResolved.Broadcast(LastWinningTeam, LastWinReason);
+}
+
+void UAFLRoundManagerComponent::OnRep_MatchId()
+{
+	// A1.3b proof (client-side): the server-authored MatchId replicated in. OnRep fires on the change from the
+	// invalid default to the authored guid, so this logs the real match id once. The operator asserts this ==
+	// the server's "assigned" line. (Server-side reads use GetMatchId() directly, not this OnRep.)
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_A13B_MATCHID replicated %s"), *GetMatchId());
 }
 
 #if !UE_BUILD_SHIPPING

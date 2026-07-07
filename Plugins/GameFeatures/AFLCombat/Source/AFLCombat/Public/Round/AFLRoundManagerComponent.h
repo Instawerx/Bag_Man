@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Components/GameStateComponent.h"
+#include "Misc/Guid.h"   // A1.3b: FGuid MatchId + EGuidFormats
 #include "GameFramework/GameplayMessageSubsystem.h"   // FGameplayMessageListenerHandle (member)
 #include "AFLRoundRestartPolicy.h"                     // IAFLRoundRestartPolicy (the always-loaded AFLGameCore seam)
 
@@ -81,6 +82,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float TraverseSampleInterval = 1.25f;
 
 	// -- replicated state (drives the HUD via OnRep) --
+	/** A1.3b: per-MATCH id (the whole Arena series), authored ONCE server-side at ServerStartMatch via
+	 *  FGuid::NewGuid(). The server-authoritative matchId the earn push (later cycle) sends to the backend.
+	 *  Replicated so clients can read it (proof + future HUD/telemetry). Stable for the series -- NOT per-round. */
+	UPROPERTY(ReplicatedUsing = OnRep_MatchId, BlueprintReadOnly, Category = "AFL|Round") FGuid MatchId;
 	UPROPERTY(ReplicatedUsing = OnRep_Phase, BlueprintReadOnly, Category = "AFL|Round") EAFLRoundPhase Phase = EAFLRoundPhase::WarmUp;
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|Round") int32 CurrentRound = 0;
 	// Score SLOTS (not team ids): slot 0/1 == ParticipatingTeams[0]/[1]. Names kept to avoid replication churn.
@@ -109,6 +114,10 @@ public:
 
 	// -- respawn-gate query surface (AAFLGameMode::ControllerCanRestart consults these) --
 	UFUNCTION(BlueprintPure, Category = "AFL|Round") bool IsRoundActive() const { return Phase == EAFLRoundPhase::RoundActive; }
+
+	/** A1.3b: the per-match id as a hyphenated string (the earn contract's matchId field). Server-authored,
+	 *  replicated; empty-guid string until ServerStartMatch has run. Wired to nothing this cycle. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Round") FString GetMatchId() const { return MatchId.ToString(EGuidFormats::DigitsWithHyphens); }
 	//~IAFLRoundRestartPolicy -- the seam AAFLGameMode (always-loaded AFLGameCore) queries; routes to the
 	// existing logic unchanged.
 	virtual bool ShouldBlockRestart() const override { return IsRoundActive() && !bAllowMidRoundRespawn; }
@@ -152,6 +161,7 @@ protected:
 	UFUNCTION() void OnRep_Phase();
 	UFUNCTION() void OnRep_Score();
 	UFUNCTION() void OnRep_RoundResolved();
+	UFUNCTION() void OnRep_MatchId();
 
 private:
 	bool HasAuth() const;                                // GetOwner()->HasAuthority() (the GameState actor)
