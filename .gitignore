@@ -107,3 +107,21 @@ Config/Custom/EOS/DefaultEngine.ini
 # OmniWalk vendor plugin: PARKED (kept on disk, not committed, not deleted) -- needed later for the
 # gravity-gun lane. Untracked + ignored so it stops cluttering status without being lost.
 /Plugins/OmniWalk07f218f7e14eV2/
+
+# === Agent / local tooling scratch (2026-07-08 clean-tree triage) ===
+# Local agent + build tooling that should never track. (AGENTS.md/.mcp.json: if you intend these as
+# committed repo docs/config, drop the line and `git add` them.)
+/.codex/
+/.mcp.json
+/AGENTS.md
+/Build/
+/package-lock.json
+/Tools/Generated/
+/Tools/_gen_tex/
+/Tools/_laser_audit/
+# Pak crypto/signing config -- per-environment, may carry keys; never commit (secret-safe).
+/Config/DefaultCrypto.ini
+# Blender bridge relay staging (transient import working dirs; tracked manifests are unaffected).
+/Content/AFL/_Bridge/Blender/pending/
+/Content/_BridgeTest/
+/Content/BagMan/_BridgeTest/
