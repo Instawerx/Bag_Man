@@ -3,6 +3,7 @@
 #include "Round/AFLRoundManagerComponent.h"
 
 #include "AFLCombat.h"
+#include "AbilitySystem/Phases/LyraGamePhaseSubsystem.h"   // Task 2: observe AFL.GamePhase.Playing -> ServerStartMatch (the proven-sibling phase-observer path)
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Character/LyraHealthComponent.h"
@@ -35,6 +36,11 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Extracting_Round, "State.Extracting");
 // death-respawn competing -> no double, no orphan). Native-static for CDO-safe use; AFLCombatTags.ini is the
 // spec source-of-truth (UE dedups native+ini).
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Round_NoRespawn, "State.Round.NoRespawn");
+
+// TASK 2: the match-phase "Playing" tag (UAFLMatchPhaseComponent starts it at the Warmup->Playing edge). Its
+// driver tag is file-local to AFLMatchPhaseComponent.cpp, so we define our own static for the same string (UE
+// dedups) and observe it WITHOUT linking the driver's symbol -- exactly how AAFLExtractionZone defines its own.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_AFL_GamePhase_Playing_Round, "AFL.GamePhase.Playing");
 
 namespace
 {
@@ -103,8 +109,50 @@ void UAFLRoundManagerComponent::BeginPlay()
 	}
 
 	SetPhaseAuthoritative(EAFLRoundPhase::WarmUp);
-	// The FSM waits for ServerStartMatch() -- called once pawns are live (the match-phase Playing entry /
-	// the afl.Round.Start dev cheat). BeginPlay is too early to bind per-pawn death. Trigger = Task 2.
+
+	// TASK 2 (was the unwired trigger): auto-start the match FSM on the natural Warmup->Playing transition so
+	// MatchId assigns WITHOUT the afl.Round.Start cheat. There is NO delegate on UAFLMatchPhaseComponent to bind
+	// (EnterPlaying is private + broadcasts nothing) -- the transition is observable ONLY as the
+	// AFL.GamePhase.Playing phase-start on the Lyra GamePhaseSubsystem. So register the SAME reflective observer
+	// AAFLExtractionZone uses (THE LYRA PHASE WALL: the C++ WhenPhase* overloads aren't LYRAGAME_API + the K2_
+	// UFUNCTIONs are protected -> bind via ProcessEvent). ExactMatch -> fires once on the Playing entry (not the
+	// .ExtractionWindow child). We are already past the authority gate (~:89), so this is server-only.
+	if (ULyraGamePhaseSubsystem* PhaseSub = UWorld::GetSubsystem<ULyraGamePhaseSubsystem>(GetWorld()))
+	{
+		struct FK2WhenPhaseParams
+		{
+			FGameplayTag PhaseTag;
+			EPhaseTagMatchType MatchType = EPhaseTagMatchType::ExactMatch;
+			FLyraGamePhaseTagDynamicDelegate WhenPhase;
+		};
+		if (UFunction* Fn = PhaseSub->FindFunction(TEXT("K2_WhenPhaseStartsOrIsActive")))
+		{
+			FK2WhenPhaseParams Params;
+			Params.PhaseTag = TAG_AFL_GamePhase_Playing_Round;
+			Params.MatchType = EPhaseTagMatchType::ExactMatch;
+			Params.WhenPhase.BindUFunction(this, GET_FUNCTION_NAME_CHECKED(UAFLRoundManagerComponent, HandlePlayingPhaseActive));
+			PhaseSub->ProcessEvent(Fn, &Params);
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_TASK2 bind ok -- observing AFL.GamePhase.Playing -> ServerStartMatch (match auto-start; afl.Round.Start no longer required)."));
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TASK2 bind FAILED -- K2_WhenPhaseStartsOrIsActive not found on ULyraGamePhaseSubsystem (fallback: afl.Round.Start)."));
+		}
+	}
+	else
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TASK2 bind SKIP -- no ULyraGamePhaseSubsystem in this world (fallback: afl.Round.Start)."));
+	}
+}
+
+void UAFLRoundManagerComponent::HandlePlayingPhaseActive(const FGameplayTag& PhaseTag)
+{
+	// TASK 2 callback: AFL.GamePhase.Playing started. ExactMatch means this fires ONLY for that tag, so no
+	// in-handler phase filter is needed (mirrors AAFLExtractionZone, which relies on ExactMatch, not a tag
+	// check). Route straight into the EXISTING ServerStartMatch (unchanged): its bMatchStarted guard + the
+	// <2-teams abort-without-marking retry make a re-fire a no-op -> exactly one AFL_A13B_MATCHID assign.
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TASK2 Playing phase active (tag=%s) -> ServerStartMatch."), *PhaseTag.ToString());
+	ServerStartMatch();
 }
 
 void UAFLRoundManagerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)

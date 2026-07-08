@@ -154,6 +154,7 @@ protected:
 	// -- reconciled external signals --
 	UFUNCTION() void HandlePlayerDeath(AActor* OwningActor);                       // ULyraHealthComponent::OnDeathStarted
 	void HandleExtractionBanked(FGameplayTag Channel, const FLyraVerbMessage& Message);  // Event.Extraction.Complete
+	UFUNCTION() void HandlePlayingPhaseActive(const FGameplayTag& PhaseTag);       // Task 2: AFL.GamePhase.Playing start -> ServerStartMatch (ULyraGamePhaseSubsystem observer, mirrors AAFLExtractionZone)
 
 	int32 ComputeTimeoutWinner() const;                  // higher banked -> core holder -> INDEX_NONE
 	void EmitRoundTelemetry(int32 WinningTeamId, EAFLRoundWinReason Reason) const;
