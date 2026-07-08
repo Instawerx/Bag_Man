@@ -2280,9 +2280,10 @@ namespace
 		UAFLEconomyPersistenceSubsystem* Persist = GI ? GI->GetSubsystem<UAFLEconomyPersistenceSubsystem>() : nullptr;
 		if (!Persist) { Ar.Log(TEXT("afl.Online.VerifyA11 - no economy persistence subsystem.")); return; }
 
-		// The SEEDED PlayFab truth this asserts against (one-time seed on AFL_DEV_TEST_01).
-		const int32 ExpectVO = 1234;
-		const int32 ExpectWA = 5678;
+		// FIXTURE-ROBUST (2026-07-08): A11 proves the CROSS-DEVICE property (wiped local -> still loaded from the
+		// account) + ownership of the seeded SKU + positive currency loaded -- NOT a brittle exact VO/WA. Currency
+		// legitimately moves (e.g. the Phase-2 Visors canary reseeds VO 1234->8000->3000), so the STABLE grant is the
+		// value assertion, not the balance. Mirrors VerifyPurchaseSeam's relative/structural (delta) fixture style.
 		const FName ExpectSku(TEXT("AFL.Beam.CrimsonArc"));
 
 		// STEP 1 -- WIPE LOCAL: remove any local cache so a correct read PROVES it came from the account.
@@ -2292,7 +2293,7 @@ namespace
 		if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Yellow, TEXT("[A11] local wiped -> loading from PlayFab...")); }
 
 		// STEP 2/3/4 -- login -> load straight from PlayFab -> assert (async).
-		Persist->DebugProbePlayFabLoad([ExpectVO, ExpectWA, ExpectSku](bool bLoginOk, const FString& PfId, int32 VO, int32 WA, const TArray<FName>& Owned, bool bFromPlayFab)
+		Persist->DebugProbePlayFabLoad([ExpectSku](bool bLoginOk, const FString& PfId, int32 VO, int32 WA, const TArray<FName>& Owned, bool bFromPlayFab)
 		{
 			UE_LOG(LogTemp, Display, TEXT("AFL_TEST[A11] login %s PlayFabId=%s"),
 				bLoginOk ? TEXT("OK") : TEXT("FAIL"), PfId.IsEmpty() ? TEXT("<none>") : *PfId);
@@ -2303,7 +2304,7 @@ namespace
 				VO, WA, *OwnedStr, bFromPlayFab ? TEXT("PLAYFAB") : TEXT("CACHE_OR_MISS"));
 
 			const bool bOwns = Owned.Contains(ExpectSku);
-			const bool bPass = bLoginOk && bFromPlayFab && VO == ExpectVO && WA == ExpectWA && bOwns;
+			const bool bPass = bLoginOk && bFromPlayFab && VO > 0 && WA > 0 && bOwns;
 
 			if (bPass)
 			{
@@ -2316,7 +2317,7 @@ namespace
 				FString Reason;
 				if (!bLoginOk)                             { Reason = TEXT("login-failed"); }
 				else if (!bFromPlayFab)                    { Reason = TEXT("source-not-PlayFab (offline/HTTP-fail -> cache/miss)"); }
-				else if (VO != ExpectVO || WA != ExpectWA) { Reason = FString::Printf(TEXT("balance-mismatch got VO=%d WA=%d want VO=%d WA=%d (seeded?)"), VO, WA, ExpectVO, ExpectWA); }
+				else if (VO <= 0 || WA <= 0)               { Reason = FString::Printf(TEXT("non-positive currency loaded (VO=%d WA=%d) -- account seeded?"), VO, WA); }
 				else if (!bOwns)                           { Reason = TEXT("missing AFL.Beam.CrimsonArc (seeded?)"); }
 				else                                       { Reason = TEXT("unknown"); }
 				UE_LOG(LogTemp, Warning, TEXT("AFL_TEST[A11] FAIL %s (login=%d source=%s VO=%d WA=%d owns=%d)"),
@@ -2327,7 +2328,7 @@ namespace
 	}
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLOnlineVerifyA11Cmd(TEXT("afl.Online.VerifyA11"),
-		TEXT("A1.1 backend-verify harness: WIPE local cache -> PlayFab login -> load -> ASSERT seeded truth (VO=1234 WA=5678 + AFL.Beam.CrimsonArc) with source=PlayFab. Wiped-local + still-loaded == cross-device proven in ONE PIE (no 2nd machine). Dual-verify: watch the on-screen PASS/FAIL; AIK reads AFL_TEST[A11] from the log after PIE. Seed AFL_DEV_TEST_01 first."),
+		TEXT("A1.1 backend-verify harness: WIPE local cache -> PlayFab login -> load -> ASSERT cross-device (source=PlayFab not-local) + owns AFL.Beam.CrimsonArc + positive VO/WA loaded. FIXTURE-ROBUST: asserts the load-from-account property + the STABLE grant, NOT a brittle exact balance (currency legitimately moves). Wiped-local + still-loaded == cross-device proven in ONE PIE. Seed AFL_DEV_TEST_01 first."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLOnlineVerifyA11));
 
 	// ─── A1.2 backend-verify harness: afl.Online.VerifyA12 ───────────────────────
