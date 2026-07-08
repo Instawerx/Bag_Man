@@ -199,10 +199,11 @@ void UAFLWalletComponent::ServerEarnWatts_Implementation(int32 Amount)
 #if UE_BUILD_SHIPPING
 	UE_LOG(LogAFLWalletDiag, Warning, TEXT("%s ServerEarnWatts is DEV-ONLY; ignored in shipping (legit earn = authority-only EarnWattsAuthority)."), *WalletPrefix(this));
 	return;
-#endif
+#else
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 	const int32 Clamped = FMath::Max(0, Amount); // server-validated: no negative earn.
 	CommitMutation(/*dVolts*/0, /*dWatts*/Clamped, /*grant*/NAME_None, TEXT("EarnWatts"));
+#endif
 }
 
 void UAFLWalletComponent::ServerEarnVolts_Implementation(int32 Amount)
@@ -211,10 +212,11 @@ void UAFLWalletComponent::ServerEarnVolts_Implementation(int32 Amount)
 #if UE_BUILD_SHIPPING
 	UE_LOG(LogAFLWalletDiag, Warning, TEXT("%s ServerEarnVolts is DEV-ONLY; ignored in shipping."), *WalletPrefix(this));
 	return;
-#endif
+#else
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 	const int32 Clamped = FMath::Max(0, Amount);
 	CommitMutation(Clamped, 0, NAME_None, TEXT("EarnVolts"));
+#endif
 }
 
 void UAFLWalletComponent::EarnWattsAuthority(int32 Amount, const TCHAR* Reason)
@@ -305,7 +307,7 @@ void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId
 #if UE_BUILD_SHIPPING
 	UE_LOG(LogAFLWalletDiag, Warning, TEXT("%s ServerPurchaseCosmetic is DEV-ONLY; shipping purchase = ClientRequestPurchase (PlayFab)."), *WalletPrefix(this));
 	return;
-#endif
+#else
 
 	const FString Pre = FString::Printf(TEXT("volts=%d watts=%d"), Volts, Watts);
 	auto Deny = [&](const TCHAR* Why)
@@ -362,6 +364,7 @@ void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId
 
 	// Commit: deduct + grant ownership in one funnel.
 	CommitMutation(-CostVolts, -CostWatts, CosmeticId, TEXT("Purchase"));
+#endif
 }
 
 //~ A1.2 -- PlayFab-native purchase (the anti-spoof path; replaces ServerPurchaseCosmetic for shipping) ---

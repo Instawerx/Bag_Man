@@ -364,6 +364,7 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	// Runs on the CLIENT fire path only (this function is the client-predicted trace site); the
 	// pinned ray then rides the normal claimed-ray ship to the server.
 	bool bAimPinned = false;
+#if !UE_BUILD_SHIPPING
 	if (CVarAFLLagCompAimAtDummy.GetValueOnGameThread() != 0)
 	{
 		const AAFLLagTestDummy* NearestDummy = nullptr;
@@ -393,6 +394,7 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 				(CVarAFLLagCompPinMirror.GetValueOnGameThread() != 0) ? TEXT(" [MIRRORED]") : TEXT(""));
 		}
 	}
+#endif
 
 	// AFL-0209 bloom: decay toward Base by SpreadRecoveryPerSec * dt since the
 	// last shot, then add this shot's bump. Result feeds VRandCone for both the
