@@ -14,10 +14,23 @@
 #include "HAL/IConsoleManager.h"                // afl.Online.ResolveCanary
 #include "GameFramework/CheatManagerDefines.h"  // UE_WITH_CHEAT_MANAGER
 #include "Net/UnrealNetwork.h"                  // DOREPLIFETIME
+#include "Cosmetics/AFLWalletComponent.h"       // A1.3b test hook: EarnWattsAuthority (the REAL earn funnel)
+#include "Round/AFLRoundManagerComponent.h"     // A1.3b test hook: GetMatchId gate
+#include "GameFramework/GameStateBase.h"        // A1.3b test hook: authority GameState -> RoundManager
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLPlayerIdentityComponent)
 
 DEFINE_LOG_CATEGORY_STATIC(LogAFLIdentity, Log, All);
+
+// DEV/TEST ONLY (default 0): headless assertion-4 driver. When set on a DEDICATED server, the resolve-completion
+// hook auto-fires the REAL UAFLWalletComponent::EarnWattsAuthority(50,"extraction") funnel ONCE per player -- the
+// SAME entry the afl.Wallet cheat / a live extraction use; only the TRIGGER is synthetic. Set via -ExecCmds at
+// launch. cvar=0 (default) / non-dedicated / Shipping => completely inert. Never alters the earn funnel/gate/extraction.
+static TAutoConsoleVariable<int32> CVarAFLTestAutoEarnOnResolve(
+	TEXT("afl.Test.AutoEarnOnResolve"),
+	0,
+	TEXT("DEV/TEST: dedicated-server auto-fire the real EarnWattsAuthority(50,extraction) funnel once per player on identity-resolve (headless assertion-4 driver). 0=off (default/prod), 1=on."),
+	ECVF_Default);
 
 UAFLPlayerIdentityComponent::UAFLPlayerIdentityComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -145,6 +158,39 @@ void UAFLPlayerIdentityComponent::ServerRelaySessionTicket_Implementation(const 
 		}
 		Self->ResolvedPlayFabId = Pid;   // server-authoritative write (replicates to the owner)
 		UE_LOG(LogAFLIdentity, Log, TEXT("AFL_A14 resolve ok pid=%s"), *Pid);
+
+		// --- DEV/TEST auto-earn hook (cvar afl.Test.AutoEarnOnResolve; default OFF) ---------------------------
+		// Headless assertion-4 driver: on a DEDICATED server, when the cvar is set AND a matchId exists, fire the
+		// REAL EarnWattsAuthority(50,"extraction") funnel ONCE for the just-resolved player -- the SAME entry the
+		// afl.Wallet cheat and a live extraction use; only the TRIGGER is synthetic. AFL_TEST_AUTOEARN marks it so
+		// it is distinguishable from a real extraction. Inert with cvar=0 / off-dedicated / Shipping.
+		if (IsRunningDedicatedServer() && CVarAFLTestAutoEarnOnResolve.GetValueOnGameThread() != 0 && !Self->bTestAutoEarnFired)
+		{
+			APlayerState* const PS = Cast<APlayerState>(Self->GetOwner());
+			UAFLWalletComponent* const Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+			FString MatchId;
+			if (const UWorld* const W = Self->GetWorld())
+			{
+				if (const AGameStateBase* const GS = W->GetGameState())
+				{
+					if (const UAFLRoundManagerComponent* const RM = GS->FindComponentByClass<UAFLRoundManagerComponent>())
+					{
+						MatchId = RM->GetMatchId();
+					}
+				}
+			}
+			if (Wallet && !MatchId.IsEmpty())
+			{
+				Self->bTestAutoEarnFired = true;
+				UE_LOG(LogAFLIdentity, Log, TEXT("AFL_TEST_AUTOEARN fired pid=%s matchId=%s -> EarnWattsAuthority(50, extraction) [dev cvar; synthetic trigger, REAL funnel]"), *Pid, *MatchId);
+				Wallet->EarnWattsAuthority(50, TEXT("extraction"));
+			}
+			else
+			{
+				UE_LOG(LogAFLIdentity, Warning, TEXT("AFL_TEST_AUTOEARN skip pid=%s (wallet=%d matchIdEmpty=%d)"), *Pid, Wallet ? 1 : 0, MatchId.IsEmpty() ? 1 : 0);
+			}
+		}
+		// --- end dev/test hook ------------------------------------------------------------------------------
 	});
 }
 

@@ -56,4 +56,7 @@ private:
 
 	/** Client: relay exactly once. */
 	bool bRelaySent = false;
+
+	/** Server: afl.Test.AutoEarnOnResolve dev-test hook fires the REAL earn funnel exactly once per resolved player (headless assertion-4 driver). */
+	bool bTestAutoEarnFired = false;
 };
