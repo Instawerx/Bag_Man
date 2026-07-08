@@ -37,9 +37,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FAFLOnWalletChanged, int32, Volts, 
 struct FAFLPurchaseVerifyResult
 {
 	bool    bLoginOk = false;
+	bool    bSeamAccepted = false;         // (VerifyPurchaseSeam) ClientRequestPurchase->PurchaseThroughBackend OnComplete(true): the RELOCATED transport fired via the PRODUCTION entry + PlayFab accepted
 	int32   VoBefore = -1;
 	int32   VoAfter = -1;                  // PlayFab balance after the legit buy (== VoBefore - price -> server deducted)
-	bool    bLegitOwnedOnPlayFab = false;  // token count increased on PlayFab -> server granted
+	bool    bLegitOwnedOnPlayFab = false;  // token units increased on PlayFab -> server granted
 	bool    bMirrorDeducted = false;       // the wallet's LOCAL balance reflected the deduct (display)
 	bool    bSpoofRejected = false;        // PurchaseItem(price=1) rejected -> can't cheat the price
 	bool    bSpendSpoofRejected = false;   // over-balance PurchaseItem rejected -> faked LOCAL balance UNSPENDABLE
@@ -148,8 +149,21 @@ public:
 	void ClientRequestPurchase(FName CosmeticId, EAFLPayCurrency PayWith, TFunction<void(bool bSuccess)> OnComplete);
 
 	/** A1.2 verify driver (afl.Online.VerifyA12): legit buy (server deduct+grant) + fake-price-reject +
-	 *  over-balance-reject (faked local UNSPENDABLE). Reports the server-side facts; the cheat asserts. */
+	 *  over-balance-reject (faked local UNSPENDABLE). Reports the server-side facts; the cheat asserts.
+	 *  NOTE: drives an INLINE PlayFab probe (A12_TryBuy), NOT the production ClientRequestPurchase path --
+	 *  because the re-runnable test token is not a shipping cosmetic. See DebugVerifyPurchaseSeam for the
+	 *  PRODUCTION-entry proof. */
 	void DebugVerifyA12(FName TokenId, FName PremiumId, TFunction<void(const FAFLPurchaseVerifyResult&)> OnDone);
+
+	/** DEV/TEST (afl.Online.VerifyPurchaseSeam) -- the Phase-1 PRODUCTION-path proof. Drives the REAL entry
+	 *  ClientRequestPurchase -> PurchaseThroughBackend (the relocated seam transport) -> PlayFab ->
+	 *  ApplyPurchaseResult end-to-end, and asserts: (a) the transport fired via the production entry + PlayFab
+	 *  accepted (bSeamAccepted), (b) PlayFab deducted the price server-side (VoAfter == VoBefore - price), (c) the
+	 *  token was granted (units up), (d) the LOCAL mirror reflected (ApplyPurchaseResult), (e) an over-balance buy
+	 *  through the SAME entry is REJECTED (spend-spoof wall still holds). Buys the transient-injected AFL.Test.Token
+	 *  (the only affordable PlayFab-backed item -- no shipping cosmetic is in PlayFab, and priced ones cost >> the
+	 *  seeded balance). Injects the transient catalog entry itself (dev-only), so it is self-contained + re-runnable. */
+	void DebugVerifyPurchaseSeam(TFunction<void(const FAFLPurchaseVerifyResult&)> OnDone);
 
 	/** Gameplay earn (extraction cash-out etc.): authority-only NATIVE call into the CommitMutation
 	 *  funnel with a caller-named Reason for the diag line. Not an RPC -- gameplay sources already

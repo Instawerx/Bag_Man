@@ -90,6 +90,13 @@ public:
 	virtual void LoadBalance(const FAFLPlayerId& Player, FAFLOnBalanceLoaded OnLoaded) override;
 	virtual void SaveBalance(const FAFLPlayerId& Player, int32 Volts, int32 Watts) override;
 
+	//~ S-ECON WRITE-SIDE (Phase 1): the two authoritative PlayFab transactions behind the seam (transport moved
+	//  here verbatim from the wallet's former inline path -- same /earn + Client/PurchaseItem calls).
+	virtual void EarnThroughBackend(const FString& PlayFabId, const FString& CurrencyCode, int32 Amount,
+		const FString& Reason, const FString& MatchId, FAFLOnEarnComplete OnComplete) override;
+	virtual void PurchaseThroughBackend(FName CosmeticId, const FString& CurrencyCode, int32 Price,
+		FAFLOnPurchaseComplete OnComplete) override;
+
 	//~ Dev VERIFY harness (A1.1 -- afl.Online.VerifyA11; the standing backend-verify pattern) ------------
 
 	/** Delete the local SaveGame cache + reset in-memory state, so a subsequent load canNOT read stale local

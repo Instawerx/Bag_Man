@@ -263,37 +263,32 @@ void UAFLWalletComponent::EarnWattsAuthority(int32 Amount, const TCHAR* Reason)
 		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sAFL_A13S3 skip: no matchId (no RoundManager / non-Arena)"), *WalletPrefix(this));
 		return;
 	}
-	// (e) build the contract body (docs/earn-endpoint-contract.md): integer amount + ts, fresh server nonce. Reason
-	// is the funnel's tag ("extraction" / "loot:*") -- a controlled internal literal (audit/dedupe only).
-	const FString Nonce = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
-	const int64 Ts = FDateTime::UtcNow().ToUnixTimestamp();
-	const TCHAR* ReasonTag = (Reason && *Reason) ? Reason : TEXT("earn");
-	const FString Body = FString::Printf(
-		TEXT("{\"playFabId\":\"%s\",\"currencyCode\":\"WA\",\"amount\":%d,\"reason\":\"%s\",\"matchId\":\"%s\",\"nonce\":\"%s\",\"ts\":%lld}"),
-		*PlayFabId, PushAmount, ReasonTag, *MatchId, *Nonce, static_cast<long long>(Ts));
-
-	// (f) push to the server-authoritative /earn Lambda (A1.3b). PostServerEarn self-gates on the server env
-	// key/URL; the completion logs the grant result. Capture only value copies (no dangling this / component ptr).
-	if (UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+	// (e) route the earn transaction through the persistence seam (Phase 1 consolidation: the Nonce/Ts/body build
+	// + the /earn transport were formerly INLINE here; they now live in UAFLEconomyPersistenceSubsystem behind
+	// IAFLCosmeticPersistence, at parity with the already-seamed load side). The COMPLETION stays here -- the
+	// AFL_A13S3 grant log is the earn proof marker and fires identically. Null seam -> no push (same fail-safe as
+	// the old null-Online guard). PlayFabId (A1.4 resolved id) + MatchId + PushAmount are already resolved above.
+	if (IAFLCosmeticPersistence* Persistence = GetPersistence())
 	{
-		Online->PostServerEarn(Body, [PlayFabId, PushAmount](bool bOk, const FString& Resp)
-		{
-			if (bOk)
+		Persistence->EarnThroughBackend(PlayFabId, TEXT("WA"), PushAmount, FString(Reason ? Reason : TEXT("")), MatchId,
+			FAFLOnEarnComplete::CreateLambda([PlayFabId, PushAmount](bool bOk, const FString& Resp)
 			{
-				int32 NewBal = -1;
-				TSharedPtr<FJsonObject> Root;
-				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Resp);
-				if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+				if (bOk)
 				{
-					Root->TryGetNumberField(TEXT("newBalance"), NewBal);
+					int32 NewBal = -1;
+					TSharedPtr<FJsonObject> Root;
+					const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Resp);
+					if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+					{
+						Root->TryGetNumberField(TEXT("newBalance"), NewBal);
+					}
+					UE_LOG(LogAFLWalletDiag, Log, TEXT("AFL_A13S3 earn ok pid=%s +%d newBal=%d"), *PlayFabId, PushAmount, NewBal);
 				}
-				UE_LOG(LogAFLWalletDiag, Log, TEXT("AFL_A13S3 earn ok pid=%s +%d newBal=%d"), *PlayFabId, PushAmount, NewBal);
-			}
-			else
-			{
-				UE_LOG(LogAFLWalletDiag, Warning, TEXT("AFL_A13S3 earn FAIL %s"), *Resp.Left(300));
-			}
-		});
+				else
+				{
+					UE_LOG(LogAFLWalletDiag, Warning, TEXT("AFL_A13S3 earn FAIL %s"), *Resp.Left(300));
+				}
+			}));
 	}
 }
 
@@ -402,20 +397,17 @@ void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrenc
 	const FString VC = bPayWatts ? TEXT("WA") : TEXT("VO");
 	const int32 Price = bPayWatts ? Entry->PriceWatts : Entry->PriceVolts;
 
-	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
-	if (!Online) { Fail(TEXT("AFLOnline unavailable")); return; }
-
-	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
-	Body->SetStringField(TEXT("ItemId"), CosmeticId.ToString());
-	Body->SetStringField(TEXT("VirtualCurrency"), VC);
-	Body->SetNumberField(TEXT("Price"), Price);
-	Body->SetStringField(TEXT("CatalogVersion"), TEXT("AFL_Main"));
+	IAFLCosmeticPersistence* Persistence = GetPersistence();
+	if (!Persistence) { Fail(TEXT("persistence seam unavailable")); return; }
 
 	const int32 CostV = bPayWatts ? 0 : Price;
 	const int32 CostW = bPayWatts ? Price : 0;
 	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
-	Online->PostClientApi(TEXT("PurchaseItem"), Body,
-		[WeakThis, CosmeticId, CostV, CostW, OnComplete](bool bOk, TSharedPtr<FJsonObject> /*Data*/)
+	// Phase 1 consolidation: the body build + Client/PurchaseItem transport were formerly INLINE here; they now
+	// live in UAFLEconomyPersistenceSubsystem behind IAFLCosmeticPersistence. The COMPLETION stays here -- the
+	// REJECTED log + ApplyPurchaseResult (the Option-A local mirror + owned re-read) fire identically.
+	Persistence->PurchaseThroughBackend(CosmeticId, VC, Price,
+		FAFLOnPurchaseComplete::CreateLambda([WeakThis, CosmeticId, CostV, CostW, OnComplete](bool bOk)
 		{
 			UAFLWalletComponent* Self = WeakThis.Get();
 			if (!Self) { if (OnComplete) { OnComplete(false); } return; }
@@ -427,7 +419,7 @@ void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrenc
 				return;
 			}
 			Self->ApplyPurchaseResult(CosmeticId, CostV, CostW, OnComplete);
-		}, /*bRequireAuth*/ true);
+		}));
 }
 
 void UAFLWalletComponent::ApplyPurchaseResult(FName CosmeticId, int32 CostVolts, int32 CostWatts, TFunction<void(bool)> OnComplete)
@@ -519,6 +511,38 @@ namespace
 		B->SetStringField(TEXT("CatalogVersion"), TEXT("AFL_Main"));
 		Online->PostClientApi(TEXT("PurchaseItem"), B, [Cb](bool bOk, TSharedPtr<FJsonObject>) { Cb(bOk); }, /*bRequireAuth*/ true);
 	}
+
+	// Read PlayFab VO + the token's total UNIT count = sum over matching rows of max(1, RemainingUses). A
+	// stackable re-buy increments RemainingUses on ONE row (no new row), so counting ROWS would miss the grant;
+	// summing uses catches both the first grant (new row, >=1 unit) and a re-buy (uses+1). Used by the
+	// production-seam verify to assert the grant robustly across re-runs (unlike A12's row-count, fragile on re-run).
+	static void Seam_ReadTokenState(UAFLOnlineSubsystem* Online, FString TokenIdStr, TFunction<void(bool, int32, int32)> Cb)
+	{
+		if (!Online) { Cb(false, 0, 0); return; }
+		Online->PostClientApi(TEXT("GetUserInventory"), MakeShared<FJsonObject>(),
+			[Cb, TokenIdStr](bool bOk, TSharedPtr<FJsonObject> Data)
+			{
+				if (!bOk || !Data.IsValid()) { Cb(false, 0, 0); return; }
+				int32 Vo = 0, Units = 0;
+				const TSharedPtr<FJsonObject>* VC = nullptr;
+				if (Data->TryGetObjectField(TEXT("VirtualCurrency"), VC) && VC) { (*VC)->TryGetNumberField(TEXT("VO"), Vo); }
+				const TArray<TSharedPtr<FJsonValue>>* Inv = nullptr;
+				if (Data->TryGetArrayField(TEXT("Inventory"), Inv) && Inv)
+				{
+					for (const TSharedPtr<FJsonValue>& It : *Inv)
+					{
+						const TSharedPtr<FJsonObject> Obj = It.IsValid() ? It->AsObject() : nullptr;
+						FString Iid;
+						if (Obj.IsValid() && Obj->TryGetStringField(TEXT("ItemId"), Iid) && Iid == TokenIdStr)
+						{
+							int32 Uses = 0;
+							Units += (Obj->TryGetNumberField(TEXT("RemainingUses"), Uses) && Uses > 0) ? Uses : 1;
+						}
+					}
+				}
+				Cb(true, Vo, Units);
+			}, /*bRequireAuth*/ true);
+	}
 }
 
 void UAFLWalletComponent::DebugVerifyA12(FName TokenId, FName PremiumId, TFunction<void(const FAFLPurchaseVerifyResult&)> OnDone)
@@ -602,6 +626,102 @@ void UAFLWalletComponent::DebugVerifyA12(FName TokenId, FName PremiumId, TFuncti
 						R->FailNote = TEXT("legit token buy rejected by PlayFab (VO seeded/enough?)");
 						AfterBuy();
 					}
+				});
+		});
+}
+
+void UAFLWalletComponent::DebugVerifyPurchaseSeam(TFunction<void(const FAFLPurchaseVerifyResult&)> OnDone)
+{
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || !Online->IsLoggedIn())
+	{
+		FAFLPurchaseVerifyResult R;
+		R.bLoginOk = (Online != nullptr) && Online->IsLoggedIn();
+		R.FailNote = TEXT("not logged in");
+		OnDone(R);
+		return;
+	}
+
+	// Make the PlayFab test token reachable by the PRODUCTION entry. ClientRequestPurchase resolves the price
+	// from the cosmetic catalog (FindEntry), but the re-runnable token is deliberately not a shipping cosmetic --
+	// and the PlayFab AFL_Main catalog seeds no shippable cosmetic (only the test items + one owned beam). Inject a
+	// TRANSIENT catalog entry (in-memory, dev-only) mirroring the PlayFab price (10 VO) so the real entry resolves it.
+	const FName TokenId(TEXT("AFL.Test.Token"));
+	UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog();
+	if (!Catalog)
+	{
+		FAFLPurchaseVerifyResult R; R.bLoginOk = true; R.FailNote = TEXT("no cosmetic catalog subsystem"); OnDone(R); return;
+	}
+#if !UE_BUILD_SHIPPING
+	{
+		FAFLCatalogEntry TokenEntry;
+		TokenEntry.CosmeticId  = TokenId;
+		TokenEntry.Acquisition = EAFLAcquisition::Direct; // purchasable (NOT GrantedFree) -> ClientRequestPurchase proceeds
+		TokenEntry.PriceVolts  = 10;                       // MUST match the PlayFab AFL_Main price (config/economy-catalog.json)
+		TokenEntry.PriceWatts  = 0;
+		Catalog->DebugInjectTransientEntry(TokenEntry);
+	}
+#endif
+
+	const FString TokenIdStr = TokenId.ToString();
+	const int32 LocalVoBeforeBuy = Volts;
+
+	TSharedRef<FAFLPurchaseVerifyResult> R = MakeShared<FAFLPurchaseVerifyResult>();
+	R->bLoginOk = true;
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+
+	// 1) read BEFORE -> 2) buy via the PRODUCTION entry (ClientRequestPurchase -> PurchaseThroughBackend, the
+	//    Phase-1 relocated /PurchaseItem transport) -> 3) read AFTER (server deducted + granted?) -> 4) spend-spoof
+	//    through the SAME entry (over-priced Premium) -> must be REJECTED (the relocated transport stays un-spoofable).
+	Seam_ReadTokenState(Online, TokenIdStr,
+		[WeakThis, R, TokenIdStr, LocalVoBeforeBuy, OnDone](bool bOk1, int32 VoBefore, int32 UnitsBefore)
+		{
+			UAFLWalletComponent* Self = WeakThis.Get();
+			if (!Self || !bOk1) { R->FailNote = TEXT("read-before failed"); OnDone(*R); return; }
+			R->VoBefore = VoBefore;
+
+			// PRODUCTION buy through the real store entry -> FindEntry(transient) -> price 10 VO ->
+			// PurchaseThroughBackend -> completion -> ApplyPurchaseResult (mirror-deduct + owned re-read).
+			Self->ClientRequestPurchase(FName(*TokenIdStr), EAFLPayCurrency::Volts,
+				[WeakThis, R, TokenIdStr, UnitsBefore, LocalVoBeforeBuy, OnDone](bool bAccepted)
+				{
+					UAFLWalletComponent* S2 = WeakThis.Get();
+					if (!S2) { OnDone(*R); return; }
+					R->bSeamAccepted   = bAccepted;
+					// ApplyPurchaseResult ran inside the accept path -> the local mirror should now read (pre - 10).
+					R->bMirrorDeducted = bAccepted && (S2->GetVolts() == LocalVoBeforeBuy - 10);
+
+					Seam_ReadTokenState(UAFLOnlineSubsystem::Get(S2), TokenIdStr,
+						[WeakThis, R, UnitsBefore, OnDone](bool bOk3, int32 VoAfter, int32 UnitsAfter)
+						{
+							if (bOk3) { R->VoAfter = VoAfter; R->bLegitOwnedOnPlayFab = (UnitsAfter > UnitsBefore); }
+
+							UAFLWalletComponent* S4 = WeakThis.Get();
+							if (!S4) { OnDone(*R); return; }
+
+							// SPEND-SPOOF through the SAME production entry: fake local Volts HIGH, then buy the
+							// over-priced Premium -> PlayFab must REJECT (PlayFab-held funds are what count; the faked
+							// local balance is UNSPENDABLE -- ClientRequestPurchase never even consults local funds).
+							S4->DebugSetBalance(9999999, 9999999);
+							const FName PremiumId(TEXT("AFL.Test.Premium"));
+#if !UE_BUILD_SHIPPING
+							if (UAFLCosmeticCatalogSubsystem* Cat = S4->GetCatalog())
+							{
+								FAFLCatalogEntry PremiumEntry;
+								PremiumEntry.CosmeticId  = PremiumId;
+								PremiumEntry.Acquisition = EAFLAcquisition::Direct;
+								PremiumEntry.PriceVolts  = 1000000; // matches PlayFab; >> the seeded balance -> InsufficientFunds
+								PremiumEntry.PriceWatts  = 0;
+								Cat->DebugInjectTransientEntry(PremiumEntry);
+							}
+#endif
+							S4->ClientRequestPurchase(PremiumId, EAFLPayCurrency::Volts,
+								[R, OnDone](bool bSpendAccepted)
+								{
+									R->bSpendSpoofRejected = !bSpendAccepted;
+									OnDone(*R);
+								});
+						});
 				});
 		});
 }

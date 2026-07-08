@@ -9,6 +9,8 @@
 
 #include "AFLOnlineSubsystem.h"   // A1.1: PlayFab login + REST transport (the LOAD-from-PlayFab path)
 #include "Dom/JsonObject.h"       // parse GetUserInventory (VirtualCurrency + Inventory)
+#include "Misc/Guid.h"            // Phase 1 write-side: earn nonce (moved from the wallet)
+#include "Misc/DateTime.h"        // Phase 1 write-side: earn ts (moved from the wallet)
 
 DEFINE_LOG_CATEGORY_STATIC(LogAFLEconPersist, Log, All);
 
@@ -329,6 +331,61 @@ void UAFLEconomyPersistenceSubsystem::SaveOwnedSet(const FAFLPlayerId& Player, c
 	Rec.OwnedCosmeticIds = OwnedCosmeticIds;
 	UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] SaveOwnedSet count=%d"), OwnedCosmeticIds.Num());
 	Flush();
+}
+
+//~ S-ECON WRITE-SIDE (Phase 1): the two authoritative PlayFab TRANSACTIONS behind the seam ---------------------
+// Refactor-behind-interface: the transport (body build + the /earn and Client/PurchaseItem calls) is MOVED here
+// VERBATIM from the wallet's former inline path -- same endpoint, same body, same completion contract, same
+// server-side anti-spoof. Zero behaviour change; only the call site moved (wallet -> seam -> here).
+
+void UAFLEconomyPersistenceSubsystem::EarnThroughBackend(const FString& PlayFabId, const FString& CurrencyCode,
+	int32 Amount, const FString& Reason, const FString& MatchId, FAFLOnEarnComplete OnComplete)
+{
+	// MOVED from UAFLWalletComponent::EarnWattsAuthority (:268-279). Same HMAC/dedicated//earn transport + body.
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online)
+	{
+		OnComplete.ExecuteIfBound(false, FString());
+		return;
+	}
+	// (e) build the contract body (docs/earn-endpoint-contract.md): integer amount + ts, fresh server nonce.
+	// Reason is the funnel's tag ("extraction" / "loot:*") -- a controlled internal literal (audit/dedupe only).
+	const FString Nonce = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	const int64 Ts = FDateTime::UtcNow().ToUnixTimestamp();
+	const TCHAR* ReasonTag = (!Reason.IsEmpty()) ? *Reason : TEXT("earn");
+	const FString Body = FString::Printf(
+		TEXT("{\"playFabId\":\"%s\",\"currencyCode\":\"%s\",\"amount\":%d,\"reason\":\"%s\",\"matchId\":\"%s\",\"nonce\":\"%s\",\"ts\":%lld}"),
+		*PlayFabId, *CurrencyCode, Amount, ReasonTag, *MatchId, *Nonce, static_cast<long long>(Ts));
+
+	// (f) push to the server-authoritative /earn Lambda (A1.3b). PostServerEarn self-gates on the server env
+	// key/URL; forward the result to the caller (which parses newBalance + logs AFL_A13S3 identically).
+	Online->PostServerEarn(Body, [OnComplete](bool bOk, const FString& Resp)
+	{
+		OnComplete.ExecuteIfBound(bOk, Resp);
+	});
+}
+
+void UAFLEconomyPersistenceSubsystem::PurchaseThroughBackend(FName CosmeticId, const FString& CurrencyCode,
+	int32 Price, FAFLOnPurchaseComplete OnComplete)
+{
+	// MOVED from UAFLWalletComponent::ClientRequestPurchase (:408-417). Same Client/PurchaseItem spend+grant --
+	// PlayFab is the anti-spoof authority (rejects insufficient funds / price mismatch).
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online)
+	{
+		OnComplete.ExecuteIfBound(false);
+		return;
+	}
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("ItemId"), CosmeticId.ToString());
+	Body->SetStringField(TEXT("VirtualCurrency"), CurrencyCode);
+	Body->SetNumberField(TEXT("Price"), Price);
+	Body->SetStringField(TEXT("CatalogVersion"), TEXT("AFL_Main"));
+	Online->PostClientApi(TEXT("PurchaseItem"), Body,
+		[OnComplete](bool bOk, TSharedPtr<FJsonObject> /*Data*/)
+		{
+			OnComplete.ExecuteIfBound(bOk);
+		}, /*bRequireAuth*/ true);
 }
 
 void UAFLEconomyPersistenceSubsystem::LoadSelection(const FAFLPlayerId& Player, FAFLOnSelectionLoaded OnLoaded)

@@ -122,6 +122,19 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
 	bool IsReady() const { return Catalog != nullptr; }
 
+#if !UE_BUILD_SHIPPING
+	/**
+	 * DEV/TEST ONLY (backend-verify harness): inject a TRANSIENT entry into the loaded catalog -- IN-MEMORY,
+	 * this session only, NEVER saved to the asset. It lets afl.Online.VerifyPurchaseSeam drive the PRODUCTION
+	 * purchase path (UAFLWalletComponent::ClientRequestPurchase -> FindEntry -> PurchaseThroughBackend) for a
+	 * PlayFab TEST item (AFL.Test.Token) that is intentionally NOT a shipping cosmetic (the PlayFab AFL_Main
+	 * catalog seeds only the test items + one beam; no shippable cosmetic is purchasable there yet). Idempotent:
+	 * replaces an existing entry with the same CosmeticId, then rebuilds the id->entry accelerator. No-op if the
+	 * catalog isn't loaded. Compiled OUT of Shipping -> zero shipping footprint / no store leak in a cooked build.
+	 */
+	void DebugInjectTransientEntry(const FAFLCatalogEntry& Entry);
+#endif
+
 	/** Instance resolve: the loaded registry's identity for a tag, or nullptr. The static resolvers route here. */
 	const FAFLColorIdentity* FindColorIdentity(const FGameplayTag& IdentityTag) const;
 

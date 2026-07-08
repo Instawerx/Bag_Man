@@ -324,3 +324,24 @@ UAFLCosmeticCatalogSubsystem* UAFLCosmeticCatalogSubsystem::Get(const UObject* W
 	}
 	return nullptr;
 }
+
+#if !UE_BUILD_SHIPPING
+void UAFLCosmeticCatalogSubsystem::DebugInjectTransientEntry(const FAFLCatalogEntry& Entry)
+{
+	if (!Catalog)
+	{
+		UE_LOG(LogAFLCosmeticCore, Warning,
+			TEXT("[Catalog] DebugInjectTransientEntry: no catalog loaded -- cannot inject %s."), *Entry.CosmeticId.ToString());
+		return;
+	}
+	// Idempotent: drop any prior entry with this id (so re-runs never stack dupes), then append + rebuild the
+	// accelerator. BuildLookup() re-derives EntryById from Entries AFTER the Add -- Entries.Add may reallocate,
+	// which would dangle the old EntryById pointers; rebuilding here keeps every ptr valid.
+	Catalog->Entries.RemoveAll([&Entry](const FAFLCatalogEntry& E) { return E.CosmeticId == Entry.CosmeticId; });
+	Catalog->Entries.Add(Entry);
+	Catalog->BuildLookup();
+	UE_LOG(LogAFLCosmeticCore, Log,
+		TEXT("[Catalog] DebugInjectTransientEntry: TRANSIENT %s (V%d W%d) -- in-memory ONLY, NOT saved to the asset."),
+		*Entry.CosmeticId.ToString(), Entry.PriceVolts, Entry.PriceWatts);
+}
+#endif

@@ -70,6 +70,12 @@ DECLARE_DELEGATE_TwoParams(FAFLOnOwnedSetLoaded, bool /*bOk*/, const TArray<FNam
 // player -> the wallet seeds defaults.
 DECLARE_DELEGATE_ThreeParams(FAFLOnBalanceLoaded, bool /*bFound*/, int32 /*Volts*/, int32 /*Watts*/);
 
+// S-ECON WRITE-SIDE (Phase 1): the authoritative PlayFab TRANSACTION completions -- async-shaped like the loads
+// above (single-cast delegate). EarnComplete carries the raw /earn response (the caller parses newBalance +
+// logs the AFL_A13S3 grant); PurchaseComplete is accept/reject (PlayFab spends+grants server-side; false = rejected).
+DECLARE_DELEGATE_TwoParams(FAFLOnEarnComplete, bool /*bOk*/, const FString& /*Resp*/);
+DECLARE_DELEGATE_OneParam(FAFLOnPurchaseComplete, bool /*bAccepted*/);
+
 // ---------------------------------------------------------------------------------------------------
 // Entitlement seam -- "does this player own this cosmetic?" The gate ASKS this; it does not implement
 // policy. Permissive impl now (everyone owns the basics); S-ECON-WALLET implements it against the
@@ -128,4 +134,21 @@ public:
 
 	/** Persist the player's Volts/Watts balance (fire-and-forget; stub writes in-memory / SaveGame). */
 	virtual void SaveBalance(const FAFLPlayerId& Player, int32 Volts, int32 Watts) = 0;
+
+	// --- S-ECON WRITE-SIDE (Phase 1): the two authoritative PlayFab TRANSACTIONS on the SAME seam ----------
+	// These carry the SERVER-AUTHORITATIVE writes that were formerly inline in the wallet (parity with the
+	// already-seamed load side). The impl relocates the transport verbatim; behaviour is unchanged.
+
+	/** Server-authoritative EARN: mirror the committed delta to the player's PlayFab wallet via /earn (A1.3b).
+	 *  PlayFabId = the earner's server-VERIFIED id (A1.4 GetResolvedPlayFabId) -- NOT the login key (which is the
+	 *  server's OWN id on a dedicated host); naming the target player is what preserves the A1.4 anti-spoof.
+	 *  Async; OnComplete carries (bOk, the raw /earn response body). */
+	virtual void EarnThroughBackend(const FString& PlayFabId, const FString& CurrencyCode, int32 Amount,
+		const FString& Reason, const FString& MatchId, FAFLOnEarnComplete OnComplete) = 0;
+
+	/** Server-authoritative PURCHASE: PlayFab Client/PurchaseItem spends+grants (the anti-spoof wall; can REJECT).
+	 *  NO player id -- PurchaseItem is auth-token'd, so the client's login token IS the identity. Async;
+	 *  OnComplete is accept(true)/reject(false). */
+	virtual void PurchaseThroughBackend(FName CosmeticId, const FString& CurrencyCode, int32 Price,
+		FAFLOnPurchaseComplete OnComplete) = 0;
 };

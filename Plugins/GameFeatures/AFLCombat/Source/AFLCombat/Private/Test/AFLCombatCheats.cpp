@@ -2384,6 +2384,56 @@ namespace
 		TEXT("A1.2 backend-verify harness: fake a HIGH local balance, then buy a stackable test token via PlayFab -> assert (a) PlayFab deducted+granted server-side + mirror-deducted locally, (b) fake-price buy REJECTED, (c) over-balance buy REJECTED (faked local balance UNSPENDABLE = spend spoof closed). AFL_TEST[A12] PASS = all. Needs AFL.Test.Token + AFL.Test.Premium in the catalog (run setup:economy)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLOnlineVerifyA12));
 
+	// ─── Phase-1 PRODUCTION-seam purchase proof: afl.Online.VerifyPurchaseSeam ────────────────────
+	// Sibling of VerifyA12, but drives the REAL store entry ClientRequestPurchase -> PurchaseThroughBackend
+	// (the Phase-1 RELOCATED transport) instead of the inline A12_TryBuy probe -- closing the gap that no test
+	// exercised the production purchase path. Buys the transient-injected AFL.Test.Token (10 VO) through the
+	// production entry, then over-buys Premium through the SAME entry to prove the spend wall still holds THROUGH
+	// the seam. AFL_TEST[SEAM] PASS = seam fired + PlayFab deducted+granted + local mirror + spend-spoof rejected.
+	void HandleAFLOnlineVerifyPurchaseSeam(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifyPurchaseSeam - run inside PIE.")); return; }
+		UAFLWalletComponent* Wallet = GetPlayerWallet(World);
+		if (!Wallet) { Ar.Log(TEXT("afl.Online.VerifyPurchaseSeam - no wallet on the local PlayerState.")); return; }
+
+		UE_LOG(LogTemp, Display, TEXT("AFL_TEST[SEAM] start -- buying AFL.Test.Token via the PRODUCTION entry (ClientRequestPurchase -> PurchaseThroughBackend)..."));
+		Ar.Log(TEXT("AFL_TEST[SEAM] start -> ClientRequestPurchase(AFL.Test.Token, Volts) -> assert seam fired + PlayFab deduct+grant + mirror + spend-spoof rejected. Watch the on-screen result; AIK reads the log after PIE."));
+		if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Yellow, TEXT("[SEAM] buying test token via the PRODUCTION purchase path...")); }
+
+		Wallet->DebugVerifyPurchaseSeam([](const FAFLPurchaseVerifyResult& R)
+		{
+			const bool bServerDeducted = (R.VoBefore >= 0 && R.VoAfter >= 0 && R.VoAfter == R.VoBefore - 10);
+			UE_LOG(LogTemp, Display, TEXT("AFL_TEST[SEAM] login=%d seamAccepted=%d serverVO %d->%d (deducted=%d) grantedOnPlayFab=%d mirrorDeducted=%d spendSpoofRejected=%d"),
+				R.bLoginOk ? 1 : 0, R.bSeamAccepted ? 1 : 0, R.VoBefore, R.VoAfter, bServerDeducted ? 1 : 0,
+				R.bLegitOwnedOnPlayFab ? 1 : 0, R.bMirrorDeducted ? 1 : 0, R.bSpendSpoofRejected ? 1 : 0);
+
+			const bool bPass = R.bLoginOk && R.bSeamAccepted && bServerDeducted && R.bLegitOwnedOnPlayFab
+				&& R.bMirrorDeducted && R.bSpendSpoofRejected;
+			if (bPass)
+			{
+				UE_LOG(LogTemp, Display, TEXT("AFL_TEST[SEAM] PASS -- ClientRequestPurchase drove PurchaseThroughBackend (the Phase-1 relocated transport) to PlayFab: deducted+granted server-side; local mirror reflected; over-balance buy REJECTED through the SAME entry."));
+				if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Green, TEXT("[SEAM] PASS  production ClientRequestPurchase->PurchaseThroughBackend | deduct+grant | mirror | spend-spoof rejected")); }
+			}
+			else
+			{
+				FString Why;
+				if (!R.bLoginOk) { Why = TEXT("login"); }
+				else if (!R.bSeamAccepted) { Why = R.FailNote.IsEmpty() ? TEXT("seam NOT accepted (ClientRequestPurchase->PurchaseThroughBackend did not commit; not-in-catalog / PlayFab rejected)") : R.FailNote; }
+				else if (!bServerDeducted) { Why = FString::Printf(TEXT("server-deduct (VO %d->%d want -10)"), R.VoBefore, R.VoAfter); }
+				else if (!R.bLegitOwnedOnPlayFab) { Why = TEXT("token not granted on PlayFab (units did not increase)"); }
+				else if (!R.bMirrorDeducted) { Why = TEXT("local mirror-deduct (ApplyPurchaseResult)"); }
+				else if (!R.bSpendSpoofRejected) { Why = TEXT("over-balance NOT rejected through the seam (!!)"); }
+				else { Why = R.FailNote.IsEmpty() ? TEXT("unknown") : R.FailNote; }
+				UE_LOG(LogTemp, Warning, TEXT("AFL_TEST[SEAM] FAIL: %s"), *Why);
+				if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Red, FString::Printf(TEXT("[SEAM] FAIL: %s"), *Why)); }
+			}
+		});
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLOnlineVerifyPurchaseSeamCmd(TEXT("afl.Online.VerifyPurchaseSeam"),
+		TEXT("Phase-1 PRODUCTION-seam purchase proof: drive the REAL entry ClientRequestPurchase -> PurchaseThroughBackend (the relocated transport) to buy the transient-injected AFL.Test.Token (10 VO) via PlayFab, then over-buy Premium -> assert seam fired + PlayFab deduct+grant + local mirror + spend-spoof rejected THROUGH the seam. AFL_TEST[SEAM] PASS = all."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLOnlineVerifyPurchaseSeam));
+
 	// --- SKINTEST one-command 6-gate driver: afl.SkinTest.RunAll ------------------
 	// Sequences the EXISTING cheats (Grant/SetBody/SetEdge/SetFacemask) with timed FTimerHandle pauses + [SKINTEST]
 	// log + on-screen markers, so the operator runs ONE command and just WATCHES each gate. Calls the named handlers
