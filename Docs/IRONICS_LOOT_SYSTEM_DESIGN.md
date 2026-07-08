@@ -128,6 +128,27 @@ Every grant deterministic/known before retrieval — economy (fixed per zone/tie
 (known heal/ammo). No random contents, rolls, rarity tables, mystery boxes, or purchasable chance. Zero
 purchased-chance surface.
 
+### 2.7 ROLLING HEADS — the QUANTUM collectible loop (core gameplay; re-homed from the tracker Rolling-Heads amendment)
+Rolling Heads is a **CORE GAMEPLAY / loot feature** (P-COMBAT × P-ECONOMY × P-SCORING), **NOT** a store/economy
+randomization item. It rides ON TOP of the proven S4 dismember detach (the CARRY loot-box template §2.3 + tracker
+`AFL-DECAP-LOOP` ✅ PIE-proven) and does NOT expand S4 scope.
+- **LOOP (P-COMBAT):** headshot → head pops (✅ existing, `AFL-DECAP-LOOP`) → the head becomes a **QUANTUM node**
+  persisting the WHOLE match → robot headless-until-death (existing dismember penalties only, NO new debuff) →
+  respawn with a new head → repeat.
+- **COLLECT + SCORING (P-SCORING, ◻ recorded design):** collecting an **ENEMY** QUANTUM (anti-farm: enemy-only,
+  mirrors the dismember owner-branch) awards a **"Head Collector" stat tick AND a tiny Watts trickle** (both).
+- **ECONOMY (P-ECONOMY, ◻):** the enemy-collect yields a small **free/EARNED** Watts reward (~50–150,
+  TUNE-AT-PLAYTEST — a trickle, not a faucet vs ~4,000 W/match). This IS the free/earned gameplay variance the
+  **§2.6 / §0 no-PAID-randomized-acquisition invariant PERMITS** — it is **not** a paid loot-box (the legal gate is
+  PURCHASED chance only).
+- **HELMET-CARRY SEAM (◻, 4b × P-COMBAT):** the popped head must **carry the catalog-resolved helmet** (headshot →
+  head pops → helmet rolls with it); gated on grounding the detach model (prop-swap vs bone-physicalize). The helmet
+  part is NOT "complete" until this is watched.
+- **NAMING:** QUANTUM = the collectible reward-object category (the rolling head is the FIRST). "Quantum Boxes" = a
+  forward slot, not built. "Loot box" is a player-facing JOKE only — NEVER the mechanical/cert-scannable name.
+- *(Re-homes the tracker QUANTUM/Rolling-Heads amendment; the standalone `ROLLING_HEADS_QUANTUM_AMENDMENT.md` was
+  never created — this §2.7 is its home. Cross-ref the dismember mechanic: `AFL-0402` / `AFL-DECAP-LOOP`.)*
+
 ---
 
 ## STEP 3 — PHASED BUILD PLAN (v3)
