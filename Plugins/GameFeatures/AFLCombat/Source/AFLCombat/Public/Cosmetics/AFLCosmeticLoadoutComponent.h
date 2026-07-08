@@ -57,7 +57,8 @@ public:
 	 *      bSelectionLocked match-start signal wires in when the hub<->match boundary lands. The gate is
 	 *      CALLED now so the call site is proven; only the policy fills in later.
 	 *   3. Entitlement gate (per axis + identity): unentitled ids are dropped, the rest still apply.
-	 *      Permissive impl now; owned-set impl later -- same interface, no re-architecture.
+	 *      Real owned-set impl now (UAFLWalletComponent IS the IAFLEntitlementSource -- S-ECON-WALLET): owned +
+	 *      GrantedFree apply. Was a permissive stub during #43 bring-up -- same interface, no re-architecture.
 	 *   4. Commit -> replicated UPROPERTY -> OnRep on clients; persist through the stub interface.
 	 *   5. If already possessed (pre-match live change), re-run the proven controller push (no respawn).
 	 */
@@ -114,8 +115,8 @@ private:
 	/** Owning PlayerState (typed convenience; null-safe). */
 	ALyraPlayerState* GetLyraPlayerState() const;
 
-	/** Resolve the entitlement source (permissive impl now). Null-tolerant: a missing source means
-	 *  basics are owned (the call sites short-circuit to allowed). */
+	/** Resolve the entitlement source (the real UAFLWalletComponent owned-set impl -- S-ECON-WALLET). Null-tolerant:
+	 *  a missing source means basics are owned (the call sites short-circuit to allowed). */
 	IAFLEntitlementSource* GetEntitlementSource() const;
 
 	/** Resolve the persistence backend (stub now). May be null in early bring-up -> persistence no-ops. */

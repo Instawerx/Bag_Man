@@ -2434,6 +2434,82 @@ namespace
 		TEXT("Phase-1 PRODUCTION-seam purchase proof: drive the REAL entry ClientRequestPurchase -> PurchaseThroughBackend (the relocated transport) to buy the transient-injected AFL.Test.Token (10 VO) via PlayFab, then over-buy Premium -> assert seam fired + PlayFab deduct+grant + local mirror + spend-spoof rejected THROUGH the seam. AFL_TEST[SEAM] PASS = all."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLOnlineVerifyPurchaseSeam));
 
+	// ─── Phase-2 Visors canary: afl.Online.VerifyVisorCanary ──────────────────────
+	// Sibling of VerifyPurchaseSeam, extended to the FULL part flow on a REAL seeded SKU: buy
+	// AFL.Facemask.Flag.Japan (5000 VO) through the PRODUCTION entry ClientRequestPurchase -> the Phase-1 seam
+	// -> PlayFab PurchaseItem, THEN equip it via the production ServerSetCosmeticSelection (the entitlement gate
+	// now passes because the buy made it owned) -> the runtime path swaps the hero's slot-1 facemask material.
+	// Proves buy -> entitled -> equip -> render on a catalog-seeded SKU end-to-end. The RENDER must be WATCHED
+	// (Flag.Japan is visually distinct from the base default). DRIVES the existing chain ONLY -- ClientRequestPurchase,
+	// the seam, ServerSetCosmeticSelection, and RefreshFacemaskForPawn are UNCHANGED. Dev-only (#if !UE_BUILD_SHIPPING).
+	// AFL_TEST[VISOR] markers: purchased / granted / equipped / render-refreshed.
+#if !UE_BUILD_SHIPPING
+	void HandleAFLOnlineVerifyVisorCanary(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifyVisorCanary - run inside PIE.")); return; }
+		UAFLWalletComponent* Wallet = GetPlayerWallet(World);
+		if (!Wallet) { Ar.Log(TEXT("afl.Online.VerifyVisorCanary - no wallet on the local PlayerState.")); return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout) { Ar.Log(TEXT("afl.Online.VerifyVisorCanary - no UAFLCosmeticLoadoutComponent on the local player's PlayerState.")); return; }
+
+		static const FName VisorId(TEXT("AFL.Facemask.Flag.Japan"));
+
+		UE_LOG(LogTemp, Display, TEXT("AFL_TEST[VISOR] start -- buying %s (5000 VO) via the PRODUCTION entry ClientRequestPurchase -> Phase-1 seam -> PlayFab, then equip -> render-refresh."), *VisorId.ToString());
+		Ar.Log(TEXT("AFL_TEST[VISOR] start -> ClientRequestPurchase(AFL.Facemask.Flag.Japan, Volts) -> equip via ServerSetCosmeticSelection -> WATCH the hero's facemask swap to the Japan flag. AIK/operator reads the log + WATCHES the render."));
+		if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Yellow, TEXT("[VISOR] buying Flag.Japan via the PRODUCTION purchase path...")); }
+
+		TWeakObjectPtr<UAFLWalletComponent> WeakWallet(Wallet);
+		TWeakObjectPtr<UAFLCosmeticLoadoutComponent> WeakLoadout(Loadout);
+
+		// Drive the REAL production chain: ClientRequestPurchase(callback) -> the seam -> PlayFab. On completion,
+		// assert granted, then EQUIP through the production ServerSetCosmeticSelection (same as afl.Cosmetic.SetFacemask).
+		Wallet->ClientRequestPurchase(VisorId, EAFLPayCurrency::Volts, [WeakWallet, WeakLoadout](bool bSuccess)
+		{
+			UAFLWalletComponent* W = WeakWallet.Get();
+			UAFLCosmeticLoadoutComponent* L = WeakLoadout.Get();
+			if (!W || !L) { UE_LOG(LogTemp, Warning, TEXT("AFL_TEST[VISOR] FAIL: wallet/loadout gone before purchase completion.")); return; }
+
+			UE_LOG(LogTemp, Display, TEXT("AFL_TEST[VISOR] purchased ok=%d -- ClientRequestPurchase -> Phase-1 seam -> PlayFab PurchaseItem for %s"), bSuccess ? 1 : 0, *VisorId.ToString());
+			if (!bSuccess)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("AFL_TEST[VISOR] FAIL: purchase rejected (funds/price/not-in-catalog). Ensure account VO>=5000 and AFL.Facemask.Flag.Japan seeded at VO 5000."));
+				if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Red, TEXT("[VISOR] FAIL: purchase rejected")); }
+				return;
+			}
+
+			// granted: the buy applied ownership on the local mirror (ApplyPurchaseResult) -> entitlement now owns it.
+			const bool bGranted = W->IsEntitled(nullptr, VisorId);
+			UE_LOG(LogTemp, Display, TEXT("AFL_TEST[VISOR] granted=%d -- OwnedCosmeticIds contains %s (entitlement gate will pass)"), bGranted ? 1 : 0, *VisorId.ToString());
+			if (!bGranted)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("AFL_TEST[VISOR] FAIL: purchased but not owned (ApplyPurchaseResult did not add the id)."));
+				if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Red, TEXT("[VISOR] FAIL: granted=0")); }
+				return;
+			}
+
+			// EQUIP via the PRODUCTION selection entry (mirror of afl.Cosmetic.SetFacemask) -> gate passes (owned) -> refresh.
+			FAFLCosmeticSelection Request = L->GetSelection();
+			if (Request.GetActiveIdentityId() == NAME_None)
+			{
+				Request.IdentityType = EAFLIdentityType::Team;
+				Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+			}
+			Request.FacemaskId = VisorId;
+			L->ServerSetCosmeticSelection(Request); // PURE: client-issued; server gates (owned) + drives the refresh.
+
+			UE_LOG(LogTemp, Display, TEXT("AFL_TEST[VISOR] equipped -- ServerSetCosmeticSelection(facemask=%s) issued through the production seam; entitlement gate passes because owned."), *VisorId.ToString());
+			UE_LOG(LogTemp, Display, TEXT("AFL_TEST[VISOR] render-refreshed -- the runtime path swaps the hero slot-1 facemask material. WATCH the hero's visor change to the Japan flag (visually distinct from base default). Use `afl.SkinDiag 1` to log RefreshFacemask/OnRep_Facemask/ApplyFacemask."));
+			if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Green, TEXT("[VISOR] purchased+granted+equipped -- WATCH the facemask swap to Flag.Japan")); }
+		});
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLOnlineVerifyVisorCanaryCmd(TEXT("afl.Online.VerifyVisorCanary"),
+		TEXT("Phase-2 Visors canary: buy AFL.Facemask.Flag.Japan (5000 VO) via the PRODUCTION entry ClientRequestPurchase -> Phase-1 seam -> PlayFab, then equip via ServerSetCosmeticSelection -> runtime facemask render-swap. Proves buy->entitled->equip->render on a real seeded SKU. AFL_TEST[VISOR] purchased/granted/equipped/render-refreshed -- WATCH the visible swap. Run in PIE with account VO>=5000 and Flag.Japan not-yet-owned."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLOnlineVerifyVisorCanary));
+#endif // !UE_BUILD_SHIPPING
+
 	// --- SKINTEST one-command 6-gate driver: afl.SkinTest.RunAll ------------------
 	// Sequences the EXISTING cheats (Grant/SetBody/SetEdge/SetFacemask) with timed FTimerHandle pauses + [SKINTEST]
 	// log + on-screen markers, so the operator runs ONE command and just WATCHES each gate. Calls the named handlers
