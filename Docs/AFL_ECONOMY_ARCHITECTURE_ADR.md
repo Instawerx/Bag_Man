@@ -537,10 +537,14 @@ pending `b3691d52` commit):**
 | Axis | Live count | Target | Backlog |
 |---|---|---|---|
 | `AFL.Character.*` identities | **30** | **37** | **7 remaining** |
-| `AFL.Team.*` registrations | **29** | **7 (intended)** | ⚠️ **+22 over** — see flag |
+| `AFL.Team.*` rows | **7** ✅ | **7 (intended)** | ✅ **RECONCILED** — prune reflected on disk (HEAD 2241ba79) |
 
 The **7-remaining** number on the character axis governs the remaining roster batches. **Count
 against 37, not 30.**
+
+**✅ RECONCILED 2026-07-08 (HEAD 2241ba79):** disk now shows exactly **7** `AFL.Team.*` rows — ARIA · IRONICS ·
+SCARLETT · MAKHIAVELLI · AP-9 · MOB-FIGAZ · FANATICS — the **29→7 prune is REFLECTED on disk**; the +22-over debt is
+**CLOSED**. (Verified via MCP catalog dump: `Type=Team` = 7.) [history retained below]
 
 **⚠️ FLAG — team-registration count is 29, not the intended 7.** The "dual-register all branded"
 pass (commits `f3ef4100` → `b3691d52`) registered **nearly the entire roster** on both axes. Disk
