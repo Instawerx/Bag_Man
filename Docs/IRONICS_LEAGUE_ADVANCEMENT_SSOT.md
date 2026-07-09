@@ -1,25 +1,39 @@
 # IRONICS — League, Advancement, Achievements & Rankings SSOT
 
-> **Status: SCOPING / DESIGN PASS — v0.1 (2026-07-09).** This is the **owed "progression / ranking
+> **Status: SCOPING / DESIGN PASS — v0.2 (2026-07-09).** This is the **owed "progression / ranking
 > definitions doc"** that `IRONICS_MARKETPLACE_MASTER_ARCHITECTURE.md` §6 driver #2 (`:142`) and §10
 > (`:222`) flag as required **before Phase 5**. It is a **design deliverable only** — no game-system code,
 > no catalog/asset/infra writes, no rank/achievement mechanism is built by this doc. Refine-and-finish is
 > iterative from here.
+>
+> **v0.2 CORRECTIONS (2026-07-09, operator — two v0.1 misreads fixed):** **(A) the match/scoring substrate
+> EXISTS** — v0.1 wrongly concluded "no win-condition/scoring" from a narrow `LCM:598-600` per-team-aggregation
+> note. On disk: `IRONICS_MAP_MODE_SPEC.md` §1.1 (RESOLVED) = round-based **best-of** (2v2–4v4 = **best-of-13**),
+> win-by-eliminate-OR-extract; the match-phase spine + per-player StatTag scoring are BUILT (MATCH-SPINE-C1).
+> Ranked keys off THIS; only per-team aggregation + a fuller stats component + the RP mapping remain. **(B)
+> ARC is a TIER name, not a currency** — the currencies are **Watts** (earned) + **Volts** (premium), peg
+> 10W=1V (`ECON §1`); SPARK/SURGE/**ARC**/THUNDER BOLT are **price TIERS** (`EAFLCosmeticTier` enum,
+> `SKU_CATALOG:28`). "ARC" is **APPROVED as a rank name**, namespace-distinct from the ARC price tier (a
+> display-clarity note, not a collision). The false "scoring prerequisite" + "ARC currency collision" flags
+> are dropped.
 >
 > **Grounds in (read + reconciled):** `IRONICS_ECONOMY_SPEC.md` (peg · currencies · earn structure ·
 > Battle Pass) · `IRONICS_PRICING_SCARCITY_SSOT.md` (tier/rarity vocabulary · no-cash-out · persistence
 > gate §5.1) · `AFL_ECONOMY_ARCHITECTURE_ADR.md` (ownership spine · `IAFLCosmeticPersistence` · id
 > doctrine) · `IRONICS_MARKETPLACE_MASTER_ARCHITECTURE.md` (driver #2, the earn-and-gate stance) ·
 > `AFL_IDENTITY_PRODUCTION_LINE.md` + `IRONICS_PRODUCT_SKU_CATALOG.md` (roster · 7 teams) ·
-> `IRONICS_LOOT_SYSTEM_DESIGN.md` + `IRONICS_LOOT_CARRY_MODEL.md` (scoring substrate = P-SCORING, unbuilt) ·
-> `BAG_MAN_LIVE_TRACKER.html` (the P-SCORING pillar + Sprint 22 ranked backlog — the real early work).
+> `IRONICS_LOOT_SYSTEM_DESIGN.md` + `IRONICS_LOOT_CARRY_MODEL.md` (the extraction/loot earn substrate) ·
+> `IRONICS_MAP_MODE_SPEC.md` (the EXISTING match structure + win conditions — best-of round-based) ·
+> `BAG_MAN_LIVE_TRACKER.html` (the P-SCORING pillar + Sprint 22 ranked backlog + the built match/scoring spine).
 >
 > **Standing dependency (NOT closed here):** rank/achievement/season/leaderboard state is **durable state**
 > that rides the **consolidated `IAFLCosmeticPersistence` seam** (PlayFab, Phase-1 write-side done
 > `f010a0c1`; the **B2 backend spine** — mint-ledger + `/purchase-bundle` — is the live proof of that
 > layer). Persisting *new* state shapes (MMR, rank, achievement flags, season progress) is a new write
-> type through the same seam — **not yet demonstrated**. And rankings key off a **match-outcome / scoring
-> substrate that does not exist yet** (P-SCORING, `LCM:598-600`). See §7 dependencies.
+> type through the same seam — **not yet demonstrated**. Rankings key off the **EXISTING best-of match /
+> scoring structure** (`IRONICS_MAP_MODE_SPEC.md` §1.1, RESOLVED; the match-phase spine + per-player scoring
+> are already BUILT — MATCH-SPINE-C1). The narrow remaining piece is **per-team score aggregation** + a
+> fuller per-player stats component + the RP mapping — a scoped addition, NOT a from-scratch substrate. See §7.
 
 ---
 
@@ -70,6 +84,16 @@ cards + backlog stubs, **not** a definitions doc. A filesystem glob for `*PROGRE
 - **Shipped scaffolding to consume** — per-player scoreboard K/D/A via `B_AFLMatchScoring`
   (AFL-0904/0905, commits `733a1699`/`c936814e`); an **Apex-style match-end full-screen takeover**
   (`IRONICS_UI_WASH_QUEUE.md:104`, done `c936814e`).
+- **The MATCH STRUCTURE + WIN CONDITIONS — RESOLVED + partly BUILT (the substrate ranked keys off).**
+  `IRONICS_MAP_MODE_SPEC.md` §1.1 (`:34-40`, RESOLVED — *"proven-popular standard"*): **Arena PvP
+  (1v1–4v4) = round-based best-of** (CS/Valorant-proven) — **a round is won by ELIMINATING the enemy team
+  OR banking a successful EXTRACTION**; **match = first-to-N** (1v1 ~Bo11/first-to-6; **2v2–4v4 ~first-to-7
+  = best-of-13**), side/spawn swap. **Team (5v5–8v8):** control/hardpoint, payload, or
+  team-extraction-to-threshold. **BR (18/36):** placement + banked-extraction hybrid. **Built in code:** the
+  `UAFLMatchPhaseComponent` spine (Warmup→Active 8min→Extraction Window→End — MATCH-SPINE-C1 18/18,
+  `a9b3333f`); **per-player scoring feeds Lyra StatTags** — elimination (`9096f1e8`) + assists (`a1c51997`),
+  K/D/A ledger 2-client; match-end results post to PlayFab (AFL-1304). **The win/outcome/scoring substrate
+  EXISTS** — the prior pass misread `LCM:598-600` (a narrow per-team-aggregation note) as "no scoring."
 - **The engagement-progression spine that already exists** — the **Battle Pass** (`IRONICS_ECONOMY_SPEC.md`
   §4): ~100 tiers, free + premium track, XP/challenge-unlocked, exactly self-sustaining; and the **earn
   structure** (§3): match base with **win > loss** weighting, daily first-win, daily/weekly challenges.
@@ -84,10 +108,12 @@ cards + backlog stubs, **not** a definitions doc. A filesystem glob for `*PROGRE
 - **The League / rank ladder** — no tiers, divisions, thresholds, promotion/demotion, decay, or names.
 - **Achievements** — one word (`:142`); no taxonomy, no list, no state model, no gate design.
 - **Leaderboards / rankings** — zero design; no standings model.
-- **The match-outcome / scoring substrate** — **does not exist.** `LCM:598-600`: *"no team-score system
-  yet… a team-mode design must add a team-score system FIRST; extraction banking is per-player today."*
-  There is **no win condition, no match-end resolution, no round structure** — only per-player
-  Watts-extracted + extraction-success ("got away cleanly", `LCM:458-459`).
+- **Per-TEAM score aggregation + a fuller per-player stats component** — the *narrow* genuine gap (the match
+  structure + win conditions + per-player scoring EXIST, §1.1). Not yet built: **per-team score aggregation**
+  (`LCM:598-600` — *"the bank is PER-PLAYER; team aggregation is a future piece"*, a BR-scale note, **not**
+  "no scoring"), a **fuller per-player stats component** (kills/energy-extracted beyond the current K/D/A
+  ledger — the tracker "S-later" stats-component debt), and the **RP↔outcome mapping** this doc proposes.
+  These are scoped build items on top of a live substrate, not a from-scratch substrate.
 - **The team-ownership achievement gate (B2 #7)** — greenfield; nearest hook is the identity rule *"prune
   team axis 29→7, **operator picks the 7, don't auto-grant teams**"* (`AFL_IDENTITY_PRODUCTION_LINE.md:212-214`).
 
@@ -111,10 +137,11 @@ competitive-design canon, reconciled to our locked economy doctrine.
   progression and skill rank are separate ladders** — a grinder levels up; only a skilled player ranks up.*
 - **ARC Raiders (PvPvE extraction progression).** Advancement via **quests / gear / skill-tree +
   extraction success**, not a hard PvP rank ladder. *Lesson (most relevant to OUR extraction-arena loop):
-  progression can be **earn-through-extraction + goal-driven**, distinct from a pure MMR ladder. The
-  operator's "ARC-style" reference reads as the **extraction-progression feel + AAA match-end polish**
-  (we already ship the Apex/ARC-style takeover screen), **not** a literal rank named "ARC" — see the §6.1
-  naming flag.*
+  progression can be **earn-through-extraction + goal-driven**, distinct from a pure MMR ladder — and our
+  win conditions already fold extraction INTO the round (`MAP_MODE §1.1`: win-by-eliminate-OR-extract). The
+  operator's "ARC/APEX/COD-style" names the ranking-system inspiration; **"ARC" is ALSO an APPROVED
+  electrical-theme rank name** (brand-fit), namespace-distinct from the `EAFLCosmeticTier::ARC` **price
+  tier** (ARC is a tier name, **not** a currency — the currencies are Watts/Volts). See flag #1.*
 
 ### 2.2 Principles we ADOPT (each cited to a "why")
 1. **Separate skill from engagement — two ladders, never one.** MMR/rank measures **skill** (fair
@@ -161,21 +188,26 @@ the pass by *playing*, and the rank ladder by *winning/performing*.
   cadence of frequent legible steps.
 - **A top "leaderboard tier"** above the 7 — a **top-N standings** slot (Apex Predator / CoD Top-250 model),
   membership defined by the RANKINGS leaderboard (System C), not a fixed threshold.
-- **Candidate PLACEHOLDER names (operator to bless — §6.1):** a **non-colliding** ascending set, since the
-  electrical vocabulary is exhausted (SPARK/SURGE/ARC/THUNDER BOLT currency rungs · Singularity/Tempest/
-  Bolt/Surge/Charge/Static rarity · Volts/Watts/Bolts currencies). Proposed starting set:
-  **Filament · Ember · Current · Dynamo · Tesla · Overload → OVERVOLT** (top leaderboard tier).
-  *(“OVERVOLT” is the operator’s own floated top-name from `IRONICS_ECONOMY_SPEC.md:66` — reused here for
-  the rank apex, not a price rung.)* **These are placeholders pending the §6.1 ruling.**
+- **Names — the ELECTRICAL THEME is the brand theme and is REUSED for ranks** (namespace + context
+  disambiguate — the established doctrine; `PRICING_SSOT` already notes rarity "Surge" ≠ the SURGE **price
+  tier**). The taken vocabularies are **price TIERS** (SPARK/SURGE/**ARC**/THUNDER BOLT — the
+  `EAFLCosmeticTier` enum) · **rarity labels** (Singularity/Tempest/Bolt/Surge/Charge/Static) ·
+  **currencies** (Watts/Volts/Bolts) — sharing a *word* across namespaces is intended reuse, not collision.
+  **"ARC" is APPROVED as a rank name** (brand-fit), namespace-distinct from the `EAFLCosmeticTier::ARC`
+  price tier — the id (`AFL.Rank.ARC.*`) + UI context separate them. Candidate ascending ladder (ARC
+  anchored per the operator; the rest fresh electrical words to minimise overload; full set operator-blessed
+  — flag #1): **Filament · Circuit · ARC · Dynamo · Tesla · Overload → OVERVOLT** (top leaderboard tier;
+  OVERVOLT = the operator's floated top-name, `IRONICS_ECONOMY_SPEC.md:66`).
 - **Ids (doctrine-conformant, ADR D3 + the two-segment `<Family>.<Variant>` precedent):**
   `AFL.Rank.<Tier>.<Division>` for the ownable rank-badge SKUs (e.g. `AFL.Rank.Dynamo.II`), and gameplay
   tags `Progression.Rank.<Tier>` (mirroring `Cosmetic.Rarity.*`). Rank *state* (current tier/division/MMR)
   is **entry metadata on the player record, never encoded in an id** (ADR Decision 6).
 
 ### 3.2 Advancement mechanic
-- **Rank points (RP) derive from the P-SCORING per-match arc** — placement + performance (kills/assists/
-  saves/extraction success), win > loss (consistent with `ECON §3`). **The exact RP↔points mapping and
-  whether rank is points-derived or a points+MMR hybrid is the OPEN decision (§6.2).**
+- **Rank points (RP) derive from the EXISTING match outcome** — the best-of round result (win-by-eliminate-
+  OR-extract, `MAP_MODE §1.1`) + per-player performance (the built K/D/A + assists StatTags; extraction
+  success/value), win > loss (consistent with `ECON §3`). **The exact RP↔outcome mapping and whether rank
+  is points-derived or a points+MMR hybrid is the OPEN decision (flag #2).**
 - **Entry-cost at high tiers** (Apex anti-farm): higher tiers risk RP to queue, so farming low lobbies
   nets nothing — keeps the top meaningful.
 - **Promotion** by threshold (optionally a short promo series at tier boundaries); **demotion** with a
@@ -251,8 +283,8 @@ and wear** — there is **no player-membership/guild system** (`ADR`, `PLAYER_FL
 - **Time arcs** (from P-SCORING): **daily · weekly · monthly · seasonal · lifetime (career)**. The
   `ECON §7` note *"Top 3 players most hours played in a day"* is absorbed here as one **daily** board (but
   keyed on **performance points**, not hours — hours are engagement, not skill, per 2.2.1).
-- **Subjects:** **individual** and **team** (the team board requires the **team-score system** that
-  `LCM:598-600` says must be built first — §7).
+- **Subjects:** **individual** (per-player scoring is built) and **team** (needs the narrow **per-team score
+  aggregation** on top of the existing per-player scoring — `LCM:598-600`; §7).
 - **Standings** are durable state on `IAFLCosmeticPersistence` (§7).
 
 ### 5.3 Rank ↔ economy: the FIREWALL (doctrine, non-negotiable)
@@ -281,7 +313,7 @@ and wear** — there is **no player-membership/guild system** (`ADR`, `PLAYER_FL
 | **Persistence `IAFLCosmeticPersistence` (B2 layer)** | rank/MMR/season state = **new write shapes** on the seam | achievement flags = new write shapes | standings = new write shapes |
 | **P-SCORING event stream** | RP derives from per-match arc | achievement earns are stream records | boards aggregate the stream (multi-arc) |
 | **Matchmaking driver #3** | tier = face of #3's MMR | — | #3 **owns** MMR; C consumes it |
-| **Match outcome / team-score** | **prerequisite** (win/placement undefined today) | extraction/combat events exist; team events don't | **prerequisite** for team boards |
+| **Match outcome / scoring** (`MAP_MODE §1.1`, EXISTS) | RP derives from the best-of round result (built) | combat/extraction score events exist (StatTags) | per-player boards built; **team boards need per-team aggregation** |
 
 **The through-line:** P-SCORING's server-authoritative event stream is the **single source** all three read;
 `IAFLCosmeticPersistence` (the B2 PlayFab layer) is the **single durable home** all three write; the wallet
@@ -291,14 +323,17 @@ owned-set is the **single grant channel** all rewards flow through. Three player
 
 ## 7. DEPENDENCIES — what must exist first (build order)
 
-Rank/Achievements/Rankings sit **late** (Phase 5 / Sprint 22, `MASTER_ARCH §8`, `MASTER_BUILD:627`) because
-they ride prerequisites that are **not built**:
+Rank/Achievements/Rankings sit **late** (Phase 5 / Sprint 22, `MASTER_ARCH §8`, `MASTER_BUILD:627`). The
+match/scoring **substrate they key off EXISTS** (§1.1) — the remaining prerequisites are scoped additions on
+top of it, not a from-scratch build:
 
-1. **P-SCORING — the scored-event stream + match outcome (dependency step 5, gated behind P-LOOP).** There
-   is **no win condition / match-end resolution / round structure** today (`LCM` audit). Ranked cannot
-   compute RP without it. **This doc defines what sits ON TOP; P-SCORING must define the substrate first.**
-2. **Team-score system** (`LCM:598-600` — *"must add FIRST"*). The team leaderboard (C) + team-ownership
-   standing contribution (B) both need per-team aggregation, which does not exist (banking is per-player).
+1. **The match / win / scoring substrate — EXISTS (NOT a blocker).** Win conditions are RESOLVED
+   (`MAP_MODE §1.1`: best-of round-based, win-by-eliminate-OR-extract, 2v2–4v4 = best-of-13) and the phase
+   spine + per-player StatTag scoring are BUILT (MATCH-SPINE-C1, `9096f1e8`/`a1c51997`). Ranked computes RP
+   from this. **What this doc adds is the RP↔outcome mapping** (flag #2) — a definition, not a substrate.
+2. **Per-team score aggregation + a fuller per-player stats component** (the *narrow* real build gap). Team
+   leaderboards (C) + team-standing (B) need per-team aggregation on top of the existing per-player scoring
+   (`LCM:598-600`); a fuller stats component extends today's K/D/A ledger (the tracker "S-later" debt).
 3. **Matchmaking & Game-Types driver #3** (`MASTER_ARCH:143`) — **owns the MMR** the rank tier faces and the
    ranked pool (AFL-2205). Its own doc is owed. This doc consumes #3; it does not define matchmaking.
 4. **Persistence new-state-shapes** on `IAFLCosmeticPersistence` — the write-seam is consolidated
@@ -307,19 +342,19 @@ they ride prerequisites that are **not built**:
 5. **Replay (G6) + anti-cheat (G4)** — the event-stream data model is chosen precisely to serve these; ranked
    integrity (AFL-2206 anti-throw) leans on them.
 
-**Nothing in this doc is buildable until (1)-(4) land.** It is the **definitions** the Phase-5 wiring
-consumes — authored now so the build is not a discovery loop.
+**The substrate (1) is live; (2)-(4) are scoped additions on top.** This doc is the **definitions** the
+Phase-5 wiring consumes — authored now so the build is not a discovery loop.
 
 ---
 
 ## 8. 🚩 FLAGGED OPERATOR DECISIONS (rulings owed before build)
 
-1. **§6.1 — The rank ladder NAMING (and the ARC disambiguation).** The electrical vocabulary is exhausted;
-   **"ARC" is BLOCKED as a rank name** (it is a currency price rung AND a live `EAFLCosmeticTier` enum value —
-   collision at doc + code level). Read: the operator's *"ARC/APEX/COD-style"* is a **style reference (ARC
-   Raiders the game + Apex/CoD ladders)**, not an instruction to name a rank "ARC". **Decide:** bless or
-   replace the placeholder ladder (Filament·Ember·Current·Dynamo·Tesla·Overload·OVERVOLT), and confirm the
-   7-tier × 4-division + top-leaderboard shape.
+1. **§3.1 — Bless the rank ladder NAMES + shape.** **"ARC" is APPROVED as a rank name** (electrical-theme
+   brand-fit). It is a **rank name**, distinct from the `EAFLCosmeticTier::ARC` **price tier** — and neither
+   is a currency (currencies = Watts/Volts). The id namespace (`AFL.Rank.ARC.*` vs the tier enum) + UI
+   context separate them: a **display-clarity note, not a collision**. **Decide:** bless or adjust the
+   candidate ladder (Filament·Circuit·ARC·Dynamo·Tesla·Overload·OVERVOLT), how far to lean into theme-reuse
+   of price/rarity words vs. fresh ones, and confirm the 7-tier × 4-division + top-leaderboard shape.
 2. **§3.2 / §5.1 — Ranking MODEL: points-derived vs hybrid.** The tracker's own open question (`:2374`):
    is rank purely points-derived, or a **hybrid** (points for rewards + a separate Glicko-2 skill rating for
    matchmaking)? *Design-recommended: hybrid* (skill for matchmaking fairness, points for reward pacing) —
@@ -335,9 +370,10 @@ consumes — authored now so the build is not a discovery loop.
    the team · win N matches repping it · finish top-K in the season team-standing. Operator picks.
 6. **§6.1 top tier — Decay.** Is there rank decay for inactivity at all? *Design-recommended: none, or
    gentle + top-leaderboard-tier-only* (avoid the churn anti-pattern) — confirm.
-7. **Scope handoff — P-SCORING + Matchmaking ownership.** Confirm this doc **stops at** consuming the
-   P-SCORING substrate (dep #1/#2) and the driver-#3 MMR, and that those get their **own** design passes
-   (this doc does not define match outcome, team-score, or matchmaking).
+7. **Scope handoff — Matchmaking + team-aggregation ownership.** Confirm this doc **stops at** consuming the
+   EXISTING match/scoring substrate (§1.1) and the driver-#3 MMR, and that **per-team score aggregation**
+   (§7.2) and **matchmaking** get their own design passes (this doc defines neither the matchmaking impl nor
+   the team-aggregation impl).
 
 ---
 
@@ -358,6 +394,8 @@ consumes — authored now so the build is not a discovery loop.
 
 ---
 
-*v0.1 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited) · research-grounded principles · the three
-system designs (League/Achievements/Rankings) · the integration matrix · dependencies · 7 flagged operator
-decisions. DESIGN ONLY — no code, no catalog/asset/infra, no mechanism built. Refine-and-finish is iterative.*
+*v0.2 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited, incl. the EXISTING best-of-13 match/scoring
+substrate) · research-grounded principles · the three system designs (League/Achievements/Rankings) · the
+integration matrix · dependencies (substrate live; per-team aggregation + RP mapping remain) · 7 flagged
+operator decisions. Currencies = Watts/Volts; ARC = tier/approved-rank name, not a currency. DESIGN ONLY —
+no code, no catalog/asset/infra, no mechanism built. Refine-and-finish is iterative.*
