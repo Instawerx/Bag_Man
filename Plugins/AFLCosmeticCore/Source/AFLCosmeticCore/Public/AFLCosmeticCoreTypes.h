@@ -192,6 +192,32 @@ struct FAFLCatalogEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
 	EAFLCosmeticRarity Rarity = EAFLCosmeticRarity::Common;
 
+	// --- Bundle + limited-edition (Build B1: catalog DATA + the inert gate; mint/trade ENFORCEMENT is B2/persistence) ---
+
+	/** BUNDLE composition (Type==Bundle). The DISTINCT child SKU CosmeticIds this bundle grants buy-once->grant-N
+	 *  (ADR Decision 4 ChildCosmeticIds / PSS §4.5): { Character-axis · Team-axis · finish · edge · mask · weapon }.
+	 *  Empty for non-bundles. A RESERVED-but-unbuilt child id (e.g. the weapons-phase weapon/mask, D2) is listed
+	 *  here as its FUTURE id -- the ATOMIC grant that makes it live is B2, not this row. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Bundle")
+	TArray<FName> ContainedEntitlementIds;
+
+	/** THE INERT GATE (Build B1, load-bearing). FALSE -> the purchase path (ClientRequestPurchase +
+	 *  ServerPurchaseCosmetic) HARD-DECLINES with "not yet available (backend-gated)" BEFORE any transaction, so
+	 *  an Acquisition-flipped-to-paid SKU CANNOT transact until B2 de-inerts it. Default TRUE (every existing
+	 *  purchasable item is byte-unchanged); the 29 bundle rows ship FALSE. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Bundle")
+	bool bTransactable = true;
+
+	/** Limited-edition mint cap (the 1-of-N). 0 = unlimited (default; every existing row). The 1-of-1 Singularity
+	 *  bundles set 1. FIELD ONLY here -- MintedCount + sold-out/never-reissue ENFORCEMENT is persistence-gated B2 (PSS §5.1). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Bundle")
+	int32 MintCap = 0;
+
+	/** INTACT-ONLY trade (PSS E1). TRUE -> this bundle's child SKUs are container-locked: the grail trades ONLY
+	 *  as one atomic unit (no per-child transfer while bundled). FIELD ONLY -- the trade LOCKING enforcement is B2. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Bundle")
+	bool bIntactOnlyBundle = false;
+
 	// --- Display (S-ECON-STORE / IRONICS Digital Market — the skill's display-row fields the tile + details
 	//     panel render WITHOUT loading the full asset; soft refs only, per the mobile-memory discipline) ---
 

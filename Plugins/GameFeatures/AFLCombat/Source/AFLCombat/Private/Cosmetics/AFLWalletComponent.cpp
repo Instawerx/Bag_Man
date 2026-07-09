@@ -317,6 +317,7 @@ void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId
 	const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog();
 	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
 	if (!Entry) { Deny(TEXT("not in catalog")); return; }
+	if (!Entry->bTransactable) { Deny(TEXT("not yet available (backend-gated)")); return; } // B1 INERT GATE: author-now-inert SKU cannot transact until B2 de-inerts it.
 	if (Entry->Acquisition == EAFLAcquisition::GrantedFree) { Deny(TEXT("GrantedFree (already owned by all)")); return; }
 	if (OwnedCosmeticIds.Contains(CosmeticId)) { Deny(TEXT("already owned (no double charge)")); return; }
 
@@ -380,6 +381,7 @@ void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrenc
 	const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog();
 	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
 	if (!Entry) { Fail(TEXT("not in catalog")); return; }
+	if (!Entry->bTransactable) { Fail(TEXT("not yet available (backend-gated)")); return; } // B1 INERT GATE: author-now-inert SKU cannot transact until B2 de-inerts it.
 	if (Entry->Acquisition == EAFLAcquisition::GrantedFree) { Fail(TEXT("GrantedFree (no price)")); return; }
 	// NOTE: no local already-owned guard -- PlayFab is the authority (it rejects a non-stackable double-buy,
 	// allows a stackable re-buy). The store greys out owned items for DISPLAY only, never as the gate.
