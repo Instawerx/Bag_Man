@@ -1,6 +1,6 @@
 # IRONICS — Match Types, Matchmaking & Staking SSOT
 
-> **Status: SCOPING / DESIGN PASS — v0.4 (2026-07-09).** The owed **driver #3** doc
+> **Status: SCOPING / DESIGN PASS — v0.5 (2026-07-09).** The owed **driver #3** doc
 > (`IRONICS_MARKETPLACE_MASTER_ARCHITECTURE.md:143`: *"Matchmaking & Game Types — PokerStars-inspired…
 > gates matches by rank/type — needs a matchmaking/game-types doc"*). **Design deliverable only** — no
 > game-system code, no catalog/asset/infra writes, no matchmaking/staking mechanism is built here.
@@ -30,7 +30,12 @@
 > ANTI-COLLUSION** (flag #6 → ✅ RULED, system designed): one `AFL.Integrity.*` layer over **free AND staked**
 > play — prohibited-behavior catalog + signals + a **T0–T3 enforcement ladder** + clawback-of-spent model
 > (§3D); **policy is law now, the detection engine is backend-gated** (a recorded B2 integrity work-item);
-> sub-decisions #6a–#6c flagged. **Two flags remain OPEN** (#4 tournaments · #5 ranked-on-staked).
+> sub-decisions #6a–#6c flagged. **v0.5 — INTEGRITY LIMITS SET** (#6a + #6b → ✅ RULED, research-grounded +
+> sourced, §3D.1): the **penalty-ladder thresholds** (offense/confidence triggers per T0–T3, 30d→90d→perm
+> stake-bans, 14-day-before-permanent, 90-day window / 12-month decay, human review before T2/T3, 14-day
+> appeal) and the **lobby rules** (1 seat/account, same-party off opposing sides, same-device flag-and-hold,
+> host gate ≥7d + ≥25 matches + no active flag), each cited to major-platform practice (poker / Riot / Valve /
+> Valorant). **#6c stays open** (grail-clawback, E1 interaction). **Two flags remain OPEN** (#4 tournaments · #5 ranked-on-staked).
 
 ---
 
@@ -304,6 +309,48 @@ Integrity *state* (flags, penalty status, watchlist) is player-record metadata, 
   layer. **Recorded as a B2 backend integrity work-item** (`Bag_Man_Backend/docs/bundle-purchase-checklist.md`)
   so it is not lost. Largely Phase-3/5 (post-persistence): the **policy is law now; the detection engine is gated.**
 
+### 3D.1 Integrity thresholds — 6a penalty ladder + 6b lobby rules ✅ RULED (research-grounded)
+Values below are **translated from major-platform practice** (cited), fit to our Watts/Volts, **no-cash-out**,
+best-of-13 model — defensible, not invented. (Key adaptation: we borrow poker's *collusion* controls but
+**not** its money-laundering/KYC apparatus — no-cash-out means **not gambling**, so no identity verification.)
+
+**6a — PENALTY LADDER thresholds (✅ RULED).** Case dimensions: **confidence** (LOW = single weak signal /
+MED = multiple corroborating / HIGH = unambiguous, e.g. same-device on opposing seats + a lopsided transfer
+graph), **severity** (MINOR soft-play/marginal anomaly · MAJOR win-trade/loot-feed/stake-dump · EGREGIOUS
+multi-account/ring/bots), and **repeat count** in a rolling window.
+
+| Tier | Trigger (threshold) | Enforcement | Source-practice |
+|---|---|---|---|
+| **T0 Warn** | LOW confidence **or** 1st MINOR | automated; notice + watchlist | escalating-penalty systems open with a warning/correction step (Riot / Blizzard) |
+| **T1 Clawback** | MED+ confidence of fraudulent **earn**; 1st MAJOR earn offense | automated **reversal of ill-gotten Watts** + watchlist | poker rooms **confiscate collusion gains** (PokerStars / GGPoker game-integrity) |
+| **T2 Stake-ban** | 2nd MAJOR in window **or** HIGH-confidence staked collusion | **human review first**; barred from staked queues (casual/ranked continue); **30d → 90d → permanent** on repeat | escalating competitive cooldowns (CS / Overwatch abandon ladders) |
+| **T3 Account action** | EGREGIOUS at any count (**zero-tolerance**) **or** repeat T2 | **human review first**; **14-day suspension precedes permanent** (zero-tolerance → straight to permanent) | Riot LoL **"one 14-day ban before permaban"**; Valve **VAC / multi-account = immediate permanent** |
+
+- **Rolling offense window = 90 days**; **penalty history decays after 12 months clean** (repeat counter resets)
+  — grounded in escalating-cooldown-with-decay practice (competitive games lower penalty level over clean time).
+- **Review-gate (false-positive protection):** T0/T1 automated (low-harm + reversible); **T2/T3 require human
+  adjudication before enforcement** — never auto-permaban on a single signal (the universal severe-action rule).
+- **Appeal window = 14 days** per action, human-reviewed (industry-standard appeal window).
+- **Confidence floor:** no restrictive action (T2+) on **LOW** confidence alone — MED+ with corroboration.
+
+**6b — LOBBY / COLLUSION RULES (✅ RULED).**
+
+| Rule | Value | Source-practice |
+|---|---|---|
+| **Seats per account per staked match** | **exactly 1** | poker **one-seat-per-table**; multi-seating one table is banned |
+| **Multi-account a lobby** (same fingerprint on ≥ 2 seats) | **T3 zero-tolerance** | poker / Valve multi-account = immediate severe |
+| **Same-party across OPPOSING sides in a staked match** | **BANNED** (the win-trade/soft-play vector); same-party on the **same team** allowed up to team size | competitive party rules keep colluding pairs off opposing sides |
+| **Same-device / same-IP among opposing seats** | **auto-flag → hold pending review** (not auto-ban — households/LAN are legit) | poker **same-IP-at-a-table flag/block**; staked bar higher than casual |
+| **Party clustering in staked BR / FFA** | a party may fill **≤ one team's worth** of seats; excess flagged | Valorant / Apex party-size + rank-spread limits |
+| **Who may OPEN a staked lobby** (anti-throwaway host gate) | account age **≥ 7 days** **+ ≥ 25 matches** **+ no active integrity flag** (no T1+ in the last 90 days) | skill-money platforms gate hosting on **verified standing**; phone-verify-for-ranked (Valorant) as the anti-smurf analogue |
+| **High-stake tiers (HighVolt / Nosebleed)** | **stricter host gate** — no integrity flag ever + longer tenure (candidate: invite/verified-only) | "high-stakes tables require verified players" |
+
+- **Rank-based** host/seat gating is deferred to **flag #5** (ranked-on-staked); the age + match-count gate above
+  is rank-independent and stands regardless.
+
+**Still open within #6:** **6c** grail-clawback-of-spent (an **E1 intact-only / never-reissue** interaction —
+operator-owned). Plus the top-level **#4** (tournaments) and **#5** (ranked-on-staked).
+
 ---
 
 ## 4. INTEGRATION MATRIX
@@ -371,11 +418,14 @@ flag #7). This doc **is** that sibling. The cross-reference (a doc-link edit app
    prohibited-behavior catalog (win-trading · boosting · loot-feeding/self-dealing · stake-dumping ·
    multi-accounting · bots), the signal set, a **T0–T3 enforcement ladder** (warn → clawback → stake-ban →
    account action; review-gated + appeal), and the clawback-of-spent model. **Policy is law now; the detection
-   engine is backend-gated** (a recorded B2 integrity work-item). **Sub-decisions flagged (not decided):**
-   **(6a)** penalty severity/thresholds; **(6b)** same-party + seat limits in competitive staked lobbies + who
-   may open them; **(6c)** the **grail-clawback-of-spent** policy (an un-mintable 1-of-1 → account action vs
-   operator mint re-release). *[History — v0.1/v0.2 open: "player-initiated match authority + anti-collusion for
-   staked lobbies"; now expanded GAME-WIDE per operator.]*
+   engine is backend-gated** (a recorded B2 integrity work-item). Sub-decisions: **(6a) ✅ RULED** (penalty
+   ladder thresholds — T0 warn / T1 clawback / T2 stake-ban 30d→90d→perm / T3 account action, 14-day-before-
+   permanent, 90-day window, 12-month decay, human review before T2/T3) and **(6b) ✅ RULED** (lobby rules —
+   1 seat/account, same-party-off-opposing-sides, same-device flag-and-hold, host gate ≥7d + ≥25 matches +
+   no active flag) — both **research-grounded + sourced in §3D.1.** **(6c) still OPEN** — the
+   **grail-clawback-of-spent** policy (an un-mintable 1-of-1 with an **E1 intact-only** interaction → account
+   action vs operator mint re-release; operator-owned). *[History — v0.1/v0.2 open: "player-initiated match
+   authority + anti-collusion for staked lobbies"; expanded GAME-WIDE (v0.4); 6a/6b set from best-practice (v0.5).]*
 > **Two flags remain OPEN** (await later operator rulings — NOT decided here): **#4** tournaments
 > scheduled-vs-player-run · **#5** ranked-on-staked. *(Flags #1/#2/#3 RULED as before; **#6 now RULED** — the
 > game-wide economy-integrity / anti-collusion system (§3D), policy-as-law with detection backend-gated;
@@ -400,10 +450,11 @@ designed) · the League MMR (defined). **Genuinely new build work:** the staking
 
 ---
 
-*v0.4 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited) · poker→shooter research · match-type
-overlay (+ 1-v-many) · staking economy · the micro→high stake-tier ladder (§3B.1) · the GAME-WIDE
-economy-integrity / anti-collusion system (§3D) · queue-model matchmaking · integration matrix · League
-cross-reference. **4 rulings recorded as LAW** (R1 tiered rake 5%/10% by pool Volt-equiv; R2 no-cash-out /
-in-game-spend-only; the Trickle→Nosebleed stake ladder — structure ruled, values design-proposed; the
-game-wide anti-collusion system — policy-as-law, detection backend-gated); **2 flags remain open**
-(tournaments · ranked-on-staked). DESIGN ONLY — no code, no catalog/asset/infra, nothing built.*
+*v0.5 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited) · poker→shooter research · match-type
+overlay (+ 1-v-many) · the micro→high stake-tier ladder (§3B.1) · the GAME-WIDE economy-integrity /
+anti-collusion system (§3D) with **research-grounded 6a penalty-ladder + 6b lobby-rule thresholds (§3D.1,
+sourced to poker/Riot/Valve/Valorant practice)** · queue-model matchmaking · integration matrix · League
+cross-reference. **Rulings recorded as LAW:** R1 tiered rake · R2 no-cash-out · the stake ladder · the
+anti-collusion system (policy-as-law, detection backend-gated) · its 6a/6b integrity limits. **2 flags remain
+open** (tournaments · ranked-on-staked); **6c** (grail-clawback) stays open within #6. DESIGN ONLY — no code,
+no catalog/asset/infra, nothing built.*
