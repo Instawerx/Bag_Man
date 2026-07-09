@@ -10,6 +10,8 @@
 > SWAPS off one proven system — the efficiency law** (§2/§4); (4) **visual brand = liquid-glass /
 > electric-neon / energy + tracers** (§4.3).
 >
+> **Cross-ref (D2, 2026-07-08 · `IRONICS_PRICING_SCARCITY_SSOT.md` §1.5/§4.5):** each $500 Singularity grail bundle reserves a **unique weapon + an exclusive 1-of-1 weapon SKIN** (distinct tradeable child SKU ids). The bundle reserves the slot now; the exclusive-skin content is authored in **this weapons phase**.
+>
 > **Grounds in:** the proven `ID/WID/B_WeaponInstance` Pulse + Beam triad · the proven **EMP grenade**
 > (`GA_BagMan_EMP`) · `afl-laser-beam-system` (weapon contract + `User.Color` beam tint) ·
 > `ue5-interaction-ik-expert` (socket/IK) · `afl-asset-pipeline` (import/LOD) · the Lyra anim layers.
