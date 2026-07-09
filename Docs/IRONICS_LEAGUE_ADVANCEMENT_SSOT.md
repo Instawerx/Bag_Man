@@ -337,8 +337,10 @@ top of it, not a from-scratch build:
 3. **Matchmaking & Game-Types driver #3** — its doc now EXISTS: **`IRONICS_MATCH_STAKING_SSOT.md`** (match-type
    spectrum + staking economy + queue model). It **consumes** this doc's Glicko-2 rating (AFL-2201) for
    matchmaking fairness and owns the ranked pool wiring (AFL-2205). **Ranked runs on** Arena (1v1–4v4) + Team
-   (5v5–8v8) + BR (separate pool); Shrink/party = unranked. **Staking is orthogonal to rank** — ranked is
-   stake-agnostic (the rank-not-buyable firewall holds), with an optional separate high-roller staked board.
+   (5v5–8v8) + BR (separate pool); Shrink/party = unranked. **A ranked match CAN be staked** (`MATCH_STAKING`
+   #5 RULED), but **rank/MMR move on outcome + skill ONLY, never on stake size** — the rank-not-buyable firewall
+   holds (a staked ranked win = identical RP to an unstaked one; staking is a soft overlay on the ranked MMR
+   pool, no pool-thinning). An optional separate high-roller *money* board may track staked performance.
    This doc consumes matchmaking; it does not define it.
 4. **Persistence new-state-shapes** on `IAFLCosmeticPersistence` — the write-seam is consolidated
    (`f010a0c1`, the B2 layer), but **MMR / rank / achievement / season / standings are new write types** not

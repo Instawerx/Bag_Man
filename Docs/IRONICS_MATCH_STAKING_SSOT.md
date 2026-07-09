@@ -1,6 +1,6 @@
 # IRONICS — Match Types, Matchmaking & Staking SSOT
 
-> **Status: SCOPING / DESIGN PASS — v0.5 (2026-07-09).** The owed **driver #3** doc
+> **Status: SCOPING / DESIGN PASS — v0.6 (2026-07-09).** The owed **driver #3** doc
 > (`IRONICS_MARKETPLACE_MASTER_ARCHITECTURE.md:143`: *"Matchmaking & Game Types — PokerStars-inspired…
 > gates matches by rank/type — needs a matchmaking/game-types doc"*). **Design deliverable only** — no
 > game-system code, no catalog/asset/infra writes, no matchmaking/staking mechanism is built here.
@@ -35,7 +35,11 @@
 > stake-bans, 14-day-before-permanent, 90-day window / 12-month decay, human review before T2/T3, 14-day
 > appeal) and the **lobby rules** (1 seat/account, same-party off opposing sides, same-device flag-and-hold,
 > host gate ≥7d + ≥25 matches + no active flag), each cited to major-platform practice (poker / Riot / Valve /
-> Valorant). **#6c stays open** (grail-clawback, E1 interaction). **Two flags remain OPEN** (#4 tournaments · #5 ranked-on-staked).
+> Valorant). **v0.6 — LAST FLAGS CLOSED:** **6c** grail clawback = **admin master control** (privileged +
+> audited; E1 preserved); **#4** tournaments = **both player-run + special admin** events; **#5** ranked
+> **CAN be staked** behind the **rank-not-buyable firewall** (rank/MMR on outcome+skill only, never on stake;
+> soft overlay on the ranked pool, no thinning; precedent: chess rated+prize / poker / FACEIT). **ZERO open
+> flags remain — the staking SSOT is fully closed.**
 
 ---
 
@@ -235,7 +239,8 @@ tier **count** (6), the exact **cutoffs** + ~5× spacing, the **Watts/Volts deno
 - **Three queue classes** (all ride the existing PlayFab-ticket → Lambda → GameLift pipeline; the class + stake
   tier ride in the ticket attributes / `MatchmakerData`):
   1. **Casual** — free, MMR-loose, fast fill. The default free-player path (normal Watts earn, no entry).
-  2. **Ranked** — free entry, **strict MMR bands** (League AFL-2205), stake-agnostic (the firewall).
+  2. **Ranked** — **strict MMR bands** (League AFL-2205); an **optional stake overlay** may ride a ranked match
+     (#5), but **rank/MMR move on outcome + skill only, never on stake** (the firewall).
   3. **Staked** — entry required, sorted by `AFL.Stake.<Tier>` **and** MMR within the tier (fairness inside a
      stake band). "Tables" = staked lobbies (SNG) or scheduled tournaments (MTT).
 - **Skill × stake:** MMR is the fairness axis *within* a queue; stake is a commitment/sorting axis *across*
@@ -243,8 +248,9 @@ tier **count** (6), the exact **cutoffs** + ~5× spacing, the **Watts/Volts deno
   bigger stake never buys an easier lobby or rank credit.
 - **Lobby/table creation:** player-initiated (create-a-table) + browse/join open tables + quick-join a tier;
   parties travel via the existing EOS-party → PlayFab-ticket path (AFL-1104/1204).
-- **PokerStars flavor:** a **table browser** (open staked lobbies by mode/tier/pool), **scheduled tournaments**
-  (flag #4), and a **lobby** surface (the League doc's pre-match "rank, loadout, social" view, `MASTER_ARCH:128`).
+- **PokerStars flavor:** a **table browser** (open staked lobbies by mode/tier/pool), **tournaments**
+  (#4 RULED — **player-run** + **special admin** events), and a **lobby** surface (the League doc's pre-match
+  "rank, loadout, social" view, `MASTER_ARCH:128`).
 
 ### 3D. Economy-integrity — anti-collusion / anti-fraud (GAME-WIDE; ✅ RULED, resolves + expands flag #6)
 **Why game-wide, not staking-only.** Watts earned in **FREE** play feed the same one-way economy (no cash-out,
@@ -348,8 +354,16 @@ multi-account/ring/bots), and **repeat count** in a rolling window.
 - **Rank-based** host/seat gating is deferred to **flag #5** (ranked-on-staked); the age + match-count gate above
   is rank-independent and stands regardless.
 
-**Still open within #6:** **6c** grail-clawback-of-spent (an **E1 intact-only / never-reissue** interaction —
-operator-owned). Plus the top-level **#4** (tournaments) and **#5** (ranked-on-staked).
+**6c — GRAIL CLAWBACK = ADMIN MASTER CONTROL (✅ RULED).** A fraudulently-obtained **Singularity 1-of-1** is
+**NOT** clawed by the automated T0–T3 ladder — its reversal is a **manual operator/admin master-control**
+action, invoked **only when integrity requires it** (normal operation preserves **E1 intact-only /
+never-reissue**). **Best-practice guardrail:** it is a **PRIVILEGED, AUDITED** capability — every use is
+**logged (immutable audit trail)** and **restricted to authorized admins** (a master override on a $500 1-of-1
+asset demands accountability — the least-privilege + audit-log principle for high-value admin actions).
+**Mint-slot handling:** the **admin decides case-by-case** whether the reclaimed mint slot **stays consumed**
+(preserving the 1-of-1 truth) or **frees for re-issue** to a legitimate buyer. *Small sub-note (only if a
+default is ever wanted — not forced):* recommend the slot **stays consumed** unless an admin explicitly
+re-releases — the safer default for 1-of-1 integrity.
 
 ---
 
@@ -359,7 +373,7 @@ operator-owned). Plus the top-level **#4** (tournaments) and **#5** (ranked-on-s
 |---|---|---|---|
 | **Economy — currencies** (`ECON §1`, no-cash-out) | — | buy-in/pool/payout in **Watts** (clean) / **Volts** (flag #1); **never real-money** | staked queue gated on wallet balance |
 | **Economy — atomic wallet (B2 layer)** | — | escrow = the **B2 deduct/refund pattern** (`/purchase-bundle`, atomic, refund-on-fail) | balance check pre-ticket |
-| **League / ranked** (`LEAGUE`) | ranked runs on Arena/Team/BR (`MAP_MODE`) | **staking ⟂ rank** — staked can be unranked; rank never keys off stake (firewall) | **consumes** League Glicko-2 MMR (AFL-2201) for fairness |
+| **League / ranked** (`LEAGUE`) | ranked runs on Arena/Team/BR (`MAP_MODE`) | **ranked CAN be staked** (#5) — but rank/MMR key on outcome+skill only, **never on stake** (firewall) | staking = a soft overlay on the ranked MMR pool (no pool-thinning); **consumes** Glicko-2 MMR |
 | **Scoring substrate** (`MAP_MODE §1.1`, built) | win = eliminate-OR-extract; 1-v-many = bust-or-survive | payout curve reads the match result + bounty (combat-loot values) | — |
 | **Combat-loot / bounty** (`LSD §3a`) | 1-v-many Mark bounty; bounty format | head/limb values = the **bounty unit** | — |
 | **Identity / teams** | team modes team-pooled; Mark = one identity | team stakes pooled + split by contribution | party rosters (EOS) → ticket |
@@ -378,8 +392,11 @@ currency across free AND staked play.** Nothing here is a new spine.
 flag #7). This doc **is** that sibling. The cross-reference (a doc-link edit applied alongside this file):
 - **Ranked runs on:** Arena (1v1–4v4) + Team (5v5–8v8) + BR (separate pool) — the mirror/ranked-integrity
   modes (`MAP_MODE §1`). Shrink/party = unranked; 1-v-many ranked = flag.
-- **Staking ⟂ rank:** ranked is **stake-agnostic** (the League rank-not-buyable firewall holds); a separate
-  **"high-roller" standing** may track staked performance without touching skill rank (flag #5).
+- **Ranked CAN be staked, behind the firewall (#5 RULED):** ranked and staked are **independent axes that may
+  combine** (staked-ranked allowed); **rank/MMR move on outcome + skill ONLY, never on stake size** (the
+  rank-not-buyable firewall holds — a staked ranked win = identical RP to an unstaked one). Staking is a **soft
+  opt-in overlay on the ranked MMR pool** (no separate queue → no pool-thinning). An optional **high-roller
+  money board** may track staked performance without touching skill rank.
 - **MMR ownership:** the League doc's Glicko-2 MMR (AFL-2201) is **consumed** by this doc's matchmaking; this
   doc owns the queue model + stake sorting, not the rating math.
 
@@ -409,10 +426,27 @@ flag #7). This doc **is** that sibling. The cross-reference (a doc-link edit app
    **(3c)** top ceiling (Nosebleed 250,000 V — cap, or add an invite-only apex?). **(3d)** Watts/Volts
    denomination split (proposed at Main). *[History — v0.1/v0.2 open question: "stake-tier names + cutoffs;
    candidate Trickle·Feed·Main·High·Prime."]*
-4. **Tournaments — scheduled vs player-run (or both).** PokerStars-style operator-scheduled MTTs, player-spun
-   tournaments, or both. Which ships first?
-5. **Ranked-on-staked policy.** Confirm **staking ⟂ rank** (recommended — protects the firewall), and whether
-   a separate **high-roller staked leaderboard** exists. Also: is **1-v-many** ranked?
+4. **✅ RULED — TWO tournament classes (both).** **(a) Player-run / initiated:** players create + stake their
+   own tournaments, riding the staking ladder (stake tiers §3B.1 + the R1 rake apply). **(b) Special admin
+   tournaments:** official scheduled events stated + staked by admins (admin-set structure, prize, cadence).
+   *Later-refinement sub-notes (not forced):* player-tournament format/size limits; admin-event cadence + prize
+   sourcing. *[History — v0.1 open: "scheduled vs player-run — which ships first?"; ruled = both.]*
+5. **✅ RULED — RANKED MATCHES CAN BE STAKED, behind the rank-not-buyable firewall (designed).** Staking and
+   ranking are **independent axes that may COMBINE** (staked-ranked is allowed — real stakes on the games that
+   matter = engagement). **THE FIREWALL (hard constraint; `ECON §0` no-pay-to-win + the League rank-not-buyable
+   doctrine):** rank / MMR (Glicko-2, AFL-2201) move on **match OUTCOME + opponent SKILL ONLY** — **stake size
+   has ZERO input to the rating update.** A staked ranked win grants the *identical* RP as an unstaked ranked
+   win of the same result; the stake only moves the Watts/Volts **pot**. You can never buy rank. **Precedent
+   (sourced):** chess **rated + prize tournaments** (rating from result vs opponent-rating, prize from placement
+   — independent) · **poker** (table stakes ≠ any skill rating) · **FACEIT / Skillz** (entry fee → pool, skill
+   matchmaking unaffected). **No separate staked-ranked QUEUE (anti-pool-thinning):** staking is a **soft opt-in
+   overlay on the existing ranked MMR pool** — ranked matchmaking forms by skill as today (pool health +
+   fairness first); a pot settles among matched players who opted into a compatible stake, stake being a *soft*
+   secondary preference, never a hard segregation. *FLAGGED conflict + handling (surfaced, not forced):* a HARD
+   stake filter would thin the ranked pool → **recommend the soft overlay** (skill-first, stake-opt-in) so the
+   pool is never fragmented. An optional **high-roller money board** may track staked performance without
+   touching skill rank. (1-v-many ranked = a later refinement.) *[History — v0.1 open: "ranked-on-staked; staking
+   ⟂ rank?"; ruled = allowed + firewall.]*
 6. **✅ RULED (system designed; detection backend-gated) — GAME-WIDE economy-integrity / anti-collusion (§3D).**
    One `AFL.Integrity.*` layer over free AND staked play (free-play Watts feed the same economy): the
    prohibited-behavior catalog (win-trading · boosting · loot-feeding/self-dealing · stake-dumping ·
@@ -422,14 +456,17 @@ flag #7). This doc **is** that sibling. The cross-reference (a doc-link edit app
    ladder thresholds — T0 warn / T1 clawback / T2 stake-ban 30d→90d→perm / T3 account action, 14-day-before-
    permanent, 90-day window, 12-month decay, human review before T2/T3) and **(6b) ✅ RULED** (lobby rules —
    1 seat/account, same-party-off-opposing-sides, same-device flag-and-hold, host gate ≥7d + ≥25 matches +
-   no active flag) — both **research-grounded + sourced in §3D.1.** **(6c) still OPEN** — the
-   **grail-clawback-of-spent** policy (an un-mintable 1-of-1 with an **E1 intact-only** interaction → account
-   action vs operator mint re-release; operator-owned). *[History — v0.1/v0.2 open: "player-initiated match
-   authority + anti-collusion for staked lobbies"; expanded GAME-WIDE (v0.4); 6a/6b set from best-practice (v0.5).]*
-> **Two flags remain OPEN** (await later operator rulings — NOT decided here): **#4** tournaments
-> scheduled-vs-player-run · **#5** ranked-on-staked. *(Flags #1/#2/#3 RULED as before; **#6 now RULED** — the
-> game-wide economy-integrity / anti-collusion system (§3D), policy-as-law with detection backend-gated;
-> sub-decisions #6a–#6c flagged. Responsible-play guards folded under R2.)*
+   no active flag) — both **research-grounded + sourced in §3D.1.** **(6c) ✅ RULED — grail clawback = ADMIN
+   MASTER CONTROL** (§3D.1): a fraudulent Singularity 1-of-1 is **not** on the automated ladder — reversal is a
+   **manual, privileged, AUDITED** admin master-control action, used only when integrity requires it (E1
+   intact-only / never-reissue preserved normally; mint-slot kept/freed at admin discretion). *[History —
+   v0.1/v0.2 open: "player-initiated match authority + anti-collusion"; GAME-WIDE (v0.4); 6a/6b best-practice
+   (v0.5); 6c admin master control (v0.6).]*
+> **✅ ZERO FLAGS REMAIN OPEN — the staking SSOT is fully closed (v0.6).** All rulings recorded as law:
+> **R1** rake · **R2** no-cash-out · **#3** stake-tier ladder · **#4** tournaments (player-run + admin) ·
+> **#5** ranked-can-be-staked behind the firewall · **#6** game-wide anti-collusion (incl. **6a** penalty
+> ladder, **6b** lobby rules, **6c** admin master-control grail clawback). Design-proposed specifics
+> (stake-ladder values #3a–#3d) remain open to operator tuning, but no *decision* flags are outstanding.
 
 ---
 
@@ -455,6 +492,8 @@ overlay (+ 1-v-many) · the micro→high stake-tier ladder (§3B.1) · the GAME-
 anti-collusion system (§3D) with **research-grounded 6a penalty-ladder + 6b lobby-rule thresholds (§3D.1,
 sourced to poker/Riot/Valve/Valorant practice)** · queue-model matchmaking · integration matrix · League
 cross-reference. **Rulings recorded as LAW:** R1 tiered rake · R2 no-cash-out · the stake ladder · the
-anti-collusion system (policy-as-law, detection backend-gated) · its 6a/6b integrity limits. **2 flags remain
-open** (tournaments · ranked-on-staked); **6c** (grail-clawback) stays open within #6. DESIGN ONLY — no code,
+anti-collusion system (policy-as-law, detection backend-gated; 6a penalty ladder + 6b lobby rules sourced;
+**6c admin master-control grail clawback**) · **#4** tournaments (player-run + special admin) · **#5** ranked
+CAN be staked behind the rank-not-buyable firewall. **ZERO decision flags remain open — the staking SSOT is
+fully closed** (only design-proposed stake-ladder values #3a–#3d await operator tuning). DESIGN ONLY — no code,
 no catalog/asset/infra, nothing built.*
