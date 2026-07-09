@@ -1,6 +1,6 @@
 # IRONICS — Match Types, Matchmaking & Staking SSOT
 
-> **Status: SCOPING / DESIGN PASS — v0.1 (2026-07-09).** The owed **driver #3** doc
+> **Status: SCOPING / DESIGN PASS — v0.2 (2026-07-09).** The owed **driver #3** doc
 > (`IRONICS_MARKETPLACE_MASTER_ARCHITECTURE.md:143`: *"Matchmaking & Game Types — PokerStars-inspired…
 > gates matches by rank/type — needs a matchmaking/game-types doc"*). **Design deliverable only** — no
 > game-system code, no catalog/asset/infra writes, no matchmaking/staking mechanism is built here.
@@ -17,6 +17,14 @@
 > One-way buy-in only. No path converts Watts/Volts back to real money."* **Staking is the poker
 > STRUCTURE (buy-in → pool → payout) applied to non-cashable in-game currency — NOT real-money gambling.**
 > Any real-money / custody wagering stays Phase-3 legal-gated and is **out of scope here** (see flag #1).
+>
+> **v0.2 — TWO RULINGS RECORDED AS LAW (2026-07-09, operator):** **R1 — HOUSE RAKE** (flag #2 → ✅ RULED):
+> rake off the top of the **TOTAL pool**, tiered by the pool's **Volt-equivalent** (Watts convert at peg
+> **10 W = 1 V** so the bracket is currency-agnostic) — **pool ≤ 500 V-equiv → 5% · pool ≥ 501 V-equiv →
+> 10%** (§3B). **R2 — NO CASH-OUT** (flag #1 → ✅ RULED): staking is poker STRUCTURE on **non-cashable,
+> in-game-spend-only** Watts/Volts (inherits `ECON §0`); winnings never convert to real money — the
+> real-money / custody tier stays Phase-3 legal-gated, deferred, not designed. **The other four flags
+> (stake-tier names/cutoffs · tournaments · ranked-on-staked · lobby-creation/anti-collusion) remain OPEN.**
 
 ---
 
@@ -107,17 +115,19 @@ Grounded in real poker economics + skill-competition-law best practice, under th
   stake tiers + MMR sorting *within* a tier; and no-cash-out means a "loss" is in-game currency only.
 - **Addiction-loop / gambling-harm design** — near-miss, loss-chasing, variable-ratio, opaque odds. Rejected:
   no randomness (skill-only outcomes), transparent economics, and **the no-cash-out law removes the financial-
-  harm vector entirely** (you cannot lose money, only non-cashable tokens). Optional session/spend guards (flag).
+  harm vector entirely** (you cannot lose money, only non-cashable tokens). Optional session/spend guards are a
+  lightweight later refinement, folded under the R2 no-cash-out ruling (deferred, not decided).
 - **Real-money wagering with cash-out** — that is licensed gambling. **Forbidden by `ECON §0`**; any real-money
   path stays Phase-3 legal-gated and out of this design (flag #1).
 
 ### 2.4 The legal line (why Watts-first, and the big flag)
 Skill-based competition for a **non-cashable** in-game prize is structurally NOT gambling (no monetary prize
 to redeem; outcomes are skill, not chance). **Watts** (earned) staking is the cleanest expression of this.
-**Volts** (a currency with a real-money *acquisition* path, `ECON §1`) staked into a pool raises a
-"consideration of monetary value" question even without cash-out — so **Volts-staking is flagged for legal
-review** (flag #1), and **real-money direct wagering is never in scope** (Phase-3 legal-gated). The whole
-design is built so the safe answer (Watts-only) is the default and the risky paths are opt-in behind legal.
+**Volts** carry a real-money *acquisition* path (`ECON §1`), but that path is itself the pre-existing Phase-3
+legal gate; **staking already-owned Volts stays inside the in-game economy** and is covered by the R2
+no-cash-out ruling (§6 flag #1 → RULED). **Real-money direct wagering is never in scope** (Phase-3
+legal-gated). The design keeps the safe answer — non-cashable, in-game-only — as the law; the only real-money
+surface (buying Volts) remains gated exactly as it already was.
 
 ---
 
@@ -157,8 +167,13 @@ design is built so the safe answer (Watts-only) is the default and the risky pat
     BR = placement first, banked value tiebreaker).
   - *Bounty / Mark:* **per-elimination bounty** (bust a seat → claim its bounty from the pool) + a finish bonus.
     Directly reuses the combat-loot head/limb values as the bounty unit.
-- **House-cut / rake (flag #2):** proposed **0% on Watts-staked** (keep the earned economy generous) and a
-  **small optional rake on Volts-staked** as a currency sink — but yes/no + rate is an operator ruling.
+- **House-cut / rake — ✅ RULED (R1, law).** The house takes a rake **off the top of the TOTAL prize pool**
+  (sum of all buy-ins), standard poker structure; the remainder is the payout pool. The rate is **tiered by
+  the pool's VOLT-EQUIVALENT** — currency-agnostic, since Watts stakes convert at the peg (**10 W = 1 V**) to
+  set the bracket, so it cannot be gamed by currency choice. **Pool ≤ 500 V-equiv → 5% · pool ≥ 501 V-equiv →
+  10%.** The bracket keys off the **total pool**, not per-player buy-in. *Worked example:* a 4-seat match at
+  **200 V each → 800 V pool** → ≥ 501 V-equiv → **10% rake (80 V)** → **720 V payout pool.** *(Also a currency
+  sink — rake removes earned currency, aiding economy hygiene. Supersedes the v0.1 "0% Watts" proposal.)*
 - **Stake tiers** `AFL.Stake.<Tier>` — buy-in bands that also sort matchmaking. Candidate ladder (flavor names,
   operator to bless — flag #3; electrical/poker blend, namespace-distinct from price/rank tiers):
   **Trickle · Feed · Main · High · Prime** (micro → nosebleed). Cutoffs (Watts thresholds) = flag #3.
@@ -214,14 +229,19 @@ flag #7). This doc **is** that sibling. The cross-reference (a doc-link edit app
 
 ## 6. 🚩 FLAGGED OPERATOR DECISIONS
 
-1. **THE BIG ONE — does staking EVER touch real money, or Watts/Volts-only forever?** This design assumes
-   **in-game-currency-only** (poker structure on non-cashable currency — NOT gambling; `ECON §0` no-cash-out).
-   Sub-ruling: **Watts-staking** ships clean; **Volts-staking** (Volts have a real-money acquisition path)
-   needs **legal review** before enable; **real-money/custody wagering** stays Phase-3 legal-gated and is
-   never in this design. **Confirm Watts/Volts-only (recommended) — or route any real-money ambition to a
-   separate legal track.**
-2. **House-cut / rake — yes/no + rate.** Recommended **0% on Watts** (generous earned economy) + a **small
-   optional rake on Volts** as a currency sink. Operator sets the policy + rate.
+1. **✅ RULED (R2, law) — NO CASH-OUT, in-game-spend-only.** Currency (Watts/Volts) is **one-way and stays
+   inside the in-game economy** — players stake, win, and spend entirely in-game; **no path converts winnings
+   to real money or out of the system.** Staking is poker STRUCTURE on **non-cashable** in-game currency, NOT
+   real-money gambling — inheriting the `IRONICS_ECONOMY_SPEC.md §0` no-cash-out doctrine. The **real-money /
+   custody tier remains PHASE-3 LEGAL-GATED** if ever revisited (deferred, not designed now). This no-cash-out
+   law is itself the primary responsible-play safeguard (it removes the financial-harm vector); optional
+   session/spend guards are a later lightweight refinement (deferred, not decided).
+   *[History — v0.1 open question: "does staking EVER touch real money, or Watts/Volts-only forever? … confirm
+   Watts/Volts-only, or route any real-money ambition to a separate legal track."]*
+2. **✅ RULED (R1, law) — HOUSE RAKE, tiered by pool Volt-equivalent** (full statement + worked example in §3B):
+   off the top of the **total pool**, **≤ 500 V-equiv → 5% · ≥ 501 V-equiv → 10%**, currency-agnostic (Watts
+   convert at 10 W = 1 V). *[History — v0.1 open question: "house-cut yes/no + rate; recommended 0% on Watts +
+   a small optional rake on Volts."]*
 3. **Stake-tier names + cutoffs.** Bless/adjust the candidate ladder (Trickle·Feed·Main·High·Prime) and set
    the Watts buy-in thresholds per tier.
 4. **Tournaments — scheduled vs player-run (or both).** PokerStars-style operator-scheduled MTTs, player-spun
@@ -230,8 +250,10 @@ flag #7). This doc **is** that sibling. The cross-reference (a doc-link edit app
    a separate **high-roller staked leaderboard** exists. Also: is **1-v-many** ranked?
 6. **Player-initiated match authority.** Who can create staked lobbies (anyone / rank-gated / level-gated), and
    any anti-abuse (collusion/chip-dumping detection — the staked analogue of the League's anti-throw AFL-2206).
-7. **Responsible-play guards.** Optional session/spend caps or cooldowns on staked play (recommended as a
-   lightweight safeguard even under no-cash-out) — ship or defer.
+> **Four flags remain OPEN** (await later operator rulings — NOT decided here): **#3** stake-tier names/cutoffs
+> · **#4** tournaments scheduled-vs-player-run · **#5** ranked-on-staked · **#6** lobby-creation/anti-collusion.
+> *(Responsible-play guards are folded under R2 — the no-cash-out law is the primary safeguard; optional
+> session/spend caps deferred.)*
 
 ---
 
@@ -252,7 +274,8 @@ designed) · the League MMR (defined). **Genuinely new build work:** the staking
 
 ---
 
-*v0.1 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited) · poker→shooter research principles · the
-match-type overlay (+ 1-v-many) · the staking economy (buy-in→pool→payout, formats, tiers) · the queue-model
-matchmaking · the integration matrix · the League cross-reference · 7 flagged decisions (the big one: no
-real-money — Watts/Volts-only under no-cash-out). DESIGN ONLY — no code, no catalog/asset/infra, nothing built.*
+*v0.2 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited) · poker→shooter research · match-type
+overlay (+ 1-v-many) · staking economy (buy-in→pool→payout, formats, tiers) · queue-model matchmaking ·
+integration matrix · League cross-reference. **2 rulings recorded as LAW** (R1 tiered rake 5%/10% by pool
+Volt-equiv; R2 no-cash-out / in-game-spend-only); **4 flags remain open** (stake-tier names/cutoffs ·
+tournaments · ranked-on-staked · lobby/anti-collusion). DESIGN ONLY — no code, no catalog/asset/infra, nothing built.*
