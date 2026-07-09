@@ -116,6 +116,8 @@ multiplier). Every family is its OWN sub-spectrum (a range within the hue, not o
 Legacy-8 map: EBlue+IceCyan->BLUE, ToxicGreen+GreenGold->GREEN, ArcViolet->PURPLE, CyanMagenta->PINK,
 Amber->YELLOW (7 mapped). => 36 SPARK = 7 built + 29 new.
 
+> ⚠️ **PRICING SUPERSEDED by `IRONICS_PRICING_SCARCITY_SSOT.md` §1.5 R2 (2026-07-08):** the SURGE-tier pricing here folds into the cheap-first ladder — legendary weapon-skins price at Standard/Premium (§1.5 R2), not the retired SURGE rung. Build status unchanged.
+
 ### 12 SURGE LEGENDARY -- 2 per family  [APPROVED + BUILT 2026-07-03]
 The **prismatic/glitch premium** off the SAME locked master: `Enable_Glitch_Elements` ON, elevated
 `Neon_Glow_Intensity`, prismatic/shifting hue. Tier = SURGE/LEGENDARY, scarce + premium-priced (pricing

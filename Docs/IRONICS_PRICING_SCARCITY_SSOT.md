@@ -30,6 +30,39 @@
 
 ---
 
+## 1.5 SUPERSEDING RULINGS — 2026-07-08 (operator, R1–R5)
+**These OVERRIDE the conflicting lines below** (§1 tier ladder, §2/§3 rungs, §4.2 category map) **and `IRONICS_PRODUCT_SKU_CATALOG.md:126`.** Superseded text is retained as history (RECONCILED-banner pattern). **DOCS-ONLY** — the disk/catalog changes are the persistence-gated BUILD phase (§5.1), a separate reviewed block.
+
+**R1 — ROSTER RECLASSIFY.** IRONICS is the **sole free base identity**. All **29 non-IRONICS named robots = $500 / 500,000 V 1-of-1 Singularity Exclusive Bundles** (mint cap 1). SUPERSEDES `SKU:126` (roster GrantedFree) + §4.2 (identities → ARC $23) **for the named roster**: the three identity strata (free base · ARC identity · grail) COLLAPSE to **free base (IRONICS) + $500 grail (every other named robot)** — no ARC-identity middle rung. Rows (disk, HEAD 0cf0661e): 30 `AFL.Character.*` (29 → Singularity; `AFL.Character.IRONICS` free) + 7 `AFL.Team.*` (`AFL.Team.IRONICS` free; the 6 others below). ⚠️ **HELD DECISION:** whether the 6 non-IRONICS Team entitlements fold INTO their robot's bundle or reclassify separately = R5 composition — no `Acquisition` flipped here.
+
+**R2 — CHEAP-FIRST LADDER** (retires the named rungs SPARK/SURGE/ARC/THUNDER BOLT — all sat above impulse). Peg `$1=1,000 V / 1 V=10 W`, `$0.99` floor (R3):
+
+| Rung | USD | Volts | Watts | Buy with | Contents |
+|---|---|---|---|---|---|
+| **Free** | $0 | — | — | — | 7 base `AFL.Finish.*` + base edges + **IRONICS** (R1) |
+| **Impulse** | $0.99–1.99 | 990–1,990 | 9,900–19,900 | Volts **OR** Watts | single color `AFL.Body.*` / single edge `AFL.Edge.*` |
+| **Standard** | $2.99–4.99 | 2,990–4,990 | 29,900–49,900 | Volts **OR** Watts | 21 signature finishes · masks · std weapon skins |
+| **Premium** | $7.99–14.99 | 7,990–14,990 | — | **Volts ONLY** | signature weapon skins · exclusive beams · event masks |
+| **Grail** | $500 | 500,000 | — | **Volts ONLY** | the 1-of-1 Singularity bundle (R1 / R5) |
+
+Volts-OR-Watts on Free→Standard; **Volts-only paid wall at Premium+** — generalizes the existing rule `IRONICS_ECONOMY_SPEC.md:69-70` ("only the Accessible tier is directly Watts-buyable; higher tiers Volts, Watts discount only"). V/W are the mechanical peg derivation of the USD band (not a monetization call). The FLICKER rung (§4.3) is ABSORBED into Impulse. ⚠️ **HELD DECISION:** R2 lists "base edges" as Free while pricing "single edge" at Impulse — disk has all **11 `AFL.Edge.*` as Direct-priced** today; which edges are Free vs Impulse is unspecified → operator to pin.
+
+**R3 — FLOOR:** cheapest paid item = **$0.99 = 990 V = 9,900 W**.
+
+**R4 — EARN↔PRICE RECONCILE** (matches-to-own). Structured earn = **~4,000 W/match-equiv** (`IRONICS_ECONOMY_SPEC.md:80,97`; combat-loot head 160 W / limb 20 W, `:127`):
+
+| Item (Watts path) | OLD | NEW |
+|---|---|---|
+| base color / edge | SPARK $10 = 100,000 W ≈ **25 matches** | Impulse $0.99 = 9,900 W ≈ **2.5 matches** |
+| signature finish | SPARK $10 (§4.2) ≈ **25 matches** | Standard $2.99 = 29,900 W ≈ **7.5 matches** |
+| top Standard | — | $4.99 = 49,900 W ≈ **12.5 matches** |
+
+**Recommendation — PRICE lever only; keep earn locked at ~4,000 W/match.** The R2 drop ALONE reconciles the grind: base wardrobe = **~2.5 matches** (was 25), inside the F2P best-practice hook (first cosmetic in ~2–5 matches). The proven retention shape (`ECON:76-102`) is preserved; splits stay "tune-at-playtest." (If Standard's ~7.5 matches proves slow at playtest, the operator-signable lever is a modest Standard-Watt trim, **NOT** earn inflation — flagged, not applied.)
+
+**R5 — BUNDLE COMPOSITION** (records at §4.5). Doc §4.5 = `{identity · mask · color-set · unique weapon}`; operator = `{character · logo · finish · edge}`. **Merged canonical** (logo ⊂ identity; color-set = finish+edge; doc adds mask+weapon): the Singularity bundle = **{ the identity (Character + Team + logo/emblem) · signature finish · signature edge · signature mask · unique weapon }** — a COMPLETE 1-of-1 signature look. Delta: operator omitted mask+weapon (doc law keeps them); "color-set" made explicit as finish+edge. ⚠️ **HELD DECISION:** the grail bundling a gameplay **weapon** is doc law (`§4.5` "unique weapon combo") — if the grail must be cosmetic-ONLY, that reverses doc law → operator call.
+
+---
+
 ## 2. RARITY TIERS — the limited-edition mint ladder (LAW)
 
 | Mint tier | Copies | Rarity label | Currency | Discount | Reissue |
@@ -100,6 +133,8 @@ the Tempest (10× below it).
 separate limited `Surge` ARIA variant).
 
 ### 4.2 Category → rung map — **CONFIRMED (law)** (resolves `IRONICS_PLAYER_FLOW` §9.3)
+
+> ⚠️ **SUPERSEDED for the NAMED ROSTER + the rung names by §1.5 R1/R2 (2026-07-08):** non-IRONICS identities are **$500 Singularity bundles** (not ARC); the SPARK/SURGE/ARC/THUNDER BOLT rungs are replaced by the cheap-first ladder (§1.5 R2). The table below is retained as history + still frames the NON-identity categories (finishes/masks/weapons → the §1.5 R2 rungs).
 
 | Priced category | Standard rung | Price | If LIMITED |
 |---|---|---|---|

@@ -54,6 +54,8 @@ Prices map the proven Valorant ladder (~$10/$16/$23/$30) onto the peg. Tier NAME
 are operator content — proposed below in the Watts/Volts electrical vocabulary
 (charge/voltage escalation), to be blessed/changed/replaced by the operator.
 
+> ⚠️ **SUPERSEDED by `IRONICS_PRICING_SCARCITY_SSOT.md` §1.5 R2 (2026-07-08):** the SPARK/SURGE/ARC/THUNDER BOLT named rungs are replaced by the **cheap-first ladder** — Free · Impulse $0.99–1.99 · Standard $2.99–4.99 · Premium $7.99–14.99 · Grail $500. The peg + soft/hard split (below) are UNCHANGED; the table is retained as history.
+
 | Tier | Volts (hard) | Watts (soft) | ≈USD | Proposed brand name | Notes |
 |---|---|---|---|---|---|
 | Accessible | 10,000 V | 100,000 W | $10 | SPARK | Watts-buyable (the free-player path) |
@@ -74,6 +76,8 @@ split that keeps the model legally clean and the premium tiers meaningful.
 ---
 
 ## 3. Earn structure (Watts) — the locked rate, delivered as STRUCTURE not flat
+
+> **R4 reconcile (`IRONICS_PRICING_SCARCITY_SSOT.md` §1.5, 2026-07-08):** this earn structure is **UNCHANGED**. Under the new cheap-first ladder the base wardrobe = **~2.5 matches** (was ~25 at SPARK $10); a Standard signature ≈ 7.5 matches. **Price lever only — no earn inflation.**
 
 Calibration target: a regular player (the anchor: ~5 sessions/week ×
 ~4 matches = ~20 matches/week) earns a Premium (ARC, ~230,000 Watts-equiv)

@@ -123,6 +123,8 @@ Violet.Indigo, Violet.Stealth, White.Halo, White.Valkyr (21).
 | Riot/Icon EPIC (3) | Riot.Anarchy, Riot.Traitors, IroVisor | SURGE | DIRECT | Epic | V16000 |
 | Legendary (5) | Crew.JollyRoger, Icon.Kawaii, Icon.Orchard, Nation.Liberty, Riot.Freedom | SURGE | DIRECT | Legendary | V24000 |
 
+> ⚠️ **RECLASSIFIED by `IRONICS_PRICING_SCARCITY_SSOT.md` §1.5 R1 (2026-07-08):** only **IRONICS** stays GrantedFree; the **29 non-IRONICS** identities (Character + their dual-registered Team rows) become **$500 / 500,000 V 1-of-1 Singularity bundles**. DOCS-ONLY — the `Acquisition` flip is the persistence-gated BUILD phase. The "ALL GRANTED_FREE" line below is retained as history.
+
 ### CHARACTER (30) -- identity, ALL GRANTED_FREE / SPARK (`AFL.Character.<Name>`)
 AP-9, ARIA, Akuma, Astra, Aurelia, Azura, BigSixx, Cielo, Draco, Ember, FANATICS, Halo, IRONICS,
 Kage, MAKHIAVELLI, MOB-FIGAZ, NovaKai, OnyxPrime, Orion, RiftOne, Ronin, Ryu, SCARLETT, Sable,
