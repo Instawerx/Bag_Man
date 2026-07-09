@@ -1,6 +1,6 @@
 # IRONICS — Match Types, Matchmaking & Staking SSOT
 
-> **Status: SCOPING / DESIGN PASS — v0.2 (2026-07-09).** The owed **driver #3** doc
+> **Status: SCOPING / DESIGN PASS — v0.3 (2026-07-09).** The owed **driver #3** doc
 > (`IRONICS_MARKETPLACE_MASTER_ARCHITECTURE.md:143`: *"Matchmaking & Game Types — PokerStars-inspired…
 > gates matches by rank/type — needs a matchmaking/game-types doc"*). **Design deliverable only** — no
 > game-system code, no catalog/asset/infra writes, no matchmaking/staking mechanism is built here.
@@ -18,13 +18,16 @@
 > STRUCTURE (buy-in → pool → payout) applied to non-cashable in-game currency — NOT real-money gambling.**
 > Any real-money / custody wagering stays Phase-3 legal-gated and is **out of scope here** (see flag #1).
 >
-> **v0.2 — TWO RULINGS RECORDED AS LAW (2026-07-09, operator):** **R1 — HOUSE RAKE** (flag #2 → ✅ RULED):
-> rake off the top of the **TOTAL pool**, tiered by the pool's **Volt-equivalent** (Watts convert at peg
-> **10 W = 1 V** so the bracket is currency-agnostic) — **pool ≤ 500 V-equiv → 5% · pool ≥ 501 V-equiv →
-> 10%** (§3B). **R2 — NO CASH-OUT** (flag #1 → ✅ RULED): staking is poker STRUCTURE on **non-cashable,
-> in-game-spend-only** Watts/Volts (inherits `ECON §0`); winnings never convert to real money — the
-> real-money / custody tier stays Phase-3 legal-gated, deferred, not designed. **The other four flags
-> (stake-tier names/cutoffs · tournaments · ranked-on-staked · lobby-creation/anti-collusion) remain OPEN.**
+> **RULINGS RECORDED AS LAW (2026-07-09, operator):** **R1 — HOUSE RAKE** (flag #2 → ✅ RULED): rake off the
+> top of the **TOTAL pool**, tiered by the pool's **Volt-equivalent** (Watts convert at peg **10 W = 1 V** so
+> the bracket is currency-agnostic) — **pool ≤ 500 V-equiv → 5% · pool ≥ 501 V-equiv → 10%** (§3B). **R2 —
+> NO CASH-OUT** (flag #1 → ✅ RULED): staking is poker STRUCTURE on **non-cashable, in-game-spend-only**
+> Watts/Volts (inherits `ECON §0`); winnings never convert to real money — the real-money / custody tier
+> stays Phase-3 legal-gated, deferred, not designed. **v0.3 — STAKE-TIER LADDER** (flag #3 → ✅ RULED,
+> structure): the micro→high ladder `AFL.Stake.{Trickle·Ante·Live·Main·HighVolt·Nosebleed}` — per-seat
+> 100/500/2,500/10,000/50,000/250,000 V-equiv (~5× geometric, Watts floor → Volts top), §3B.1; the specific
+> values are design-proposals with sub-decisions #3a–#3d flagged. **Three flags remain OPEN** (#4 tournaments ·
+> #5 ranked-on-staked · #6 lobby-creation/anti-collusion).
 
 ---
 
@@ -174,11 +177,51 @@ surface (buying Volts) remains gated exactly as it already was.
   10%.** The bracket keys off the **total pool**, not per-player buy-in. *Worked example:* a 4-seat match at
   **200 V each → 800 V pool** → ≥ 501 V-equiv → **10% rake (80 V)** → **720 V payout pool.** *(Also a currency
   sink — rake removes earned currency, aiding economy hygiene. Supersedes the v0.1 "0% Watts" proposal.)*
-- **Stake tiers** `AFL.Stake.<Tier>` — buy-in bands that also sort matchmaking. Candidate ladder (flavor names,
-  operator to bless — flag #3; electrical/poker blend, namespace-distinct from price/rank tiers):
-  **Trickle · Feed · Main · High · Prime** (micro → nosebleed). Cutoffs (Watts thresholds) = flag #3.
+- **Stake tiers** `AFL.Stake.<Tier>` — the buy-in ladder + queue-sort axis, **✅ RULED (§3B.1 below).**
 - **Naming/ids (ADR `AFL.<Type>.<Name>` doctrine):** `AFL.MatchType.<Name>`, `AFL.Stake.<Tier>`, `AFL.Format.
   <SNG|MTT|Bounty|HeadsUp>`. Stake/pool/escrow *state* is entry metadata on the match record, never in an id.
+
+### 3B.1 Stake-tier ladder — ✅ RULED (flag #3; structure ruled, specific values design-proposed)
+Real poker stakes run **micro → low → mid → high → nosebleed**, spaced **geometrically** (each tier a multiple
+of the last, not linear), **dense at the bottom and thinning upward** — an **accessibility floor + an
+aspirational climb**, and a skill/commitment sorter. Translated to our Volt-equivalent (peg **10 W = 1 V**;
+no cash-out, R2):
+
+| `AFL.Stake.<Tier>` | Poker analogue | Per-seat buy-in (V-equiv) | ≈USD (peg ref, NOT cash) | Denomination | Note |
+|---|---|---|---|---|---|
+| **Trickle** | micro | **100 V** (1,000 W) | $0.10 | **Watts** | low-friction floor (~¼ match's earn) |
+| **Ante** | low | **500 V** (5,000 W) | $0.50 | **Watts** | the on-ramp (~1¼ matches' earn) |
+| **Live** | low-mid | **2,500 V** | $2.50 | **Watts** | last comfortably Watts-earned tier |
+| **Main** | mid | **10,000 V** | $10 | **Volts** | the Watts→Volts crossover |
+| **HighVolt** | high | **50,000 V** | $50 | **Volts** | high stakes |
+| **Nosebleed** | nosebleed | **250,000 V** | $250 | **Volts** | ceiling (proposed) |
+
+- **Geometric spacing ~5×** (100 → 500 → 2,500 → 10,000 → 50,000 → 250,000) — a clean legible climb; dense
+  micro floor, thinning top (matches real poker population + the aspiration curve). Six tiers (best-practice band).
+- **Denomination:** Trickle/Ante/Live are **Watts-friendly** (earnable — a new player earns ~4,000 W/match, so
+  the Trickle floor ≈ ¼ match); Main/HighVolt/Nosebleed are **Volts-territory** (premium). All stake in the
+  common **Volt-equivalent** (Watts convert at 10 W = 1 V) so the tier is currency-agnostic (the R1 pattern).
+- **Rake-break (R1) alignment:** the 5%/10% break is on the **pool** (≤ 500 V → 5%). Across the ladder that
+  break falls **inside the Trickle tier** — a small-field Trickle match (≤ 5 seats × 100 V ≤ 500 V pool) pays
+  **5%**; every other tier, and large-field Trickle, pays **10%**. So **5% is effectively "the micro floor in
+  small fields."** Whether to *align* the break to the tier boundary (a flat 5% Trickle tier regardless of
+  field) or keep it strictly pool-based (current R1) is a **sub-flag (§6 #3a)** — not forced here.
+
+**Worked examples (4-seat SNG; pool = 4 × buy-in; rake per R1):**
+
+| Tier | 4-seat pool | Rake bracket | Rake | Payout pool |
+|---|---|---|---|---|
+| Trickle | 400 V | ≤ 500 → **5%** | 20 V | **380 V** |
+| Ante | 2,000 V | ≥ 501 → 10% | 200 V | 1,800 V |
+| Live | 10,000 V | 10% | 1,000 V | 9,000 V |
+| Main | 40,000 V | 10% | 4,000 V | 36,000 V |
+| HighVolt | 200,000 V | 10% | 20,000 V | 180,000 V |
+| Nosebleed | 1,000,000 V | 10% | 100,000 V | 900,000 V |
+
+**Recorded as working law; these SUB-DECISIONS are design-proposals flagged for operator confirmation (§6 #3):**
+tier **count** (6), the exact **cutoffs** + ~5× spacing, the **Watts/Volts denomination split** (at Main), the
+**top ceiling** (Nosebleed 250,000 V — cap, or add an invite-only apex above?), and the **rake-break alignment**
+(#3a). The ladder **shape + approach** is ruled; the exact numbers await confirmation.
 
 ### 3C. Matchmaking (queue model on the existing transport)
 - **Three queue classes** (all ride the existing PlayFab-ticket → Lambda → GameLift pipeline; the class + stake
@@ -242,18 +285,25 @@ flag #7). This doc **is** that sibling. The cross-reference (a doc-link edit app
    off the top of the **total pool**, **≤ 500 V-equiv → 5% · ≥ 501 V-equiv → 10%**, currency-agnostic (Watts
    convert at 10 W = 1 V). *[History — v0.1 open question: "house-cut yes/no + rate; recommended 0% on Watts +
    a small optional rake on Volts."]*
-3. **Stake-tier names + cutoffs.** Bless/adjust the candidate ladder (Trickle·Feed·Main·High·Prime) and set
-   the Watts buy-in thresholds per tier.
+3. **✅ RULED (structure) — the micro→high stake-tier ladder (§3B.1).** `AFL.Stake.{Trickle · Ante · Live ·
+   Main · HighVolt · Nosebleed}`, per-seat buy-ins **100 / 500 / 2,500 / 10,000 / 50,000 / 250,000 V-equiv**
+   (~5× geometric), Watts-friendly floor → Volts top. The ladder shape + approach is ruled; the **specific
+   values are design-proposals recorded as working law**, with sub-decisions flagged for confirmation:
+   **(3a)** rake-break alignment — the 500 V-pool break falls inside Trickle (small-field = 5%, else 10%);
+   align the whole micro tier to 5%, or keep strictly pool-based (current R1)? **(3b)** tier count (6 proposed).
+   **(3c)** top ceiling (Nosebleed 250,000 V — cap, or add an invite-only apex?). **(3d)** Watts/Volts
+   denomination split (proposed at Main). *[History — v0.1/v0.2 open question: "stake-tier names + cutoffs;
+   candidate Trickle·Feed·Main·High·Prime."]*
 4. **Tournaments — scheduled vs player-run (or both).** PokerStars-style operator-scheduled MTTs, player-spun
    tournaments, or both. Which ships first?
 5. **Ranked-on-staked policy.** Confirm **staking ⟂ rank** (recommended — protects the firewall), and whether
    a separate **high-roller staked leaderboard** exists. Also: is **1-v-many** ranked?
 6. **Player-initiated match authority.** Who can create staked lobbies (anyone / rank-gated / level-gated), and
    any anti-abuse (collusion/chip-dumping detection — the staked analogue of the League's anti-throw AFL-2206).
-> **Four flags remain OPEN** (await later operator rulings — NOT decided here): **#3** stake-tier names/cutoffs
-> · **#4** tournaments scheduled-vs-player-run · **#5** ranked-on-staked · **#6** lobby-creation/anti-collusion.
-> *(Responsible-play guards are folded under R2 — the no-cash-out law is the primary safeguard; optional
-> session/spend caps deferred.)*
+> **Three flags remain OPEN** (await later operator rulings — NOT decided here): **#4** tournaments
+> scheduled-vs-player-run · **#5** ranked-on-staked · **#6** lobby-creation/anti-collusion. *(Flag #3 stake-tier
+> ladder is now RULED — structure ruled, specific values design-proposed with sub-decisions #3a–#3d flagged
+> for confirmation. Responsible-play guards folded under R2.)*
 
 ---
 
@@ -274,8 +324,9 @@ designed) · the League MMR (defined). **Genuinely new build work:** the staking
 
 ---
 
-*v0.2 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited) · poker→shooter research · match-type
-overlay (+ 1-v-many) · staking economy (buy-in→pool→payout, formats, tiers) · queue-model matchmaking ·
-integration matrix · League cross-reference. **2 rulings recorded as LAW** (R1 tiered rake 5%/10% by pool
-Volt-equiv; R2 no-cash-out / in-game-spend-only); **4 flags remain open** (stake-tier names/cutoffs ·
-tournaments · ranked-on-staked · lobby/anti-collusion). DESIGN ONLY — no code, no catalog/asset/infra, nothing built.*
+*v0.3 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited) · poker→shooter research · match-type
+overlay (+ 1-v-many) · staking economy (buy-in→pool→payout, formats) · the micro→high stake-tier ladder
+(§3B.1) · queue-model matchmaking · integration matrix · League cross-reference. **3 rulings recorded as LAW**
+(R1 tiered rake 5%/10% by pool Volt-equiv; R2 no-cash-out / in-game-spend-only; the Trickle→Nosebleed stake
+ladder — structure ruled, values design-proposed); **3 flags remain open** (tournaments · ranked-on-staked ·
+lobby/anti-collusion). DESIGN ONLY — no code, no catalog/asset/infra, nothing built.*
