@@ -276,8 +276,8 @@ and wear** — there is **no player-membership/guild system** (`ADR`, `PLAYER_FL
 ### 5.1 The MMR / skill layer
 - **Glicko-2 derivative** (AFL-2201) — a hidden per-player skill rating updated from match outcomes. It
   **drives matchmaking fairness** and **defines the top leaderboard tier**; the **rank tier is its legible
-  face** (§3.1). MMR is a matchmaking input, owned by the **Matchmaking driver #3** (`MASTER_ARCH:143`) —
-  this doc **consumes** it; #3 defines it (§7 dependency).
+  face** (§3.1). The Glicko-2 rating is the **ranked system's** skill measure (AFL-2201); the **matchmaking
+  sibling** (`IRONICS_MATCH_STAKING_SSOT.md`, driver #3) **consumes** it for queue fairness (§7 dep #3).
 
 ### 5.2 Leaderboards (the multi-arc, dual-subject model)
 - **Time arcs** (from P-SCORING): **daily · weekly · monthly · seasonal · lifetime (career)**. The
@@ -334,8 +334,12 @@ top of it, not a from-scratch build:
 2. **Per-team score aggregation + a fuller per-player stats component** (the *narrow* real build gap). Team
    leaderboards (C) + team-standing (B) need per-team aggregation on top of the existing per-player scoring
    (`LCM:598-600`); a fuller stats component extends today's K/D/A ledger (the tracker "S-later" debt).
-3. **Matchmaking & Game-Types driver #3** (`MASTER_ARCH:143`) — **owns the MMR** the rank tier faces and the
-   ranked pool (AFL-2205). Its own doc is owed. This doc consumes #3; it does not define matchmaking.
+3. **Matchmaking & Game-Types driver #3** — its doc now EXISTS: **`IRONICS_MATCH_STAKING_SSOT.md`** (match-type
+   spectrum + staking economy + queue model). It **consumes** this doc's Glicko-2 rating (AFL-2201) for
+   matchmaking fairness and owns the ranked pool wiring (AFL-2205). **Ranked runs on** Arena (1v1–4v4) + Team
+   (5v5–8v8) + BR (separate pool); Shrink/party = unranked. **Staking is orthogonal to rank** — ranked is
+   stake-agnostic (the rank-not-buyable firewall holds), with an optional separate high-roller staked board.
+   This doc consumes matchmaking; it does not define it.
 4. **Persistence new-state-shapes** on `IAFLCosmeticPersistence` — the write-seam is consolidated
    (`f010a0c1`, the B2 layer), but **MMR / rank / achievement / season / standings are new write types** not
    yet demonstrated. They follow the proven earn/purchase write pattern through the **same B2 backend**.
@@ -389,8 +393,9 @@ Phase-5 wiring consumes — authored now so the build is not a discovery loop.
   doc gives definitions for.
 - **B2 backend spine** (`Bag_Man_Backend`, `docs/bundle-purchase-checklist.md`) — the PlayFab persistence
   layer rank/achievement state rides; the team-gate seam (#7) this doc's §4.3 fulfils.
-- **Owed sibling docs (NOT this doc):** P-SCORING substrate + match-outcome/team-score; Matchmaking &
-  Game-Types (driver #3).
+- **`IRONICS_MATCH_STAKING_SSOT.md`** — the driver-#3 sibling (match types + matchmaking + staking); consumes
+  this doc's Glicko-2 rating, keeps staking orthogonal to rank (§5 cross-reference). **Owed sibling still
+  open:** per-team score aggregation.
 
 ---
 
