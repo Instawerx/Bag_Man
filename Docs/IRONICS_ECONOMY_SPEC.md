@@ -139,6 +139,11 @@ your own body).
   combat-loot ≈20%; if double, ≈80%).
 - Ties to the §0 invariant carve-out: this is FREE/EARNED gameplay reward, not purchased chance —
   fully clear of the NO-PAID-RANDOMIZED-ACQUISITION line.
+- **Economy-integrity cross-ref (2026-07-09):** because the **enemy-collect** grant is an earn SOURCE, it is
+  an anti-fraud attack surface (loot-feeding / self-dealing to a colluding **enemy-team** alt to manufacture
+  Watts). The **game-wide anti-collusion / anti-fraud system** that guards the earn layer is designed in
+  `IRONICS_MATCH_STAKING_SSOT.md §3D` (policy-as-law; detection backend-gated). The earn-layer guard belongs
+  to **economy integrity**, not staking alone — illegal Watts stacking devalues the currency + grail scarcity.
 
 ---
 

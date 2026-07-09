@@ -1,6 +1,6 @@
 # IRONICS — Match Types, Matchmaking & Staking SSOT
 
-> **Status: SCOPING / DESIGN PASS — v0.3 (2026-07-09).** The owed **driver #3** doc
+> **Status: SCOPING / DESIGN PASS — v0.4 (2026-07-09).** The owed **driver #3** doc
 > (`IRONICS_MARKETPLACE_MASTER_ARCHITECTURE.md:143`: *"Matchmaking & Game Types — PokerStars-inspired…
 > gates matches by rank/type — needs a matchmaking/game-types doc"*). **Design deliverable only** — no
 > game-system code, no catalog/asset/infra writes, no matchmaking/staking mechanism is built here.
@@ -26,8 +26,11 @@
 > stays Phase-3 legal-gated, deferred, not designed. **v0.3 — STAKE-TIER LADDER** (flag #3 → ✅ RULED,
 > structure): the micro→high ladder `AFL.Stake.{Trickle·Ante·Live·Main·HighVolt·Nosebleed}` — per-seat
 > 100/500/2,500/10,000/50,000/250,000 V-equiv (~5× geometric, Watts floor → Volts top), §3B.1; the specific
-> values are design-proposals with sub-decisions #3a–#3d flagged. **Three flags remain OPEN** (#4 tournaments ·
-> #5 ranked-on-staked · #6 lobby-creation/anti-collusion).
+> values are design-proposals with sub-decisions #3a–#3d flagged. **v0.4 — GAME-WIDE ECONOMY-INTEGRITY /
+> ANTI-COLLUSION** (flag #6 → ✅ RULED, system designed): one `AFL.Integrity.*` layer over **free AND staked**
+> play — prohibited-behavior catalog + signals + a **T0–T3 enforcement ladder** + clawback-of-spent model
+> (§3D); **policy is law now, the detection engine is backend-gated** (a recorded B2 integrity work-item);
+> sub-decisions #6a–#6c flagged. **Two flags remain OPEN** (#4 tournaments · #5 ranked-on-staked).
 
 ---
 
@@ -238,6 +241,69 @@ tier **count** (6), the exact **cutoffs** + ~5× spacing, the **Watts/Volts deno
 - **PokerStars flavor:** a **table browser** (open staked lobbies by mode/tier/pool), **scheduled tournaments**
   (flag #4), and a **lobby** surface (the League doc's pre-match "rank, loadout, social" view, `MASTER_ARCH:128`).
 
+### 3D. Economy-integrity — anti-collusion / anti-fraud (GAME-WIDE; ✅ RULED, resolves + expands flag #6)
+**Why game-wide, not staking-only.** Watts earned in **FREE** play feed the same one-way economy (no cash-out,
+R2); illegal Watts stacking **devalues the currency and erodes grail scarcity** (the mint-cap product). So
+integrity is **one layer (`AFL.Integrity.*`) over ALL gameplay — free AND staked** — two attack surfaces.
+
+**Research grounding (poker platforms + competitive games).** Fraud/collusion types — **chip-dumping**
+(intentional loss to transfer value), **soft-play** (colluders don't compete), **win-trading** (arranged
+outcomes), **multi-accounting** (one person, many seats), **boosting rings**, **bots / RTA**. Signals mature
+systems use — shared **IP/device/session fingerprints**, improbable **transfer/benefit graphs** (A always feeds
+B), **win-pattern outliers**, **timing/behavioral anomalies**, **account-linkage graphs**. Enforcement is a
+**ladder** (flag → review → penalty → appeal) with **high-confidence thresholds + human review for severe
+actions** to manage **false positives** (never punish legit friends or genuine skill); detection logic is
+**never exposed** (cheaters adapt).
+
+**A — FREE-PLAY earn integrity (the currency SOURCE).** *Prohibited:* **win-trading** (arranging Match-base /
+Daily-first-win outcomes, `ECON §3`), **boosting** (playing to inflate another account's earn), **loot-feeding /
+self-dealing** (feeding your own dismember parts to a colluding **enemy-team** alt to manufacture combat-loot
+Watts — exploits the `ECON §3a` **enemy-collect** grant), **manufactured earn** (bot / AFK / scripted matches,
+quest-farming), **multi-accounting** to farm daily/weekly across controlled accounts. *Signals:* **earn-rate
+anomaly** (Watts/hour + Watts/match vs the calibrated ~4,000 W/match baseline), **benefit graphs** (whose
+deaths / heads / losses consistently feed whom), **fingerprint overlap among "opposing" seats**, **loot-feed
+pattern** (one enemy repeatedly collecting one player's parts), **no-combat / timing anomalies**. *Earn-layer
+guards (some enforceable now):* the existing **nonce dedupe** (replay) + **MAX_GRANT ceiling** in the earn
+Lambda, extended by an **earn-rate / window cap** + **AFK / no-participation → reduced earn**.
+
+**B — STAKED-MATCH integrity.** *Prohibited:* **stake-dumping** (throwing a staked match to transfer the pool
+to a confederate — the chip-dump analogue), **soft-play**, **multi-accounting a lobby** (one person on several
+seats to control the pool), **party-stacking** a competitive staked lobby to fix it. *Lobby-creation controls:*
+who may open staked lobbies (**rank / level / account-age** gate — anti-throwaway-account), **seat + same-party
+limits** in competitive staked matches (flag #6b), **multi-account fingerprinting at the seat**. Reuses the
+League **anti-throw** signal (AFL-2206) for stake-dump detection.
+
+**C — Enforcement ladder + penalties + clawback.**
+
+| Tier | Trigger | Action |
+|---|---|---|
+| **T0 Warn** | low-confidence / first minor | notice + watchlist |
+| **T1 Clawback** | confirmed fraudulent earn | reverse the fraudulently-earned Watts |
+| **T2 Stake-ban** | staked collusion | barred from staked queues; casual/ranked continue |
+| **T3 Account action** | egregious / repeat | temp suspension → permaban |
+
+- **Review-gated:** automated flags for T0–T1; **human adjudication before T2–T3** (the false-positive guard).
+  **Appeal path** at every tier.
+- **Clawback-of-SPENT currency (the economy-integrity model — you can't un-spend a grail):** Watts **still in
+  wallet** → reversed directly. Watts **already spent** → can't un-spend; model = a **negative-balance debt**
+  (wallet goes negative; future earn repays before any new spend) and/or **reverse the purchase where the
+  entitlement is un-consumed and un-traded**. A fraudulently-obtained **grail** (1-of-1, container-locked,
+  never-reissue) cannot be cleanly un-minted without breaking the 1-of-1 truth → remedy is **account
+  seizure / ban** + operator adjudication on whether the mint is re-released. **The grail-clawback policy is a
+  genuine decision — flag #6c.**
+
+**D — Naming (ADR doctrine).** `AFL.Integrity.<System>` · `AFL.AntiFraud.<Rule|Signal>` · `AFL.Penalty.T{0-3}`.
+Integrity *state* (flags, penalty status, watchlist) is player-record metadata, never encoded in an id.
+
+**Build-vs-gated split (what's policy-now vs backend-gated).**
+- **DESIGN-POLICY — recordable NOW (this doc, law):** the prohibited-behavior catalog (A/B), the penalty ladder
+  (C), the clawback model, the lobby-creation rules, the earn-rate-ceiling policy.
+- **DETECTION + ENFORCEMENT — BACKEND-GATED (rides the B2 / PlayFab spine):** signal collection (fingerprints,
+  transfer/benefit graphs), anomaly analysis, the flag → review → penalty pipeline, clawbacks / bans. Extends
+  the earn Lambda (dedupe + MAX_GRANT → + earn-rate / window caps) and the `IAFLCosmeticPersistence` / PlayFab
+  layer. **Recorded as a B2 backend integrity work-item** (`Bag_Man_Backend/docs/bundle-purchase-checklist.md`)
+  so it is not lost. Largely Phase-3/5 (post-persistence): the **policy is law now; the detection engine is gated.**
+
 ---
 
 ## 4. INTEGRATION MATRIX
@@ -252,9 +318,11 @@ tier **count** (6), the exact **cutoffs** + ~5× spacing, the **Watts/Volts deno
 | **Identity / teams** | team modes team-pooled; Mark = one identity | team stakes pooled + split by contribution | party rosters (EOS) → ticket |
 | **Matchmaking backend** (PlayFab→Lambda→GameLift) | modes = `LyraExperience` variants (`MAP_MODE §5`) | stake tier + buy-in ride `MatchmakerData` | the transport for all 3 queues |
 | **Maps** (`MAP_MODE`) | each mode → its map tier | — | queue → certified map/size |
+| **Economy-integrity (§3D, game-wide)** | free-play earn guards apply to ALL modes (the currency source) | staked collusion / stake-dump controls + lobby gates | fingerprint / anomaly signals at ticket + seat |
 
 **Through-line:** the match SUBSTRATE (`MAP_MODE`) + the wallet/escrow (B2 economy layer) + the MMR (League)
-already exist — staking + the queue model compose them; nothing here is a new spine.
+already exist — staking + the queue model compose them; **and one `AFL.Integrity.*` layer (§3D) protects the
+currency across free AND staked play.** Nothing here is a new spine.
 
 ---
 
@@ -298,12 +366,20 @@ flag #7). This doc **is** that sibling. The cross-reference (a doc-link edit app
    tournaments, or both. Which ships first?
 5. **Ranked-on-staked policy.** Confirm **staking ⟂ rank** (recommended — protects the firewall), and whether
    a separate **high-roller staked leaderboard** exists. Also: is **1-v-many** ranked?
-6. **Player-initiated match authority.** Who can create staked lobbies (anyone / rank-gated / level-gated), and
-   any anti-abuse (collusion/chip-dumping detection — the staked analogue of the League's anti-throw AFL-2206).
-> **Three flags remain OPEN** (await later operator rulings — NOT decided here): **#4** tournaments
-> scheduled-vs-player-run · **#5** ranked-on-staked · **#6** lobby-creation/anti-collusion. *(Flag #3 stake-tier
-> ladder is now RULED — structure ruled, specific values design-proposed with sub-decisions #3a–#3d flagged
-> for confirmation. Responsible-play guards folded under R2.)*
+6. **✅ RULED (system designed; detection backend-gated) — GAME-WIDE economy-integrity / anti-collusion (§3D).**
+   One `AFL.Integrity.*` layer over free AND staked play (free-play Watts feed the same economy): the
+   prohibited-behavior catalog (win-trading · boosting · loot-feeding/self-dealing · stake-dumping ·
+   multi-accounting · bots), the signal set, a **T0–T3 enforcement ladder** (warn → clawback → stake-ban →
+   account action; review-gated + appeal), and the clawback-of-spent model. **Policy is law now; the detection
+   engine is backend-gated** (a recorded B2 integrity work-item). **Sub-decisions flagged (not decided):**
+   **(6a)** penalty severity/thresholds; **(6b)** same-party + seat limits in competitive staked lobbies + who
+   may open them; **(6c)** the **grail-clawback-of-spent** policy (an un-mintable 1-of-1 → account action vs
+   operator mint re-release). *[History — v0.1/v0.2 open: "player-initiated match authority + anti-collusion for
+   staked lobbies"; now expanded GAME-WIDE per operator.]*
+> **Two flags remain OPEN** (await later operator rulings — NOT decided here): **#4** tournaments
+> scheduled-vs-player-run · **#5** ranked-on-staked. *(Flags #1/#2/#3 RULED as before; **#6 now RULED** — the
+> game-wide economy-integrity / anti-collusion system (§3D), policy-as-law with detection backend-gated;
+> sub-decisions #6a–#6c flagged. Responsible-play guards folded under R2.)*
 
 ---
 
@@ -324,9 +400,10 @@ designed) · the League MMR (defined). **Genuinely new build work:** the staking
 
 ---
 
-*v0.3 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited) · poker→shooter research · match-type
-overlay (+ 1-v-many) · staking economy (buy-in→pool→payout, formats) · the micro→high stake-tier ladder
-(§3B.1) · queue-model matchmaking · integration matrix · League cross-reference. **3 rulings recorded as LAW**
-(R1 tiered rake 5%/10% by pool Volt-equiv; R2 no-cash-out / in-game-spend-only; the Trickle→Nosebleed stake
-ladder — structure ruled, values design-proposed); **3 flags remain open** (tournaments · ranked-on-staked ·
-lobby/anti-collusion). DESIGN ONLY — no code, no catalog/asset/infra, nothing built.*
+*v0.4 SCOPING/DESIGN PASS, 2026-07-09 — what-exists audit (cited) · poker→shooter research · match-type
+overlay (+ 1-v-many) · staking economy · the micro→high stake-tier ladder (§3B.1) · the GAME-WIDE
+economy-integrity / anti-collusion system (§3D) · queue-model matchmaking · integration matrix · League
+cross-reference. **4 rulings recorded as LAW** (R1 tiered rake 5%/10% by pool Volt-equiv; R2 no-cash-out /
+in-game-spend-only; the Trickle→Nosebleed stake ladder — structure ruled, values design-proposed; the
+game-wide anti-collusion system — policy-as-law, detection backend-gated); **2 flags remain open**
+(tournaments · ranked-on-staked). DESIGN ONLY — no code, no catalog/asset/infra, nothing built.*
