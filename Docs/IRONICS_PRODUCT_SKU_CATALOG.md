@@ -17,6 +17,7 @@ the Register-As-Created rule at the bottom).
 - **Ioncaster (axis C) REGISTERED `2026-07-03`:** the 3rd/last factory weapon (attachment-recombine, UE-side zero-Blender) -- V014 SMG base (`SK_IRONICS_Ioncaster`) + Holographic-scope + suppressor attachments, 9 SKUs, carrier `DA_AFL_Weapon_Ioncaster`, ArcViolet NeonCamo skin + matched violet beam + `GripPoint_L` socket; accessories skinned (scope ArcViolet, suppressor CyanMagenta). **PIE-PROVEN `2026-07-03`** -- weapon + beam + grip all watched, AAA. **COMPLETES THE PILOT** (all 3 axes proven).
 - **RETIRED-COUPLING CLEANUP `2026-07-10`:** the per-weapon `AFL.Weapon.<W>.<Color>` grid is **REMOVED** -- 149 verified-dead rows deleted (49 each Voltaic/Arclight/Ioncaster + 2 strays; nothing owned/selected/parsed them, every color exists universally). Weapons are now **4 base rows** (`AFL.Weapon.<W>`: Arclight/Voltaic/Ioncaster/**Tempest**) + the **universal `AFL.WeaponSkin.NeonCamo.*` axis (49)** -- individual-asset model, single truth. Catalog **400 -> 251 rows**. **Tempest** = the M4-based general-catalog canary (mesh-on-child via panel; `B_Weapon` un-poisoned), PIE-equipped.
 - **BEAM-WAVE BATCH 1 `2026-07-10`:** +2 general-catalog beam weapons PIE-PROVEN AAA + committed -- **Vanguard** (ACWI assault, CobaltDeep) + **Breacher** (M890 shotgun, SolarFlare), conform-to-Tempest (mesh-on-child via panel, self-contained to committed skin). Now **6 base weapons**. Snipers (CM-2000/SCB_750) DEFERRED -- scope-confounded barrel + no barrel bone, the Y=0 Muzzle template doesn't fit; need a Blender Muzzle-bone pass.
+- **BEAM-WAVE BATCH 2 `2026-07-10`:** +4 general-catalog beam weapons PIE-PROVEN AAA + committed -- **GTM** (SMG, NeonScarlet) + **PP9** (SMG, HotPink) + **N90** (LMG, EmeraldPlasma) + **Remore** (shotgun, GoldPlasma). Muzzle-Y refinement (Muzzle.Y = mesh origin_y, not assumed 0) fixed the near-centered offsets (N90/Remore). Batch now covers assault+shotgun+SMG+LMG (all beam types). **10 base weapons**; beam side effectively closed (snipers deferred). Remaining general-catalog = 4 pulse pistols.
 
 ================================================================================
 ## VOCABULARY LOCK -- the REAL on-disk names (use these, not paraphrases)
@@ -47,7 +48,7 @@ bare name; never encode color in identity names).
 | FINISH | 39 | mixed | full-body finish (color); 10 `AFL.Body.*` @ SPARK, rest `AFL.Finish.*` (free base + RARE named) |
 | FACEMASK | 32 | mixed | faceplate; 10 Basic free, flags RARE, icons/riot LEGENDARY |
 | SKIN_COLOR_EDGE | 11 | DIRECT | edge-glow color @ SPARK |
-| WEAPON | 6 base | DIRECT | `AFL.Weapon.<W>` base rows only: Arclight/Voltaic/Ioncaster/Tempest/Vanguard/Breacher. Per-weapon `.<Color>` grid REMOVED 2026-07-10 (149 rows). Colors = universal `AFL.WeaponSkin.*` (49). |
+| WEAPON | 10 base | DIRECT | `AFL.Weapon.<W>` base rows only: Arclight/Voltaic/Ioncaster/Tempest/Vanguard/Breacher/GTM/PP9/N90/Remore. Per-weapon `.<Color>` grid REMOVED 2026-07-10 (149 rows). Colors = universal `AFL.WeaponSkin.*` (49). |
 | ABILITY_COSMETIC | 1 | DIRECT | EMP @ ARC |
 
 **Paid tiers (`EAFLCosmeticTier`):** SPARK ($10 = 10,000V / 100,000W, Watts-buyable) · SURGE ($16 =
