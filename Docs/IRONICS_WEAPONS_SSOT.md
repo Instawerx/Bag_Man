@@ -187,7 +187,10 @@ this look — translucent energy + neon + tracers, not opaque/metallic.
 - **⚠ INDEPENDENT-AXIS ALIGNMENT (2026-07-03, operator-ruled):** a weapon skin is its **OWN item axis**
   `AFL.WeaponSkin.<Pattern>.<Color>` (`WeaponSkinId`) — **ONE skin applies to ANY weapon**, overriding the
   weapon's baked original color. This SUPERSEDES the earlier per-weapon `AFL.Weapon.<W>.<Color>` coupling (a
-  skin was wrongly a weapon property — the same drift class as beam-into-skin). The weapon's own SKU
+  skin was wrongly a weapon property — the same drift class as beam-into-skin). **REMOVED, not just deprecated
+  (2026-07-10):** the per-weapon `.<Color>` rows were verified-dead (no code parses them, nothing owned/selected
+  them, every color exists universally) then DELETED from `DA_AFL_CosmeticCatalog` — 149 rows (49 each
+  Voltaic/Arclight/Ioncaster + 2 strays). Individual-asset universal-skin is now the single wired truth. The weapon's own SKU
   `AFL.Weapon.<W>` = the gun + its baked ORIGINAL color (identity); the skin OVERRIDES. Canonical model:
   `IRONICS_CATALOG_MATRIX.md` → **THE INDEPENDENT-AXIS ECONOMY MODEL** (every cosmetic = an independent owned+applied item).
 

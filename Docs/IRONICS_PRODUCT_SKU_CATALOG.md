@@ -15,6 +15,7 @@ the Register-As-Created rule at the bottom).
 - **Arclight PIE-PROVEN + committed `7c6ff612`** (2026-07-02): the own->select->equip->fire arc proven live (grant -> `SetCosmeticWeapon` -> Arclight equips + fires; camo/grip/montage/L4/L5 all watched). **#43 WeaponId->equip consumer CLOSED** (the session-long "axes replicate but nothing consumes them" gap). Arclight = the **COMPLETE factory template** the volume build replicates from. One deferred fleet-wide item: support-hand IK -> the operator-spec'd IK-system overhaul (not per-weapon) -- **now PROVEN in PIE** (comp-space `UAFLWeaponIKComponent` -> CR; per-weapon = a `GripPoint_L` mesh socket).
 - **Voltaic (axis A) REGISTERED `2026-07-03`:** the 2nd factory weapon (mesh-mod on the shipped ShotgunBeam) -- 9 SKUs (base + 8 skins), carrier `DA_AFL_Weapon_Voltaic`, ElectricBlue NeonCamo skin + electric-blue beam + `GripPoint_L` socket. **PIE-PROVEN `2026-07-03`** -- equip/fire/beam/skin/grip all watched: neon-blue skin, matched blue beam, grip correct, AAA.
 - **Ioncaster (axis C) REGISTERED `2026-07-03`:** the 3rd/last factory weapon (attachment-recombine, UE-side zero-Blender) -- V014 SMG base (`SK_IRONICS_Ioncaster`) + Holographic-scope + suppressor attachments, 9 SKUs, carrier `DA_AFL_Weapon_Ioncaster`, ArcViolet NeonCamo skin + matched violet beam + `GripPoint_L` socket; accessories skinned (scope ArcViolet, suppressor CyanMagenta). **PIE-PROVEN `2026-07-03`** -- weapon + beam + grip all watched, AAA. **COMPLETES THE PILOT** (all 3 axes proven).
+- **RETIRED-COUPLING CLEANUP `2026-07-10`:** the per-weapon `AFL.Weapon.<W>.<Color>` grid is **REMOVED** -- 149 verified-dead rows deleted (49 each Voltaic/Arclight/Ioncaster + 2 strays; nothing owned/selected/parsed them, every color exists universally). Weapons are now **4 base rows** (`AFL.Weapon.<W>`: Arclight/Voltaic/Ioncaster/**Tempest**) + the **universal `AFL.WeaponSkin.NeonCamo.*` axis (49)** -- individual-asset model, single truth. Catalog **400 -> 251 rows**. **Tempest** = the M4-based general-catalog canary (mesh-on-child via panel; `B_Weapon` un-poisoned), PIE-equipped.
 
 ================================================================================
 ## VOCABULARY LOCK -- the REAL on-disk names (use these, not paraphrases)
@@ -45,7 +46,7 @@ bare name; never encode color in identity names).
 | FINISH | 39 | mixed | full-body finish (color); 10 `AFL.Body.*` @ SPARK, rest `AFL.Finish.*` (free base + RARE named) |
 | FACEMASK | 32 | mixed | faceplate; 10 Basic free, flags RARE, icons/riot LEGENDARY |
 | SKIN_COLOR_EDGE | 11 | DIRECT | edge-glow color @ SPARK |
-| WEAPON | 152 | DIRECT | `AFL.Weapon.<Base>.<Color>` -- Pistol, ShotgunBeam (2) + Arclight/Voltaic/Ioncaster x 50 each (base + 48-color grid + GlitchLegend, 2026-07-03) |
+| WEAPON | 4 base | DIRECT | `AFL.Weapon.<W>` base rows only: Arclight/Voltaic/Ioncaster/Tempest. Per-weapon `.<Color>` grid REMOVED 2026-07-10 (149 rows). Colors = universal `AFL.WeaponSkin.*` (49). |
 | ABILITY_COSMETIC | 1 | DIRECT | EMP @ ARC |
 
 **Paid tiers (`EAFLCosmeticTier`):** SPARK ($10 = 10,000V / 100,000W, Watts-buyable) · SURGE ($16 =
