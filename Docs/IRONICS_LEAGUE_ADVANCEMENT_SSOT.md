@@ -226,6 +226,10 @@ the pass by *playing*, and the rank ladder by *winning/performing*.
 **Scope:** discrete earned goals that (a) reward, (b) give long-tail direction, and (c) **gate** prestige —
 including the B2 #7 team-ownership gate.
 
+> **Parameters of record:** the concrete thresholds · tiers · reward values · first achievement set · and the
+> team-ownership earn cutoff are set from cited game-science research in **`IRONICS_ACHIEVEMENTS_SSOT.md`** —
+> the values the achievement mechanism builds to. §4 below is the *mechanism*; that doc is the *parameters*.
+
 ### 4.1 Taxonomy
 - **Categories** (id family `AFL.Achievement.<Category>.<Name>`): **Combat** (kills/dismember/head-collector),
   **Extraction** (got-away-clean streaks, value-extracted), **Progression** (reach rank tier, season
