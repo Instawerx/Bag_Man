@@ -1,0 +1,67 @@
+// Copyright C12 AI Gaming. All Rights Reserved.
+
+#pragma once
+
+#include "GameFramework/Actor.h"
+
+#include "AFLLoadoutPod.generated.h"
+
+class UStaticMeshComponent;
+class URectLightComponent;
+class UCameraComponent;
+
+/**
+ * AAFLLoadoutPod -- the reusable IRONICS loadout/armory KIOSK-POD diorama actor (#7 pod increment).
+ *
+ * A SELF-CONTAINED, mesh-swappable pod: a podium the hero stands on, a backdrop panel, an electric-blue
+ * neon rect-light, a PawnAnchor marking where the posed hero stands, and a framing camera. Built ONCE to
+ * serve every context of the loadout-pod plan (operator ruled C -> B -> in-game, one pod actor for all):
+ *   - Increment C (now): spawned attached to the local player's pawn + rendered INSIDE the loadout's
+ *     SceneCapture preview (the pod attaches to the pawn, so RefreshPreviewShowList's GetAttachedActors
+ *     auto-includes it in the isolated capture). Zero front-end / launch-menu risk.
+ *   - Increment B (next): dropped into a dedicated B_AFL_LoadoutExperience scene, framed by FramingCamera.
+ *   - In-game (later): RT-rendered kiosk.
+ *
+ * The placeholder engine-shape meshes (/Engine/BasicShapes) swap to the branded SM_AFL_LoadoutPod by
+ * overriding PodMesh/BackdropMesh in a BP child -- the actor is built to ACCEPT the swap, not hardcode it.
+ * Cosmetic-only: all mesh collision is disabled so the pod never pushes the posed pawn, and it is spawned
+ * client-side/transient (never replicated) so it renders only in the local player's preview.
+ */
+UCLASS()
+class AFLCOMBAT_API AAFLLoadoutPod : public AActor
+{
+	GENERATED_BODY()
+
+public:
+	AAFLLoadoutPod();
+
+	/** Where the posed hero stands (pod-local origin = base centre). The loadout aligns the pawn's feet here. */
+	USceneComponent* GetPawnAnchor() const { return PawnAnchor; }
+
+	/** The diorama framing camera (Increment B direct-view; unused in C, which frames via the SceneCapture). */
+	UCameraComponent* GetFramingCamera() const { return FramingCamera; }
+
+protected:
+	UPROPERTY(VisibleAnywhere, Category = "Pod")
+	TObjectPtr<USceneComponent> PodRoot;
+
+	/** Podium the hero stands on (placeholder cylinder; swap to the branded SM_AFL_LoadoutPod base). */
+	UPROPERTY(VisibleAnywhere, Category = "Pod")
+	TObjectPtr<UStaticMeshComponent> PodMesh;
+
+	/** Backdrop slab behind the hero (placeholder; the "portal" plate). */
+	UPROPERTY(VisibleAnywhere, Category = "Pod")
+	TObjectPtr<UStaticMeshComponent> BackdropMesh;
+
+	/** Dark/neon theater light -- electric-blue #1E5AFF (IRONICS palette), aimed at the hero's chest. */
+	UPROPERTY(VisibleAnywhere, Category = "Pod")
+	TObjectPtr<URectLightComponent> NeonLight;
+
+	/** Marks the posed-hero stand point (pod-local origin, base centre). */
+	UPROPERTY(VisibleAnywhere, Category = "Pod")
+	TObjectPtr<USceneComponent> PawnAnchor;
+
+	/** Diorama framing camera (Increment B). */
+	UPROPERTY(VisibleAnywhere, Category = "Pod")
+	TObjectPtr<UCameraComponent> FramingCamera;
+};

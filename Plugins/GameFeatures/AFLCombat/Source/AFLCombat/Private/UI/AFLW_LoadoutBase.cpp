@@ -4,6 +4,7 @@
 
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
 #include "Cosmetics/AFLWalletComponent.h"       // UAFLWalletComponent::IsEntitled (the public entitlement check)
+#include "Cosmetics/AFLSkinColorAsset.h"        // swatch color-resolve (ColorParameters)
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "Player/LyraPlayerState.h"
 #include "GameFramework/PlayerController.h"
@@ -20,6 +21,9 @@
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/Character.h"
+#include "Components/CapsuleComponent.h"
+#include "UI/AFLLoadoutPod.h"
 
 #if !UE_BUILD_SHIPPING
 #include "Engine/LocalPlayer.h"
@@ -28,6 +32,14 @@
 #endif
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_LoadoutBase)
+
+// Live-tunable preview framing (afl.Loadout.Preview* -> tune at the prove without a rebuild). Defaults match
+// the UPROPERTY seeds; RepositionPreviewCamera reads them per-tick.
+static TAutoConsoleVariable<float> CVarLoadoutPreviewFwd(TEXT("afl.Loadout.PreviewFwd"), 300.f, TEXT("Preview cam forward offset from the pawn."));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewRight(TEXT("afl.Loadout.PreviewRight"), 120.f, TEXT("Preview cam right offset."));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewUp(TEXT("afl.Loadout.PreviewUp"), 55.f, TEXT("Preview cam up offset."));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewFocusUp(TEXT("afl.Loadout.PreviewFocusUp"), 40.f, TEXT("Preview cam look-at height."));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewFOV(TEXT("afl.Loadout.PreviewFOV"), 38.f, TEXT("Preview cam FOV."));
 
 namespace
 {
@@ -60,6 +72,49 @@ namespace
 		case EAFLLoadoutAxis::Facemask:    return TEXT("AFL.Facemask.");
 		default:                           return FString(); // Identity -> dual-type query, no single namespace filter
 		}
+	}
+
+	/** Color axes render as tinted swatch chips (the cosmetic IS a color); the rest are name/thumbnail tiles. */
+	bool IsColorAxis(EAFLLoadoutAxis Axis)
+	{
+		return Axis == EAFLLoadoutAxis::BodyColor || Axis == EAFLLoadoutAxis::EdgeColor || Axis == EAFLLoadoutAxis::Beam;
+	}
+
+	/** A representative FLinearColor for a color cosmetic, from its UAFLSkinColorAsset::ColorParameters
+	 *  (axis-appropriate key first, then any color). Mid-gray fallback. */
+	FLinearColor ResolveAxisColor(EAFLLoadoutAxis Axis, const UAFLSkinColorAsset* Asset)
+	{
+		const FLinearColor Fallback(0.3f, 0.3f, 0.3f, 1.f);
+		if (!Asset)
+		{
+			return Fallback;
+		}
+		const TMap<FName, FLinearColor>& Colors = Asset->GetColors();
+		TArray<FName> Keys;
+		if (Axis == EAFLLoadoutAxis::Beam)
+		{
+			Keys = { FName(TEXT("BeamColor")), FName(TEXT("EmissiveColor")), FName(TEXT("TeamColor")) };
+		}
+		else if (Axis == EAFLLoadoutAxis::EdgeColor)
+		{
+			Keys = { FName(TEXT("EdgeGlowColor")), FName(TEXT("EmissiveColor")), FName(TEXT("TeamColor")) };
+		}
+		else // BodyColor (finish)
+		{
+			Keys = { FName(TEXT("TeamColor")), FName(TEXT("EmissiveColor")), FName(TEXT("EdgeGlowColor")) };
+		}
+		for (const FName& K : Keys)
+		{
+			if (const FLinearColor* Found = Colors.Find(K))
+			{
+				return *Found;
+			}
+		}
+		for (const TPair<FName, FLinearColor>& Pair : Colors)
+		{
+			return Pair.Value;
+		}
+		return Fallback;
 	}
 }
 
@@ -296,9 +351,39 @@ void UAFLW_LoadoutBase::SetupPreviewCapture()
 		CapComp->FOVAngle = PreviewFOV;
 		CapComp->bCaptureEveryFrame = true;  // LIVE: an equip updates the REAL pawn -> the next capture shows it
 		CapComp->bCaptureOnMovement = false;
-		// Full-scene capture (no ShowOnlyList) so the equipped weapon -- a SEPARATE actor attached to the pawn's
-		// hand -- is captured too. Isolating the pawn+weapon onto a clean backdrop is a later polish.
+		// ISOLATE the robot onto the clean ClearColor backdrop (not the arena) via the ShowOnlyList -- refreshed
+		// per-tick (RefreshPreviewShowList) so the equipped weapon (a separate attached actor that changes on
+		// pick) stays in the shot.
+		CapComp->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
 	}
+
+	// Stage the reusable kiosk-pod diorama AROUND the previewed hero: spawn it client-side + ATTACH it to the
+	// pawn so RefreshPreviewShowList's GetAttachedActors auto-includes it in the isolated capture (the hero
+	// renders INSIDE the pod). Align the pod's base (PawnAnchor = pod-local origin) to the pawn's feet.
+	if (!PreviewPod.IsValid())
+	{
+		UClass* PodCls = PodClass ? PodClass.Get() : AAFLLoadoutPod::StaticClass();
+		FActorSpawnParameters PodSpawnParams;
+		PodSpawnParams.ObjectFlags |= RF_Transient;
+		PodSpawnParams.Owner = Pawn;
+		PreviewPod = World->SpawnActor<AAFLLoadoutPod>(PodCls, PodSpawnParams);
+	}
+	if (AAFLLoadoutPod* Pod = PreviewPod.Get())
+	{
+		Pod->AttachToActor(Pawn, FAttachmentTransformRules::KeepRelativeTransform);
+		float FeetDrop = 90.f; // fallback pawn half-height
+		if (const ACharacter* Char = Cast<ACharacter>(Pawn))
+		{
+			if (const UCapsuleComponent* Capsule = Char->GetCapsuleComponent())
+			{
+				FeetDrop = Capsule->GetScaledCapsuleHalfHeight();
+			}
+		}
+		Pod->SetActorRelativeLocation(FVector(0.f, 0.f, -FeetDrop));
+		Pod->SetActorRelativeRotation(FRotator::ZeroRotator);
+	}
+
+	RefreshPreviewShowList();
 
 	// Route the render target into the center-stage image.
 	if (PreviewImage && PreviewRT)
@@ -317,6 +402,69 @@ void UAFLW_LoadoutBase::TeardownPreviewCapture()
 		Cap->Destroy();
 	}
 	PreviewCapture = nullptr;
+
+	if (AAFLLoadoutPod* Pod = PreviewPod.Get())
+	{
+		Pod->Destroy();
+	}
+	PreviewPod = nullptr;
+}
+
+void UAFLW_LoadoutBase::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+	if (PreviewCapture.IsValid())
+	{
+		RefreshPreviewShowList();  // keep the equipped-weapon actor in the isolated show-list as picks change
+		RepositionPreviewCamera(); // live-tunable framing via the afl.Loadout.Preview* cvars
+	}
+}
+
+void UAFLW_LoadoutBase::RefreshPreviewShowList()
+{
+	ASceneCapture2D* Cap = PreviewCapture.Get();
+	APawn* Pawn = GetLocalPawn();
+	if (!Cap || !Pawn)
+	{
+		return;
+	}
+	USceneCaptureComponent2D* CapComp = Cap->GetCaptureComponent2D();
+	if (!CapComp)
+	{
+		return;
+	}
+	// Show ONLY the pawn + everything attached to it (the equipped weapon + any accessories, resolved
+	// recursively) -> the robot renders isolated on the clean backdrop.
+	TArray<AActor*> Attached;
+	Pawn->GetAttachedActors(Attached, /*bResetArray*/ true, /*bRecursivelyIncludeAttachedActors*/ true);
+	CapComp->ShowOnlyActors.Reset();
+	CapComp->ShowOnlyActors.Add(Pawn);
+	for (AActor* Actor : Attached)
+	{
+		if (Actor)
+		{
+			CapComp->ShowOnlyActors.Add(Actor);
+		}
+	}
+}
+
+void UAFLW_LoadoutBase::RepositionPreviewCamera()
+{
+	ASceneCapture2D* Cap = PreviewCapture.Get();
+	if (!Cap)
+	{
+		return;
+	}
+	const FVector Off(CVarLoadoutPreviewFwd.GetValueOnGameThread(),
+	                  CVarLoadoutPreviewRight.GetValueOnGameThread(),
+	                  CVarLoadoutPreviewUp.GetValueOnGameThread());
+	const FVector Focus(0.f, 0.f, CVarLoadoutPreviewFocusUp.GetValueOnGameThread());
+	Cap->SetActorRelativeLocation(Off);
+	Cap->SetActorRelativeRotation((Focus - Off).Rotation());
+	if (USceneCaptureComponent2D* CapComp = Cap->GetCaptureComponent2D())
+	{
+		CapComp->FOVAngle = CVarLoadoutPreviewFOV.GetValueOnGameThread();
+	}
 }
 
 void UAFLW_LoadoutBase::RebuildTiles()
@@ -348,6 +496,10 @@ void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Con
 	GetOwnedEntriesForAxis(Axis, Owned);
 	const FName EquippedId = GetEquippedIdForAxis(Axis);
 
+	// Color axes (body/edge/beam) render as tinted swatch chips -> resolve each cosmetic's color from its asset.
+	const bool bColorAxis = IsColorAxis(Axis);
+	const UAFLCosmeticCatalogSubsystem* Catalog = bColorAxis ? GetCatalog() : nullptr;
+
 	for (const FAFLCatalogEntry& Entry : Owned)
 	{
 		UAFLW_LoadoutTileBase* Tile = CreateWidget<UAFLW_LoadoutTileBase>(this, TileClass);
@@ -365,7 +517,15 @@ void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Con
 			Label = FText::FromString(IdStr.Split(TEXT("."), &Left, &Right, ESearchCase::IgnoreCase, ESearchDir::FromEnd) ? Right : IdStr);
 		}
 
-		Tile->SetTileData(Axis, Entry.CosmeticId, Label, Entry.CosmeticId == EquippedId);
+		bool bIsSwatch = false;
+		FLinearColor SwatchColor = FLinearColor::White;
+		if (bColorAxis && Catalog)
+		{
+			bIsSwatch = true;
+			const UAFLSkinColorAsset* ColorAsset = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(Entry.CosmeticId));
+			SwatchColor = ResolveAxisColor(Axis, ColorAsset);
+		}
+		Tile->SetTileData(Axis, Entry.CosmeticId, Label, Entry.CosmeticId == EquippedId, bIsSwatch, SwatchColor);
 		Tile->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleTileClicked);
 		Container->AddChild(Tile);
 	}

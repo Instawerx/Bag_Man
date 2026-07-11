@@ -18,6 +18,7 @@ class UImage;
 class UTextureRenderTarget2D;
 class ASceneCapture2D;
 class APawn;
+class AAFLLoadoutPod;
 struct FUIInputConfig;
 
 /**
@@ -72,6 +73,7 @@ protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeOnActivated() override;
 	virtual void NativeOnDeactivated() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 	//~End
 
@@ -123,6 +125,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
 	FIntPoint PreviewResolution = FIntPoint(512, 768);
 
+	/** The reusable kiosk-pod diorama actor staged around the previewed hero (Increment C). Null -> the C++
+	 *  AAFLLoadoutPod placeholder; override with a branded BP child in the WBP for the SM_AFL_LoadoutPod swap. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
+	TSubclassOf<AAFLLoadoutPod> PodClass;
+
 	/** A tile was clicked: equip its cosmetic on Axis, then refresh the grids (EQUIPPED badge). */
 	UFUNCTION()
 	void HandleTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
@@ -149,11 +156,22 @@ private:
 	/** Spawn/attach the SceneCapture rig framing the pawn + route its render target into PreviewImage. */
 	void SetupPreviewCapture();
 
+	/** Isolate the robot: set the capture's ShowOnlyList to the pawn + its attached actors (the equipped
+	 *  weapon changes as you pick) so it renders on the clean backdrop, not the arena. Cheap; called per-tick. */
+	void RefreshPreviewShowList();
+
+	/** Re-position the capture from the afl.Loadout.Preview* cvars each tick -> LIVE framing tuning (no rebuild). */
+	void RepositionPreviewCamera();
+
 	/** Destroy the SceneCapture rig (on deactivate). */
 	void TeardownPreviewCapture();
 
 	/** The scene-capture actor framing the pawn (attached to it; captures every frame -> live). */
 	TWeakObjectPtr<ASceneCapture2D> PreviewCapture;
+
+	/** The kiosk-pod diorama actor spawned attached to the pawn -> rendered INSIDE the preview via the
+	 *  ShowOnlyList (Increment C). Destroyed with the capture on deactivate. */
+	TWeakObjectPtr<AAFLLoadoutPod> PreviewPod;
 
 	/** The render target the capture writes + PreviewImage displays (runtime, transient). */
 	UPROPERTY(Transient)

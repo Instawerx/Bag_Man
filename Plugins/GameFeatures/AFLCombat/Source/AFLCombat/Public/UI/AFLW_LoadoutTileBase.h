@@ -9,6 +9,7 @@
 class UButton;
 class UTextBlock;
 class UWidget;
+class UBorder;
 
 /** The loadout axis a picker/tile drives -- decoupled from EAFLCosmeticType (which has NO WeaponSkin value:
  *  weapon-skins share Type==Weapon and are disambiguated by the AFL.WeaponSkin.* namespace). */
@@ -44,8 +45,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "AFL|Loadout")
 	FOnAFLLoadoutTileClicked OnTileClicked;
 
-	/** Populate: store the axis + id, set the name label, show/hide the EQUIPPED badge. */
-	void SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped);
+	/** Populate: store the axis + id, set the name label, show/hide the EQUIPPED badge, and (for color axes)
+	 *  show + tint the SwatchChip to the cosmetic's actual color. */
+	void SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor);
 
 	FName GetCosmeticId() const { return CosmeticId; }
 
@@ -55,6 +57,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget)) TObjectPtr<UButton> SelectButton;
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget)) TObjectPtr<UTextBlock> NameText;
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UWidget> EquippedBadge;
+
+	/** Color-swatch chip (color axes: body/edge/beam) -- shown + tinted to the cosmetic's color in swatch mode. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UBorder> SwatchChip;
 
 	UFUNCTION()
 	void HandleButtonClicked();
