@@ -4,7 +4,8 @@
 
 #include "CommonActivatableWidget.h"
 #include "Templates/SubclassOf.h"
-#include "AFLCosmeticCoreTypes.h"   // EAFLCosmeticType + FAFLCatalogEntry (by-value out-param)
+#include "AFLCosmeticCoreTypes.h"    // EAFLCosmeticType + FAFLCatalogEntry (by-value out-param)
+#include "UI/AFLW_LoadoutTileBase.h" // EAFLLoadoutAxis + UAFLW_LoadoutTileBase
 
 #include "AFLW_LoadoutBase.generated.h"
 
@@ -17,7 +18,6 @@ class UImage;
 class UTextureRenderTarget2D;
 class ASceneCapture2D;
 class APawn;
-class UAFLW_LoadoutTileBase;
 struct FUIInputConfig;
 
 /**
@@ -43,28 +43,25 @@ class AFLCOMBAT_API UAFLW_LoadoutBase : public UCommonActivatableWidget
 
 public:
 	/** OWNED-ONLY feed for one axis: every catalog entry of Axis the local player is entitled to
-	 *  (GrantedFree auto-owns; paid requires the owned-set). The AxisPicker renders these as tiles. */
+	 *  (GrantedFree auto-owns; paid requires the owned-set). Weapon/WeaponSkin both query Type==Weapon and
+	 *  split by the AFL.Weapon. / AFL.WeaponSkin. namespace; Beam queries Type==Beam. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout")
-	void GetOwnedEntriesForAxis(EAFLCosmeticType Axis, TArray<FAFLCatalogEntry>& OutOwned) const;
+	void GetOwnedEntriesForAxis(EAFLLoadoutAxis Axis, TArray<FAFLCatalogEntry>& OutOwned) const;
 
 	/** The currently-selected CosmeticId for Axis (reads the replicated selection). NAME_None if unset. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Loadout")
-	FName GetEquippedIdForAxis(EAFLCosmeticType Axis) const;
+	FName GetEquippedIdForAxis(EAFLLoadoutAxis Axis) const;
 
-	/** Equip: copy the current selection, set Axis's field to CosmeticId, dispatch the ONE server RPC.
-	 *  Client-safe (dispatches server-side from C++, past ServerSetCosmeticSelection's BP authority gate).
-	 *  The server re-validates entitlement, so an unentitled id is a server-side no-op. */
+	/** Equip: copy the selection, seed the free IRONICS identity if none (else _Validate drops the RPC), set
+	 *  Axis's field to CosmeticId, dispatch ServerSetCosmeticSelection from C++ (past the BlueprintAuthorityOnly
+	 *  gate). The server re-validates entitlement, so an unentitled id is a server-side no-op. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout")
-	void EquipForAxis(EAFLCosmeticType Axis, FName CosmeticId);
+	void EquipForAxis(EAFLLoadoutAxis Axis, FName CosmeticId);
 
-	/** Rebuild the OWNED grid for ActiveAxis: clear TileContainer, spawn a tile per owned entry, mark equipped.
-	 *  C++ owns the spawn+bind (the WBP carries zero graph); called on activate + after each equip. */
+	/** Rebuild EVERY axis grid (weapon + skin + beam) from the current owned-set + selection. C++ owns the
+	 *  spawn+bind (the WBP carries zero graph); called on activate + after each equip. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout")
 	void RebuildTiles();
-
-	/** The axis this locker screen drives. Increment 1 = Weapon; the WBP sets it per-axis in Inc 2-4. */
-	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout")
-	EAFLCosmeticType ActiveAxis = EAFLCosmeticType::Weapon;
 
 	/** The tile widget spawned per owned entry (a WBP child of UAFLW_LoadoutTileBase). Set on the WBP. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout")
@@ -78,9 +75,17 @@ protected:
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 	//~End
 
-	/** The panel the tiles spawn into -- the WBP provides it (a ScrollBox/WrapBox/VerticalBox named TileContainer). */
+	/** WEAPON-axis tile grid (BindWidget: the WBP names its ScrollBox TileContainer). */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
 	TObjectPtr<UPanelWidget> TileContainer;
+
+	/** Weapon-SKIN tile grid (Increment 2). Optional so the Inc-1 WBP still binds. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> SkinTileContainer;
+
+	/** BEAM tile grid (Increment 2). Optional. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> BeamTileContainer;
 
 	/** Optional close button -> DeactivateWidget (pops the locker off the Menu layer). */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
@@ -105,9 +110,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
 	FIntPoint PreviewResolution = FIntPoint(512, 768);
 
-	/** A tile was clicked: equip its cosmetic on ActiveAxis, then refresh the grid (EQUIPPED badge). */
+	/** A tile was clicked: equip its cosmetic on Axis, then refresh the grids (EQUIPPED badge). */
 	UFUNCTION()
-	void HandleTileClicked(FName CosmeticId);
+	void HandleTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
 
 	UFUNCTION()
 	void HandleCloseClicked();
@@ -122,6 +127,9 @@ protected:
 	UAFLCosmeticCatalogSubsystem* GetCatalog() const;
 
 private:
+	/** Spawn the OWNED tiles for one axis into its container (the parameterized engine, called per-axis). */
+	void RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Container);
+
 	/** The local player's current pawn (the REAL pawn the preview captures). */
 	APawn* GetLocalPawn() const;
 

@@ -10,7 +10,17 @@ class UButton;
 class UTextBlock;
 class UWidget;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAFLLoadoutTileClicked, FName, CosmeticId);
+/** The loadout axis a picker/tile drives -- decoupled from EAFLCosmeticType (which has NO WeaponSkin value:
+ *  weapon-skins share Type==Weapon and are disambiguated by the AFL.WeaponSkin.* namespace). */
+UENUM(BlueprintType)
+enum class EAFLLoadoutAxis : uint8
+{
+	Weapon      UMETA(DisplayName = "Weapon"),      // AFL.Weapon.*      -> WeaponId       (type=Weapon, prefix-filtered)
+	WeaponSkin  UMETA(DisplayName = "Weapon Skin"), // AFL.WeaponSkin.*  -> WeaponSkinId   (type=Weapon, skin-prefix)
+	Beam        UMETA(DisplayName = "Beam")         // AFL.Beam.*        -> BeamId          (type=Beam)
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAFLLoadoutTileClicked, EAFLLoadoutAxis, Axis, FName, CosmeticId);
 
 /**
  * UAFLW_LoadoutTileBase -- one OWNED-cosmetic tile in the locker's AxisPicker grid.
@@ -30,8 +40,8 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "AFL|Loadout")
 	FOnAFLLoadoutTileClicked OnTileClicked;
 
-	/** Populate: store the id, set the name label, show/hide the EQUIPPED badge. */
-	void SetTileData(FName InCosmeticId, const FText& InDisplayName, bool bInEquipped);
+	/** Populate: store the axis + id, set the name label, show/hide the EQUIPPED badge. */
+	void SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped);
 
 	FName GetCosmeticId() const { return CosmeticId; }
 
@@ -46,5 +56,6 @@ protected:
 	void HandleButtonClicked();
 
 private:
+	EAFLLoadoutAxis Axis = EAFLLoadoutAxis::Weapon;
 	FName CosmeticId;
 };

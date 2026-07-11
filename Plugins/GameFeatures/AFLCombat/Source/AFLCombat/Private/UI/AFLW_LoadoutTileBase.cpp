@@ -18,8 +18,9 @@ void UAFLW_LoadoutTileBase::NativeOnInitialized()
 	}
 }
 
-void UAFLW_LoadoutTileBase::SetTileData(FName InCosmeticId, const FText& InDisplayName, bool bInEquipped)
+void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped)
 {
+	Axis = InAxis;
 	CosmeticId = InCosmeticId;
 
 	if (NameText)
@@ -35,5 +36,5 @@ void UAFLW_LoadoutTileBase::SetTileData(FName InCosmeticId, const FText& InDispl
 
 void UAFLW_LoadoutTileBase::HandleButtonClicked()
 {
-	OnTileClicked.Broadcast(CosmeticId);
+	OnTileClicked.Broadcast(Axis, CosmeticId);
 }

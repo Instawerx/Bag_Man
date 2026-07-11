@@ -31,22 +31,28 @@
 
 namespace
 {
-	/** The CosmeticId namespace prefix for an axis -- used to disambiguate an OVERLOADED EAFLCosmeticType.
-	 *  EAFLCosmeticType::Weapon carries BOTH weapons (AFL.Weapon.*) and weapon-skins (AFL.WeaponSkin.*), so the
-	 *  weapon picker must filter by prefix: "AFL.Weapon." excludes "AFL.WeaponSkin." (the char after "Weapon"
-	 *  is '.' vs 'S'). Empty prefix = no namespace filter. */
-	FString GetAxisIdPrefix(EAFLCosmeticType Axis)
+	/** The catalog Type to query for a loadout axis. Weapon AND WeaponSkin BOTH live under Type==Weapon (the
+	 *  on-disk overload -- there is no WeaponSkin EAFLCosmeticType); they are split by namespace below. Beam
+	 *  is its own Type. */
+	EAFLCosmeticType QueryTypeForAxis(EAFLLoadoutAxis Axis)
 	{
 		switch (Axis)
 		{
-		case EAFLCosmeticType::Weapon:          return TEXT("AFL.Weapon.");
-		case EAFLCosmeticType::Beam:            return TEXT("AFL.Beam.");
-		case EAFLCosmeticType::Facemask:        return TEXT("AFL.Facemask.");
-		case EAFLCosmeticType::SkinColor_Edge:  return TEXT("AFL.Edge.");
-		case EAFLCosmeticType::SkinColor_Body:  return TEXT("AFL.Body.");
-		case EAFLCosmeticType::Team:            return TEXT("AFL.Team.");
-		case EAFLCosmeticType::Character:       return TEXT("AFL.Character.");
-		default:                                return FString();
+		case EAFLLoadoutAxis::Beam: return EAFLCosmeticType::Beam;
+		default:                    return EAFLCosmeticType::Weapon; // Weapon + WeaponSkin
+		}
+	}
+
+	/** The CosmeticId namespace prefix that disambiguates an axis within its (possibly overloaded) Type.
+	 *  "AFL.Weapon." excludes "AFL.WeaponSkin." (the char after "Weapon" is '.' vs 'S'), and vice-versa. */
+	FString GetAxisIdPrefix(EAFLLoadoutAxis Axis)
+	{
+		switch (Axis)
+		{
+		case EAFLLoadoutAxis::Weapon:      return TEXT("AFL.Weapon.");
+		case EAFLLoadoutAxis::WeaponSkin:  return TEXT("AFL.WeaponSkin.");
+		case EAFLLoadoutAxis::Beam:        return TEXT("AFL.Beam.");
+		default:                           return FString();
 		}
 	}
 }
@@ -76,7 +82,7 @@ UAFLCosmeticCatalogSubsystem* UAFLW_LoadoutBase::GetCatalog() const
 	return nullptr;
 }
 
-void UAFLW_LoadoutBase::GetOwnedEntriesForAxis(EAFLCosmeticType Axis, TArray<FAFLCatalogEntry>& OutOwned) const
+void UAFLW_LoadoutBase::GetOwnedEntriesForAxis(EAFLLoadoutAxis Axis, TArray<FAFLCatalogEntry>& OutOwned) const
 {
 	OutOwned.Reset();
 
@@ -94,7 +100,7 @@ void UAFLW_LoadoutBase::GetOwnedEntriesForAxis(EAFLCosmeticType Axis, TArray<FAF
 
 	int32 Scanned = 0;
 	TArray<const FAFLCatalogEntry*> All;
-	Catalog->GetEntriesByType(Axis, All);
+	Catalog->GetEntriesByType(QueryTypeForAxis(Axis), All);
 	for (const FAFLCatalogEntry* Entry : All)
 	{
 		if (!Entry)
@@ -125,7 +131,7 @@ void UAFLW_LoadoutBase::GetOwnedEntriesForAxis(EAFLCosmeticType Axis, TArray<FAF
 		(int32)Axis, Scanned, OutOwned.Num(), (Wallet ? TEXT("yes") : TEXT("no")), *AxisPrefix);
 }
 
-FName UAFLW_LoadoutBase::GetEquippedIdForAxis(EAFLCosmeticType Axis) const
+FName UAFLW_LoadoutBase::GetEquippedIdForAxis(EAFLLoadoutAxis Axis) const
 {
 	const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
 	if (!Loadout)
@@ -136,18 +142,14 @@ FName UAFLW_LoadoutBase::GetEquippedIdForAxis(EAFLCosmeticType Axis) const
 	const FAFLCosmeticSelection& Sel = Loadout->GetSelection();
 	switch (Axis)
 	{
-	case EAFLCosmeticType::Weapon:          return Sel.WeaponId;
-	case EAFLCosmeticType::Beam:            return Sel.BeamId;
-	case EAFLCosmeticType::Facemask:        return Sel.FacemaskId;
-	case EAFLCosmeticType::SkinColor_Edge:  return Sel.EdgeId;
-	case EAFLCosmeticType::SkinColor_Body:  return Sel.BodyId;
-	case EAFLCosmeticType::Team:            return Sel.TeamId;
-	case EAFLCosmeticType::Character:       return Sel.CharacterId;
-	default:                                return NAME_None;
+	case EAFLLoadoutAxis::Weapon:      return Sel.WeaponId;
+	case EAFLLoadoutAxis::WeaponSkin:  return Sel.WeaponSkinId;
+	case EAFLLoadoutAxis::Beam:        return Sel.BeamId;
+	default:                           return NAME_None;
 	}
 }
 
-void UAFLW_LoadoutBase::EquipForAxis(EAFLCosmeticType Axis, FName CosmeticId)
+void UAFLW_LoadoutBase::EquipForAxis(EAFLLoadoutAxis Axis, FName CosmeticId)
 {
 	UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
 	if (!Loadout)
@@ -169,14 +171,10 @@ void UAFLW_LoadoutBase::EquipForAxis(EAFLCosmeticType Axis, FName CosmeticId)
 
 	switch (Axis)
 	{
-	case EAFLCosmeticType::Weapon:          Sel.WeaponId = CosmeticId; break;
-	case EAFLCosmeticType::Beam:            Sel.BeamId = CosmeticId; break;
-	case EAFLCosmeticType::Facemask:        Sel.FacemaskId = CosmeticId; break;
-	case EAFLCosmeticType::SkinColor_Edge:  Sel.EdgeId = CosmeticId; break;
-	case EAFLCosmeticType::SkinColor_Body:  Sel.BodyId = CosmeticId; break;
-	case EAFLCosmeticType::Team:            Sel.IdentityType = EAFLIdentityType::Team;      Sel.TeamId = CosmeticId; break;
-	case EAFLCosmeticType::Character:       Sel.IdentityType = EAFLIdentityType::Character; Sel.CharacterId = CosmeticId; break;
-	default:                                return; // unsupported axis (e.g. WeaponSkin -> Increment 2)
+	case EAFLLoadoutAxis::Weapon:      Sel.WeaponId = CosmeticId; break;
+	case EAFLLoadoutAxis::WeaponSkin:  Sel.WeaponSkinId = CosmeticId; break;
+	case EAFLLoadoutAxis::Beam:        Sel.BeamId = CosmeticId; break;
+	default:                           return;
 	}
 
 	// ServerSetCosmeticSelection is BlueprintAuthorityOnly; dispatching from C++ sends the client->server RPC.
@@ -286,19 +284,28 @@ void UAFLW_LoadoutBase::TeardownPreviewCapture()
 
 void UAFLW_LoadoutBase::RebuildTiles()
 {
-	if (!TileContainer)
+	// Rebuild every axis grid from the current owned-set + selection. Skin/Beam containers are optional (the
+	// Inc-1 WBP had only the weapon TileContainer) -> a null container is skipped inside RebuildAxisTiles.
+	RebuildAxisTiles(EAFLLoadoutAxis::Weapon,     TileContainer);
+	RebuildAxisTiles(EAFLLoadoutAxis::WeaponSkin, SkinTileContainer);
+	RebuildAxisTiles(EAFLLoadoutAxis::Beam,       BeamTileContainer);
+}
+
+void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Container)
+{
+	if (!Container)
 	{
-		return;
+		return; // this axis's grid isn't present in the WBP (optional container) -> skip.
 	}
-	TileContainer->ClearChildren();
+	Container->ClearChildren();
 	if (!TileClass)
 	{
 		return;
 	}
 
 	TArray<FAFLCatalogEntry> Owned;
-	GetOwnedEntriesForAxis(ActiveAxis, Owned);
-	const FName EquippedId = GetEquippedIdForAxis(ActiveAxis);
+	GetOwnedEntriesForAxis(Axis, Owned);
+	const FName EquippedId = GetEquippedIdForAxis(Axis);
 
 	for (const FAFLCatalogEntry& Entry : Owned)
 	{
@@ -317,17 +324,17 @@ void UAFLW_LoadoutBase::RebuildTiles()
 			Label = FText::FromString(IdStr.Split(TEXT("."), &Left, &Right, ESearchCase::IgnoreCase, ESearchDir::FromEnd) ? Right : IdStr);
 		}
 
-		Tile->SetTileData(Entry.CosmeticId, Label, Entry.CosmeticId == EquippedId);
+		Tile->SetTileData(Axis, Entry.CosmeticId, Label, Entry.CosmeticId == EquippedId);
 		Tile->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleTileClicked);
-		TileContainer->AddChild(Tile);
+		Container->AddChild(Tile);
 	}
 }
 
-void UAFLW_LoadoutBase::HandleTileClicked(FName CosmeticId)
+void UAFLW_LoadoutBase::HandleTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId)
 {
-	UE_LOG(LogTemp, Log, TEXT("[AFLLoadout] tile clicked -> equip %s (axis type=%d)"), *CosmeticId.ToString(), (int32)ActiveAxis);
-	EquipForAxis(ActiveAxis, CosmeticId);
-	RebuildTiles(); // refresh the EQUIPPED badge (optimistic; the replicated selection catches up on OnRep)
+	UE_LOG(LogTemp, Log, TEXT("[AFLLoadout] tile clicked -> equip %s (axis=%d)"), *CosmeticId.ToString(), (int32)Axis);
+	EquipForAxis(Axis, CosmeticId);
+	RebuildTiles(); // refresh EQUIPPED badges across all axes (optimistic; the replicated selection catches up)
 }
 
 void UAFLW_LoadoutBase::HandleCloseClicked()
