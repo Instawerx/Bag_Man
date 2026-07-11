@@ -35,11 +35,15 @@
 
 // Live-tunable preview framing (afl.Loadout.Preview* -> tune at the prove without a rebuild). Defaults match
 // the UPROPERTY seeds; RepositionPreviewCamera reads them per-tick.
-static TAutoConsoleVariable<float> CVarLoadoutPreviewFwd(TEXT("afl.Loadout.PreviewFwd"), 300.f, TEXT("Preview cam forward offset from the pawn."));
-static TAutoConsoleVariable<float> CVarLoadoutPreviewRight(TEXT("afl.Loadout.PreviewRight"), 120.f, TEXT("Preview cam right offset."));
-static TAutoConsoleVariable<float> CVarLoadoutPreviewUp(TEXT("afl.Loadout.PreviewUp"), 55.f, TEXT("Preview cam up offset."));
-static TAutoConsoleVariable<float> CVarLoadoutPreviewFocusUp(TEXT("afl.Loadout.PreviewFocusUp"), 40.f, TEXT("Preview cam look-at height."));
-static TAutoConsoleVariable<float> CVarLoadoutPreviewFOV(TEXT("afl.Loadout.PreviewFOV"), 38.f, TEXT("Preview cam FOV."));
+// Defaults tuned for a FULL-BODY, capsule-filling frame (lower look-at includes the feet, less downward
+// angle). Framing is operator-eyeball-tuned live from here via these cvars -- no rebuild.
+// Defaults computed to FILL the panel with the 270cm capsule (camera ~180cm out, look-at the pod's vertical
+// mid). All live-tunable in PIE via these cvars -- no rebuild -- so the operator dials the final composition.
+static TAutoConsoleVariable<float> CVarLoadoutPreviewFwd(TEXT("afl.Loadout.PreviewFwd"), 180.f, TEXT("Preview cam forward offset -- LOWER = closer = pod FILLS more."));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewRight(TEXT("afl.Loadout.PreviewRight"), 40.f, TEXT("Preview cam right offset (3/4 angle)."));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewUp(TEXT("afl.Loadout.PreviewUp"), 47.f, TEXT("Preview cam up offset (camera height)."));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewFocusUp(TEXT("afl.Loadout.PreviewFocusUp"), 21.f, TEXT("Preview cam look-at height -- ~pod vertical mid; lower to frame the robot lower. (operator-tuned)"));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewFOV(TEXT("afl.Loadout.PreviewFOV"), 82.f, TEXT("Preview cam FOV -- higher = wider. (operator-tuned to fill the panel)"));
 
 namespace
 {
@@ -321,7 +325,7 @@ void UAFLW_LoadoutBase::SetupPreviewCapture()
 	if (!PreviewRT)
 	{
 		PreviewRT = NewObject<UTextureRenderTarget2D>(this);
-		PreviewRT->ClearColor = FLinearColor(0.01f, 0.02f, 0.05f, 1.f); // dark glass backdrop
+		PreviewRT->ClearColor = FLinearColor(0.006f, 0.009f, 0.016f, 1.f); // #05080F dark-theater backdrop
 		PreviewRT->InitCustomFormat(PreviewResolution.X, PreviewResolution.Y, PF_B8G8R8A8, false);
 		PreviewRT->UpdateResourceImmediate(true);
 	}
@@ -355,6 +359,12 @@ void UAFLW_LoadoutBase::SetupPreviewCapture()
 		// per-tick (RefreshPreviewShowList) so the equipped weapon (a separate attached actor that changes on
 		// pick) stays in the shot.
 		CapComp->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+		// DARK THEATER: kill the bright sky/atmosphere/fog bleed so the backdrop is the near-black ClearColor,
+		// not the washed-out arena -- robot + neon read against dark (Image-2 concept).
+		CapComp->ShowFlags.SetAtmosphere(false);
+		CapComp->ShowFlags.SetFog(false);
+		CapComp->ShowFlags.SetVolumetricFog(false);
+		CapComp->ShowFlags.SetCloud(false);
 	}
 
 	// Stage the reusable kiosk-pod diorama AROUND the previewed hero: spawn it client-side + ATTACH it to the

@@ -9,6 +9,7 @@
 class UStaticMeshComponent;
 class URectLightComponent;
 class UCameraComponent;
+class UNiagaraComponent;
 
 /**
  * AAFLLoadoutPod -- the reusable IRONICS loadout/armory KIOSK-POD diorama actor (#7 pod increment).
@@ -53,9 +54,27 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Pod")
 	TObjectPtr<UStaticMeshComponent> BackdropMesh;
 
+	/** Glowing platform disc under the hero's feet -- the lit halo the hero stands on (unlit emissive #1E5AFF). */
+	UPROPERTY(VisibleAnywhere, Category = "Pod")
+	TObjectPtr<UStaticMeshComponent> PlatformDisc;
+
+	/** Glowing halo-RING in the headroom above the hero's head -- the concept's top-of-chamber signature glow
+	 *  (unlit emissive #1E5AFF). Lives in the roomy pod's 57.6cm headroom. */
+	UPROPERTY(VisibleAnywhere, Category = "Pod")
+	TObjectPtr<UStaticMeshComponent> HaloRing;
+
 	/** Dark/neon theater light -- electric-blue #1E5AFF (IRONICS palette), aimed at the hero's chest. */
 	UPROPERTY(VisibleAnywhere, Category = "Pod")
 	TObjectPtr<URectLightComponent> NeonLight;
+
+	/** Neon-atmosphere backdrop dome (large inward sphere, blue->violet gradient) -- the designed IRONICS
+	 *  environment behind the pod, replacing flat black. */
+	UPROPERTY(VisibleAnywhere, Category = "Pod|Environment")
+	TObjectPtr<UStaticMeshComponent> BackdropDome;
+
+	/** Electric neon arcs (AFL laser-FX Niagara) crackling STRICTLY behind the pod on the dark backdrop. */
+	UPROPERTY(VisibleAnywhere, Category = "Pod|Environment")
+	TObjectPtr<UNiagaraComponent> LightningFX;
 
 	/** Marks the posed-hero stand point (pod-local origin, base centre). */
 	UPROPERTY(VisibleAnywhere, Category = "Pod")

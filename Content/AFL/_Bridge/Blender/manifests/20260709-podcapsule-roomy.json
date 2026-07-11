@@ -1,0 +1,20 @@
+{
+  "task_id": "20260709-podcapsule-roomy",
+  "created_utc": "2026-07-11T22:23:33Z",
+  "flow": "A-import (Claude-Code Blender re-proportion of the cleaned Tripo pod -> conformant FBX -> AIK UE import/swap)",
+  "summary": "RE-PROPORTIONED loadout pod: the cleaned Tripo capsule enlarged (uniform 1.286x, design preserved -- NOT re-modeled) 210cm -> 270cm tall so the 1.8m robot stands COMFORTABLY inside with headroom + side clearance (was too snug at 210cm). SUPERSEDES pending/20260709-podcapsule-clean (snug) AND pending/20260709-loadoutpod (authored placeholder). This is the pod AIK swaps into AAFLLoadoutPod.",
+  "ue_project_root": "C:\Dev\Bag_Man",
+  "items": [
+    {
+      "kind": "mesh",
+      "output_file": "pending/20260709-podcapsule-roomy/SM_AFL_LoadoutPod.fbx",
+      "destination": "/Game/AFL/Casino/Meshes/Capsules/SM_AFL_LoadoutPod",
+      "action": "new",
+      "import_settings": { "build_nanite": false, "auto_collision": true, "import_lods": false, "import_materials": false },
+      "material_bind": { "slot1": "AIK assigns a TRANSPARENT IRONICS neon-glass UE material to slot1 (glass shell, robot visible inside, #1E5AFF emissive rim); slot0 = base band" }
+    }
+  ],
+  "audit": { "passed": true,
+    "warnings": ["Uniform scale-up (design preserved, not distorted). Glass shell needs a TRANSPARENT neon-glass UE material so the robot inside is visible."],
+    "report": "SM_AFL_LoadoutPod: 8,880 tris / 10,385 verts (poly UNCHANGED from the clean pass -- not re-inflated). Bbox 191 x 217.3 x 270 cm (was 148.6 x 169 x 210). ROBOT FIT (1.8m): occupies 66.7% vertically, 57.6cm headroom (21.3% -- the halo-ring space), 32.4cm base below, 63cm width clearance each side (arms clear). 2 material slots (7,845 neon shell), 1 UV layer preserved, base-center origin, transform clean (loc0/rot0/scale1), metre scale. FBX 553,356 bytes, re-import round-trip valid (FBX 7400)." }
+}

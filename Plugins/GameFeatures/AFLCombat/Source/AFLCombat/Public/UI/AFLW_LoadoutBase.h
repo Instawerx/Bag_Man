@@ -113,14 +113,14 @@ protected:
 
 	/** Front-3/4 framing: (forward, right, up) offset of the capture camera from the pawn, pawn-local. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
-	FVector PreviewCamOffset = FVector(300.f, 120.f, 55.f);
+	FVector PreviewCamOffset = FVector(180.f, 40.f, 47.f);
 
 	/** The capture camera looks at this pawn-local point (roughly the chest). */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
-	FVector PreviewFocusOffset = FVector(0.f, 0.f, 40.f);
+	FVector PreviewFocusOffset = FVector(0.f, 0.f, 21.f);
 
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
-	float PreviewFOV = 38.f;
+	float PreviewFOV = 82.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
 	FIntPoint PreviewResolution = FIntPoint(512, 768);
