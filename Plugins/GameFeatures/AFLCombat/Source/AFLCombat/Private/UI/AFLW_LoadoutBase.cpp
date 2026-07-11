@@ -15,6 +15,11 @@
 #include "Blueprint/UserWidget.h"
 #include "Components/PanelWidget.h"
 #include "Components/Button.h"
+#include "Components/Image.h"
+#include "Engine/SceneCapture2D.h"
+#include "Components/SceneCaptureComponent2D.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "GameFramework/Pawn.h"
 
 #if !UE_BUILD_SHIPPING
 #include "Engine/LocalPlayer.h"
@@ -197,7 +202,86 @@ void UAFLW_LoadoutBase::NativeOnInitialized()
 void UAFLW_LoadoutBase::NativeOnActivated()
 {
 	Super::NativeOnActivated();
-	RebuildTiles(); // populate the owned grid when the locker opens
+	RebuildTiles();        // populate the owned grid when the locker opens
+	SetupPreviewCapture(); // start the live 3D preview of the REAL pawn
+}
+
+void UAFLW_LoadoutBase::NativeOnDeactivated()
+{
+	TeardownPreviewCapture();
+	Super::NativeOnDeactivated();
+}
+
+APawn* UAFLW_LoadoutBase::GetLocalPawn() const
+{
+	const APlayerController* PC = GetOwningPlayer();
+	return PC ? PC->GetPawn() : nullptr;
+}
+
+void UAFLW_LoadoutBase::SetupPreviewCapture()
+{
+	APawn* Pawn = GetLocalPawn();
+	UWorld* World = GetWorld();
+	if (!Pawn || !World)
+	{
+		return; // no pawn yet (e.g. pre-spawn) -> no preview; the locker still works.
+	}
+
+	// Runtime render target (transient; sized from PreviewResolution). Created once, reused across opens.
+	if (!PreviewRT)
+	{
+		PreviewRT = NewObject<UTextureRenderTarget2D>(this);
+		PreviewRT->ClearColor = FLinearColor(0.01f, 0.02f, 0.05f, 1.f); // dark glass backdrop
+		PreviewRT->InitCustomFormat(PreviewResolution.X, PreviewResolution.Y, PF_B8G8R8A8, false);
+		PreviewRT->UpdateResourceImmediate(true);
+	}
+
+	// Spawn a scene-capture actor + ATTACH it to the pawn so it follows if the pawn drifts. Front-3/4 framing.
+	if (!PreviewCapture.IsValid())
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.ObjectFlags |= RF_Transient;
+		SpawnParams.Owner = Pawn;
+		PreviewCapture = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(), SpawnParams);
+	}
+	ASceneCapture2D* Cap = PreviewCapture.Get();
+	if (!Cap)
+	{
+		return;
+	}
+
+	Cap->AttachToActor(Pawn, FAttachmentTransformRules::KeepRelativeTransform);
+	Cap->SetActorRelativeLocation(PreviewCamOffset);
+	Cap->SetActorRelativeRotation((PreviewFocusOffset - PreviewCamOffset).Rotation()); // look back at the chest
+
+	if (USceneCaptureComponent2D* CapComp = Cap->GetCaptureComponent2D())
+	{
+		CapComp->TextureTarget = PreviewRT;
+		CapComp->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR; // lit + post (neon bloom reads true)
+		CapComp->FOVAngle = PreviewFOV;
+		CapComp->bCaptureEveryFrame = true;  // LIVE: an equip updates the REAL pawn -> the next capture shows it
+		CapComp->bCaptureOnMovement = false;
+		// Full-scene capture (no ShowOnlyList) so the equipped weapon -- a SEPARATE actor attached to the pawn's
+		// hand -- is captured too. Isolating the pawn+weapon onto a clean backdrop is a later polish.
+	}
+
+	// Route the render target into the center-stage image.
+	if (PreviewImage && PreviewRT)
+	{
+		FSlateBrush Brush;
+		Brush.SetResourceObject(PreviewRT);
+		Brush.ImageSize = FVector2D(PreviewResolution.X, PreviewResolution.Y);
+		PreviewImage->SetBrush(Brush);
+	}
+}
+
+void UAFLW_LoadoutBase::TeardownPreviewCapture()
+{
+	if (ASceneCapture2D* Cap = PreviewCapture.Get())
+	{
+		Cap->Destroy();
+	}
+	PreviewCapture = nullptr;
 }
 
 void UAFLW_LoadoutBase::RebuildTiles()

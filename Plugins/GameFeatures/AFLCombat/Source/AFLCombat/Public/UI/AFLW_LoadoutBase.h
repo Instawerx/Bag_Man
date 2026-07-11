@@ -13,6 +13,10 @@ class UAFLCosmeticCatalogSubsystem;
 class ALyraPlayerState;
 class UPanelWidget;
 class UButton;
+class UImage;
+class UTextureRenderTarget2D;
+class ASceneCapture2D;
+class APawn;
 class UAFLW_LoadoutTileBase;
 struct FUIInputConfig;
 
@@ -70,6 +74,7 @@ protected:
 	//~UCommonActivatableWidget / UUserWidget
 	virtual void NativeOnInitialized() override;
 	virtual void NativeOnActivated() override;
+	virtual void NativeOnDeactivated() override;
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 	//~End
 
@@ -80,6 +85,25 @@ protected:
 	/** Optional close button -> DeactivateWidget (pops the locker off the Menu layer). */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UButton> CloseButton;
+
+	/** Center-stage 3D preview -- a UImage showing a live SceneCapture of the REAL local pawn (Approach A:
+	 *  the preview IS the pawn the authoritative/replicated apply path already updates, so it cannot lie). */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UImage> PreviewImage;
+
+	/** Front-3/4 framing: (forward, right, up) offset of the capture camera from the pawn, pawn-local. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
+	FVector PreviewCamOffset = FVector(300.f, 120.f, 55.f);
+
+	/** The capture camera looks at this pawn-local point (roughly the chest). */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
+	FVector PreviewFocusOffset = FVector(0.f, 0.f, 40.f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
+	float PreviewFOV = 38.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
+	FIntPoint PreviewResolution = FIntPoint(512, 768);
 
 	/** A tile was clicked: equip its cosmetic on ActiveAxis, then refresh the grid (EQUIPPED badge). */
 	UFUNCTION()
@@ -96,4 +120,21 @@ protected:
 
 	/** The GameInstance-scoped cosmetic catalog subsystem. */
 	UAFLCosmeticCatalogSubsystem* GetCatalog() const;
+
+private:
+	/** The local player's current pawn (the REAL pawn the preview captures). */
+	APawn* GetLocalPawn() const;
+
+	/** Spawn/attach the SceneCapture rig framing the pawn + route its render target into PreviewImage. */
+	void SetupPreviewCapture();
+
+	/** Destroy the SceneCapture rig (on deactivate). */
+	void TeardownPreviewCapture();
+
+	/** The scene-capture actor framing the pawn (attached to it; captures every frame -> live). */
+	TWeakObjectPtr<ASceneCapture2D> PreviewCapture;
+
+	/** The render target the capture writes + PreviewImage displays (runtime, transient). */
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> PreviewRT;
 };
