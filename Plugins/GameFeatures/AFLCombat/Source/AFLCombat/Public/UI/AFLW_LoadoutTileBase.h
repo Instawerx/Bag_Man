@@ -17,7 +17,11 @@ enum class EAFLLoadoutAxis : uint8
 {
 	Weapon      UMETA(DisplayName = "Weapon"),      // AFL.Weapon.*      -> WeaponId       (type=Weapon, prefix-filtered)
 	WeaponSkin  UMETA(DisplayName = "Weapon Skin"), // AFL.WeaponSkin.*  -> WeaponSkinId   (type=Weapon, skin-prefix)
-	Beam        UMETA(DisplayName = "Beam")         // AFL.Beam.*        -> BeamId          (type=Beam)
+	Beam        UMETA(DisplayName = "Beam"),        // AFL.Beam.*        -> BeamId          (type=Beam)
+	Identity    UMETA(DisplayName = "Identity"),    // AFL.Team.* + AFL.Character.* -> IdentityType + Team/CharacterId (dual-type)
+	BodyColor   UMETA(DisplayName = "Body Color"),  // AFL.Finish.*      -> BodyId          (BodyId resolves to a Finish; free base = 7 finishes)
+	EdgeColor   UMETA(DisplayName = "Edge Color"),  // AFL.Edge.*        -> EdgeId          (type=SkinColor_Edge)
+	Facemask    UMETA(DisplayName = "Facemask")     // AFL.Facemask.*    -> FacemaskId      (type=Facemask)
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAFLLoadoutTileClicked, EAFLLoadoutAxis, Axis, FName, CosmeticId);

@@ -38,8 +38,11 @@ namespace
 	{
 		switch (Axis)
 		{
-		case EAFLLoadoutAxis::Beam: return EAFLCosmeticType::Beam;
-		default:                    return EAFLCosmeticType::Weapon; // Weapon + WeaponSkin
+		case EAFLLoadoutAxis::Beam:       return EAFLCosmeticType::Beam;
+		case EAFLLoadoutAxis::BodyColor:  return EAFLCosmeticType::Finish;         // BodyId resolves to a Finish (free base = 7 AFL.Finish.*)
+		case EAFLLoadoutAxis::EdgeColor:  return EAFLCosmeticType::SkinColor_Edge;
+		case EAFLLoadoutAxis::Facemask:   return EAFLCosmeticType::Facemask;
+		default:                          return EAFLCosmeticType::Weapon; // Weapon + WeaponSkin (Identity is dual-type, special-cased)
 		}
 	}
 
@@ -52,7 +55,10 @@ namespace
 		case EAFLLoadoutAxis::Weapon:      return TEXT("AFL.Weapon.");
 		case EAFLLoadoutAxis::WeaponSkin:  return TEXT("AFL.WeaponSkin.");
 		case EAFLLoadoutAxis::Beam:        return TEXT("AFL.Beam.");
-		default:                           return FString();
+		case EAFLLoadoutAxis::BodyColor:   return TEXT("AFL.Finish.");
+		case EAFLLoadoutAxis::EdgeColor:   return TEXT("AFL.Edge.");
+		case EAFLLoadoutAxis::Facemask:    return TEXT("AFL.Facemask.");
+		default:                           return FString(); // Identity -> dual-type query, no single namespace filter
 		}
 	}
 }
@@ -100,7 +106,18 @@ void UAFLW_LoadoutBase::GetOwnedEntriesForAxis(EAFLLoadoutAxis Axis, TArray<FAFL
 
 	int32 Scanned = 0;
 	TArray<const FAFLCatalogEntry*> All;
-	Catalog->GetEntriesByType(QueryTypeForAxis(Axis), All);
+	if (Axis == EAFLLoadoutAxis::Identity)
+	{
+		// Identity is Team OR Character (either/or) -> query BOTH types; the owned filter keeps only owned ones.
+		Catalog->GetEntriesByType(EAFLCosmeticType::Team, All);
+		TArray<const FAFLCatalogEntry*> Characters;
+		Catalog->GetEntriesByType(EAFLCosmeticType::Character, Characters);
+		All.Append(Characters);
+	}
+	else
+	{
+		Catalog->GetEntriesByType(QueryTypeForAxis(Axis), All);
+	}
 	for (const FAFLCatalogEntry* Entry : All)
 	{
 		if (!Entry)
@@ -145,6 +162,10 @@ FName UAFLW_LoadoutBase::GetEquippedIdForAxis(EAFLLoadoutAxis Axis) const
 	case EAFLLoadoutAxis::Weapon:      return Sel.WeaponId;
 	case EAFLLoadoutAxis::WeaponSkin:  return Sel.WeaponSkinId;
 	case EAFLLoadoutAxis::Beam:        return Sel.BeamId;
+	case EAFLLoadoutAxis::Identity:    return Sel.GetActiveIdentityId();
+	case EAFLLoadoutAxis::BodyColor:   return Sel.BodyId;
+	case EAFLLoadoutAxis::EdgeColor:   return Sel.EdgeId;
+	case EAFLLoadoutAxis::Facemask:    return Sel.FacemaskId;
 	default:                           return NAME_None;
 	}
 }
@@ -174,6 +195,22 @@ void UAFLW_LoadoutBase::EquipForAxis(EAFLLoadoutAxis Axis, FName CosmeticId)
 	case EAFLLoadoutAxis::Weapon:      Sel.WeaponId = CosmeticId; break;
 	case EAFLLoadoutAxis::WeaponSkin:  Sel.WeaponSkinId = CosmeticId; break;
 	case EAFLLoadoutAxis::Beam:        Sel.BeamId = CosmeticId; break;
+	case EAFLLoadoutAxis::Identity:
+		// Identity is either/or, resolved by the id's namespace (AFL.Character.* vs AFL.Team.*).
+		if (CosmeticId.ToString().StartsWith(TEXT("AFL.Character."), ESearchCase::IgnoreCase))
+		{
+			Sel.IdentityType = EAFLIdentityType::Character;
+			Sel.CharacterId = CosmeticId;
+		}
+		else
+		{
+			Sel.IdentityType = EAFLIdentityType::Team;
+			Sel.TeamId = CosmeticId;
+		}
+		break;
+	case EAFLLoadoutAxis::BodyColor:   Sel.BodyId = CosmeticId; break;
+	case EAFLLoadoutAxis::EdgeColor:   Sel.EdgeId = CosmeticId; break;
+	case EAFLLoadoutAxis::Facemask:    Sel.FacemaskId = CosmeticId; break;
 	default:                           return;
 	}
 
@@ -284,11 +321,15 @@ void UAFLW_LoadoutBase::TeardownPreviewCapture()
 
 void UAFLW_LoadoutBase::RebuildTiles()
 {
-	// Rebuild every axis grid from the current owned-set + selection. Skin/Beam containers are optional (the
-	// Inc-1 WBP had only the weapon TileContainer) -> a null container is skipped inside RebuildAxisTiles.
+	// Rebuild every axis grid from the current owned-set + selection. All non-weapon containers are optional
+	// (BindWidgetOptional) -> a null container is skipped inside RebuildAxisTiles.
 	RebuildAxisTiles(EAFLLoadoutAxis::Weapon,     TileContainer);
 	RebuildAxisTiles(EAFLLoadoutAxis::WeaponSkin, SkinTileContainer);
 	RebuildAxisTiles(EAFLLoadoutAxis::Beam,       BeamTileContainer);
+	RebuildAxisTiles(EAFLLoadoutAxis::Identity,   IdentityTileContainer);
+	RebuildAxisTiles(EAFLLoadoutAxis::BodyColor,  BodyColorTileContainer);
+	RebuildAxisTiles(EAFLLoadoutAxis::EdgeColor,  EdgeColorTileContainer);
+	RebuildAxisTiles(EAFLLoadoutAxis::Facemask,   FacemaskTileContainer);
 }
 
 void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Container)
