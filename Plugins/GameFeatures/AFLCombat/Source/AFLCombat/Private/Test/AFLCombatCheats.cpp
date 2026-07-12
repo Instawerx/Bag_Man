@@ -36,6 +36,16 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Engine/SceneCapture2D.h"                    // afl.Thumbnail.Canary: framing-proof scene-capture actor
+#include "Components/SceneCaptureComponent2D.h"       // afl.Thumbnail.Canary: capture component config
+#include "Engine/TextureRenderTarget2D.h"             // afl.Thumbnail.Canary: the capture render target
+#include "Kismet/KismetRenderingLibrary.h"            // afl.Thumbnail.Canary: ExportRenderTarget (RT -> PNG)
+#include "Misc/Paths.h"                                // afl.Thumbnail.Canary: ProjectSavedDir
+#include "HAL/FileManager.h"                           // afl.Thumbnail.Canary: MakeDirectory for the output dir
+#include "Engine/Texture2D.h"                           // afl.Thumbnail.Batch: UTexture2D + TEXTUREGROUP_UI
+#include "UObject/SavePackage.h"                         // afl.Thumbnail.Batch: FSavePackageArgs / UPackage::SavePackage
+#include "AssetRegistry/AssetRegistryModule.h"           // afl.Thumbnail.Batch: FAssetRegistryModule::AssetCreated
+#include "Misc/PackageName.h"                             // afl.Thumbnail.Batch: LongPackageNameToFilename
 #include "TimerManager.h"                            // afl.SkinTest.RunAll: timed FTimerHandle gate sequencer
 // EOS-AUTH-C2: the OSSv2 UE::Online path for the afl.EOS.* cheats (auth status + friends query).
 // OnlineResult.h + OnlineAsyncOpHandle.h carry the FULL TOnlineResult / TOnlineAsyncOpHandle
@@ -1687,6 +1697,394 @@ namespace
 		TEXT("afl.Cosmetic.CycleStop"),
 		TEXT("Abort the active afl.Cosmetic.Cycle harness run."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticCycleStop));
+
+	// ─── THUMBNAIL FRAMING CANARY: afl.Thumbnail.Canary ──────────────────────────
+	// STEP 1 of the 261-SKU thumbnail batch (#1/#7): PROVE THE FRAMING before rendering 172. Captures the
+	// CURRENT pawn (whatever is equipped) with each render-axis's framing preset onto a near-black IRONICS card
+	// and EXPORTS a PNG to <ProjectSaved>/Thumbnails/ -- NO cosmetic apply, NO .uasset/catalog writes (those are
+	// the batch's job, deferred until framing is signed off + the editor-asset module deps are wired). The three
+	// framing presets are LIVE-TUNABLE via afl.Thumb.* cvars (seeded to the proposed constants) so the operator
+	// dials framing in PIE and re-runs -- no rebuild per iteration (the proven afl.Loadout.Preview* pattern).
+	// Synchronous: ExportRenderTarget reads-with-flush, so all 5 captures + exports finish inside the command.
+	// Engine-only (SceneCapture2D + ExportRenderTarget) -> no new module deps.
+	static TAutoConsoleVariable<float> CVarThumbWpnFwd(TEXT("afl.Thumb.Wpn.Fwd"), 150.f, TEXT("Weapon/skin thumb: camera forward offset (cm, pawn-local)."));
+	static TAutoConsoleVariable<float> CVarThumbWpnRight(TEXT("afl.Thumb.Wpn.Right"), 60.f, TEXT("Weapon/skin thumb: camera right offset."));
+	static TAutoConsoleVariable<float> CVarThumbWpnUp(TEXT("afl.Thumb.Wpn.Up"), 32.f, TEXT("Weapon/skin thumb: camera up offset. (PIE-approved seed)"));
+	static TAutoConsoleVariable<float> CVarThumbWpnFOV(TEXT("afl.Thumb.Wpn.FOV"), 32.f, TEXT("Weapon/skin thumb: FOV degrees. (PIE-approved seed)"));
+	static TAutoConsoleVariable<float> CVarThumbWpnFocusFwd(TEXT("afl.Thumb.Wpn.FocusFwd"), 30.f, TEXT("Weapon/skin thumb: look-at forward (weapon center)."));
+	static TAutoConsoleVariable<float> CVarThumbWpnFocusUp(TEXT("afl.Thumb.Wpn.FocusUp"), 62.f, TEXT("Weapon/skin thumb: look-at up (weapon center). (PIE-approved seed)"));
+	static TAutoConsoleVariable<float> CVarThumbPortFwd(TEXT("afl.Thumb.Port.Fwd"), 300.f, TEXT("Identity/finish thumb: camera forward offset."));
+	static TAutoConsoleVariable<float> CVarThumbPortRight(TEXT("afl.Thumb.Port.Right"), 120.f, TEXT("Identity/finish thumb: camera right offset."));
+	static TAutoConsoleVariable<float> CVarThumbPortUp(TEXT("afl.Thumb.Port.Up"), 55.f, TEXT("Identity/finish thumb: camera up offset."));
+	static TAutoConsoleVariable<float> CVarThumbPortFOV(TEXT("afl.Thumb.Port.FOV"), 35.f, TEXT("Identity/finish thumb: FOV degrees."));
+	static TAutoConsoleVariable<float> CVarThumbPortFocusUp(TEXT("afl.Thumb.Port.FocusUp"), 40.f, TEXT("Identity/finish thumb: look-at up."));
+	static TAutoConsoleVariable<float> CVarThumbFaceFwd(TEXT("afl.Thumb.Face.Fwd"), 80.f, TEXT("Facemask thumb: camera forward offset. (PIE-approved seed)"));
+	static TAutoConsoleVariable<float> CVarThumbFaceRight(TEXT("afl.Thumb.Face.Right"), 35.f, TEXT("Facemask thumb: camera right offset."));
+	static TAutoConsoleVariable<float> CVarThumbFaceUp(TEXT("afl.Thumb.Face.Up"), 82.f, TEXT("Facemask thumb: camera up offset. (PIE-approved seed)"));
+	static TAutoConsoleVariable<float> CVarThumbFaceFOV(TEXT("afl.Thumb.Face.FOV"), 24.f, TEXT("Facemask thumb: FOV degrees."));
+	static TAutoConsoleVariable<float> CVarThumbFaceFocusUp(TEXT("afl.Thumb.Face.FocusUp"), 78.f, TEXT("Facemask thumb: look-at up. (PIE-approved seed)"));
+
+	void HandleAFLThumbnailCanary(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Thumbnail.Canary - no game world (run inside PIE)."));
+			return;
+		}
+		APlayerController* PC = World->GetFirstPlayerController();
+		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		if (!Pawn)
+		{
+			Ar.Log(TEXT("afl.Thumbnail.Canary - no local pawn (spawn in first)."));
+			return;
+		}
+
+		// Isolated scene-capture on the pawn: near-black IRONICS card, robot + equipped weapon only, no pod
+		// (thumbnails are clean product shots, not the loadout diorama). Same ShowOnly pattern the loadout
+		// preview proves (pawn + attached actors -> the character-part child-actors + the weapon render).
+		FActorSpawnParameters SP;
+		SP.ObjectFlags |= RF_Transient;
+		SP.Owner = Pawn;
+		ASceneCapture2D* Cap = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(), SP);
+		USceneCaptureComponent2D* CapComp = Cap ? Cap->GetCaptureComponent2D() : nullptr;
+		if (!CapComp)
+		{
+			Ar.Log(TEXT("afl.Thumbnail.Canary - failed to spawn scene capture."));
+			if (Cap) { Cap->Destroy(); }
+			return;
+		}
+		Cap->AttachToActor(Pawn, FAttachmentTransformRules::KeepRelativeTransform);
+
+		TArray<AActor*> ShowOnly;
+		ShowOnly.Add(Pawn);
+		{
+			TArray<AActor*> Attached;
+			Pawn->GetAttachedActors(Attached);
+			ShowOnly.Append(Attached);
+		}
+
+		UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(Cap);
+		// 8-bit LDR so UKismetRenderingLibrary::ExportRenderTarget emits a REAL PNG. The default RTF_RGBA16f makes
+		// it take the HDR branch and write EXR bytes into the .png -> viewers report "corrupt / unsupported".
+		RT->RenderTargetFormat = RTF_RGBA8;
+		RT->ClearColor = FLinearColor(0.02f, 0.02f, 0.03f, 1.f); // near-black IRONICS card
+		CapComp->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR; // lit + tonemapped (neon reads true)
+		CapComp->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+		CapComp->ShowOnlyActors = ShowOnly;
+		CapComp->bCaptureEveryFrame = false;
+		CapComp->bCaptureOnMovement = false;
+		CapComp->ShowFlags.SetAtmosphere(false);
+		CapComp->ShowFlags.SetFog(false);
+		CapComp->ShowFlags.SetVolumetricFog(false);
+		CapComp->ShowFlags.SetCloud(false);
+
+		struct FThumbPreset { const TCHAR* Label; FVector Cam; FVector Focus; float FOV; int32 W; int32 H; };
+		const FVector WpnCam(CVarThumbWpnFwd.GetValueOnGameThread(), CVarThumbWpnRight.GetValueOnGameThread(), CVarThumbWpnUp.GetValueOnGameThread());
+		const FVector WpnFocus(CVarThumbWpnFocusFwd.GetValueOnGameThread(), 0.f, CVarThumbWpnFocusUp.GetValueOnGameThread());
+		const FVector PortCam(CVarThumbPortFwd.GetValueOnGameThread(), CVarThumbPortRight.GetValueOnGameThread(), CVarThumbPortUp.GetValueOnGameThread());
+		const FVector PortFocus(0.f, 0.f, CVarThumbPortFocusUp.GetValueOnGameThread());
+		const FVector FaceCam(CVarThumbFaceFwd.GetValueOnGameThread(), CVarThumbFaceRight.GetValueOnGameThread(), CVarThumbFaceUp.GetValueOnGameThread());
+		const FVector FaceFocus(0.f, 0.f, CVarThumbFaceFocusUp.GetValueOnGameThread());
+		const FThumbPreset Presets[] = {
+			{ TEXT("Weapon"),     WpnCam,  WpnFocus,  CVarThumbWpnFOV.GetValueOnGameThread(),  768, 512 },
+			{ TEXT("WeaponSkin"), WpnCam,  WpnFocus,  CVarThumbWpnFOV.GetValueOnGameThread(),  768, 512 },
+			{ TEXT("Identity"),   PortCam, PortFocus, CVarThumbPortFOV.GetValueOnGameThread(), 512, 768 },
+			{ TEXT("Finish"),     PortCam, PortFocus, CVarThumbPortFOV.GetValueOnGameThread(), 512, 768 },
+			{ TEXT("Facemask"),   FaceCam, FaceFocus, CVarThumbFaceFOV.GetValueOnGameThread(), 512, 768 },
+		};
+
+		const FString OutDir = FPaths::ProjectSavedDir() / TEXT("Thumbnails");
+		IFileManager::Get().MakeDirectory(*OutDir, /*Tree*/ true);
+		int32 Count = 0;
+		for (const FThumbPreset& P : Presets)
+		{
+			RT->InitCustomFormat(P.W, P.H, PF_B8G8R8A8, /*bInForceLinearGamma*/ false);
+			RT->UpdateResourceImmediate(true);
+			CapComp->TextureTarget = RT;
+			CapComp->FOVAngle = P.FOV;
+			Cap->SetActorRelativeLocation(P.Cam);
+			Cap->SetActorRelativeRotation((P.Focus - P.Cam).Rotation());
+			CapComp->CaptureScene(); // synchronous render into RT
+
+			const FString FileName = FString::Printf(TEXT("CANARY_%s.png"), P.Label);
+			UKismetRenderingLibrary::ExportRenderTarget(World, RT, OutDir, FileName); // reads-with-flush -> PNG
+			Ar.Logf(TEXT("afl.Thumbnail.Canary - %s (%dx%d, FOV %.0f) -> %s/%s"), P.Label, P.W, P.H, P.FOV, *OutDir, *FileName);
+			++Count;
+		}
+
+		Cap->Destroy();
+		Ar.Logf(TEXT("afl.Thumbnail.Canary - DONE: %d framings -> %s . Open the PNGs, tune afl.Thumb.* cvars, re-run (no rebuild)."), Count, *OutDir);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green,
+				FString::Printf(TEXT("THUMB CANARY: %d PNGs -> Saved/Thumbnails/ (tune afl.Thumb.* + re-run)"), Count));
+		}
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLThumbnailCanaryCmd(
+		TEXT("afl.Thumbnail.Canary"),
+		TEXT("Thumbnail FRAMING proof (#1/#7): capture the CURRENT pawn with each axis framing preset -> PNG in Saved/Thumbnails/. No apply/asset writes. Tune afl.Thumb.Wpn/Port/Face.* cvars + re-run. Usage: afl.Thumbnail.Canary (run in PIE with a weapon equipped)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLThumbnailCanary));
+
+	// ─── THUMBNAIL WRITE-CHAIN CANARY: afl.Thumbnail.Batch <axis> ─────────────────
+	// STEP 3 (#1/#7): prove the WRITE CHAIN on ONE axis (Weapon = 13) before the 172. Per SKU:
+	//   grant (DebugGrantOwnership) -> equip via the PROVEN ServerSetCosmeticSelection path -> SETTLE one Hold
+	//   tick (equip is async: server -> OnRep -> Refresh spawns the new weapon actor) -> CaptureScene the
+	//   settled pawn+weapon -> ConstructTexture2D -> SavePackage /Game/AFL/UI/Thumbnails/T_Thumb_<SKU>.
+	// Timer-driven (Cycle pattern): capture LAGS equip by one tick so every shot is a fully-settled weapon. The
+	// ShopThumbnail -> DA_AFL_CosmeticCatalog assignment is a SEPARATE bridge step (editor-idle) -- safer than
+	// saving the shared LFS 261-entry DA from inside a running PIE session, and disk-verifiable.
+	// GRANT TELL (banked lesson): the 13 thumbnails must each show a DIFFERENT weapon; all-identical = grant not firing.
+	struct FAFLThumbBatchState
+	{
+		TArray<FName> Ids;
+		int32 EquipIdx = -1; // the SKU equipped last tick -> capture it THIS tick (settled)
+		int32 Saved = 0;
+		FString Axis;
+		FTimerHandle Timer;
+		float Hold = 1.0f;
+		FVector Cam = FVector::ZeroVector;
+		FVector Focus = FVector::ZeroVector;
+		float FOV = 28.f;
+		int32 W = 768;
+		int32 H = 512;
+		TWeakObjectPtr<UWorld> World;
+		TWeakObjectPtr<APawn> Pawn;
+		TWeakObjectPtr<UAFLCosmeticLoadoutComponent> Loadout;
+		TWeakObjectPtr<ASceneCapture2D> Cap;
+		TObjectPtr<UTextureRenderTarget2D> RT; // kept alive by CapComp->TextureTarget (a UPROPERTY)
+	};
+	static TSharedPtr<FAFLThumbBatchState> GActiveThumbBatch;
+
+	static FString ThumbLastToken(const FName& Id) // short label for on-screen display only
+	{
+		const FString Str = Id.ToString();
+		FString Left, Right;
+		return Str.Split(TEXT("."), &Left, &Right, ESearchCase::IgnoreCase, ESearchDir::FromEnd) ? Right : Str;
+	}
+
+	// UNIQUE per-SKU asset name from the FULL CosmeticId -- the last token alone COLLIDES (WeaponSkin =
+	// AFL.WeaponSkin.<Pattern>.<Color> and Finish = AFL.Finish.<Color> share color names). "AFL.WeaponSkin.
+	// NeonCamo.Amber" -> "WeaponSkin_NeonCamo_Amber". The DA-assign bridge applies the SAME transform so refs match.
+	static FString ThumbAssetName(const FName& Id)
+	{
+		FString Str = Id.ToString();
+		Str.RemoveFromStart(TEXT("AFL."), ESearchCase::IgnoreCase);
+		Str.ReplaceInline(TEXT("."), TEXT("_"));
+		return Str;
+	}
+
+	static void ThumbBatchCaptureAndSave(TSharedPtr<FAFLThumbBatchState> S, const FName& Id)
+	{
+		APawn* Pawn = S->Pawn.Get();
+		ASceneCapture2D* Cap = S->Cap.Get();
+		USceneCaptureComponent2D* CapComp = Cap ? Cap->GetCaptureComponent2D() : nullptr;
+		if (!Pawn || !CapComp || !S->RT) { return; }
+
+		// Re-frame (axis preset) + REFRESH the isolate list -- the equipped weapon actor changed for this SKU.
+		// The RT is sized + initialized ONCE in START (a registered capture with an uninitialized target renders
+		// into a null RenderTarget on the next Draw -> the crash), so there is no per-capture re-init here.
+		CapComp->FOVAngle = S->FOV;
+		Cap->SetActorRelativeLocation(S->Cam);
+		Cap->SetActorRelativeRotation((S->Focus - S->Cam).Rotation());
+		TArray<AActor*> ShowOnly;
+		ShowOnly.Add(Pawn);
+		{ TArray<AActor*> Att; Pawn->GetAttachedActors(Att); ShowOnly.Append(Att); }
+		CapComp->ShowOnlyActors = ShowOnly;
+		CapComp->CaptureScene();
+
+#if WITH_EDITOR
+		const FString SkuName = ThumbAssetName(Id); // full-id -> unique (last-token collides across WeaponSkin/Finish)
+		const FString PkgName = FString::Printf(TEXT("/Game/AFL/UI/Thumbnails/T_Thumb_%s"), *SkuName);
+		UPackage* Pkg = CreatePackage(*PkgName);
+		if (!Pkg) { UE_LOG(LogAFLCombat, Warning, TEXT("[ThumbBatch] CreatePackage FAILED %s"), *PkgName); return; }
+		Pkg->FullyLoad();
+		UTexture2D* Tex = S->RT->ConstructTexture2D(Pkg, FString::Printf(TEXT("T_Thumb_%s"), *SkuName),
+			RF_Public | RF_Standalone, CTF_Default | CTF_SRGB);
+		if (!Tex) { UE_LOG(LogAFLCombat, Warning, TEXT("[ThumbBatch] ConstructTexture2D FAILED %s"), *SkuName); return; }
+		Tex->LODGroup = TEXTUREGROUP_UI;
+		Tex->MipGenSettings = TMGS_NoMipmaps;
+		Tex->PostEditChange();
+		Pkg->MarkPackageDirty();
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		SaveArgs.SaveFlags = SAVE_NoError;
+		const FString PkgFile = FPackageName::LongPackageNameToFilename(PkgName, FPackageName::GetAssetPackageExtension());
+		const bool bSaved = UPackage::SavePackage(Pkg, Tex, *PkgFile, SaveArgs);
+		if (bSaved) { FAssetRegistryModule::AssetCreated(Tex); }
+		UE_LOG(LogAFLCombat, Display, TEXT("[ThumbBatch] sku=%s -> %s (%dx%d) saved=%s"),
+			*Id.ToString(), *PkgName, S->W, S->H, bSaved ? TEXT("YES") : TEXT("NO"));
+#else
+		UE_LOG(LogAFLCombat, Warning, TEXT("[ThumbBatch] texture save is editor-only (WITH_EDITOR)."));
+#endif
+	}
+
+	static void ThumbBatchEquip(TSharedPtr<FAFLThumbBatchState> S, const FName& Id)
+	{
+		UAFLCosmeticLoadoutComponent* L = S->Loadout.Get();
+		if (!L) { return; }
+		FAFLCosmeticSelection Req = L->GetSelection();
+		if (Req.GetActiveIdentityId() == NAME_None) { Req.IdentityType = EAFLIdentityType::Team; Req.TeamId = FName(TEXT("AFL.Team.ARIA")); }
+		const FString& Axis = S->Axis;
+		if      (Axis.Equals(TEXT("Weapon"), ESearchCase::IgnoreCase))     { Req.WeaponId = Id; }
+		else if (Axis.Equals(TEXT("WeaponSkin"), ESearchCase::IgnoreCase)) { Req.WeaponSkinId = Id; }
+		else if (Axis.Equals(TEXT("Finish"), ESearchCase::IgnoreCase))     { Req.BodyId = Id; }
+		else if (Axis.Equals(TEXT("Facemask"), ESearchCase::IgnoreCase))   { Req.FacemaskId = Id; }
+		else if (Axis.Equals(TEXT("Identity"), ESearchCase::IgnoreCase))
+		{
+			// Dual-type: a Character SKU sets IdentityType=Character+CharacterId; a Team SKU sets Team+TeamId.
+			if (Id.ToString().StartsWith(TEXT("AFL.Character."), ESearchCase::IgnoreCase)) { Req.IdentityType = EAFLIdentityType::Character; Req.CharacterId = Id; }
+			else { Req.IdentityType = EAFLIdentityType::Team; Req.TeamId = Id; }
+		}
+		L->ServerSetCosmeticSelection(Req);
+		UE_LOG(LogAFLCombat, Display, TEXT("[ThumbBatch] equip sku=%s (settle %.1fs)"), *Id.ToString(), S->Hold);
+	}
+
+	static void ThumbBatchStep(TSharedPtr<FAFLThumbBatchState> S)
+	{
+		UWorld* W = S.IsValid() ? S->World.Get() : nullptr;
+		if (!W || !S->Loadout.IsValid() || !S->Cap.IsValid()) { GActiveThumbBatch.Reset(); return; }
+
+		// 1. Capture the PREVIOUSLY-equipped (now Hold-settled) SKU.
+		if (S->Ids.IsValidIndex(S->EquipIdx))
+		{
+			ThumbBatchCaptureAndSave(S, S->Ids[S->EquipIdx]);
+			S->Saved++;
+		}
+		// 2. Advance + equip the next, or finish.
+		S->EquipIdx++;
+		if (!S->Ids.IsValidIndex(S->EquipIdx))
+		{
+			if (ASceneCapture2D* Cap = S->Cap.Get()) { Cap->Destroy(); }
+			W->GetTimerManager().ClearTimer(S->Timer);
+			UE_LOG(LogAFLCombat, Display, TEXT("[ThumbBatch] DONE axis=%s saved=%d/%d -> /Game/AFL/UI/Thumbnails/ . Close PIE; check the T_Thumb_* assets, then run the bridge DA-assign."), *S->Axis, S->Saved, S->Ids.Num());
+			if (GEngine) { GEngine->AddOnScreenDebugMessage(-1, 12.f, FColor::Green, FString::Printf(TEXT("THUMB BATCH [%s] DONE: %d/%d saved"), *S->Axis, S->Saved, S->Ids.Num())); }
+			GActiveThumbBatch.Reset();
+			return;
+		}
+		ThumbBatchEquip(S, S->Ids[S->EquipIdx]);
+		if (GEngine) { GEngine->AddOnScreenDebugMessage((uint64)0x54484200, S->Hold + 1.f, FColor::Cyan, FString::Printf(TEXT("THUMB BATCH [%s] %d/%d  %s"), *S->Axis, S->EquipIdx + 1, S->Ids.Num(), *ThumbLastToken(S->Ids[S->EquipIdx]))); }
+	}
+
+	// Axis -> capture framing (reads the tuned afl.Thumb.* cvars). Weapon/WeaponSkin = landscape weapon preset;
+	// Identity/Finish = portrait full-robot; Facemask = portrait head. Size is per-axis (the RT is init'd to it).
+	static void ThumbAxisFraming(const FString& Axis, FVector& Cam, FVector& Focus, float& FOV, int32& W, int32& H)
+	{
+		if (Axis.Equals(TEXT("Facemask"), ESearchCase::IgnoreCase))
+		{
+			Cam = FVector(CVarThumbFaceFwd.GetValueOnGameThread(), CVarThumbFaceRight.GetValueOnGameThread(), CVarThumbFaceUp.GetValueOnGameThread());
+			Focus = FVector(0.f, 0.f, CVarThumbFaceFocusUp.GetValueOnGameThread());
+			FOV = CVarThumbFaceFOV.GetValueOnGameThread(); W = 512; H = 768;
+		}
+		else if (Axis.Equals(TEXT("Identity"), ESearchCase::IgnoreCase) || Axis.Equals(TEXT("Finish"), ESearchCase::IgnoreCase))
+		{
+			Cam = FVector(CVarThumbPortFwd.GetValueOnGameThread(), CVarThumbPortRight.GetValueOnGameThread(), CVarThumbPortUp.GetValueOnGameThread());
+			Focus = FVector(0.f, 0.f, CVarThumbPortFocusUp.GetValueOnGameThread());
+			FOV = CVarThumbPortFOV.GetValueOnGameThread(); W = 512; H = 768;
+		}
+		else // Weapon / WeaponSkin
+		{
+			Cam = FVector(CVarThumbWpnFwd.GetValueOnGameThread(), CVarThumbWpnRight.GetValueOnGameThread(), CVarThumbWpnUp.GetValueOnGameThread());
+			Focus = FVector(CVarThumbWpnFocusFwd.GetValueOnGameThread(), 0.f, CVarThumbWpnFocusUp.GetValueOnGameThread());
+			FOV = CVarThumbWpnFOV.GetValueOnGameThread(); W = 768; H = 512;
+		}
+	}
+
+	void HandleAFLThumbnailBatch(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1) { Ar.Log(TEXT("afl.Thumbnail.Batch - usage: afl.Thumbnail.Batch <Weapon|WeaponSkin|Identity|Finish|Facemask>. LISTEN-HOST window, pawn spawned.")); return; }
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Thumbnail.Batch - run inside PIE.")); return; }
+		const FString Axis = Args[0].TrimStartAndEnd();
+		// (Type, id-prefix) sources to enumerate + grant. Most axes = one; Identity = dual-type (Team + Character).
+		TArray<TPair<EAFLCosmeticType, FString>> Sources;
+		if      (Axis.Equals(TEXT("Weapon"), ESearchCase::IgnoreCase))     { Sources.Emplace(EAFLCosmeticType::Weapon,   TEXT("AFL.Weapon.")); }
+		else if (Axis.Equals(TEXT("WeaponSkin"), ESearchCase::IgnoreCase)) { Sources.Emplace(EAFLCosmeticType::Weapon,   TEXT("AFL.WeaponSkin.")); }
+		else if (Axis.Equals(TEXT("Finish"), ESearchCase::IgnoreCase))     { Sources.Emplace(EAFLCosmeticType::Finish,   TEXT("AFL.Finish.")); }
+		else if (Axis.Equals(TEXT("Facemask"), ESearchCase::IgnoreCase))   { Sources.Emplace(EAFLCosmeticType::Facemask, TEXT("AFL.Facemask.")); }
+		else if (Axis.Equals(TEXT("Identity"), ESearchCase::IgnoreCase))   { Sources.Emplace(EAFLCosmeticType::Team, TEXT("AFL.Team.")); Sources.Emplace(EAFLCosmeticType::Character, TEXT("AFL.Character.")); }
+		else { Ar.Logf(TEXT("afl.Thumbnail.Batch - axis '%s' not wired (Weapon|WeaponSkin|Identity|Finish|Facemask)."), *Axis); return; }
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		UAFLWalletComponent* Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+		UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Pawn || !Loadout || !Wallet || !Catalog) { Ar.Log(TEXT("afl.Thumbnail.Batch - need pawn + loadout + wallet + catalog (run in PIE).")); return; }
+		if (!PS->HasAuthority()) { Ar.Log(TEXT("afl.Thumbnail.Batch - run on the LISTEN-HOST window (grant needs authority).")); return; }
+		if (GActiveThumbBatch.IsValid() && !GActiveThumbBatch->World.IsValid()) { GActiveThumbBatch.Reset(); } // stale after a PIE abort
+		if (GActiveThumbBatch.IsValid()) { Ar.Log(TEXT("afl.Thumbnail.Batch - a batch is already running (afl.Cosmetic.CycleStop won't stop it; close PIE to reset).")); return; }
+
+		// Enumerate + GRANT the axis SKUs (unowned ids no-op the equip -> would capture the default; the banked tell).
+		TSharedPtr<FAFLThumbBatchState> S = MakeShared<FAFLThumbBatchState>();
+		for (const TPair<EAFLCosmeticType, FString>& Src : Sources)
+		{
+			TArray<const FAFLCatalogEntry*> Entries;
+			Catalog->GetEntriesByType(Src.Key, Entries);
+			for (const FAFLCatalogEntry* E : Entries)
+			{
+				if (!E) { continue; }
+				if (E->CosmeticId.ToString().StartsWith(Src.Value, ESearchCase::IgnoreCase))
+				{
+					S->Ids.Add(E->CosmeticId);
+					Wallet->DebugGrantOwnership(E->CosmeticId);
+				}
+			}
+		}
+		S->Ids.Sort([](const FName& A, const FName& B) { return A.ToString() < B.ToString(); });
+		if (S->Ids.Num() == 0) { Ar.Logf(TEXT("afl.Thumbnail.Batch - no SKUs for axis '%s'."), *Axis); return; }
+
+		// Isolated capture (weapon framing preset from the canary cvars).
+		FActorSpawnParameters SP;
+		SP.ObjectFlags |= RF_Transient;
+		SP.Owner = Pawn;
+		ASceneCapture2D* Cap = World->SpawnActor<ASceneCapture2D>(ASceneCapture2D::StaticClass(), SP);
+		USceneCaptureComponent2D* CapComp = Cap ? Cap->GetCaptureComponent2D() : nullptr;
+		if (!CapComp) { Ar.Log(TEXT("afl.Thumbnail.Batch - failed to spawn capture.")); if (Cap) { Cap->Destroy(); } return; }
+		Cap->AttachToActor(Pawn, FAttachmentTransformRules::KeepRelativeTransform);
+
+		// Axis framing preset (camera + SIZE) -- computed BEFORE the RT so it is initialized to the right size.
+		FVector PCam, PFocus; float PFOV; int32 PW, PH;
+		ThumbAxisFraming(Axis, PCam, PFocus, PFOV, PW, PH);
+
+		// The RT MUST be sized/initialized BEFORE it is attached as the capture target: a registered SceneCapture
+		// with an UNINITIALIZED TextureTarget renders into a NULL RenderTarget on the next Draw -> access violation
+		// (the first attempt's crash). One fixed size per per-axis batch run (weapon 768x512, portrait/face 512x768).
+		UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(Cap);
+		RT->RenderTargetFormat = RTF_RGBA8;
+		RT->ClearColor = FLinearColor(0.02f, 0.02f, 0.03f, 1.f);
+		RT->InitCustomFormat(PW, PH, PF_B8G8R8A8, /*bInForceLinearGamma*/ false);
+		RT->UpdateResourceImmediate(true);
+
+		CapComp->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+		CapComp->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+		CapComp->bCaptureEveryFrame = false;
+		CapComp->bCaptureOnMovement = false;
+		CapComp->ShowFlags.SetAtmosphere(false);
+		CapComp->ShowFlags.SetFog(false);
+		CapComp->ShowFlags.SetVolumetricFog(false);
+		CapComp->ShowFlags.SetCloud(false);
+		{ TArray<AActor*> InitShow; InitShow.Add(Pawn); TArray<AActor*> Att; Pawn->GetAttachedActors(Att); InitShow.Append(Att); CapComp->ShowOnlyActors = InitShow; }
+		CapComp->TextureTarget = RT; // now valid + sized -> the registered capture is safe; also GC-keeps the RT
+
+		S->Axis = Axis;
+		S->World = World; S->Pawn = Pawn; S->Loadout = Loadout; S->Cap = Cap; S->RT = RT;
+		S->Cam = PCam; S->Focus = PFocus; S->FOV = PFOV; S->W = PW; S->H = PH;
+		GActiveThumbBatch = S;
+
+		Ar.Logf(TEXT("afl.Thumbnail.Batch - START axis=%s count=%d granted. WATCH: the %d captures must each be DIFFERENT (the grant check). Close PIE when DONE; check /Game/AFL/UI/Thumbnails/T_Thumb_*."), *Axis, S->Ids.Num(), S->Ids.Num());
+		UE_LOG(LogAFLCombat, Display, TEXT("[ThumbBatch] START axis=%s count=%d"), *Axis, S->Ids.Num());
+
+		FTimerDelegate Del;
+		TWeakPtr<FAFLThumbBatchState> WS = S;
+		Del.BindLambda([WS]() { TSharedPtr<FAFLThumbBatchState> P = WS.Pin(); if (P.IsValid()) { ThumbBatchStep(P); } });
+		World->GetTimerManager().SetTimer(S->Timer, Del, S->Hold, /*bLoop*/ true, /*FirstDelay*/ 0.25f);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLThumbnailBatchCmd(
+		TEXT("afl.Thumbnail.Batch"),
+		TEXT("Thumbnail WRITE-CHAIN canary (#1/#7): grant+equip+settle+capture+ConstructTexture2D+SavePackage each SKU of an axis -> /Game/AFL/UI/Thumbnails/T_Thumb_<SKU>. Weapon only (13) for the canary; ShopThumbnail->DA assign is a separate bridge step. Usage: afl.Thumbnail.Batch Weapon (LISTEN-HOST window)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLThumbnailBatch));
 
 	// ─── FACEMASK selection seam: afl.Cosmetic.SetFacemask <Name|none> ───────────
 	// MIRRORS HandleAFLCosmeticSetEdge EXACTLY (the proven read-full -> set-one-field -> push pattern). The

@@ -88,6 +88,11 @@ public class AFLCombat : ModuleRules
 				// always-loaded AFLOnline is the correct load-order direction (login resident before BeginPlay).
 				"AFLOnline",
 				"Json",
+				// Thumbnail batch (#1/#7): afl.Thumbnail.Batch creates + saves T_Thumb_<SKU> Texture2D assets
+				// (RT->ConstructTexture2D + UPackage::SavePackage) and registers them via
+				// FAssetRegistryModule::AssetCreated. Editor-asset authoring lives behind WITH_EDITOR in the dev
+				// cheats (inert in shipping); AssetRegistry is a runtime module, so the dep is cook-safe.
+				"AssetRegistry",
 			}
 		);
 	}
