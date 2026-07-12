@@ -42,6 +42,10 @@ public:
 	/** The diorama framing camera (Increment B direct-view; unused in C, which frames via the SceneCapture). */
 	UCameraComponent* GetFramingCamera() const { return FramingCamera; }
 
+	/** Set the glowing platform disc's pod-local Z (its TOP is ~Z+2cm) -- the loadout drives this from the
+	 *  grounding (afl.Loadout.PodGroundZ) so the disc stays glued under the hero's risen feet. */
+	void SetPlatformZ(float Z);
+
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Pod")
 	TObjectPtr<USceneComponent> PodRoot;

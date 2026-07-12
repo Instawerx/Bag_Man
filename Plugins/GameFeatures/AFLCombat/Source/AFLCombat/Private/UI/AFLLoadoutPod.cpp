@@ -66,20 +66,22 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 	BackdropMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	BackdropMesh->SetCastShadow(false);
 
-	// Glowing platform disc under the hero's feet -- the lit halo the hero stands on (Image-2 concept). Unlit
-	// emissive #1E5AFF (reads TRUE in the dark theater); a flat cylinder at the capsule base.
+	// Glowing platform disc under the hero's feet. Unlit emissive #1E5AFF but DIM (MI_AFL_NeonFloor, low
+	// EmissiveStrength) so its bloom does NOT wash over the hero's lower legs -- the halo ring keeps the
+	// bright MI_AFL_NeonPlatform. A flat cylinder at the feet.
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PlatformMat(TEXT("/Game/AFL/Casino/Materials/MI_AFL_NeonPlatform.MI_AFL_NeonPlatform"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FloorMat(TEXT("/Game/AFL/Casino/Materials/MI_AFL_NeonFloor.MI_AFL_NeonFloor"));
 	PlatformDisc = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PlatformDisc"));
 	PlatformDisc->SetupAttachment(PodRoot);
 	if (CylinderMesh.Succeeded())
 	{
 		PlatformDisc->SetStaticMesh(CylinderMesh.Object);
 	}
-	PlatformDisc->SetRelativeLocation(FVector(0.f, 0.f, 3.f));
-	PlatformDisc->SetRelativeScale3D(FVector(1.5f, 1.5f, 0.04f)); // ~150cm halo disc, 4cm thin
-	if (PlatformMat.Succeeded())
+	PlatformDisc->SetRelativeLocation(FVector(0.f, 0.f, -2.f)); // top ~at the feet (pod-0); driven live by SetPlatformZ
+	PlatformDisc->SetRelativeScale3D(FVector(1.5f, 1.5f, 0.04f)); // ~150cm disc, 4cm thin
+	if (FloorMat.Succeeded())
 	{
-		PlatformDisc->SetMaterial(0, PlatformMat.Object);
+		PlatformDisc->SetMaterial(0, FloorMat.Object); // DIM floor (won't wash the legs); ring uses PlatformMat
 	}
 	PlatformDisc->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	PlatformDisc->SetCastShadow(false);
@@ -97,9 +99,11 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 	{
 		HaloRing->SetMaterial(0, PlatformMat.Object);
 	}
-	// The ring mesh is a flat 20cm annulus in the YZ plane (normal +X) -> it faces the +X capture camera as-is
-	// (no rotation), scaled to a ~120cm halo. Emissive/unlit so it reads front-on.
-	HaloRing->SetRelativeLocation(FVector(0.f, 0.f, 210.f));
+	// The ring mesh is a flat 20cm annulus in the YZ plane. Rotate 90deg (pitch) so it lies HORIZONTAL -- a
+	// ceiling halo flat/parallel to the floor -- near the TOP of the chamber (headroom), scaled to ~120cm.
+	// Its material (M_AFL_NeonEmissive) is two-sided so the ring reads from BELOW (the camera looks up at it).
+	HaloRing->SetRelativeRotation(FRotator(90.f, 0.f, 0.f));
+	HaloRing->SetRelativeLocation(FVector(0.f, 0.f, 225.f));
 	HaloRing->SetRelativeScale3D(FVector(6.0f, 6.0f, 6.0f));
 	HaloRing->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	HaloRing->SetCastShadow(false);
@@ -107,7 +111,7 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 	// Neon theater light -- electric-blue #1E5AFF, front-above, aimed at the hero's chest.
 	NeonLight = CreateDefaultSubobject<URectLightComponent>(TEXT("NeonLight"));
 	NeonLight->SetupAttachment(PodRoot);
-	const FVector NeonPos(140.f, 0.f, 210.f);
+	const FVector NeonPos(50.f, 0.f, 235.f); // at the halo-ring (top of chamber) -> casts light DOWN on the hero
 	NeonLight->SetRelativeLocation(NeonPos);
 	NeonLight->SetRelativeRotation((ChestPoint - NeonPos).Rotation());
 	NeonLight->SetLightColor(FLinearColor(0.013f, 0.102f, 1.0f)); // #1E5AFF (IRONICS primary)
@@ -166,4 +170,12 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 	FramingCamera->SetRelativeLocation(CamPos);
 	FramingCamera->SetRelativeRotation((ChestPoint - CamPos).Rotation());
 	FramingCamera->SetFieldOfView(38.f);
+}
+
+void AAFLLoadoutPod::SetPlatformZ(float Z)
+{
+	if (PlatformDisc)
+	{
+		PlatformDisc->SetRelativeLocation(FVector(0.f, 0.f, Z));
+	}
 }

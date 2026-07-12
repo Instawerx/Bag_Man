@@ -44,6 +44,13 @@ static TAutoConsoleVariable<float> CVarLoadoutPreviewRight(TEXT("afl.Loadout.Pre
 static TAutoConsoleVariable<float> CVarLoadoutPreviewUp(TEXT("afl.Loadout.PreviewUp"), 47.f, TEXT("Preview cam up offset (camera height)."));
 static TAutoConsoleVariable<float> CVarLoadoutPreviewFocusUp(TEXT("afl.Loadout.PreviewFocusUp"), 21.f, TEXT("Preview cam look-at height -- ~pod vertical mid; lower to frame the robot lower. (operator-tuned)"));
 static TAutoConsoleVariable<float> CVarLoadoutPreviewFOV(TEXT("afl.Loadout.PreviewFOV"), 82.f, TEXT("Preview cam FOV -- higher = wider. (operator-tuned to fill the panel)"));
+// Grounding: raises the HERO relative to the capsule (drops the pod under the pawn) so the feet clear the
+// capsule's base geometry, with the glowing floor disc glued under the feet. THIS is the raise-the-robot
+// knob (the old PlatformZ moved only the disc). Tunable live; a bigger value lifts the hero higher.
+static TAutoConsoleVariable<float> CVarLoadoutPodGroundZ(TEXT("afl.Loadout.PodGroundZ"), 10.f, TEXT("Raise the hero relative to the capsule (cm) so feet clear the base; disc follows. Re-check framing after."));
+// Enlarge the CAPSULE (not the hero) about the grounded feet -> headroom above the head + side clearance,
+// while the feet stay exactly on the floor disc. Live-tunable; re-check framing after (a bigger pod fills more).
+static TAutoConsoleVariable<float> CVarLoadoutPodScale(TEXT("afl.Loadout.PodScale"), 1.2f, TEXT("Uniform capsule scale about the hero's feet -- bigger = more headroom + side buffer. Re-tune framing after."));
 
 namespace
 {
@@ -381,16 +388,16 @@ void UAFLW_LoadoutBase::SetupPreviewCapture()
 	if (AAFLLoadoutPod* Pod = PreviewPod.Get())
 	{
 		Pod->AttachToActor(Pawn, FAttachmentTransformRules::KeepRelativeTransform);
-		float FeetDrop = 90.f; // fallback pawn half-height
+		PreviewFeetDrop = 90.f; // fallback pawn half-height
 		if (const ACharacter* Char = Cast<ACharacter>(Pawn))
 		{
 			if (const UCapsuleComponent* Capsule = Char->GetCapsuleComponent())
 			{
-				FeetDrop = Capsule->GetScaledCapsuleHalfHeight();
+				PreviewFeetDrop = Capsule->GetScaledCapsuleHalfHeight();
 			}
 		}
-		Pod->SetActorRelativeLocation(FVector(0.f, 0.f, -FeetDrop));
 		Pod->SetActorRelativeRotation(FRotator::ZeroRotator);
+		RepositionPreviewPod();
 	}
 
 	RefreshPreviewShowList();
@@ -428,6 +435,23 @@ void UAFLW_LoadoutBase::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 		RefreshPreviewShowList();  // keep the equipped-weapon actor in the isolated show-list as picks change
 		RepositionPreviewCamera(); // live-tunable framing via the afl.Loadout.Preview* cvars
 	}
+	RepositionPreviewPod(); // live grounding: raise the hero relative to the capsule + glue the disc under the feet
+}
+
+void UAFLW_LoadoutBase::RepositionPreviewPod()
+{
+	AAFLLoadoutPod* Pod = PreviewPod.Get();
+	if (!Pod)
+	{
+		return;
+	}
+	const float GroundZ = CVarLoadoutPodGroundZ.GetValueOnGameThread();
+	const float Scale = FMath::Max(0.1f, CVarLoadoutPodScale.GetValueOnGameThread());
+	// Scale the whole pod ABOUT the grounded feet: SetActorScale + a matching drop keep the floor disc's TOP
+	// exactly at the feet for ANY scale, while the capsule top rises (headroom) and the base drops below.
+	Pod->SetActorScale3D(FVector(Scale));
+	Pod->SetActorRelativeLocation(FVector(0.f, 0.f, -(PreviewFeetDrop + GroundZ * Scale)));
+	Pod->SetPlatformZ(GroundZ - 2.f);
 }
 
 void UAFLW_LoadoutBase::RefreshPreviewShowList()

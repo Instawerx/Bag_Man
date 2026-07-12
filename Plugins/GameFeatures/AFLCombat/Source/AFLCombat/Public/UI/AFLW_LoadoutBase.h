@@ -163,6 +163,10 @@ private:
 	/** Re-position the capture from the afl.Loadout.Preview* cvars each tick -> LIVE framing tuning (no rebuild). */
 	void RepositionPreviewCamera();
 
+	/** Re-position the pod under the pawn from afl.Loadout.PodGroundZ each tick -> LIVE grounding (raise the
+	 *  hero relative to the capsule so the feet clear the base + glue the floor disc under the feet). */
+	void RepositionPreviewPod();
+
 	/** Destroy the SceneCapture rig (on deactivate). */
 	void TeardownPreviewCapture();
 
@@ -172,6 +176,9 @@ private:
 	/** The kiosk-pod diorama actor spawned attached to the pawn -> rendered INSIDE the preview via the
 	 *  ShowOnlyList (Increment C). Destroyed with the capture on deactivate. */
 	TWeakObjectPtr<AAFLLoadoutPod> PreviewPod;
+
+	/** The previewed pawn's capsule half-height (feet offset), cached for RepositionPreviewPod grounding. */
+	float PreviewFeetDrop = 90.f;
 
 	/** The render target the capture writes + PreviewImage displays (runtime, transient). */
 	UPROPERTY(Transient)
