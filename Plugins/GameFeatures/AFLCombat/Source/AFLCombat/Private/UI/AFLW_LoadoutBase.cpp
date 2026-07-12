@@ -580,7 +580,7 @@ void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Con
 			const UAFLSkinColorAsset* ColorAsset = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(Entry.CosmeticId));
 			SwatchColor = ResolveAxisColor(this, Axis, ColorAsset);
 		}
-		Tile->SetTileData(Axis, Entry.CosmeticId, Label, Entry.CosmeticId == EquippedId, bIsSwatch, SwatchColor);
+		Tile->SetTileData(Axis, Entry.CosmeticId, Label, Entry.CosmeticId == EquippedId, bIsSwatch, SwatchColor, Entry.ShopThumbnail);
 		Tile->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleTileClicked);
 		Container->AddChild(Tile);
 	}

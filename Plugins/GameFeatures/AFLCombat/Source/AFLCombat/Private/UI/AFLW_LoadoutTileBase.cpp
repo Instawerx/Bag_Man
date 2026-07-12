@@ -6,6 +6,8 @@
 #include "Components/TextBlock.h"
 #include "Components/Widget.h"
 #include "Components/Border.h"
+#include "Components/Image.h"
+#include "Engine/Texture2D.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_LoadoutTileBase)
 
@@ -19,7 +21,7 @@ void UAFLW_LoadoutTileBase::NativeOnInitialized()
 	}
 }
 
-void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor)
+void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor, const TSoftObjectPtr<UTexture2D>& InThumbnail)
 {
 	Axis = InAxis;
 	CosmeticId = InCosmeticId;
@@ -40,6 +42,29 @@ void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmetic
 		if (bInIsSwatch)
 		{
 			SwatchChip->SetBrushColor(InSwatchColor);
+		}
+	}
+	if (ProductImage)
+	{
+		// PRODUCT IMAGE: the entry's ShopThumbnail (render or swatch) IS the tile visual. Sync-load -- small UI
+		// textures; a one-time menu-open hitch is acceptable for Inc 1 (async-upgrade if it bites). Supersedes the
+		// SwatchChip. 261/261 SKUs carry a thumbnail, so this is the live path; a no-thumb tile falls back to swatch/name.
+		UTexture2D* Thumb = InThumbnail.IsNull() ? nullptr : InThumbnail.LoadSynchronous();
+		if (Thumb)
+		{
+			FSlateBrush Brush;
+			Brush.SetResourceObject(Thumb);
+			Brush.ImageSize = FVector2D(112.f, 112.f); // uniform product-card tile size (a fresh UImage brush is 32x32)
+			ProductImage->SetBrush(Brush);
+			ProductImage->SetVisibility(ESlateVisibility::HitTestInvisible); // never eats the tile click
+			if (SwatchChip)
+			{
+				SwatchChip->SetVisibility(ESlateVisibility::Collapsed); // the image supersedes the chip
+			}
+		}
+		else
+		{
+			ProductImage->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
 	if (SelectButton)

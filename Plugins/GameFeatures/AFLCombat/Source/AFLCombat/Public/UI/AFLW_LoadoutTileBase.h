@@ -10,6 +10,8 @@ class UButton;
 class UTextBlock;
 class UWidget;
 class UBorder;
+class UImage;
+class UTexture2D;
 
 /** The loadout axis a picker/tile drives -- decoupled from EAFLCosmeticType (which has NO WeaponSkin value:
  *  weapon-skins share Type==Weapon and are disambiguated by the AFL.WeaponSkin.* namespace). */
@@ -45,9 +47,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "AFL|Loadout")
 	FOnAFLLoadoutTileClicked OnTileClicked;
 
-	/** Populate: store the axis + id, set the name label, show/hide the EQUIPPED badge, and (for color axes)
-	 *  show + tint the SwatchChip to the cosmetic's actual color. */
-	void SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor);
+	/** Populate: store the axis + id, set the name label + EQUIPPED badge, show the ShopThumbnail as the tile's
+	 *  PRODUCT IMAGE (render or swatch), and tint the SwatchChip fallback for color axes with no thumbnail. */
+	void SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor, const TSoftObjectPtr<UTexture2D>& InThumbnail);
 
 	FName GetCosmeticId() const { return CosmeticId; }
 
@@ -58,7 +60,11 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget)) TObjectPtr<UTextBlock> NameText;
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UWidget> EquippedBadge;
 
-	/** Color-swatch chip (color axes: body/edge/beam) -- shown + tinted to the cosmetic's color in swatch mode. */
+	/** PRODUCT IMAGE -- the entry's ShopThumbnail (render or swatch); the image IS the tile visual. Optional so
+	 *  the Inc-1 WBP still binds; supersedes SwatchChip when a thumbnail resolves (261/261 SKUs have one). */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UImage> ProductImage;
+
+	/** Color-swatch chip (color axes: body/edge/beam) -- FALLBACK tint when no ShopThumbnail resolves. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UBorder> SwatchChip;
 
 	UFUNCTION()
