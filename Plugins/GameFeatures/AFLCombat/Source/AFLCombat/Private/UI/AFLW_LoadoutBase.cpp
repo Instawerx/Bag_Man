@@ -6,6 +6,7 @@
 #include "Cosmetics/AFLWalletComponent.h"       // UAFLWalletComponent::IsEntitled (the public entitlement check)
 #include "Cosmetics/AFLSkinColorAsset.h"        // swatch color-resolve (ColorParameters)
 #include "AFLCosmeticCatalogSubsystem.h"
+#include "AFLColorIdentityRegistry.h"    // FAFLColorIdentity / FAFLSkinFinish -- registry-aware swatch resolve (same source as the pawn)
 #include "Player/LyraPlayerState.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
@@ -91,9 +92,12 @@ namespace
 		return Axis == EAFLLoadoutAxis::BodyColor || Axis == EAFLLoadoutAxis::EdgeColor || Axis == EAFLLoadoutAxis::Beam;
 	}
 
-	/** A representative FLinearColor for a color cosmetic, from its UAFLSkinColorAsset::ColorParameters
-	 *  (axis-appropriate key first, then any color). Mid-gray fallback. */
-	FLinearColor ResolveAxisColor(EAFLLoadoutAxis Axis, const UAFLSkinColorAsset* Asset)
+	/** A representative FLinearColor for a color cosmetic. REGISTRY-AWARE: resolves the SAME way the PAWN does
+	 *  (AFLCharacterPartActor -- RegistryTone ? *RegistryTone : baked), so the tile swatch CANNOT diverge from
+	 *  what the equipped robot renders -- for every SKU, present and future. The asset's ColorParameters supply
+	 *  the SHAPE (which key is axis-appropriate); the VALUE is the identity-registry tone when the asset's
+	 *  ColorIdentityTag resolves, else the baked ColorParameters (the same fallback the pawn uses). Mid-gray on none. */
+	FLinearColor ResolveAxisColor(const UObject* WorldContext, EAFLLoadoutAxis Axis, const UAFLSkinColorAsset* Asset)
 	{
 		const FLinearColor Fallback(0.3f, 0.3f, 0.3f, 1.f);
 		if (!Asset)
@@ -114,8 +118,25 @@ namespace
 		{
 			Keys = { FName(TEXT("TeamColor")), FName(TEXT("EmissiveColor")), FName(TEXT("EdgeGlowColor")) };
 		}
+
+		// REGISTRY-AWARE resolve (mirrors AFLCharacterPartActor's pawn apply): resolve the asset's
+		// ColorIdentityTag ONCE, then prefer the registry tone per key (RegistryTone ? *RegistryTone : baked).
+		// Beam is not a SkinFinish axis -- FindToneForParam has no "BeamColor" tone, so beams fall through to
+		// the baked BeamColor unchanged; un-tagged / unresolved -> baked (byte-identical to the old behavior).
+		FAFLColorIdentity Identity;
+		const bool bIdentityResolved =
+			Asset->GetColorIdentityTag().IsValid() &&
+			UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(WorldContext, Asset->GetColorIdentityTag(), Identity);
+
 		for (const FName& K : Keys)
 		{
+			if (bIdentityResolved)
+			{
+				if (const FLinearColor* Tone = Identity.SkinFinish.FindToneForParam(K))
+				{
+					return *Tone;
+				}
+			}
 			if (const FLinearColor* Found = Colors.Find(K))
 			{
 				return *Found;
@@ -557,7 +578,7 @@ void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Con
 		{
 			bIsSwatch = true;
 			const UAFLSkinColorAsset* ColorAsset = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(Entry.CosmeticId));
-			SwatchColor = ResolveAxisColor(Axis, ColorAsset);
+			SwatchColor = ResolveAxisColor(this, Axis, ColorAsset);
 		}
 		Tile->SetTileData(Axis, Entry.CosmeticId, Label, Entry.CosmeticId == EquippedId, bIsSwatch, SwatchColor);
 		Tile->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleTileClicked);
