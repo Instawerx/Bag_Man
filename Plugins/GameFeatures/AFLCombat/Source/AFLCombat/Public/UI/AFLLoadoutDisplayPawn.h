@@ -65,6 +65,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Display")
 	TSoftClassPtr<UAnimInstance> DrivingAnimClass;
 
+	/** Body applied on BeginPlay when this pawn is PLACED in a scene with no external driver (armory staging) ->
+	 *  the robot is visible standalone. Set per-instance to B_AFL_Robot_IRONICS. The loadout fan-out overrides it
+	 *  with the player's real identity; null -> no body until a driver applies one (in-match spawn path). */
+	UPROPERTY(EditAnywhere, Category = "AFL|Display")
+	TSoftClassPtr<AActor> DefaultBodyClass;
+
 private:
 	UPROPERTY(VisibleAnywhere, Category = "AFL|Display")
 	TObjectPtr<UAFLSkinColorComponent> SkinColorComp;

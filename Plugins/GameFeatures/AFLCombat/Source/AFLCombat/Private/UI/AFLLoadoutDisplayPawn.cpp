@@ -26,6 +26,9 @@ AAFLLoadoutDisplayPawn::AAFLLoadoutDisplayPawn(const FObjectInitializer& ObjectI
 	// NEVER possessed -> no ASC, no ability grant (the ASC-gated AFLCombat grant has no target here).
 	AutoPossessPlayer = EAutoReceiveInput::Disabled;
 	AutoPossessAI = EAutoPossessAI::Disabled;
+	// Cosmetic display pawn -> ALWAYS spawn (in-editor drop AND runtime), never blocked by capsule encroachment
+	// against the armory geometry ("spawn failed because of actor location").
+	SpawnCollisionHandlingMethod = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
 	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
 	{
@@ -81,6 +84,17 @@ void AAFLLoadoutDisplayPawn::BeginPlay()
 	Super::BeginPlay();
 
 	ApplyDrivingMesh();
+
+	// PLACED in a scene (e.g. the armory) with no external driver -> apply a default body so the robot is VISIBLE
+	// standalone. The loadout's ApplySelectionToDisplayPawn overrides this with the player's real identity; a bare
+	// placed pawn (armory STEP 2) shows this fallback (set it to B_AFL_Robot_IRONICS) standing on its own.
+	if (!DefaultBodyClass.IsNull())
+	{
+		if (UClass* BodyCls = DefaultBodyClass.LoadSynchronous())
+		{
+			SetRobotBody(BodyCls);
+		}
+	}
 }
 
 void AAFLLoadoutDisplayPawn::ApplyDrivingMesh()
@@ -109,8 +123,6 @@ void AAFLLoadoutDisplayPawn::ApplyDrivingMesh()
 			MeshComp->SetAnimInstanceClass(AnimCls);
 		}
 	}
-	UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] driving mesh applied: comp=%s"),
-		MeshComp->GetSkeletalMeshAsset() ? *MeshComp->GetSkeletalMeshAsset()->GetName() : TEXT("NULL"));
 }
 
 UActorComponent* AAFLLoadoutDisplayPawn::FindCharacterPartsComponent() const
