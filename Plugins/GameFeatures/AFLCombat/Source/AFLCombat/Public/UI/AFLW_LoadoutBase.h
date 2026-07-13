@@ -5,6 +5,7 @@
 #include "CommonActivatableWidget.h"
 #include "Templates/SubclassOf.h"
 #include "AFLCosmeticCoreTypes.h"    // EAFLCosmeticType + FAFLCatalogEntry (by-value out-param)
+#include "Cosmetics/AFLCosmeticSelectionTypes.h" // FAFLCosmeticSelection (display-pawn change tracking)
 #include "UI/AFLW_LoadoutTileBase.h" // EAFLLoadoutAxis + UAFLW_LoadoutTileBase
 
 #include "AFLW_LoadoutBase.generated.h"
@@ -19,6 +20,9 @@ class UTextureRenderTarget2D;
 class ASceneCapture2D;
 class APawn;
 class AAFLLoadoutPod;
+class AAFLLoadoutDisplayPawn;
+class UAFLCharacterPartMap;
+class UAFLSkinColorControllerComponent;
 struct FUIInputConfig;
 
 /**
@@ -130,6 +134,21 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
 	TSubclassOf<AAFLLoadoutPod> PodClass;
 
+	/** The ASC-less DISPLAY pawn spawned for the preview (shows cosmetics without the combat stack). Null ->
+	 *  the C++ AAFLLoadoutDisplayPawn; override with a BP child to configure the driving mesh / idle AnimBP. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
+	TSubclassOf<AAFLLoadoutDisplayPawn> DisplayPawnClass;
+
+	/** The robot body the display pawn wears when no identity resolves -- the IRONICS free-grant default
+	 *  (B_AFL_Robot_IRONICS). The IRONICS fallback is thus free-by-construction for a fresh/unset display pawn. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
+	TSoftClassPtr<AActor> DisplayFallbackRobotClass;
+
+	/** Identity id (AFL.Team.* / AFL.Character.*) -> robot body class, for the display pawn's IDENTITY axis.
+	 *  Set to DA_AFL_CharacterPartMap (the same map the selector uses). Null -> only the IRONICS fallback. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
+	TObjectPtr<UAFLCharacterPartMap> DisplayPartMap;
+
 	/** A tile was clicked: equip its cosmetic on Axis, then refresh the grids (EQUIPPED badge). */
 	UFUNCTION()
 	void HandleTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
@@ -150,8 +169,19 @@ private:
 	/** Spawn the OWNED tiles for one axis into its container (the parameterized engine, called per-axis). */
 	void RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Container);
 
-	/** The local player's current pawn (the REAL pawn the preview captures). */
+	/** The local player's current pawn (the REAL gameplay pawn; used for the display-pawn spawn location). */
 	APawn* GetLocalPawn() const;
+
+	/** The pawn the preview CAPTURES: the ASC-less display pawn (spawned on first call + given the IRONICS body).
+	 *  Replaces GetLocalPawn() as the capture target so the pod shows a display robot, not the gameplay pawn --
+	 *  which is what lets the preview work with no live pawn (the front-end fix under B). */
+	APawn* GetPreviewPawn();
+
+	/** Apply the player's CURRENT selection to the display pawn via the PROVEN 3-tier fan-out: resolve the
+	 *  identity -> robot body (IRONICS fallback; re-spawned only on change) + drive the controller's
+	 *  Refresh*ForPawn(DisplayPawn) for skin/body/edge/facemask/weapon/beam. The display pawn is PS-less
+	 *  (resolve falls back to the controller PS) + HasAuthority (setters apply) -- both verified. */
+	void ApplySelectionToDisplayPawn();
 
 	/** Spawn/attach the SceneCapture rig framing the pawn + route its render target into PreviewImage. */
 	void SetupPreviewCapture();
@@ -176,6 +206,18 @@ private:
 	/** The kiosk-pod diorama actor spawned attached to the pawn -> rendered INSIDE the preview via the
 	 *  ShowOnlyList (Increment C). Destroyed with the capture on deactivate. */
 	TWeakObjectPtr<AAFLLoadoutPod> PreviewPod;
+
+	/** The ASC-less display pawn captured in the pod (spawned on GetPreviewPawn, destroyed on teardown). */
+	TWeakObjectPtr<AAFLLoadoutDisplayPawn> DisplayPawn;
+
+	/** Last selection applied to the display pawn -- the NativeTick change-poll re-drives only on a delta
+	 *  (an equip lands via OnRep async, so a poll is more robust than a post-equip call). */
+	FAFLCosmeticSelection LastAppliedDisplaySelection;
+
+	/** Last identity applied to the display body -- SetRobotBody (remove+add) fires ONLY on identity change,
+	 *  never on a color/weapon pick, so the robot doesn't thrash. */
+	FName LastAppliedBodyIdentity = NAME_None;
+	bool bDisplayBodyApplied = false;
 
 	/** The previewed pawn's capsule half-height (feet offset), cached for RepositionPreviewPod grounding. */
 	float PreviewFeetDrop = 90.f;

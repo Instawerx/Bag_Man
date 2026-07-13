@@ -7,6 +7,8 @@
 #include "Cosmetics/AFLSkinColorAsset.h"        // swatch color-resolve (ColorParameters)
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "AFLColorIdentityRegistry.h"    // FAFLColorIdentity / FAFLSkinFinish -- registry-aware swatch resolve (same source as the pawn)
+#include "Cosmetics/AFLSkinColorControllerComponent.h" // the proven Refresh*ForPawn fan-out (driven at the display pawn)
+#include "Cosmetics/AFLCharacterPartMap.h"             // identity -> robot body class (display-pawn IDENTITY axis)
 #include "Player/LyraPlayerState.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
@@ -25,6 +27,7 @@
 #include "GameFramework/Character.h"
 #include "Components/CapsuleComponent.h"
 #include "UI/AFLLoadoutPod.h"
+#include "UI/AFLLoadoutDisplayPawn.h"
 
 #if !UE_BUILD_SHIPPING
 #include "Engine/LocalPlayer.h"
@@ -340,13 +343,127 @@ APawn* UAFLW_LoadoutBase::GetLocalPawn() const
 	return PC ? PC->GetPawn() : nullptr;
 }
 
+APawn* UAFLW_LoadoutBase::GetPreviewPawn()
+{
+	if (DisplayPawn.IsValid())
+	{
+		return DisplayPawn.Get();
+	}
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+	// Spawn the ASC-less display pawn. NEVER possessed -> no ASC -> the ASC-gated AFLCombat ability grant has no
+	// target (the flagged combat-leak risk, dodged BY CONSTRUCTION). Location: at the local gameplay pawn if one
+	// exists (in-match de-risk), else origin (front-end, Inc 3). The capture isolates it via the ShowOnlyList.
+	FVector SpawnLoc = FVector::ZeroVector;
+	if (const APawn* Local = GetLocalPawn())
+	{
+		SpawnLoc = Local->GetActorLocation();
+	}
+	UClass* PawnCls = DisplayPawnClass ? DisplayPawnClass.Get() : AAFLLoadoutDisplayPawn::StaticClass();
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.ObjectFlags |= RF_Transient;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AAFLLoadoutDisplayPawn* Spawned = World->SpawnActor<AAFLLoadoutDisplayPawn>(PawnCls, SpawnLoc, FRotator::ZeroRotator, SpawnParams);
+	if (!Spawned)
+	{
+		return nullptr;
+	}
+	DisplayPawn = Spawned;
+
+	// Apply the player's full selection now (identity body + colors/facemask/weapon/beam) via the proven fan-out.
+	ApplySelectionToDisplayPawn();
+	if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+	{
+		LastAppliedDisplaySelection = Loadout->GetSelection();
+	}
+	return Spawned;
+}
+
+// Field-wise selection equality (FAFLCosmeticSelection has no operator==) -> the NativeTick change-poll.
+static bool AFLSelectionEquals(const FAFLCosmeticSelection& A, const FAFLCosmeticSelection& B)
+{
+	return A.IdentityType == B.IdentityType && A.TeamId == B.TeamId && A.CharacterId == B.CharacterId
+		&& A.EdgeId == B.EdgeId && A.BodyId == B.BodyId && A.HelmetId == B.HelmetId
+		&& A.WeaponId == B.WeaponId && A.WeaponSkinId == B.WeaponSkinId && A.BeamId == B.BeamId
+		&& A.FacemaskId == B.FacemaskId;
+}
+
+void UAFLW_LoadoutBase::ApplySelectionToDisplayPawn()
+{
+	AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get();
+	if (!Pawn)
+	{
+		return;
+	}
+
+	// IDENTITY body: resolve the player's identity -> robot class (IRONICS fallback). Re-spawn ONLY on identity
+	// change (SetRobotBody removes+adds -> don't thrash on color/weapon picks). The selector's ResolveBodyForPawn
+	// targets the CONTROLLER's possessed pawn, so the display pawn resolves+adds here instead.
+	FName IdentityId = NAME_None;
+	if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+	{
+		IdentityId = Loadout->GetSelection().GetActiveIdentityId();
+	}
+	if (!bDisplayBodyApplied || IdentityId != LastAppliedBodyIdentity)
+	{
+		UClass* RobotCls = nullptr;
+		if (DisplayPartMap && IdentityId != NAME_None)
+		{
+			const TSoftClassPtr<AActor> Soft = DisplayPartMap->ResolveCharacterPart(IdentityId);
+			if (!Soft.IsNull()) { RobotCls = Soft.LoadSynchronous(); }
+		}
+		if (!RobotCls)
+		{
+			RobotCls = DisplayFallbackRobotClass.IsNull() ? nullptr : DisplayFallbackRobotClass.LoadSynchronous();
+			if (!RobotCls)
+			{
+				RobotCls = LoadClass<AActor>(nullptr, TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_IRONICS.B_AFL_Robot_IRONICS_C"));
+			}
+		}
+		if (RobotCls)
+		{
+			Pawn->SetRobotBody(RobotCls);
+			LastAppliedBodyIdentity = IdentityId;
+			bDisplayBodyApplied = true;
+		}
+	}
+
+	// COLOR / FACEMASK / WEAPON / BEAM: the proven fan-out at the display pawn. The controller's SkinCtrl resolves
+	// the player's selection (PS-less pawn -> ctrl-PS fallback, verified) + pushes to the display pawn's comps; the
+	// display pawn HasAuthority (non-replicated) so the BlueprintAuthorityOnly setters apply.
+	const ALyraPlayerState* PS = GetLyraPlayerState();
+	AController* Ctrl = PS ? PS->GetOwningController() : nullptr;
+	UAFLSkinColorControllerComponent* SkinCtrl = Ctrl ? Ctrl->FindComponentByClass<UAFLSkinColorControllerComponent>() : nullptr;
+	if (SkinCtrl)
+	{
+		SkinCtrl->RefreshFacemaskForPawn(Pawn); // slot-1 material swap
+		SkinCtrl->RefreshSkinForPawn(Pawn);     // body finish (TeamColor) + edge emissive
+		// WEAPON / WEAPONSKIN / BEAM axes DEFERRED (crash-safety): RefreshWeaponForPawn equips via
+		// ULyraEquipmentManagerComponent whose OnEquipped path may assume an ASC (this pawn is ASC-less) and the
+		// weapon-skin/beam apply to that equipped weapon. Prove the MATERIAL axes (skin/body/edge/facemask +
+		// identity) land on the display pawn FIRST, then re-enable the weapon once the ASC-less equip is verified.
+		// SkinCtrl->RefreshWeaponForPawn(Pawn);
+		// SkinCtrl->RefreshWeaponSkinForPawn(Pawn);
+		// SkinCtrl->RefreshBeamColorForPawn(Pawn);
+	}
+
+	// Instrumentation (always-on, temporary): confirms the poll fired + the fan-out ran on the DISPLAY pawn.
+	// Fires on loadout-open + each selection change. Pair with `afl.SkinDiag 1` to see the resolved ids.
+	UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] apply -> pawn=%s identity=%s skinCtrl=%s"),
+		*GetNameSafe(Pawn), IdentityId.IsNone() ? TEXT("<none>") : *IdentityId.ToString(),
+		SkinCtrl ? TEXT("FOUND") : TEXT("NULL"));
+}
+
 void UAFLW_LoadoutBase::SetupPreviewCapture()
 {
-	APawn* Pawn = GetLocalPawn();
+	APawn* Pawn = GetPreviewPawn(); // the ASC-less display pawn (NOT the gameplay pawn) -> works with no live pawn
 	UWorld* World = GetWorld();
 	if (!Pawn || !World)
 	{
-		return; // no pawn yet (e.g. pre-spawn) -> no preview; the locker still works.
+		return; // display pawn couldn't spawn (no world) -> no preview; the locker still works.
 	}
 
 	// Runtime render target (transient; sized from PreviewResolution). Created once, reused across opens.
@@ -446,6 +563,12 @@ void UAFLW_LoadoutBase::TeardownPreviewCapture()
 		Pod->Destroy();
 	}
 	PreviewPod = nullptr;
+
+	if (AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get())
+	{
+		Pawn->Destroy();
+	}
+	DisplayPawn = nullptr;
 }
 
 void UAFLW_LoadoutBase::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -455,6 +578,21 @@ void UAFLW_LoadoutBase::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 	{
 		RefreshPreviewShowList();  // keep the equipped-weapon actor in the isolated show-list as picks change
 		RepositionPreviewCamera(); // live-tunable framing via the afl.Loadout.Preview* cvars
+
+		// Live-sync the display pawn to the player's CURRENT selection. An equip lands via OnRep (async), so a
+		// per-frame delta-poll is more robust than a post-equip call; the fan-out re-runs only on a real change.
+		if (DisplayPawn.IsValid())
+		{
+			if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+			{
+				const FAFLCosmeticSelection& Cur = Loadout->GetSelection();
+				if (!AFLSelectionEquals(Cur, LastAppliedDisplaySelection))
+				{
+					ApplySelectionToDisplayPawn();
+					LastAppliedDisplaySelection = Cur;
+				}
+			}
+		}
 	}
 	RepositionPreviewPod(); // live grounding: raise the hero relative to the capsule + glue the disc under the feet
 }
@@ -478,7 +616,7 @@ void UAFLW_LoadoutBase::RepositionPreviewPod()
 void UAFLW_LoadoutBase::RefreshPreviewShowList()
 {
 	ASceneCapture2D* Cap = PreviewCapture.Get();
-	APawn* Pawn = GetLocalPawn();
+	APawn* Pawn = DisplayPawn.Get(); // isolate the DISPLAY pawn (+ its robot part + weapon + pod) in the capture
 	if (!Cap || !Pawn)
 	{
 		return;
