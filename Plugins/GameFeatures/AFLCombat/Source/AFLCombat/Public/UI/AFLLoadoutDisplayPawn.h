@@ -53,6 +53,10 @@ protected:
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
 
+	/** (Re)apply the invisible driving mesh to GetMesh() + force always-tick. MUST run after SetRobotBody too:
+	 *  the character-parts add/remove resets the owner mesh to null, which kills the weapon sockets + copy-pose. */
+	void ApplyDrivingMesh();
+
 	/** The invisible driving skeletal mesh the robot part copy-poses from (SKM_Manny_Invis). Overridable. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Display")
 	TSoftObjectPtr<USkeletalMesh> DrivingMesh;

@@ -80,22 +80,37 @@ void AAFLLoadoutDisplayPawn::BeginPlay()
 {
 	Super::BeginPlay();
 
+	ApplyDrivingMesh();
+}
+
+void AAFLLoadoutDisplayPawn::ApplyDrivingMesh()
+{
 	// The robot part copy-poses from this driving mesh (SKM_Manny_Invis renders invisibly via its material, so
 	// only the robot is seen). No AnimBP -> ref-pose (acceptable for the de-risk slice; an idle can drop in later).
-	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	// RE-APPLIED after SetRobotBody: the character-parts add/remove RESETS GetMesh() to null (proven -- comp is
+	// SKM_Manny_Invis at BeginPlay, then "No SkeletalMesh" at equip), killing the weapon sockets + the copy-pose.
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp)
 	{
-		if (USkeletalMesh* SM = DrivingMesh.IsNull() ? nullptr : DrivingMesh.LoadSynchronous())
+		return;
+	}
+	USkeletalMesh* SM = DrivingMesh.IsNull() ? nullptr : DrivingMesh.LoadSynchronous();
+	if (SM)
+	{
+		MeshComp->SetSkeletalMeshAsset(SM); // UE5.6 API -- SetSkeletalMesh is the deprecated wrapper
+		// LOAD-BEARING: the driver is invisible + off in a SceneCapture, so it can skip pose ticks. Force it to
+		// ALWAYS tick pose+bones so the copy-posed robot animates AND the weapon sockets (weapon_r) stay resolvable.
+		MeshComp->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	}
+	if (!DrivingAnimClass.IsNull())
+	{
+		if (UClass* AnimCls = DrivingAnimClass.LoadSynchronous())
 		{
-			MeshComp->SetSkeletalMesh(SM);
-		}
-		if (!DrivingAnimClass.IsNull())
-		{
-			if (UClass* AnimCls = DrivingAnimClass.LoadSynchronous())
-			{
-				MeshComp->SetAnimInstanceClass(AnimCls);
-			}
+			MeshComp->SetAnimInstanceClass(AnimCls);
 		}
 	}
+	UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] driving mesh applied: comp=%s"),
+		MeshComp->GetSkeletalMeshAsset() ? *MeshComp->GetSkeletalMeshAsset()->GetName() : TEXT("NULL"));
 }
 
 UActorComponent* AAFLLoadoutDisplayPawn::FindCharacterPartsComponent() const
@@ -152,4 +167,9 @@ void AAFLLoadoutDisplayPawn::SetRobotBody(TSubclassOf<AActor> RobotPartClass)
 	Args.NewPart.SocketName = NAME_None;
 	Args.NewPart.CollisionMode = ECharacterCustomizationCollisionMode::NoCollision;
 	PartsComp->ProcessEvent(AddFn, &Args);
+
+	// The character-parts add (and the RemoveAll above) RESET GetMesh() to null -> re-apply the driving mesh so the
+	// equipped weapon's socket (weapon_r) resolves + the robot keeps a copy-pose leader. Root cause of the weapon
+	// attaching at the origin instead of the hand (proven via SkinDiag: comp set at BeginPlay, null at equip).
+	ApplyDrivingMesh();
 }

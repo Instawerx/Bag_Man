@@ -439,15 +439,15 @@ void UAFLW_LoadoutBase::ApplySelectionToDisplayPawn()
 	UAFLSkinColorControllerComponent* SkinCtrl = Ctrl ? Ctrl->FindComponentByClass<UAFLSkinColorControllerComponent>() : nullptr;
 	if (SkinCtrl)
 	{
-		SkinCtrl->RefreshFacemaskForPawn(Pawn); // slot-1 material swap
-		SkinCtrl->RefreshSkinForPawn(Pawn);     // body finish (TeamColor) + edge emissive
-		// WEAPON / WEAPONSKIN / BEAM axes DEFERRED (crash-safety): RefreshWeaponForPawn equips via
-		// ULyraEquipmentManagerComponent whose OnEquipped path may assume an ASC (this pawn is ASC-less) and the
-		// weapon-skin/beam apply to that equipped weapon. Prove the MATERIAL axes (skin/body/edge/facemask +
-		// identity) land on the display pawn FIRST, then re-enable the weapon once the ASC-less equip is verified.
-		// SkinCtrl->RefreshWeaponForPawn(Pawn);
-		// SkinCtrl->RefreshWeaponSkinForPawn(Pawn);
-		// SkinCtrl->RefreshBeamColorForPawn(Pawn);
+		SkinCtrl->RefreshFacemaskForPawn(Pawn); // slot-1 material swap (proven; before skin -- composition order)
+		SkinCtrl->RefreshSkinForPawn(Pawn);     // body finish (TeamColor) + edge emissive (proven)
+		// WEAPON / WEAPONSKIN / BEAM: ASC-SAFE on this pawn -- Lyra's FLyraEquipmentList::AddEntry guards the
+		// ability grant with `if (ASC)` (LyraEquipmentManagerComponent.cpp:89) and GetAbilitySystemComponent
+		// returns null for an ASC-less pawn, so the equip spawns the weapon MESH + SKIPS the grant (no fault).
+		// Equip FIRST (the mesh must exist), THEN weapon-skin + beam recolor the equipped weapon.
+		SkinCtrl->RefreshWeaponForPawn(Pawn);
+		SkinCtrl->RefreshWeaponSkinForPawn(Pawn);
+		SkinCtrl->RefreshBeamColorForPawn(Pawn);
 	}
 
 	// Instrumentation (always-on, temporary): confirms the poll fired + the fan-out ran on the DISPLAY pawn.
