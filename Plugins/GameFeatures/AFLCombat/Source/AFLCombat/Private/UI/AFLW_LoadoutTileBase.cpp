@@ -21,6 +21,16 @@ void UAFLW_LoadoutTileBase::NativeOnInitialized()
 	}
 }
 
+void UAFLW_LoadoutTileBase::NativeOnListItemObjectSet(UObject* ListItemObject)
+{
+	// Front-end market path: the ListView hands us a UAFLMarketLoadoutItem -> drive the SAME SetTileData the
+	// in-match locker calls directly. Both routes share one render; the SelectButton still owns the click.
+	if (const UAFLMarketLoadoutItem* It = Cast<UAFLMarketLoadoutItem>(ListItemObject))
+	{
+		SetTileData(It->Axis, It->CosmeticId, It->DisplayName, It->bEquipped, It->bIsSwatch, It->SwatchColor, It->Thumbnail);
+	}
+}
+
 void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor, const TSoftObjectPtr<UTexture2D>& InThumbnail)
 {
 	Axis = InAxis;

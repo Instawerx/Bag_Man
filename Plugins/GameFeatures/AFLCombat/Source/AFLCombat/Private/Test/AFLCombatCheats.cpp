@@ -73,6 +73,8 @@
 #include "CommonUIExtensions.h"                        // S-ECON-STORE: PushContentToLayer_ForPlayer (afl.Store.Open)
 #include "CommonActivatableWidget.h"                   // S-ECON-STORE: the store widget class type to push
 #include "Engine/LocalPlayer.h"                        // S-ECON-STORE: GetLocalPlayer() for the per-player push
+#include "PrimaryGameLayout.h"                         // STEP 5: PushWidgetToLayerStack init-hook (afl.Market.Loadout)
+#include "UI/AFLW_FrontEndMarket.h"                    // STEP 5: UAFLW_FrontEndMarket + EAFLMarketMode (Mode=Loadout)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCombatCheats)
 
@@ -3153,6 +3155,37 @@ namespace
 			Ar.Log(TEXT("afl.Store.Close - store not open (or already closed via the X button)."));
 		}
 	}
+
+	// ─── STEP 5: afl.Market.Loadout -- push the SAME market widget in LOADOUT mode (owned cosmetics + EQUIP onto the
+	// armory display robot). Unlike afl.Store.Open, Mode must be set BEFORE NativeConstruct, so we push via the
+	// PrimaryGameLayout init-hook (PushWidgetToLayerStack) rather than PushContentToLayer_ForPlayer. Same widget
+	// class, same UI.Layer.Menu; reuses GAFLStoreWidget so afl.Store.Close pops it too.
+	void HandleAFLLoadoutOpen(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Market.Loadout - run inside PIE.")); return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		if (!PC) { Ar.Log(TEXT("afl.Market.Loadout - no player controller.")); return; }
+		UPrimaryGameLayout* Layout = UPrimaryGameLayout::GetPrimaryGameLayout(PC);
+		if (!Layout) { Ar.Log(TEXT("afl.Market.Loadout - no PrimaryGameLayout for this player.")); return; }
+
+		TSubclassOf<UCommonActivatableWidget> MarketClass = LoadClass<UCommonActivatableWidget>(
+			nullptr, TEXT("/Game/BagMan/UI/Store/AFLW_Menu_CosmeticShop.AFLW_Menu_CosmeticShop_C"));
+		if (!MarketClass) { Ar.Log(TEXT("afl.Market.Loadout - could not load AFLW_Menu_CosmeticShop_C.")); return; }
+
+		UAFLW_FrontEndMarket* Pushed = Layout->PushWidgetToLayerStack<UAFLW_FrontEndMarket>(
+			TAG_UI_Layer_Menu_Store_Cheats, MarketClass,
+			[](UAFLW_FrontEndMarket& W) { W.Mode = EAFLMarketMode::Loadout; });
+		GAFLStoreWidget = Pushed;
+		if (Pushed)
+		{
+			Pushed->EnterLoadout(); // CommonUI runs the init-hook AFTER construct -> enter LOADOUT explicitly here.
+		}
+		Ar.Logf(TEXT("afl.Market.Loadout - pushed the market in LOADOUT mode (%s). Close with the X or afl.Store.Close."),
+			Pushed ? TEXT("ok") : TEXT("push returned null"));
+	}
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLLoadoutOpenCmd(TEXT("afl.Market.Loadout"),
+		TEXT("STEP 5: push the market in LOADOUT mode (owned cosmetics + equip onto the armory display robot)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLLoadoutOpen));
 
 	// ===========================================================================================
 	//  EOS-AUTH-C2 cheats (Track-2 EOS auth/friends lane; builds on C1's platform+Connect proof).

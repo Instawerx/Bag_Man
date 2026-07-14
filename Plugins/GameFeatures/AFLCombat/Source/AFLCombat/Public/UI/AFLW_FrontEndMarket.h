@@ -3,38 +3,35 @@
 #pragma once
 
 #include "CommonActivatableWidget.h"
-#include "UI/LyraActivatableWidget.h" // ELyraWidgetInputMode (the enum only -- the class is private, we don't subclass it)
+#include "UI/LyraActivatableWidget.h"    // ELyraWidgetInputMode (the enum only -- the class is private)
+#include "UI/AFLW_LoadoutTileBase.h"     // EAFLLoadoutAxis + UAFLW_LoadoutTileBase (the LOADOUT entry widget)
 
 #include "AFLW_FrontEndMarket.generated.h"
 
 struct FUIInputConfig;
 class UWidget;
+class UUserWidget;
+class UCommonButtonBase;
+class UAFLCosmeticLoadoutComponent;
+class AAFLLoadoutDisplayPawn;
 
-/** Which flavor the shared front-end market chassis presents. STEP 3 ships Store only (the store WBP's own
- *  graph still drives it, UNCHANGED); Loadout mode lands in a later step. */
+/** STORE = purchasable + BUY (the store WBP graph drives it, UNCHANGED). LOADOUT = owned + EQUIP with OUR tile. */
 UENUM(BlueprintType)
 enum class EAFLMarketMode : uint8
 {
-	Store   UMETA(DisplayName = "Store"),   // browse purchasable -> BUY
-	Loadout UMETA(DisplayName = "Loadout")  // browse owned -> EQUIP
+	Store   UMETA(DisplayName = "Store"),
+	Loadout UMETA(DisplayName = "Loadout")
 };
 
 /**
- * UAFLW_FrontEndMarket -- the NEW front-end "Digital Market" chassis (#7/B Phase 1). The store WBP
- * (AFLW_Menu_CosmeticShop) reparents here; it renders as a full-screen overlay ON the live L_IRONICS_Armory
- * scene -- the staged display robot shows THROUGH a transparent center (NO SceneCapture / render target; the
- * 3D character IS the scene, the UI floats on it).
- *
- * PARENT NOTE: the ruling wanted ULyraActivatableWidget, but that class is LyraGame-PRIVATE (no export) -- a
- * C++ class in AFLCombat cannot subclass it (UAFLW_LoadoutBase / UAFLW_MatchScoreboard hit the same wall,
- * AFLW_LoadoutBase.h:33-35). So we subclass UCommonActivatableWidget directly and RE-IMPLEMENT
- * ULyraActivatableWidget's entire surface -- its two EditDefaultsOnly input UPROPERTIES + GetDesiredInputConfig
- * -- with the SAME names/types. On reparent the store WBP's authored InputConfig value carries over and the
- * input behavior is byte-identical: lateral by composition, not inheritance. The store's own buy/tabs/list
- * graph is untouched.
- *
- * ZERO coupling to the in-match UAFLW_LoadoutBase (no shared base, no shared branch). Shared cosmetic logic
- * comes from the stateless UAFLCosmeticBrowserLibrary service, never inheritance.
+ * UAFLW_FrontEndMarket -- the shared front-end "Digital Market" chassis. The store WBP reparents here and renders
+ * over the live armory (transparent center). TWO MODES, ONE WIDGET:
+ *  - STORE: this class NO-OPS -> the store WBP's own graph + its BP tile drive list/tabs/buy, byte-for-byte.
+ *  - LOADOUT: this class OVERRIDES at runtime -- it points the store's ListView at OUR readable C++ tile
+ *    (UAFLW_LoadoutTileBase, via OnGetEntryClassForItem, WITHOUT touching the store's default EntryWidgetClass),
+ *    feeds owned entries, and binds each tile's own OnTileClicked -> equip onto the armory display pawn.
+ *    No graph surgery, no opaque-BP hooks -- the tile is ours end to end.
+ * ZERO coupling to the in-match UAFLW_LoadoutBase (shared vocabulary only: the tile + the EAFLLoadoutAxis enum).
  */
 UCLASS(Abstract)
 class AFLCOMBAT_API UAFLW_FrontEndMarket : public UCommonActivatableWidget
@@ -42,17 +39,18 @@ class AFLCOMBAT_API UAFLW_FrontEndMarket : public UCommonActivatableWidget
 	GENERATED_BODY()
 
 public:
-	/** Store vs Loadout. STEP 3: Store only (the WBP graph still drives the store). */
+	/** Store vs Loadout. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Market")
 	EAFLMarketMode Mode = EAFLMarketMode::Store;
+
+	/** Enter LOADOUT at runtime -- the pusher calls this AFTER push/construct (CommonUI's push init-hook runs
+	 *  AFTER NativeConstruct, so setting Mode pre-construct doesn't take). */
+	void EnterLoadout();
 
 protected:
 	//~UCommonActivatableWidget -- ULyraActivatableWidget parity (re-implemented; that class is LyraGame-private)
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
-	/** Gamepad: which widget takes focus when this screen is pushed. Without it CommonUI warns "GetDesiredFocusTarget
-	 *  wasn't implemented" and a controller can't navigate the screen (console cert FAILS). Resolved by NAME via
-	 *  GetWidgetFromName -- deliberately NOT a BindWidget -- so it never creates a property that would re-type the
-	 *  store's graph variable (a base-typed BindWidget is exactly what broke the first reparent). Null-safe. */
+	/** Gamepad focus -> the product browser, resolved by NAME (never a BindWidget). */
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
 	//~End
 
@@ -60,26 +58,60 @@ protected:
 	virtual void NativeConstruct() override;
 	//~End
 
-	/** Center hero slot -> live scene: when an armory display pawn is present behind us, dissolve the market's
-	 *  full-screen backdrop (the Overlay glass/gradient/glow layers + the root Border brush) and the center backing
-	 *  so the UI floats on the 3D scene and the framed robot shows through. Over the hub (no display pawn) the
-	 *  backdrop is left exactly as authored -> store-over-hub unchanged. All by NAME (GetWidgetFromName). */
+	/** Center hero slot -> live scene: dissolve the market backdrop when a display pawn is behind us (armory). */
 	void ApplyShowroomMode();
 
-	/** Input mode while this UI is active -- SAME UPROPERTY (name + type) as ULyraActivatableWidget, so the
-	 *  reparented store WBP's authored value carries over unchanged. */
+	// --- STEP 5 LOADOUT mode (C++-runtime; STORE mode never reaches any of this) ---
+	void EnterLoadoutMode();
+	void PopulateForAxis(EAFLLoadoutAxis Axis);
+
+	/** Switch the active axis-group + repopulate. */
+	void SelectAxis(EAFLLoadoutAxis Axis);
+
+	// The store's tabs are UBorder (not buttons) -> their only click is OnMouseButtonDownEvent, a single-cast
+	// dynamic delegate (no capture), so one handler per tab. Our BindDynamic REPLACES the store's binding on this
+	// LOADOUT instance -> no STORE conflict.
+	UFUNCTION() FEventReply OnTabWeapon(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnTabWeaponSkin(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnTabBeam(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnTabIdentity(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnTabColors(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnTabFacemask(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+
+	/** OnGetEntryClassForItem handler: LOADOUT generates OUR tile (WBP_AFL_LoadoutTile) per item, overriding the
+	 *  store's default EntryWidgetClass WITHOUT modifying it -> STORE tile stays byte-for-byte. */
+	TSubclassOf<UUserWidget> GetLoadoutEntryClass(UObject* Item) const;
+
+	/** OnEntryWidgetGenerated handler: bind each generated tile's OnTileClicked -> equip. */
+	void OnLoadoutEntryGenerated(UUserWidget& EntryWidget);
+
+	/** Bound to each tile's OnTileClicked (the tile's own SelectButton) -> equip the cosmetic onto the display robot. */
+	UFUNCTION()
+	void HandleLoadoutTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
+
+	/** Equip one axis (data RPC) + fan it out onto the armory display pawn (visual). */
+	void EquipSelected(FName CosmeticId, EAFLLoadoutAxis Axis);
+
+	UAFLCosmeticLoadoutComponent* GetLocalLoadout() const;
+	AAFLLoadoutDisplayPawn* GetDisplayPawn() const;
+
+	/** Which axis-group the loadout list is showing (5a: fixed to Colors/BodyColor; tabs switch it in 5b). */
+	EAFLLoadoutAxis CurrentAxis = EAFLLoadoutAxis::BodyColor;
+
+	/** Guard so EnterLoadoutMode runs exactly once. */
+	bool bLoadoutActive = false;
+
+	/** OUR tile class (WBP_AFL_LoadoutTile) the ListView uses in LOADOUT mode. */
+	UPROPERTY(Transient)
+	TSubclassOf<UAFLW_LoadoutTileBase> LoadoutTileClass;
+
 	UPROPERTY(EditDefaultsOnly, Category = Input)
 	ELyraWidgetInputMode InputConfig = ELyraWidgetInputMode::Default;
 
-	/** Mouse behavior when the game gets input -- mirrors ULyraActivatableWidget. */
 	UPROPERTY(EditDefaultsOnly, Category = Input)
 	EMouseCaptureMode GameMouseCaptureMode = EMouseCaptureMode::CapturePermanently;
 
-	// NOTE: NO BindWidgets. A C++ BindWidget whose name matches a store widget that the graph DRIVES re-types that
-	// widget's graph variable to the C++ property's type -- declaring the stat-meter segments (StatVisual_Seg0..4)
-	// as the base UWidget downcast them and broke every graph pin on reparent. Every widget this chassis touches --
-	// the gamepad focus target (NativeGetDesiredFocusTarget) and the showroom backing (ApplyShowroomMode) -- is
-	// fetched by NAME at runtime (GetWidgetFromName), which creates no property and so cannot re-type anything.
-	// That is why it is safe where a BindWidget was not. Any future genuine bind must be typed to the widget's
-	// VERIFIED type, in the step that consumes it.
+	// NOTE: NO BindWidgets. A base-typed BindWidget on a graph-driven store widget re-types its graph variable and
+	// broke the store on reparent. Every widget this chassis touches -- focus target, backdrop, tabs, list, buttons
+	// -- is fetched by NAME (GetWidgetFromName), which creates no property. The LOADOUT tiles are OUR own C++ tile.
 };
