@@ -17,6 +17,9 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 {
 	PrimaryActorTick.bCanEverTick = false;
 	bReplicates = false; // cosmetic-only; renders in the LOCAL player's preview capture, never replicated.
+	// Increment B (staged): so the game camera can SetViewTarget(this) and get the tuned FramingCamera's view --
+	// AActor::CalcCamera uses the active camera component instead of the actor's default eyes viewpoint.
+	bFindCameraComponentWhenViewTarget = true;
 
 	PodRoot = CreateDefaultSubobject<USceneComponent>(TEXT("PodRoot"));
 	SetRootComponent(PodRoot);
