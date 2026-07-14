@@ -2,8 +2,13 @@
 
 #include "UI/AFLW_FrontEndMarket.h"
 
-#include "Components/Widget.h"        // UWidget (NativeGetDesiredFocusTarget return / GetWidgetFromName result)
+#include "AFLCombat.h"                // LogAFLCombat
+#include "Components/Border.h"        // UBorder (root / center brush -> transparent)
+#include "Components/Widget.h"        // UWidget + GetWidgetFromName result (SetVisibility)
+#include "Engine/World.h"             // UWorld (world context for the live-scene probe)
 #include "Input/CommonUIInputTypes.h" // FUIInputConfig, ECommonInputMode, EMouseCaptureMode
+#include "Kismet/GameplayStatics.h"   // UGameplayStatics::GetActorOfClass
+#include "UI/AFLLoadoutDisplayPawn.h" // AAFLLoadoutDisplayPawn (is a live display scene behind us?)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_FrontEndMarket)
 
@@ -37,4 +42,58 @@ UWidget* UAFLW_FrontEndMarket::NativeGetDesiredFocusTarget() const
 		return Browser;
 	}
 	return Super::NativeGetDesiredFocusTarget();
+}
+
+void UAFLW_FrontEndMarket::NativeConstruct()
+{
+	Super::NativeConstruct();
+	ApplyShowroomMode();
+}
+
+void UAFLW_FrontEndMarket::ApplyShowroomMode()
+{
+	// Only dissolve the backdrop when a live display scene is behind us (the armory display robot). Over the hub
+	// there is no display pawn -> leave the market's designed backdrop fully intact, so the proven store-over-hub
+	// is untouched (no Step-3 regression). Self-contained: the market detects its own context, no pusher coupling.
+	UWorld* World = GetWorld();
+	const bool bLiveScene = World && (UGameplayStatics::GetActorOfClass(World, AAFLLoadoutDisplayPawn::StaticClass()) != nullptr);
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: ApplyShowroomMode bLiveScene=%s"), bLiveScene ? TEXT("true") : TEXT("false"));
+	if (!bLiveScene)
+	{
+		return;
+	}
+
+	// Live armory scene: hide the market's full-screen backdrop layers (the Overlay children that sit BEHIND the
+	// content -- GlassBlur / BackdropGradV / GlassPanel / BackdropGlowPool) plus the center backing + the
+	// "FEATURED PREVIEW" placeholder, so the UI floats on the 3D scene and the framed robot shows through the
+	// center. Every widget resolved by NAME (never a BindWidget) -> graph-neutral, cannot re-type store variables.
+	static const TCHAR* const HideByName[] = {
+		TEXT("GlassBlur"),        // background blur pass
+		TEXT("BackdropGradV"),    // full-screen vertical gradient
+		TEXT("GlassPanel"),       // glass sheet
+		TEXT("BackdropGlowPool"), // center glow pool
+		TEXT("ShowroomBG"),       // center backing
+		TEXT("ShowroomLabel")     // "FEATURED PREVIEW" placeholder (the live robot replaces it)
+	};
+	for (const TCHAR* Name : HideByName)
+	{
+		if (UWidget* W = GetWidgetFromName(FName(Name)))
+		{
+			W->SetVisibility(ESlateVisibility::Hidden);
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MARKET: widget '%s' not found by name (backdrop not fully dissolved)."), Name);
+		}
+	}
+
+	// A Border's own brush can still occlude the scene even with its children hidden -> tint the root + center
+	// Borders fully transparent (Cast is null-safe if either isn't actually a UBorder; children are unaffected).
+	for (const TCHAR* BorderName : { TEXT("RootBorder"), TEXT("CenterShowroom") })
+	{
+		if (UBorder* B = Cast<UBorder>(GetWidgetFromName(FName(BorderName))))
+		{
+			B->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.f));
+		}
+	}
 }
