@@ -9,6 +9,7 @@
 
 class UButton;
 class UTextBlock;
+class URichTextBlock;
 class UWidget;
 class UBorder;
 class UImage;
@@ -109,8 +110,13 @@ protected:
 	// collapsed via SetTileData); the STORE render path binds + shows + fills them from the catalog. ---
 	/** Rarity-colored frame (GetRarityColor). */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UBorder> RarityFrame;
-	/** Dual price "990 V / 9,900 W" (GetEntryPriceText) or "OWNED" when the player already owns it. */
+	/** Dual price "990 V / 9,900 W" (GetEntryPriceText) or "OWNED" when the player already owns it. Plain fallback:
+	 *  used only when the WBP has no PriceRichText (below). */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> PriceText;
+	/** Dual-COLOR price (RichText): amounts white, "V" electric-blue #1E5AFF, "W" electric-magenta #FF2D9E, "/"
+	 *  grey -- styled by DT_AFL_PriceStyles (set in NativeOnInitialized). The store path builds the tagged markup
+	 *  from PriceVolts/PriceWatts + hides the plain PriceText; loadout/locker keep both collapsed. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<URichTextBlock> PriceRichText;
 
 	// --- STORE buy/equip actions (B2c/d). BindWidgetOptional -> only the store WBP binds them; on the loadout/
 	// locker WBP they are null (SetTileData collapses them). The STORE render path shows/labels/flips them. ---

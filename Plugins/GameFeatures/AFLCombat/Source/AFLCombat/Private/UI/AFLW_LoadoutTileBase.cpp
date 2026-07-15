@@ -4,10 +4,12 @@
 
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
+#include "Components/RichTextBlock.h" // dual-COLOR price -> tagged runs styled by DT_AFL_PriceStyles
 #include "Components/Widget.h"
 #include "Components/Border.h"
 #include "Components/Image.h"
 #include "Engine/Texture2D.h"
+#include "Engine/DataTable.h"          // LoadObject<UDataTable> -> the RichText style set
 #include "AFLCosmeticCatalogSubsystem.h" // STORE tile: resolve CosmeticId -> DisplayName + ShopThumbnail (SSOT)
 #include "AFLCosmeticCoreTypes.h"        // FAFLCatalogEntry
 #include "UObject/UnrealType.h"          // FNameProperty / CastField -- read CosmeticId off the store's BP item
@@ -17,6 +19,28 @@
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_LoadoutTileBase)
 
+namespace
+{
+	// The RichText style set (Default=white, volts=#1E5AFF, watts=#FF2D9E, sep=grey), authored + verified in the
+	// editor. Loaded once and pushed onto PriceRichText so the tagged runs colorize.
+	const TCHAR* GAFLPriceStyleSetPath = TEXT("/Game/BagMan/UI/Store/DT_AFL_PriceStyles.DT_AFL_PriceStyles");
+
+	// Build the color-tagged price markup from the raw catalog numbers (grouped thousands via FText::AsNumber):
+	//   dual  -> "3,990 <volts>V</>  <sep>/</>  39,900 <watts>W</>"   (amounts untagged -> Default/white)
+	//   volts -> "16,000 <volts>V</>"      watts-only -> "100,000 <watts>W</>"      no price -> "Free".
+	FText AFLBuildPriceMarkup(const FAFLCatalogEntry& Entry)
+	{
+		const bool bHasV = (Entry.PriceVolts > 0);
+		const bool bHasW = (Entry.PriceWatts > 0);
+		if (!bHasV && !bHasW) { return NSLOCTEXT("AFLStore", "Price_Free", "Free"); }
+		FString M;
+		if (bHasV) { M += FString::Printf(TEXT("%s <volts>V</>"), *FText::AsNumber(Entry.PriceVolts).ToString()); }
+		if (bHasV && bHasW) { M += TEXT("  <sep>/</>  "); }
+		if (bHasW) { M += FString::Printf(TEXT("%s <watts>W</>"), *FText::AsNumber(Entry.PriceWatts).ToString()); }
+		return FText::FromString(M);
+	}
+}
+
 void UAFLW_LoadoutTileBase::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
@@ -24,6 +48,14 @@ void UAFLW_LoadoutTileBase::NativeOnInitialized()
 	if (SelectButton)
 	{
 		SelectButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutTileBase::HandleButtonClicked);
+	}
+	if (PriceRichText)
+	{
+		// Style set drives the per-run colors; set it before any SetText so the markup colorizes on first fill.
+		if (UDataTable* Styles = LoadObject<UDataTable>(nullptr, GAFLPriceStyleSetPath))
+		{
+			PriceRichText->SetTextStyleSet(Styles);
+		}
 	}
 	if (BuyButton)    { BuyButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutTileBase::HandleBuyClicked); }
 	if (BuyAltButton) { BuyAltButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutTileBase::HandleBuyAltClicked); }
@@ -98,7 +130,15 @@ void UAFLW_LoadoutTileBase::NativeOnListItemObjectSet(UObject* ListItemObject)
 
 		// Reference card layout: the dual-price sits on its own line; the row shows BUY + EQUIP, both ALWAYS present
 		// (BUY purchases, EQUIP previews on the hero). One BUY on the card (Volts); the Watts choice is the detail panel.
-		if (PriceText)
+		// Dual-COLOR price via RichText (amounts white, V blue, W magenta, / grey). Plain PriceText is the fallback
+		// only when the WBP has no PriceRichText bound.
+		if (PriceRichText)
+		{
+			PriceRichText->SetText(AFLBuildPriceMarkup(*Entry));
+			PriceRichText->SetVisibility(ESlateVisibility::HitTestInvisible);
+			if (PriceText) { PriceText->SetVisibility(ESlateVisibility::Collapsed); }
+		}
+		else if (PriceText)
 		{
 			PriceText->SetText(UAFLCosmeticCatalogSubsystem::GetEntryPriceText(*Entry));
 			PriceText->SetVisibility(ESlateVisibility::HitTestInvisible);
@@ -170,8 +210,9 @@ void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmetic
 	}
 	// STORE rich-card widgets default HIDDEN: only the STORE render path (NativeOnListItemObjectSet) re-shows + fills
 	// them. Loadout/locker tiles call SetTileData directly and leave them collapsed.
-	if (RarityFrame)  { RarityFrame->SetVisibility(ESlateVisibility::Collapsed); }
-	if (PriceText)    { PriceText->SetVisibility(ESlateVisibility::Collapsed); }
+	if (RarityFrame)   { RarityFrame->SetVisibility(ESlateVisibility::Collapsed); }
+	if (PriceText)     { PriceText->SetVisibility(ESlateVisibility::Collapsed); }
+	if (PriceRichText) { PriceRichText->SetVisibility(ESlateVisibility::Collapsed); }
 	if (BuyButton)    { BuyButton->SetVisibility(ESlateVisibility::Collapsed); }
 	if (BuyAltButton) { BuyAltButton->SetVisibility(ESlateVisibility::Collapsed); }
 	if (EquipButton)  { EquipButton->SetVisibility(ESlateVisibility::Collapsed); }
