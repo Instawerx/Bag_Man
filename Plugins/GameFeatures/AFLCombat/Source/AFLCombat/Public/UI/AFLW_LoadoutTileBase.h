@@ -86,6 +86,11 @@ public:
 	 *  PRODUCT IMAGE (render or swatch), and tint the SwatchChip fallback for color axes with no thumbnail. */
 	void SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor, const TSoftObjectPtr<UTexture2D>& InThumbnail);
 
+	/** FRONT-END LOADOUT card style (store parity): reveal the rarity frame + the EQUIP button on an owned tile.
+	 *  Call AFTER SetTileData, ONLY from the front-end market's ListView render -- the in-match locker calls
+	 *  SetTileData directly (never this), so it stays plain. */
+	void ApplyLoadoutCardStyle(bool bEquipped);
+
 	FName GetCosmeticId() const { return CosmeticId; }
 
 protected:
@@ -138,4 +143,8 @@ protected:
 private:
 	EAFLLoadoutAxis Axis = EAFLLoadoutAxis::Weapon;
 	FName CosmeticId;
+
+	/** Locker card mode (set by ApplyLoadoutCardStyle): the EQUIP button equips via the axis-carrying OnTileClicked
+	 *  (the locker's existing handler) instead of the store's OnEquipClicked -> no new locker handler needed. */
+	bool bEquipUsesTileClick = false;
 };

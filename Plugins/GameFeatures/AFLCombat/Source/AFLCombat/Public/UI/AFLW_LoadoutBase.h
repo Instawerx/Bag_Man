@@ -72,6 +72,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout")
 	TSubclassOf<UAFLW_LoadoutTileBase> TileClass;
 
+	/** Store-card treatment on the tiles (rarity frame + neon-pipe EQUIP button, store parity). Default OFF so the
+	 *  in-match locker stays plain; the FRONT-END locker WBP (WBP_AFL_Loadout) sets this TRUE. Flip the in-match
+	 *  WBP only after the operator watches the front-end. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout")
+	bool bStoreCardStyle = false;
+
 protected:
 	//~UCommonActivatableWidget / UUserWidget
 	virtual void NativeOnInitialized() override;

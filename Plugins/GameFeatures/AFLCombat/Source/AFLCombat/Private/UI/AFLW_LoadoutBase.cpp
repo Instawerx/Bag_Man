@@ -720,6 +720,12 @@ void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Con
 		}
 		Tile->SetTileData(Axis, Entry.CosmeticId, Label, Entry.CosmeticId == EquippedId, bIsSwatch, SwatchColor, Entry.ShopThumbnail);
 		Tile->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleTileClicked);
+		if (bStoreCardStyle)
+		{
+			// STORE PARITY (front-end locker only; gated by the WBP flag): reveal the rarity frame + neon-pipe EQUIP
+			// button. The EQUIP button routes back through OnTileClicked -> HandleTileClicked, so no new handler.
+			Tile->ApplyLoadoutCardStyle(Entry.CosmeticId == EquippedId);
+		}
 		Container->AddChild(Tile);
 	}
 }

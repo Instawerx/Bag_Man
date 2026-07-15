@@ -504,19 +504,6 @@ namespace
 {
 	static const FLinearColor GAFLNeonBlue(0.1176f, 0.3529f, 1.0f, 1.0f);    // #1E5AFF Volts
 	static const FLinearColor GAFLNeonMagenta(1.0f, 0.1765f, 0.6196f, 1.0f); // #FF2D9E Watts
-
-	// CHROME pill: dark gloss glass fill + a bright neon outline, fully-rounded ends (HalfHeightRadius). Same
-	// gloss-black + neon-accent language as the product cards, so the whole store reads as one surface.
-	FSlateBrush MakeNeonPillBrush(const FLinearColor& Neon)
-	{
-		FSlateBrush B;
-		B.DrawAs = ESlateBrushDrawType::RoundedBox;
-		B.TintColor = FSlateColor(FLinearColor(0.0196f, 0.0314f, 0.0588f, 0.85f)); // gloss-black glass
-		B.OutlineSettings.Color = FSlateColor(Neon);
-		B.OutlineSettings.Width = 1.5f;
-		B.OutlineSettings.RoundingType = ESlateBrushRoundingType::HalfHeightRadius; // pill ends
-		return B;
-	}
 }
 
 void UAFLW_FrontEndMarket::RefreshWalletChrome(int32 Volts, int32 Watts)
@@ -530,11 +517,8 @@ void UAFLW_FrontEndMarket::RefreshWalletChrome(int32 Volts, int32 Watts)
 
 void UAFLW_FrontEndMarket::StyleChrome()
 {
-	// --- TOP: WALLET PILLS -- dark-gloss + neon outline. Cast-guarded; a non-UBorder pill still shows its value. ---
-	if (UBorder* Pill = Cast<UBorder>(GetWidgetFromName(TEXT("VoltsPill")))) { Pill->SetBrush(MakeNeonPillBrush(GAFLNeonBlue)); }
-	else { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MARKET: chrome - 'VoltsPill' not a UBorder (outline skipped).")); }
-	if (UBorder* Pill = Cast<UBorder>(GetWidgetFromName(TEXT("WattsPill")))) { Pill->SetBrush(MakeNeonPillBrush(GAFLNeonMagenta)); }
-	else { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MARKET: chrome - 'WattsPill' not a UBorder (outline skipped).")); }
+	// --- TOP: WALLET PILLS -- the gloss-black + neon CAPSULE lives on the WBP wrapper Borders (VoltsPillBG /
+	// WattsPillBG, styled via the bridge). Here we only tint the coins + keep the balances white. ---
 	if (UImage* Coin = Cast<UImage>(GetWidgetFromName(TEXT("VoltsCoin")))) { Coin->SetColorAndOpacity(GAFLNeonBlue); }
 	if (UImage* Coin = Cast<UImage>(GetWidgetFromName(TEXT("WattsCoin")))) { Coin->SetColorAndOpacity(GAFLNeonMagenta); }
 	if (UTextBlock* V = Cast<UTextBlock>(GetWidgetFromName(TEXT("VoltsValue")))) { V->SetColorAndOpacity(FSlateColor(FLinearColor::White)); }

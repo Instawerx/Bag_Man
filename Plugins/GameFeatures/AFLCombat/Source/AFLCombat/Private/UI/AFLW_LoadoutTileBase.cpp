@@ -69,6 +69,9 @@ void UAFLW_LoadoutTileBase::NativeOnListItemObjectSet(UObject* ListItemObject)
 	if (const UAFLMarketLoadoutItem* It = Cast<UAFLMarketLoadoutItem>(ListItemObject))
 	{
 		SetTileData(It->Axis, It->CosmeticId, It->DisplayName, It->bEquipped, It->bIsSwatch, It->SwatchColor, It->Thumbnail);
+		// STORE PARITY: this front-end LOADOUT tile gains the rarity frame + EQUIP button. The in-match locker calls
+		// SetTileData directly (not this ListView path), so it stays plain.
+		ApplyLoadoutCardStyle(It->bEquipped);
 		return;
 	}
 
@@ -218,6 +221,34 @@ void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmetic
 	if (EquipButton)  { EquipButton->SetVisibility(ESlateVisibility::Collapsed); }
 }
 
+void UAFLW_LoadoutTileBase::ApplyLoadoutCardStyle(bool bEquipped)
+{
+	// Locker card: route the EQUIP button through OnTileClicked (carries the axis) so the locker's existing
+	// HandleTileClicked equips it -- no separate OnEquipClicked handler needed.
+	bEquipUsesTileClick = true;
+
+	// Rarity frame -- same treatment as the store card (bottom rarity bar).
+	if (RarityFrame)
+	{
+		if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+		{
+			if (const FAFLCatalogEntry* Entry = Catalog->FindEntry(CosmeticId))
+			{
+				RarityFrame->SetBrushColor(UAFLCosmeticCatalogSubsystem::GetRarityColor(*Entry));
+				RarityFrame->SetVisibility(ESlateVisibility::HitTestInvisible);
+			}
+		}
+	}
+	// EQUIP button -- the arc-violet MI_AFL_Button_Equip material already lives on the WBP button. Owned surface ->
+	// always shown + enabled (re-equip is a harmless no-op); the equipped state is carried by the EquippedBadge +
+	// the blue tile back (disabling would show the button's unset Disabled brush as a grey box).
+	if (EquipButton)
+	{
+		EquipButton->SetVisibility(ESlateVisibility::Visible);
+	}
+	(void)bEquipped;
+}
+
 void UAFLW_LoadoutTileBase::HandleBuyClicked()
 {
 	OnBuyClicked.Broadcast(CosmeticId, /*bWatts*/ false);
@@ -230,7 +261,10 @@ void UAFLW_LoadoutTileBase::HandleBuyAltClicked()
 
 void UAFLW_LoadoutTileBase::HandleEquipClicked()
 {
-	OnEquipClicked.Broadcast(CosmeticId);
+	// Locker card -> equip via the axis-carrying tile-click path (the whole-tile click also equips). Store card ->
+	// the store's owned-item equip.
+	if (bEquipUsesTileClick) { OnTileClicked.Broadcast(Axis, CosmeticId); }
+	else                     { OnEquipClicked.Broadcast(CosmeticId); }
 }
 
 void UAFLW_LoadoutTileBase::HandleButtonClicked()
