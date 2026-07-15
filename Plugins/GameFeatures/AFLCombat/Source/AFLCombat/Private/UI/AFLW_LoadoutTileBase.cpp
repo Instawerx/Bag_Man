@@ -96,30 +96,21 @@ void UAFLW_LoadoutTileBase::NativeOnListItemObjectSet(UObject* ListItemObject)
 			RarityFrame->SetVisibility(ESlateVisibility::HitTestInvisible);
 		}
 
-		// B2c/d: OWNED -> EQUIP + "OWNED"; else BUY (Volts always; Watts only on a SPARK dual-priced item).
-		auto ShowW = [](UWidget* W, bool bShow) { if (W) { W->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Collapsed); } };
-		const int32 PriceV = Entry->PriceVolts;
-		const int32 PriceW = Entry->PriceWatts;
-		if (bOwned)
+		// Reference card layout: the dual-price sits on its own line; the row shows BUY + EQUIP, both ALWAYS present
+		// (BUY purchases, EQUIP previews on the hero). One BUY on the card (Volts); the Watts choice is the detail panel.
+		if (PriceText)
 		{
-			ShowW(BuyButton, false); ShowW(BuyAltButton, false); ShowW(EquipButton, true);
-			if (PriceText)
-			{
-				PriceText->SetText(NSLOCTEXT("AFLStore", "Owned", "OWNED"));
-				PriceText->SetVisibility(ESlateVisibility::HitTestInvisible);
-			}
+			PriceText->SetText(UAFLCosmeticCatalogSubsystem::GetEntryPriceText(*Entry));
+			PriceText->SetVisibility(ESlateVisibility::HitTestInvisible);
 		}
-		else
+		if (BuyButton)
 		{
-			ShowW(EquipButton, false);
-			ShowW(BuyButton, true);
-			if (BuyLabel) { BuyLabel->SetText(FText::Format(NSLOCTEXT("AFLStore", "BuyV", "BUY  {0} V"), FText::AsNumber(PriceV))); }
-			const bool bDual = PriceW > 0;
-			ShowW(BuyAltButton, bDual);
-			if (bDual && BuyAltLabel) { BuyAltLabel->SetText(FText::Format(NSLOCTEXT("AFLStore", "BuyW", "BUY  {0} W"), FText::AsNumber(PriceW))); }
-			// The BUY buttons carry the price -> hide the standalone price line when purchasable.
-			if (PriceText) { PriceText->SetVisibility(ESlateVisibility::Collapsed); }
+			BuyButton->SetVisibility(ESlateVisibility::Visible);
+			BuyButton->SetIsEnabled(!bOwned); // owned -> BUY greys out
 		}
+		if (BuyLabel) { BuyLabel->SetText(bOwned ? NSLOCTEXT("AFLStore", "Owned", "OWNED") : NSLOCTEXT("AFLStore", "Buy", "BUY")); }
+		if (BuyAltButton) { BuyAltButton->SetVisibility(ESlateVisibility::Collapsed); } // one BUY on the card
+		if (EquipButton)  { EquipButton->SetVisibility(ESlateVisibility::Visible); }
 	}
 }
 
@@ -156,7 +147,7 @@ void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmetic
 		{
 			FSlateBrush Brush;
 			Brush.SetResourceObject(Thumb);
-			Brush.ImageSize = FVector2D(112.f, 112.f); // uniform product-card tile size (a fresh UImage brush is 32x32)
+			Brush.ImageSize = FVector2D(64.f, 64.f); // ~64px thumbnail -> drives the ~72-80px tight card-row height
 			ProductImage->SetBrush(Brush);
 			ProductImage->SetVisibility(ESlateVisibility::HitTestInvisible); // never eats the tile click
 			if (SwatchChip)
@@ -171,10 +162,11 @@ void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmetic
 	}
 	if (SelectButton)
 	{
-		// Selected-fill: electric-blue #1E5AFF on the EQUIPPED tile, dark glass otherwise (UI Style SSOT).
+		// Card fill: near-black DARK GLASS (#05080F @ 0.90 -- SSOT UIPanel.Glass) so the neon pipes + prices IGNITE
+		// against it and the bright armory doesn't bleed through. Equipped tile (loadout) keeps the electric-blue cue.
 		SelectButton->SetBackgroundColor(bInEquipped
 			? FLinearColor(0.013f, 0.102f, 1.0f, 0.92f)
-			: FLinearColor(0.02f, 0.05f, 0.14f, 0.88f));
+			: FLinearColor(0.0196f, 0.0314f, 0.0588f, 0.90f));
 	}
 	// STORE rich-card widgets default HIDDEN: only the STORE render path (NativeOnListItemObjectSet) re-shows + fills
 	// them. Loadout/locker tiles call SetTileData directly and leave them collapsed.

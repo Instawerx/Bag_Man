@@ -111,6 +111,19 @@ void UAFLW_FrontEndMarket::ApplyShowroomMode()
 			B->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.f));
 		}
 	}
+
+	// LEFT browser rail -> solid gloss-black glass (matches the product cards' #05080F) so the armory does NOT bleed
+	// through it -- only the CENTER dissolves to the live hero, the RIGHT detail panel keeps its scene window. First
+	// matching Border wins; the log confirms which name hit (adjust if none do).
+	for (const TCHAR* RailName : { TEXT("LeftBrowser"), TEXT("LeftBrowserPanel"), TEXT("BrowserPanel"), TEXT("LeftRail"), TEXT("ShopRail"), TEXT("LeftColumn"), TEXT("ShopPanel") })
+	{
+		if (UBorder* Rail = Cast<UBorder>(GetWidgetFromName(FName(RailName))))
+		{
+			Rail->SetBrushColor(FLinearColor(0.0196f, 0.0314f, 0.0588f, 0.93f)); // #05080F gloss-black @ 0.93
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: LEFT rail '%s' -> gloss-black."), RailName);
+			break;
+		}
+	}
 }
 
 // ===================================================================================================
