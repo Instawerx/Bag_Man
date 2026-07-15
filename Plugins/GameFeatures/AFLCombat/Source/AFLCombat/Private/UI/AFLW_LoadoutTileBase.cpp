@@ -11,6 +11,9 @@
 #include "AFLCosmeticCatalogSubsystem.h" // STORE tile: resolve CosmeticId -> DisplayName + ShopThumbnail (SSOT)
 #include "AFLCosmeticCoreTypes.h"        // FAFLCatalogEntry
 #include "UObject/UnrealType.h"          // FNameProperty / CastField -- read CosmeticId off the store's BP item
+#include "Cosmetics/AFLWalletComponent.h" // OwnsCosmetic -> OWNED vs price (B2b)
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_LoadoutTileBase)
 
@@ -22,6 +25,9 @@ void UAFLW_LoadoutTileBase::NativeOnInitialized()
 	{
 		SelectButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutTileBase::HandleButtonClicked);
 	}
+	if (BuyButton)    { BuyButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutTileBase::HandleBuyClicked); }
+	if (BuyAltButton) { BuyAltButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutTileBase::HandleBuyAltClicked); }
+	if (EquipButton)  { EquipButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutTileBase::HandleEquipClicked); }
 }
 
 void UAFLW_LoadoutTileBase::NativeOnListItemObjectSet(UObject* ListItemObject)
@@ -53,17 +59,68 @@ void UAFLW_LoadoutTileBase::NativeOnListItemObjectSet(UObject* ListItemObject)
 	}
 	FText Name = FText::FromName(StoreId);
 	TSoftObjectPtr<UTexture2D> Thumb;
+	const FAFLCatalogEntry* Entry = nullptr;
 	if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
 	{
-		if (const FAFLCatalogEntry* Entry = Catalog->FindEntry(StoreId))
+		Entry = Catalog->FindEntry(StoreId); // pointer into the resident catalog -> stays valid
+		if (Entry)
 		{
 			if (!Entry->DisplayName.IsEmpty()) { Name = Entry->DisplayName; }
 			Thumb = Entry->ShopThumbnail;
 		}
 	}
 	// Axis is irrelevant for a store tile (the market re-derives it from the CosmeticId on selection); pass a
-	// placeholder. bEquipped=false: the store's own detail panel owns the OWNED/BUY state in this increment.
+	// placeholder. SetTileData collapses the rich-card widgets -> the store path (below) fills + shows them.
 	SetTileData(EAFLLoadoutAxis::Weapon, StoreId, Name, /*bEquipped*/ false, /*bIsSwatch*/ false, FLinearColor::White, Thumb);
+
+	// Rich store card (B2a rarity frame + B2b dual price / OWNED). Only the store WBP binds RarityFrame/PriceText;
+	// on the loadout/locker WBP they're null -> no-op. HitTestInvisible so they never eat the tile's SelectButton click.
+	if (Entry)
+	{
+		// OWNED? -> drives BUY-vs-EQUIP + the "OWNED" tag.
+		bool bOwned = false;
+		if (const APlayerController* PC = GetOwningPlayer())
+		{
+			if (const APlayerState* PS = PC->PlayerState)
+			{
+				if (const UAFLWalletComponent* Wallet = PS->FindComponentByClass<UAFLWalletComponent>())
+				{
+					bOwned = Wallet->OwnsCosmetic(StoreId);
+				}
+			}
+		}
+
+		if (RarityFrame)
+		{
+			RarityFrame->SetBrushColor(UAFLCosmeticCatalogSubsystem::GetRarityColor(*Entry));
+			RarityFrame->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+
+		// B2c/d: OWNED -> EQUIP + "OWNED"; else BUY (Volts always; Watts only on a SPARK dual-priced item).
+		auto ShowW = [](UWidget* W, bool bShow) { if (W) { W->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Collapsed); } };
+		const int32 PriceV = Entry->PriceVolts;
+		const int32 PriceW = Entry->PriceWatts;
+		if (bOwned)
+		{
+			ShowW(BuyButton, false); ShowW(BuyAltButton, false); ShowW(EquipButton, true);
+			if (PriceText)
+			{
+				PriceText->SetText(NSLOCTEXT("AFLStore", "Owned", "OWNED"));
+				PriceText->SetVisibility(ESlateVisibility::HitTestInvisible);
+			}
+		}
+		else
+		{
+			ShowW(EquipButton, false);
+			ShowW(BuyButton, true);
+			if (BuyLabel) { BuyLabel->SetText(FText::Format(NSLOCTEXT("AFLStore", "BuyV", "BUY  {0} V"), FText::AsNumber(PriceV))); }
+			const bool bDual = PriceW > 0;
+			ShowW(BuyAltButton, bDual);
+			if (bDual && BuyAltLabel) { BuyAltLabel->SetText(FText::Format(NSLOCTEXT("AFLStore", "BuyW", "BUY  {0} W"), FText::AsNumber(PriceW))); }
+			// The BUY buttons carry the price -> hide the standalone price line when purchasable.
+			if (PriceText) { PriceText->SetVisibility(ESlateVisibility::Collapsed); }
+		}
+	}
 }
 
 void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor, const TSoftObjectPtr<UTexture2D>& InThumbnail)
@@ -119,6 +176,28 @@ void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmetic
 			? FLinearColor(0.013f, 0.102f, 1.0f, 0.92f)
 			: FLinearColor(0.02f, 0.05f, 0.14f, 0.88f));
 	}
+	// STORE rich-card widgets default HIDDEN: only the STORE render path (NativeOnListItemObjectSet) re-shows + fills
+	// them. Loadout/locker tiles call SetTileData directly and leave them collapsed.
+	if (RarityFrame)  { RarityFrame->SetVisibility(ESlateVisibility::Collapsed); }
+	if (PriceText)    { PriceText->SetVisibility(ESlateVisibility::Collapsed); }
+	if (BuyButton)    { BuyButton->SetVisibility(ESlateVisibility::Collapsed); }
+	if (BuyAltButton) { BuyAltButton->SetVisibility(ESlateVisibility::Collapsed); }
+	if (EquipButton)  { EquipButton->SetVisibility(ESlateVisibility::Collapsed); }
+}
+
+void UAFLW_LoadoutTileBase::HandleBuyClicked()
+{
+	OnBuyClicked.Broadcast(CosmeticId, /*bWatts*/ false);
+}
+
+void UAFLW_LoadoutTileBase::HandleBuyAltClicked()
+{
+	OnBuyClicked.Broadcast(CosmeticId, /*bWatts*/ true);
+}
+
+void UAFLW_LoadoutTileBase::HandleEquipClicked()
+{
+	OnEquipClicked.Broadcast(CosmeticId);
 }
 
 void UAFLW_LoadoutTileBase::HandleButtonClicked()

@@ -29,6 +29,10 @@ enum class EAFLLoadoutAxis : uint8
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAFLLoadoutTileClicked, EAFLLoadoutAxis, Axis, FName, CosmeticId);
+/** STORE rich card: BUY pressed. bWatts=false -> pay Volts, true -> pay Watts (the owner maps to EAFLPayCurrency). */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAFLStoreTileBuy, FName, CosmeticId, bool, bWatts);
+/** STORE rich card: EQUIP pressed on an owned item (owner previews/equips it). */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAFLStoreTileEquip, FName, CosmeticId);
 
 /**
  * UAFLMarketLoadoutItem -- a front-end LOADOUT list item. Carries a tile's full SetTileData payload so
@@ -70,6 +74,13 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "AFL|Loadout")
 	FOnAFLLoadoutTileClicked OnTileClicked;
 
+	/** STORE rich card: BUY pressed (bWatts picks currency). Owner -> Wallet->ClientRequestPurchase. */
+	UPROPERTY(BlueprintAssignable, Category = "AFL|Store")
+	FOnAFLStoreTileBuy OnBuyClicked;
+	/** STORE rich card: EQUIP pressed (owned item). Owner -> preview/equip on the hero. */
+	UPROPERTY(BlueprintAssignable, Category = "AFL|Store")
+	FOnAFLStoreTileEquip OnEquipClicked;
+
 	/** Populate: store the axis + id, set the name label + EQUIPPED badge, show the ShopThumbnail as the tile's
 	 *  PRODUCT IMAGE (render or swatch), and tint the SwatchChip fallback for color axes with no thumbnail. */
 	void SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor, const TSoftObjectPtr<UTexture2D>& InThumbnail);
@@ -94,8 +105,29 @@ protected:
 	/** Color-swatch chip (color axes: body/edge/beam) -- FALLBACK tint when no ShopThumbnail resolves. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UBorder> SwatchChip;
 
+	// --- STORE rich-card widgets (B2) -- BindWidgetOptional so the loadout/locker WBP omits them (they stay
+	// collapsed via SetTileData); the STORE render path binds + shows + fills them from the catalog. ---
+	/** Rarity-colored frame (GetRarityColor). */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UBorder> RarityFrame;
+	/** Dual price "990 V / 9,900 W" (GetEntryPriceText) or "OWNED" when the player already owns it. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> PriceText;
+
+	// --- STORE buy/equip actions (B2c/d). BindWidgetOptional -> only the store WBP binds them; on the loadout/
+	// locker WBP they are null (SetTileData collapses them). The STORE render path shows/labels/flips them. ---
+	/** Volts BUY (MI_AFL_Button_Volts brush). Label -> "BUY  {volts} V". */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UButton> BuyButton;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> BuyLabel;
+	/** Watts BUY (MI_AFL_Button_Watts brush) -- shown only on SPARK (dual-priced) items. Label -> "BUY  {watts} W". */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UButton> BuyAltButton;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> BuyAltLabel;
+	/** EQUIP -- shown only when the item is OWNED (arc-violet treatment). */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UButton> EquipButton;
+
 	UFUNCTION()
 	void HandleButtonClicked();
+	UFUNCTION() void HandleBuyClicked();
+	UFUNCTION() void HandleBuyAltClicked();
+	UFUNCTION() void HandleEquipClicked();
 
 private:
 	EAFLLoadoutAxis Axis = EAFLLoadoutAxis::Weapon;

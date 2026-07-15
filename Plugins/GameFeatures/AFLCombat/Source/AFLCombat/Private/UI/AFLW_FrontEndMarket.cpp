@@ -12,6 +12,7 @@
 #include "Components/TextBlock.h"      // relabel the tab captions
 #include "Components/Widget.h"         // UWidget + GetWidgetFromName result
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
+#include "Cosmetics/AFLWalletComponent.h" // B2c: ClientRequestPurchase + OnWalletChanged (buy + live OWNED flip)
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
@@ -187,6 +188,18 @@ void UAFLW_FrontEndMarket::EnterStoreMode()
 		List->OnGetEntryClassForItem().BindUObject(this, &UAFLW_FrontEndMarket::GetLoadoutEntryClass);
 		List->OnEntryWidgetGenerated().AddUObject(this, &UAFLW_FrontEndMarket::OnStoreTileGenerated);
 		List->RegenerateAllEntries(); // the store BP generated BP tiles on construct -> rebuild them as OURS
+	}
+
+	// B2c: a per-tile BUY must flip that tile BUY -> OWNED/EQUIP live -> bind the wallet's change signal to a refresh.
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (APlayerState* PS = PC->PlayerState)
+		{
+			if (UAFLWalletComponent* Wallet = PS->FindComponentByClass<UAFLWalletComponent>())
+			{
+				Wallet->OnWalletChanged.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::OnStoreWalletChanged);
+			}
+		}
 	}
 
 	// Show ALL purchasables initially (no regression vs today); the first tab click applies a filter + the cyan
@@ -409,6 +422,61 @@ void UAFLW_FrontEndMarket::OnStoreTileGenerated(UUserWidget& EntryWidget)
 	if (UAFLW_LoadoutTileBase* Tile = Cast<UAFLW_LoadoutTileBase>(&EntryWidget))
 	{
 		Tile->OnTileClicked.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::HandleStoreTileClicked);
+		Tile->OnBuyClicked.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::HandleStoreTileBuy);
+		Tile->OnEquipClicked.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::HandleStoreTileEquip);
+	}
+}
+
+void UAFLW_FrontEndMarket::HandleStoreTileBuy(FName CosmeticId, bool bWatts)
+{
+	if (Mode != EAFLMarketMode::Store) { return; }
+	APlayerController* PC = GetOwningPlayer();
+	APlayerState* PS = PC ? PC->PlayerState : nullptr;
+	UAFLWalletComponent* Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+	if (!Wallet)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MARKET: [BUY] no wallet on PlayerState."));
+		return;
+	}
+	const EAFLPayCurrency Pay = bWatts ? EAFLPayCurrency::Watts : EAFLPayCurrency::Volts;
+	// Watts-wall + double-charge + afford are all guarded inside the wallet; OnWalletChanged -> OnStoreWalletChanged
+	// refreshes the tiles (BUY -> OWNED flip).
+#if UE_BUILD_SHIPPING
+	// SHIPPING: PlayFab-backed purchase -- requires the cosmetic to be seeded in the AFL_Main catalog.
+	Wallet->ClientRequestPurchase(CosmeticId, Pay);
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: [BUY] %s pay=%s -> ClientRequestPurchase (PlayFab)."),
+		*CosmeticId.ToString(), bWatts ? TEXT("Watts") : TEXT("Volts"));
+#else
+	// DEV/PIE: local-authority grant (the path the legacy store BP + cheats use). ClientRequestPurchase would hit
+	// PlayFab, whose AFL_Main catalog holds only the 3 test items -> every real cosmetic returns ItemNotFound. This
+	// grants locally so the buy loop (afford / Watts-wall / double-charge guard / OWNED-flip) is exercised in PIE.
+	Wallet->ServerPurchaseCosmetic(CosmeticId, Pay);
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: [BUY] %s pay=%s -> ServerPurchaseCosmetic (dev grant)."),
+		*CosmeticId.ToString(), bWatts ? TEXT("Watts") : TEXT("Volts"));
+#endif
+}
+
+void UAFLW_FrontEndMarket::HandleStoreTileEquip(FName CosmeticId)
+{
+	if (Mode != EAFLMarketMode::Store) { return; }
+	// Owned item -> try it on the hero (store = preview; the loadout is where a commit lives).
+	EAFLLoadoutAxis Axis = EAFLLoadoutAxis::BodyColor;
+	if (!ClassifyStoreAxis(CosmeticId, Axis)) { return; }
+	APlayerController* PC = GetOwningPlayer();
+	AAFLLoadoutDisplayPawn* Disp = GetDisplayPawn();
+	if (PC && Disp)
+	{
+		UAFLCosmeticBrowserLibrary::ApplyPreview(PC, Disp, Axis, CosmeticId);
+	}
+}
+
+void UAFLW_FrontEndMarket::OnStoreWalletChanged(int32 /*Volts*/, int32 /*Watts*/)
+{
+	// A purchase landed -> re-generate the store tiles so the bought item flips BUY -> OWNED/EQUIP live.
+	if (Mode != EAFLMarketMode::Store) { return; }
+	if (UListView* List = Cast<UListView>(GetWidgetFromName(TEXT("ShopListView"))))
+	{
+		List->RegenerateAllEntries();
 	}
 }
 

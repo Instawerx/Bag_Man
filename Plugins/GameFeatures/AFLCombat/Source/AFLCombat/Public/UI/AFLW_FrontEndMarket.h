@@ -100,6 +100,17 @@ protected:
 	UFUNCTION()
 	void HandleStoreTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
 
+	// --- B2c/d: per-tile BUY + EQUIP wired to the PROVEN buy path (buy-spine, must not regress) ---
+	/** Store tile BUY -> Wallet->ClientRequestPurchase(id, Volts|Watts). */
+	UFUNCTION()
+	void HandleStoreTileBuy(FName CosmeticId, bool bWatts);
+	/** Store tile EQUIP (owned) -> preview/equip on the display hero. */
+	UFUNCTION()
+	void HandleStoreTileEquip(FName CosmeticId);
+	/** Wallet OnWalletChanged -> refresh the store tiles so a bought item flips BUY -> OWNED/EQUIP live. */
+	UFUNCTION()
+	void OnStoreWalletChanged(int32 Volts, int32 Watts);
+
 	// --- STEP 5 LOADOUT mode (C++-runtime; STORE mode never reaches any of this) ---
 	void EnterLoadoutMode();
 	void PopulateForAxis(EAFLLoadoutAxis Axis);
