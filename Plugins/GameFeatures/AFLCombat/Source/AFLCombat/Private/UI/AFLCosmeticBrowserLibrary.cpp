@@ -12,6 +12,9 @@
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
+#include "AFLCombat.h"                       // LogAFLCombat (preview-chain instrumentation)
+#include "Cosmetics/AFLCharacterPartMap.h"  // STORE PREVIEW: identity id -> robot body class
+#include "UI/AFLLoadoutDisplayPawn.h"        // STORE PREVIEW: AAFLLoadoutDisplayPawn::SetRobotBody
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCosmeticBrowserLibrary)
 
@@ -185,4 +188,153 @@ void UAFLCosmeticBrowserLibrary::ApplySelectionToPawn(AController* Controller, A
 	SkinCtrl->RefreshWeaponForPawn(Pawn);
 	SkinCtrl->RefreshWeaponSkinForPawn(Pawn);
 	SkinCtrl->RefreshBeamColorForPawn(Pawn);
+}
+
+// ===================================================================================================
+//  STORE PREVIEW (front-end try-before-buy). Preview = a TEMPORARY visual apply with NO commit; the
+//  entitlement gate lives only in the commit (ServerSetCosmeticSelection), so unowned ids preview for
+//  free. The 5 Refresh*ForPawn read the controller's PreviewSelection override; Identity swaps the body.
+// ===================================================================================================
+
+namespace
+{
+	// Resolve an identity CosmeticId -> the robot body class (mirrors the market's equip identity path, IRONICS
+	// fallback). SetRobotBody is idempotent (guarded), so preview + revert can call this freely.
+	UClass* ResolveIdentityRobotClass(FName IdentityId)
+	{
+		static UAFLCharacterPartMap* PartMap = LoadObject<UAFLCharacterPartMap>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/SkinColors/DA_AFL_CharacterPartMap.DA_AFL_CharacterPartMap"));
+		UClass* RobotCls = nullptr;
+		if (PartMap && !IdentityId.IsNone())
+		{
+			const TSoftClassPtr<AActor> Soft = PartMap->ResolveCharacterPart(IdentityId);
+			if (!Soft.IsNull())
+			{
+				RobotCls = Soft.LoadSynchronous();
+			}
+		}
+		if (!RobotCls)
+		{
+			RobotCls = LoadClass<AActor>(nullptr, TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_IRONICS.B_AFL_Robot_IRONICS_C"));
+		}
+		return RobotCls;
+	}
+}
+
+void UAFLCosmeticBrowserLibrary::ApplyPreview(AController* Controller, APawn* DisplayPawn, EAFLLoadoutAxis Axis, FName CosmeticId)
+{
+	if (!Controller || !DisplayPawn)
+	{
+		return;
+	}
+	UAFLSkinColorControllerComponent* SkinCtrl = Controller->FindComponentByClass<UAFLSkinColorControllerComponent>();
+	// [PREVIEW-DIAG] step e -- reached the library; is the SkinCtrl present on this controller?
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_BROWSER: [PREVIEW e] ApplyPreview reached ctrl=%d disp=%d skinCtrl=%d axis=%d id=%s."),
+		Controller != nullptr, DisplayPawn != nullptr, SkinCtrl != nullptr, (int32)Axis, *CosmeticId.ToString());
+	if (!SkinCtrl)
+	{
+		return;
+	}
+
+	// Seed the preview from the player's COMMITTED selection so the un-previewed axes stay as the real loadout --
+	// only the selected item differs. Re-seeding each call means only the CURRENTLY selected item is previewed.
+	FAFLCosmeticSelection Preview;
+	const APlayerState* PS = Controller->PlayerState;
+	if (const UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr)
+	{
+		Preview = Loadout->GetSelection();
+	}
+	// Seed the free IRONICS identity if none, so an identity-less committed selection still resolves a body.
+	if (Preview.GetActiveIdentityId() == NAME_None)
+	{
+		Preview.IdentityType = EAFLIdentityType::Team;
+		Preview.TeamId = FName(TEXT("AFL.Team.IRONICS"));
+	}
+
+	// Set the ONE previewed axis (same axis-switch as EquipForAxis, but NO ServerSetCosmeticSelection -> no gate).
+	switch (Axis)
+	{
+	case EAFLLoadoutAxis::Weapon:      Preview.WeaponId = CosmeticId; break;
+	case EAFLLoadoutAxis::WeaponSkin:  Preview.WeaponSkinId = CosmeticId; break;
+	case EAFLLoadoutAxis::Beam:        Preview.BeamId = CosmeticId; break;
+	case EAFLLoadoutAxis::Identity:
+		if (CosmeticId.ToString().StartsWith(TEXT("AFL.Character."), ESearchCase::IgnoreCase))
+		{
+			Preview.IdentityType = EAFLIdentityType::Character;
+			Preview.CharacterId = CosmeticId;
+		}
+		else
+		{
+			Preview.IdentityType = EAFLIdentityType::Team;
+			Preview.TeamId = CosmeticId;
+		}
+		break;
+	case EAFLLoadoutAxis::BodyColor:   Preview.BodyId = CosmeticId; break;
+	case EAFLLoadoutAxis::EdgeColor:   Preview.EdgeId = CosmeticId; break;
+	case EAFLLoadoutAxis::Facemask:    Preview.FacemaskId = CosmeticId; break;
+	default:                           return;
+	}
+
+	// WEAPON FIX (b) -- a weapon SKIN or BEAM needs a weapon to land on. If the effective selection has NO weapon
+	// (bare hand), inject a showcase default gun FOR THE PREVIEW so the skin/beam has a surface; RefreshWeaponForPawn
+	// (the proven equip path) spawns it. Body/edge/visor/identity previews don't need it. On revert the committed
+	// WeaponId (None here) unequips this preview gun again -> the resting state stays the clean, bare-handed robot.
+	if ((Axis == EAFLLoadoutAxis::WeaponSkin || Axis == EAFLLoadoutAxis::Beam) && Preview.WeaponId.IsNone())
+	{
+		Preview.WeaponId = FName(TEXT("AFL.Weapon.Arclight")); // proven pilot weapon; reads as a showcase rifle
+	}
+
+	SkinCtrl->SetPreviewSelection(Preview);
+	// [PREVIEW-DIAG] step f -- override set; fanning out. Enable `afl.SkinDiag 1` to see RefreshWeapon read this id.
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_BROWSER: [PREVIEW f] preview override set weaponId=%s -> fan-out now."),
+		*Preview.WeaponId.ToString());
+
+	// Identity previews the robot BODY (a character-part swap, not part of the Refresh spine) -- BEFORE the fan-out
+	// so the skin controller re-paints the NEW body. SetRobotBody is idempotent, so a non-identity axis leaves the
+	// body untouched here.
+	if (Axis == EAFLLoadoutAxis::Identity)
+	{
+		if (AAFLLoadoutDisplayPawn* Disp = Cast<AAFLLoadoutDisplayPawn>(DisplayPawn))
+		{
+			if (UClass* RobotCls = ResolveIdentityRobotClass(Preview.GetActiveIdentityId()))
+			{
+				Disp->SetRobotBody(RobotCls);
+			}
+		}
+	}
+
+	// Repaint: the 5 Refresh*ForPawn now read the preview override.
+	ApplySelectionToPawn(Controller, DisplayPawn);
+}
+
+void UAFLCosmeticBrowserLibrary::RevertToSaved(AController* Controller, APawn* DisplayPawn)
+{
+	if (!Controller || !DisplayPawn)
+	{
+		return;
+	}
+	UAFLSkinColorControllerComponent* SkinCtrl = Controller->FindComponentByClass<UAFLSkinColorControllerComponent>();
+	if (!SkinCtrl)
+	{
+		return;
+	}
+
+	// Drop the override -> the Refresh*ForPawn read the committed selection again.
+	SkinCtrl->ClearPreviewSelection();
+
+	// Restore the committed robot body (a prior Identity preview may have swapped it). SetRobotBody's idempotency
+	// guard makes this a no-op when the body is already the committed identity (the common IRONICS case).
+	const APlayerState* PS = Controller->PlayerState;
+	if (const UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr)
+	{
+		if (AAFLLoadoutDisplayPawn* Disp = Cast<AAFLLoadoutDisplayPawn>(DisplayPawn))
+		{
+			if (UClass* RobotCls = ResolveIdentityRobotClass(Loadout->GetSelection().GetActiveIdentityId()))
+			{
+				Disp->SetRobotBody(RobotCls);
+			}
+		}
+	}
+
+	ApplySelectionToPawn(Controller, DisplayPawn);
 }

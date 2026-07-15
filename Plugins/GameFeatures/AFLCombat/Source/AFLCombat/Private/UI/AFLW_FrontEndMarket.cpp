@@ -20,6 +20,7 @@
 #include "UI/AFLCosmeticBrowserLibrary.h" // owned feed + equip + fan-out
 #include "UI/AFLLoadoutDisplayPawn.h"  // AAFLLoadoutDisplayPawn
 #include "UI/AFLW_LoadoutTileBase.h"   // UAFLW_LoadoutTileBase + UAFLMarketLoadoutItem
+#include "UObject/UnrealType.h"        // FNameProperty / CastField -- read CosmeticId off the store's BP item
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_FrontEndMarket)
 
@@ -54,11 +55,25 @@ void UAFLW_FrontEndMarket::NativeConstruct()
 	Super::NativeConstruct();
 	ApplyShowroomMode();
 
-	// STORE mode: NO-OP -> the store WBP graph drives list/tabs/buy, byte-for-byte. Only LOADOUT overrides.
+	// LOADOUT overrides the list with OUR tile. STORE now also runs a light C++ pass -- the category tabs shipped
+	// with NO click binding, so we bind them to FILTER the store's own items (tile + buy untouched). The LOADOUT
+	// instance transiently hits EnterStoreMode too (Mode is still Store at construct; the push init-hook flips it
+	// after), but EnterLoadoutMode then re-binds the tabs + repopulates, so that store pass is harmlessly replaced.
 	if (Mode == EAFLMarketMode::Loadout)
 	{
 		EnterLoadoutMode();
 	}
+	else
+	{
+		EnterStoreMode();
+	}
+}
+
+void UAFLW_FrontEndMarket::NativeDestruct()
+{
+	// Leaving the market -> drop any active store preview so the display robot isn't left wearing an unbought item.
+	RevertStorePreview();
+	Super::NativeDestruct();
 }
 
 void UAFLW_FrontEndMarket::EnterLoadout()
@@ -95,6 +110,333 @@ void UAFLW_FrontEndMarket::ApplyShowroomMode()
 			B->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.f));
 		}
 	}
+}
+
+// ===================================================================================================
+//  STEP A -- STORE mode: make the category tabs FILTER. Path 1 -- filter the store's OWN BP items
+//  (BP_AFL_StoreEntryData) by CosmeticId namespace; the store's tile + BUY/EQUIP + BP graph stay intact.
+//  The tabs shipped as UBorders with NO click binding (that's why they were dead) -> we bind
+//  OnMouseButtonDownEvent, the same single-cast mechanism LOADOUT uses.
+// ===================================================================================================
+
+namespace
+{
+	// Each store tab -> the CosmeticId namespace prefix(es) it shows. The catalog's EAFLCosmeticType values don't
+	// map 1:1 to the six marketing tabs, so this is the (operator-tunable) taxonomy: change a prefix and rebuild.
+	// A tab whose prefixes match nothing in the catalog simply shows empty. The trailing '.' matters -- it stops
+	// "AFL.Weapon." from also swallowing "AFL.WeaponSkin.".
+	struct FStoreTabDef { const TCHAR* TabName; const TCHAR* LabelName; const TCHAR* Prefixes[3]; };
+	// TAXONOMY (operator-ruled): each tab holds what its label says. EAFLCosmeticType doesn't map 1:1 to the six
+	// tabs, so this IS the taxonomy. Two tabs are REPURPOSED -- the widget NAME is kept, only the caption is
+	// relabeled (in EnterStoreMode): Tab_HELMETS -> "CAMOS" (weapon-skins, all NeonCamo), Tab_EMOTES -> "BEAMS".
+	// Identities aren't sold (free/earned -> loadout), so no store tab holds them.
+	static const FStoreTabDef GStoreTabs[6] = {
+		{ TEXT("Tab_WEAPONS"), TEXT("TabLabel_WEAPONS"), { TEXT("AFL.Weapon."),     TEXT("AFL.Ability."), nullptr           } },
+		{ TEXT("Tab_SKINS"),   TEXT("TabLabel_SKINS"),   { TEXT("AFL.Finish."),     TEXT("AFL.Body."),    TEXT("AFL.Edge.")  } },
+		{ TEXT("Tab_HELMETS"), TEXT("TabLabel_HELMETS"), { TEXT("AFL.WeaponSkin."), nullptr,              nullptr           } }, // -> CAMOS
+		{ TEXT("Tab_VISORS"),  TEXT("TabLabel_VISORS"),  { TEXT("AFL.Facemask."),   nullptr,              nullptr           } },
+		{ TEXT("Tab_EMOTES"),  TEXT("TabLabel_EMOTES"),  { TEXT("AFL.Beam."),       nullptr,              nullptr           } }, // -> BEAMS
+		{ TEXT("Tab_BUNDLES"), TEXT("TabLabel_BUNDLES"), { TEXT("AFL.Bundle."),     nullptr,              nullptr           } },
+	};
+}
+
+void UAFLW_FrontEndMarket::EnterStoreMode()
+{
+	// Bind the six category tabs. Mirror LOADOUT's PrepTab: the store tabs are UBorder (not buttons), so their
+	// click is OnMouseButtonDownEvent (single-cast dynamic). They had NO prior binding -> ours is the only one.
+	// BindDynamic needs the literal function token, so we can't loop this.
+	auto PrepTab = [this](const TCHAR* Name) -> UBorder*
+	{
+		UBorder* B = Cast<UBorder>(GetWidgetFromName(FName(Name)));
+		if (B)
+		{
+			B->SetIsEnabled(true);
+			B->SetVisibility(ESlateVisibility::Visible); // hit-testable so OnMouseButtonDownEvent fires
+		}
+		return B;
+	};
+	if (UBorder* B = PrepTab(TEXT("Tab_WEAPONS"))) { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabWeapons); }
+	if (UBorder* B = PrepTab(TEXT("Tab_SKINS")))   { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabSkins); }
+	if (UBorder* B = PrepTab(TEXT("Tab_HELMETS"))) { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabHelmets); }
+	if (UBorder* B = PrepTab(TEXT("Tab_VISORS")))  { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabVisors); }
+	if (UBorder* B = PrepTab(TEXT("Tab_EMOTES")))  { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabEmotes); }
+	if (UBorder* B = PrepTab(TEXT("Tab_BUNDLES"))) { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabBundles); }
+
+	// TAXONOMY: relabel the two repurposed tabs (the widget names stay Tab_HELMETS/Tab_EMOTES; only the caption
+	// changes). CAMOS = weapon-skins (all NeonCamo, so the label reads true); BEAMS = the beam VFX (was EMOTES).
+	if (UTextBlock* L = Cast<UTextBlock>(GetWidgetFromName(TEXT("TabLabel_HELMETS")))) { L->SetText(FText::FromString(TEXT("CAMOS"))); }
+	if (UTextBlock* L = Cast<UTextBlock>(GetWidgetFromName(TEXT("TabLabel_EMOTES")))) { L->SetText(FText::FromString(TEXT("BEAMS"))); }
+
+	// STORE PREVIEW: bind the ListView's NATIVE selection event (the BP one is private) so selecting a card
+	// previews it on the display robot. AddUObject (native multicast) is additive -> the store's own BP selection
+	// handler (details panel) is untouched. Deselect / tab-change / close revert it.
+	if (UListView* List = Cast<UListView>(GetWidgetFromName(TEXT("ShopListView"))))
+	{
+		List->OnItemSelectionChanged().AddUObject(this, &UAFLW_FrontEndMarket::OnStoreItemSelectionChanged);
+
+		// STORE's OWN TILE: point the ListView at OUR readable tile over the store's SAME BP items. The store BP
+		// tile's BUY/EQUIP buttons ATE the row click (you could never browse past the auto-first item -- a store you
+		// can't navigate is broken). OUR tile's SelectButton is a delegate WE own, so a body-click reliably selects
+		// the row -> the store's detail panel + BUY AND our try-on preview fire (HandleStoreTileClicked). The store's
+		// BP ITEMS stay the list data, so the BP detail panel + buy read them exactly as before -- zero buy-spine risk.
+		if (!LoadoutTileClass)
+		{
+			LoadoutTileClass = LoadClass<UAFLW_LoadoutTileBase>(nullptr,
+				TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_LoadoutTile.WBP_AFL_LoadoutTile_C"));
+		}
+		List->OnGetEntryClassForItem().BindUObject(this, &UAFLW_FrontEndMarket::GetLoadoutEntryClass);
+		List->OnEntryWidgetGenerated().AddUObject(this, &UAFLW_FrontEndMarket::OnStoreTileGenerated);
+		List->RegenerateAllEntries(); // the store BP generated BP tiles on construct -> rebuild them as OURS
+	}
+
+	// Show ALL purchasables initially (no regression vs today); the first tab click applies a filter + the cyan
+	// active cue. We DON'T recolor the tabs here, so the store's shipped look is untouched until the user filters.
+	ActiveStoreTab = -1;
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: EnterStoreMode -> 6 category tabs wired to filter."));
+}
+
+FName UAFLW_FrontEndMarket::ReadEntryCosmeticId(const UObject* Item)
+{
+	if (!Item)
+	{
+		return NAME_None;
+	}
+	// The store item is a BP UObject (BP_AFL_StoreEntryData) with a confirmed 'CosmeticId' FName property.
+	if (const FNameProperty* Prop = CastField<FNameProperty>(Item->GetClass()->FindPropertyByName(TEXT("CosmeticId"))))
+	{
+		return Prop->GetPropertyValue_InContainer(Item);
+	}
+	return NAME_None;
+}
+
+void UAFLW_FrontEndMarket::FilterStore(int32 TabIndex)
+{
+	if (TabIndex < 0 || TabIndex >= 6)
+	{
+		return;
+	}
+	// Switching category drops any active preview -> the robot returns to the real loadout before the new list.
+	RevertStorePreview();
+	UListView* List = Cast<UListView>(GetWidgetFromName(TEXT("ShopListView")));
+	if (!List)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MARKET: FilterStore - 'ShopListView' not found / not a UListView."));
+		return;
+	}
+
+	// Lazily cache the store's FULL item set (the store BP populated it on construct). Refresh if the store grew
+	// the list (e.g. a post-purchase re-populate) so we always filter from the complete set.
+	const TArray<UObject*>& Current = List->GetListItems();
+	if (StoreFullItems.Num() == 0 || Current.Num() > StoreFullItems.Num())
+	{
+		StoreFullItems.Reset(Current.Num());
+		for (UObject* O : Current)
+		{
+			StoreFullItems.Add(O);
+		}
+
+		// Taxonomy census: log the distinct "AFL.<Type>." namespaces + counts in the store's full set, so the
+		// tab->category table above can be tuned to the REAL catalog from a single PIE (no guessing/rebuild loop).
+		TMap<FString, int32> NsCount;
+		for (const TObjectPtr<UObject>& Obj : StoreFullItems)
+		{
+			const FString IdStr = ReadEntryCosmeticId(Obj.Get()).ToString();
+			TArray<FString> Parts;
+			IdStr.ParseIntoArray(Parts, TEXT("."));
+			const FString Ns = (Parts.Num() >= 2) ? (Parts[0] + TEXT(".") + Parts[1] + TEXT(".")) : IdStr;
+			NsCount.FindOrAdd(Ns)++;
+		}
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: store taxonomy census -- %d item(s), %d namespace(s):"), StoreFullItems.Num(), NsCount.Num());
+		for (const TPair<FString, int32>& Pair : NsCount)
+		{
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET:   %-24s x%d"), *Pair.Key, Pair.Value);
+		}
+	}
+
+	const FStoreTabDef& Def = GStoreTabs[TabIndex];
+	TArray<UObject*> Subset;
+	Subset.Reserve(StoreFullItems.Num());
+	for (const TObjectPtr<UObject>& Obj : StoreFullItems)
+	{
+		const FString IdStr = ReadEntryCosmeticId(Obj.Get()).ToString();
+		for (const TCHAR* Pfx : Def.Prefixes)
+		{
+			if (Pfx && IdStr.StartsWith(Pfx, ESearchCase::IgnoreCase))
+			{
+				Subset.Add(Obj.Get());
+				break;
+			}
+		}
+	}
+
+	// Reuse the store's OWN item objects -> its BP tile renders + buys them exactly as before, just a subset.
+	List->SetListItems(Subset);
+	ActiveStoreTab = TabIndex;
+	UpdateStoreTabVisuals(TabIndex);
+
+	// AUTO-PREVIEW (ruled, reference-correct): open every tab on its HERO product -- auto-select the first item so
+	// the robot instantly shows it (armed for weapon/camo/beam via the auto-arm; colored/visored for the rest, NO
+	// gun on color axes) AND the store's own detail panel populates (name/series/rarity/price). This fires the
+	// SAME OnItemSelectionChanged chain a manual body-click would, so a later body-click just REFINES it -- auto-
+	// first is the default, not a lock. SetListItems cleared the selection above, so this always re-fires. Empty
+	// tab -> nothing selected, robot stays clean (RevertStorePreview ran at the top of FilterStore). No stacking:
+	// the top-of-function revert (empty tabs) + ApplyPreview's re-seed-from-committed (non-empty) both prevent it.
+	// Select the first PREVIEWABLE item (skip non-visual entries -- e.g. the EMP ability in WEAPONS -- so a tab
+	// whose first row has no visual preview still opens on a shown product).
+	UObject* AutoItem = nullptr;
+	for (UObject* Obj : Subset)
+	{
+		EAFLLoadoutAxis Ax;
+		if (ClassifyStoreAxis(ReadEntryCosmeticId(Obj), Ax)) { AutoItem = Obj; break; }
+	}
+	if (AutoItem)
+	{
+		List->SetSelectedItem(AutoItem);
+	}
+
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: store tab '%s' -> %d/%d item(s) (auto-preview=%s)."),
+		Def.LabelName, Subset.Num(), StoreFullItems.Num(),
+		AutoItem ? *ReadEntryCosmeticId(AutoItem).ToString() : TEXT("<none>"));
+}
+
+void UAFLW_FrontEndMarket::UpdateStoreTabVisuals(int32 ActiveIndex)
+{
+	// Active tab -> cyan label + a faint cyan fill; inactive -> dim label + transparent fill. (A true underline
+	// bar needs a dedicated per-tab widget; label-cyan is the robust active cue over the store's shipped tabs.)
+	static const FSlateColor CyanActive(FLinearColor(0.15f, 0.95f, 1.0f, 1.0f));
+	static const FSlateColor DimInactive(FLinearColor(0.62f, 0.68f, 0.80f, 1.0f));
+	for (int32 i = 0; i < 6; ++i)
+	{
+		if (UTextBlock* L = Cast<UTextBlock>(GetWidgetFromName(FName(GStoreTabs[i].LabelName))))
+		{
+			L->SetColorAndOpacity(i == ActiveIndex ? CyanActive : DimInactive);
+		}
+		if (UBorder* B = Cast<UBorder>(GetWidgetFromName(FName(GStoreTabs[i].TabName))))
+		{
+			B->SetBrushColor(i == ActiveIndex ? FLinearColor(0.05f, 0.55f, 0.72f, 0.30f) : FLinearColor(0.f, 0.f, 0.f, 0.f));
+		}
+	}
+}
+
+// One tiny handler per tab -- OnMouseButtonDownEvent is a single-cast dynamic (no capture), so we can't share one.
+#define AFL_STORE_TAB_HANDLER(FnName, Index) \
+	FEventReply UAFLW_FrontEndMarket::FnName(FGeometry, const FPointerEvent&) \
+	{ FilterStore(Index); return FEventReply(true); }
+AFL_STORE_TAB_HANDLER(OnStoreTabWeapons, 0)
+AFL_STORE_TAB_HANDLER(OnStoreTabSkins,   1)
+AFL_STORE_TAB_HANDLER(OnStoreTabHelmets, 2)
+AFL_STORE_TAB_HANDLER(OnStoreTabVisors,  3)
+AFL_STORE_TAB_HANDLER(OnStoreTabEmotes,  4)
+AFL_STORE_TAB_HANDLER(OnStoreTabBundles, 5)
+#undef AFL_STORE_TAB_HANDLER
+
+// --- STORE PREVIEW (front-end try-before-buy) -- selecting a store card shows it on the display robot ---
+
+bool UAFLW_FrontEndMarket::ClassifyStoreAxis(FName CosmeticId, EAFLLoadoutAxis& OutAxis)
+{
+	const FString Id = CosmeticId.ToString();
+	// Order matters: test "AFL.WeaponSkin." BEFORE "AFL.Weapon." (the trailing '.' keeps them distinct anyway).
+	if (Id.StartsWith(TEXT("AFL.WeaponSkin."), ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::WeaponSkin; return true; }
+	if (Id.StartsWith(TEXT("AFL.Weapon."),     ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::Weapon;     return true; }
+	if (Id.StartsWith(TEXT("AFL.Finish."),     ESearchCase::IgnoreCase) ||
+	    Id.StartsWith(TEXT("AFL.Body."),       ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::BodyColor;  return true; }
+	if (Id.StartsWith(TEXT("AFL.Edge."),       ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::EdgeColor;  return true; }
+	if (Id.StartsWith(TEXT("AFL.Beam."),       ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::Beam;       return true; }
+	if (Id.StartsWith(TEXT("AFL.Facemask."),   ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::Facemask;   return true; }
+	if (Id.StartsWith(TEXT("AFL.Character."),  ESearchCase::IgnoreCase) ||
+	    Id.StartsWith(TEXT("AFL.Team."),       ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::Identity;   return true; }
+	return false; // Bundles / unknown -> no single preview axis
+}
+
+void UAFLW_FrontEndMarket::OnStoreItemSelectionChanged(UObject* Item)
+{
+	// [PREVIEW-DIAG] step a -- did the native selection event fire at all? If this line NEVER appears when you click
+	// a store tile, the tile's own BUY/EQUIP buttons swallow the click / the row never selects (the opaque-BP-tile
+	// trap -- exactly what killed the loadout's OnItemClicked). That would be the break; report it.
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: [PREVIEW a] selection FIRED item=%s mode=%d."),
+		Item ? *Item->GetName() : TEXT("<null>"), (int32)Mode);
+
+	// STORE mode only (LOADOUT drives the list with OUR tile + its own click; this bind is inert there via the guard).
+	if (Mode != EAFLMarketMode::Store)
+	{
+		return;
+	}
+	if (!Item)
+	{
+		RevertStorePreview(); // deselect -> back to the real loadout
+		return;
+	}
+
+	const FName CosmeticId = ReadEntryCosmeticId(Item);
+	EAFLLoadoutAxis Axis = EAFLLoadoutAxis::BodyColor;
+	const bool bClassified = !CosmeticId.IsNone() && ClassifyStoreAxis(CosmeticId, Axis);
+	// [PREVIEW-DIAG] steps b + c -- item class, CosmeticId read off the BP item, and axis classification.
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: [PREVIEW b/c] itemClass=%s cosmeticId=%s classified=%s axis=%d."),
+		*Item->GetClass()->GetName(), *CosmeticId.ToString(), bClassified ? TEXT("YES") : TEXT("NO"), (int32)Axis);
+	if (!bClassified)
+	{
+		return; // e.g. a bundle -> nothing single-axis to preview
+	}
+
+	APlayerController* PC = GetOwningPlayer();
+	AAFLLoadoutDisplayPawn* Disp = GetDisplayPawn();
+	// [PREVIEW-DIAG] step d -- controller + display pawn resolved, about to call ApplyPreview.
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: [PREVIEW d] PC=%d disp=%d -> ApplyPreview(%s, axis=%d)."),
+		PC != nullptr, Disp != nullptr, *CosmeticId.ToString(), (int32)Axis);
+	if (!PC || !Disp)
+	{
+		return;
+	}
+	// PREVIEW (no commit -> the entitlement gate is bypassed; unowned try-before-buy works).
+	UAFLCosmeticBrowserLibrary::ApplyPreview(PC, Disp, Axis, CosmeticId);
+}
+
+void UAFLW_FrontEndMarket::RevertStorePreview()
+{
+	APlayerController* PC = GetOwningPlayer();
+	AAFLLoadoutDisplayPawn* Disp = GetDisplayPawn();
+	if (PC && Disp)
+	{
+		UAFLCosmeticBrowserLibrary::RevertToSaved(PC, Disp);
+	}
+}
+
+void UAFLW_FrontEndMarket::OnStoreTileGenerated(UUserWidget& EntryWidget)
+{
+	// Bind each generated OUR-tile's own click. On a LOADOUT instance this bind also runs (EnterStoreMode fires
+	// transiently before the Mode flip), but HandleStoreTileClicked guards Mode, so it is inert there. AddUnique so
+	// pooled/regenerated tiles never stack bindings.
+	if (UAFLW_LoadoutTileBase* Tile = Cast<UAFLW_LoadoutTileBase>(&EntryWidget))
+	{
+		Tile->OnTileClicked.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::HandleStoreTileClicked);
+	}
+}
+
+void UAFLW_FrontEndMarket::HandleStoreTileClicked(EAFLLoadoutAxis /*Axis*/, FName CosmeticId)
+{
+	// LOADOUT drives equip via HandleLoadoutTileClicked; this bind is inert there.
+	if (Mode != EAFLMarketMode::Store)
+	{
+		return;
+	}
+	// Drive a REAL ListView selection for the clicked id. SetSelectedItem fires BOTH the native OnItemSelectionChanged
+	// (-> OnStoreItemSelectionChanged -> our try-on preview) AND the store's own BP selection handler (-> its detail
+	// panel + BUY). One body-click, both surfaces -- the reliable browse that the BP tile's click-eating buttons broke.
+	UListView* List = Cast<UListView>(GetWidgetFromName(TEXT("ShopListView")));
+	if (!List)
+	{
+		return;
+	}
+	for (UObject* Item : List->GetListItems())
+	{
+		if (ReadEntryCosmeticId(Item) == CosmeticId)
+		{
+			List->SetSelectedItem(Item);
+			break;
+		}
+	}
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: [STORE tile] click %s -> SetSelectedItem (detail panel + BUY + preview)."),
+		*CosmeticId.ToString());
 }
 
 // ===================================================================================================

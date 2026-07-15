@@ -56,10 +56,49 @@ protected:
 
 	//~UUserWidget
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	//~End
 
 	/** Center hero slot -> live scene: dissolve the market backdrop when a display pawn is behind us (armory). */
 	void ApplyShowroomMode();
+
+	// --- STEP A: STORE mode -- make the category tabs FILTER (Path 1: filter the store's OWN BP items;
+	// the store's tile + BUY/EQUIP + BP graph all stay intact). The tabs shipped as UBorders with NO click
+	// binding -> we bind OnMouseButtonDownEvent (same mechanism as LOADOUT) and re-SetListItems a namespace-
+	// filtered subset of the store's own BP_AFL_StoreEntryData items. Active tab -> cyan. ---
+	void EnterStoreMode();
+	void FilterStore(int32 TabIndex);
+	void UpdateStoreTabVisuals(int32 ActiveIndex);
+	/** Read the CosmeticId FName off a store item (BP_AFL_StoreEntryData) by its confirmed property name. */
+	static FName ReadEntryCosmeticId(const UObject* Item);
+
+	UFUNCTION() FEventReply OnStoreTabWeapons(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnStoreTabSkins(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnStoreTabHelmets(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnStoreTabVisors(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnStoreTabEmotes(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+	UFUNCTION() FEventReply OnStoreTabBundles(FGeometry MyGeometry, const FPointerEvent& MouseEvent);
+
+	// --- STORE PREVIEW (front-end try-before-buy): selecting a store card shows it ON the display robot,
+	// temporarily, WITHOUT committing (unowned-OK). Reverts on deselect / tab-change / market close. The
+	// entitlement gate lives only in the commit, so preview (no commit) bypasses it for free. ---
+	/** Bound (AddUObject) to the store ListView's NATIVE OnItemSelectionChanged (the BP one is private). Item ==
+	 *  the newly selected entry, or nullptr on full deselect. */
+	void OnStoreItemSelectionChanged(UObject* Item);
+	/** CosmeticId namespace -> loadout axis (the reverse of the store-tab taxonomy). False if unclassifiable. */
+	static bool ClassifyStoreAxis(FName CosmeticId, EAFLLoadoutAxis& OutAxis);
+	/** Clear any active store preview -> the display robot returns to the player's real saved loadout. */
+	void RevertStorePreview();
+
+	// --- STORE's OWN TILE (reliable browsing) -- the store's BP tile's BUY/EQUIP buttons ate the row click, so no
+	// second item could be selected. STORE now renders OUR readable tile (UAFLW_LoadoutTileBase) over the store's
+	// SAME BP items; each tile's own click drives a real ListView selection -> the store's detail panel + BUY AND
+	// our try-on preview fire. Additive per-mode: LOADOUT still equips; STORE never touches the buy DATA-spine. ---
+	/** OnEntryWidgetGenerated (STORE): bind each generated tile's OnTileClicked -> HandleStoreTileClicked. */
+	void OnStoreTileGenerated(UUserWidget& EntryWidget);
+	/** Bound to each store tile's OnTileClicked -> select that id in the ListView (detail panel + BUY + preview). */
+	UFUNCTION()
+	void HandleStoreTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
 
 	// --- STEP 5 LOADOUT mode (C++-runtime; STORE mode never reaches any of this) ---
 	void EnterLoadoutMode();
@@ -100,6 +139,13 @@ protected:
 
 	/** Guard so EnterLoadoutMode runs exactly once. */
 	bool bLoadoutActive = false;
+
+	/** STEP A: the store's FULL item set (cached lazily on first tab click) to filter category subsets from. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UObject>> StoreFullItems;
+
+	/** Active store category tab (-1 = show all / no filter applied yet). */
+	int32 ActiveStoreTab = -1;
 
 	/** OUR tile class (WBP_AFL_LoadoutTile) the ListView uses in LOADOUT mode. */
 	UPROPERTY(Transient)

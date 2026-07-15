@@ -74,4 +74,10 @@ protected:
 private:
 	UPROPERTY(VisibleAnywhere, Category = "AFL|Display")
 	TObjectPtr<UAFLSkinColorComponent> SkinColorComp;
+
+	/** The robot body class currently applied. Idempotency guard for SetRobotBody: the char-parts remove+add is a
+	 *  full re-spawn, so re-applying the same class would needlessly flicker the robot. Store-preview + revert call
+	 *  SetRobotBody freely and rely on this to no-op the unchanged case. Seeded by BeginPlay's DefaultBodyClass. */
+	UPROPERTY(Transient)
+	TSubclassOf<AActor> CurrentRobotClass;
 };

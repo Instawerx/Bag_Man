@@ -8,6 +8,9 @@
 #include "Components/Border.h"
 #include "Components/Image.h"
 #include "Engine/Texture2D.h"
+#include "AFLCosmeticCatalogSubsystem.h" // STORE tile: resolve CosmeticId -> DisplayName + ShopThumbnail (SSOT)
+#include "AFLCosmeticCoreTypes.h"        // FAFLCatalogEntry
+#include "UObject/UnrealType.h"          // FNameProperty / CastField -- read CosmeticId off the store's BP item
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_LoadoutTileBase)
 
@@ -23,12 +26,44 @@ void UAFLW_LoadoutTileBase::NativeOnInitialized()
 
 void UAFLW_LoadoutTileBase::NativeOnListItemObjectSet(UObject* ListItemObject)
 {
-	// Front-end market path: the ListView hands us a UAFLMarketLoadoutItem -> drive the SAME SetTileData the
-	// in-match locker calls directly. Both routes share one render; the SelectButton still owns the click.
+	// LOADOUT path: the ListView hands us a UAFLMarketLoadoutItem -> drive the SAME SetTileData the in-match locker
+	// calls directly. Both routes share one render; the SelectButton still owns the click.
 	if (const UAFLMarketLoadoutItem* It = Cast<UAFLMarketLoadoutItem>(ListItemObject))
 	{
 		SetTileData(It->Axis, It->CosmeticId, It->DisplayName, It->bEquipped, It->bIsSwatch, It->SwatchColor, It->Thumbnail);
+		return;
 	}
+
+	// STORE path: the ListView hands us the store's BP data object (BP_AFL_StoreEntryData). C++ knows only its
+	// 'CosmeticId' FName (reflected -- mirrors UAFLW_FrontEndMarket::ReadEntryCosmeticId); resolve the display
+	// (name + ShopThumbnail) from the catalog (the SSOT) so OUR tile renders it. The click stays our SelectButton
+	// -> OnTileClicked, so the market can drive a reliable selection (the reason we swap in this tile: the store's
+	// BP tile's BUY/EQUIP buttons ate the row click, so no second item could ever be browsed).
+	FName StoreId = NAME_None;
+	if (ListItemObject)
+	{
+		if (const FNameProperty* Prop = CastField<FNameProperty>(ListItemObject->GetClass()->FindPropertyByName(TEXT("CosmeticId"))))
+		{
+			StoreId = Prop->GetPropertyValue_InContainer(ListItemObject);
+		}
+	}
+	if (StoreId.IsNone())
+	{
+		return;
+	}
+	FText Name = FText::FromName(StoreId);
+	TSoftObjectPtr<UTexture2D> Thumb;
+	if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+	{
+		if (const FAFLCatalogEntry* Entry = Catalog->FindEntry(StoreId))
+		{
+			if (!Entry->DisplayName.IsEmpty()) { Name = Entry->DisplayName; }
+			Thumb = Entry->ShopThumbnail;
+		}
+	}
+	// Axis is irrelevant for a store tile (the market re-derives it from the CosmeticId on selection); pass a
+	// placeholder. bEquipped=false: the store's own detail panel owns the OWNED/BUY state in this increment.
+	SetTileData(EAFLLoadoutAxis::Weapon, StoreId, Name, /*bEquipped*/ false, /*bIsSwatch*/ false, FLinearColor::White, Thumb);
 }
 
 void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor, const TSoftObjectPtr<UTexture2D>& InThumbnail)

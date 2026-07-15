@@ -149,6 +149,12 @@ void AAFLLoadoutDisplayPawn::SetRobotBody(TSubclassOf<AActor> RobotPartClass)
 	{
 		return;
 	}
+	// IDEMPOTENT: the remove+add below is a full robot re-spawn -> skip if the body is already this class (store-
+	// preview + revert call this freely; only a real change should swap). BeginPlay's default set seeds it.
+	if (RobotPartClass == CurrentRobotClass)
+	{
+		return;
+	}
 	UActorComponent* PartsComp = FindCharacterPartsComponent();
 	if (!PartsComp)
 	{
@@ -179,6 +185,7 @@ void AAFLLoadoutDisplayPawn::SetRobotBody(TSubclassOf<AActor> RobotPartClass)
 	Args.NewPart.SocketName = NAME_None;
 	Args.NewPart.CollisionMode = ECharacterCustomizationCollisionMode::NoCollision;
 	PartsComp->ProcessEvent(AddFn, &Args);
+	CurrentRobotClass = RobotPartClass; // track the applied body for the idempotency guard above
 
 	// The character-parts add (and the RemoveAll above) RESET GetMesh() to null -> re-apply the driving mesh so the
 	// equipped weapon's socket (weapon_r) resolves + the robot keeps a copy-pose leader. Root cause of the weapon

@@ -51,4 +51,15 @@ public:
 	 *  in the proven composition order (Facemask -> Skin -> Weapon -> WeaponSkin -> Beam). For the FRONT-END this
 	 *  targets the ARMORY display pawn (NOT the gameplay pawn). Identity/body (SetRobotBody) is the widget's concern. */
 	static void ApplySelectionToPawn(AController* Controller, APawn* Pawn);
+
+	// --- STORE PREVIEW (front-end try-before-buy) -- the ruled hero-slot API, on the shared browser service ----
+	/** Apply ONE axis's cosmetic to the display pawn as a TEMPORARY visual override -- NO commit
+	 *  (ServerSetCosmeticSelection), so the entitlement gate (which lives ONLY in the commit) is bypassed and
+	 *  UNOWNED ids preview for free. Seeds the controller's preview override from the player's committed selection,
+	 *  sets the one axis, and re-runs the fan-out; Identity also swaps the robot body. Revert with RevertToSaved. */
+	static void ApplyPreview(AController* Controller, APawn* DisplayPawn, EAFLLoadoutAxis Axis, FName CosmeticId);
+
+	/** Clear the preview override and repaint the display pawn with the player's REAL committed selection (restores
+	 *  the committed robot body too). Call on deselect / tab-change / market close. */
+	static void RevertToSaved(AController* Controller, APawn* DisplayPawn);
 };

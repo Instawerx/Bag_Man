@@ -143,6 +143,32 @@ FGameplayTag UAFLSkinColorControllerComponent::ResolveBrandTag(APawn* Pawn) cons
 	return FGameplayTag();
 }
 
+// --- STORE PREVIEW (front-end try-before-buy) --------------------------------------------------------
+// The 5 Refresh*ForPawn read their axis ids through GetEffectiveSelection. With no preview set it returns the
+// committed loadout selection (the exact in-match behavior); with a preview set it returns the override, so the
+// display pawn shows an item WITHOUT committing it -- and since the entitlement gate lives only in the commit
+// (ServerSetCosmeticSelection), an UNOWNED id previews for free. Never set in-match -> in-match is unchanged.
+void UAFLSkinColorControllerComponent::SetPreviewSelection(const FAFLCosmeticSelection& InPreview)
+{
+	PreviewSelection = InPreview;
+}
+
+void UAFLSkinColorControllerComponent::ClearPreviewSelection()
+{
+	PreviewSelection.Reset();
+}
+
+const FAFLCosmeticSelection* UAFLSkinColorControllerComponent::GetEffectiveSelection(const APlayerState* SelectionPS) const
+{
+	if (PreviewSelection.IsSet())
+	{
+		return &PreviewSelection.GetValue();
+	}
+	const UAFLCosmeticLoadoutComponent* Loadout =
+		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+	return Loadout ? &Loadout->GetSelection() : nullptr;
+}
+
 void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 {
 	if (Pawn)
@@ -180,11 +206,13 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 		UAFLSkinColorAsset* SelectedEdge = nullptr;
 		const UAFLCosmeticLoadoutComponent* Loadout =
 			SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		// STORE PREVIEW: read the axis ids from the effective selection (preview override if set, else committed).
+		const FAFLCosmeticSelection* EffSel = GetEffectiveSelection(SelectionPS);
 		FName SelectedEdgeId = NAME_None;
 		const TCHAR* SelResolveVia = TEXT("-");
-		if (Loadout)
+		if (EffSel)
 		{
-			SelectedEdgeId = Loadout->GetSelection().EdgeId;
+			SelectedEdgeId = EffSel->EdgeId;
 			if (SelectedEdgeId != NAME_None)
 			{
 				// S-ECON-CAT: resolve the EdgeId through the catalog (the id->asset registry) -- the ONE source
@@ -235,9 +263,9 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 		UAFLSkinColorAsset* SelectedBody = nullptr;
 		FName SelectedBodyId = NAME_None;
 		const TCHAR* BodyResolveVia = TEXT("-");
-		if (Loadout)
+		if (EffSel)
 		{
-			SelectedBodyId = Loadout->GetSelection().BodyId;
+			SelectedBodyId = EffSel->BodyId;
 			if (SelectedBodyId != NAME_None)
 			{
 				if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
@@ -309,11 +337,11 @@ void UAFLSkinColorControllerComponent::RefreshFacemaskForPawn(APawn* Pawn) const
 	const APlayerState* CtrlPS = OwningController ? OwningController->PlayerState : nullptr;
 	const APlayerState* SelectionPS = PawnPS ? PawnPS : CtrlPS;
 
-	const UAFLCosmeticLoadoutComponent* Loadout =
-		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+	// STORE PREVIEW: the effective selection is the preview override if set, else the committed loadout.
+	const FAFLCosmeticSelection* EffSel = GetEffectiveSelection(SelectionPS);
 
 	UMaterialInstanceConstant* FacemaskMIC = nullptr;
-	const FName FacemaskId = Loadout ? Loadout->GetSelection().FacemaskId : NAME_None;
+	const FName FacemaskId = EffSel ? EffSel->FacemaskId : NAME_None;
 	const bool bSelection = (FacemaskId != NAME_None);
 	const TCHAR* Tier = TEXT("none");
 
@@ -401,9 +429,9 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 	const APlayerState* CtrlPS = OwningController ? OwningController->PlayerState : nullptr;
 	const APlayerState* SelectionPS = PawnPS ? PawnPS : CtrlPS;
 
-	const UAFLCosmeticLoadoutComponent* Loadout =
-		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
-	const FName WeaponId = Loadout ? Loadout->GetSelection().WeaponId : NAME_None;
+	// STORE PREVIEW: the effective selection is the preview override if set, else the committed loadout.
+	const FAFLCosmeticSelection* EffSel = GetEffectiveSelection(SelectionPS);
+	const FName WeaponId = EffSel ? EffSel->WeaponId : NAME_None;
 
 	// IDEMPOTENT: already realized this WeaponId on this pawn -> no-op. The dual spine re-runs (possession + OnRep
 	// + nudge) MUST NOT re-equip/stack. A dropped instance (id set but the instance went stale) falls through ->
@@ -482,6 +510,24 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 			(WeaponId != NAME_None) ? *WeaponId.ToString() : TEXT("<none>"),
 			SelectedWeaponInstance.IsValid() ? *SelectedWeaponInstance->GetName() : TEXT("none"));
 	}
+
+	// [WEAPON-POS DIAG] where did the weapon actually spawn/attach? (hand vs base) -- the store "no weapon visible"
+	// probe. Logs the spawned weapon actor's world Z + its attach parent + socket, so ONE PIE tells us whether the
+	// gun is at the hand (socket weapon_r) or dumped at the pawn origin (null owner mesh -> the char-parts reset
+	// gotcha: ApplyDrivingMesh must re-apply SKM_Manny_Invis so weapon_r resolves).
+	if (AFLSkinDiag::IsOn() && SelectedWeaponInstance.IsValid())
+	{
+		for (AActor* WA : SelectedWeaponInstance->GetSpawnedActors())
+		{
+			if (!WA) { continue; }
+			const USceneComponent* Root = WA->GetRootComponent();
+			const USceneComponent* AttachParent = Root ? Root->GetAttachParent() : nullptr;
+			UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : WEAPON-POS actor=%s worldZ=%.1f attachParent=%s socket=%s"),
+				*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WA->GetName(), WA->GetActorLocation().Z,
+				AttachParent ? *AttachParent->GetName() : TEXT("<none>"),
+				Root ? *Root->GetAttachSocketName().ToString() : TEXT("<none>"));
+		}
+	}
 }
 
 void UAFLSkinColorControllerComponent::RefreshWeaponSkinForPawn(APawn* Pawn) const
@@ -505,9 +551,9 @@ void UAFLSkinColorControllerComponent::RefreshWeaponSkinForPawn(APawn* Pawn) con
 	const APlayerState* CtrlPS = OwningController ? OwningController->PlayerState : nullptr;
 	const APlayerState* SelectionPS = PawnPS ? PawnPS : CtrlPS;
 
-	const UAFLCosmeticLoadoutComponent* Loadout =
-		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
-	const FName WeaponSkinId = Loadout ? Loadout->GetSelection().WeaponSkinId : NAME_None;
+	// STORE PREVIEW: the effective selection is the preview override if set, else the committed loadout.
+	const FAFLCosmeticSelection* EffSel = GetEffectiveSelection(SelectionPS);
+	const FName WeaponSkinId = EffSel ? EffSel->WeaponSkinId : NAME_None;
 
 	// "AFL.WeaponSkin.<Pattern>.<Color>" -> MI_AFL_WeaponSkin_<Pattern>_<Color>. token[2]=pattern (e.g. NeonCamo),
 	// token[3]=color. Fewer than 4 tokens -> no override. The MI is triplanar (weapon-agnostic) -> it lands on
@@ -563,9 +609,9 @@ void UAFLSkinColorControllerComponent::RefreshBeamColorForPawn(APawn* Pawn) cons
 	const APlayerState* CtrlPS = OwningController ? OwningController->PlayerState : nullptr;
 	const APlayerState* SelectionPS = PawnPS ? PawnPS : CtrlPS;
 
-	const UAFLCosmeticLoadoutComponent* Loadout =
-		SelectionPS ? SelectionPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
-	const FName BeamId = Loadout ? Loadout->GetSelection().BeamId : NAME_None;
+	// STORE PREVIEW: the effective selection is the preview override if set, else the committed loadout.
+	const FAFLCosmeticSelection* EffSel = GetEffectiveSelection(SelectionPS);
+	const FName BeamId = EffSel ? EffSel->BeamId : NAME_None;
 
 	// Resolve BeamId -> the beam-color SKU (a UAFLSkinColorAsset) via the catalog -- the SAME resolve as Edge/Body.
 	UAFLSkinColorAsset* BeamAsset = nullptr;

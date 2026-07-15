@@ -5,10 +5,13 @@
 #include "Components/ControllerComponent.h"
 #include "GameplayTagContainer.h"
 #include "UObject/SoftObjectPtr.h"
+#include "Misc/Optional.h"                         // TOptional<FAFLCosmeticSelection> preview override
+#include "Cosmetics/AFLCosmeticSelectionTypes.h"   // FAFLCosmeticSelection -- the preview override payload
 
 #include "AFLSkinColorControllerComponent.generated.h"
 
 class APawn;
+class APlayerState;
 class UAFLSkinColorAsset;
 class UAFLBrandEdgeMap;
 class ULyraEquipmentInstance;
@@ -95,6 +98,16 @@ public:
 	 *  weapon-skin + beam. */
 	void RefreshBeamColorForPawn(APawn* Pawn) const;
 
+	// --- STORE PREVIEW (front-end try-before-buy) ------------------------------------------------------
+	/** Set a TRANSIENT selection override. When set, the 5 Refresh*ForPawn read from THIS instead of the
+	 *  committed loadout selection -> the display pawn shows an item WITHOUT committing it. The entitlement
+	 *  gate lives ONLY in ServerSetCosmeticSelection (the commit), so skipping the commit previews unowned
+	 *  ids for free. NOT replicated and NEVER set in-match (front-end display context only) -> the in-match
+	 *  path is byte-for-byte unchanged. Clear to revert to the player's real loadout. */
+	void SetPreviewSelection(const FAFLCosmeticSelection& InPreview);
+	void ClearPreviewSelection();
+	bool HasPreviewSelection() const { return PreviewSelection.IsSet(); }
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -137,4 +150,14 @@ private:
 	TWeakObjectPtr<ULyraEquipmentInstance> SelectedWeaponInstance;
 	/** The WeaponId currently realized on WeaponTrackedPawn (idempotency key; NAME_None = none). */
 	FName EquippedWeaponId = NAME_None;
+
+	// --- STORE PREVIEW override (front-end try-before-buy) ---
+	/** When set, the Refresh*ForPawn read THIS instead of the committed loadout selection. Unset -> the normal
+	 *  in-match path (committed selection). Transient; never replicated; never set in-match. */
+	TOptional<FAFLCosmeticSelection> PreviewSelection;
+
+	/** The selection the Refresh*ForPawn consume: the preview override if set, else the committed loadout
+	 *  selection found on SelectionPS. nullptr if neither. The ONE preview injection point -- when the override
+	 *  is unset it returns the committed selection, so in-match behavior is identical. */
+	const FAFLCosmeticSelection* GetEffectiveSelection(const APlayerState* SelectionPS) const;
 };
