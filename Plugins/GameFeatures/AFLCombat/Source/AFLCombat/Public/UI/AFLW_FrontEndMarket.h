@@ -111,6 +111,15 @@ protected:
 	UFUNCTION()
 	void OnStoreWalletChanged(int32 Volts, int32 Watts);
 
+	// --- CHROME (top bar) -- WIRE + STYLE the existing scaffold by NAME (GetWidgetFromName; no BindWidget, no
+	// reparent -> zero WBP-structure risk). Pills bind the live (replicated) wallet; styling is SSOT neon. ---
+	/** Push live balances into VoltsValue / WattsValue (grouped) + hide the scaffold's duplicate WalletText readout.
+	 *  Called on enter + every OnWalletChanged. */
+	void RefreshWalletChrome(int32 Volts, int32 Watts);
+	/** One-time SSOT styling of the whole chrome: neon-outline wallet pills + coin tints, profile chip (name real,
+	 *  level STUB), bottom utility bar (dark-gloss band + tinted labels; only Close is wired, rest are stubs). */
+	void StyleChrome();
+
 	// --- STEP 5 LOADOUT mode (C++-runtime; STORE mode never reaches any of this) ---
 	void EnterLoadoutMode();
 	void PopulateForAxis(EAFLLoadoutAxis Axis);

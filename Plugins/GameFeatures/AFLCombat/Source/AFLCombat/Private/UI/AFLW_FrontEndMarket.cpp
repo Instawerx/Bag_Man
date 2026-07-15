@@ -9,8 +9,11 @@
 #include "Cosmetics/AFLCosmeticSelectionTypes.h" // FAFLCosmeticSelection::GetActiveIdentityId
 #include "Components/Border.h"         // UBorder (backdrop brushes)
 #include "Components/ListView.h"       // UListView (SetListItems, OnGetEntryClassForItem, OnEntryWidgetGenerated)
-#include "Components/TextBlock.h"      // relabel the tab captions
+#include "Components/TextBlock.h"      // relabel the tab captions + wallet pill values
 #include "Components/Widget.h"         // UWidget + GetWidgetFromName result
+#include "Components/Border.h"         // CHROME: neon-outline wallet pills
+#include "Components/Image.h"          // CHROME: coin-icon tints
+#include "Styling/SlateBrush.h"        // CHROME: RoundedBox pill brush
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
 #include "Cosmetics/AFLWalletComponent.h" // B2c: ClientRequestPurchase + OnWalletChanged (buy + live OWNED flip)
 #include "Engine/World.h"
@@ -211,9 +214,11 @@ void UAFLW_FrontEndMarket::EnterStoreMode()
 			if (UAFLWalletComponent* Wallet = PS->FindComponentByClass<UAFLWalletComponent>())
 			{
 				Wallet->OnWalletChanged.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::OnStoreWalletChanged);
+				RefreshWalletChrome(Wallet->GetVolts(), Wallet->GetWatts()); // CHROME: seed the pills with the current balance
 			}
 		}
 	}
+	StyleChrome(); // CHROME: one-time SSOT styling -- pills + profile chip + bottom utility bar (safe if any widget is absent)
 
 	// Show ALL purchasables initially (no regression vs today); the first tab click applies a filter + the cyan
 	// active cue. We DON'T recolor the tabs here, so the store's shipped look is untouched until the user filters.
@@ -483,13 +488,83 @@ void UAFLW_FrontEndMarket::HandleStoreTileEquip(FName CosmeticId)
 	}
 }
 
-void UAFLW_FrontEndMarket::OnStoreWalletChanged(int32 /*Volts*/, int32 /*Watts*/)
+void UAFLW_FrontEndMarket::OnStoreWalletChanged(int32 Volts, int32 Watts)
 {
+	// Chrome pills are always visible (both Store + Loadout) -> keep the live balances current regardless of mode.
+	RefreshWalletChrome(Volts, Watts);
 	// A purchase landed -> re-generate the store tiles so the bought item flips BUY -> OWNED/EQUIP live.
 	if (Mode != EAFLMarketMode::Store) { return; }
 	if (UListView* List = Cast<UListView>(GetWidgetFromName(TEXT("ShopListView"))))
 	{
 		List->RegenerateAllEntries();
+	}
+}
+
+namespace
+{
+	static const FLinearColor GAFLNeonBlue(0.1176f, 0.3529f, 1.0f, 1.0f);    // #1E5AFF Volts
+	static const FLinearColor GAFLNeonMagenta(1.0f, 0.1765f, 0.6196f, 1.0f); // #FF2D9E Watts
+
+	// CHROME pill: dark gloss glass fill + a bright neon outline, fully-rounded ends (HalfHeightRadius). Same
+	// gloss-black + neon-accent language as the product cards, so the whole store reads as one surface.
+	FSlateBrush MakeNeonPillBrush(const FLinearColor& Neon)
+	{
+		FSlateBrush B;
+		B.DrawAs = ESlateBrushDrawType::RoundedBox;
+		B.TintColor = FSlateColor(FLinearColor(0.0196f, 0.0314f, 0.0588f, 0.85f)); // gloss-black glass
+		B.OutlineSettings.Color = FSlateColor(Neon);
+		B.OutlineSettings.Width = 1.5f;
+		B.OutlineSettings.RoundingType = ESlateBrushRoundingType::HalfHeightRadius; // pill ends
+		return B;
+	}
+}
+
+void UAFLW_FrontEndMarket::RefreshWalletChrome(int32 Volts, int32 Watts)
+{
+	if (UTextBlock* V = Cast<UTextBlock>(GetWidgetFromName(TEXT("VoltsValue")))) { V->SetText(FText::AsNumber(Volts)); }
+	if (UTextBlock* W = Cast<UTextBlock>(GetWidgetFromName(TEXT("WattsValue")))) { W->SetText(FText::AsNumber(Watts)); }
+	// The scaffold's old single-line readout (WalletText) duplicated the pills' amounts -> hide it. Re-collapsed on
+	// every refresh so a store-BP re-show can't bring the duplicate back.
+	if (UWidget* Old = GetWidgetFromName(TEXT("WalletText"))) { Old->SetVisibility(ESlateVisibility::Collapsed); }
+}
+
+void UAFLW_FrontEndMarket::StyleChrome()
+{
+	// --- TOP: WALLET PILLS -- dark-gloss + neon outline. Cast-guarded; a non-UBorder pill still shows its value. ---
+	if (UBorder* Pill = Cast<UBorder>(GetWidgetFromName(TEXT("VoltsPill")))) { Pill->SetBrush(MakeNeonPillBrush(GAFLNeonBlue)); }
+	else { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MARKET: chrome - 'VoltsPill' not a UBorder (outline skipped).")); }
+	if (UBorder* Pill = Cast<UBorder>(GetWidgetFromName(TEXT("WattsPill")))) { Pill->SetBrush(MakeNeonPillBrush(GAFLNeonMagenta)); }
+	else { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MARKET: chrome - 'WattsPill' not a UBorder (outline skipped).")); }
+	if (UImage* Coin = Cast<UImage>(GetWidgetFromName(TEXT("VoltsCoin")))) { Coin->SetColorAndOpacity(GAFLNeonBlue); }
+	if (UImage* Coin = Cast<UImage>(GetWidgetFromName(TEXT("WattsCoin")))) { Coin->SetColorAndOpacity(GAFLNeonMagenta); }
+	if (UTextBlock* V = Cast<UTextBlock>(GetWidgetFromName(TEXT("VoltsValue")))) { V->SetColorAndOpacity(FSlateColor(FLinearColor::White)); }
+	if (UTextBlock* W = Cast<UTextBlock>(GetWidgetFromName(TEXT("WattsValue")))) { W->SetColorAndOpacity(FSlateColor(FLinearColor::White)); }
+
+	// --- TOP: PROFILE CHIP -- name is REAL (PlayerState); level/XP are a STUB ("LVL --"), no progression system yet.
+	// The scaffold has only ProfileText (no avatar Image / XP-bar widget) -> those are deferred, not built here. ---
+	if (UTextBlock* Prof = Cast<UTextBlock>(GetWidgetFromName(TEXT("ProfileText"))))
+	{
+		FString Name = TEXT("PLAYER");
+		if (const APlayerController* PC = GetOwningPlayer())
+		{
+			if (const APlayerState* PS = PC->PlayerState)
+			{
+				const FString N = PS->GetPlayerName();
+				if (!N.IsEmpty()) { Name = N.ToUpper(); }
+			}
+		}
+		// Separator kept ASCII (" - ") -- a raw UTF-8 bullet in a wide literal can garble under MSVC without /utf-8.
+		Prof->SetText(FText::FromString(FString::Printf(TEXT("%s  -  LVL --"), *Name)));
+		Prof->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	}
+
+	// --- BOTTOM: UTILITY BAR -- dark-gloss band + tinted labels. CloseButton already closes the menu; UtilGear /
+	// UtilHelp / UtilSocial / UtilNotif are VISUAL STUBS (no system behind them yet -- flagged, not wired). ---
+	if (UBorder* Bar = Cast<UBorder>(GetWidgetFromName(TEXT("UtilityBar")))) { Bar->SetBrushColor(FLinearColor(0.0196f, 0.0314f, 0.0588f, 0.85f)); }
+	const FLinearColor UtilTint(0.55f, 0.78f, 0.92f, 1.0f); // muted cyan -- reads on the dark band
+	for (const TCHAR* N : { TEXT("CloseLabel"), TEXT("UtilHelp"), TEXT("UtilSocial"), TEXT("UtilNotif"), TEXT("UtilGear") })
+	{
+		if (UTextBlock* T = Cast<UTextBlock>(GetWidgetFromName(N))) { T->SetColorAndOpacity(FSlateColor(UtilTint)); }
 	}
 }
 
