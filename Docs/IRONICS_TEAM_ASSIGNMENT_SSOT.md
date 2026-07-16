@@ -49,6 +49,12 @@ Stock team CREATION (TeamDA_* data assets, team registration) is KEPT; only the 
 overridden. This is subclass-override, NOT a parallel system — running a provider alongside stock fill would
 race two assigners (the drift hazard). Keeps §0.5 true: the round-manager consumption layer AND stock team
 infrastructure both untouched; only the assignment source changes.
+IMPLEMENTATION NOTE (from reverted build 2026-07-16): subclassing ULyraTeamCreationComponent cross-module
+(from AFLGameCore) requires the stock class exported via UE_API. ALL FIVE vtable virtuals — IsDataValid,
+BeginPlay, ServerCreateTeams, ServerAssignPlayersToTeams, ServerChooseTeamForPlayer — PLUS the constructor
+must carry UE_API, not only the two methods called via Super:: (a partial export LNK2001-failed on the other
+three during T1.a). Use the modern per-member UE_API pattern (mirror LyraCharacterMovementComponent.h).
+Lyra is frozen-at-revision → no upstream-merge cost.
 Deterministic assignment to the mode's team count,
 BOT-FILL to team size (0.2), party-together honored (0.3). Produces the same FAFLTeamAssignment array the ranked
 provider will. This is what makes solo/offline/PIE fully playable NOW and is the T1 test vehicle.
