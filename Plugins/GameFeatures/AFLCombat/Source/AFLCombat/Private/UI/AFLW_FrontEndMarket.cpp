@@ -802,8 +802,19 @@ void UAFLW_FrontEndMarket::PopulateDetailForLoadout(FName CosmeticId)
 	SetAnyText(TEXT("DetailSeries"), Entry->SeriesName);
 	SetAnyText(TEXT("DetailDesc"),   Entry->Description);
 	SetAnyText(TEXT("DetailRarity"), UAFLCosmeticCatalogSubsystem::GetRarityText(*Entry));
-	// (Detail BUY buttons stay collapsed from EnterLoadoutMode -- owned items commit via the tile's EQUIP button.
-	//  The VISUAL INTENSITY / GLOW IMPACT segmented stat meters are the store BP's widgets -> a follow-up increment.)
+
+	// Decision 1: VisualIntensity/GlowImpact are 0 across ALL 262 catalog entries -> the segmented VISUAL INTENSITY /
+	// GLOW IMPACT bars are decorative/fake. Hide the whole stat-meter panel in LOADOUT mode; the real name/series/
+	// rarity stay in the header. LOADOUT-ONLY: STORE mode's meters are driven by the store's own BP graph on ListView
+	// selection (this method never runs in STORE mode), so the store is untouched.
+	for (const TCHAR* Name : { TEXT("DetailStatsPanel"), TEXT("DetailStatsVB") })
+	{
+		if (UWidget* Stats = GetWidgetFromName(FName(Name)))
+		{
+			Stats->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+	// (Detail BUY buttons stay collapsed from EnterLoadoutMode -- owned items commit via the tile's EQUIP button.)
 }
 
 // One tiny handler per tab -- FOnPointerEvent is a single-cast dynamic delegate (no capture), so we can't share one.
