@@ -6,6 +6,8 @@
 
 #include "LyraTeamCreationComponent.generated.h"
 
+#define UE_API LYRAGAME_API
+
 class ULyraExperienceDefinition;
 class ALyraTeamPublicInfo;
 class ALyraTeamPrivateInfo;
@@ -14,22 +16,22 @@ class AGameModeBase;
 class APlayerController;
 class ULyraTeamDisplayAsset;
 
-UCLASS(Blueprintable)
+UCLASS(MinimalAPI, Blueprintable)
 class ULyraTeamCreationComponent : public UGameStateComponent
 {
 	GENERATED_BODY()
 
 public:
-	ULyraTeamCreationComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+	UE_API ULyraTeamCreationComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	//~UObject interface
 #if WITH_EDITOR
-	virtual EDataValidationResult IsDataValid(class FDataValidationContext& Context) const override;
+	UE_API virtual EDataValidationResult IsDataValid(class FDataValidationContext& Context) const override;
 #endif
 	//~End of UObject interface
 
 	//~UActorComponent interface
-	virtual void BeginPlay() override;
+	UE_API virtual void BeginPlay() override;
 	//~End of UActorComponent interface
 
 private:
@@ -48,11 +50,11 @@ protected:
 
 #if WITH_SERVER_CODE
 protected:
-	virtual void ServerCreateTeams();
-	virtual void ServerAssignPlayersToTeams();
+	UE_API virtual void ServerCreateTeams();
+	UE_API virtual void ServerAssignPlayersToTeams();
 
 	/** Sets the team ID for the given player state. Spectator-only player states will be stripped of any team association. */
-	virtual void ServerChooseTeamForPlayer(ALyraPlayerState* PS);
+	UE_API virtual void ServerChooseTeamForPlayer(ALyraPlayerState* PS);
 
 private:
 	void OnPlayerInitialized(AGameModeBase* GameMode, AController* NewPlayer);
@@ -62,3 +64,5 @@ private:
 	int32 GetLeastPopulatedTeamID() const;
 #endif
 };
+
+#undef UE_API

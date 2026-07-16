@@ -18,7 +18,8 @@ public class AFLGameCore : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"GameplayTags",
-				"LyraGame",   // ALyraGameMode base (the always-loaded project module)
+				"AIModule",   // FGenericTeamId (GenericTeamAgentInterface.h) for the team-assignment seam
+				"LyraGame",   // ALyraGameMode + ULyraTeamCreationComponent bases (the always-loaded project module)
 			}
 		);
 	}

@@ -4,6 +4,9 @@
 
 #include "CoreMinimal.h"
 
+/** Module-wide log channel for the always-loaded AFL game-framework classes. */
+AFLGAMECORE_API DECLARE_LOG_CATEGORY_EXTERN(LogAFLGameCore, Log, All);
+
 /**
  * AFLGameCore module.
  *
