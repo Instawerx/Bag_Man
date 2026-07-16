@@ -87,9 +87,10 @@ public:
 	void SetTileData(EAFLLoadoutAxis InAxis, FName InCosmeticId, const FText& InDisplayName, bool bInEquipped, bool bInIsSwatch, FLinearColor InSwatchColor, const TSoftObjectPtr<UTexture2D>& InThumbnail);
 
 	/** FRONT-END LOADOUT card style (store parity): reveal the rarity frame + the EQUIP button on an owned tile.
-	 *  Call AFTER SetTileData, ONLY from the front-end market's ListView render -- the in-match locker calls
-	 *  SetTileData directly (never this), so it stays plain. */
-	void ApplyLoadoutCardStyle(bool bEquipped);
+	 *  Call AFTER SetTileData. bEquipViaTileClick=true (in-match locker) routes the EQUIP button through
+	 *  OnTileClicked (the locker's tile-click handler equips it); false (front-end market) routes it through
+	 *  OnEquipClicked so the market can split SELECT (tile-body click = preview) from COMMIT (EQUIP button). */
+	void ApplyLoadoutCardStyle(bool bEquipped, bool bEquipViaTileClick = true);
 
 	FName GetCosmeticId() const { return CosmeticId; }
 

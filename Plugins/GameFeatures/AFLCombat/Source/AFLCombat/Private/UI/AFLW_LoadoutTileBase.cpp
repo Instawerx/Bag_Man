@@ -69,9 +69,10 @@ void UAFLW_LoadoutTileBase::NativeOnListItemObjectSet(UObject* ListItemObject)
 	if (const UAFLMarketLoadoutItem* It = Cast<UAFLMarketLoadoutItem>(ListItemObject))
 	{
 		SetTileData(It->Axis, It->CosmeticId, It->DisplayName, It->bEquipped, It->bIsSwatch, It->SwatchColor, It->Thumbnail);
-		// STORE PARITY: this front-end LOADOUT tile gains the rarity frame + EQUIP button. The in-match locker calls
-		// SetTileData directly (not this ListView path), so it stays plain.
-		ApplyLoadoutCardStyle(It->bEquipped);
+		// STORE PARITY: this front-end LOADOUT tile gains the rarity frame + EQUIP button. bEquipViaTileClick=false
+		// -> the EQUIP button commits via OnEquipClicked (the market splits SELECT/tile-click from COMMIT/EQUIP);
+		// the in-match locker calls ApplyLoadoutCardStyle separately and keeps the default true.
+		ApplyLoadoutCardStyle(It->bEquipped, /*bEquipViaTileClick*/ false);
 		return;
 	}
 
@@ -221,11 +222,12 @@ void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmetic
 	if (EquipButton)  { EquipButton->SetVisibility(ESlateVisibility::Collapsed); }
 }
 
-void UAFLW_LoadoutTileBase::ApplyLoadoutCardStyle(bool bEquipped)
+void UAFLW_LoadoutTileBase::ApplyLoadoutCardStyle(bool bEquipped, bool bEquipViaTileClick)
 {
-	// Locker card: route the EQUIP button through OnTileClicked (carries the axis) so the locker's existing
-	// HandleTileClicked equips it -- no separate OnEquipClicked handler needed.
-	bEquipUsesTileClick = true;
+	// EQUIP-button routing: locker (true) -> OnTileClicked (carries the axis) so the locker's existing
+	// HandleTileClicked equips it; front-end market (false) -> OnEquipClicked so the market can split SELECT
+	// (tile-body click = preview) from COMMIT (EQUIP button).
+	bEquipUsesTileClick = bEquipViaTileClick;
 
 	// Rarity frame -- same treatment as the store card (bottom rarity bar).
 	if (RarityFrame)

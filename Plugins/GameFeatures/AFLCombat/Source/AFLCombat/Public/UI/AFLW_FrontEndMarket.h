@@ -126,6 +126,10 @@ protected:
 	void EnterLoadoutMode();
 	void PopulateForAxis(EAFLLoadoutAxis Axis);
 
+	/** Drive the store's detail-panel widgets (DetailName/Series/Desc/Rarity) BY NAME from the catalog entry, so a
+	 *  LOADOUT tile SELECT updates the panel the store's BP graph normally fills on ListView selection. */
+	void PopulateDetailForLoadout(FName CosmeticId);
+
 	/** Switch the active axis-group + repopulate. */
 	void SelectAxis(EAFLLoadoutAxis Axis);
 
@@ -146,9 +150,15 @@ protected:
 	/** OnEntryWidgetGenerated handler: bind each generated tile's OnTileClicked -> equip. */
 	void OnLoadoutEntryGenerated(UUserWidget& EntryWidget);
 
-	/** Bound to each tile's OnTileClicked (the tile's own SelectButton) -> equip the cosmetic onto the display robot. */
+	/** Bound to each tile's OnTileClicked (the tile-body SelectButton) -> SELECT: preview on the display robot +
+	 *  fill the detail panel. The COMMIT lives on the tile's EQUIP button (HandleLoadoutTileEquip). */
 	UFUNCTION()
 	void HandleLoadoutTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
+
+	/** Bound to each tile's OnEquipClicked (the EQUIP button) -> COMMIT: equip the previewed cosmetic for real
+	 *  (data RPC + fan-out onto the display pawn). Uses the active axis (the loadout shows one axis at a time). */
+	UFUNCTION()
+	void HandleLoadoutTileEquip(FName CosmeticId);
 
 	/** Equip one axis (data RPC) + fan it out onto the armory display pawn (visual). */
 	void EquipSelected(FName CosmeticId, EAFLLoadoutAxis Axis);

@@ -4,12 +4,14 @@
 
 #include "AFLCombat.h"                 // LogAFLCombat
 #include "AFLCosmeticCoreTypes.h"      // FAFLCatalogEntry
+#include "AFLCosmeticCatalogSubsystem.h" // detail panel: FindEntry + GetRarityText (LOADOUT drives the panel by name)
 #include "CommonButtonBase.h"          // UCommonButtonBase (the store's tabs; rewired in LOADOUT)
 #include "Cosmetics/AFLCharacterPartMap.h"      // UAFLCharacterPartMap (IDENTITY id -> robot class)
 #include "Cosmetics/AFLCosmeticSelectionTypes.h" // FAFLCosmeticSelection::GetActiveIdentityId
 #include "Components/Border.h"         // UBorder (backdrop brushes)
 #include "Components/ListView.h"       // UListView (SetListItems, OnGetEntryClassForItem, OnEntryWidgetGenerated)
 #include "Components/TextBlock.h"      // relabel the tab captions + wallet pill values
+#include "Components/RichTextBlock.h"  // detail panel: DetailDesc may be a RichTextBlock
 #include "Components/Widget.h"         // UWidget + GetWidgetFromName result
 #include "Components/Border.h"         // CHROME: neon-outline wallet pills
 #include "Components/Image.h"          // CHROME: coin-icon tints
@@ -696,6 +698,14 @@ void UAFLW_FrontEndMarket::PopulateForAxis(EAFLLoadoutAxis Axis)
 		Items.Add(Item);
 	}
 	List->SetListItems(Items);
+
+	// Seed the detail panel with the currently-equipped item, so entering the axis / after a commit the panel
+	// matches the list; a tile SELECT then re-fills it. Nothing equipped -> leave the panel as-is.
+	if (!EquippedId.IsNone())
+	{
+		PopulateDetailForLoadout(EquippedId);
+	}
+
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: PopulateForAxis axis=%d -> %d owned item(s) (equipped=%s)."),
 		(int32)Axis, Items.Num(), *EquippedId.ToString());
 }
@@ -705,6 +715,32 @@ void UAFLW_FrontEndMarket::SelectAxis(EAFLLoadoutAxis Axis)
 	CurrentAxis = Axis;
 	PopulateForAxis(Axis);
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: SelectAxis -> %d"), (int32)Axis);
+}
+
+void UAFLW_FrontEndMarket::PopulateDetailForLoadout(FName CosmeticId)
+{
+	const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this);
+	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
+	if (!Entry)
+	{
+		return;
+	}
+
+	// Drive the store's detail widgets BY NAME (the chassis pattern -- no BindWidget). The store's BP graph fills
+	// these on ListView selection; LOADOUT tiles route through their own OnTileClicked, so we fill them here. Each
+	// widget is optional -> a missing one is silently skipped.
+	auto SetAnyText = [this](const TCHAR* WidgetName, const FText& Text)
+	{
+		UWidget* W = GetWidgetFromName(FName(WidgetName));
+		if (UTextBlock* Plain = Cast<UTextBlock>(W))            { Plain->SetText(Text); }
+		else if (URichTextBlock* Rich = Cast<URichTextBlock>(W)) { Rich->SetText(Text); }
+	};
+	SetAnyText(TEXT("DetailName"),   Entry->DisplayName);
+	SetAnyText(TEXT("DetailSeries"), Entry->SeriesName);
+	SetAnyText(TEXT("DetailDesc"),   Entry->Description);
+	SetAnyText(TEXT("DetailRarity"), UAFLCosmeticCatalogSubsystem::GetRarityText(*Entry));
+	// (Detail BUY buttons stay collapsed from EnterLoadoutMode -- owned items commit via the tile's EQUIP button.
+	//  The VISUAL INTENSITY / GLOW IMPACT segmented stat meters are the store BP's widgets -> a follow-up increment.)
 }
 
 // One tiny handler per tab -- FOnPointerEvent is a single-cast dynamic delegate (no capture), so we can't share one.
@@ -729,16 +765,34 @@ void UAFLW_FrontEndMarket::OnLoadoutEntryGenerated(UUserWidget& EntryWidget)
 {
 	if (UAFLW_LoadoutTileBase* Tile = Cast<UAFLW_LoadoutTileBase>(&EntryWidget))
 	{
-		// The tile owns its own click (its SelectButton -> OnTileClicked). AddUnique so pooled/regenerated tiles
-		// don't stack bindings.
+		// The tile-body click SELECTs (preview + detail); the EQUIP button COMMITs. AddUnique so pooled/regenerated
+		// tiles don't stack bindings.
 		Tile->OnTileClicked.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::HandleLoadoutTileClicked);
+		Tile->OnEquipClicked.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::HandleLoadoutTileEquip);
 	}
 }
 
 void UAFLW_FrontEndMarket::HandleLoadoutTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId)
 {
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: loadout tile clicked -> equip %s (axis=%d)."), *CosmeticId.ToString(), (int32)Axis);
-	EquipSelected(CosmeticId, Axis);
+	// SELECT (increment A): tile-body click -> preview the cosmetic on the hero (no commit) + fill the detail
+	// panel. The commit lives on the tile's EQUIP button (HandleLoadoutTileEquip).
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: loadout tile SELECT -> preview %s (axis=%d)."), *CosmeticId.ToString(), (int32)Axis);
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (AAFLLoadoutDisplayPawn* Disp = GetDisplayPawn())
+		{
+			UAFLCosmeticBrowserLibrary::ApplyPreview(PC, Disp, Axis, CosmeticId);
+		}
+	}
+	PopulateDetailForLoadout(CosmeticId);
+}
+
+void UAFLW_FrontEndMarket::HandleLoadoutTileEquip(FName CosmeticId)
+{
+	// COMMIT (increment A): the tile's EQUIP button -> real equip (data RPC + fan-out). Uses the active axis (the
+	// loadout list shows one axis at a time); EquipSelected then refreshes the list (EQUIPPED marker) + the detail.
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: loadout tile EQUIP -> commit %s (axis=%d)."), *CosmeticId.ToString(), (int32)CurrentAxis);
+	EquipSelected(CosmeticId, CurrentAxis);
 }
 
 void UAFLW_FrontEndMarket::EquipSelected(FName CosmeticId, EAFLLoadoutAxis Axis)
@@ -783,8 +837,10 @@ void UAFLW_FrontEndMarket::EquipSelected(FName CosmeticId, EAFLLoadoutAxis Axis)
 		}
 	}
 
-	// VISUAL: fan the 5 param axes (Colors / Weapon / Weapon-Skin / Beam / Facemask) onto the DISPLAY pawn.
-	UAFLCosmeticBrowserLibrary::ApplySelectionToPawn(PC, Disp);
+	// VISUAL: clear any SELECT preview override, then fan the COMMITTED selection onto the DISPLAY pawn
+	// (RevertToSaved = ClearPreviewSelection + ApplySelectionToPawn) -> the hero shows the just-committed item,
+	// never a stale preview (e.g. previewed A, then hit B's EQUIP).
+	UAFLCosmeticBrowserLibrary::RevertToSaved(PC, Disp);
 
 	// Refresh the list so the EQUIPPED marker moves to the newly-equipped tile.
 	PopulateForAxis(CurrentAxis);
