@@ -44,7 +44,9 @@ public:
 	EAFLMarketMode Mode = EAFLMarketMode::Store;
 
 	/** Enter LOADOUT at runtime -- the pusher calls this AFTER push/construct (CommonUI's push init-hook runs
-	 *  AFTER NativeConstruct, so setting Mode pre-construct doesn't take). */
+	 *  AFTER NativeConstruct, so setting Mode pre-construct doesn't take). BlueprintCallable so the hub's LOADOUT
+	 *  button can call it on the pushed market widget (Cast -> EnterLoadout) for the post-push mode flip. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Market")
 	void EnterLoadout();
 
 protected:
