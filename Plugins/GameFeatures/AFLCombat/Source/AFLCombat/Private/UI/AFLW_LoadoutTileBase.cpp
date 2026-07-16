@@ -69,10 +69,18 @@ void UAFLW_LoadoutTileBase::NativeOnListItemObjectSet(UObject* ListItemObject)
 	if (const UAFLMarketLoadoutItem* It = Cast<UAFLMarketLoadoutItem>(ListItemObject))
 	{
 		SetTileData(It->Axis, It->CosmeticId, It->DisplayName, It->bEquipped, It->bIsSwatch, It->SwatchColor, It->Thumbnail);
-		// STORE PARITY: this front-end LOADOUT tile gains the rarity frame + EQUIP button. bEquipViaTileClick=false
-		// -> the EQUIP button commits via OnEquipClicked (the market splits SELECT/tile-click from COMMIT/EQUIP);
-		// the in-match locker calls ApplyLoadoutCardStyle separately and keeps the default true.
-		ApplyLoadoutCardStyle(It->bEquipped, /*bEquipViaTileClick*/ false);
+		if (!It->bPurchasable)
+		{
+			// OWNED: rarity frame + EQUIP button. bEquipViaTileClick=false -> the EQUIP button commits via
+			// OnEquipClicked (the market splits SELECT/tile-click from COMMIT/EQUIP); the in-match locker calls
+			// ApplyLoadoutCardStyle separately and keeps the default true.
+			ApplyLoadoutCardStyle(It->bEquipped, /*bEquipViaTileClick*/ false);
+		}
+		else
+		{
+			// SUGGESTED: rarity frame + dual-color price + BUY (no EQUIP) -- unowned, buyable.
+			ApplyPurchasableCardStyle(It->CosmeticId);
+		}
 		return;
 	}
 
@@ -251,6 +259,45 @@ void UAFLW_LoadoutTileBase::ApplyLoadoutCardStyle(bool bEquipped, bool bEquipVia
 	(void)bEquipped;
 }
 
+void UAFLW_LoadoutTileBase::ApplyPurchasableCardStyle(FName InCosmeticId)
+{
+	const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this);
+	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(InCosmeticId) : nullptr;
+	if (!Entry)
+	{
+		return;
+	}
+	// Rarity frame (bottom bar) -- same treatment as the store card.
+	if (RarityFrame)
+	{
+		RarityFrame->SetBrushColor(UAFLCosmeticCatalogSubsystem::GetRarityColor(*Entry));
+		RarityFrame->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+	// Dual-COLOR price (amounts white, V blue, W magenta) -- reuses the store card's markup builder.
+	if (PriceRichText)
+	{
+		PriceRichText->SetText(AFLBuildPriceMarkup(*Entry));
+		PriceRichText->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (PriceText) { PriceText->SetVisibility(ESlateVisibility::Collapsed); }
+	}
+	else if (PriceText)
+	{
+		PriceText->SetText(UAFLCosmeticCatalogSubsystem::GetEntryPriceText(*Entry));
+		PriceText->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+	// BUY (Volts) -- a SUGGESTED item is unowned by construction, so BUY is always live. The Watts choice lives in
+	// the detail panel (one BUY on the card).
+	if (BuyButton)
+	{
+		BuyButton->SetVisibility(ESlateVisibility::Visible);
+		BuyButton->SetIsEnabled(true);
+	}
+	if (BuyLabel)     { BuyLabel->SetText(NSLOCTEXT("AFLStore", "Buy", "BUY")); }
+	if (BuyAltButton) { BuyAltButton->SetVisibility(ESlateVisibility::Collapsed); }
+	// No EQUIP on an unowned suggested card -- you buy it first; the buy->owned hop re-renders it with EQUIP.
+	if (EquipButton)  { EquipButton->SetVisibility(ESlateVisibility::Collapsed); }
+}
+
 void UAFLW_LoadoutTileBase::HandleBuyClicked()
 {
 	OnBuyClicked.Broadcast(CosmeticId, /*bWatts*/ false);
@@ -272,4 +319,16 @@ void UAFLW_LoadoutTileBase::HandleEquipClicked()
 void UAFLW_LoadoutTileBase::HandleButtonClicked()
 {
 	OnTileClicked.Broadcast(Axis, CosmeticId);
+}
+
+// --- UAFLW_LoadoutSectionHeader -- the electric-glass zone header row (EQUIPPED / OWNED / SUGGESTED) ---
+void UAFLW_LoadoutSectionHeader::NativeOnListItemObjectSet(UObject* ListItemObject)
+{
+	if (const UAFLMarketSectionHeader* Header = Cast<UAFLMarketSectionHeader>(ListItemObject))
+	{
+		if (HeaderLabel)
+		{
+			HeaderLabel->SetText(Header->Label);
+		}
+	}
 }

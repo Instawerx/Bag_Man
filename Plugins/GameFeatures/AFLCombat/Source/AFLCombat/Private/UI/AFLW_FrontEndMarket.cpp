@@ -494,6 +494,12 @@ void UAFLW_FrontEndMarket::OnStoreWalletChanged(int32 Volts, int32 Watts)
 {
 	// Chrome pills are always visible (both Store + Loadout) -> keep the live balances current regardless of mode.
 	RefreshWalletChrome(Volts, Watts);
+	// LOADOUT: a purchase landed -> re-populate so the just-bought item hops SUGGESTED -> OWNED (now owned) live.
+	if (Mode == EAFLMarketMode::Loadout)
+	{
+		PopulateForAxis(CurrentAxis);
+		return;
+	}
 	// A purchase landed -> re-generate the store tiles so the bought item flips BUY -> OWNED/EQUIP live.
 	if (Mode != EAFLMarketMode::Store) { return; }
 	if (UListView* List = Cast<UListView>(GetWidgetFromName(TEXT("ShopListView"))))
@@ -641,6 +647,8 @@ void UAFLW_FrontEndMarket::EnterLoadoutMode()
 	// modified, so STORE mode is untouched), and bind each generated tile's own click delegate. Then feed owned.
 	LoadoutTileClass = LoadClass<UAFLW_LoadoutTileBase>(nullptr,
 		TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_LoadoutTile.WBP_AFL_LoadoutTile_C"));
+	SectionHeaderClass = LoadClass<UAFLW_LoadoutSectionHeader>(nullptr,
+		TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_LoadoutSectionHeader.WBP_AFL_LoadoutSectionHeader_C"));
 	if (UListView* List = Cast<UListView>(GetWidgetFromName(TEXT("ShopListView"))))
 	{
 		List->OnGetEntryClassForItem().BindUObject(this, &UAFLW_FrontEndMarket::GetLoadoutEntryClass);
@@ -675,8 +683,8 @@ void UAFLW_FrontEndMarket::PopulateForAxis(EAFLLoadoutAxis Axis)
 	TArray<FAFLCatalogEntry> Owned;
 	UAFLCosmeticBrowserLibrary::GetOwnedEntriesForAxis(this, PS, Axis, Owned);
 
-	TArray<UObject*> Items;
-	Items.Reserve(Owned.Num());
+	// Owned entries -> EQUIPPED (the 1 equipped) + OWNED (the rest). bPurchasable=false -> the tile shows EQUIP.
+	TArray<UObject*> EquippedItems, OwnedItems;
 	for (const FAFLCatalogEntry& Entry : Owned)
 	{
 		UAFLMarketLoadoutItem* Item = NewObject<UAFLMarketLoadoutItem>(this);
@@ -694,10 +702,65 @@ void UAFLW_FrontEndMarket::PopulateForAxis(EAFLLoadoutAxis Axis)
 		Item->DisplayName = Label;
 		Item->bEquipped = (!EquippedId.IsNone() && Entry.CosmeticId == EquippedId);
 		Item->bIsSwatch = false;               // 5a: thumbnail-only (261/261 SKUs carry one); swatch fallback -> 5c
+		Item->bPurchasable = false;
 		Item->Thumbnail = Entry.ShopThumbnail;
-		Items.Add(Item);
+		(Item->bEquipped ? EquippedItems : OwnedItems).Add(Item);
 	}
-	List->SetListItems(Items);
+
+	// SUGGESTED (v1 -- the DUMB predicate, NOT a recommendation engine): purchasable entries for THIS axis, not
+	// owned, rarest 5. bPurchasable=true -> the tile renders a plain card (B3 adds price + BUY + the buy->owned hop).
+	UAFLWalletComponent* Wallet = PS->FindComponentByClass<UAFLWalletComponent>();
+	TArray<FAFLCatalogEntry> Purchasable;
+	UAFLCosmeticBrowserLibrary::GetPurchasableEntries(this, Purchasable);
+	TArray<FAFLCatalogEntry> AxisBuyable;
+	for (const FAFLCatalogEntry& Entry : Purchasable)
+	{
+		EAFLLoadoutAxis EntryAxis;
+		if (!ClassifyStoreAxis(Entry.CosmeticId, EntryAxis) || EntryAxis != Axis) { continue; }
+		if (Wallet && Wallet->OwnsCosmetic(Entry.CosmeticId)) { continue; }
+		AxisBuyable.Add(Entry);
+	}
+	AxisBuyable.Sort([](const FAFLCatalogEntry& A, const FAFLCatalogEntry& B) { return (int32)A.Rarity > (int32)B.Rarity; });
+	TArray<UObject*> SuggestedItems;
+	for (const FAFLCatalogEntry& Entry : AxisBuyable)
+	{
+		if (SuggestedItems.Num() >= 5) { break; }
+		UAFLMarketLoadoutItem* Item = NewObject<UAFLMarketLoadoutItem>(this);
+		Item->Axis = Axis;
+		Item->CosmeticId = Entry.CosmeticId;
+		Item->DisplayName = Entry.DisplayName;
+		Item->bEquipped = false;
+		Item->bIsSwatch = false;
+		Item->bPurchasable = true;
+		Item->Thumbnail = Entry.ShopThumbnail;
+		SuggestedItems.Add(Item);
+	}
+
+	// Compose the ONE ShopListView feed: EQUIPPED / OWNED / SUGGESTED, each behind an electric-glass header row. A
+	// zone with no items drops its header (no empty sections). Same list -- a feed change, not a new grid.
+	auto MakeHeader = [this](const FText& Caption) -> UAFLMarketSectionHeader*
+	{
+		UAFLMarketSectionHeader* H = NewObject<UAFLMarketSectionHeader>(this);
+		H->Label = Caption;
+		return H;
+	};
+	TArray<UObject*> Feed;
+	if (EquippedItems.Num() > 0)
+	{
+		Feed.Add(MakeHeader(NSLOCTEXT("AFLLoadout", "Zone_Equipped", "EQUIPPED")));
+		Feed.Append(EquippedItems);
+	}
+	if (OwnedItems.Num() > 0)
+	{
+		Feed.Add(MakeHeader(NSLOCTEXT("AFLLoadout", "Zone_Owned", "OWNED")));
+		Feed.Append(OwnedItems);
+	}
+	if (SuggestedItems.Num() > 0)
+	{
+		Feed.Add(MakeHeader(NSLOCTEXT("AFLLoadout", "Zone_Suggested", "SUGGESTED")));
+		Feed.Append(SuggestedItems);
+	}
+	List->SetListItems(Feed);
 
 	// Seed the detail panel with the currently-equipped item, so entering the axis / after a commit the panel
 	// matches the list; a tile SELECT then re-fills it. Nothing equipped -> leave the panel as-is.
@@ -706,8 +769,8 @@ void UAFLW_FrontEndMarket::PopulateForAxis(EAFLLoadoutAxis Axis)
 		PopulateDetailForLoadout(EquippedId);
 	}
 
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: PopulateForAxis axis=%d -> %d owned item(s) (equipped=%s)."),
-		(int32)Axis, Items.Num(), *EquippedId.ToString());
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: PopulateForAxis axis=%d -> equipped=%d owned=%d suggested=%d (equippedId=%s)."),
+		(int32)Axis, EquippedItems.Num(), OwnedItems.Num(), SuggestedItems.Num(), *EquippedId.ToString());
 }
 
 void UAFLW_FrontEndMarket::SelectAxis(EAFLLoadoutAxis Axis)
@@ -755,9 +818,14 @@ AFL_TAB_HANDLER(OnTabColors,     BodyColor)
 AFL_TAB_HANDLER(OnTabFacemask,   Facemask)
 #undef AFL_TAB_HANDLER
 
-TSubclassOf<UUserWidget> UAFLW_FrontEndMarket::GetLoadoutEntryClass(UObject* /*Item*/) const
+TSubclassOf<UUserWidget> UAFLW_FrontEndMarket::GetLoadoutEntryClass(UObject* Item) const
 {
-	// Every LOADOUT item renders as OUR tile; STORE mode never binds this delegate so its default tile is used.
+	// Header rows render as OUR section-header widget; cosmetic items render as OUR tile. STORE mode never binds
+	// this delegate, so its default tile is used there.
+	if (Item && Item->IsA<UAFLMarketSectionHeader>())
+	{
+		return SectionHeaderClass;
+	}
 	return LoadoutTileClass;
 }
 
@@ -765,10 +833,11 @@ void UAFLW_FrontEndMarket::OnLoadoutEntryGenerated(UUserWidget& EntryWidget)
 {
 	if (UAFLW_LoadoutTileBase* Tile = Cast<UAFLW_LoadoutTileBase>(&EntryWidget))
 	{
-		// The tile-body click SELECTs (preview + detail); the EQUIP button COMMITs. AddUnique so pooled/regenerated
-		// tiles don't stack bindings.
+		// The tile-body click SELECTs (preview + detail); the EQUIP button COMMITs; the SUGGESTED BUY button
+		// purchases. AddUnique so pooled/regenerated tiles don't stack bindings.
 		Tile->OnTileClicked.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::HandleLoadoutTileClicked);
 		Tile->OnEquipClicked.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::HandleLoadoutTileEquip);
+		Tile->OnBuyClicked.AddUniqueDynamic(this, &UAFLW_FrontEndMarket::HandleLoadoutTileBuy);
 	}
 }
 
@@ -793,6 +862,28 @@ void UAFLW_FrontEndMarket::HandleLoadoutTileEquip(FName CosmeticId)
 	// loadout list shows one axis at a time); EquipSelected then refreshes the list (EQUIPPED marker) + the detail.
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: loadout tile EQUIP -> commit %s (axis=%d)."), *CosmeticId.ToString(), (int32)CurrentAxis);
 	EquipSelected(CosmeticId, CurrentAxis);
+}
+
+void UAFLW_FrontEndMarket::HandleLoadoutTileBuy(FName CosmeticId, bool bWatts)
+{
+	// SUGGESTED BUY (increment B3): the proven buy path (mirrors HandleStoreTileBuy, minus the store-mode guard).
+	// The wallet's guards (afford / Watts-wall / double-charge) are internal; OnWalletChanged -> OnStoreWalletChanged
+	// re-populates in loadout mode so the bought item hops SUGGESTED -> OWNED.
+	APlayerController* PC = GetOwningPlayer();
+	APlayerState* PS = PC ? PC->PlayerState : nullptr;
+	UAFLWalletComponent* Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+	if (!Wallet)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MARKET: [LOADOUT BUY] no wallet on PlayerState."));
+		return;
+	}
+	const EAFLPayCurrency Pay = bWatts ? EAFLPayCurrency::Watts : EAFLPayCurrency::Volts;
+#if UE_BUILD_SHIPPING
+	Wallet->ClientRequestPurchase(CosmeticId, Pay);
+#else
+	Wallet->ServerPurchaseCosmetic(CosmeticId, Pay);
+#endif
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: [LOADOUT BUY] %s pay=%s."), *CosmeticId.ToString(), bWatts ? TEXT("Watts") : TEXT("Volts"));
 }
 
 void UAFLW_FrontEndMarket::EquipSelected(FName CosmeticId, EAFLLoadoutAxis Axis)

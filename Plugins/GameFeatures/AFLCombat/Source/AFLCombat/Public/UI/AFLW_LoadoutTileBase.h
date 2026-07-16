@@ -51,9 +51,26 @@ public:
 	FName CosmeticId;
 	FText DisplayName;
 	bool bEquipped = false;
+	/** SUGGESTED zone: an unowned, buyable item (B2 renders a plain card; B3 adds price + BUY + the buy->owned hop). */
+	bool bPurchasable = false;
 	bool bIsSwatch = false;
 	FLinearColor SwatchColor = FLinearColor::White;
 	TSoftObjectPtr<UTexture2D> Thumbnail;
+};
+
+/**
+ * UAFLMarketSectionHeader -- a zone-header row in the front-end loadout list (EQUIPPED / OWNED / SUGGESTED).
+ * Rendered by UAFLW_LoadoutSectionHeader (NOT the tile); UAFLW_FrontEndMarket::GetLoadoutEntryClass dispatches on
+ * the item type so ONE ShopListView carries both headers and cosmetic tiles (feed change, not a new grid).
+ */
+UCLASS()
+class AFLCOMBAT_API UAFLMarketSectionHeader : public UObject
+{
+	GENERATED_BODY()
+
+public:
+	/** The zone caption ("EQUIPPED" / "OWNED" / "SUGGESTED"). */
+	FText Label;
 };
 
 /**
@@ -91,6 +108,10 @@ public:
 	 *  OnTileClicked (the locker's tile-click handler equips it); false (front-end market) routes it through
 	 *  OnEquipClicked so the market can split SELECT (tile-body click = preview) from COMMIT (EQUIP button). */
 	void ApplyLoadoutCardStyle(bool bEquipped, bool bEquipViaTileClick = true);
+
+	/** FRONT-END SUGGESTED card style: reveal the rarity frame + dual-color price + BUY (no EQUIP) on an UNOWNED,
+	 *  buyable tile -- reuses the store card's widgets. Call AFTER SetTileData (which collapsed them). */
+	void ApplyPurchasableCardStyle(FName InCosmeticId);
 
 	FName GetCosmeticId() const { return CosmeticId; }
 
@@ -148,4 +169,22 @@ private:
 	/** Locker card mode (set by ApplyLoadoutCardStyle): the EQUIP button equips via the axis-carrying OnTileClicked
 	 *  (the locker's existing handler) instead of the store's OnEquipClicked -> no new locker handler needed. */
 	bool bEquipUsesTileClick = false;
+};
+
+/**
+ * UAFLW_LoadoutSectionHeader -- the thin electric-glass header row between loadout zones. The C++ base reads the
+ * UAFLMarketSectionHeader label; the WBP child (WBP_AFL_LoadoutSectionHeader) owns the layout (BindWidget:
+ * HeaderLabel). Non-interactive -- it only segments the list into EQUIPPED / OWNED / SUGGESTED.
+ */
+UCLASS(Abstract)
+class AFLCOMBAT_API UAFLW_LoadoutSectionHeader : public UUserWidget, public IUserObjectListEntry
+{
+	GENERATED_BODY()
+
+protected:
+	//~IUserObjectListEntry -- read the UAFLMarketSectionHeader label into the caption.
+	virtual void NativeOnListItemObjectSet(UObject* ListItemObject) override;
+	//~End
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget)) TObjectPtr<UTextBlock> HeaderLabel;
 };

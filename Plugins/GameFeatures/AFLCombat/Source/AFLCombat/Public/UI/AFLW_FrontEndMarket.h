@@ -160,6 +160,12 @@ protected:
 	UFUNCTION()
 	void HandleLoadoutTileEquip(FName CosmeticId);
 
+	/** Bound to each SUGGESTED tile's OnBuyClicked (the BUY button) -> the proven buy path (ClientRequestPurchase /
+	 *  ServerPurchaseCosmetic). OnWalletChanged -> OnStoreWalletChanged then re-populates in loadout mode, so the
+	 *  bought item hops SUGGESTED -> OWNED live. */
+	UFUNCTION()
+	void HandleLoadoutTileBuy(FName CosmeticId, bool bWatts);
+
 	/** Equip one axis (data RPC) + fan it out onto the armory display pawn (visual). */
 	void EquipSelected(FName CosmeticId, EAFLLoadoutAxis Axis);
 
@@ -182,6 +188,10 @@ protected:
 	/** OUR tile class (WBP_AFL_LoadoutTile) the ListView uses in LOADOUT mode. */
 	UPROPERTY(Transient)
 	TSubclassOf<UAFLW_LoadoutTileBase> LoadoutTileClass;
+
+	/** OUR zone-header class (WBP_AFL_LoadoutSectionHeader) for the EQUIPPED/OWNED/SUGGESTED captions between zones. */
+	UPROPERTY(Transient)
+	TSubclassOf<UAFLW_LoadoutSectionHeader> SectionHeaderClass;
 
 	UPROPERTY(EditDefaultsOnly, Category = Input)
 	ELyraWidgetInputMode InputConfig = ELyraWidgetInputMode::Default;
