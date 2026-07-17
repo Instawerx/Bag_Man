@@ -18,6 +18,7 @@ public class AFLGameCore : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"GameplayTags",
+				"Json",       // T2: parse the GameLift matchmaker GameSessionData contract (UAFLMatchmakerDataProvider)
 				"AIModule",   // FGenericTeamId (GenericTeamAgentInterface.h) for the team-assignment seam
 				"GameplayMessageRuntime",   // UGameplayMessageSubsystem -- Lyra.Elimination.Message anti-camp feed (T1.4b-ii)
 				"LyraGame",   // ALyraGameMode + ULyraTeamCreationComponent bases (the always-loaded project module)

@@ -48,6 +48,22 @@ public:
 	const FString& GetSessionTicket() const { return SessionTicket; }
 	const FString& GetEntityToken() const { return EntityToken; }
 
+	/**
+	 * T2 identity-join SWAP-POINT: the reconcile key this client carries in its ?PlayFabId= connect option, matched
+	 * server-side against the matchmaker roster's member.id (UAFLMatchmakerDataProvider). Returns the master
+	 * PlayFabId today (== the title_player_account Entity.Id by PlayFab convention). If a real matchmaker ticket
+	 * ever shows the roster keys on EntityToken.Entity.Id instead, change ONLY this accessor (the login response
+	 * already carries Entity.Id) -- the connect wiring + the provider are unaffected.
+	 */
+	const FString& GetReconcileKey() const { return PlayFabId; }
+
+	/** The connect-URL option carrying the reconcile key -- the client appends this to its travel URL at session
+	 *  join (the live append lands with the online client-connect path, S12). Empty when not logged in. */
+	FString GetConnectOptions() const
+	{
+		return PlayFabId.IsEmpty() ? FString() : FString::Printf(TEXT("?PlayFabId=%s"), *PlayFabId);
+	}
+
 	/** Broadcast once login succeeds. */
 	FAFLOnLoggedIn OnLoggedIn;
 

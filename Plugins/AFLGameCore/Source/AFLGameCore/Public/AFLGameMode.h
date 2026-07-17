@@ -7,6 +7,7 @@
 #include "AFLGameMode.generated.h"
 
 class AController;
+class APlayerController;
 
 /**
  * AAFLGameMode  (Arena round respawn gate)
@@ -31,5 +32,15 @@ class AFLGAMECORE_API AAFLGameMode : public ALyraGameMode
 public:
 	//~ALyraGameMode interface
 	virtual bool ControllerCanRestart(AController* Controller) override;
+
+	/**
+	 * T2 identity-join (server side): stash the reconcile key the client carried in its ?PlayFabId= connect option
+	 * onto its PlayerState (a UAFLReconcileIdComponent), so UAFLMatchmakerDataProvider can reconcile the matchmaker
+	 * roster (member.id) against the actual connected controllers. Absent for LocalFill / offline / PIE joins (no
+	 * ?PlayFabId=) -> a pure no-op, safe on the live join path. NOT read until the matchmaker provider is the
+	 * active provider (S12).
+	 */
+	virtual FString InitNewPlayer(APlayerController* NewPlayerController, const FUniqueNetIdRepl& UniqueId,
+		const FString& Options, const FString& Portal) override;
 	//~End of ALyraGameMode interface
 };
