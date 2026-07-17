@@ -6,6 +6,11 @@
 
 #include "AFLTeamCreationComponent.generated.h"
 
+class UAFLLocalFillProvider;
+class ALyraPlayerState;
+class AGameModeBase;
+class AController;
+
 /**
  * UAFLTeamCreationComponent  (the team-assignment seam -- Team SSOT §1/§2)
  *
@@ -16,9 +21,12 @@
  * dynamic GetTeamIDs, per-team round/extraction/match-end, the shipped BeginPlay retry-guard) is
  * UNTOUCHED -- this feeds it exactly the FGenericTeamIds stock did (SSOT §0.5).
  *
- * FIRST-INCREMENT CONTRACT -- ZERO BEHAVIOR CHANGE: the override delegates to Super:: only (no provider
- * yet). The subclass merely sits in the assignment path; behavior is byte-identical to stock. The next
- * increment swaps the body to the IAFLTeamAssignmentProvider (LocalFill: bot-fill + party-together).
+ * ASSIGNMENT DRIVEN BY THE PROVIDER (SSOT §1/§2):
+ *  - ServerAssignPlayersToTeams: resolves the REAL-player split via IAFLTeamAssignmentProvider
+ *    (UAFLLocalFillProvider in T1) -- the drop-in surface a T2 MatchmakerDataProvider fills from GameLift
+ *    MatchmakerData. Applied index-parallel to the gathered controllers (T1 sidesteps the identity-join, §3).
+ *  - ServerChooseTeamForPlayer: routes EVERY per-join (late human AND each bot) through the provider's
+ *    live-count balance -- bot-safe (no PlayerId cache; §2 note).
  */
 UCLASS()
 class AFLGAMECORE_API UAFLTeamCreationComponent : public ULyraTeamCreationComponent
@@ -29,6 +37,19 @@ class AFLGAMECORE_API UAFLTeamCreationComponent : public ULyraTeamCreationCompon
 protected:
 	//~ULyraTeamCreationComponent interface
 	virtual void ServerAssignPlayersToTeams() override;
+	virtual void ServerChooseTeamForPlayer(ALyraPlayerState* PS) override;
 	//~End of ULyraTeamCreationComponent interface
+
+private:
+	/** Late-join hook (humans AND bots) -> per-join balance via ServerChooseTeamForPlayer. */
+	void HandlePlayerInitialized(AGameModeBase* GameMode, AController* NewPlayer);
+
+	/** Lazily create the active provider (LocalFill in T1). */
+	UAFLLocalFillProvider* GetProvider();
 #endif
+
+private:
+	/** The active team-assignment provider (LocalFill in T1; a MatchmakerDataProvider swaps in at T2). */
+	UPROPERTY(Transient)
+	TObjectPtr<UAFLLocalFillProvider> Provider;
 };
