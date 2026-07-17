@@ -3,12 +3,15 @@
 #pragma once
 
 #include "Player/LyraPlayerSpawningManagerComponent.h"
+#include "GameplayTagContainer.h"                    // FGameplayTag (message channel)
+#include "GameFramework/GameplayMessageSubsystem.h"  // FGameplayMessageListenerHandle
 
 #include "AFLPlayerSpawningManagerComponent.generated.h"
 
 class AActor;
 class AController;
 class ALyraPlayerStart;
+struct FLyraVerbMessage;
 
 /**
  * UAFLPlayerSpawningManagerComponent  (Team SSOT §4 T1.4a -- team-aware spawn selection + no-enemy-LOS)
@@ -47,6 +50,23 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Spawn")
 	float SpawnLosEyeHeight = 80.0f;
 
+	/** T1.4b-ii anti-camp: exclude starts within HotPointRadius of a recent hot point (deprioritize-with-fallback). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Spawn")
+	bool bRejectOnHotPoint = true;
+
+	/** Radius (uu) around a recent death/contested point within which a start is treated as camped. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Spawn")
+	float HotPointRadius = 800.0f;
+
+	/** How long (game-time seconds) an elimination location stays a "hot point". Tier-scalable in 4c. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Spawn")
+	float RecentHotPointWindowSeconds = 12.0f;
+
+	//~UActorComponent interface
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	//~End of UActorComponent interface
+
 	//~ULyraPlayerSpawningManagerComponent interface
 	virtual AActor* OnChoosePlayerStart(AController* Player, TArray<ALyraPlayerStart*>& PlayerStarts) override;
 	//~End of ULyraPlayerSpawningManagerComponent interface
@@ -58,4 +78,28 @@ private:
 	/** The side index (0/1) the team is currently on, via the core IAFLRoundRestartPolicy seam on the GameState
 	 *  (mirrors AAFLGameMode's query). INDEX_NONE if no policy provider -> selector ignores sides (4a behavior). */
 	int32 QueryTeamSideIndex(int32 TeamId) const;
+
+	// --- T1.4b-ii anti-camp: recent death/contested points from the core Lyra.Elimination.Message bus ---
+
+	/** One recent elimination location, stamped with server game-time (World->GetTimeSeconds()). */
+	struct FAFLHotPoint
+	{
+		FVector Location = FVector::ZeroVector;
+		double  Time = 0.0;
+	};
+
+	/** Listener for TAG "Lyra.Elimination.Message" (core ULyraHealthComponent broadcast). Server-only. */
+	void HandleEliminationMessage(FGameplayTag Channel, const FLyraVerbMessage& Payload);
+
+	/** Drop hot points older than RecentHotPointWindowSeconds (bounds the ring). */
+	void PruneHotPoints(double Now);
+
+	/** True if Loc is within HotPointRadius of any non-expired hot point. */
+	bool IsNearRecentHotPoint(const FVector& Loc, double Now) const;
+
+	/** Recent death/contested locations (value-typed; no GC refs -> not a UPROPERTY). */
+	TArray<FAFLHotPoint> RecentHotPoints;
+
+	/** Handle for the elimination-message listener, released in EndPlay. */
+	FGameplayMessageListenerHandle ElimListenerHandle;
 };

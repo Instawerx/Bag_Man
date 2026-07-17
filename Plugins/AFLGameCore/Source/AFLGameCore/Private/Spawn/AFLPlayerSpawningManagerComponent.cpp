@@ -16,6 +16,8 @@
 #include "GameFramework/PlayerState.h"
 #include "GameplayTagContainer.h"
 #include "NativeGameplayTags.h"
+#include "GameFramework/GameplayMessageSubsystem.h"    // UGameplayMessageSubsystem (anti-camp feed)
+#include "Messages/LyraVerbMessage.h"                  // FLyraVerbMessage (elimination payload)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLPlayerSpawningManagerComponent)
 
@@ -87,6 +89,95 @@ bool UAFLPlayerSpawningManagerComponent::AnyEnemyHasLineOfSight(int32 PlayerTeam
 	return false;
 }
 
+void UAFLPlayerSpawningManagerComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Anti-camp feed (T1.4b-ii): listen to the CORE Lyra.Elimination.Message bus. Server-only -- the elimination
+	// broadcast is server-authoritative and spawn selection runs on the server. The channel tag is a file-static
+	// in ULyraHealthComponent, so resolve it by name (the tag is registered natively at startup).
+	const AActor* Owner = GetOwner();
+	UWorld* World = GetWorld();
+	if (Owner && Owner->HasAuthority() && World)
+	{
+		const FGameplayTag ElimChannel = FGameplayTag::RequestGameplayTag(FName(TEXT("Lyra.Elimination.Message")), /*ErrorIfNotFound=*/false);
+		if (ElimChannel.IsValid())
+		{
+			ElimListenerHandle = UGameplayMessageSubsystem::Get(World).RegisterListener(
+				ElimChannel, this, &UAFLPlayerSpawningManagerComponent::HandleEliminationMessage);
+		}
+	}
+}
+
+void UAFLPlayerSpawningManagerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (ElimListenerHandle.IsValid())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			UGameplayMessageSubsystem::Get(World).UnregisterListener(ElimListenerHandle);
+		}
+		ElimListenerHandle = FGameplayMessageListenerHandle();
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+void UAFLPlayerSpawningManagerComponent::HandleEliminationMessage(FGameplayTag /*Channel*/, const FLyraVerbMessage& Payload)
+{
+	// TEARDOWN-SAFE location resolution: Target is the victim PlayerState; its pawn may already be unpossessed/
+	// destroyed at elimination time. Skip (don't record) rather than record a garbage/origin point.
+	const APlayerState* VictimPS = Cast<APlayerState>(Payload.Target);
+	if (!VictimPS)
+	{
+		return;   // Target absent or not a PlayerState
+	}
+	const APawn* VictimPawn = VictimPS->GetPawn();
+	if (!VictimPawn)
+	{
+		return;   // pawn torn down before we resolved it -- a missed hot point is harmless
+	}
+	const FVector Loc = VictimPawn->GetActorLocation();
+	if (Loc.IsNearlyZero())
+	{
+		return;   // NEVER record (0,0,0) -- the origin-penalty trap
+	}
+
+	const UWorld* World = GetWorld();
+	const double Now = World ? World->GetTimeSeconds() : 0.0;
+	RecentHotPoints.Add(FAFLHotPoint{ Loc, Now });
+	PruneHotPoints(Now);
+
+	UE_LOG(LogAFLGameCore, Verbose,
+		TEXT("AFLSpawn: recorded hot point at %s (t=%.1f, %d live)"), *Loc.ToCompactString(), Now, RecentHotPoints.Num());
+}
+
+void UAFLPlayerSpawningManagerComponent::PruneHotPoints(double Now)
+{
+	const double Window = static_cast<double>(RecentHotPointWindowSeconds);
+	RecentHotPoints.RemoveAll([Now, Window](const FAFLHotPoint& HP)
+	{
+		return (Now - HP.Time) > Window;
+	});
+}
+
+bool UAFLPlayerSpawningManagerComponent::IsNearRecentHotPoint(const FVector& Loc, double Now) const
+{
+	const double R2 = static_cast<double>(HotPointRadius) * static_cast<double>(HotPointRadius);
+	const double Window = static_cast<double>(RecentHotPointWindowSeconds);
+	for (const FAFLHotPoint& HP : RecentHotPoints)
+	{
+		if ((Now - HP.Time) > Window)
+		{
+			continue;   // expired
+		}
+		if (FVector::DistSquared(Loc, HP.Location) <= R2)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Player, TArray<ALyraPlayerStart*>& PlayerStarts)
 {
 	UWorld* World = GetWorld();
@@ -147,7 +238,33 @@ AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Pla
 	// Prefer the LOS-safe subset; if every start is exposed, fall back to the side-scoped set (spawning beats not spawning).
 	const TArray<ALyraPlayerStart*>& Candidates = (bRejectOnEnemyLOS && SafeStarts.Num() > 0) ? SafeStarts : SideScoped;
 
-	// (2) Team-aware furthest-from-enemy over the candidates -- faithful mirror of ShooterCore UTDM (see class note).
+	// (1.5) ANTI-CAMP (T1.4b-ii) -- steer away from recent death/contested points, over the side+LOS-safe set.
+	//       Ordering per SSOT §4: side -> LOS -> anti-camp -> furthest-from-enemy tiebreak. Deprioritize-with-
+	//       fallback: if EVERY candidate is hot, keep them all (spawning beats not spawning) -- never reject the
+	//       last option because the whole map is hot.
+	const double Now = World->GetTimeSeconds();
+	PruneHotPoints(Now);
+	TArray<ALyraPlayerStart*> CoolStarts;
+	int32 HotRejected = 0;
+	if (bRejectOnHotPoint && RecentHotPoints.Num() > 0)
+	{
+		CoolStarts.Reserve(Candidates.Num());
+		for (ALyraPlayerStart* Start : Candidates)
+		{
+			if (Start && IsNearRecentHotPoint(Start->GetActorLocation(), Now))
+			{
+				++HotRejected;
+			}
+			else if (Start)
+			{
+				CoolStarts.Add(Start);
+			}
+		}
+	}
+	const bool bAllHot = HotRejected > 0 && CoolStarts.Num() == 0;
+	const TArray<ALyraPlayerStart*>& FinalCandidates = (CoolStarts.Num() > 0) ? CoolStarts : Candidates;
+
+	// (2) Team-aware furthest-from-enemy over the final candidates -- faithful mirror of ShooterCore UTDM (see class note).
 	ALyraGameState* GameState = GetGameStateChecked<ALyraGameState>();
 	ALyraPlayerStart* BestPlayerStart = nullptr;
 	double MaxDistance = 0;
@@ -166,7 +283,7 @@ AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Pla
 		{
 			continue;
 		}
-		for (ALyraPlayerStart* PlayerStart : Candidates)
+		for (ALyraPlayerStart* PlayerStart : FinalCandidates)
 		{
 			if (!PlayerStart)
 			{
@@ -195,13 +312,15 @@ AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Pla
 	ALyraPlayerStart* const Chosen = BestPlayerStart ? BestPlayerStart : FallbackPlayerStart;
 
 	UE_LOG(LogAFLGameCore, Log,
-		TEXT("AFLSpawn: team=%d side=%d -> '%s' (dist=%.0f) | side-scoped %d, LOS-safe %d/%d rejected=[%s]%s"),
+		TEXT("AFLSpawn: team=%d side=%d -> '%s' (dist=%.0f) | side-scoped %d, LOS-safe %d/%d rejected=[%s]%s | anti-camp: %d hot-rejected, %d cool, %d hotpts%s"),
 		PlayerTeamId, SideIndex,
 		Chosen ? *Chosen->GetName() : TEXT("<none>"),
 		BestPlayerStart ? MaxDistance : FallbackMaxDistance,
 		SideStarts.Num(), SafeStarts.Num(), SideScoped.Num(),
 		*FString::Join(RejectedNames, TEXT(",")),
-		bAllExposed ? TEXT(" [FALLBACK all-exposed]") : TEXT(""));
+		bAllExposed ? TEXT(" [FALLBACK all-exposed]") : TEXT(""),
+		HotRejected, CoolStarts.Num(), RecentHotPoints.Num(),
+		bAllHot ? TEXT(" [FALLBACK all-hot]") : TEXT(""));
 
 	return Chosen;
 }
