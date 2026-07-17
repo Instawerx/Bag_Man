@@ -29,8 +29,9 @@ class ALyraPlayerStart;
  * PIE -- essential because ULyraPlayerSpawningManagerComponent::FindPlayFromHereStart masks player 0 under
  * WITH_EDITOR; verify via the 2nd client + bots + this log, not player 0's position.
  *
- * SIDE-SWAP (fixed mirror, consuming the round manager's existing half-swap signal), ANTI-CAMP, and spawn INVULN
- * are T1.4b / T1.4c -- NOT here.
+ * FIXED-MIRROR SIDE-SWAP (T1.4b) restricts candidates to the team's CURRENT side first (IAFLRoundRestartPolicy::
+ * GetTeamSideIndex -> AFL.Spawn.Side.{0,1} start tags), folding in the round manager's half-time bSidesSwapped
+ * swap, read layering-safe via the core seam. ANTI-CAMP (4b-ii) and spawn INVULN (4c) are NOT here yet.
  */
 UCLASS()
 class AFLGAMECORE_API UAFLPlayerSpawningManagerComponent : public ULyraPlayerSpawningManagerComponent
@@ -53,4 +54,8 @@ protected:
 private:
 	/** True if ANY enemy-team pawn has a clear Visibility sightline to this start (start + enemy ignored). */
 	bool AnyEnemyHasLineOfSight(int32 PlayerTeamId, const ALyraPlayerStart* Start) const;
+
+	/** The side index (0/1) the team is currently on, via the core IAFLRoundRestartPolicy seam on the GameState
+	 *  (mirrors AAFLGameMode's query). INDEX_NONE if no policy provider -> selector ignores sides (4a behavior). */
+	int32 QueryTeamSideIndex(int32 TeamId) const;
 };

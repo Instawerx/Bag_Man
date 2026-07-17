@@ -29,4 +29,11 @@ class IAFLRoundRestartPolicy
 public:
 	/** True = deny a controller restart right now (e.g. a round is active and mid-round respawn is off). */
 	virtual bool ShouldBlockRestart() const = 0;
+
+	/**
+	 * The side index (0 or 1) the team is CURRENTLY on -- folds in the round's half-time side swap so the spawn
+	 * selector can pick the team's fixed mirror side. INDEX_NONE = no side policy (the selector then ignores
+	 * sides and uses furthest-from-enemy only). Defaulted -> a non-breaking extension for existing implementers.
+	 */
+	virtual int32 GetTeamSideIndex(int32 TeamId) const { return INDEX_NONE; }
 };

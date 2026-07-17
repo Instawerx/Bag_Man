@@ -123,6 +123,15 @@ public:
 	virtual bool ShouldBlockRestart() const override { return IsRoundActive() && !bAllowMidRoundRespawn; }
 	bool AreSidesSwapped() const { return bSidesSwapped; }
 
+	/** IAFLRoundRestartPolicy: the side (0/1) team T is currently on -- its score slot XOR the half-time swap
+	 *  (bSidesSwapped). INDEX_NONE for a non-participating team. Team ids are 1/2, so route through SlotForTeam
+	 *  (never hardcode team->slot). The core spawn selector reads this to pick the team's fixed mirror side. */
+	virtual int32 GetTeamSideIndex(int32 TeamId) const override
+	{
+		const int32 Slot = SlotForTeam(TeamId);
+		return (Slot == INDEX_NONE) ? INDEX_NONE : (Slot ^ (bSidesSwapped ? 1 : 0));
+	}
+
 	/** The score slot (0 or 1) for a team id, or INDEX_NONE if not a participating team. The client HUD
 	 *  maps its local team -> Team0Score/Team1Score with this; the server FSM uses it for all team attribution. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Round")
