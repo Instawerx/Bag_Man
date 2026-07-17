@@ -64,7 +64,7 @@ You cannot scale one map across a 2-to-36 player range — map quality is a func
 - **Density:** very high. **TTFC:** ~5–10s. **Footprint:** ~30–60 m across (single arena).
 - **Flow:** single symmetric arena; 2 primary engagement angles + 1 flank; no map-spanning sightline.
 - **Symmetry:** mirror (mandatory — ranked integrity).
-- **Extract:** 1 central. **Spawns:** mirrored, 1.5s `State.Invulnerable` (existing), no enemy-LOS spawn.
+- **Extract:** 1 central. **Spawns:** mirrored, ≈2.75s `Gameplay.DamageImmunity` (GE_SpawnIn, montage-tied, removed on spawn-montage complete), no enemy-LOS spawn.
 
 ### Tier B — Mid-Arena (3v3, 4v4) — the competitive heart
 - **Density:** high. **TTFC:** ~8–15s. **Footprint:** ~60–100 m across.
@@ -221,7 +221,7 @@ Each brief (`Docs/maps/<MapName>_DESIGN.md`) must specify:
 4. **Power positions** — each high-ground/strong angle listed **with its flank/counter-route**. No uncontested map-spanning sightline.
 5. **Sightline bands** — where CQB / mid / long engagements live (must exercise the laser roster).
 6. **Extraction** — zone count + placement + payout tier per §2; for BR, the collapse interaction (strand per §10.2).
-7. **Spawns** — layout, team-aware selection, anti-camp, 1.5s `State.Invulnerable`; BR drop distribution.
+7. **Spawns** — layout, team-aware selection, anti-camp, ≈2.75s `Gameplay.DamageImmunity` (GE_SpawnIn, montage-tied); BR drop distribution.
 8. **Signature mechanic** — the map's hook (laser walls / gravity / storms / rails / shrinking zone / oversized-world), with its server-authority + replication note.
 9. **Symmetry** — mirror / rotational / asymmetric, with the integrity rationale.
 10. **Readability** — beam + silhouette readability honored (rim light, neon accents at sightlines, low ambient — no laser lost in env color).
