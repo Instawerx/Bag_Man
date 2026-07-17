@@ -6,20 +6,22 @@
 
 #include "LyraBotCreationComponent.generated.h"
 
+#define UE_API LYRAGAME_API
+
 class ULyraExperienceDefinition;
 class ULyraPawnData;
 class AAIController;
 
-UCLASS(Blueprintable, Abstract)
+UCLASS(MinimalAPI, Blueprintable, Abstract)
 class ULyraBotCreationComponent : public UGameStateComponent
 {
 	GENERATED_BODY()
 
 public:
-	ULyraBotCreationComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+	UE_API ULyraBotCreationComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	//~UActorComponent interface
-	virtual void BeginPlay() override;
+	UE_API virtual void BeginPlay() override;
 	//~End of UActorComponent interface
 
 private:
@@ -43,11 +45,11 @@ protected:
 
 	/** Always creates a single bot */
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category=Gameplay)
-	virtual void SpawnOneBot();
+	UE_API virtual void SpawnOneBot();
 
 	/** Deletes the last created bot if possible */
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category=Gameplay)
-	virtual void RemoveOneBot();
+	UE_API virtual void RemoveOneBot();
 
 	/** Spawns bots up to NumBotsToCreate */
 	UFUNCTION(BlueprintNativeEvent, BlueprintAuthorityOnly, Category=Gameplay)
@@ -61,3 +63,5 @@ public:
 	FString CreateBotName(int32 PlayerIndex);
 #endif
 };
+
+#undef UE_API
