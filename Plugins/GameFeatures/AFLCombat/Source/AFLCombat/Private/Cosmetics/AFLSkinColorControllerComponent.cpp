@@ -413,6 +413,23 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 		return;
 	}
 
+	// FIX A (bot-fire, 2026-07-17): the WEAPON-EQUIP axis is PLAYER-facing cosmetics only. On an AI/bot pawn it
+	// would unequip the loadout weapon (PulseCarbine -- valid instigator, bot-fireable AFLAG_Laser_Pulse) and
+	// EquipItem the cosmetic weapon WITHOUT calling SetInstigator (the ~L494 replace). BTS_Shoot's GetCurrentWeapon
+	// then reads a NULL instigator -> the cast to the inventory item fails -> CanShoot=false -> the bot never sends
+	// InputTag.Weapon.Fire, so it moves/engages but never shoots. Humans are unaffected (input-fire activates the
+	// ability directly and never reads the weapon instigator). Bots need no weapon cosmetic -- skip THIS axis for
+	// them. The other cosmetic axes are SEPARATE functions (RefreshSkinForPawn / RefreshFacemaskForPawn /
+	// RefreshWeaponSkinForPawn / RefreshBeamColorForPawn), so bots still get those harmless tints; only this
+	// gameplay-breaking weapon swap is skipped. (Owner controller is used -- always set on this controller
+	// component; IsPlayerController() distinguishes a human APlayerController from an AAIController-driven bot
+	// WITHOUT pulling the AIModule header into this Unity TU.)
+	const AController* OwnerController = GetController<AController>();
+	if (OwnerController != nullptr && !OwnerController->IsPlayerController())
+	{
+		return;
+	}
+
 	// NEW-PAWN RESET (respawn / first possession): the prior pawn's instance died with it -> drop stale tracking
 	// so the fresh pawn re-equips clean (and a cross-pawn idempotency false-positive can't skip the equip).
 	if (WeaponTrackedPawn.Get() != Pawn)

@@ -21,8 +21,11 @@
 namespace
 {
 	// Mirror of UAFLW_LoadoutBase's private axis helpers (kept in sync BY HAND -- in-match is untouched, so it
-	// keeps its own copies). Only the two feeders GetOwnedEntriesForAxis needs live here.
-	EAFLCosmeticType QueryTypeForAxis(EAFLLoadoutAxis Axis)
+	// keeps its own copies). Only the two feeders GetOwnedEntriesForAxis needs live here. NOTE: prefixed "Browser"
+	// (distinct from the loadout-base names) so these anonymous-namespace copies do NOT redefine UAFLW_LoadoutBase's
+	// same-named anonymous helpers when UBT adaptive-unity merges both .cpp into one TU (the documented AFL trap --
+	// see AFLAG_Laser_Pulse; a changed sibling .cpp gets pulled standalone + the rest repack together).
+	EAFLCosmeticType BrowserQueryTypeForAxis(EAFLLoadoutAxis Axis)
 	{
 		switch (Axis)
 		{
@@ -34,7 +37,7 @@ namespace
 		}
 	}
 
-	FString GetAxisIdPrefix(EAFLLoadoutAxis Axis)
+	FString BrowserGetAxisIdPrefix(EAFLLoadoutAxis Axis)
 	{
 		switch (Axis)
 		{
@@ -71,7 +74,7 @@ void UAFLCosmeticBrowserLibrary::GetOwnedEntriesForAxis(const UObject* WorldCont
 	// GrantedFree is owned by everyone; a paid item requires the wallet's owned-set -> a MISSING wallet shows
 	// ONLY the free base (mirrors the loadout's fix for the over-permissive leak).
 	const UAFLWalletComponent* Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
-	const FString AxisPrefix = GetAxisIdPrefix(Axis);
+	const FString AxisPrefix = BrowserGetAxisIdPrefix(Axis);
 
 	TArray<const FAFLCatalogEntry*> All;
 	if (Axis == EAFLLoadoutAxis::Identity)
@@ -83,7 +86,7 @@ void UAFLCosmeticBrowserLibrary::GetOwnedEntriesForAxis(const UObject* WorldCont
 	}
 	else
 	{
-		Catalog->GetEntriesByType(QueryTypeForAxis(Axis), All);
+		Catalog->GetEntriesByType(BrowserQueryTypeForAxis(Axis), All);
 	}
 
 	for (const FAFLCatalogEntry* Entry : All)
