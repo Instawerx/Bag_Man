@@ -4,6 +4,7 @@
 
 #include "AFLCombat.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/Pawn.h"
 #include "Inventory/LyraInventoryItemDefinition.h"
 #include "Inventory/LyraInventoryItemInstance.h"
 #include "Inventory/LyraInventoryManagerComponent.h"
