@@ -111,3 +111,10 @@ void UAFLTeamCreationComponent::ServerChooseTeamForPlayer(ALyraPlayerState* PS)
 }
 
 #endif // WITH_SERVER_CODE
+
+bool UAFLTeamCreationComponent::IsAssignmentAuthoritative() const
+{
+	// T1: Provider is the LocalFill instance (IsAuthoritative()==false). When a T2 MatchmakerDataProvider swaps
+	// in (GetProvider selecting it online), this reports true and UAFLBotFillComponent's converge goes inert.
+	return Provider && Provider->IsAuthoritative();
+}

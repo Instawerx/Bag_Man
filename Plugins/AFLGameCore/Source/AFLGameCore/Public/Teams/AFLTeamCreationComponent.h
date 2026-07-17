@@ -33,6 +33,15 @@ class AFLGAMECORE_API UAFLTeamCreationComponent : public ULyraTeamCreationCompon
 {
 	GENERATED_BODY()
 
+public:
+	/**
+	 * True when an AUTHORITATIVE (T2 matchmaker) provider is active; false for LocalFill / offline / PIE.
+	 * UAFLBotFillComponent gates its displace/re-fill converge on this -- it runs ONLY when NON-authoritative
+	 * (a matchmade roster is seated pre-start, so there are no late joins to re-fill). The provider never spawns
+	 * or assigns bots -- it only EXPOSES this flag (SSOT §0.2/§3).
+	 */
+	bool IsAssignmentAuthoritative() const;
+
 #if WITH_SERVER_CODE
 protected:
 	//~ULyraTeamCreationComponent interface
