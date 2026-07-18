@@ -32,7 +32,7 @@ These are committed, disk-verified, and live-proven — the substrate everything
 
 Everything on the roadmap is a facet of **one marketplace/economy system**. Its anatomy:
 
-- **Asset/part model** — the parts/assets already tracked for gameplay ARE the economic units. One registry; gameplay and economy share it. No parallel inventory.
+- **Asset/part model** — the parts/assets already tracked for gameplay ARE the economic units. One registry; gameplay and economy share it. No parallel inventory. *(Exception, approved 2026-07-18: **counted CONSUMABLES** — e.g. health packs, part #8 — add a **quantity/count dimension** to this SAME registry + entitlement + persistence seam, NOT a second inventory. Boolean ownership becomes `count ≥ 1`; use decrements the count. One registry, one seam, a new field. See `IRONICS_HEALTH_CONSUMABLE_SSOT.md` §3.)*
 - **Wallet** — server-authoritative, anti-spoof. Handles *all* value flow: purchases, earns, lease payments, revenue-share. One wallet, every transaction type.
 - **Catalog** — `FAFLCatalogEntry` + `AFL.<Type>.<n>`. Every sellable/leasable/earnable thing is a catalog entry.
 - **Entitlement** — who has the right to use what. Gains a **grant-type dimension** (see §4): permanent (owned) vs. time-bounded lease.
@@ -61,7 +61,7 @@ Each is an **instance** against the proven catalog + cosmetic-axes + wallet spin
 
 | # | Part (from TODO) | Plugs into | New work |
 |---|---|---|---|
-| 8 | **Health Packs & Accessories** (Lyra harvest/recolor/reskin/wash) | catalog + cosmetic axes | new slot/type + assets |
+| 8 | **Health Packs — COUNTED CONSUMABLE** ⚠ NOT a cosmetic — SSOT `IRONICS_HEALTH_CONSUMABLE_SSOT.md` | catalog + wallet + **counted-inventory subsystem** + world-pickup + loadout-grant | quantity-tracked SKU (buy-N, decrement-on-use, PlayFab `RemainingUses`) + item-def + heal GA/GE + world pickup — a 3-surface game asset, NOT a matrix-row reskin. See SSOT. |
 | 9 | **Skin Extractors** (upgrade) | catalog + entitlement | extractor as catalog type; defines how skins are *obtained* |
 | 10 | **Weapons — Boost/Use Packs** (5.7 pack ready) + Economy | catalog + wallet + weapon axes | pack type + boost mechanic + economy wiring |
 | 11 | **Skins — main-finish × edge, composable** + Economy | **PROVEN composable Skins axes, per-axis-owned** (BodyId finish [=TeamColor, sole color source] × EdgeId glow → RefreshSkinForPawn; own-main AND own-edge ⇒ any combo composes free at loadout, locked-at-selection — NOT a pre-baked combo SKU) | **seed PRIMITIVES + signature FINISHES, never combos.** Seedable: 11 AFL.Body.* + 11 AFL.Edge.* (priced V10000/W100000) + 21 premium AFL.Finish.<Name> signatures. 7 base AFL.Finish.* = GrantedFree (compose-free, not seeded). Render/gate/store PROVEN (#39 f8088ebe) — a SEED, not a build. **ALL 21 signature `DA_AFL_Finish_<Name>` EXIST on disk** — the owed work is **WIRING** (point each `AFL.Finish.<Name>` catalog row's Asset at its DA; rows read Asset=None today) **+ PRICING + BrandToEdge re-point**, NOT authoring. **PRE-SEED GATES (inventoried, not yet seed-ready):** (1) PRICE the 21 signatures — per the **cheap-first ladder** (`IRONICS_PRICING_SCARCITY_SSOT.md` §1.5 R2, 2026-07-08): signatures = **Standard $2.99–4.99** (2,990–4,990 V / 29,900–49,900 W, Volts OR Watts); base colors/edges = **Impulse $0.99–1.99**. (Supersedes the earlier SPARK/W100000 figure + the CAT:119-122 SURGE conflict — R2 wins.); (2) resolve the `AFL.Body.*` vs `AFL.Finish.*` prefix overlap (both Type=Finish/BodyId; Crimson/Indigo/Solar names collide) + wire the `AFL.Finish.<Name>` rows to their DAs. A Finish DA's `EdgeGlow*` is **INTENTIONAL** (`AFL_ECONOMY_ARCHITECTURE_ADR.md:190-192` — the finish's default edge, overridden when an EdgeId is selected), **not** orphaned. **Singularity 1-of-1 = the $500 / 500,000V complete-bundle grail — a buy-once→grant-N container of DISTINCT tradeable child SKUs (Character-axis · Team-axis · finish · edge · mask · weapon, D1); law at `IRONICS_PRICING_SCARCITY_SSOT.md` §1.5/§4.5.** ("Boost Amounts" = separate economy driver, orthogonal.) |
@@ -70,6 +70,8 @@ Each is an **instance** against the proven catalog + cosmetic-axes + wallet spin
 | 15 | **Character Robots — animation/IK/slide** | IRONICS hero + IK skill | animation/IK extension (the `ue5-interaction-ik-expert` skill); the body skins render on |
 
 **Note on #13 Helmets +Abilities:** this is the only part that is *not purely cosmetic* — an ability-bearing cosmetic. It composes the cosmetic-slot pattern with the proven AbilitySet-grant pattern. Architected as: cosmetic slot for the visual + optional AbilitySet reference granted on equip (server-authoritative, so the ability can't be spoofed onto an unentitled helmet). Flagged for its own mini-scope when we reach it.
+
+**⚠ Note on #8 Health Packs (CORRECTED 2026-07-18):** the row above **originally mis-scoped health packs as a boolean cosmetic matrix-row** ("cosmetic axes / new slot+assets"). They are **NOT cosmetic** — they are a **COUNTED CONSUMABLE**: bought in QUANTITY, DECREMENTED on use, a full 3-surface game asset (world pickup + store SKU + loadout consumable). Their store surface requires a **counted-inventory subsystem** — a per-SKU **quantity** on the wallet + a persistence-seam count field + PlayFab `RemainingUses` — which is an **approved count-dimension extension of the one economy spine, NOT a parallel inventory** (see §1 + §9 clarifications). Full design, rulings, and 3-phase plan: **`IRONICS_HEALTH_CONSUMABLE_SSOT.md`**. The other parts in the table remain boolean cosmetic/entitlement rows; **#8 is the exception** that adds the quantity dimension. (Distinct from the in-match *resource* pickups in `IRONICS_LOOT_SYSTEM_DESIGN.md`, which are "NOT currency" and not cross-session-owned.)
 
 ---
 
@@ -210,7 +212,7 @@ What's shared, so we never build it twice:
 - **The entitlement system** — ownership, leases, rank-unlocks are all entitlement grants (grant-type dimension unifies them). Built once, extended by grant-type.
 - **The persistence seam** (`IAFLCosmeticPersistence`, Phase-1 consolidated ✅) — every read/write routes through it. Consolidated once, everything uniform.
 - **Anti-spoof discipline** — the proven earn/purchase server-auth pattern is the template for leasing and every new transaction type. Proven once, applied everywhere.
-- **The asset/part registry** — gameplay tracking = economic units. One registry serves both. No parallel inventory (the key leasing insight).
+- **The asset/part registry** — gameplay tracking = economic units. One registry serves both. No parallel inventory (the key leasing insight). *(Counted consumables add a **quantity dimension** to this one registry — a count field on the same seam, not a parallel inventory; `IRONICS_HEALTH_CONSUMABLE_SSOT.md` §3.)*
 - **The design system** — one UI language across all views. One doc, consistent surfaces.
 
 **Bottom line:** one system, a few matrixes, many parts. Build the spine (Phase 1) clean, prove the pattern (Phase 2 canary), and the roadmap becomes instances — with the lease market as the one genuinely new, high-value arc built cleanly into the same seams.

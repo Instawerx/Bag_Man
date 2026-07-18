@@ -121,11 +121,20 @@ different needs (hide glow on loading, resize per screen), so per-surface widget
 source reimport. **Source-swap (in-place reimport) remains the right tool for the in-world `UELogo` MESH** (one
 mesh, identical treatment in every map) — but NOT for the UI logos (already handled widget-level).
 
-## REAL remaining branding (verify visible-vs-hidden before swapping — the loading glows taught us a reference ≠ a render)
-1. **Front-end menu UE5 logo** — `W_LyraFrontEnd` still references `MI_UI_UE5Logo_Small` (UE5 logo). Confirm it
-   renders (vs hidden by the hub retheme) before scoping. If visible → widget-level swap to the IRONICS mark.
-2. **Startup / splash** — `W_LyraStartup` still references `MI_UI_Logo_DefaultLoadingScreen` (Lyra shape). Confirm
-   it renders; not recorded as washed in the queue.
+## Branding status — front-end effectively COMPLETE; only INFINEON `L_Expanse` remains
+*(verify visible-vs-hidden AND wired-vs-dead-fork before swapping — the loading glows + the `W_Lyra*` dead forks taught us: a reference ≠ a render, and a stock asset in the graph may be the unwired parent)*
+1. ✅ **Front-end menu UE5 logo — DONE (via fork; verified 2026-07-17).** The referencer graph points at
+   `W_LyraFrontEnd` (→ `MI_UI_UE5Logo_Small`) — but that asset has **ZERO referencers = DEAD/unwired stock.** The
+   LIVE menu is **`W_IRONICS_FrontEnd`** (a fork re-pointed via `B_LyraFrontendStateComponent`'s `MainScreenClass`),
+   which already uses **`T_IRONICS_Logo_Transparent`** (PIE-proven, commit 512e9ab2). **Do NOT edit `W_LyraFrontEnd`
+   — it's the verify-the-wired-asset trap.**
+2. ✅ **Startup / splash — DONE (via fork).** Same pattern: live = **`W_IRONICS_Startup`** (wired via
+   `B_LyraFrontendStateComponent`'s `PressStartScreenClass`, uses `T_IRONICS_Logo_Transparent`); `W_LyraStartup` is
+   the dead stock parent.
+   > ⚠ **LESSON (2nd structure-vs-state catch after the loading screen):** for front-end UI, a stock `W_Lyra*`
+   > asset in the referencer graph is almost always the **dead forked parent** — the IRONICS retheme forks to
+   > `W_IRONICS_*` and re-points via `B_LyraFrontendStateComponent`. **Check for the wired `W_IRONICS_*` fork (and
+   > its `[]`-vs-wired referencers) before treating any `W_Lyra*` as "the menu."**
 3. **In-world `UELogo` mesh** — split by scene:
    - ✅ **Front-end scene (`L_ShooterFrontendBackground`) — DONE + operator-confirmed visible + saved 2026-07-17.**
      5 UE-logo actors → **2 flat IRONICS logo planes** (`IRONICS_Logo_FE_L/_R`, `/Engine/BasicShapes/Plane` @120cm)
@@ -143,5 +152,7 @@ mesh, identical treatment in every map) — but NOT for the UI logos (already ha
 stub, NOT game-ready for a large logo. For the in-world mesh, an IRONICS emblem mesh exists
 (`SM_IRONICS_Emblem` + `M_IRONICS_Emblem_*`, used by the front-end 3D emblem).
 
-**No content has been swapped.** Read-only surface map. Reconcile each candidate against the wash queue + confirm
-it actually renders before the swap.
+**Front-end branding is DONE** (loading + credits widget-level; menu + startup via `W_IRONICS_*` forks; backdrop
+scene via flat logos, committed 99e7cc23). **The ONLY remaining branding target is INFINEON's `L_Expanse` 6 UELogo
+props** (deferred until that level is open). Reconcile each future candidate against the wash queue + confirm it
+actually renders (and is the wired asset, not a dead fork) before any swap.
