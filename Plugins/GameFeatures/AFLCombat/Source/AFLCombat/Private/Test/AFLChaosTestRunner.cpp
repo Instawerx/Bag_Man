@@ -9,6 +9,7 @@
 #include "Abilities/AFLAG_Extract.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Attributes/AFLAttributeSet_Energy.h"
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // CONVERGENCE: Health/MaxHealth live on the Lyra set now
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Energy/AFLEnergyPickup.h"
 #include "Engine/World.h"
@@ -409,12 +410,13 @@ float UAFLChaosTestRunner::ReadCarriedEnergy() const
 
 float UAFLChaosTestRunner::ReadHealth() const
 {
-	return ASC.IsValid() ? ASC->GetNumericAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()) : -1.0f;
+	// CONVERGENCE: Health migrated to ULyraHealthSet (the ExecCalc drives it; the AFL Health is retired/un-driven).
+	return ASC.IsValid() ? ASC->GetNumericAttribute(ULyraHealthSet::GetHealthAttribute()) : -1.0f;
 }
 
 float UAFLChaosTestRunner::ReadMaxHealth() const
 {
-	return ASC.IsValid() ? ASC->GetNumericAttribute(UAFLAttributeSet_Combat::GetMaxHealthAttribute()) : 100.0f;
+	return ASC.IsValid() ? ASC->GetNumericAttribute(ULyraHealthSet::GetMaxHealthAttribute()) : 100.0f;
 }
 
 int32 UAFLChaosTestRunner::ReadWatts() const

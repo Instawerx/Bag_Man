@@ -4,8 +4,11 @@
 
 #include "AFLBodyZone.h"   // S4-INC3: EAFLBodyZone + AFLCore::BoneToZone (AFLCore)
 #include "AFLCombat.h"
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // CONVERGENCE: Health lives here now -> output to its Damage meta
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "Attributes/AFLAttributeSet_Energy.h"         // overload eligibility: CarriedEnergy capture
 #include "Engine/HitResult.h"
+#include "HAL/IConsoleManager.h"                        // overload: read afl.Overload.MinEnergy (owned by AFLDeathComponent)
 #include "Engine/World.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
 #include "Messages/AFLHitConfirmMessage.h"   // AFLCore (relocated -- drop-on-damage cycle)
@@ -46,6 +49,10 @@ namespace
 	// depletes on a hit -- the dismember component (PHASE B) listens to this. Canonical tag
 	// in AFLCombatTags.ini (added PHASE B); RequestGameplayTag(ErrorIfNotFound=false) until then.
 	const FName NAME_Event_Dismember_Sever_AFL_ExecCalc = TEXT("Event.Dismember.Sever.AFL");
+
+	// CONVERGENCE (S7 AFL-0706 overload port): broadcast on a would-be-killing-blow that the ExecCalc
+	// clamped to survive. UAFLDeathComponent's Event.Combat.Overload handler does the burst/restore/stun/announce.
+	const FName NAME_Event_Combat_Overload_ExecCalc = TEXT("Event.Combat.Overload");
 }
 
 // Victim-state tag for the carrier-vulnerability check (stress-object cycle). Native define (with the
@@ -56,6 +63,11 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_Vulnerable_ExecCalc, "State.Car
 // Attacker-state tag for the Overdrive damage buff (energy cycle 2) -- the SOURCE-side mirror of the
 // victim-side vulnerability check below.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Energy_Overdrive_ExecCalc, "State.Energy.Overdrive");
+
+// CONVERGENCE overload port: the re-overload lockout tag (granted by UAFLGE_OverloadStun in the handler).
+// The ExecCalc checks it on the target's aggregated tags to gate the survive-clamp -- mirrors the old
+// AFLDeathComponent HasMatchingGameplayTag(State.Overloaded) check exactly.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overloaded_ExecCalc, "State.Overloaded");
 
 
 // Capture definitions for the damage execution. We construct
@@ -71,7 +83,10 @@ struct FAFLDamageCaptureDefs
 	FGameplayEffectAttributeCaptureDefinition DamageDef;
 	FGameplayEffectAttributeCaptureDefinition ArmorDef;
 	FGameplayEffectAttributeCaptureDefinition ShieldDef;
-	FGameplayEffectAttributeCaptureDefinition HealthDef;
+	// CONVERGENCE: Health lives on ULyraHealthSet now. Capture its CURRENT value (for the overload survive-clamp);
+	// the damage OUTPUT goes to ULyraHealthSet.Damage (meta). CarriedEnergy gates the overload survive.
+	FGameplayEffectAttributeCaptureDefinition LyraHealthDef;
+	FGameplayEffectAttributeCaptureDefinition CarriedEnergyDef;
 	FGameplayEffectAttributeCaptureDefinition OverkillThresholdDef;
 	// S4-INC3: per-zone HP (Target/live), the outermost absorber.
 	FGameplayEffectAttributeCaptureDefinition HeadHealthDef;
@@ -98,8 +113,11 @@ struct FAFLDamageCaptureDefs
 		ShieldDef = FGameplayEffectAttributeCaptureDefinition(
 			UAFLAttributeSet_Combat::GetShieldAttribute(),
 			EGameplayEffectAttributeCaptureSource::Target, false);
-		HealthDef = FGameplayEffectAttributeCaptureDefinition(
-			UAFLAttributeSet_Combat::GetHealthAttribute(),
+		LyraHealthDef = FGameplayEffectAttributeCaptureDefinition(
+			ULyraHealthSet::GetHealthAttribute(),
+			EGameplayEffectAttributeCaptureSource::Target, false);
+		CarriedEnergyDef = FGameplayEffectAttributeCaptureDefinition(
+			UAFLAttributeSet_Energy::GetCarriedEnergyAttribute(),
 			EGameplayEffectAttributeCaptureSource::Target, false);
 		OverkillThresholdDef = FGameplayEffectAttributeCaptureDefinition(
 			UAFLAttributeSet_Combat::GetOverkillThresholdAttribute(),
@@ -136,7 +154,8 @@ UAFLDamageExecCalc::UAFLDamageExecCalc()
 	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().DamageDef);
 	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().ArmorDef);
 	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().ShieldDef);
-	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().HealthDef);
+	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().LyraHealthDef);
+	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().CarriedEnergyDef);
 	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().OverkillThresholdDef);
 	// S4-INC3: zone-HP captures.
 	RelevantAttributesToCapture.Add(AFLDamageCaptureDefs().HeadHealthDef);
@@ -170,9 +189,14 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
 		AFLDamageCaptureDefs().ShieldDef, EvalParams, TargetShield);
 
-	float TargetHealth = 0.0f;
+	// CONVERGENCE: current Lyra Health (for the overload survive-clamp) + CarriedEnergy (overload eligibility).
+	float CurLyraHealth = 0.0f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
-		AFLDamageCaptureDefs().HealthDef, EvalParams, TargetHealth);
+		AFLDamageCaptureDefs().LyraHealthDef, EvalParams, CurLyraHealth);
+
+	float CarriedEnergy = 0.0f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
+		AFLDamageCaptureDefs().CarriedEnergyDef, EvalParams, CarriedEnergy);
 
 	float TargetOverkillThreshold = 0.0f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
@@ -372,11 +396,46 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	const float ShieldAbsorbed = FMath::Min(FMath::Max(TargetShield, 0.0f), EffectiveDamage);
 	const float ShieldDelta    = -ShieldAbsorbed;
 
-	// 7. Remainder hits health.
-	const float HealthDelta = -(EffectiveDamage - ShieldAbsorbed);
+	// 7. Remainder hits health. CONVERGENCE: Health lives on ULyraHealthSet -- output a POSITIVE value to its
+	//    Damage META (not a negative delta on AFL Health). ULyraHealthSet::PostGameplayEffectExecute converts
+	//    Damage -> -Health (clamped [0,Max]), fires the standardized Lyra.Damage.Message, and fires OnOutOfHealth
+	//    natively -- UAFLDeathComponent now binds THAT.
+	float HealthDamage = FMath::Max(0.0f, EffectiveDamage - ShieldAbsorbed);
 
-	// 8. Emit output modifiers. AddOutputModifier takes an FGameplayAttribute,
-	// which is exactly what GetXxxAttribute() returns.
+	// 7b. OVERLOAD (S7 AFL-0706, Option-A port). A hit that WOULD drop Health to <=0 while carrying enough energy
+	//     and not already overloaded -> SURVIVE: clamp the damage so Health lands at 1 (NO 0-crossing -> Lyra's
+	//     native death/elimination never fires -> no false kill), and broadcast Event.Combat.Overload so
+	//     UAFLDeathComponent's handler does the burst/restore-to-floor/stun/announce (deferred, re-entrancy-safe).
+	//     Eligibility mirrors the OLD AFLDeathComponent intercept EXACTLY: CarriedEnergy >= afl.Overload.MinEnergy
+	//     AND NOT State.Overloaded (the re-overload lockout, read off the target's aggregated tags).
+	if (CurLyraHealth - HealthDamage <= KINDA_SMALL_NUMBER)
+	{
+		static IConsoleVariable* CVarOverloadMinEnergy =
+			IConsoleManager::Get().FindConsoleVariable(TEXT("afl.Overload.MinEnergy"));
+		const float MinEnergy = CVarOverloadMinEnergy ? CVarOverloadMinEnergy->GetFloat() : 1.0f;
+		const bool bLockedOut = EvalParams.TargetTags && EvalParams.TargetTags->HasTag(TAG_State_Overloaded_ExecCalc);
+		if (CarriedEnergy >= MinEnergy && !bLockedOut)
+		{
+			HealthDamage = FMath::Max(0.0f, CurLyraHealth - 1.0f);   // survive at 1; the handler restores to the floor
+
+			UAbilitySystemComponent* OverloadASC = ExecutionParams.GetTargetAbilitySystemComponent();
+			AActor* OverloadActor = OverloadASC ? OverloadASC->GetAvatarActor_Direct() : nullptr;
+			if (UWorld* OverloadWorld = OverloadActor ? OverloadActor->GetWorld() : nullptr)
+			{
+				FLyraVerbMessage OverloadMsg;
+				OverloadMsg.Verb       = FGameplayTag::RequestGameplayTag(NAME_Event_Combat_Overload_ExecCalc, false);
+				OverloadMsg.Instigator = OverloadActor;
+				OverloadMsg.Target     = OverloadActor;
+				OverloadMsg.Magnitude  = CarriedEnergy;
+				UGameplayMessageSubsystem::Get(OverloadWorld).BroadcastMessage(OverloadMsg.Verb, OverloadMsg);
+			}
+			UE_LOG(LogAFLCombat, Log,
+				TEXT("AFL_OVERLOAD: %s would die (energy %.1f) -> clamped to survive; Event.Combat.Overload broadcast."),
+				*GetNameSafe(OverloadActor), CarriedEnergy);
+		}
+	}
+
+	// 8. Emit output modifiers. Shield stays on the AFL set; Health damage -> ULyraHealthSet.Damage (meta).
 	if (FMath::Abs(ShieldDelta) > KINDA_SMALL_NUMBER)
 	{
 		OutExecutionOutput.AddOutputModifier(FGameplayModifierEvaluatedData(
@@ -384,12 +443,12 @@ void UAFLDamageExecCalc::Execute_Implementation(
 			EGameplayModOp::Additive,
 			ShieldDelta));
 	}
-	if (FMath::Abs(HealthDelta) > KINDA_SMALL_NUMBER)
+	if (HealthDamage > KINDA_SMALL_NUMBER)
 	{
 		OutExecutionOutput.AddOutputModifier(FGameplayModifierEvaluatedData(
-			UAFLAttributeSet_Combat::GetHealthAttribute(),
+			ULyraHealthSet::GetDamageAttribute(),
 			EGameplayModOp::Additive,
-			HealthDelta));
+			HealthDamage));
 	}
 
 	// 9. AFL-0204 hit-confirm. EffectiveDamage > 0 has already been guaranteed
@@ -436,7 +495,7 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	//    modifiers. LyraHealthSet broadcasts FLyraVerbMessage on damage; we
 	//    mirror that pattern here (server-side, observable, no const_cast on
 	//    the immutable Spec). See ULyraHealthSet::PostGameplayEffectExecute.
-	const float HealthComponent = -HealthDelta;  // positive damage actually dealt to health
+	const float HealthComponent = HealthDamage;  // positive damage actually dealt to health (post-overload-clamp; overload -> small -> no overkill/gib)
 	if (HealthComponent > TargetOverkillThreshold)
 	{
 		UAbilitySystemComponent* TargetASC = ExecutionParams.GetTargetAbilitySystemComponent();

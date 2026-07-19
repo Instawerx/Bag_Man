@@ -10,6 +10,8 @@
 class UAFLDeathComponent;
 class UAFLAttributeSet_Combat;
 class UAFLPawnHitboxHistoryComponent;
+class ULyraHealthSet;                 // CONVERGENCE: the react now binds THIS set's OnHealthChanged
+struct FGameplayEffectSpec;           // FLyraAttributeEvent payload (react handler param)
 
 
 /**
@@ -63,9 +65,9 @@ protected:
 	bool bEnableLateralSweep = true;
 
 	/**
-	 * Bound to UAFLAttributeSet_Combat::OnHealthChanged for the per-hit react. The visible react
-	 * itself (flash MID / hit montage) is a BlueprintImplementableEvent so the look is authored
-	 * in the BP child (operator-tunable), keeping this C++ base structural-only.
+	 * Bound to ULyraHealthSet::OnHealthChanged for the per-hit react (CONVERGENCE: Health lives on the Lyra set
+	 * now). The visible react itself (flash MID / hit montage) is a BlueprintImplementableEvent so the look is
+	 * authored in the BP child (operator-tunable), keeping this C++ base structural-only.
 	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Target")
 	void OnDamageReact(float Magnitude);
@@ -84,7 +86,9 @@ protected:
 	TObjectPtr<UAFLPawnHitboxHistoryComponent> HitboxHistory;
 
 private:
-	void HandleHealthChanged(AActor* Instigator, AActor* Causer, float Magnitude);
+	/** CONVERGENCE: ULyraHealthSet::OnHealthChanged is FLyraAttributeEvent (6-param). The signed Health delta is
+	 *  NewValue-OldValue (NOT EffectMagnitude, which for the Damage meta is the positive damage, not the delta). */
+	void HandleHealthChanged(AActor* EffectInstigator, AActor* EffectCauser, const FGameplayEffectSpec* EffectSpec, float EffectMagnitude, float OldValue, float NewValue);
 
 	/**
 	 * TEST-RIG visible-death (NOT gameplay): ragdoll the mannequin mesh on death so the kill is
@@ -97,7 +101,7 @@ private:
 	UFUNCTION()
 	void HandleDeathStarted(AActor* OwningActor);
 
-	const UAFLAttributeSet_Combat* CombatSet = nullptr;
+	const ULyraHealthSet* ReactHealthSet = nullptr;   // CONVERGENCE: the Lyra set we bind OnHealthChanged on
 	FDelegateHandle HealthChangedHandle;
 
 	/** Sweep center, captured at BeginPlay = the placed location (test-rig lateral patrol). */

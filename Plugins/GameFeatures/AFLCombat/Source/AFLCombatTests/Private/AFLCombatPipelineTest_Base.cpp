@@ -6,6 +6,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // CONVERGENCE: Health now lives on the Lyra set -> assert against it
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
@@ -181,8 +182,8 @@ void AAFLCombatPipelineTest_Base::ApplyAttributeOverride(UAbilitySystemComponent
 	}
 
 	FGameplayAttribute Attr;
-	if      (ShortName.Equals(TEXT("Health"),            ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetHealthAttribute();
-	else if (ShortName.Equals(TEXT("MaxHealth"),         ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetMaxHealthAttribute();
+	if      (ShortName.Equals(TEXT("Health"),            ESearchCase::IgnoreCase)) Attr = ULyraHealthSet::GetHealthAttribute();        // CONVERGENCE: Health lives on the Lyra set
+	else if (ShortName.Equals(TEXT("MaxHealth"),         ESearchCase::IgnoreCase)) Attr = ULyraHealthSet::GetMaxHealthAttribute();     // CONVERGENCE
 	else if (ShortName.Equals(TEXT("Shield"),            ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetShieldAttribute();
 	else if (ShortName.Equals(TEXT("MaxShield"),         ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetMaxShieldAttribute();
 	else if (ShortName.Equals(TEXT("Armor"),             ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetArmorAttribute();
@@ -294,7 +295,9 @@ void AAFLCombatPipelineTest_Base::FireDamage(UAbilitySystemComponent* ASC)
 
 void AAFLCombatPipelineTest_Base::EvaluateExpectations(UAbilitySystemComponent* ASC)
 {
-	const float ObservedHealth = ASC->GetNumericAttribute(UAFLAttributeSet_Combat::GetHealthAttribute());
+	// CONVERGENCE: Health migrated to ULyraHealthSet (UAFLDamageExecCalc outputs to its Damage meta now), so assert
+	// the SAME set the HUD bar + death path read. Shield stays on the AFL set (zone-HP/armor/shield never converged).
+	const float ObservedHealth = ASC->GetNumericAttribute(ULyraHealthSet::GetHealthAttribute());
 	const float ObservedShield = ASC->GetNumericAttribute(UAFLAttributeSet_Combat::GetShieldAttribute());
 
 	const FString HealthLabel  = FString::Printf(TEXT("[%s] Health"), *RowLabel);

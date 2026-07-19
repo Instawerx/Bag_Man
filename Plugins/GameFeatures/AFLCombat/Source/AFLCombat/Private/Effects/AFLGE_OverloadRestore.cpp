@@ -2,7 +2,7 @@
 
 #include "Effects/AFLGE_OverloadRestore.h"
 
-#include "Attributes/AFLAttributeSet_Combat.h"
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // CONVERGENCE: heal the Lyra set via its Healing meta
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLGE_OverloadRestore)
@@ -15,11 +15,12 @@ UAFLGE_OverloadRestore::UAFLGE_OverloadRestore()
 {
 	DurationPolicy = EGameplayEffectDurationType::Instant;
 
-	// Additive Health, magnitude supplied per application via SetByCaller(Data.Health.Restore) --
-	// positive restore-to-floor (the intercept computes floor - current at apply). Same shape as the
-	// energy gain GE; clamping is on the combat set.
+	// CONVERGENCE: heal via ULyraHealthSet's HEALING meta-attribute (Lyra maps Healing -> +Health, clamped, in
+	// PostGameplayEffectExecute -- LyraHealthSet.cpp:151-156). Magnitude supplied per application via
+	// SetByCaller(Data.Health.Restore). Serves all three heal consumers: the overload restore-to-floor, the world
+	// health pickup, and the loadout/consumable heal ability. (Was: an Additive modifier on the now-retired AFL Health.)
 	FGameplayModifierInfo Mod;
-	Mod.Attribute = UAFLAttributeSet_Combat::GetHealthAttribute();
+	Mod.Attribute = ULyraHealthSet::GetHealingAttribute();
 	Mod.ModifierOp = EGameplayModOp::Additive;
 
 	FSetByCallerFloat SetByCaller;

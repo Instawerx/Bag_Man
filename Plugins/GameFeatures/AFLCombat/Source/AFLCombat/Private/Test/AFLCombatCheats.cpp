@@ -7,6 +7,8 @@
 #include "Abilities/AFLAG_Laser_Pulse.h"
 #include "AbilitySystemComponent.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "Character/LyraHealthComponent.h"           // CONVERGENCE: SuicidePawn drives the Lyra death path (DamageSelfDestruct)
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // CONVERGENCE: Health/MaxHealth live on the Lyra set (set-by-name + dump)
 #include "AbilitySystemGlobals.h"
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
@@ -325,8 +327,21 @@ void UAFLCombatCheats::SuicidePawn()
 		UE_LOG(LogAFLCombat, Warning, TEXT("SuicidePawn: no player ASC on this window's PlayerState."));
 		return;
 	}
-	ASC->ApplyModToAttribute(UAFLAttributeSet_Combat::GetHealthAttribute(), EGameplayModOp::Override, 0.0f);
-	UE_LOG(LogAFLCombat, Display, TEXT("[Cheat] SuicidePawn: set Health=0 on this window's pawn (forcing death->respawn->body re-resolve)."));
+	// CONVERGENCE: Health migrated to ULyraHealthSet, and the death trigger (OnOutOfHealth) fires ONLY from a GE
+	// EXECUTION (PostGameplayEffectExecute) -- ApplyModToAttribute(Override 0) sets the base value WITHOUT executing,
+	// so it never fires death. Use Lyra's canonical self-destruct: it applies the SetByCaller damage GE
+	// (Damage = MaxHealth) -> ULyraHealthSet.Damage meta -> Health 0 -> OnOutOfHealth -> the real death->respawn flow
+	// (re-possession re-resolves the body/identity). Bypasses the AFL absorbers/overload clamp -- a suicide must
+	// always kill (never trip the overload survive).
+	if (ULyraHealthComponent* HC = ULyraHealthComponent::FindHealthComponent(ASC->GetAvatarActor()))
+	{
+		HC->DamageSelfDestruct();
+		UE_LOG(LogAFLCombat, Display, TEXT("[Cheat] SuicidePawn: DamageSelfDestruct -> Lyra OnOutOfHealth death flow (respawn -> body re-resolve)."));
+	}
+	else
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("SuicidePawn: no ULyraHealthComponent on this window's pawn (avatar=%s)."), *GetNameSafe(ASC->GetAvatarActor()));
+	}
 #endif
 }
 
@@ -389,8 +404,8 @@ void UAFLCombatCheats::SetCombatAttribute(const FString& Name, float Value)
 	}
 
 	FGameplayAttribute Attr;
-	if      (Name.Equals(TEXT("Health"),            ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetHealthAttribute();
-	else if (Name.Equals(TEXT("MaxHealth"),         ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetMaxHealthAttribute();
+	if      (Name.Equals(TEXT("Health"),            ESearchCase::IgnoreCase)) Attr = ULyraHealthSet::GetHealthAttribute();        // CONVERGENCE: Health lives on the Lyra set
+	else if (Name.Equals(TEXT("MaxHealth"),         ESearchCase::IgnoreCase)) Attr = ULyraHealthSet::GetMaxHealthAttribute();     // CONVERGENCE
 	else if (Name.Equals(TEXT("Shield"),            ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetShieldAttribute();
 	else if (Name.Equals(TEXT("MaxShield"),         ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetMaxShieldAttribute();
 	else if (Name.Equals(TEXT("Armor"),             ESearchCase::IgnoreCase)) Attr = UAFLAttributeSet_Combat::GetArmorAttribute();
@@ -3310,8 +3325,8 @@ void UAFLCombatCheats::DumpCombatAttributes()
 
 	UE_LOG(LogAFLCombat, Display,
 		TEXT("[Combat] H=%.1f/%.1f S=%.1f/%.1f Ar=%.1f OT=%.1f D=%.1f"),
-		Read(UAFLAttributeSet_Combat::GetHealthAttribute()),
-		Read(UAFLAttributeSet_Combat::GetMaxHealthAttribute()),
+		Read(ULyraHealthSet::GetHealthAttribute()),          // CONVERGENCE: real Health lives on the Lyra set now
+		Read(ULyraHealthSet::GetMaxHealthAttribute()),
 		Read(UAFLAttributeSet_Combat::GetShieldAttribute()),
 		Read(UAFLAttributeSet_Combat::GetMaxShieldAttribute()),
 		Read(UAFLAttributeSet_Combat::GetArmorAttribute()),

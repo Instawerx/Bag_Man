@@ -4,6 +4,7 @@
 
 #include "AFLCombat.h"
 #include "AbilitySystemComponent.h"
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // HUD-mirror target (the shipped bar + spectate read this set)
 #include "GameFramework/GameplayMessageSubsystem.h"
 #include "GameFramework/PlayerState.h"
 #include "GameplayEffectExtension.h"
@@ -24,6 +25,52 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overheated_AttrSet, "State.Overheated");
 // damage message. Firing it here feeds the ShooterCore assist processor (which sums per-victim damage history
 // to credit assists at elimination) -- the same AFL-bypass we fixed for the elimination message.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Lyra_Damage_Message_AttrSet, "Lyra.Damage.Message");
+
+// HUD/spectate decoupling fix (2026-07-18): the shipped Lyra health bar (W_Healthbar) and the AFL spectate
+// surfaces (AFLW_SpectateOverlay, AFLSpectateCameraComponent) read ULyraHealthSet via ULyraHealthComponent, but
+// AFL damage/heal/death run on UAFLAttributeSet_Combat and NOTHING drives ULyraHealthSet -- so those surfaces sit
+// pinned at full. Mirror AFL Health/MaxHealth onto the Lyra set on every Health/MaxHealth change. BOTH are mirrored
+// together so the pair stays consistent regardless of the order LyraHealthComponent's init (sets Lyra Health=Max)
+// vs the AFL InitData GE run in -- the spawn state ends up Health==Max = full either way. DEATH GUARD: floor the
+// mirrored Health at 1 so we NEVER write 0 -> ULyraHealthSet.OnOutOfHealth (Lyra's death path, which
+// AFLDeathComponent deliberately bypasses) never trips; the <=1 sliver at the instant of AFL death is covered by
+// the death sequence taking over. Runs server-side (PostGameplayEffectExecute is authority); the base value then
+// replicates to clients' bars.
+static void MirrorAFLHealthToLyra(UAbilitySystemComponent* ASC, float AFLHealth, float AFLMaxHealth)
+{
+	if (!ASC)
+	{
+		return;
+	}
+	const ULyraHealthSet* LyraHealth = ASC->GetSet<ULyraHealthSet>();
+	if (!LyraHealth)
+	{
+		return;
+	}
+
+	const float NewHealth = FMath::Max(1.0f, AFLHealth);   // death guard: never write 0 -> never trip Lyra's OnOutOfHealth
+	const float OldHealth = LyraHealth->GetHealth();
+	const float OldMax    = LyraHealth->GetMaxHealth();
+
+	ASC->SetNumericAttributeBase(ULyraHealthSet::GetMaxHealthAttribute(), AFLMaxHealth);
+	ASC->SetNumericAttributeBase(ULyraHealthSet::GetHealthAttribute(), NewHealth);
+
+	// CRITICAL: SetNumericAttributeBase sets the value SILENTLY -- it does NOT run ULyraHealthSet::PostGameplayEffectExecute,
+	// the ONLY place ULyraHealthSet::On*Changed fire. ULyraHealthComponent (which drives the HUD bar + the AFL spectate
+	// surfaces) binds THOSE set-delegates (LyraHealthComponent.cpp:78-79), NOT the generic value-change delegate -- so
+	// without these broadcasts the value updates but the bar never refreshes (the bug seen in the first PIE). Broadcast
+	// them ourselves, exactly as Lyra does after its own base-set (LyraHealthComponent.cpp:83-88). FLyraAttributeEvent =
+	// (Instigator, Causer, Spec, Magnitude, OldValue, NewValue); nullptr instigator/causer/spec is fine -- the bar only
+	// reads Old/NewValue.
+	if (AFLMaxHealth != OldMax)
+	{
+		LyraHealth->OnMaxHealthChanged.Broadcast(nullptr, nullptr, nullptr, AFLMaxHealth - OldMax, OldMax, AFLMaxHealth);
+	}
+	if (NewHealth != OldHealth)
+	{
+		LyraHealth->OnHealthChanged.Broadcast(nullptr, nullptr, nullptr, NewHealth - OldHealth, OldHealth, NewHealth);
+	}
+}
 
 
 UAFLAttributeSet_Combat::UAFLAttributeSet_Combat()
@@ -136,6 +183,10 @@ void UAFLAttributeSet_Combat::PostGameplayEffectExecute(const FGameplayEffectMod
 		// stored value is correct and GetHealth() reads exactly 0 at death.
 		SetHealth(FMath::Clamp(GetHealth(), 0.0f, GetMaxHealth()));
 
+		// HUD/spectate mirror: push the clamped AFL Health onto ULyraHealthSet so the shipped Lyra bar + spectate
+		// surfaces reflect real health. Fires on BOTH damage and heal (the overload/consumable restore included).
+		MirrorAFLHealthToLyra(GetOwningAbilitySystemComponent(), GetHealth(), GetMaxHealth());
+
 		const FGameplayEffectContextHandle& Context = Data.EffectSpec.GetEffectContext();
 		AActor* Instigator = Context.GetOriginalInstigator();
 		AActor* Causer     = Context.GetEffectCauser();
@@ -186,6 +237,14 @@ void UAFLAttributeSet_Combat::PostGameplayEffectExecute(const FGameplayEffectMod
 		{
 			OnOutOfHealth.Broadcast(Instigator, Causer, Magnitude);
 		}
+		return;
+	}
+
+	// MaxHealth change (the InitData GE seeds it; a max-health buff would too): re-mirror so the Lyra bar's
+	// Health/MaxHealth ratio stays correct. Mirror BOTH (Health + Max) so the pair is always consistent.
+	if (Data.EvaluatedData.Attribute == GetMaxHealthAttribute())
+	{
+		MirrorAFLHealthToLyra(GetOwningAbilitySystemComponent(), GetHealth(), GetMaxHealth());
 		return;
 	}
 

@@ -5,14 +5,18 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "GameplayEffectTypes.h"   // FGameplayEffectSpec, FActiveGameplayEffectHandle (used by-value in the GE-applied callback)
+#include "GameplayTagContainer.h"                 // Event.Combat.Overload channel tag (handler param)
+#include "GameFramework/GameplayMessageSubsystem.h"  // FGameplayMessageListenerHandle (overload message subscription)
 
 #include "AFLDeathComponent.generated.h"
 
 class UAbilitySystemComponent;
 class UAFLAttributeSet_Combat;
 class ULyraHealthComponent;
+class ULyraHealthSet;                             // CONVERGENCE: death now binds THIS set's OnOutOfHealth
 struct FGameplayEffectSpec;
 struct FActiveGameplayEffectHandle;
+struct FLyraVerbMessage;                          // overload message payload
 
 
 /**
@@ -88,8 +92,19 @@ protected:
 	 */
 	void OnGameplayEffectAddedToSelf(UAbilitySystemComponent* Source, const FGameplayEffectSpec& Spec, FActiveGameplayEffectHandle Handle);
 
-	/** Bound to UAFLAttributeSet_Combat::OnOutOfHealth. Authority drives Lyra's death sequence. */
-	void HandleAFLOutOfHealth(AActor* Instigator, AActor* Causer, float Magnitude);
+	/** CONVERGENCE: bound to ULyraHealthSet::OnOutOfHealth (FLyraAttributeEvent, 6-param). Authority drives Lyra's
+	 *  death SEQUENCE (StartDeath). Does NOT fire the elimination message -- ULyraHealthComponent::HandleOutOfHealth
+	 *  (also bound to this signal) fires it natively now, so AFL firing it too would double the kill-feed. */
+	void HandleLyraOutOfHealth(AActor* Instigator, AActor* Causer, const FGameplayEffectSpec* Spec, float Magnitude, float OldValue, float NewValue);
+
+	/** OVERLOAD (S7 AFL-0706 port): subscribed to Event.Combat.Overload (broadcast by UAFLDamageExecCalc when it
+	 *  survive-clamps a killing blow). Filters to our owner, then DEFERS the consequences to next tick (applying
+	 *  GEs synchronously inside the ExecCalc's broadcast is re-entrant GAS). */
+	void HandleOverloadMessage(FGameplayTag Channel, const FLyraVerbMessage& Message);
+
+	/** Deferred: the overload's 4 consequences -- BurstNow + UAFLGE_OverloadRestore(0.5*Max) + UAFLGE_OverloadStun
+	 *  (lockout) + announce. The ExecCalc already did the SURVIVE (clamped Health to 1); this restores to the floor. */
+	void ApplyOverloadConsequences();
 
 	/** FinishDeath after the dying->dead delay (ragdoll settle), so cleanup ordering matches Lyra. */
 	void HandleFinishDeath();
@@ -110,8 +125,13 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent = nullptr;
 
-	/** The AFL combat set we listen to (resolved from the ASC). */
+	/** The AFL combat set (resolved from the ASC). CONVERGENCE: no longer the death TRIGGER -- kept only as the
+	 *  presence-gate for the deferred AbilitySet grant (its arrival is when the pawn's ASC is fully seeded, at which
+	 *  point ULyraHealthSet is also guaranteed present), so the proven race-safe arming timing is unchanged. */
 	const UAFLAttributeSet_Combat* CombatSet = nullptr;
+
+	/** CONVERGENCE: the Lyra health set we now bind OnOutOfHealth on (the SSOT for Health). Cached for unbind. */
+	const ULyraHealthSet* LyraDeathSet = nullptr;
 
 	/** The owner's Lyra health component, if any -- we drive its replicated death sequence. */
 	UPROPERTY(Transient)
@@ -119,6 +139,9 @@ private:
 
 	FDelegateHandle OutOfHealthHandle;
 	FDelegateHandle GESpawnedHandle;   // listens for the deferred AFL-set grant (GE-applied)
+	FGameplayMessageListenerHandle OverloadListenerHandle;   // Event.Combat.Overload subscription
 	FTimerHandle FinishDeathTimer;
+	FTimerHandle OverloadApplyTimer;   // defers the overload consequences off the ExecCalc broadcast (re-entrant GAS)
+	float PendingOverloadEnergy = 0.0f;   // carried energy captured at the overload broadcast, for BurstNow + announce
 	bool bDeathStarted = false;
 };

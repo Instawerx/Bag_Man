@@ -5,6 +5,7 @@
 #include "AFLCombat.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // CONVERGENCE: bind THIS set's OnOutOfHealth; read Lyra Health/MaxHealth
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Attributes/AFLAttributeSet_Energy.h"
 #include "Character/LyraHealthComponent.h"
@@ -156,9 +157,24 @@ void UAFLDeathComponent::InitializeWithAbilitySystem(UAbilitySystemComponent* In
 		return;
 	}
 
-	// TRIGGER: bind the AFL-native out-of-health signal (NOT ULyraHealthSet).
-	OutOfHealthHandle = CombatSet->OnOutOfHealth.AddUObject(this, &ThisClass::HandleAFLOutOfHealth);
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_DEATH: %s bound to AFL OnOutOfHealth (death armed)."), *GetNameSafe(GetOwner()));
+	// CONVERGENCE TRIGGER: bind ULyraHealthSet::OnOutOfHealth (Health is the SSOT on the Lyra set now). The AFL set's
+	// presence (resolved above) is the arming gate -- when it's granted the ASC is fully seeded and ULyraHealthSet
+	// (stock, on the PlayerState) is guaranteed present. We drive StartDeath; ULyraHealthComponent (also bound to
+	// this signal) fires the elimination message natively, so we deliberately do NOT (no double kill-feed).
+	if (const ULyraHealthSet* HealthSet = AbilitySystemComponent->GetSet<ULyraHealthSet>())
+	{
+		LyraDeathSet = HealthSet;
+		OutOfHealthHandle = HealthSet->OnOutOfHealth.AddUObject(this, &ThisClass::HandleLyraOutOfHealth);
+	}
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_DEATH: %s bound to ULyraHealthSet OnOutOfHealth (death armed)."), *GetNameSafe(GetOwner()));
+
+	// OVERLOAD: subscribe to Event.Combat.Overload (UAFLDamageExecCalc broadcasts it on a survive-clamped killing
+	// blow); the handler defers the burst/restore/stun/announce off the ExecCalc's broadcast (re-entrant GAS).
+	if (UWorld* World = GetWorld())
+	{
+		OverloadListenerHandle = UGameplayMessageSubsystem::Get(World).RegisterListener(
+			FGameplayTag::RequestGameplayTag(FName("Event.Combat.Overload")), this, &ThisClass::HandleOverloadMessage);
+	}
 
 	// SEQUENCE: cache the owner's Lyra health component -- we drive its replicated death sequence.
 	if (AActor* Owner = GetOwner())
@@ -177,13 +193,23 @@ void UAFLDeathComponent::OnGameplayEffectAddedToSelf(
 		if (const UAFLAttributeSet_Combat* Set = AbilitySystemComponent->GetSet<UAFLAttributeSet_Combat>())
 		{
 			CombatSet = Set;
-			OutOfHealthHandle = CombatSet->OnOutOfHealth.AddUObject(this, &ThisClass::HandleAFLOutOfHealth);
+			// CONVERGENCE: bind Lyra's OnOutOfHealth (present with the ASC) + subscribe to Event.Combat.Overload.
+			if (const ULyraHealthSet* HealthSet = AbilitySystemComponent->GetSet<ULyraHealthSet>())
+			{
+				LyraDeathSet = HealthSet;
+				OutOfHealthHandle = HealthSet->OnOutOfHealth.AddUObject(this, &ThisClass::HandleLyraOutOfHealth);
+			}
+			if (UWorld* World = GetWorld())
+			{
+				OverloadListenerHandle = UGameplayMessageSubsystem::Get(World).RegisterListener(
+					FGameplayTag::RequestGameplayTag(FName("Event.Combat.Overload")), this, &ThisClass::HandleOverloadMessage);
+			}
 			if (AActor* Owner = GetOwner())
 			{
 				LyraHealthComponent = ULyraHealthComponent::FindHealthComponent(Owner);
 			}
 			UE_LOG(LogAFLCombat, Log,
-				TEXT("AFL_DEATH: %s bound to AFL OnOutOfHealth via deferred grant (death armed)."),
+				TEXT("AFL_DEATH: %s bound to ULyraHealthSet OnOutOfHealth via deferred grant (death armed)."),
 				*GetNameSafe(GetOwner()));
 
 			if (GESpawnedHandle.IsValid())
@@ -197,22 +223,31 @@ void UAFLDeathComponent::OnGameplayEffectAddedToSelf(
 
 void UAFLDeathComponent::UninitializeFromAbilitySystem()
 {
-	if (CombatSet && OutOfHealthHandle.IsValid())
+	if (LyraDeathSet && OutOfHealthHandle.IsValid())
 	{
-		CombatSet->OnOutOfHealth.Remove(OutOfHealthHandle);
+		LyraDeathSet->OnOutOfHealth.Remove(OutOfHealthHandle);
 	}
 	if (AbilitySystemComponent && GESpawnedHandle.IsValid())
 	{
 		AbilitySystemComponent->OnGameplayEffectAppliedDelegateToSelf.Remove(GESpawnedHandle);
 	}
+	if (OverloadListenerHandle.IsValid())
+	{
+		OverloadListenerHandle.Unregister();
+	}
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(OverloadApplyTimer);
+	}
 	OutOfHealthHandle.Reset();
 	GESpawnedHandle.Reset();
 	CombatSet = nullptr;
+	LyraDeathSet = nullptr;
 	AbilitySystemComponent = nullptr;
 	LyraHealthComponent = nullptr;
 }
 
-void UAFLDeathComponent::HandleAFLOutOfHealth(AActor* Instigator, AActor* Causer, float /*Magnitude*/)
+void UAFLDeathComponent::HandleLyraOutOfHealth(AActor* Instigator, AActor* Causer, const FGameplayEffectSpec* /*Spec*/, float /*Magnitude*/, float /*OldValue*/, float /*NewValue*/)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner)
@@ -232,89 +267,19 @@ void UAFLDeathComponent::HandleAFLOutOfHealth(AActor* Instigator, AActor* Causer
 		return;   // idempotent -- a second sub-zero tick must not restart death
 	}
 
-	// ── P2 close-out OVERLOAD intercept (S7 AFL-0706) ───────────────────────────────────────────────
-	// A killing blow WHILE CARRYING ENERGY and NOT already overloaded (the lockout) -> survive: burst
-	// the energy, restore Health to a floor, brief stun/vulnerability. Runs BEFORE bDeathStarted is set
-	// and returns early, so the pawn never enters the death machine AND a later real death still fires.
-	if (AbilitySystemComponent
-		&& !AbilitySystemComponent->HasMatchingGameplayTag(TAG_State_Overloaded_Death))   // lockout
-	{
-		const UAFLAttributeSet_Energy* EnergySet = AbilitySystemComponent->GetSet<UAFLAttributeSet_Energy>();
-		const float CarriedEnergy = EnergySet
-			? AbilitySystemComponent->GetNumericAttribute(UAFLAttributeSet_Energy::GetCarriedEnergyAttribute()) : 0.0f;
-		if (EnergySet && CarriedEnergy >= CVarAFLOverloadMinEnergy.GetValueOnGameThread())
-		{
-			// (1) Scatter the energy through the PROVEN burst rail (same component as the death burst).
-			if (UAFLEnergyDropComponent* Drop = Owner->FindComponentByClass<UAFLEnergyDropComponent>())
-			{
-				Drop->BurstNow(CVarAFLOverloadDropPercent.GetValueOnGameThread(), TEXT("overload"));
-			}
-
-			// (2) Restore Health to a floor THROUGH the GE rail (positive SetByCaller; no direct write).
-			//     Magnitude = max(0, floor*MaxHealth - currentHealth), computed at apply.
-			if (CombatSet)
-			{
-				const float MaxHealth = AbilitySystemComponent->GetNumericAttribute(UAFLAttributeSet_Combat::GetMaxHealthAttribute());
-				const float CurHealth = AbilitySystemComponent->GetNumericAttribute(UAFLAttributeSet_Combat::GetHealthAttribute());
-				const float Floor = FMath::FloorToFloat(FMath::Clamp(CVarAFLOverloadRestoreFraction.GetValueOnGameThread(), 0.0f, 1.0f) * MaxHealth);
-				const float RestoreAmt = FMath::Max(0.0f, Floor - CurHealth);
-				FGameplayEffectContextHandle Ctx = AbilitySystemComponent->MakeEffectContext();
-				Ctx.AddInstigator(Owner, Owner);
-				FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(UAFLGE_OverloadRestore::StaticClass(), 1.0f, Ctx);
-				if (Spec.IsValid())
-				{
-					Spec.Data->SetSetByCallerMagnitude(TAG_Data_Health_Restore_Death, RestoreAmt);
-					AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
-				}
-			}
-
-			// (3) The brief stun/vulnerability window (also the re-overload lockout via State.Overloaded).
-			{
-				FGameplayEffectContextHandle Ctx = AbilitySystemComponent->MakeEffectContext();
-				Ctx.AddInstigator(Owner, Owner);
-				FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(UAFLGE_OverloadStun::StaticClass(), 1.0f, Ctx);
-				if (Spec.IsValid())
-				{
-					AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
-				}
-			}
-
-			// (4) Announce (the WindowOpen dual-broadcast pattern; HUD-optional). Server-local only here
-			//     -- a client overload-flash widget is named feel-debt; the burst + survival ARE the read.
-			if (UWorld* World = GetWorld())
-			{
-				FLyraVerbMessage Msg;
-				Msg.Verb = TAG_Event_Combat_Overload_Death;
-				Msg.Instigator = Owner;
-				Msg.Magnitude = CarriedEnergy;
-				UGameplayMessageSubsystem::Get(World).BroadcastMessage(Msg.Verb, Msg);
-			}
-
-			UE_LOG(LogAFLCombat, Log, TEXT("AFL_OVERLOAD: %s OVERLOADED (carried %.1f, dropped %.0f%%, survived) -- death skipped."),
-				*GetNameSafe(Owner), CarriedEnergy, CVarAFLOverloadDropPercent.GetValueOnGameThread());
-			return; // SKIP StartDeath; bDeathStarted stays false -> a later real death still fires.
-		}
-	}
-	// ── end overload intercept; fall through to the real death path (no energy / locked out) ─────────
+	// CONVERGENCE: the OVERLOAD intercept MOVED to UAFLDamageExecCalc (the Option-A pre-death clamp). The ExecCalc
+	// survive-clamps a would-be-killing-blow BEFORE the 0-crossing (Health -> 1) and broadcasts Event.Combat.Overload,
+	// which HandleOverloadMessage below turns into the deferred burst/restore/stun. So if THIS handler runs at all,
+	// the 0-crossing was a REAL death (no energy / locked out) -> proceed.
 
 	bDeathStarted = true;
 
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_DEATH: %s out of AFL Health -> StartDeath (killer=%s)"),
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_DEATH: %s out of Health -> StartDeath (killer=%s)"),
 		*GetNameSafe(Owner), *GetNameSafe(Causer ? Causer : Instigator));
 
-	// Fire the canonical Lyra elimination message (server-side; authority-gated above). AFL's death path
-	// does NOT travel ULyraHealthComponent::HandleOutOfHealth, where Lyra fires this -- so every Lyra
-	// elimination-consumer (scoring K/D StatTags, assists, accolades, kill feed) is silent without it.
-	// Instigator = killer PlayerState, Target = victim PlayerState (a null instigator -- environment/suicide
-	// -- is handled by the scoring component's own team/self checks as a death with no kill credited).
-	if (UWorld* DeathWorld = GetWorld())
-	{
-		FLyraVerbMessage ElimMsg;
-		ElimMsg.Verb = TAG_Lyra_Elimination_Message;
-		ElimMsg.Instigator = ULyraVerbMessageHelpers::GetPlayerStateFromObject(Instigator);
-		ElimMsg.Target = ULyraVerbMessageHelpers::GetPlayerStateFromObject(Owner);
-		UGameplayMessageSubsystem::Get(DeathWorld).BroadcastMessage(ElimMsg.Verb, ElimMsg);
-	}
+	// CONVERGENCE: the elimination message is NOT fired here anymore -- ULyraHealthComponent::HandleOutOfHealth
+	// (also bound to ULyraHealthSet::OnOutOfHealth) fires Lyra.Elimination.Message NATIVELY now, feeding the
+	// ShooterCore scoring/assist/kill-feed processors. Firing it here too would DOUBLE the kill-feed + K/D.
 
 	// REUSE Lyra's shipped, networked death sequence. StartDeath/FinishDeath are HealthSet-
 	// independent (drive DeathState + Status.Death.* tags + OnDeathStarted/Finished + ForceNetUpdate);
@@ -369,4 +334,73 @@ void UAFLDeathComponent::HandleFinishDeath()
 	{
 		Owner->Destroy();   // authority destroy replicates the removal to all clients
 	}
+}
+
+void UAFLDeathComponent::HandleOverloadMessage(FGameplayTag /*Channel*/, const FLyraVerbMessage& Message)
+{
+	AActor* Owner = GetOwner();
+	// The ExecCalc broadcasts Event.Combat.Overload GLOBALLY; act only when WE are the survive-clamped target, on
+	// authority (the burst/restore/stun are server-driven; the results replicate down).
+	if (!Owner || Message.Target != Owner || Owner->GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	// DEFER off the ExecCalc's in-execution broadcast -- applying GEs / BurstNow synchronously inside a running
+	// ExecCalc is re-entrant GAS (same reason the sever/overkill broadcasts are consumed asynchronously). Next tick.
+	PendingOverloadEnergy = Message.Magnitude;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(OverloadApplyTimer, this, &ThisClass::ApplyOverloadConsequences, 0.001f, /*bLoop=*/false);
+	}
+}
+
+void UAFLDeathComponent::ApplyOverloadConsequences()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !AbilitySystemComponent || Owner->GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	// (1) Scatter the energy through the PROVEN burst rail (same component as the death burst).
+	if (UAFLEnergyDropComponent* Drop = Owner->FindComponentByClass<UAFLEnergyDropComponent>())
+	{
+		Drop->BurstNow(CVarAFLOverloadDropPercent.GetValueOnGameThread(), TEXT("overload"));
+	}
+
+	// (2) Restore Health from 1 (the ExecCalc's survive-clamp) UP TO the floor, through the GE rail -- now
+	//     UAFLGE_OverloadRestore modifies ULyraHealthSet's Healing meta (+Health). RestoreAmt = max(0, floor*Max - cur).
+	{
+		const float MaxHealth = AbilitySystemComponent->GetNumericAttribute(ULyraHealthSet::GetMaxHealthAttribute());
+		const float CurHealth = AbilitySystemComponent->GetNumericAttribute(ULyraHealthSet::GetHealthAttribute());
+		const float Floor = FMath::FloorToFloat(FMath::Clamp(CVarAFLOverloadRestoreFraction.GetValueOnGameThread(), 0.0f, 1.0f) * MaxHealth);
+		const float RestoreAmt = FMath::Max(0.0f, Floor - CurHealth);
+		FGameplayEffectContextHandle Ctx = AbilitySystemComponent->MakeEffectContext();
+		Ctx.AddInstigator(Owner, Owner);
+		FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(UAFLGE_OverloadRestore::StaticClass(), 1.0f, Ctx);
+		if (Spec.IsValid())
+		{
+			Spec.Data->SetSetByCallerMagnitude(TAG_Data_Health_Restore_Death, RestoreAmt);
+			AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		}
+	}
+
+	// (3) The brief stun/vulnerability window -- also the re-overload lockout (State.Overloaded), which the
+	//     ExecCalc's next-hit check reads to refuse a repeat survive.
+	{
+		FGameplayEffectContextHandle Ctx = AbilitySystemComponent->MakeEffectContext();
+		Ctx.AddInstigator(Owner, Owner);
+		FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(UAFLGE_OverloadStun::StaticClass(), 1.0f, Ctx);
+		if (Spec.IsValid())
+		{
+			AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		}
+	}
+
+	// (4) The announce IS the ExecCalc's original Event.Combat.Overload broadcast (a future HUD flash subscribes to
+	//     the same channel). We do NOT re-broadcast it -- that would re-enter this handler.
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_OVERLOAD: %s consequences applied (carried %.1f, dropped %.0f%%, restored to floor, stunned/locked)."),
+		*GetNameSafe(Owner), PendingOverloadEnergy, CVarAFLOverloadDropPercent.GetValueOnGameThread());
 }

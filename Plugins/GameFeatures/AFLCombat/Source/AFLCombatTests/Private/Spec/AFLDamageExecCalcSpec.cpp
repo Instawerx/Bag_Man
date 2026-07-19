@@ -17,6 +17,8 @@
 #include "AFLBodyZone.h"                       // S4-INC3: EAFLBodyZone
 #include "AFLCombatTests.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "Attributes/AFLAttributeSet_Energy.h"         // CONVERGENCE: the ExecCalc now captures CarriedEnergy (overload check) from the target
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // CONVERGENCE: Health lives here; register it so the ExecCalc output lands + is observable
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/HitResult.h"                  // S4-INC3: inject bone into the EffectContext
@@ -73,6 +75,8 @@ struct FAFLDamageTestFixture
     AActor* TestActor = nullptr;
     ULyraAbilitySystemComponent* ASC = nullptr;
     UAFLAttributeSet_Combat* AttrSet = nullptr;
+    ULyraHealthSet* HealthSet = nullptr;   // CONVERGENCE: Health/MaxHealth live here now (ctor seeds 100/100)
+    UAFLAttributeSet_Energy* EnergySet = nullptr;   // CONVERGENCE: ExecCalc captures CarriedEnergy (ctor 0 -> overload never triggers in damage rows)
     TSubclassOf<UGameplayEffect> DamageGEClass;
     TSubclassOf<UGameplayEffect> InitDataGEClass;
     FGameplayMessageListenerHandle OverkillHandle;
@@ -115,6 +119,18 @@ struct FAFLDamageTestFixture
 
         AttrSet = NewObject<UAFLAttributeSet_Combat>(TestActor);
         ASC->AddAttributeSetSubobject(AttrSet);
+
+        // CONVERGENCE: register ULyraHealthSet so the ExecCalc's Health output (now a modifier on ULyraHealthSet's
+        // Damage meta) lands and is observable. Its ctor seeds Health=100/MaxHealth=100 -- the SAME start the AFL
+        // InitData seeded on the retired AFL Health, so every row's expected post-absorber Health is unchanged.
+        HealthSet = NewObject<ULyraHealthSet>(TestActor);
+        ASC->AddAttributeSetSubobject(HealthSet);
+
+        // CONVERGENCE: register the energy set too -- the ExecCalc captures CarriedEnergy (Target) for its overload
+        // survive-check. Its ctor defaults CarriedEnergy=0 (< the 1.0 overload floor), so the damage rows never
+        // trip overload; the death row (Health->0) fires normally.
+        EnergySet = NewObject<UAFLAttributeSet_Energy>(TestActor);
+        ASC->AddAttributeSetSubobject(EnergySet);
 
         DamageGEClass   = LoadClass<UGameplayEffect>(nullptr, PATH_GE_Damage_Instant);
         InitDataGEClass = LoadClass<UGameplayEffect>(nullptr, PATH_GE_Combat_InitData);
@@ -268,7 +284,7 @@ bool FAFLPipeline_T1_BaseDamage25::RunTest(const FString& Parameters)
 {
     FAFLDamageTestFixture Fx(this);
     Fx.FireDamage(/*Base=*/25.0f);
-    TestEqual(TEXT("Health"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()), 75.0f, 0.5f);
+    TestEqual(TEXT("Health"),         Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()), 75.0f, 0.5f);
     TestEqual(TEXT("Shield"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),  0.0f, 0.5f);
     TestEqual(TEXT("OverkillCount"),  Fx.ObservedOverkillCount, 0);
     return true;
@@ -285,7 +301,7 @@ bool FAFLPipeline_T2_Armor100::RunTest(const FString& Parameters)
     FAFLDamageTestFixture Fx(this);
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetArmorAttribute(), 100.0f);
     Fx.FireDamage(25.0f);
-    TestEqual(TEXT("Health"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()), 87.5f, 0.5f);
+    TestEqual(TEXT("Health"),         Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()), 87.5f, 0.5f);
     TestEqual(TEXT("Shield"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),  0.0f, 0.5f);
     TestEqual(TEXT("OverkillCount"),  Fx.ObservedOverkillCount, 0);
     return true;
@@ -302,7 +318,7 @@ bool FAFLPipeline_T3_Shield50_NoBleed::RunTest(const FString& Parameters)
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetMaxShieldAttribute(), 50.0f);
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetShieldAttribute(),    50.0f);
     Fx.FireDamage(30.0f);
-    TestEqual(TEXT("Health"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()), 100.0f, 0.5f);
+    TestEqual(TEXT("Health"),         Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()), 100.0f, 0.5f);
     TestEqual(TEXT("Shield"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),  20.0f, 0.5f);
     TestEqual(TEXT("OverkillCount"),  Fx.ObservedOverkillCount, 0);
     return true;
@@ -320,7 +336,7 @@ bool FAFLPipeline_T4_Shield50_Bleed::RunTest(const FString& Parameters)
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetMaxShieldAttribute(), 50.0f);
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetShieldAttribute(),    50.0f);
     Fx.FireDamage(80.0f);
-    TestEqual(TEXT("Health"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()), 70.0f, 0.5f);
+    TestEqual(TEXT("Health"),         Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()), 70.0f, 0.5f);
     TestEqual(TEXT("Shield"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),  0.0f, 0.5f);
     TestEqual(TEXT("OverkillCount"),  Fx.ObservedOverkillCount, 0);
     return true;
@@ -336,7 +352,7 @@ bool FAFLPipeline_T5_Overkill::RunTest(const FString& Parameters)
 {
     FAFLDamageTestFixture Fx(this);
     Fx.FireDamage(100.0f);
-    TestEqual(TEXT("Health"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()), 0.0f, 0.5f);
+    TestEqual(TEXT("Health"),         Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()), 0.0f, 0.5f);
     TestEqual(TEXT("Shield"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()), 0.0f, 0.5f);
     TestEqual(TEXT("OverkillCount"),  Fx.ObservedOverkillCount, 1);
     return true;
@@ -352,7 +368,7 @@ bool FAFLPipeline_T6_Headshot_Overkill::RunTest(const FString& Parameters)
 {
     FAFLDamageTestFixture Fx(this);
     Fx.FireDamage(30.0f, /*Headshot=*/2.0f);
-    TestEqual(TEXT("Health"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()), 40.0f, 0.5f);
+    TestEqual(TEXT("Health"),         Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()), 40.0f, 0.5f);
     TestEqual(TEXT("Shield"),         Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),  0.0f, 0.5f);
     TestEqual(TEXT("OverkillCount"),  Fx.ObservedOverkillCount, 1);
     return true;
@@ -378,7 +394,7 @@ bool FAFLZone_T_LIMB_1_Chip::RunTest(const FString& Parameters)
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute(), 2.0f);
     Fx.FireDamageAtBone(/*Base=*/1.2f, /*Bone=*/TEXT("upperarm_l"));
     TestEqual(TEXT("LeftArmHealth"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute()), 0.8f, 0.05f);
-    TestEqual(TEXT("Health"),        Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),        100.0f, 0.05f);
+    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        100.0f, 0.05f);
     TestEqual(TEXT("Shield"),        Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),        0.0f, 0.05f);
     TestEqual(TEXT("SeverCount"),    Fx.ObservedSeverCount, 0);
     return true;
@@ -396,7 +412,7 @@ bool FAFLZone_T_LIMB_2_SeverSpill::RunTest(const FString& Parameters)
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute(), 0.8f);
     Fx.FireDamageAtBone(/*Base=*/1.2f, /*Bone=*/TEXT("upperarm_l"));
     TestEqual(TEXT("LeftArmHealth"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute()), 0.0f, 0.05f);
-    TestEqual(TEXT("Health"),        Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),        99.6f, 0.05f);
+    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        99.6f, 0.05f);
     TestEqual(TEXT("SeverCount"),    Fx.ObservedSeverCount, 1);
     TestEqual(TEXT("SeverZone"),     static_cast<int32>(Fx.LastSeverZone), static_cast<int32>(EAFLBodyZone::LeftArm));
     TestFalse(TEXT("SeverLethal"),   Fx.LastSeverLethal);
@@ -415,7 +431,7 @@ bool FAFLZone_T_LIMB_3_Inert::RunTest(const FString& Parameters)
     FAFLDamageTestFixture Fx(this);
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute(), 0.0f);
     Fx.FireDamageAtBone(/*Base=*/1.2f, /*Bone=*/TEXT("upperarm_l"));
-    TestEqual(TEXT("Health"),        Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),        100.0f, 0.05f);
+    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        100.0f, 0.05f);
     TestEqual(TEXT("Shield"),        Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),        0.0f, 0.05f);
     TestEqual(TEXT("LeftArmHealth"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute()), 0.0f, 0.05f);
     TestEqual(TEXT("SeverCount"),    Fx.ObservedSeverCount, 0);
@@ -435,7 +451,7 @@ bool FAFLZone_T_LIMB_4_Armor::RunTest(const FString& Parameters)
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute(), 2.0f);
     Fx.FireDamageAtBone(/*Base=*/2.0f, /*Bone=*/TEXT("upperarm_l"));
     TestEqual(TEXT("LeftArmHealth"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute()), 1.0f, 0.05f);
-    TestEqual(TEXT("Health"),        Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),        100.0f, 0.05f);
+    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        100.0f, 0.05f);
     TestEqual(TEXT("SeverCount"),    Fx.ObservedSeverCount, 0);
     return true;
 }
@@ -457,19 +473,19 @@ bool FAFLZone_T_HEAD_Decap::RunTest(const FString& Parameters)
     // Shot 1: 54 -> 36, Health untouched, no sever yet.
     Fx.FireDamageAtBone(/*Base=*/18.0f, /*Bone=*/TEXT("head"));
     TestEqual(TEXT("HeadHealth@1"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHeadHealthAttribute()), 36.0f, 0.05f);
-    TestEqual(TEXT("Health@1"),     Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),     100.0f, 0.05f);
+    TestEqual(TEXT("Health@1"),     Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),     100.0f, 0.05f);
     TestEqual(TEXT("Sever@1"),      Fx.ObservedSeverCount, 0);
 
     // Shot 2: 36 -> 18, still no sever, Health untouched.
     Fx.FireDamageAtBone(/*Base=*/18.0f, /*Bone=*/TEXT("head"));
     TestEqual(TEXT("HeadHealth@2"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHeadHealthAttribute()), 18.0f, 0.05f);
-    TestEqual(TEXT("Health@2"),     Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),     100.0f, 0.05f);
+    TestEqual(TEXT("Health@2"),     Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),     100.0f, 0.05f);
     TestEqual(TEXT("Sever@2"),      Fx.ObservedSeverCount, 0);
 
     // Shot 3: 18 -> 0 -> DECAPITATION. Health STILL 100 (zero body damage). One survivable sever.
     Fx.FireDamageAtBone(/*Base=*/18.0f, /*Bone=*/TEXT("head"));
     TestEqual(TEXT("HeadHealth@3"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHeadHealthAttribute()), 0.0f, 0.05f);
-    TestEqual(TEXT("Health@3"),     Fx.ReadAttribute(UAFLAttributeSet_Combat::GetHealthAttribute()),     100.0f, 0.05f);   // UNCHANGED -- the locked truth
+    TestEqual(TEXT("Health@3"),     Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),     100.0f, 0.05f);   // UNCHANGED -- the locked truth
     TestEqual(TEXT("Shield@3"),     Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),     0.0f, 0.05f);
     TestEqual(TEXT("SeverCount"),   Fx.ObservedSeverCount, 1);
     TestEqual(TEXT("SeverZone"),    static_cast<int32>(Fx.LastSeverZone), static_cast<int32>(EAFLBodyZone::Head));

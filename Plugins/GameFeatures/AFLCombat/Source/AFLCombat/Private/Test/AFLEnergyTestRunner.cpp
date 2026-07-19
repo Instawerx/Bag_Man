@@ -6,6 +6,7 @@
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystem/LyraAbilitySystemComponent.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // CONVERGENCE: the dummy's Health lives on the Lyra set now
 #include "Attributes/AFLAttributeSet_Energy.h"
 #include "Energy/AFLEnergyPickup.h"
 #include "Engine/Engine.h"
@@ -443,7 +444,8 @@ float UAFLEnergyTestRunner::ReadDummyHealth() const
 	{
 		if (UAbilitySystemComponent* DummyASC = It->GetAbilitySystemComponent())
 		{
-			return DummyASC->GetNumericAttribute(UAFLAttributeSet_Combat::GetHealthAttribute());
+			// CONVERGENCE: the dummy drains ULyraHealthSet Health now (ExecCalc output), not the AFL set.
+			return DummyASC->GetNumericAttribute(ULyraHealthSet::GetHealthAttribute());
 		}
 	}
 	return -1.0f;

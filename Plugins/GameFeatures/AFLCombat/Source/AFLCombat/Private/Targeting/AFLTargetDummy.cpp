@@ -6,6 +6,7 @@
 #include "AbilitySystemGlobals.h"
 #include "Attributes/AFLAttributeSet_Combat.h"
 #include "Character/LyraHealthComponent.h"
+#include "AbilitySystem/Attributes/LyraHealthSet.h"   // CONVERGENCE: react binds THIS set's OnHealthChanged now
 #include "Combat/AFLDeathComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
@@ -43,15 +44,16 @@ void AAFLTargetDummy::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Bind the per-hit react to the AFL combat set's OnHealthChanged. (Death is handled by
-	// UAFLDeathComponent off OnOutOfHealth -- this is only the cosmetic react.) ASC is the
-	// self-owned ULyraASC from ALyraCharacterWithAbilities, ready by now.
+	// Bind the per-hit react to the LYRA health set's OnHealthChanged (CONVERGENCE: Health lives on ULyraHealthSet
+	// now -- the AFL set no longer drives it). Death is handled by UAFLDeathComponent off ULyraHealthSet::
+	// OnOutOfHealth; this is only the cosmetic react. ASC is the self-owned ULyraASC from ALyraCharacterWithAbilities,
+	// which creates ULyraHealthSet as a ctor subobject -- present now.
 	if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(this))
 	{
-		CombatSet = ASC->GetSet<UAFLAttributeSet_Combat>();
-		if (CombatSet)
+		ReactHealthSet = ASC->GetSet<ULyraHealthSet>();
+		if (ReactHealthSet)
 		{
-			HealthChangedHandle = CombatSet->OnHealthChanged.AddUObject(this, &ThisClass::HandleHealthChanged);
+			HealthChangedHandle = ReactHealthSet->OnHealthChanged.AddUObject(this, &ThisClass::HandleHealthChanged);
 		}
 	}
 
@@ -111,11 +113,13 @@ void AAFLTargetDummy::HandleDeathStarted(AActor* /*OwningActor*/)
 	}
 }
 
-void AAFLTargetDummy::HandleHealthChanged(AActor* /*Instigator*/, AActor* /*Causer*/, float Magnitude)
+void AAFLTargetDummy::HandleHealthChanged(AActor* /*EffectInstigator*/, AActor* /*EffectCauser*/, const FGameplayEffectSpec* /*EffectSpec*/, float /*EffectMagnitude*/, float OldValue, float NewValue)
 {
-	// Magnitude is the signed Health delta; only react to actual damage (negative).
-	if (Magnitude < 0.0f)
+	// CONVERGENCE: ULyraHealthSet fires OnHealthChanged with EffectMagnitude = the positive damage (the Damage meta),
+	// NOT a signed Health delta -- so compute the real delta from Old/New and react only to a decrease (damage).
+	const float Delta = NewValue - OldValue;
+	if (Delta < 0.0f)
 	{
-		OnDamageReact(-Magnitude);   // hand the BP a positive damage value for the flash/montage
+		OnDamageReact(-Delta);   // hand the BP a positive damage value for the flash/montage
 	}
 }
