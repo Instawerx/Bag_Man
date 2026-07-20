@@ -20,6 +20,11 @@ public class AFLCombat : ModuleRules
 				"NetCore",
 				"GameplayTasks",
 				"GameplayMessageRuntime",
+				// Weapon-spawn delivery (Path A): UAFLGFA_WeaponSpawns subclasses
+				// UGameFeatureAction_WorldActionBase (LyraGame), whose header pulls UGameFeatureAction +
+				// the FGameFeature*Context structs from the GameFeatures module. Declared directly (IWYU)
+				// rather than leaning on LyraGame's transitive visibility.
+				"GameFeatures",
 				"LyraGame",
 				"AFLCore",
 				// Arena round wrapper: AAFLGameMode (the round respawn gate) was RELOCATED to the

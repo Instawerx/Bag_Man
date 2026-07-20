@@ -60,8 +60,11 @@ private:
 	ULyraEquipmentManagerComponent* FindEquipmentManager() const;
 
 protected:
-	UPROPERTY()
-	int32 NumSlots = 3;
+	// AFL: raised 3 -> 5. The loadout fills 3 slots, so a picked-up weapon (e.g. the Tempest) had no free slot --
+	// GetNextFreeItemSlot returned INDEX_NONE and AddItemToSlot silently no-op'd. Now EditDefaultsOnly so it is
+	// tunable per B_QuickBarComponent; the HUD (W_QuickBar) builds its slot widgets dynamically from this count.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lyra|QuickBar")
+	int32 NumSlots = 5;
 
 	UFUNCTION()
 	void OnRep_Slots();
