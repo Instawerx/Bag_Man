@@ -67,4 +67,22 @@ protected:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Projectile|FX")
 	TObjectPtr<UAnimMontage> CharacterFireMontage;
+
+	/** SEEKER: on fire the server SOFT-LOCKS the enemy under the reticle and hands the spawned projectile's
+	 * ProjectileMovement a HomingTargetComponent. false = straight projectile (Rocket path, untouched). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Projectile|Homing")
+	bool bHoming = false;
+
+	/** Homing curve strength (cm/s^2) written to the projectile's PMC on lock. Tuned to curve but stay DODGEABLE
+	 * (juke / break LoS shakes it). ~8000+ is un-dodgeable = un-fun. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Projectile|Homing", meta=(EditCondition="bHoming", ClampMin="0.0"))
+	float HomingAccelerationMagnitude = 4000.0f;
+
+	/** Soft-lock sweep range from the reticle, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Projectile|Homing", meta=(EditCondition="bHoming", ClampMin="100.0"))
+	float HomingLockRange = 12000.0f;
+
+	/** Soft-lock sweep radius, cm -- the reticle tolerance so you needn't pixel-aim at the target. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Projectile|Homing", meta=(EditCondition="bHoming", ClampMin="0.0"))
+	float HomingLockRadius = 60.0f;
 };

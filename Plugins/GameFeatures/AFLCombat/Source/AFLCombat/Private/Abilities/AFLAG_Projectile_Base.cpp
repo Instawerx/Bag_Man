@@ -10,6 +10,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "NativeGameplayTags.h"
+#include "Teams/LyraTeamSubsystem.h"
 #include "UObject/ConstructorHelpers.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Projectile_Base)
@@ -139,6 +140,47 @@ void UAFLAG_Projectile_Base::ActivateAbility(
 						PMC->Velocity = AimDir * LaunchSpeed;
 					}
 				}
+
+				// SEEKER homing (bHoming) -- SERVER-AUTHORITATIVE SOFT-LOCK. Sweep from the pawn's view along the
+				// aim (GetBaseAimRotation -- the server-known control rotation, same "never read the client's raw
+				// view" doctrine as the spawn) for the ENEMY under the reticle, then hand it to the projectile's
+				// ProjectileMovement as the homing target. A wall in the way (LoS blocked), a same-team hit, or no
+				// hit -> the projectile stays straight (graceful fallback, no dud). Runs on authority only (inside
+				// the authority spawn block) so the client NEVER picks the homing target.
+				if (bHoming)
+				{
+					if (UProjectileMovementComponent* PMC = Projectile->FindComponentByClass<UProjectileMovementComponent>())
+					{
+						const FVector EyeLoc  = AvatarPawn->GetPawnViewLocation();
+						const FVector LockEnd = EyeLoc + AimDir * HomingLockRange;
+						FCollisionQueryParams LockParams(SCENE_QUERY_STAT(AFLSeekerLock), /*bTraceComplex=*/false, AvatarPawn);
+						LockParams.AddIgnoredActor(Projectile);
+						FHitResult LockHit;
+						AActor* LockTarget = nullptr;
+						if (World->SweepSingleByChannel(LockHit, EyeLoc, LockEnd, FQuat::Identity,
+							ECC_Visibility, FCollisionShape::MakeSphere(HomingLockRadius), LockParams))
+						{
+							LockTarget = LockHit.GetActor();
+						}
+						bool bEnemy = false;
+						if (LockTarget && LockTarget != AvatarPawn)
+						{
+							if (ULyraTeamSubsystem* Teams = World->GetSubsystem<ULyraTeamSubsystem>())
+							{
+								bEnemy = (Teams->CompareTeams(AvatarPawn, LockTarget) == ELyraTeamComparison::DifferentTeams);
+							}
+						}
+						if (bEnemy && LockTarget->GetRootComponent())
+						{
+							PMC->bIsHomingProjectile         = true;
+							PMC->HomingTargetComponent       = LockTarget->GetRootComponent();
+							PMC->HomingAccelerationMagnitude = HomingAccelerationMagnitude;
+							UE_LOG(LogAFLCombat, Log, TEXT("AFL_SEEKER: %s soft-locked %s (homing accel=%.0f)"),
+								*GetNameSafe(AvatarPawn), *GetNameSafe(LockTarget), HomingAccelerationMagnitude);
+						}
+					}
+				}
+
 				UE_LOG(LogAFLCombat, Log,
 					TEXT("AFL_ROCKET: spawned %s at muzzle=(%.0f,%.0f,%.0f) aimDir=(%.2f,%.2f,%.2f) speed=%.0f"),
 					*GetNameSafe(Projectile), MuzzleLoc.X, MuzzleLoc.Y, MuzzleLoc.Z,
