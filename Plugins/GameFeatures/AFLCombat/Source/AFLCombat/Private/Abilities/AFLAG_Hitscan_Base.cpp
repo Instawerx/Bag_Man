@@ -9,6 +9,7 @@
 #include "Animation/AnimMontage.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
+#include "TimerManager.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameplayEffect.h"
@@ -36,6 +37,8 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Source_Damage_HB,         "Source.Damage");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GC_Fire_HB,   "GameplayCue.Weapon.Pulse.Fire");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GC_Tracer_HB, "GameplayCue.Weapon.Pulse.Tracer");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GC_Charge_HB, "GameplayCue.Weapon.Laser.Charge");
+// AUTO-FIRE overheat: the lockout GE grants this; it's in ActivationBlockedTags so the lockout is server-validated.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Weapon_Overheated_HB, "State.Weapon.Overheated");
 
 UAFLAG_Hitscan_Base::UAFLAG_Hitscan_Base()
 {
@@ -59,6 +62,9 @@ UAFLAG_Hitscan_Base::UAFLAG_Hitscan_Base()
 	ActivationBlockedTags.AddTag(TAG_State_ThrowRecovery_HB);
 	ActivationBlockedTags.AddTag(TAG_State_Match_Warmup_HB);
 	ActivationBlockedTags.AddTag(TAG_State_Match_Ended_HB);
+	// AUTO-FIRE overheat lockout: blocks re-activation while the overheat cooldown GE is up. Harmless for
+	// non-auto weapons (they never receive the GE, so the tag is never present on them).
+	ActivationBlockedTags.AddTag(TAG_State_Weapon_Overheated_HB);
 
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> FireMontageFinder(
 		TEXT("/Game/Weapons/Rifle/Animations/AM_MM_Rifle_Fire.AM_MM_Rifle_Fire"));
@@ -92,6 +98,21 @@ void UAFLAG_Hitscan_Base::ActivateAbility(
 	ASC->CallReplicatedTargetDataDelegatesIfSet(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey());
 
 	const bool bFromEvent = (TriggerEventData != nullptr); // GameplayEvent => bot path (no input to hold/release)
+
+	if (bAutoFire)
+	{
+		// AUTO-FIRE (SMG): sustained fire while held, RPM ramps with heat. Overrides charge/instant. Bots
+		// (GameplayEvent -- no input to hold) fire ONE shot per event via the proven single-shot Fire().
+		if (bFromEvent)
+		{
+			Fire();
+		}
+		else
+		{
+			StartAutoFire();
+		}
+		return;
+	}
 
 	if (!bChargeToFire)
 	{
@@ -160,6 +181,81 @@ void UAFLAG_Hitscan_Base::OnChargeInputReleased(float /*TimeHeld*/)
 		// Undercharged: free cancel, no cost/cooldown (CommitAbility runs in Fire only).
 		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, /*bReplicate=*/true, /*bCancelled=*/true);
 	}
+}
+
+void UAFLAG_Hitscan_Base::StartAutoFire()
+{
+	bOverheated = false;
+	// LOCAL CLIENT ONLY: the fire timer + input-release gate are client-driven. On the server (a remote
+	// client's ability instance) there is no local input -- it processes the replicated shots as they arrive
+	// and ends when the client's EndAbility replicates.
+	if (!CurrentActorInfo || !CurrentActorInfo->IsLocallyControlled())
+	{
+		return;
+	}
+	WaitReleaseTask = UAbilityTask_WaitInputRelease::WaitInputRelease(this, /*bTestAlreadyReleased=*/false);
+	if (WaitReleaseTask)
+	{
+		WaitReleaseTask->OnRelease.AddDynamic(this, &ThisClass::OnAutoFireInputReleased);
+		WaitReleaseTask->ReadyForActivation();
+	}
+	AutoFireTick(); // first shot now; it reschedules itself at the current heat-based interval
+}
+
+void UAFLAG_Hitscan_Base::AutoFireTick()
+{
+	if (bOverheated)
+	{
+		return;
+	}
+	// One shot WITHOUT Fire()'s bFired guard / per-shot CommitAbility -- the timer + overheat gate the rate,
+	// not a cooldown GE. The fire montage is intentionally NOT played per auto-shot (restarting it every
+	// ~0.1s reads as jank; the per-shot muzzle+tracer cues carry the FX -- a looping fire montage is a later
+	// polish pass). ClientPredictAndSend -> OnTargetDataReadyCallback ramps HeatNorm (and may set bOverheated).
+	if (CurrentActorInfo && CurrentActorInfo->IsLocallyControlled())
+	{
+		ClientPredictAndSend();
+	}
+	if (bOverheated)
+	{
+		StopAutoFire();
+		return;
+	}
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(AutoFireTimerHandle, this, &ThisClass::AutoFireTick, CurrentFireInterval(), /*bLoop=*/false);
+	}
+}
+
+void UAFLAG_Hitscan_Base::StopAutoFire()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AutoFireTimerHandle);
+	}
+	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, /*bReplicate=*/true, /*bCancelled=*/false);
+}
+
+void UAFLAG_Hitscan_Base::OnAutoFireInputReleased(float /*TimeHeld*/)
+{
+	StopAutoFire();
+}
+
+float UAFLAG_Hitscan_Base::AdvanceHeat()
+{
+	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	const float  Gap = (LastShotTimeSeconds > 0.0) ? static_cast<float>(Now - LastShotTimeSeconds) : 0.0f;
+	// Decay by the GAP since the last shot (tight hold shots heat up; spaced taps decay more than they add),
+	// then add this shot's heat. Tuned so a held burst heats even at cold RPM (HeatPerShot > Decay*ColdInterval).
+	HeatNorm = FMath::Clamp(HeatNorm - HeatDecayPerSec * Gap, 0.0f, 1.0f) + HeatPerShot;
+	HeatNorm = FMath::Clamp(HeatNorm, 0.0f, 1.0f);
+	LastShotTimeSeconds = Now;
+	return HeatNorm;
+}
+
+float UAFLAG_Hitscan_Base::CurrentFireInterval() const
+{
+	return FMath::Lerp(ColdFireInterval, HotFireInterval, FMath::Clamp(HeatNorm, 0.0f, 1.0f));
 }
 
 void UAFLAG_Hitscan_Base::Fire()
@@ -355,9 +451,35 @@ void UAFLAG_Hitscan_Base::OnTargetDataReadyCallback(const FGameplayAbilityTarget
 	}
 #endif
 
+	// AUTO-FIRE heat ramp -- ability-local, per shot, on BOTH client and server so the RPM feel and the
+	// server-authoritative lockout stay in step. The client uses HeatNorm for the next FireInterval (RPM);
+	// the server (authority) applies the overheat cooldown GE when its copy maxes -- a REAL, server-validated
+	// lockout: the GE grants State.Weapon.Overheated (in ActivationBlockedTags), so a client that ignores its
+	// own overheat still can't re-activate. HeatNorm is NOT an attribute and is NOT replicated.
+	if (bAutoFire)
+	{
+		if (AdvanceHeat() >= 1.0f)
+		{
+			bOverheated = true;
+#if WITH_SERVER_CODE
+			if (bIsAuthority && OverheatCooldownEffectClass)
+			{
+				const FGameplayEffectSpecHandle CD = MakeOutgoingGameplayEffectSpec(OverheatCooldownEffectClass, GetAbilityLevel());
+				if (CD.IsValid())
+				{
+					ApplyGameplayEffectSpecToOwner(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, CD);
+				}
+			}
+#endif
+			HeatNorm = 0.0f; // reset; the lockout GE now gates re-fire
+		}
+	}
+
 	ASC->ConsumeClientReplicatedTargetData(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey());
 
-	if (bIsLocallyControlled || bIsAuthority)
+	// SINGLE-SHOT / charge / spread END here (one activation = one shot). AUTO-FIRE must NOT end per shot --
+	// its loop runs until release (OnAutoFireInputReleased) or overheat (bOverheated -> StopAutoFire).
+	if ((bIsLocallyControlled || bIsAuthority) && !bAutoFire)
 	{
 		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, /*bReplicate=*/true, /*bCancelled=*/false);
 	}
@@ -413,6 +535,14 @@ void UAFLAG_Hitscan_Base::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
+	// AUTO-FIRE: kill the repeating fire timer so a queued tick can't fire after the ability ends. HeatNorm
+	// and LastShotTimeSeconds PERSIST (InstancedPerActor) so the gap-based decay cools between bursts.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AutoFireTimerHandle);
+	}
+	bOverheated = false;
+
 	// Stop the looping charge cue (the one place the build-up VFX/audio actually ends -- on release-fire,
 	// undercharged cancel, or any interrupt).
 	if (bChargeCueAdded && ActorInfo && ActorInfo->AbilitySystemComponent.IsValid())

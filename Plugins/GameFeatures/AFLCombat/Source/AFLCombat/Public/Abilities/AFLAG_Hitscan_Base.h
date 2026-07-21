@@ -118,6 +118,33 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Charge", meta=(EditCondition="bChargeToFire", ClampMin="0.0", ClampMax="1.0"))
 	float MinChargeToFire = 0.25f;
 
+	/** AUTO-FIRE (Overcharge SMG): sustained fire while the input is held, RPM ramps with ability-local heat.
+	 * Overrides the charge/instant fire modes. One activation = one held burst (the loop is inside). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto")
+	bool bAutoFire = false;
+
+	/** Fire interval at zero heat -- the COLD RPM (0.15s = 400 RPM). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.02"))
+	float ColdFireInterval = 0.15f;
+
+	/** Fire interval at max heat -- the HOT RPM (0.067s = ~900 RPM). Interval Lerps Cold->Hot as HeatNorm 0->1. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.02"))
+	float HotFireInterval = 0.067f;
+
+	/** Heat added per shot [0..1]. MUST exceed HeatDecayPerSec*ColdFireInterval so a HELD burst heats even from cold. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.0"))
+	float HeatPerShot = 0.14f;
+
+	/** Heat decayed per second of the GAP since the last shot -> tight-packed hold shots heat, spaced taps cool.
+	 * At 0.7 a tap gap >~0.22s cools more than one shot adds (bursts stay cool; only a sustained hold overheats). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.0"))
+	float HeatDecayPerSec = 0.7f;
+
+	/** OVERHEAT LOCKOUT: server-applied cooldown GE when HeatNorm hits 1. Grant State.Weapon.Overheated (~1.5s);
+	 * that tag is in ActivationBlockedTags, so the lockout is server-validated (a client can't ignore it). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire"))
+	TSubclassOf<UGameplayEffect> OverheatCooldownEffectClass;
+
 	/** Third-person fire montage (trigger-pull + kick), fire-and-forget like Pulse. BP child may override. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|FX")
 	TObjectPtr<UAnimMontage> CharacterFireMontage;
@@ -143,6 +170,20 @@ private:
 	UFUNCTION()
 	void OnChargeInputReleased(float TimeHeld);
 
+	/** AUTO-FIRE loop (bAutoFire, local client only): start the repeating fire timer + the WaitInputRelease gate. */
+	void StartAutoFire();
+	/** One auto-shot -- bypasses Fire()'s bFired/CommitAbility gates -- then reschedules at CurrentFireInterval unless overheated. */
+	void AutoFireTick();
+	/** Clear the fire timer + EndAbility (called on input release or on overheat). */
+	void StopAutoFire();
+	/** WaitInputRelease callback (bAutoFire path) -> StopAutoFire. */
+	UFUNCTION()
+	void OnAutoFireInputReleased(float TimeHeld);
+	/** Decay HeatNorm by the gap since the last shot, add HeatPerShot, clamp [0..1]; returns the new HeatNorm. */
+	float AdvanceHeat();
+	/** Current fire interval = Lerp(Cold, Hot) by HeatNorm -- RPM ramps with heat. */
+	float CurrentFireInterval() const;
+
 	FDelegateHandle OnTargetDataReadyCallbackDelegateHandle;
 
 	UPROPERTY()
@@ -151,4 +192,13 @@ private:
 	double ChargeStartTimeSeconds = 0.0;
 	bool   bFired = false;
 	bool   bChargeCueAdded = false;   // looping charge cue live -> RemoveGameplayCue in EndAbility
+
+	// AUTO-FIRE (bAutoFire) ability-local state. HeatNorm + LastShotTimeSeconds PERSIST across bursts
+	// (InstancedPerActor) so the gap-based decay cools between bursts. NOT an attribute, NOT replicated --
+	// the fire cadence is a client-feel thing; the server independently ramps its own copy per received shot
+	// for the authoritative overheat lockout.
+	FTimerHandle AutoFireTimerHandle;
+	float  HeatNorm = 0.0f;
+	double LastShotTimeSeconds = 0.0;
+	bool   bOverheated = false;
 };
