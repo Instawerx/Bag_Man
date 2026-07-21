@@ -198,11 +198,32 @@ void UAFLAG_Hitscan_Base::PerformTrace(UWorld* World, const FVector& ViewOrigin,
 	{
 		return;
 	}
-	const FVector End = ViewOrigin + AimDir * MaxRange;
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(AFLHitscan), /*bTraceComplex=*/true);
 	Params.AddIgnoredActor(IgnoreActor);
 	Params.bReturnPhysicalMaterial = true;
 
+	if (bSpreadCone)
+	{
+		// FLAK spread: a cone of PelletCount SINGLE-hit pellets. Each stops at the first body (NO pierce -- spread
+		// is the weapon's identity). Rolled client-side; the server trusts the shipped hits (lag-comp deferred,
+		// same posture as the pierce pilot). Range falloff is EMERGENT geometry -- a wider cone spreads the pellets
+		// so fewer catch a distant target (no explicit distance scalar needed for the pilot). Every pellet packs as
+		// its own hit into the one handle -> the proven apply-loop damages each (BaseDamage per pellet, kept LOW).
+		const int32 Pellets      = FMath::Max(1, PelletCount);
+		const float HalfAngleRad = FMath::DegreesToRadians(FMath::Max(0.0f, SpreadHalfAngleDeg));
+		for (int32 P = 0; P < Pellets; ++P)
+		{
+			FHitResult Hit;
+			const FVector PelletDir = FMath::VRandCone(AimDir, HalfAngleRad);
+			if (World->LineTraceSingleByChannel(Hit, ViewOrigin, ViewOrigin + PelletDir * MaxRange, TraceChannel, Params))
+			{
+				OutHits.Add(Hit);
+			}
+		}
+		return;
+	}
+
+	const FVector End = ViewOrigin + AimDir * MaxRange;
 	if (bMultiHitPierce)
 	{
 		// PIERCE: every body along the ray, ordered near->far. The apply-loop damages each.

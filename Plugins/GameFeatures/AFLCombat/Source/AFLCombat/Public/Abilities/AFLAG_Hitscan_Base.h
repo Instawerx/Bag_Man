@@ -92,6 +92,20 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Trace")
 	bool bMultiHitPierce = false;
 
+	/** FLAK SPREAD: fire a cone of PelletCount single-hit pellets instead of one line. Overrides pierce -- spread
+	 * is the identity, not spread+pierce. Each pellet packs as its own hit into the one handle, so the proven
+	 * apply-loop damages each (BaseDamage per pellet -- keep it LOW so a full point-blank cone ~= one strong shot). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Trace")
+	bool bSpreadCone = false;
+
+	/** Pellets per shot when bSpreadCone; each is a single-hit trace (no pierce) applying the damage GE once. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Trace", meta=(EditCondition="bSpreadCone", ClampMin="1"))
+	int32 PelletCount = 8;
+
+	/** Cone half-angle (deg) when bSpreadCone. Wider = more natural range falloff (pellets miss at distance). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Trace", meta=(EditCondition="bSpreadCone", ClampMin="0.0"))
+	float SpreadHalfAngleDeg = 5.0f;
+
 	/** FIRE MODE: true = hold-to-charge, fire on release (Railgun); false = fire on activation (Pulse-style). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Charge")
 	bool bChargeToFire = false;
