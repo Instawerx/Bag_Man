@@ -6,11 +6,27 @@
 #include "Components/MeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
+#include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Laser_Base)
 
+// EMP DISABLE (map-play EMP device, block-fire): the AAFLEMPDevice pulse applies a GE granting this
+// tag to caught enemies. It sits in EVERY AFL weapon's ActivationBlockedTags because the whole AFL
+// roster (Pulse/Beam/Charge/Hitscan trio/Projectile Rocket+Seeker/Deployable Shield+EMP) descends
+// from THIS base -- so one AddTag here disables the entire roster while a disabled pawn's movement/
+// dash (separate abilities) stay free to flee. Same shape as the SMG overheat lockout, turned on
+// enemies. Native-registered (no ini needed). NOTE: the stock Lyra weapons (Rifle/Pistol/Shotgun via
+// ULyraGameplayAbility_RangedWeapon) do NOT descend from here -- to disable those too, add this same
+// tag to their fire GA's ActivationBlockedTags in DATA (operator decision, flagged at scope).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Weapon_Disabled_LB, "State.Weapon.Disabled");
+
 UAFLAG_Laser_Base::UAFLAG_Laser_Base()
 {
+	// EMP disable is a roster-wide fire lockout -- see the tag comment above. Subclass ctors AddTag
+	// their own blocked tags (Carrying/ThrowRecovery/Warmup/Ended/Overheated) ON TOP of this, so the
+	// container ends up with Disabled + the per-ability set (AddTag appends; the base runs first).
+	ActivationBlockedTags.AddTag(TAG_State_Weapon_Disabled_LB);
+
 	// Ordered muzzle socket candidates, first existing wins. "Muzzle" first keeps Rifle/Carbine +
 	// Shotgun resolving exactly as the old hardcoded FName("Muzzle") did (zero change to proven
 	// weapons); "Barrel"/"Slide" cover the Pistol, which has no "Muzzle" socket. A future mesh with a
