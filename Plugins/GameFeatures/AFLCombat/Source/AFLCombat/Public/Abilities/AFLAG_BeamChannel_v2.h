@@ -74,6 +74,38 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BeamV2")
 	TSubclassOf<UGameplayEffect> ReleaseCooldownEffectClass;
 
+	/**
+	 * GATED HEAT (Beam Cutter, weapon #8) -- ALL THREE knobs default null, so the live ShotgunBeam
+	 * (which leaves them unset) stays byte-identical (the bHoming/bSpreadCone gated-addition
+	 * pattern). A BP child sets all three together to enable the limiter: the retired beam's
+	 * PROVEN triad (AFLAG_Laser_Beam / AFL-0207) -- build + gate + drain -- transplanted intact.
+	 *
+	 * Per-tick heat GE, applied source-to-self on the AUTHORITY each channel tick regardless of
+	 * hit (heat is a hold-time budget, not an on-hit tax). The AttributeSet folds the delta into
+	 * Heat and grants replicated State.Overheated at MaxHeat; the mid-channel check in
+	 * ServerApplyTargetData then force-ends the channel. Cutter uses GE_AFL_Heat_CutterTick
+	 * (2.5/tick vs MaxHeat 100 = ~4s continuous cut). Null = no heat (ShotgunBeam).
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BeamV2|Heat")
+	TSubclassOf<UGameplayEffect> HeatPerTickEffectClass;
+
+	/**
+	 * 0.5s carrier GE granting State.Combat.CoolingGate (GE_AFL_Heat_CoolingGate), refreshed every
+	 * authoritative tick so the passive drain is fully suppressed WHILE firing -- without it,
+	 * Heat_Decay fights the build mid-channel and the window math goes mushy. Null = off.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BeamV2|Heat")
+	TSubclassOf<UGameplayEffect> HeatCoolingGateEffectClass;
+
+	/**
+	 * Infinite periodic drain GE (GE_AFL_Heat_Decay: Heat -= HeatDecayRate*0.1 @ 10 Hz, paused by
+	 * the CoolingGate tag; the AttributeSet clears State.Overheated below MaxHeat*0.3). Ensured
+	 * idempotently on the source ASC at activation (authority) -- the retired beam's ensure shape.
+	 * WITHOUT this ensure heat would build once and never drain (permanent overheat). Null = off.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BeamV2|Heat")
+	TSubclassOf<UGameplayEffect> HeatDecayEffectClass;
+
 	/** Channel tick interval (s). 0.1 = 10 ticks/s. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BeamV2", meta = (ClampMin = "0.01", UIMin = "0.01"))
 	float TickInterval = 0.1f;

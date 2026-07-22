@@ -29,6 +29,14 @@
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_BeamV2, "State.Carrying");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_ThrowRecovery_BeamV2, "State.Weapon.ThrowRecovery");
 
+// Gated-heat force-end tags (Beam Cutter, weapon #8). Overheated: grant/clear is owned by
+// UAFLAttributeSet_Combat (replicated loose tag at Heat==MaxHeat, cleared below MaxHeat*0.3 by the
+// decay path). Weapon.Disabled: granted by the EMP's GE_AFL_EMP_Disable -- checking it mid-channel
+// makes weapon #7 cut weapon #8's ACTIVE beam (deliberate cross-weapon counterplay; the inherited
+// ActivationBlockedTags entry from Laser_Base only gates re-entry, never a running channel).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overheated_BeamV2, "State.Overheated");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Weapon_Disabled_BeamV2, "State.Weapon.Disabled");
+
 // SetByCaller magnitude tags consumed by UAFLDamageExecCalc (default 1.0f when absent). v2 seeds
 // these alongside Source.Damage so the ExecCalc has a non-zero base to compute the health delta --
 // WITHOUT the Source.Damage seed below, the ExecCalc captures Source.Damage=0 and the tick is fully
@@ -61,6 +69,12 @@ UAFLAG_BeamChannel_v2::UAFLAG_BeamChannel_v2()
 	// ([N] throw -> [N+2] beam, deterministic): IA_Weapon_Fire's trigger reports release one frame after
 	// the press even while held, so only a time-based gate holds.
 	ActivationBlockedTags.AddTag(TAG_State_ThrowRecovery_BeamV2);
+
+	// Overheat lockout (Beam Cutter): re-entry stays blocked while venting, until the drain drops
+	// Heat below MaxHeat*0.3 and the AttributeSet clears the replicated tag. INERT for the live
+	// ShotgunBeam -- its heat knobs are null, so the tag never exists on its wielder. (The EMP's
+	// State.Weapon.Disabled re-entry block is already inherited from UAFLAG_Laser_Base.)
+	ActivationBlockedTags.AddTag(TAG_State_Overheated_BeamV2);
 
 	DamageEffectClass          = UGE_AFL_Damage_BeamTick::StaticClass();
 	ReleaseCooldownEffectClass = UGE_AFL_Cooldown_Beam::StaticClass();
@@ -103,6 +117,27 @@ void UAFLAG_BeamChannel_v2::ActivateAbility(
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility=*/true, /*bWasCancelled=*/true);
 		return;
+	}
+
+	// GATED HEAT drain-ensure (Beam Cutter): authority idempotently ensures the Infinite
+	// Heat_Decay GE is resident on the source ASC -- skip if one is already active. Verbatim
+	// transplant of the retired beam's proven ensure (AFLAG_Laser_Beam::ActivateAbility, AFL-0207).
+	// Null knob (ShotgunBeam) = this whole block is skipped.
+	if (ActorInfo->IsNetAuthority() && HeatDecayEffectClass)
+	{
+		FGameplayEffectQuery Query;
+		Query.EffectDefinition = HeatDecayEffectClass;
+		if (ASC->GetActiveEffects(Query).Num() == 0)
+		{
+			FGameplayEffectContextHandle Context = ASC->MakeEffectContext();
+			Context.AddInstigator(ActorInfo->OwnerActor.Get(), ActorInfo->AvatarActor.Get());
+			FGameplayEffectSpecHandle SpecHandle =
+				ASC->MakeOutgoingSpec(HeatDecayEffectClass, GetAbilityLevel(), Context);
+			if (SpecHandle.IsValid())
+			{
+				ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+			}
+		}
 	}
 
 	// Character fire montage (2H brace / trigger-pull), played ONCE at beam-start via the GAS-
@@ -250,6 +285,19 @@ void UAFLAG_BeamChannel_v2::TickChannel()
 		return;
 	}
 
+	// Local-side force-end mirror (the AUTHORITATIVE check + the heat build live in
+	// ServerApplyTargetData): if the replicated State.Overheated / State.Weapon.Disabled tag has
+	// landed on this ASC, drop the channel NOW rather than one server round-trip later -- the
+	// EMP'd player's beam dies the frame the disable arrives on their machine. Inert while both
+	// tags are absent (ShotgunBeam with null heat knobs + no EMP hit = two failed lookups).
+	if (ASC->HasMatchingGameplayTag(TAG_State_Overheated_BeamV2)
+		|| ASC->HasMatchingGameplayTag(TAG_State_Weapon_Disabled_BeamV2))
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
+			/*bReplicateEndAbility=*/true, /*bWasCancelled=*/true);
+		return;
+	}
+
 	// Camera-aligned origin/direction (AFL-0215: read the camera manager surface, not the
 	// controller view-helper). Same as the proven beam.
 	FVector  ViewLocation = AvatarPawn->GetPawnViewLocation();
@@ -373,6 +421,58 @@ void UAFLAG_BeamChannel_v2::ServerApplyTargetData(const FGameplayAbilityTargetDa
 				}
 			}
 		}
+	}
+
+	// GATED HEAT (Beam Cutter, weapon #8) -- the retired beam's PROVEN server block
+	// (AFLAG_Laser_Beam::ServerApplyTargetData, AFL-0207) transplanted behind default-null knobs:
+	// gate + build run on every authoritative tick REGARDLESS of hit (placed BEFORE the whiff
+	// early-return below -- heat is a hold-time budget; off-target sweeping can't dodge the
+	// limiter), and BEFORE the damage apply so no extra damage tick squeezes past the overheat
+	// boundary. All three blocks compile to skipped branches for the live ShotgunBeam (null knobs).
+	//
+	// CoolingGate first: removed-then-reapplied so every tick produces a FRESH 0.5s suppression
+	// window over Heat_Decay -- DurationPolicy alone doesn't refresh existing actives.
+	if (HeatCoolingGateEffectClass)
+	{
+		FGameplayEffectQuery RemoveQuery;
+		RemoveQuery.EffectDefinition = HeatCoolingGateEffectClass;
+		SourceASC->RemoveActiveEffects(RemoveQuery);
+
+		FGameplayEffectContextHandle GateContext = SourceASC->MakeEffectContext();
+		GateContext.AddInstigator(CurrentActorInfo->OwnerActor.Get(), CurrentActorInfo->AvatarActor.Get());
+		FGameplayEffectSpecHandle GateSpec =
+			SourceASC->MakeOutgoingSpec(HeatCoolingGateEffectClass, GetAbilityLevel(), GateContext);
+		if (GateSpec.IsValid())
+		{
+			SourceASC->ApplyGameplayEffectSpecToSelf(*GateSpec.Data.Get());
+		}
+	}
+
+	if (HeatPerTickEffectClass)
+	{
+		FGameplayEffectContextHandle HeatContext = SourceASC->MakeEffectContext();
+		HeatContext.AddInstigator(CurrentActorInfo->OwnerActor.Get(), CurrentActorInfo->AvatarActor.Get());
+		FGameplayEffectSpecHandle HeatSpec =
+			SourceASC->MakeOutgoingSpec(HeatPerTickEffectClass, GetAbilityLevel(), HeatContext);
+		if (HeatSpec.IsValid())
+		{
+			SourceASC->ApplyGameplayEffectSpecToSelf(*HeatSpec.Data.Get());
+		}
+	}
+
+	// Mid-channel force-end (the retired beam's proven line). ActivationBlockedTags only gate
+	// RE-entry -- the engine never re-checks them on a running ability -- so an active channel must
+	// self-end when (a) the heat tick above just drove Heat to MaxHeat (State.Overheated), or
+	// (b) the EMP disabled this player mid-cut (State.Weapon.Disabled -- weapon #7 cuts weapon #8's
+	// active channel, both ways deliberate). EndAbility owns the release cooldown (single apply
+	// point) and replicates the end down to the owning client.
+	if (SourceASC->HasMatchingGameplayTag(TAG_State_Overheated_BeamV2)
+		|| SourceASC->HasMatchingGameplayTag(TAG_State_Weapon_Disabled_BeamV2))
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BEAMV2: force-end (overheat/disabled) -- ending channel"));
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
+			/*bReplicateEndAbility=*/true, /*bWasCancelled=*/true);
+		return;
 	}
 
 	// Per-tick damage through the proven ExecCalc pipeline. EXACT mirror of the proven per-tick beam
