@@ -2,6 +2,7 @@
 
 #include "Cosmetics/AFLCharacterPartActor.h"
 
+#include "AFLCombat.h"                             // LogAFLCombat (the UV1 variant SkinDiag lines; unity-shuffle-proof)
 #include "Cosmetics/AFLSkinColorAsset.h"
 #include "Cosmetics/AFLSkinColorComponent.h"
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
@@ -15,6 +16,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInstanceConstant.h"   // ApplyFacemask param type (the slot-1 base MIC the facemask swaps in)
 #include "Materials/MaterialInterface.h"           // UMaterialInterface (slot base type used in the swap/restore)
+#include "Misc/PackageName.h"                      // FPackageName::GetLongPackagePath (UV1 visor-variant path resolve)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCharacterPartActor)
 
@@ -208,6 +210,33 @@ void AAFLCharacterPartActor::ApplyFacemask(UMaterialInstanceConstant* FacemaskMI
 	// base-MATERIAL swap (the proven MI_AFL_FaceMask_Pink path) -- NOT a param spray. We swap on slot 1 of every
 	// mesh that has it (the visible CharacterPart SKM_Manny). Slot 0 (M_torso) keeps the body chest material.
 	const int32 FacemaskSlot = 1;
+
+	// UV1 VISOR CONTRACT (unique bodies): stock facemask MICs are authored on Manny's UV layout; a unique
+	// body's slot-1 is VISOR-ONLY faces carrying the standardized UV1 projection. Swap in the AUTO-DERIVED
+	// visor variant (MI_AFL_FaceMask_<X> -> MI_AFL_FaceMaskV_<X>, same folder, generated from the same
+	// LogoTexture via M_AFL_FaceMask_Visor @ TexCoord1) so the mask DESIGN renders, not Manny-UV noise.
+	// Missing variant -> fall back to the stock MIC (contained tint-only; never blocks the equip).
+	if (bUniqueBodyUVs && FacemaskMIC)
+	{
+		FString VariantName = FacemaskMIC->GetName();
+		if (VariantName.ReplaceInline(TEXT("MI_AFL_FaceMask_"), TEXT("MI_AFL_FaceMaskV_")) > 0)
+		{
+			const FString PackagePath = FPackageName::GetLongPackagePath(FacemaskMIC->GetPackage()->GetName());
+			const FString VariantObjectPath = FString::Printf(TEXT("%s/%s.%s"), *PackagePath, *VariantName, *VariantName);
+			if (UMaterialInstanceConstant* Variant = LoadObject<UMaterialInstanceConstant>(nullptr, *VariantObjectPath))
+			{
+				if (bDiag)
+				{
+					UE_LOG(LogAFLSkinDiag, Display, TEXT("[SkinDiag] ApplyFacemask: unique-body UV1 variant %s"), *VariantName);
+				}
+				FacemaskMIC = Variant;
+			}
+			else if (bDiag)
+			{
+				UE_LOG(LogAFLSkinDiag, Display, TEXT("[SkinDiag] ApplyFacemask: no UV1 variant at %s -- stock MIC fallback"), *VariantObjectPath);
+			}
+		}
+	}
 
 	TArray<UMeshComponent*> Meshes;
 	GetComponents<UMeshComponent>(Meshes);

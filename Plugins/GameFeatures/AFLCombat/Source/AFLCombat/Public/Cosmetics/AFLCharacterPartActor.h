@@ -107,6 +107,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Actor)
 	FGameplayTagContainer StaticGameplayTags;
 
+	/**
+	 * UV1 VISOR CONTRACT (unique-body fleet, 2026-07-23): TRUE on parts whose mesh is a UNIQUE body
+	 * (own Tripo UV atlas + the standardized UV1 visor projection from the conform recipe) rather than
+	 * the shared SKM_Manny. When set, ApplyFacemask swaps in the AUTO-DERIVED visor variant
+	 * (MI_AFL_FaceMask_<X> -> MI_AFL_FaceMaskV_<X>, generated from the same LogoTexture, sampling UV1
+	 * via M_AFL_FaceMask_Visor) so every stock mask DESIGN renders correctly on the unique visor.
+	 * FALSE (default) = the stock Manny path, byte-identical behavior for the 34 stock identities.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Cosmetics")
+	bool bUniqueBodyUVs = false;
+
 	// FIX 1 (a): the MIDs WE created, keyed by mesh then slot. ApplySkinColor writes only to these.
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<UMeshComponent>, FAFLSkinMIDSlots> OwnedMIDs;
