@@ -3047,6 +3047,99 @@ namespace
 		TEXT("One-command Option B body-axis watch: SkinDiag + grant + SetBody/SetEdge/SetFacemask sequenced across the 6 gates with timed pauses + [SKINTEST] markers. Run on the HOST window; watch each gate. GATE5 race needs 2 clients (flagged)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLSkinTestRunAll));
 
+	// --- FANATICS PILOT 4-check driver: afl.Cosmetic.PilotCheck ---------------------
+	// Automates the un-called unique-body pilot checks (P1 facemask BOTH ways / P2 sever the
+	// operator's OWN arm / P3 body+edge finish push -- PREDICTED param-family NO-OP on a unique
+	// body, the fleet gate) with timed pauses + AFL_TEST[PILOT] markers so the operator only
+	// WATCHES. Same FTimerHandle sequencer shape as afl.SkinTest.RunAll above (HOST window,
+	// quiet spot, wearing FANATICS via afl.Cosmetic.SetIdentity AFL.Team.FANATICS + respawn).
+	// P2 rides the EXISTING AFL.Dismember.TestSeverSelf cheat via console exec -- cross-module
+	// by string, no AFLDismember link dep; it no-ops harmlessly if cheats are compiled out.
+	static TWeakObjectPtr<UWorld> GPilotCheckWorld;
+	static int32 GPilotCheckStep = 0;
+	static FTimerHandle GPilotCheckTimer;
+
+	static void PilotCheck_Mark(const FString& Line)
+	{
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PILOT] %s"), *Line);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 7.0f, FColor::Cyan, FString::Printf(TEXT("AFL_TEST[PILOT] %s"), *Line));
+		}
+	}
+
+	static void PilotCheck_Advance();
+
+	static void PilotCheck_Wait(float Seconds)
+	{
+		if (UWorld* W = GPilotCheckWorld.Get())
+		{
+			W->GetTimerManager().SetTimer(GPilotCheckTimer, FTimerDelegate::CreateStatic(&PilotCheck_Advance), Seconds, false);
+		}
+	}
+
+	static void PilotCheck_Advance()
+	{
+		UWorld* W = GPilotCheckWorld.Get();
+		if (!W) { return; }
+		const int32 S = GPilotCheckStep++;
+		switch (S)
+		{
+		case 0:
+			PilotCheck_Mark(TEXT("START -- FANATICS pilot checks. HOST window, quiet corner, wearing FANATICS. ~25s."));
+			PilotCheck_Wait(2.0f);
+			break;
+		case 1: // P1a FACEMASK ON (grant + equip via the proven slot-1 swap path)
+			HandleAFLWalletGrant(TArray<FString>{ FString(TEXT("AFL.Facemask.Kawaii")) }, W, *GLog);
+			HandleAFLCosmeticSetFacemask(TArray<FString>{ FString(TEXT("Kawaii")) }, W, *GLog);
+			PilotCheck_Mark(TEXT("P1a FACEMASK ON (Kawaii) -> WATCH: the visor region swaps to the mask design."));
+			PilotCheck_Wait(4.0f);
+			break;
+		case 2: // P1b FACEMASK OFF -> authored slot-1 must RESTORE
+			HandleAFLCosmeticSetFacemask(TArray<FString>{ FString(TEXT("none")) }, W, *GLog);
+			PilotCheck_Mark(TEXT("P1b FACEMASK OFF -> WATCH: the visor RESTORES to the authored FANATICS look. BOTH directions must take."));
+			PilotCheck_Wait(4.0f);
+			break;
+		case 3: // P2 SEVER the local player's own right arm (existing self-sever cheat)
+			if (GEngine) { GEngine->Exec(W, TEXT("AFL.Dismember.TestSeverSelf upperarm_r")); }
+			PilotCheck_Mark(TEXT("P2 SEVER own upperarm_r -> WATCH: the FANATICS arm VANISHES + a gib drops (grab to reattach). Log: [AFLDismember] ZONE SEVER."));
+			PilotCheck_Wait(5.0f);
+			break;
+		case 4: // P3a BODY finish push. NOT via SkinTest_Body -- that helper reads GSkinTestWorld
+			// (set only by afl.SkinTest.RunAll) and silently no-ops here (log-proven 2026-07-23).
+			// Call the handlers directly with OUR world.
+			HandleAFLWalletGrant(TArray<FString>{ FString(TEXT("AFL.Body.NeonBlue")) }, W, *GLog);
+			HandleAFLCosmeticSetBody(TArray<FString>{ FString(TEXT("NeonBlue")) }, W, *GLog);
+			PilotCheck_Mark(TEXT("P3a BODY=NeonBlue pushed -> PREDICTED NO-OP on the unique body (param-family gate). WATCH for ANY change."));
+			PilotCheck_Wait(4.0f);
+			break;
+		case 5: // P3b EDGE finish push (direct handlers, same fix)
+			HandleAFLWalletGrant(TArray<FString>{ FString(TEXT("AFL.Edge.NeonGreen")) }, W, *GLog);
+			HandleAFLCosmeticSetEdge(TArray<FString>{ FString(TEXT("NeonGreen")) }, W, *GLog);
+			PilotCheck_Mark(TEXT("P3b EDGE=NeonGreen pushed -> PREDICTED NO-OP (team-edge params absent on the unique-body master). WATCH."));
+			PilotCheck_Wait(4.0f);
+			break;
+		default:
+			PilotCheck_Mark(TEXT("DONE. Report: P1 swap+restore / P2 arm-vanish+gib / P3 no-op-or-changed. (P4 colorways is editor-side.)"));
+			GPilotCheckWorld.Reset();
+			break;
+		}
+	}
+
+	void HandleAFLCosmeticPilotCheck(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Cosmetic.PilotCheck - run inside PIE (the HOST window), wearing FANATICS.")); return; }
+		GPilotCheckWorld = World;
+		GPilotCheckStep = 0;
+		Ar.Log(TEXT("afl.Cosmetic.PilotCheck - starting the FANATICS pilot check watch (~25s). Watch the AFL_TEST[PILOT] markers. P4 colorways is editor-side."));
+		PilotCheck_Advance();
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticPilotCheckCmd(
+		TEXT("afl.Cosmetic.PilotCheck"),
+		TEXT("FANATICS unique-body pilot check driver: P1 facemask on/off (slot-1 swap+restore) + P2 sever own arm (via AFL.Dismember.TestSeverSelf) + P3 body/edge finish push (PREDICTED no-op on a unique body -- the fleet gate), timed with AFL_TEST[PILOT] markers. HOST window, wearing FANATICS, quiet spot."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticPilotCheck));
+
 	// ─── AUTOMATED readability/variety test: afl.Cosmetic.Test.Readability ────────
 	//
 	// ONE server-authoritative command that configures the WHOLE visual test so the
