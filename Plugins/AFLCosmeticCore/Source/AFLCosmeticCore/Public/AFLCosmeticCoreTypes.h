@@ -70,7 +70,13 @@ enum class EAFLCosmeticType : uint8
 	// the visual is the slot-1 base-MI swap (HUD-faceplate richness, animated/reactive future), applied at runtime
 	// via the replicated FacemaskId selection (mirrors the EdgeId axis + the Lyra CharacterParts replicate-then-
 	// apply model). DISTINCT from SkinColor_* (param-push) and Helmet (the retired part path). Address AFL.Facemask.<Name>.
-	Facemask          UMETA(DisplayName = "Facemask")              // AFL.Facemask.<Name> -> slot-1 material reskin (the proven facemask path), runtime-equipped + replicated
+	Facemask          UMETA(DisplayName = "Facemask"),             // AFL.Facemask.<Name> -> slot-1 material reskin (the proven facemask path), runtime-equipped + replicated
+	// EMBLEM axis (X-line three-layer economy: Edge colour / Facemask visor / EMBLEM logo). The chest brand mark
+	// is a UDecalComponent projection driven by a per-brand MI off M_AFL_Branding_Decal (BrandMaskTex = the brand
+	// mask texture, NeonColor = the identity tint) -- see AAFLCharacterPartActor's ChestEmblemDecal, bone-attached
+	// to spine_04. DISTINCT from Facemask (slot-1 material) and SkinColor_*/Finish (param push): the emblem owns no
+	// material slot, it projects onto the body. Catalogued independently so the logo layer is a-la-carte sellable.
+	Emblem            UMETA(DisplayName = "Emblem")                // AFL.Emblem.<Brand>  -> chest brand decal (per-brand MI + mask texture)
 };
 
 /**

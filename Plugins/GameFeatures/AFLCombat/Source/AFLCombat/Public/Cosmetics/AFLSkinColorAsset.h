@@ -46,6 +46,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|SkinColor")
 	TObjectPtr<UMaterialInstanceConstant> FacemaskMaterial = nullptr;
 
+	/** EMBLEM ONLY: the per-brand chest-decal MATERIAL this emblem projects (an MI off M_AFL_Branding_Decal
+	 *  carrying BrandMaskTex = the brand mask and NeonColor = the identity tint). An emblem's VISUAL is a
+	 *  UDecalComponent projection -- it owns no material slot on the mesh -- so the wrapper carries the MIC
+	 *  here and the identity's ChestEmblemDecal (bone-attached, spine_04) reads it. Mirrors FacemaskMaterial:
+	 *  null for non-emblem assets (Edge/Body/Finish use the param-push path and never set this).
+	 *  A UMaterialInstanceConstant content asset -> replication-safe. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|SkinColor")
+	TObjectPtr<UMaterialInstanceConstant> EmblemMaterial = nullptr;
+
 	// --- Cosmetic economy metadata (store / wallet / drops) ---
 
 	/** Immutable machine key. Format AFL.<Axis>.<Color>, e.g. AFL.Edge.NeonPurple. NEVER change once shipped. */
@@ -85,6 +94,9 @@ public:
 
 	/** FACEMASK: the slot-1 base MIC this facemask swaps in (null for non-facemask assets). */
 	UMaterialInstanceConstant* GetFacemaskMaterial() const { return FacemaskMaterial; }
+
+	/** EMBLEM: the per-brand chest-decal MIC this emblem projects (null for non-emblem assets). */
+	UMaterialInstanceConstant* GetEmblemMaterial() const { return EmblemMaterial; }
 
 	/** Cosmetic-metadata getters (mirror the L5 getter style; UPROPERTYs are the contract). */
 	FName GetCosmeticId() const { return CosmeticId; }

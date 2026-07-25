@@ -26,5 +26,10 @@ enum class EAFLCosmeticAxis : uint8
 	// edge-glow together) vs an edge-only preset. AFL.Finish.<Color> presets carry Axis==Finish; they are
 	// the SOLE color source once identity MIs are color-neutralized (Ruling 1). Additive -- Edge/Body
 	// (shipped AFL.Edge.* presets) are untouched.
-	Finish  UMETA(DisplayName = "Finish (full base color)")
+	Finish  UMETA(DisplayName = "Finish (full base color)"),
+	// X-line three-layer economy (Edge colour / Facemask visor / EMBLEM logo): the chest brand mark, carried as a
+	// per-brand MI off M_AFL_Branding_Decal and projected by the identity's ChestEmblemDecal (bone-attached,
+	// spine_04). Additive -- Edge/Body/Finish are untouched. A UAFLSkinColorAsset with Axis==Emblem wraps the
+	// brand MI the same way Axis==Edge wraps an edge preset and the Facemask asset wraps the slot-1 mask MIC.
+	Emblem  UMETA(DisplayName = "Emblem (chest brand decal)")
 };
