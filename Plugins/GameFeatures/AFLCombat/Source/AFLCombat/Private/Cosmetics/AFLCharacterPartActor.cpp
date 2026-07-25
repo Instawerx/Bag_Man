@@ -217,8 +217,23 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 				continue;
 			}
 
+			// PIPING-IS-PIPING GUARD, part 1 -- THE FLOOD DRIVER (measured 2026-07-25 by A/B probe: two bodies,
+			// identical colours, ONLY EdgeGlowMagnitude differing -> 0.0 renders gloss-black chassis + clean
+			// pipes; 0.8 renders a SOLID colour body with white-cored pipes). On the stock M_Mannequin path
+			// EdgeGlowMagnitude is a thin rim; on M_AFL_Character it is a BROAD SURFACE WASH that floods the
+			// whole chassis with EdgeGlowColor. MI_AFL_IRONICS_Body authors it 0.0 and DA_AFL_Finish_GlossBlack
+			// is 0.0 -- but ALL 13 Edge presets carry 0.8, so equipping ANY edge flooded a unique body.
+			// This is the actual cause of every "the whole body is red" report; EmissiveStrength (absent from
+			// this master), NeonIntensity, RampBoost and EmissiveColor2/3 were all ruled out by probe.
+			// Skipping it leaves the MI's authored 0.0 and does NOT break the edge axis: an Edge preset also
+			// writes EmissiveColor, which is what recolours the pipes.
+			static const FName NEdgeGlowMag(TEXT("EdgeGlowMagnitude"));
 			for (const TPair<FName, float>& KV : ColorAsset->GetScalars())
 			{
+				if (bUniqueBodyUVs && KV.Key == NEdgeGlowMag)
+				{
+					continue;
+				}
 				MID->SetScalarParameterValue(KV.Key, KV.Value);
 			}
 			// COLOR (the migration seam): the preset's GetColors() KEYS still decide WHICH params are written
@@ -226,8 +241,21 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 			// only the VALUE source swaps. Resolved identity -> the registry tone for that param; un-tagged /
 			// unresolved / unknown-key param -> the baked value (byte-identical to before). Scalars + textures
 			// (the loops above and below) are SHAPE -- read straight from the preset, untouched.
+			// PIPING-IS-PIPING GUARD, part 2 -- keep EmissiveColor2/3 NEUTRAL on unique bodies (operator ruling).
+			// HONEST SCOPE: a later A/B probe (2/3 white vs dim-red vs black, all at EdgeGlowMagnitude 0)
+			// rendered IDENTICALLY, so 2/3 are visually INERT on this master and this skip is NOT what fixes the
+			// flood -- part 1 above is. It is kept because the ruling is to hold 2/3 neutral on unique bodies,
+			// and because a future master rewire could make them live; skipping keeps that future change from
+			// silently re-introducing a wash. Stock bodies (M_Mannequin) still get 2/3 -- there they are the
+			// genuine secondary/tertiary ramp.
+			static const FName NEmissive2(TEXT("EmissiveColor2"));
+			static const FName NEmissive3(TEXT("EmissiveColor3"));
 			for (const TPair<FName, FLinearColor>& KV : ColorAsset->GetColors())
 			{
+				if (bUniqueBodyUVs && (KV.Key == NEmissive2 || KV.Key == NEmissive3))
+				{
+					continue;
+				}
 				const FLinearColor* RegistryTone = bIdentityResolved ? ResolvedIdentity.SkinFinish.FindToneForParam(KV.Key) : nullptr;
 				MID->SetVectorParameterValue(KV.Key, FVector(RegistryTone ? *RegistryTone : KV.Value));
 			}
