@@ -17,6 +17,9 @@
 #include "Engine/GameInstance.h"                      // A1.1: GetSubsystem<UAFLEconomyPersistenceSubsystem>()
 #include "Teams/LyraTeamSubsystem.h"                 // afl.Cosmetic.Test.Readability: opposing gameplay-team assignment
 #include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
+#include "Cosmetics/AFLBrandEdgeMap.h"                 // RosterTest: brand -> authored finish (the identity sweep source)
+#include "Cosmetics/AFLSkinColorAsset.h"               // RosterTest: the preset type ApplySkinColor consumes
+#include "TimerManager.h"                              // RosterTest: the self-cycling FSM step timer
 #include "Components/ChildActorComponent.h"           // panel-watch: reach the body part actor (a child-actor on the pawn)
 #include "AFLCosmeticCatalogSubsystem.h"             // S-ECON-CAT: catalog resolve cheats (AFLCosmeticCore)
 #include "AFLAbilityCosmeticAsset.h"                  // S-ECON-CAT: EMP ability-cosmetic resolve target (AFLCosmeticCore)
@@ -1341,6 +1344,442 @@ namespace
 		TEXT("afl.Cosmetic.SetEdge"),
 		TEXT("#43 selection seam: client-issued PURE caller of ServerSetCosmeticSelection. Usage: afl.Cosmetic.SetEdge <NeonPurple|NeonPink|NeonBlue|NeonGreen> (or full AFL.Edge.<color>). NOT NeonRed (absent from BrandEdgeMap)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetEdge));
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// afl.Cosmetic.RosterTest -- SELF-CYCLING roster QA harness (DeveloperTool).
+	//
+	// 28 identities x colours x lock x hit-flash is hundreds of manual commands. This drives the whole
+	// matrix unattended on a timer so the operator only WATCHES for visual bugs. Every step emits a
+	// structured AFL_TEST[...] marker so the log can be read AFTER PIE closes and turned into per-item
+	// verdicts (never read mid-PIE -- MCP in a live PIE has crashed the editor).
+	//
+	// PHASES: 1 identity sweep (every brand's authored finish, held long enough to eyeball)
+	//         2 colour sweep (every registry identity on the same body -- proves matrix distinctness)
+	//         3 sponsor-lock assert (locked body must REFUSE, standard body must ACCEPT) -- automated PASS/FAIL
+	//         4 hit-flash: writes HitPosition0 directly (see the note in the phase, below)
+	// ─────────────────────────────────────────────────────────────────────────
+	struct FAFLRosterTestState
+	{
+		TWeakObjectPtr<UWorld> World;
+		TArray<TWeakObjectPtr<UAFLSkinColorAsset>> Finishes;   // phase 1 payloads
+		TArray<FName> FinishLabels;
+		TArray<FGameplayTag> ColourTags;                        // phase 2 payloads
+		int32 Phase = 0;
+		int32 Index = 0;
+		float HoldSeconds = 2.5f;
+		FTimerHandle Timer;
+		bool bActive = false;
+		// FIX 1: the possessed body's brand, resolved once at START (empty tag == standard body).
+		FGameplayTag LockedBrandTag;
+		FLinearColor LockedBrandTone = FLinearColor::Black;
+		// FIX 2: phase-2 writes MIDs RAW, so it must restore what it clobbered before phase 3 asserts.
+		TWeakObjectPtr<UAFLSkinColorAsset> RestorePreset;
+		// PART-LOSS TOLERANCE: consecutive zero-part reads (death/dismember detaches the part actors).
+		int32 MissStreak = 0;
+	};
+	static FAFLRosterTestState GRosterTest;
+
+	static FString AFLRT_Hex(const FLinearColor& C)
+	{
+		const FColor S = C.ToFColor(true);
+		return FString::Printf(TEXT("#%02X%02X%02X"), S.R, S.G, S.B);
+	}
+
+	// Every AAFLCharacterPartActor hanging off the local pawn (the robot body parts).
+	static void AFLRT_GatherParts(UWorld* World, TArray<AAFLCharacterPartActor*>& Out)
+	{
+		Out.Reset();
+		if (!World) { return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		if (!Pawn) { return; }
+		TArray<AActor*> Attached;
+		Pawn->GetAttachedActors(Attached);
+		for (AActor* A : Attached)
+		{
+			if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(A)) { Out.Add(Part); }
+		}
+		for (UChildActorComponent* CAC : TInlineComponentArray<UChildActorComponent*>(Pawn))
+		{
+			if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC->GetChildActor()))
+			{
+				Out.AddUnique(Part);
+			}
+		}
+	}
+
+	// Read back what actually landed on the live MID -- the render truth, not the intent.
+	static bool AFLRT_ReadLiveEmissive(UWorld* World, FLinearColor& Out)
+	{
+		TArray<AAFLCharacterPartActor*> Parts;
+		AFLRT_GatherParts(World, Parts);
+		for (AAFLCharacterPartActor* Part : Parts)
+		{
+			TArray<UMeshComponent*> Meshes;
+			Part->GetComponents<UMeshComponent>(Meshes);
+			for (UMeshComponent* M : Meshes)
+			{
+				if (!M || M->GetNumMaterials() <= 0) { continue; }
+				if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(M->GetMaterial(0)))
+				{
+					if (MID->GetVectorParameterValue(FMaterialParameterInfo(TEXT("EmissiveColor")), Out)) { return true; }
+				}
+			}
+		}
+		return false;
+	}
+
+	static void AFLRT_Step();
+
+	static void AFLRT_Schedule(float Delay)
+	{
+		if (UWorld* W = GRosterTest.World.Get())
+		{
+			W->GetTimerManager().SetTimer(GRosterTest.Timer, FTimerDelegate::CreateStatic(&AFLRT_Step), Delay, false);
+		}
+	}
+
+	static void AFLRT_Finish(const TCHAR* Why)
+	{
+		GRosterTest.bActive = false;
+		if (UWorld* W = GRosterTest.World.Get()) { W->GetTimerManager().ClearTimer(GRosterTest.Timer); }
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Run=END reason=%s]"), Why);
+	}
+
+	static void AFLRT_Step()
+	{
+		UWorld* World = GRosterTest.World.Get();
+		if (!World || !GRosterTest.bActive) { AFLRT_Finish(TEXT("world-gone")); return; }
+
+		// PART-LOSS TOLERANCE: a mid-run DEATH/dismemberment detaches the part actors, so a zero-part read is
+		// transient, not fatal. The first run lost phases 2-4 (the lock + hit-flash verdicts) because the
+		// operator was killed during the sweep. Skip the step and retry; only give up after a sustained gap,
+		// which is the genuine "pawn is gone for good" case.
+		TArray<AAFLCharacterPartActor*> Parts;
+		AFLRT_GatherParts(World, Parts);
+		if (Parts.Num() == 0)
+		{
+			++GRosterTest.MissStreak;
+			if (GRosterTest.MissStreak >= 20)   // ~20s at the 1s retry cadence
+			{
+				AFLRT_Finish(TEXT("no-part-actors-on-pawn-sustained"));
+				return;
+			}
+			if (GRosterTest.MissStreak == 1)
+			{
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("AFL_TEST[Warn=PARTS-LOST] no part actors (death/dismember?) -- holding phase %d step %d, retrying"),
+					GRosterTest.Phase, GRosterTest.Index);
+			}
+			AFLRT_Schedule(1.0f);
+			return;
+		}
+		if (GRosterTest.MissStreak > 0)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PartsRecovered afterMisses=%d phase=%d step=%d]"),
+				GRosterTest.MissStreak, GRosterTest.Phase, GRosterTest.Index);
+			GRosterTest.MissStreak = 0;
+		}
+
+		// ---------- PHASE 1: identity sweep ----------
+		if (GRosterTest.Phase == 1)
+		{
+			if (!GRosterTest.Finishes.IsValidIndex(GRosterTest.Index))
+			{
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Phase=1 IdentitySweep DONE count=%d]"), GRosterTest.Finishes.Num());
+				GRosterTest.Phase = 2; GRosterTest.Index = 0; AFLRT_Schedule(0.5f); return;
+			}
+			UAFLSkinColorAsset* Preset = GRosterTest.Finishes[GRosterTest.Index].Get();
+			const FName Label = GRosterTest.FinishLabels.IsValidIndex(GRosterTest.Index)
+				? GRosterTest.FinishLabels[GRosterTest.Index] : NAME_None;
+			if (Preset)
+			{
+				for (AAFLCharacterPartActor* Part : Parts) { Part->ApplySkinColor(Preset); }
+				FLinearColor Live;
+				const bool bRead = AFLRT_ReadLiveEmissive(World, Live);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[Identity=%s preset=%s live=%s step=%d/%d]"),
+					*Label.ToString(), *Preset->GetName(),
+					bRead ? *AFLRT_Hex(Live) : TEXT("<unread>"),
+					GRosterTest.Index + 1, GRosterTest.Finishes.Num());
+			}
+			++GRosterTest.Index;
+			AFLRT_Schedule(GRosterTest.HoldSeconds);
+			return;
+		}
+
+		// ---------- PHASE 2: colour sweep (matrix distinctness, same body) ----------
+		if (GRosterTest.Phase == 2)
+		{
+			if (!GRosterTest.ColourTags.IsValidIndex(GRosterTest.Index))
+			{
+				// FIX 2: this phase wrote MIDs DIRECTLY (bypassing resolve + lock, by design -- it isolates
+				// render). That leaves the body wearing the last swept colour, which then poisons phase 3's
+				// "before" reading. Re-apply a real preset through the normal path so phase 3 starts from a
+				// legitimately-resolved state instead of raw leftovers.
+				if (UAFLSkinColorAsset* Restore = GRosterTest.RestorePreset.Get())
+				{
+					for (AAFLCharacterPartActor* Part : Parts) { Part->ApplySkinColor(Restore); }
+					FLinearColor Settled;
+					const bool bRead = AFLRT_ReadLiveEmissive(World, Settled);
+					UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Phase=2 RESTORE preset=%s settled=%s]"),
+						*Restore->GetName(), bRead ? *AFLRT_Hex(Settled) : TEXT("<unread>"));
+				}
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Phase=2 ColourSweep DONE count=%d]"), GRosterTest.ColourTags.Num());
+				GRosterTest.Phase = 3; GRosterTest.Index = 0; AFLRT_Schedule(0.5f); return;
+			}
+			const FGameplayTag Tag = GRosterTest.ColourTags[GRosterTest.Index];
+			FAFLColorIdentity Ident;
+			if (UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(World, Tag, Ident))
+			{
+				// Drive the MIDs straight from the registry tone -- isolates RESOLVE+RENDER from entitlement.
+				for (AAFLCharacterPartActor* Part : Parts)
+				{
+					TArray<UMeshComponent*> Meshes;
+					Part->GetComponents<UMeshComponent>(Meshes);
+					for (UMeshComponent* M : Meshes)
+					{
+						if (!M) { continue; }
+						for (int32 S = 0; S < M->GetNumMaterials(); ++S)
+						{
+							if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(M->GetMaterial(S)))
+							{
+								MID->SetVectorParameterValue(TEXT("EmissiveColor"), Ident.SkinFinish.EmissiveColor1);
+								MID->SetVectorParameterValue(TEXT("EdgeGlowColor"), Ident.SkinFinish.EdgeGlowColor);
+								MID->SetVectorParameterValue(TEXT("TeamColor"), Ident.SkinFinish.TeamColor);
+							}
+						}
+					}
+				}
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Colour=%s hex=%s edge=%s step=%d/%d]"),
+					*Tag.ToString(), *AFLRT_Hex(Ident.SkinFinish.EmissiveColor1),
+					*AFLRT_Hex(Ident.SkinFinish.EdgeGlowColor),
+					GRosterTest.Index + 1, GRosterTest.ColourTags.Num());
+			}
+			else
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[Colour=%s UNRESOLVED]"), *Tag.ToString());
+			}
+			++GRosterTest.Index;
+			AFLRT_Schedule(GRosterTest.HoldSeconds);
+			return;
+		}
+
+		// ---------- PHASE 3: sponsor-lock assert (automated PASS/FAIL, not eyeball) ----------
+		if (GRosterTest.Phase == 3)
+		{
+			// Find a NON-brand preset to push, then check whether the tone actually moved.
+			UAFLSkinColorAsset* Probe = nullptr;
+			for (int32 i = 0; i < GRosterTest.Finishes.Num(); ++i)
+			{
+				if (GRosterTest.FinishLabels.IsValidIndex(i) && GRosterTest.FinishLabels[i] != FName(TEXT("FANATICS")))
+				{
+					Probe = GRosterTest.Finishes[i].Get();
+					if (Probe) { break; }
+				}
+			}
+			// FIX 3: the ORIGINAL assert was "a locked body must not CHANGE" -- wrong, and it produced a false
+			// FAIL. A locked body legitimately changes: it snaps to the BRAND tone. The real question is WHICH
+			// colour it landed on. Locked => must equal the body's own brand tone (the probe is refused);
+			// standard => must equal the PROBE's resolved tone (the probe is accepted). Locked-ness now comes
+			// from the registry via the body's own tag, not from a class-name substring match.
+			const bool bLockedBody = GRosterTest.LockedBrandTag.IsValid();
+			FLinearColor ProbeTone(ForceInit);
+			bool bProbeToneKnown = false;
+			if (Probe && Probe->GetColorIdentityTag().IsValid())
+			{
+				FAFLColorIdentity ProbeId;
+				if (UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(World, Probe->GetColorIdentityTag(), ProbeId))
+				{
+					ProbeTone = ProbeId.SkinFinish.EmissiveColor1; bProbeToneKnown = true;
+				}
+			}
+			if (Probe && !bProbeToneKnown)
+			{
+				// Untagged probe -> its BAKED EmissiveColor is what a standard body should adopt.
+				if (const FLinearColor* Baked = Probe->GetColors().Find(FName(TEXT("EmissiveColor"))))
+				{
+					ProbeTone = *Baked; bProbeToneKnown = true;
+				}
+			}
+
+			FLinearColor Before(ForceInit), After(ForceInit);
+			AFLRT_ReadLiveEmissive(World, Before);
+			for (AAFLCharacterPartActor* Part : Parts) { if (Probe) { Part->ApplySkinColor(Probe); } }
+			AFLRT_ReadLiveEmissive(World, After);
+
+			const FLinearColor& Expected = bLockedBody ? GRosterTest.LockedBrandTone : ProbeTone;
+			const bool bPass = (bLockedBody || bProbeToneKnown) && After.Equals(Expected, 0.02f);
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[Lock=%s mode=%s probe=%s before=%s after=%s expectedTone=%s]"),
+				bPass ? TEXT("PASS") : TEXT("FAIL"),
+				bLockedBody ? TEXT("LOCKED-must-hold-brand") : TEXT("STANDARD-must-adopt-probe"),
+				Probe ? *Probe->GetName() : TEXT("<none>"),
+				*AFLRT_Hex(Before), *AFLRT_Hex(After), *AFLRT_Hex(Expected));
+			GRosterTest.Phase = 4; GRosterTest.Index = 0; AFLRT_Schedule(1.0f);
+			return;
+		}
+
+		// ---------- PHASE 4: hit-flash ----------
+		// NOTE (measured 2026-07-25): NOTHING in C++ or content writes HitPosition0 -- the material exposes
+		// the params but no runtime driver exists, which is why hit-flash has never fired. So this phase
+		// writes HitPosition0 DIRECTLY. That makes it a clean isolation: if the body flashes here, the
+		// material chain is alive and only the gameplay driver is missing; if it does not, the chain itself
+		// is dead. Either way the operator gets a definitive answer instead of an ambiguity.
+		if (GRosterTest.Phase == 4)
+		{
+			if (GRosterTest.Index >= 3) { AFLRT_Finish(TEXT("complete")); return; }
+			APlayerController* PC = World->GetFirstPlayerController();
+			APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+			const FVector HitPos = Pawn ? Pawn->GetActorLocation() + FVector(0.f, 0.f, 40.f) : FVector::ZeroVector;
+			// FIX 4: DETERMINISTIC hit-flash verdict instead of "did you see a flash?". SetVectorParameterValue
+			// on a param the material does NOT expose is a SILENT no-op -- so we write, then READ BACK. If the
+			// readback fails, the param is absent and the chain is DEAD (nothing could ever flash). If it
+			// reads back, the material accepted it and only the gameplay driver is missing (nothing in C++ or
+			// content writes HitPosition0 -- verified). Either way the log answers it without eyeballs.
+			int32 Written = 0, ParamPresent = 0, ParamAbsent = 0;
+			for (AAFLCharacterPartActor* Part : Parts)
+			{
+				TArray<UMeshComponent*> Meshes;
+				Part->GetComponents<UMeshComponent>(Meshes);
+				for (UMeshComponent* M : Meshes)
+				{
+					if (!M) { continue; }
+					for (int32 S = 0; S < M->GetNumMaterials(); ++S)
+					{
+						if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(M->GetMaterial(S)))
+						{
+							MID->SetVectorParameterValue(TEXT("HitPosition0"), FLinearColor(HitPos));
+							MID->SetScalarParameterValue(TEXT("HitFlashStrength"), 5.f);
+							MID->SetScalarParameterValue(TEXT("HitFlashRadius"), 60.f);
+							++Written;
+							FLinearColor Echo(ForceInit);
+							if (MID->GetVectorParameterValue(FMaterialParameterInfo(TEXT("HitPosition0")), Echo))
+							{
+								++ParamPresent;
+							}
+							else
+							{
+								++ParamAbsent;
+							}
+						}
+					}
+				}
+			}
+			const TCHAR* Chain = (ParamPresent > 0) ? TEXT("MATERIAL-ALIVE-driver-missing") : TEXT("MATERIAL-DEAD-param-absent");
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[HitFlash=fired pulse=%d/3 pos=%s midsWritten=%d paramPresent=%d paramAbsent=%d verdict=%s]"),
+				GRosterTest.Index + 1, *HitPos.ToCompactString(), Written, ParamPresent, ParamAbsent, Chain);
+			++GRosterTest.Index;
+			AFLRT_Schedule(1.5f);
+			return;
+		}
+
+		AFLRT_Finish(TEXT("unknown-phase"));
+	}
+
+	void HandleAFLRosterTest(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.RosterTest - run inside PIE."));
+			return;
+		}
+		if (Args.Num() >= 1 && Args[0].Equals(TEXT("stop"), ESearchCase::IgnoreCase))
+		{
+			AFLRT_Finish(TEXT("operator-stop"));
+			Ar.Log(TEXT("afl.Cosmetic.RosterTest - stopped."));
+			return;
+		}
+
+		GRosterTest = FAFLRosterTestState();
+		GRosterTest.World = World;
+		if (Args.Num() >= 1)
+		{
+			const float Hold = FCString::Atof(*Args[0]);
+			if (Hold > 0.1f) { GRosterTest.HoldSeconds = Hold; }
+		}
+
+		// PHASE-1 payload: every brand's AUTHORED finish, straight off the shipped BrandEdgeMap.
+		if (UAFLBrandEdgeMap* Map = LoadObject<UAFLBrandEdgeMap>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/SkinColors/DA_AFL_BrandEdgeMap.DA_AFL_BrandEdgeMap")))
+		{
+			for (const TPair<FGameplayTag, TObjectPtr<UAFLSkinColorAsset>>& KV : Map->BrandToEdge)
+			{
+				if (UAFLSkinColorAsset* Preset = KV.Value.Get())
+				{
+					GRosterTest.Finishes.Add(Preset);
+					FString Short = KV.Key.ToString();
+					Short.RemoveFromStart(TEXT("Cosmetic.Brand."));
+					GRosterTest.FinishLabels.Add(FName(*Short));
+					// FIX 2 payload: first authored finish doubles as the phase-2 restore preset, so the
+					// raw MID writes get replaced by a properly-resolved state before phase 3 asserts.
+					if (!GRosterTest.RestorePreset.IsValid()) { GRosterTest.RestorePreset = Preset; }
+				}
+			}
+		}
+		// PHASE-2 payload: every registry identity. Loaded BY PATH (same pattern as the brand map above) --
+		// the catalog subsystem exposes no public registry accessor, only the per-tag ResolveColorIdentity.
+		if (const UAFLColorIdentityRegistry* Reg = LoadObject<UAFLColorIdentityRegistry>(nullptr,
+			TEXT("/Game/BagMan/Cosmetics/DA_AFL_ColorIdentityRegistry.DA_AFL_ColorIdentityRegistry")))
+		{
+			for (const FAFLColorIdentity& Id : Reg->Identities)
+			{
+				if (Id.IdentityTag.IsValid()) { GRosterTest.ColourTags.Add(Id.IdentityTag); }
+			}
+		}
+
+		GRosterTest.Phase = 1;
+		GRosterTest.Index = 0;
+		GRosterTest.bActive = true;
+
+		// FIX 1: report WHICH body we are sweeping, and shout if it is LOCKED. On a sponsor body every
+		// TAGGED preset is legitimately overridden to the brand tone, so the identity sweep becomes a lock
+		// test, not a colour test -- the first run looked green because 24 of 28 presets are untagged and
+		// bypassed the lock. Surfacing this up-front stops an invalid run being read as roster QA.
+		FString BodyName(TEXT("<none>"));
+		bool bLockedRun = false;
+		{
+			TArray<AAFLCharacterPartActor*> Parts0;
+			AFLRT_GatherParts(World, Parts0);
+			for (AAFLCharacterPartActor* Part : Parts0)
+			{
+				BodyName = Part->GetClass()->GetName();
+				const FGameplayTag BrandTag = Part->GetBrandColorIdentityTag();
+				FAFLColorIdentity BrandId;
+				if (BrandTag.IsValid()
+					&& UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(World, BrandTag, BrandId)
+					&& BrandId.bColorLocked)
+				{
+					bLockedRun = true;
+					GRosterTest.LockedBrandTag = BrandTag;
+					GRosterTest.LockedBrandTone = BrandId.SkinFinish.EmissiveColor1;
+				}
+				break;
+			}
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Body=%s locked=%s brand=%s]"),
+			*BodyName, bLockedRun ? TEXT("YES") : TEXT("no"),
+			GRosterTest.LockedBrandTag.IsValid() ? *GRosterTest.LockedBrandTag.ToString() : TEXT("<none>"));
+		if (bLockedRun)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[Warn=LOCKED-BODY] identity sweep on a SPONSOR body -- every TAGGED preset will correctly render the brand tone. This run tests the LOCK, not the roster. Possess a STANDARD body for roster colour QA."));
+			Ar.Log(TEXT("WARNING: possessed body is a LOCKED sponsor -- identity sweep will show brand colour for tagged presets. Use a standard body for roster QA."));
+		}
+
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[Run=START identities=%d colours=%d hold=%.1fs] -- watch for: wrong colour, broken piping, missing/wrong emblem, visor glitch, mesh tear"),
+			GRosterTest.Finishes.Num(), GRosterTest.ColourTags.Num(), GRosterTest.HoldSeconds);
+		Ar.Logf(TEXT("afl.Cosmetic.RosterTest - started: %d identities then %d colours at %.1fs each, then lock-assert + hit-flash. Watch the pawn; AIK reads the log after you close PIE."),
+			GRosterTest.Finishes.Num(), GRosterTest.ColourTags.Num(), GRosterTest.HoldSeconds);
+		AFLRT_Schedule(0.5f);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLRosterTestCmd(
+		TEXT("afl.Cosmetic.RosterTest"),
+		TEXT("SELF-CYCLING roster QA. Usage: afl.Cosmetic.RosterTest [holdSeconds] | stop. Sweeps every brand identity, then every registry colour, then asserts the sponsor lock, then fires hit-flash. Emits AFL_TEST[...] markers for post-PIE log verdicts."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLRosterTest));
 
 	// --- BODY selection seam: afl.Cosmetic.SetBody <color> (Option B body axis) ---
 	// MIRRORS HandleAFLCosmeticSetEdge EXACTLY, but sets BodyId (AFL.Body.<color> -> a Finish preset via the
