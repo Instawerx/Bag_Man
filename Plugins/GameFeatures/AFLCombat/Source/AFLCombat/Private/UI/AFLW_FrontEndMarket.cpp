@@ -16,6 +16,7 @@
 #include "Components/Border.h"         // CHROME: neon-outline wallet pills
 #include "Components/Image.h"          // CHROME: coin-icon tints
 #include "Styling/SlateBrush.h"        // CHROME: RoundedBox pill brush
+#include "UI/AFLUITheme.h"            // SSOT for chrome tokens (shared with the weapon wheel)
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
 #include "Cosmetics/AFLWalletComponent.h" // B2c: ClientRequestPurchase + OnWalletChanged (buy + live OWNED flip)
 #include "Engine/World.h"
@@ -124,7 +125,7 @@ void UAFLW_FrontEndMarket::ApplyShowroomMode()
 	{
 		if (UBorder* Rail = Cast<UBorder>(GetWidgetFromName(FName(RailName))))
 		{
-			Rail->SetBrushColor(FLinearColor(0.0196f, 0.0314f, 0.0588f, 0.93f)); // #05080F gloss-black @ 0.93
+			Rail->SetBrushColor(AFLUITheme::GlossBlackRail); // #05080F gloss-black @ 0.93 (AFLUITheme)
 			UE_LOG(LogAFLCombat, Log, TEXT("AFL_MARKET: LEFT rail '%s' -> gloss-black."), RailName);
 			break;
 		}
@@ -336,8 +337,8 @@ void UAFLW_FrontEndMarket::UpdateStoreTabVisuals(int32 ActiveIndex)
 {
 	// Active tab -> cyan label + a faint cyan fill; inactive -> dim label + transparent fill. (A true underline
 	// bar needs a dedicated per-tab widget; label-cyan is the robust active cue over the store's shipped tabs.)
-	static const FSlateColor CyanActive(FLinearColor(0.15f, 0.95f, 1.0f, 1.0f));
-	static const FSlateColor DimInactive(FLinearColor(0.62f, 0.68f, 0.80f, 1.0f));
+	static const FSlateColor CyanActive(AFLUITheme::CyanActive);
+	static const FSlateColor DimInactive(AFLUITheme::DimInactive);
 	for (int32 i = 0; i < 6; ++i)
 	{
 		if (UTextBlock* L = Cast<UTextBlock>(GetWidgetFromName(FName(GStoreTabs[i].LabelName))))
@@ -346,7 +347,7 @@ void UAFLW_FrontEndMarket::UpdateStoreTabVisuals(int32 ActiveIndex)
 		}
 		if (UBorder* B = Cast<UBorder>(GetWidgetFromName(FName(GStoreTabs[i].TabName))))
 		{
-			B->SetBrushColor(i == ActiveIndex ? FLinearColor(0.05f, 0.55f, 0.72f, 0.30f) : FLinearColor(0.f, 0.f, 0.f, 0.f));
+			B->SetBrushColor(i == ActiveIndex ? AFLUITheme::TabFill : FLinearColor(0.f, 0.f, 0.f, 0.f));
 		}
 	}
 }
@@ -508,10 +509,13 @@ void UAFLW_FrontEndMarket::OnStoreWalletChanged(int32 Volts, int32 Watts)
 	}
 }
 
+// SSOT: the currency neons now live in AFLUITheme.h so the weapon wheel reads the SAME values instead of
+// copying them into a second .cpp. Aliases kept so the call sites below are byte-unchanged -- the extraction
+// must be provably zero-pixel, same discipline as the cosmetic registry retags.
 namespace
 {
-	static const FLinearColor GAFLNeonBlue(0.1176f, 0.3529f, 1.0f, 1.0f);    // #1E5AFF Volts
-	static const FLinearColor GAFLNeonMagenta(1.0f, 0.1765f, 0.6196f, 1.0f); // #FF2D9E Watts
+	static const FLinearColor& GAFLNeonBlue    = AFLUITheme::VoltsNeon;    // #1E5AFF Volts
+	static const FLinearColor& GAFLNeonMagenta = AFLUITheme::WattsNeon;    // #FF2D9E Watts
 }
 
 void UAFLW_FrontEndMarket::RefreshWalletChrome(int32 Volts, int32 Watts)
