@@ -140,7 +140,15 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 	// scalars/textures) so a sponsor keeps whatever finish/edge/emblem STRUCTURE the player equipped -- it
 	// just renders in brand color. Resolve failure (registry unloaded / tag absent) leaves the player's
 	// color intact rather than blanking the part.
-	if (BrandColorIdentityTag.IsValid())
+	// SCOPED TO A COMPETING IDENTITY (regression fix, PIE 2026-07-25). Require bIdentityResolved: the lock
+	// exists to stop a PLAYER COLOR CHOICE from repainting a sponsor, and a player choice ALWAYS arrives as a
+	// preset carrying its own ColorIdentityTag. A preset with NO tag is AUTHORED ART whose baked
+	// ColorParameters are the intended look (DA_AFL_Finish_GlossBlack, the brand's own body finish, is
+	// deliberately untagged) -- overriding that repaints art nobody asked to recolor. First pass omitted this
+	// and forced FANATICS tones over GlossBlack's baked values, swapping its two PURPLE accent tones
+	// (EmissiveColor2/3) to red. TeamColor + EmissiveColor + EdgeGlowColor were already identical, so it did
+	// not turn the body red -- but it flattened the authored accents, which is wrong either way.
+	if (bIdentityResolved && BrandColorIdentityTag.IsValid())
 	{
 		FAFLColorIdentity BrandIdentity;
 		if (UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(this, BrandColorIdentityTag, BrandIdentity)

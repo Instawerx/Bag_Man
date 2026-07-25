@@ -43,6 +43,12 @@ UAFLSkinColorControllerComponent::UAFLSkinColorControllerComponent(const FObject
 	// established AFL pattern (cf. AAFLDismemberedHead's gib FObjectFinder); only /Game->plugin is restricted.
 	BaseFacemask = TSoftObjectPtr<UAFLSkinColorAsset>(FSoftObjectPath(
 		TEXT("/Game/BagMan/Characters/Cosmetics/SkinColors/DA_AFL_Facemask_IroVisor.DA_AFL_Facemask_IroVisor")));
+
+	// GROUND-ZERO body default (house identity). Same shape as BaseFacemask above: a DIRECT data-asset path,
+	// not a CosmeticId, so the base look resolves regardless of catalog/entitlement state. This is the LAST
+	// body tier -- it fires ONLY when a brand has no authored default in BrandEdgeMap.
+	BaseBodyFinish = TSoftObjectPtr<UAFLSkinColorAsset>(FSoftObjectPath(
+		TEXT("/Game/BagMan/Characters/Cosmetics/Finishes/DA_AFL_Finish_Blue_Ironics.DA_AFL_Finish_Blue_Ironics")));
 }
 
 void UAFLSkinColorControllerComponent::BeginPlay()
@@ -278,9 +284,20 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 				}
 			}
 		}
+		// GROUND-ZERO tier (house default). Soft-load ONLY if we actually reach it -- a brand with an authored
+		// default never touches this, so the 28 signature colours are untouched and nothing extra is loaded.
+		UAFLSkinColorAsset* BaseBody = nullptr;
+		if (SelectedBody == nullptr && !bBrandResolved && !BaseBodyFinish.IsNull())
+		{
+			BaseBody = BaseBodyFinish.LoadSynchronous();
+		}
+
+		// All arms RAW UAFLSkinColorAsset* (PersistentSkinColor via .Get()) -- mixing a TObjectPtr arm into
+		// this conditional is the C2445 ambiguous-conditional error.
 		UAFLSkinColorAsset* EffectiveBody =
 			(SelectedBody != nullptr) ? SelectedBody
 			: bBrandResolved          ? ResolvedEdge
+			: (BaseBody != nullptr)   ? BaseBody
 			: PersistentSkinColor.Get();
 
 		if (AFLSkinDiag::IsOn())
@@ -289,10 +306,11 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 			const TCHAR* BodyTier =
 				(SelectedBody != nullptr) ? TEXT("selection")
 				: bBrandResolved          ? TEXT("brand")
+				: (BaseBody != nullptr)   ? TEXT("base")
 				: TEXT("fallback");
 
 			UE_LOG(LogAFLSkinDiag, Log,
-				TEXT("%s%s : PushToPawn(dual) brandTag=%s mapSet=%s | EDGE edge=%s (sel=%s) | BODY tier=%s body=%s (selBody=%s via=%s brandDefault=%s persistent=%s)"),
+				TEXT("%s%s : PushToPawn(dual) brandTag=%s mapSet=%s | EDGE edge=%s (sel=%s) | BODY tier=%s body=%s (selBody=%s via=%s brandDefault=%s base=%s persistent=%s)"),
 				*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
 				BrandTag.IsValid() ? *BrandTag.ToString() : TEXT("<none>"),
 				BrandEdgeMap ? TEXT("y") : TEXT("n"),
@@ -303,6 +321,7 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 				(SelectedBody != nullptr) ? *SelectedBody->GetName() : TEXT("<none>"),
 				BodyResolveVia,
 				bBrandResolved ? *ResolvedEdge->GetName() : TEXT("<none>"),
+				BaseBody ? *BaseBody->GetName() : TEXT("<not reached>"),
 				PersistentSkinColor ? *PersistentSkinColor->GetName() : TEXT("null"));
 		}
 

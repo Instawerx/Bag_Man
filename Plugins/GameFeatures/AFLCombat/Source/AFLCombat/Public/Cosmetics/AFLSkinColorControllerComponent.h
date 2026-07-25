@@ -133,6 +133,16 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics")
 	TSoftObjectPtr<UAFLSkinColorAsset> BaseFacemask;
 
+	/** GROUND-ZERO body finish: the house-brand default a STANDARD identity starts as when its brand has NO
+	 *  authored default. Slots as the LAST tier of the body chain -- player-chosen -> the brand's authored
+	 *  default (the 28 rows of BrandEdgeMap) -> THIS. It does NOT override the 28: an authored brand colour
+	 *  wins over it every time, because those signature colours (ARIA pink, SCARLETT purple, RYU green) are
+	 *  the roster's value and a paid Aria X must look like Aria, not like the house default.
+	 *  Defaults (ctor) to DA_AFL_Finish_Blue_Ironics = Cosmetic.Identity.IRONICS (#5090FF). Mirrors
+	 *  BaseFacemask exactly: EditDefaultsOnly + soft so it isn't force-loaded until the fallback fires. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics")
+	TSoftObjectPtr<UAFLSkinColorAsset> BaseBodyFinish;
+
 	/** Bound (authority) to the controller's public OnPossessedPawnChanged; re-pushes color to the new pawn. */
 	UFUNCTION()
 	void OnPossessedPawnChanged(APawn* OldPawn, APawn* NewPawn);
