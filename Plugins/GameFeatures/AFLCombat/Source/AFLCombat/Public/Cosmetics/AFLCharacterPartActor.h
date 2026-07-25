@@ -88,6 +88,14 @@ public:
 	UAFLSkinColorAsset* GetLastAppliedColor() const { return LastAppliedColor; }
 
 	/**
+	 * The BODY-axis preset last painted onto this part (Axis == Body or Finish), as distinct from
+	 * GetLastAppliedColor() which -- because the composition order is body-then-edge -- is always the EDGE
+	 * overlay. The dismember gib path wants THIS: reading last-applied made a brand-red FANATICS body throw
+	 * the player's NeonBlue limbs. Null until a body/finish preset has been applied; callers fall back.
+	 */
+	UAFLSkinColorAsset* GetLastAppliedBodyColor() const { return LastAppliedBodyColor; }
+
+	/**
 	 * UNIQUE-BODY SLOT/UV LAYOUT. TRUE = this part's mesh is a unique body: slot 0 carries the WHOLE body
 	 * (torso, limbs, helmet shell) and slot 1 is VISOR-ONLY faces on the standardized UV1 projection.
 	 * FALSE = the stock shared SKM_Manny, where slot 1 = M_HeadLegs (the head AND limb region).
@@ -96,6 +104,15 @@ public:
 	 * material (emissive HUD through the wrong UVs) instead of the body finish.
 	 */
 	bool UsesUniqueBodyUVs() const { return bUniqueBodyUVs; }
+
+	/**
+	 * The colour identity this body belongs to (Cosmetic.Identity.<Brand>), or an invalid tag for a
+	 * STANDARD body. Read by the RosterTest harness so a lock assertion can compare against the body's OWN
+	 * brand tone instead of guessing from the class name -- and so an identity sweep can report up-front
+	 * that it is running on a locked body (where every tagged preset is legitimately overridden, making the
+	 * sweep a lock test rather than a colour test).
+	 */
+	const FGameplayTag& GetBrandColorIdentityTag() const { return BrandColorIdentityTag; }
 
 #if UE_WITH_CHEAT_MANAGER
 	/**
@@ -168,4 +185,9 @@ protected:
 	// so this property need not (and the local child actor cannot, without an architecture change) network-replicate.
 	UPROPERTY(Transient)
 	TObjectPtr<UAFLSkinColorAsset> LastAppliedColor = nullptr;
+
+	// GIB TINT: the BODY-axis half of the record above. Written only for Axis == Body/Finish, so the edge
+	// overlay cannot clobber it. See GetLastAppliedBodyColor().
+	UPROPERTY(Transient)
+	TObjectPtr<UAFLSkinColorAsset> LastAppliedBodyColor = nullptr;
 };

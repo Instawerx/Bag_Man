@@ -455,9 +455,23 @@ UAFLSkinColorAsset* UAFLDismemberComponent::ResolveVictimPaintedFinish() const
 		}
 		if (const AAFLCharacterPartActor* PartActor = Cast<AAFLCharacterPartActor>(Mesh->GetOwner()))
 		{
+			// GIB TINT FIX (2026-07-25, PIE-surfaced): prefer the BODY-axis preset. GetLastAppliedColor() is
+			// whatever was applied LAST, and the composition order is body-finish then edge overlay -- so it is
+			// always the EDGE. That painted severed limbs with the player's chosen edge colour and, worse,
+			// BYPASSED THE SPONSOR LOCK: a colour-locked FANATICS body rendering brand red threw NeonBlue limbs
+			// (log: "limb gib ... color=DA_AFL_Edge_NeonBlue"). A brand-integrity hole, not just a mismatch.
+			//
+			// The body layer is the lock-correct source: on a sponsor it IS the brand's authored finish (the
+			// lock forces the identity at paint time, and a player edge choice never overwrites this record),
+			// and on a standard body it is whatever colour the player actually applied. Fall back to the old
+			// last-applied read so a part that has only ever taken an edge is never left worse than before.
+			if (UAFLSkinColorAsset* Body = PartActor->GetLastAppliedBodyColor())
+			{
+				return Body;      // first visible robot part's BODY finish wins
+			}
 			if (UAFLSkinColorAsset* Painted = PartActor->GetLastAppliedColor())
 			{
-				return Painted;   // first visible robot part's painted finish wins
+				return Painted;   // fallback: pre-fix behaviour
 			}
 		}
 	}

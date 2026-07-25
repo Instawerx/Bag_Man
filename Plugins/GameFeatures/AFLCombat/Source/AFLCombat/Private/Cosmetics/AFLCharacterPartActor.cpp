@@ -118,6 +118,18 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 	// param-writing below is byte-unchanged. const_cast: we only ever READ it back (a const-correctness artifact).
 	LastAppliedColor = const_cast<UAFLSkinColorAsset*>(ColorAsset);
 
+	// GIB TINT FIX (2026-07-25): LastAppliedColor is whatever was applied MOST RECENTLY, and the composition
+	// order is body-finish FIRST then edge overlay -- so it is ALWAYS the edge. The dismember gib path read it
+	// and painted severed limbs with the player's EDGE colour: a FANATICS body rendering brand red threw
+	// NeonBlue limbs (log: "limb gib ... color=DA_AFL_Edge_NeonBlue"). Record the BODY layer separately, by
+	// AXIS, so the gib can ask for the layer it actually wants. Body/Finish are the base-colour axes; Edge and
+	// Emblem are overlays and must NOT overwrite this.
+	const EAFLCosmeticAxis Axis = ColorAsset->GetAxis();
+	if (Axis == EAFLCosmeticAxis::Body || Axis == EAFLCosmeticAxis::Finish)
+	{
+		LastAppliedBodyColor = const_cast<UAFLSkinColorAsset*>(ColorAsset);
+	}
+
 	// SKIN PALETTE MIGRATION (locked plan section 4, ADDITIVE). Resolve this preset's ColorIdentityTag ONCE ->
 	// the registry's full color identity (one identity -> the multi-tone SkinFinish). bIdentityResolved == false
 	// (un-tagged preset, OR registry unloaded / tag absent) -> the baked ColorParameters are used below, EXACTLY
