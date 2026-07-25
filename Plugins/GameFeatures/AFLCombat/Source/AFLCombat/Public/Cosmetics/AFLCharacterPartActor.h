@@ -10,6 +10,7 @@
 #include "AFLCharacterPartActor.generated.h"
 
 class UAFLSkinColorAsset;
+class UDecalComponent;
 class UMeshComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;          // AuthoredSlot1Material member (the captured pre-swap slot-1 base)
@@ -128,9 +129,29 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Cosmetics")
 	bool bUniqueBodyUVs = false;
 
+	/**
+	 * SPONSOR IDENTITY (X-line, two identity classes): the color identity THIS body belongs to
+	 * (Cosmetic.Identity.<Brand>, e.g. Cosmetic.Identity.FANATICS). Declares MEMBERSHIP only -- the
+	 * color-lock POLICY lives on the registry row (FAFLColorIdentity::bColorLocked), so one boolean per
+	 * identity governs every consumer instead of a per-BP flag that can drift.
+	 *
+	 * When SET and that identity resolves as LOCKED, ApplySkinColor ignores the incoming preset's identity
+	 * and re-resolves THIS tag -> a player color swap cannot repaint a sponsor. The preset still decides
+	 * SHAPE (which params/scalars/textures are written); only the TONES are forced back to the brand.
+	 * UNSET (default) = a STANDARD identity: the player's chosen color owns every surface, unchanged.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Cosmetics", meta=(Categories="Cosmetic.Identity"))
+	FGameplayTag BrandColorIdentityTag;
+
 	// FIX 1 (a): the MIDs WE created, keyed by mesh then slot. ApplySkinColor writes only to these.
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<UMeshComponent>, FAFLSkinMIDSlots> OwnedMIDs;
+
+	// EMBLEM: the decal MIDs WE created, keyed by decal component. Same own-your-MID discipline as OwnedMIDs
+	// above, but decals carry ONE material (no slot index) so this is a flat map. Transient -- rebuilt on
+	// demand by ApplySkinColor; a decal whose material was swapped externally gets a fresh MID.
+	UPROPERTY(Transient)
+	TMap<TObjectPtr<UDecalComponent>, TObjectPtr<UMaterialInstanceDynamic>> OwnedDecalMIDs;
 
 	// FACEMASK: the part's AUTHORED slot-1 base material per mesh, captured the FIRST time a facemask is
 	// equipped on that mesh -- so equipping nullptr RESTORES the original (the robot's BP-default slot-1, e.g.

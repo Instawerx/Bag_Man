@@ -8,6 +8,7 @@
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
 #include "AFLColorIdentityRegistry.h"        // FAFLColorIdentity / FAFLSkinFinish -- the resolve target (AFLCosmeticCore)
 #include "AFLCosmeticCatalogSubsystem.h"     // UAFLCosmeticCatalogSubsystem::ResolveColorIdentity (tag -> identity)
+#include "Components/DecalComponent.h"       // UDecalComponent -- the chest EMBLEM layer (a USceneComponent, NOT a UMeshComponent)
 #include "Components/MeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/CheatManagerDefines.h"        // UE_WITH_CHEAT_MANAGER guard for the panel-watch DebugSetMID* (undefined macro would silently compile them out -> cheat link error)
@@ -125,9 +126,37 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 	// replicate; this resolve is LOCAL on every machine (the registry asset is identical everywhere), so the
 	// proven selection->resolve->OnRep convergence path stays byte-identical.
 	FAFLColorIdentity ResolvedIdentity;
-	const bool bIdentityResolved =
+	bool bIdentityResolved =
 		ColorAsset->GetColorIdentityTag().IsValid() &&
 		UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(this, ColorAsset->GetColorIdentityTag(), ResolvedIdentity);
+
+	// SPONSOR LOCK (two identity classes). A SPONSOR body (BrandColorIdentityTag set + that registry row
+	// flagged bColorLocked) OVERRIDES the incoming preset's identity with its OWN brand identity: the brand
+	// color IS the product, so a player color selection must not repaint it. FANATICS_X's red is therefore
+	// LOCKED, not merely defaulted. A STANDARD body (tag unset, or the row not flagged) falls through
+	// untouched -> the player's chosen color owns every surface, byte-identical to before.
+	//
+	// Deliberately overrides only the TONES: the preset below still decides SHAPE (which params, which
+	// scalars/textures) so a sponsor keeps whatever finish/edge/emblem STRUCTURE the player equipped -- it
+	// just renders in brand color. Resolve failure (registry unloaded / tag absent) leaves the player's
+	// color intact rather than blanking the part.
+	if (BrandColorIdentityTag.IsValid())
+	{
+		FAFLColorIdentity BrandIdentity;
+		if (UAFLCosmeticCatalogSubsystem::ResolveColorIdentity(this, BrandColorIdentityTag, BrandIdentity)
+			&& BrandIdentity.bColorLocked)
+		{
+			ResolvedIdentity = BrandIdentity;
+			bIdentityResolved = true;
+
+			if (bDiag)
+			{
+				UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : SPONSOR LOCK -> forcing identity %s (preset %s ignored for tone)"),
+					*AFLSkinDiag::Prefix(this), *GetName(),
+					*BrandColorIdentityTag.ToString(), *ColorAsset->GetName());
+			}
+		}
+	}
 
 	TArray<UMeshComponent*> Meshes;
 	GetComponents<UMeshComponent>(Meshes);
@@ -197,6 +226,54 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 			for (const TPair<FName, TObjectPtr<UTexture>>& KV : ColorAsset->GetTextures())
 			{
 				MID->SetTextureParameterValue(KV.Key, KV.Value);
+			}
+		}
+	}
+
+	// EMBLEM UNIFY (the missing third layer). Body + edge + visor all ride MATERIAL SLOTS, so the mesh loop
+	// above already resolves them by tag. The chest emblem does NOT: it is a UDecalComponent projection, and
+	// UDecalComponent derives from USceneComponent -- NOT UMeshComponent -- so GetComponents<UMeshComponent>
+	// never returned it and the emblem kept whatever tint was BAKED into its MI while body/edge moved. That is
+	// the entire reason the emblem drifted off the color axis. Gather decals explicitly and write the SAME
+	// resolved tone, so one identity choice tints body + edge + visor + emblem together.
+	//
+	// Only the tint is driven: M_AFL_Branding_Decal's BrandMaskTex (which brand mark) and BrandIntensity stay
+	// AUTHORED -- the emblem's SHAPE is the product, its COLOR is the axis. Unresolved identity -> skip
+	// entirely, leaving the authored MI exactly as-is (no regression for un-migrated bodies).
+	if (bIdentityResolved)
+	{
+		static const FName NeonColorParam(TEXT("NeonColor"));
+		if (const FLinearColor* EmblemTone = ResolvedIdentity.SkinFinish.FindToneForParam(NeonColorParam))
+		{
+			TArray<UDecalComponent*> Decals;
+			GetComponents<UDecalComponent>(Decals);
+			for (UDecalComponent* Decal : Decals)
+			{
+				if (!IsValid(Decal))
+				{
+					continue;
+				}
+
+				// OWN-YOUR-MID, same discipline as the mesh slots above: use the MID WE created for this
+				// decal, and re-create it if something else swapped the decal material out from under us.
+				UMaterialInstanceDynamic* DecalMID = OwnedDecalMIDs.FindRef(Decal);
+				if (!IsValid(DecalMID) || Decal->GetDecalMaterial() != DecalMID)
+				{
+					DecalMID = Decal->CreateDynamicMaterialInstance();
+					OwnedDecalMIDs.Add(Decal, DecalMID);
+				}
+				if (!DecalMID)
+				{
+					continue;
+				}
+
+				DecalMID->SetVectorParameterValue(NeonColorParam, *EmblemTone);
+
+				if (bDiag)
+				{
+					UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : emblem decal %s NeonColor <- %s"),
+						*AFLSkinDiag::Prefix(this), *GetName(), *Decal->GetName(), *EmblemTone->ToString());
+				}
 			}
 		}
 	}

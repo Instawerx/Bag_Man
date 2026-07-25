@@ -54,10 +54,17 @@ struct FAFLSkinFinish
 		static const FName NEmissive3(TEXT("EmissiveColor3"));
 		static const FName NEdgeGlow(TEXT("EdgeGlowColor"));
 		static const FName NTeam(TEXT("TeamColor"));
+		// UNIFIED COLOR AXIS (X-line): the chest EMBLEM decal (M_AFL_Branding_Decal) names its tint
+		// "NeonColor", and the VISOR MIs name theirs the same. Both are BRAND-GLOW surfaces, so both
+		// resolve to the SAME tone as the edge -> one identity choice tints body + edge + visor + emblem
+		// together instead of the emblem/visor drifting to a baked value. This is the ONLY place that
+		// mapping is declared; add a key here rather than renaming params on shipped materials.
+		static const FName NNeon(TEXT("NeonColor"));
 		if (ParamName == NEmissive1) { return &EmissiveColor1; }
 		if (ParamName == NEmissive2) { return &EmissiveColor2; }
 		if (ParamName == NEmissive3) { return &EmissiveColor3; }
 		if (ParamName == NEdgeGlow)  { return &EdgeGlowColor; }
+		if (ParamName == NNeon)      { return &EdgeGlowColor; }
 		if (ParamName == NTeam)      { return &TeamColor; }
 		return nullptr;
 	}
@@ -104,6 +111,16 @@ struct FAFLColorIdentity
 	 *  both unaffected by this new field). Populated in STEP 2 (data), verbatim from the baked presets. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity")
 	FAFLSkinFinish SkinFinish;
+
+	/** SPONSOR LOCK (two identity classes). TRUE = a SPONSOR identity (FANATICS, IRONICS, free brand lines):
+	 *  the brand color IS the product, so it is COLOR-LOCKED -- a player color selection must NOT repaint it.
+	 *  FALSE (default) = a STANDARD identity (paid/non-sponsor): COLOR-NEUTRAL, the player's chosen color owns
+	 *  every surface. Lives HERE (one flag per registry row, resolved by tag) rather than on the character BP,
+	 *  so the flag travels with the identity to every consumer -- store card, showroom, equipped pawn -- and the
+	 *  31-identity batch stamps exactly one boolean per row. The character BP declares only WHICH identity it
+	 *  belongs to (AAFLCharacterPartActor::BrandColorIdentityTag); the POLICY is this flag. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity")
+	bool bColorLocked = false;
 };
 
 /**
