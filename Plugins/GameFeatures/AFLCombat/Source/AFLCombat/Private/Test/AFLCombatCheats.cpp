@@ -20,6 +20,7 @@
 #include "Cosmetics/AFLBrandEdgeMap.h"                 // RosterTest: brand -> authored finish (the identity sweep source)
 #include "Cosmetics/AFLSkinColorAsset.h"               // RosterTest: the preset type ApplySkinColor consumes
 #include "TimerManager.h"                              // RosterTest: the self-cycling FSM step timer
+#include "Cosmetics/LyraCharacterPartTypes.h"          // PossessAs: FLyraCharacterPart (the ProcessEvent arg struct)
 #include "Components/ChildActorComponent.h"           // panel-watch: reach the body part actor (a child-actor on the pawn)
 #include "AFLCosmeticCatalogSubsystem.h"             // S-ECON-CAT: catalog resolve cheats (AFLCosmeticCore)
 #include "AFLAbilityCosmeticAsset.h"                  // S-ECON-CAT: EMP ability-cosmetic resolve target (AFLCosmeticCore)
@@ -1775,6 +1776,122 @@ namespace
 			GRosterTest.Finishes.Num(), GRosterTest.ColourTags.Num(), GRosterTest.HoldSeconds);
 		AFLRT_Schedule(0.5f);
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// afl.Cosmetic.PossessAs <BRAND> -- DEV body swap (DeveloperTool).
+	//
+	// WHY: the X bodies exist on disk but are unreachable in PIE -- FANATICS_X is store-available but LOCKED
+	// (useless for standard QA) and ARIA_X is not in the store at all. So every "standard" run has landed on a
+	// STOCK original, and the unique-body systems (piping guard, unique-body gib slot, X render) have NEVER
+	// been QA'd, because they only exist where bUniqueBodyUVs == true.
+	//
+	// This bypasses store + entitlement + loadout entirely and swaps the body part directly, mirroring
+	// UAFLCharacterPartSelectorComponent::AddBody: Lyra's CharacterParts classes carry no LYRAGAME_API export,
+	// but AddCharacterPart / RemoveAllCharacterParts ARE UFUNCTIONs, so the reflected thunk is callable.
+	// REMOVE-then-ADD, because AddCharacterPart APPENDS -- a plain add would stack overlapping robots.
+	void HandleAFLPossessAs(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.PossessAs - run inside PIE."));
+			return;
+		}
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.PossessAs <BRAND>  e.g. 'ARIA' -> B_AFL_Robot_ARIA_X (falls back to B_AFL_Robot_ARIA). Append ':base' to force the stock original."));
+			return;
+		}
+
+		FString Brand = Args[0].TrimStartAndEnd();
+		bool bForceBase = false;
+		if (Brand.EndsWith(TEXT(":base"), ESearchCase::IgnoreCase))
+		{
+			Brand.LeftChopInline(5); bForceBase = true;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		if (!PC || !Pawn)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.PossessAs - no possessed pawn."));
+			return;
+		}
+
+		// Prefer the X body (unique-body: that is the whole point), fall back to the stock original.
+		const FString Root = TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_");
+		UClass* PartClass = nullptr;
+		FString Chosen;
+		if (!bForceBase)
+		{
+			Chosen = FString::Printf(TEXT("%s%s_X.B_AFL_Robot_%s_X_C"), *Root, *Brand, *Brand);
+			PartClass = LoadObject<UClass>(nullptr, *Chosen);
+		}
+		if (!PartClass)
+		{
+			Chosen = FString::Printf(TEXT("%s%s.B_AFL_Robot_%s_C"), *Root, *Brand, *Brand);
+			PartClass = LoadObject<UClass>(nullptr, *Chosen);
+		}
+		if (!PartClass)
+		{
+			Ar.Logf(TEXT("afl.Cosmetic.PossessAs - no body found for '%s' (tried _X then base)."), *Brand);
+			return;
+		}
+		// Announce the RESOLVED class before touching anything: if the _X body is missing and this silently
+		// fell back to the stock original, that must be visible in the log AND on the console, not inferred
+		// afterwards from "the wrong robot showed up".
+		const bool bIsXBody = Chosen.Contains(TEXT("_X."));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PossessAs resolve brand=%s variant=%s class=%s]"),
+			*Brand, bIsXBody ? TEXT("X") : TEXT("BASE"), *GetNameSafe(PartClass));
+		Ar.Logf(TEXT("afl.Cosmetic.PossessAs - resolved %s body: %s"),
+			bIsXBody ? TEXT("X") : TEXT("BASE (no _X found!)"), *GetNameSafe(PartClass));
+
+		// The stock CharacterParts controller component (module-private class -> matched by NAME).
+		// ⚠ MUST walk the class SUPER-CHAIN: the component on the controller is a BP SUBCLASS
+		// (B_BagMan_AssignCharacterPart_C), so testing only the LEAF class name misses it every time --
+		// which is exactly how the first cut of this cheat silently no-op'd and left the stock body in place.
+		// Mirrors UAFLCharacterPartSelectorComponent::AddBody, which documents the same trap.
+		UActorComponent* StockPartsComp = nullptr;
+		{
+			TInlineComponentArray<UActorComponent*> Comps(PC);
+			for (UActorComponent* Comp : Comps)
+			{
+				if (!Comp) { continue; }
+				for (const UClass* C = Comp->GetClass(); C; C = C->GetSuperClass())
+				{
+					if (C->GetName().Contains(TEXT("LyraControllerComponent_CharacterParts")))
+					{
+						StockPartsComp = Comp;
+						break;
+					}
+				}
+				if (StockPartsComp) { break; }
+			}
+		}
+		UFunction* AddFn = StockPartsComp ? StockPartsComp->FindFunction(FName(TEXT("AddCharacterPart"))) : nullptr;
+		UFunction* RemoveAllFn = StockPartsComp ? StockPartsComp->FindFunction(FName(TEXT("RemoveAllCharacterParts"))) : nullptr;
+		if (!StockPartsComp || !AddFn)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.PossessAs - stock CharacterParts component / AddCharacterPart not found on the controller."));
+			return;
+		}
+
+		if (RemoveAllFn) { StockPartsComp->ProcessEvent(RemoveAllFn, nullptr); }
+		struct FAddCharacterPartArgs { FLyraCharacterPart NewPart; };
+		FAddCharacterPartArgs AddArgs;
+		AddArgs.NewPart.PartClass = PartClass;
+		AddArgs.NewPart.SocketName = NAME_None;
+		AddArgs.NewPart.CollisionMode = ECharacterCustomizationCollisionMode::NoCollision;
+		StockPartsComp->ProcessEvent(AddFn, &AddArgs);
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PossessAs brand=%s class=%s]"), *Brand, *GetNameSafe(PartClass));
+		Ar.Logf(TEXT("afl.Cosmetic.PossessAs - body swapped to %s. Re-run afl.Cosmetic.RosterTest now; AFL_TEST[Body=...] will confirm which body and whether it is locked."),
+			*GetNameSafe(PartClass));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLPossessAsCmd(
+		TEXT("afl.Cosmetic.PossessAs"),
+		TEXT("DEV body swap, bypasses store+entitlement+loadout. Usage: afl.Cosmetic.PossessAs <BRAND> (prefers B_AFL_Robot_<BRAND>_X, falls back to the stock original; append ':base' to force stock). Needed because the X bodies are otherwise unreachable in PIE."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLPossessAs));
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLRosterTestCmd(
 		TEXT("afl.Cosmetic.RosterTest"),
