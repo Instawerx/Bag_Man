@@ -86,6 +86,16 @@ public:
 	 */
 	UAFLSkinColorAsset* GetLastAppliedColor() const { return LastAppliedColor; }
 
+	/**
+	 * UNIQUE-BODY SLOT/UV LAYOUT. TRUE = this part's mesh is a unique body: slot 0 carries the WHOLE body
+	 * (torso, limbs, helmet shell) and slot 1 is VISOR-ONLY faces on the standardized UV1 projection.
+	 * FALSE = the stock shared SKM_Manny, where slot 1 = M_HeadLegs (the head AND limb region).
+	 * Read cross-module by UAFLDismemberComponent so a severed limb/head recovers its identity MIC from the
+	 * slot that actually covers the gib geometry -- reading slot 1 on a unique body hands the gib the VISOR
+	 * material (emissive HUD through the wrong UVs) instead of the body finish.
+	 */
+	bool UsesUniqueBodyUVs() const { return bUniqueBodyUVs; }
+
 #if UE_WITH_CHEAT_MANAGER
 	/**
 	 * PANEL-WATCH INSTRUMENT (afl.Cosmetic.SetParam): poke a single named material param on THIS part's

@@ -417,6 +417,28 @@ TArray<USkeletalMeshComponent*> UAFLDismemberComponent::GatherZoneMeshes() const
 	return Meshes;
 }
 
+// UNIQUE-BODY SLOT CONTRACT (gib material recovery). On the stock BagMan robot (the shared SKM_Manny)
+// slot 1 = M_HeadLegs, i.e. the head AND limb region -- so a gib recovers its per-skin identity MIC from
+// slot 1. A UNIQUE body (AAFLCharacterPartActor::bUniqueBodyUVs) is authored differently: slot 0 carries
+// the WHOLE body (torso, limbs, helmet shell) and slot 1 is VISOR-ONLY faces on the standardized UV1
+// projection. Reading slot 1 there hands the gib the VISOR material, so severed limbs/heads render with
+// the emissive HUD/iridescent visor look (sampled through the wrong UVs) instead of the body's finish.
+// Pick the slot that actually covers the gib's geometry. Stock identities keep slot 1 = byte-identical.
+static int32 ResolveGibMaterialSlot(const USkeletalMeshComponent* Mesh)
+{
+	if (Mesh)
+	{
+		if (const AAFLCharacterPartActor* PartActor = Cast<AAFLCharacterPartActor>(Mesh->GetOwner()))
+		{
+			if (PartActor->UsesUniqueBodyUVs())
+			{
+				return 0;   // unique body: the body/limb/head-shell material is slot 0
+			}
+		}
+	}
+	return 1;   // stock Manny robot: slot 1 = M_HeadLegs
+}
+
 UAFLSkinColorAsset* UAFLDismemberComponent::ResolveVictimPaintedFinish() const
 {
 	// DEFECT-2: the finish ACTUALLY on the live part's runtime MID -- recorded by AAFLCharacterPartActor::
@@ -654,7 +676,8 @@ void UAFLDismemberComponent::SeverZone(const FAFLDismemberZone& Row, const FVect
 						{
 							continue; // invisible CharacterMesh0 driver / any 1-slot mesh -> not the robot limbs
 						}
-						UMaterialInterface* M = Mesh->GetMaterial(1); // slot 1 = M_HeadLegs (the limb region)
+						// slot 1 = M_HeadLegs (the limb region) on stock; slot 0 on a unique body (see ResolveGibMaterialSlot)
+						UMaterialInterface* M = Mesh->GetMaterial(ResolveGibMaterialSlot(Mesh));
 						UMaterialInstanceConstant* MIC = Cast<UMaterialInstanceConstant>(M);
 						if (!MIC)
 						{
@@ -965,7 +988,8 @@ void UAFLDismemberComponent::SpawnHeadLootBox(int32 HeadLootWatts, const FVector
 					{
 						continue;   // invisible CharacterMesh0 driver / any 1-slot mesh -> not the robot head
 					}
-					UMaterialInterface* M = Mesh->GetMaterial(1);   // slot 1 = M_HeadLegs (the head region)
+					// slot 1 = M_HeadLegs (the head region) on stock; slot 0 on a unique body (see ResolveGibMaterialSlot)
+					UMaterialInterface* M = Mesh->GetMaterial(ResolveGibMaterialSlot(Mesh));
 					UMaterialInstanceConstant* MIC = Cast<UMaterialInstanceConstant>(M);
 					if (!MIC)
 					{
