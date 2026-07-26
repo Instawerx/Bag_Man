@@ -118,6 +118,19 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics", meta = (WorldContext = "WorldContext"))
 	static FLinearColor GetEntryAccentColor(const UObject* WorldContext, const FAFLCatalogEntry& Entry);
 
+	/**
+	 * Resolve a full-weapon SKU to its Lyra equipment ITEM-DEF CLASS, so owning the SKU can grant the equipment.
+	 *
+	 * Returns null unless the row exists AND is Type == Weapon AND carries an ItemDefClass -- deliberately strict,
+	 * because a silent null here would look identical to "player doesn't own it" at the grant site.
+	 *
+	 * ⚠ Returns UClass* (not TSubclassOf<ULyraInventoryItemDefinition>): AFLCosmeticCore does not link LyraGame
+	 * and that class has no LYRAGAME_API export. Callers in a Lyra-aware module cast it. The soft class is loaded
+	 * SYNCHRONOUSLY here -- only ever called on a grant/equip action, never per-frame or while drawing a tile.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Cosmetics")
+	UClass* ResolveWeaponItemDefClass(FName CosmeticId) const;
+
 	/** True once the catalog asset is loaded + ready. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
 	bool IsReady() const { return Catalog != nullptr; }

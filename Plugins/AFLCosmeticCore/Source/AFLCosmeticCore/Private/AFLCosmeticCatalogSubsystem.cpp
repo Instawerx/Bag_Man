@@ -118,6 +118,35 @@ const FAFLCatalogEntry* UAFLCosmeticCatalogSubsystem::FindEntry(FName CosmeticId
 	return Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
 }
 
+UClass* UAFLCosmeticCatalogSubsystem::ResolveWeaponItemDefClass(FName CosmeticId) const
+{
+	const FAFLCatalogEntry* Entry = FindEntry(CosmeticId);
+	if (!Entry)
+	{
+		return nullptr;
+	}
+
+	// Type-gate BEFORE loading: a non-weapon row must never hand back an equipment class even if someone
+	// mistakenly filled ItemDefClass on it. The type is the contract; the payload field is just storage.
+	if (Entry->Type != EAFLCosmeticType::Weapon)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("AFL_CATALOG: '%s' is not a Weapon-type SKU -- refusing to resolve an item-def class."),
+			*CosmeticId.ToString());
+		return nullptr;
+	}
+
+	// Synchronous: only reached on a grant/equip action, never per-frame and never while drawing a store tile.
+	UClass* Loaded = Entry->ItemDefClass.LoadSynchronous();
+	if (!Loaded)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("AFL_CATALOG: Weapon SKU '%s' has no ItemDefClass set -- owning it would grant nothing."),
+			*CosmeticId.ToString());
+	}
+	return Loaded;
+}
+
 UPrimaryDataAsset* UAFLCosmeticCatalogSubsystem::ResolveAsset(FName CosmeticId) const
 {
 	const FAFLCatalogEntry* Entry = FindEntry(CosmeticId);

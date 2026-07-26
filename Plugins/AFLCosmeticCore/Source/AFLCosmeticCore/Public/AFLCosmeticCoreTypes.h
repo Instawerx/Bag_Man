@@ -158,6 +158,27 @@ struct FAFLCatalogEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Identity", meta = (AllowAbstract = "true"))
 	TSoftObjectPtr<UPrimaryDataAsset> Asset;
 
+	/**
+	 * FULL-WEAPON payload (Type == Weapon). Owning the SKU grants the equipment, so a weapon row must carry the
+	 * Lyra equipment ITEM-DEF CLASS.
+	 *
+	 * ⚠ WHY THIS FIELD HAD TO EXIST AT ALL: `Asset` above is a TSoftObjectPtr<UPrimaryDataAsset> and therefore
+	 * CANNOT hold an item-def -- a LyraInventoryItemDefinition is a Blueprint CLASS, not a data-asset instance.
+	 * The EAFLCosmeticType::Weapon enum comment claimed a "TSoftClassPtr to the Lyra equipment item-def" already
+	 * existed; it described the intent, not an implemented field. The gap went unnoticed because the 63 pre-existing
+	 * Weapon rows are all COSMETIC ones -- they populate `Asset` with a DA_AFL_Weapon_* (UAFLWeaponCosmeticAsset,
+	 * a skin) and never needed to grant equipment, so nothing ever asked a Weapon row for an item-def.
+	 *
+	 * ⚠ WHY TSoftClassPtr<UObject> + MetaClass RATHER THAN THE CONCRETE TYPE: AFLCosmeticCore deliberately does
+	 * NOT depend on LyraGame (it is game-agnostic cosmetic core), and ULyraInventoryItemDefinition carries no
+	 * LYRAGAME_API export -- naming it here would be both a layering violation and an LNK2019, the same export
+	 * trap that shaped the quickbar/weapon-wheel split. MetaClass gives the editor a correctly-filtered class
+	 * picker with ZERO link dependency, and stays soft so the grid never loads equipment to draw a tile.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Identity",
+		meta = (MetaClass = "/Script/LyraGame.LyraInventoryItemDefinition"))
+	TSoftClassPtr<UObject> ItemDefClass;
+
 	/** Player-facing, localizable. Marketing owns this; safe to change (unlike CosmeticId). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Identity")
 	FText DisplayName;
