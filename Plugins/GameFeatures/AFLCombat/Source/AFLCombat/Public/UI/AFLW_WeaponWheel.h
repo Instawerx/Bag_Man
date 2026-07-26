@@ -16,20 +16,25 @@ struct FAFLWheelSegment
 {
 	GENERATED_BODY()
 
-	/** Quickbar slot this segment maps to. Segment order == slot order deliberately: the wheel and the
-	 *  legacy number keys must always agree about which weapon is slot N, or muscle memory breaks. */
+	/**
+	 * The REAL quickbar slot this segment represents -- NOT the segment's own position in the ring.
+	 *
+	 * ⚠ These two diverge, and that divergence is the whole point: the ring shows only FILLED slots, evenly
+	 * spaced, so a player holding weapons in quickbar slots 0, 2 and 5 sees a clean 3-segment wheel whose
+	 * segments carry SlotIndex 0, 2, 5. Anything talking to the quickbar must use THIS value; anything
+	 * talking to the ring geometry uses the segment's array position.
+	 */
 	UPROPERTY(BlueprintReadWrite, Category = "AFL|Wheel")
 	int32 SlotIndex = INDEX_NONE;
 
-	/** Empty slots still occupy a segment -- the ring must NOT reflow as you pick things up mid-fight. */
+	/** Always true in the filled-only model -- kept so an empty ring state is still representable. */
 	UPROPERTY(BlueprintReadWrite, Category = "AFL|Wheel")
 	bool bOccupied = false;
 
 	UPROPERTY(BlueprintReadWrite, Category = "AFL|Wheel")
 	FText DisplayName;
 
-	/** From InventoryFragment_QuickBarIcon. A white-silhouette MASK -- the wheel TINTS it. (Verified by
-	 *  reading W_QuickBarSlot's graphs: the stock slot does NOT tint, so this is new behaviour here.) */
+	/** From InventoryFragment_QuickBarIcon. A white-silhouette MASK -- the wheel TINTS it. */
 	UPROPERTY(BlueprintReadWrite, Category = "AFL|Wheel")
 	FSlateBrush Icon;
 
@@ -43,22 +48,26 @@ struct FAFLWheelSegment
 };
 
 /**
- * UAFLW_WeaponWheel -- radial weapon selector (Tier 1).
+ * UAFLW_WeaponWheel -- persistent radial weapon indicator (Tier 1).
  *
- * ⚠ WHY THE SPLIT IS WHERE IT IS: ULyraQuickBarComponent and ULyraInventoryItemInstance carry NO
+ * ⚠ INTERACTION MODEL -- read this before changing anything: this wheel REPLACES the quickbar strip, so it
+ * behaves like the strip. It is ALWAYS VISIBLE, it is NOT a menu you summon, and it has NO input of its own.
+ * The existing mouse-wheel cycle input (IA_QuickSlot_CycleForward/Backward -> GA_QuickbarSlots ->
+ * ULyraQuickBarComponent::CycleActiveSlotForward) already drives the quickbar and already skips empty slots.
+ * This widget only REFLECTS ActiveSlotIndex. Input drives state; the wheel draws it. There is deliberately
+ * no hover, no open/close, and no commit path -- adding one would create a second source of truth for which
+ * weapon is equipped.
+ *
+ * ⚠ WHY THE C++/WBP SPLIT IS WHERE IT IS: ULyraQuickBarComponent and ULyraInventoryItemInstance carry NO
  * LYRAGAME_API export, so a direct C++ call from AFLCombat is an LNK2019 -- the documented Lyra-cosmetic
- * export trap (the same one that forced UAFLCharacterPartSelectorComponent onto ProcessEvent reflection).
- * Their methods ARE BlueprintCallable, so:
- *     WBP  -> touches the quickbar (GetSlots / GetActiveSlotIndex / SetActiveSlotIndex) and draws.
- *     C++  -> owns the MATH (ring layout, angle/deadzone resolve, hover state) and the TINT RESOLVE.
- * That avoids reflection entirely and keeps the fiddly, regression-prone half in C++.
+ * export trap. Their methods ARE BlueprintCallable, so:
+ *     WBP  -> touches the quickbar (GetSlots / GetActiveSlotIndex) and draws.
+ *     C++  -> owns the ring maths, the filled-slot compaction, and the focus bookkeeping.
  *
- * REUSE, NOT REBUILD: SetActiveSlotIndex is ALREADY a reliable server RPC, so multiplayer is inherited.
- * Nothing here touches inventory or replication.
- *
- * CAPACITY vs COUNT: the angle math is generalised over N. WheelCapacity is the DESIGN ceiling (16); the
- * ring renders however many slots the quickbar reports. Never hardcode 8 -- a fixed segment count is what
- * makes a wheel painful to extend when the roster grows.
+ * C++ also owns the dense counter and the last-index maths for a second, blunter reason: the editor bridge
+ * cannot spawn Blueprint's promotable wildcard math nodes (Add/Subtract fail outright), so a BP-side counter
+ * or a "Count - 1" is not authorable. Keeping that arithmetic here is what makes the populate loop scriptable
+ * at all.
  */
 UCLASS(Abstract, BlueprintType, Blueprintable)
 class AFLCOMBAT_API UAFLW_WeaponWheel : public UUserWidget
@@ -70,29 +79,38 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Wheel", meta = (ClampMin = "2", ClampMax = "16"))
 	int32 WheelCapacity = 16;
 
-	/** Outer-magnitude gate. Inside it the pointer is "undecided" and the hover HOLDS -- so releasing near
-	 *  centre keeps the current weapon instead of swapping to whatever the stick last brushed past. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Wheel", meta = (ClampMin = "0.0", ClampMax = "0.95"))
-	float SelectDeadzone = 0.3f;
-
-	/** Hold duration before the wheel opens, so a tap stays free for something else later. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Wheel", meta = (ClampMin = "0.0"))
-	float HoldTimeToOpen = 0.2f;
-
-	/** Hover punch speed for the WBP's InterpTo feedback. Higher = snappier. */
+	/** Focus punch speed for the WBP's InterpTo feedback. Higher = snappier. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Wheel", meta = (ClampMin = "1.0"))
 	float SelectionPulseSpeed = 14.f;
 
-	// ---- ring layout (C++) ----
+	// ---- ring construction (two-pass, because spacing depends on the FINAL filled count) ----
 
-	/** Lay out SlotCount segments evenly, slot 0 centred at 12 o'clock. Clears content; the WBP then fills
-	 *  each segment via SetSegmentContent. Clamped to WheelCapacity. */
+	/**
+	 * Start a rebuild: drops every segment and clears focus. Call before walking the quickbar.
+	 * Pass 1 is BeginRing -> AddFilledSegment per filled slot -> FinalizeRing.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Wheel")
-	void ConfigureRing(int32 SlotCount);
+	void BeginRing();
 
-	/** Fill one segment with what the WBP read off the quickbar. */
+	/**
+	 * Append a segment for a FILLED quickbar slot and return its dense ring position.
+	 *
+	 * The WBP calls this only for slots whose item is valid, which is what collapses the gaps: empty slots
+	 * never become segments, so the ring never renders holes. Angles are NOT assigned here -- even spacing
+	 * cannot be known until the total filled count is, hence FinalizeRing.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Wheel")
+	int32 AddFilledSegment(int32 QuickBarSlotIndex);
+
+	/** Assign even 360/N spacing over however many segments were added, segment 0 at 12 o'clock. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Wheel")
+	void FinalizeRing();
+
+	/** Overwrite one segment's presentation (icon/name/tint) after the ring is built. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Wheel")
 	void SetSegmentContent(int32 Index, bool bOccupied, FText DisplayName, FSlateBrush Icon, FLinearColor Tint);
+
+	// ---- queries ----
 
 	UFUNCTION(BlueprintPure, Category = "AFL|Wheel")
 	const TArray<FAFLWheelSegment>& GetSegments() const { return Segments; }
@@ -100,48 +118,70 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Wheel")
 	int32 GetSegmentCount() const { return Segments.Num(); }
 
+	/** Segments.Num() - 1, for driving a BP For Loop's Last Index without a subtract node. -1 when empty. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Wheel")
-	int32 GetHoveredIndex() const { return HoveredIndex; }
+	int32 GetLastSegmentIndex() const { return Segments.Num() - 1; }
+
+	/** Dense ring position of the currently equipped weapon, or INDEX_NONE. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Wheel")
+	int32 GetFocusedIndex() const { return FocusedIndex; }
+
+	/** The real quickbar slot behind a ring position, or INDEX_NONE. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Wheel")
+	int32 GetSegmentSlotIndex(int32 Index) const;
 
 	/** Angle for a segment centre -- so the WBP can place without duplicating the math. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Wheel")
 	float GetSegmentAngle(int32 Index) const;
 
-	// ---- interaction (C++) ----
+	/**
+	 * Canvas-local position for a segment centre. Converts the ring's "0 = up, clockwise" convention into
+	 * SCREEN space, where Y grows DOWNWARD -- hence the negated cosine.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Wheel")
+	FVector2D GetSegmentPosition(int32 Index, float Radius) const;
+
+	// ---- reflection (the entire interaction) ----
 
 	/**
-	 * Feed a normalised pointer. X = right, Y = UP (the WBP normalises mouse-from-centre, or passes stick
-	 * axes straight through). Returns the hovered segment, or INDEX_NONE while inside the deadzone.
-	 * Fires OnHoverChanged only on an actual change, so the pulse doesn't retrigger every frame.
+	 * Point the highlight at whatever the quickbar says is equipped.
+	 *
+	 * Takes a REAL quickbar slot and finds the segment carrying it, so the compaction in AddFilledSegment
+	 * stays invisible to the caller. Fires OnFocusChanged only on an actual change, so the WBP can punch
+	 * the new segment without re-triggering every tick. Returns the focused ring position.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Wheel")
-	int32 UpdatePointer(FVector2D Pointer);
+	int32 ReflectActiveSlot(int32 ActiveQuickBarSlot);
 
-	/** Clear hover (on open/close) without firing a spurious selection. */
-	UFUNCTION(BlueprintCallable, Category = "AFL|Wheel")
-	void ResetHover();
-
-	/**
-	 * The slot the WBP should commit, or INDEX_NONE if it should do nothing. Returns INDEX_NONE when the
-	 * pointer never left the deadzone, the segment is unoccupied, or it is already the active slot -- so
-	 * the WBP calls SetActiveSlotIndex only when it would actually change something.
-	 */
-	UFUNCTION(BlueprintCallable, Category = "AFL|Wheel")
-	int32 GetSlotToCommit(int32 CurrentActiveSlot) const;
-
-	/** Per-weapon tint from the catalog -- the SAME subsystem the store tile resolves through. Falls back to
-	 *  the theme accent so an unmapped weapon renders in-theme rather than white. */
+	/** Per-weapon tint from the catalog -- the SAME subsystem the store tile resolves through. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Wheel")
 	FLinearColor ResolveTintForCosmeticId(FName CosmeticId) const;
 
-	/** Hover changed -- drive the scale/brightness punch from here. */
+	/** Focus moved to a different weapon -- drive the scale/brightness punch from here. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Wheel")
-	void OnHoverChanged(int32 NewIndex, int32 OldIndex);
+	void OnFocusChanged(int32 NewIndex, int32 OldIndex);
+
+	// ---- widget bindings ----
+
+	/**
+	 * The ring canvas the segments are added to.
+	 *
+	 * ⚠ WHY THIS IS BOUND IN C++ RATHER THAN JUST USED IN THE WBP: the MCP bridge cannot reference a
+	 * WBP's own widget variables as graph nodes, so the segment-population loop is UNAUTHORABLE over the
+	 * bridge without this. BindWidget promotes it to a real C++ property, which IS exposed. It also turns
+	 * a silent null into a compile-time error if the WBP ever loses the canvas.
+	 *
+	 * ⚠ It must contain NOTHING at design time: segment i is addressed as WheelRoot child i, so any
+	 * decorative child would shift every index by one.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Wheel", meta = (BindWidget))
+	TObjectPtr<class UCanvasPanel> WheelRoot;
 
 protected:
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Wheel")
 	TArray<FAFLWheelSegment> Segments;
 
+	/** Dense ring position of the equipped weapon. INDEX_NONE until the first ReflectActiveSlot. */
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Wheel")
-	int32 HoveredIndex = INDEX_NONE;
+	int32 FocusedIndex = INDEX_NONE;
 };
