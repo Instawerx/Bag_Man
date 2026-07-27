@@ -141,13 +141,55 @@ void UAFLAG_Projectile_Base::ActivateAbility(
 					}
 				}
 
+				// ARC-LOB (bArcLob) -- FIXED-ARC ballistic lob for Volt Coilbreaker / the neutral Lobber. Pitch the
+				// launch UP from the player's aim by ArcLaunchPitchDegrees and turn the projectile's PMC gravity ON
+				// (ArcGravityScale) so it flies a parabola: aim higher throws further (grenade/mortar feel), NO
+				// target-solve. This OVERRIDES the flat LaunchSpeed velocity set above. Default-off leaves the
+				// straight/homing path -- and their projectile BP's gravity_scale (0.0, flat flight) -- untouched.
+				// The projectile's own impact/overlap radial splash is trajectory-independent, so the arc reuses
+				// the proven BigSixx/Draco splash path with zero extra wiring. Authority-only (inside the spawn block).
+				if (bArcLob)
+				{
+					if (UProjectileMovementComponent* PMC = Projectile->FindComponentByClass<UProjectileMovementComponent>())
+					{
+						// Throw speed: explicit LaunchSpeed if set, else the projectile BP's own configured speed.
+						const float ArcSpeed = (LaunchSpeed > 0.0f) ? LaunchSpeed
+							: (PMC->InitialSpeed > 0.0f ? PMC->InitialSpeed : PMC->Velocity.Size());
+
+						// Pitch the WORLD aim UP (UE: +Pitch = nose up), then launch along it.
+						// ⚠ NORMALIZE FIRST. An FRotator's Pitch is NOT guaranteed to arrive in [-180,180]:
+						// APawn::GetBaseAimRotation falls through to the RemoteViewPitch path for pawns whose
+						// Controller is null on this machine, and that path yields pitch in [0,360) -- so aiming
+						// slightly DOWN reads as ~350, and a naive (350 + 30) clamped by Min(.., 89) would fire
+						// STRAIGHT UP instead of nearly flat. Normalize, then Clamp on BOTH ends (Min alone left
+						// the steep-downward side unguarded).
+						FRotator ArcRot = AimRot;
+						ArcRot.Normalize();
+						ArcRot.Pitch = FMath::Clamp(ArcRot.Pitch + ArcLaunchPitchDegrees, -89.0f, 89.0f);
+						const FVector ArcDir = ArcRot.Vector();
+						PMC->Velocity = ArcDir * ArcSpeed;
+
+						// ⚠ AUTHORITY-ONLY WRITE -- see the ASSEMBLY REQUIREMENT below. This sets gravity on the
+						// SERVER's projectile. The projectile spawns on authority only and reaches clients by
+						// replication, so a client's PMC keeps its BP-CDO gravity. If that CDO is 0.0 (the flat
+						// rocket default) the client extrapolates a STRAIGHT line between replication updates
+						// while the server flies a parabola -- the projectile visibly stutters and corrects.
+						// => The arc projectile BP MUST ship ProjectileGravityScale matching ArcGravityScale.
+						PMC->ProjectileGravityScale = ArcGravityScale; // > 0 -> falls into the lob (straight/homing keep BP's 0.0)
+						UE_LOG(LogAFLCombat, Log,
+							TEXT("AFL_ARCLOB: %s lob pitch=+%.0fdeg speed=%.0f gravScale=%.2f"),
+							*GetNameSafe(Projectile), ArcLaunchPitchDegrees, ArcSpeed, ArcGravityScale);
+					}
+				}
+
 				// SEEKER homing (bHoming) -- SERVER-AUTHORITATIVE SOFT-LOCK. Sweep from the pawn's view along the
 				// aim (GetBaseAimRotation -- the server-known control rotation, same "never read the client's raw
 				// view" doctrine as the spawn) for the ENEMY under the reticle, then hand it to the projectile's
 				// ProjectileMovement as the homing target. A wall in the way (LoS blocked), a same-team hit, or no
 				// hit -> the projectile stays straight (graceful fallback, no dud). Runs on authority only (inside
-				// the authority spawn block) so the client NEVER picks the homing target.
-				if (bHoming)
+				// the authority spawn block) so the client NEVER picks the homing target. Skipped when bArcLob owns
+				// the launch (a homing lob is nonsensical -- arc wins, homing untouched for the straight/seeker set).
+				if (bHoming && !bArcLob)
 				{
 					if (UProjectileMovementComponent* PMC = Projectile->FindComponentByClass<UProjectileMovementComponent>())
 					{

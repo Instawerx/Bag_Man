@@ -85,4 +85,32 @@ protected:
 	/** Soft-lock sweep radius, cm -- the reticle tolerance so you needn't pixel-aim at the target. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Projectile|Homing", meta=(EditCondition="bHoming", ClampMin="0.0"))
 	float HomingLockRadius = 60.0f;
+
+	/**
+	 * ARC-LOB (Volt Coilbreaker / neutral Lobber). false = straight/homing path UNTOUCHED. When true the launch
+	 * is a FIXED-ARC ballistic lob: the spawn aim is pitched UP by ArcLaunchPitchDegrees and the projectile's PMC
+	 * gravity is turned on (ArcGravityScale) so it travels a parabola -- aim higher to throw further (grenade/mortar
+	 * feel), NOT an aim-assisted solve-to-crosshair. Parallel flag to bHoming; a weapon sets ONE (a homing lob is
+	 * nonsensical -- if both are set, arc wins and homing is skipped). The projectile's own impact/overlap radial
+	 * splash is trajectory-independent, so the arc reuses the BigSixx/Draco splash path with zero extra wiring.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Projectile|Arc")
+	bool bArcLob = false;
+
+	/** Degrees to pitch the launch UP from the player's aim (fixed-arc). ~30 = a lobbed grenade-launcher throw;
+	 * higher = a steeper mortar. The player still aims higher/lower to tune range on top of this. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Projectile|Arc", meta=(EditCondition="bArcLob", ClampMin="0.0", ClampMax="80.0"))
+	float ArcLaunchPitchDegrees = 30.0f;
+
+	/** PMC gravity scale applied to the arc projectile (> 0 -> it falls into the lob). 1.0 = world gravity, grenade-y;
+	 * raise for a snappier/shorter arc, lower for a floatier/longer one. Only applied when bArcLob.
+	 *
+	 * ⚠⚠ ASSEMBLY REQUIREMENT -- THIS VALUE MUST BE MIRRORED ON THE PROJECTILE BP CDO.
+	 * The projectile spawns on AUTHORITY ONLY and reaches clients by replication, so this write lands on the
+	 * server's PMC and NOT on any client's. A client whose PMC still carries the flat-rocket default (0.0)
+	 * extrapolates a STRAIGHT line between replication updates while the server flies a parabola -- the lob
+	 * visibly stutters and snaps. Set ProjectileGravityScale on the arc projectile BP to the SAME number.
+	 * (The straight/homing weapons are unaffected: both sides sit at 0.0 and already agree.) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Projectile|Arc", meta=(EditCondition="bArcLob", ClampMin="0.0"))
+	float ArcGravityScale = 1.0f;
 };
