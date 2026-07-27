@@ -230,18 +230,35 @@ void UAFLAG_Hitscan_Base::AutoFireTick()
 			const float PlayRate   = FMath::Clamp((MontageLen / FMath::Max(Interval, KINDA_SMALL_NUMBER))
 				* AutoFireMontageRateScale, 0.1f, 8.0f);
 
-			// THROTTLE -- do NOT restart per shot. At 1400 RPM the interval (0.043s) is shorter than even a
-			// rate-8 play (0.067s), so replaying every shot retriggered the montage before it cleared its
-			// blend-in: the animation never became visible and the weapon read as "no shot animation" (this
-			// is the jank the original no-montage comment predicted). Replaying only once the previous play
-			// has finished gives a VISIBLE kick at the fastest cadence the clip supports; above that RPM the
-			// montage simply stops being the thing that carries the rate (the tracer cues do).
-			const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
-			if (Now - LastAutoMontageStartSeconds >= static_cast<double>(MontageLen / PlayRate))
+			// THROTTLE -- only needed when ONE PLAY IS LONGER THAN ONE SHOT CYCLE. Replaying a montage before
+			// it clears its blend-in makes it invisible, which is the jank the original no-montage comment
+			// predicted -- but the guard must not fire when the play already fits.
+			//
+			// ⚠ PlayRate is derived as MontageLen/Interval, so PlayDuration == Interval EXACTLY whenever the
+			// rate does NOT hit the 8.0 clamp. A bare "gap >= PlayDuration" is then a FLOAT COIN-FLIP against
+			// timer quantisation and drops most or all plays. That is precisely why the converging four
+			// animated and the SMG/Ripsaw did not: the four's raw rate 12.44 CLAMPED to 8.0, giving real
+			// margin (play 0.0666 > interval 0.0429), while the SMG's 3.55 is unclamped so play == interval
+			// == 0.150 exactly. Any weapon whose rate does not clamp (here, under ~1000 RPM) lost its
+			// animation to that comparison.
+			const double PlayDuration   = static_cast<double>(MontageLen / PlayRate);
+			const bool   bFitsInterval  = PlayDuration <= static_cast<double>(Interval) + KINDA_SMALL_NUMBER;
+			const double Now            = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+			const bool   bPlayThisShot  = bFitsInterval || (Now - LastAutoMontageStartSeconds >= PlayDuration);
+			if (bPlayThisShot)
 			{
 				CurrentActorInfo->AbilitySystemComponent->PlayMontage(
 					this, CurrentActivationInfo, CharacterFireMontage, PlayRate);
 				LastAutoMontageStartSeconds = Now;
+			}
+			// PROBE (rides bLogAutoFireCadence): per-shot proof of whether the montage actually played, with
+			// what, and which branch decided it -- so a PIE run READS the answer instead of inferring it.
+			if (bLogAutoFireCadence)
+			{
+				UE_LOG(LogAFLCombat, Log,
+					TEXT("AFL_AUTOFIRE_MONTAGE: %s montage=%s rate=%.2f playDur=%.4f interval=%.4f fitsInterval=%d PLAYED=%d"),
+					*GetNameSafe(GetAvatarActorFromActorInfo()), *GetNameSafe(CharacterFireMontage),
+					PlayRate, PlayDuration, Interval, bFitsInterval ? 1 : 0, bPlayThisShot ? 1 : 0);
 			}
 		}
 
