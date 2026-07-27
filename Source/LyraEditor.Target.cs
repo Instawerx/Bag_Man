@@ -13,7 +13,18 @@ public class LyraEditorTarget : TargetRules
 
 		if (!bBuildAllModules)
 		{
-			NativePointerMemberBehaviorOverride = PointerMemberBehavior.Disallow;
+			// AFL: was PointerMemberBehavior.Disallow. UBT applies this SINGLE value to all three UHT
+			// categories at once (UEBuildTarget.cs ~2569: Engine, EnginePlugin AND NonEngine all get the
+			// same override), so there is no way to keep our modules strict while tolerating third-party
+			// engine plugins. The installed marketplace plugin CloudsLighting declares raw UObject*
+			// UPROPERTY members, which failed the entire LyraEditor header parse ("Total of 0 written")
+			// before any AFL code was even compiled -- and its headers live under the installed engine,
+			// so we cannot fix them. Relaxed to unblock. Note UHT's own ini default is AllowSilently;
+			// this override is the only thing that made it strict, and a project-side
+			// Config/DefaultEngine.ini setting CANNOT undo it (the -ini: command-line override wins).
+			// AFL modules should still use TObjectPtr by convention -- that is now a review rule rather
+			// than a compile-time one. Restore Disallow if CloudsLighting is ever removed/disabled.
+			NativePointerMemberBehaviorOverride = PointerMemberBehavior.AllowSilently;
 		}
 
 		LyraGameTarget.ApplySharedLyraTargetSettings(this);
