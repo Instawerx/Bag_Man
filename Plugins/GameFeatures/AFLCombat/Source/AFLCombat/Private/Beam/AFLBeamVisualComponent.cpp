@@ -117,9 +117,11 @@ void UAFLBeamVisualComponent::ApplyBeamActiveState(bool bActive)
 			{
 				Tint = BeamColorOverride;
 			}
-			if (Tint.A > 0.0f)
+			// Beam 0 takes ConvergeFanColors[0] when authored, else the unified tint (unchanged default).
+			const FLinearColor PrimaryTint = ResolveFanBeamColor(0, Tint);
+			if (PrimaryTint.A > 0.0f)
 			{
-				BeamNC->SetVariableLinearColor(ColorParam, Tint);
+				BeamNC->SetVariableLinearColor(ColorParam, PrimaryTint);
 			}
 
 			BeamNC->Activate(/*bReset=*/ true);
@@ -149,7 +151,9 @@ void UAFLBeamVisualComponent::ApplyBeamActiveState(bool bActive)
 				if (!Extra) continue;
 				if (i < ExtraWanted)
 				{
-					if (Tint.A > 0.0f) { Extra->SetVariableLinearColor(ColorParam, Tint); }
+					// Extra i is fan beam i+1 (beam 0 is the primary BeamNC).
+					const FLinearColor ExtraTint = ResolveFanBeamColor(i + 1, Tint);
+					if (ExtraTint.A > 0.0f) { Extra->SetVariableLinearColor(ColorParam, ExtraTint); }
 					Extra->Activate(/*bReset=*/ true);
 				}
 				else
@@ -196,21 +200,38 @@ void UAFLBeamVisualComponent::ComputeFanOffsets(const FVector& Axis, TArray<FVec
 	Right = Right.GetSafeNormal();
 	const FVector Up = FVector::CrossProduct(Right, Axis).GetSafeNormal();
 
-	if (N == 2)
+	// TWIST: a time-based phase spins the ORIGINS around the beam axis while every beam keeps the same
+	// endpoint -- so the beams sweep around one another and read as a helix converging on the target.
+	// 0 = static fan (default). Uses world time, so every machine derives the same phase from the same
+	// clock and no extra replication is needed for a cosmetic.
+	float Phase = 0.0f;
+	if (!FMath::IsNearlyZero(ConvergeFanTwistRate))
 	{
-		// PAIR: symmetric about the axis -- reads as twin prongs / a split barrel, not a ring of two.
-		OutOffsets[0] = Right * ConvergeFanRadius;
-		OutOffsets.Add(Right * -ConvergeFanRadius);
-		return;
+		if (const UWorld* World = GetWorld())
+		{
+			Phase = FMath::DegreesToRadians(ConvergeFanTwistRate * World->GetTimeSeconds());
+		}
 	}
 
-	// RING: N evenly spaced around the axis (starburst / ring aperture).
+	// RING: N evenly spaced around the axis. N==2 falls out of this as the symmetric PAIR (theta 0 and
+	// PI give exactly +/-Right), so twin-prong and starburst share one code path and both can twist.
 	for (int32 i = 0; i < N; ++i)
 	{
-		const float Theta = (2.0f * PI * static_cast<float>(i)) / static_cast<float>(N);
+		const float Theta = Phase + (2.0f * PI * static_cast<float>(i)) / static_cast<float>(N);
 		const FVector Off = (Right * FMath::Cos(Theta) + Up * FMath::Sin(Theta)) * ConvergeFanRadius;
 		if (i == 0) { OutOffsets[0] = Off; } else { OutOffsets.Add(Off); }
 	}
+}
+
+FLinearColor UAFLBeamVisualComponent::ResolveFanBeamColor(int32 FanIndex, const FLinearColor& Fallback) const
+{
+	// Per-beam override when authored; otherwise the weapon's unified tint. A short list is legal --
+	// indices past the end fall back, so a 2-colour list on a 6-beam fan tints two and leaves four.
+	if (ConvergeFanColors.IsValidIndex(FanIndex) && ConvergeFanColors[FanIndex].A > 0.0f)
+	{
+		return ConvergeFanColors[FanIndex];
+	}
+	return Fallback;
 }
 
 void UAFLBeamVisualComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)

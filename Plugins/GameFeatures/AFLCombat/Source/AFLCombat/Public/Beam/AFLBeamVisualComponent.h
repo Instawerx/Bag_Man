@@ -128,7 +128,33 @@ protected:
 		meta = (EditCondition = "ConvergeFanCount > 1", ClampMin = "0.0"))
 	float ConvergeFanRadius = 6.0f;
 
+	/**
+	 * PER-BEAM FAN COLOURS. Beam i uses ConvergeFanColors[i] when in range, so a fan can carry two or
+	 * more distinct tints (Aria = neon pink + neon purple) instead of one uniform colour.
+	 *
+	 * EMPTY (default) = every beam uses the weapon's unified IAFLLaserVisualProvider tint, i.e. exactly
+	 * the pre-existing behaviour. Shorter-than-count lists are fine: any index past the end falls back
+	 * to the unified tint, so a 2-entry list on a 6-beam fan tints the first two and leaves the rest.
+	 *
+	 * ⚠ Cosmetic only, like the rest of the fan -- colour never reaches the trace or the damage GE.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Beam|ConvergeFan")
+	TArray<FLinearColor> ConvergeFanColors;
+
+	/**
+	 * FAN TWIST (deg/sec). Rotates the whole fan-origin basis around the beam axis over time, so the
+	 * origins ORBIT the muzzle while every beam still ends at the one confirmed impact point -- the
+	 * beams sweep around each other and read as a clean helix converging on the target.
+	 * 0 (default) = static fan. Negative reverses the spin.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Beam|ConvergeFan",
+		meta = (EditCondition = "ConvergeFanCount > 1"))
+	float ConvergeFanTwistRate = 0.0f;
+
 private:
+	/** Per-beam tint: ConvergeFanColors[FanIndex] when set + opaque, else the unified weapon tint. */
+	FLinearColor ResolveFanBeamColor(int32 FanIndex, const FLinearColor& Fallback) const;
+
 	/**
 	 * Fan origin offsets in WORLD space for the current beam axis. Index 0 is always the axis centre
 	 * (zero offset) so the primary BeamNC keeps its exact pre-fan position when ConvergeFanCount == 1.
