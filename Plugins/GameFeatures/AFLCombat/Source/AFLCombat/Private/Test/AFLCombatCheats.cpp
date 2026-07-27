@@ -1789,11 +1789,108 @@ namespace
 	// UAFLCharacterPartSelectorComponent::AddBody: Lyra's CharacterParts classes carry no LYRAGAME_API export,
 	// but AddCharacterPart / RemoveAllCharacterParts ARE UFUNCTIONs, so the reflected thunk is callable.
 	// REMOVE-then-ADD, because AddCharacterPart APPENDS -- a plain add would stack overlapping robots.
+	// STICKY POSSESS: a body swap does NOT survive death -- the respawned pawn gets the DEFAULT body again.
+	// That silently confounded three QA runs: the operator possessed ARIA_X, died mid-test, respawned as the
+	// STOCK ARIA, and the subsequent dismember was read as an "ARIA_X gib defect" that did not exist. Rather
+	// than merely warn (a warning still costs the run), remember the requested brand and RE-APPLY it whenever
+	// the live body drifts. Polled rather than delegate-bound: no binding lifetime to get wrong in dev code,
+	// and a 1s tick is free at this scale. afl.Cosmetic.PossessAs off  clears it.
+	struct FAFLStickyPossess
+	{
+		TWeakObjectPtr<UWorld> World;
+		FString Brand;
+		bool bForceBase = false;
+		TWeakObjectPtr<UClass> WantClass;
+		FTimerHandle Timer;
+		int32 ReapplyCount = 0;
+	};
+	static FAFLStickyPossess GStickyPossess;
+
+	static bool AFLPossessAs_Apply(UWorld* World, UClass* PartClass, FString& OutError);
+
+	static void AFLStickyPossess_Tick()
+	{
+		UWorld* World = GStickyPossess.World.Get();
+		UClass* Want = GStickyPossess.WantClass.Get();
+		if (!World || !Want) { return; }
+
+		// Is the live body already the one we asked for? Cheap check on the pawn's part actors.
+		TArray<AAFLCharacterPartActor*> Parts;
+		AFLRT_GatherParts(World, Parts);
+		bool bCorrect = false;
+		for (AAFLCharacterPartActor* Part : Parts)
+		{
+			if (Part && Part->GetClass() == Want) { bCorrect = true; break; }
+		}
+		if (!bCorrect && Parts.Num() > 0)
+		{
+			FString Err;
+			if (AFLPossessAs_Apply(World, Want, Err))
+			{
+				++GStickyPossess.ReapplyCount;
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[PossessAs STICKY-REAPPLY brand=%s class=%s count=%d] (body had reverted -- likely respawn)"),
+					*GStickyPossess.Brand, *GetNameSafe(Want), GStickyPossess.ReapplyCount);
+			}
+		}
+	}
+
+	// Shared swap: find the stock CharacterParts controller component and REMOVE-then-ADD the body.
+	// ⚠ MUST walk the class SUPER-CHAIN: the component is a BP SUBCLASS (B_BagMan_AssignCharacterPart_C),
+	// so testing only the LEAF class name misses it every time -- exactly how the first cut of this cheat
+	// silently no-op'd and left the stock body in place. Mirrors UAFLCharacterPartSelectorComponent::AddBody,
+	// which documents the same trap. Shared so the sticky re-apply uses the identical path.
+	static bool AFLPossessAs_Apply(UWorld* World, UClass* PartClass, FString& OutError)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		if (!PC || !PC->GetPawn()) { OutError = TEXT("no possessed pawn."); return false; }
+
+		UActorComponent* StockPartsComp = nullptr;
+		TInlineComponentArray<UActorComponent*> Comps(PC);
+		for (UActorComponent* Comp : Comps)
+		{
+			if (!Comp) { continue; }
+			for (const UClass* C = Comp->GetClass(); C; C = C->GetSuperClass())
+			{
+				if (C->GetName().Contains(TEXT("LyraControllerComponent_CharacterParts")))
+				{
+					StockPartsComp = Comp;
+					break;
+				}
+			}
+			if (StockPartsComp) { break; }
+		}
+		UFunction* AddFn = StockPartsComp ? StockPartsComp->FindFunction(FName(TEXT("AddCharacterPart"))) : nullptr;
+		UFunction* RemoveAllFn = StockPartsComp ? StockPartsComp->FindFunction(FName(TEXT("RemoveAllCharacterParts"))) : nullptr;
+		if (!StockPartsComp || !AddFn)
+		{
+			OutError = TEXT("stock CharacterParts component / AddCharacterPart not found on the controller.");
+			return false;
+		}
+
+		if (RemoveAllFn) { StockPartsComp->ProcessEvent(RemoveAllFn, nullptr); }
+		struct FAddCharacterPartArgs { FLyraCharacterPart NewPart; };
+		FAddCharacterPartArgs AddArgs;
+		AddArgs.NewPart.PartClass = PartClass;
+		AddArgs.NewPart.SocketName = NAME_None;
+		AddArgs.NewPart.CollisionMode = ECharacterCustomizationCollisionMode::NoCollision;
+		StockPartsComp->ProcessEvent(AddFn, &AddArgs);
+		return true;
+	}
+
 	void HandleAFLPossessAs(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
 		if (!World || !World->IsGameWorld())
 		{
 			Ar.Log(TEXT("afl.Cosmetic.PossessAs - run inside PIE."));
+			return;
+		}
+		if (Args.Num() >= 1 && Args[0].Equals(TEXT("off"), ESearchCase::IgnoreCase))
+		{
+			if (UWorld* W = GStickyPossess.World.Get()) { W->GetTimerManager().ClearTimer(GStickyPossess.Timer); }
+			GStickyPossess = FAFLStickyPossess();
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PossessAs sticky=OFF]"));
+			Ar.Log(TEXT("afl.Cosmetic.PossessAs - sticky cleared; the body will follow normal selection again."));
 			return;
 		}
 		if (Args.Num() < 1)
@@ -1845,46 +1942,24 @@ namespace
 		Ar.Logf(TEXT("afl.Cosmetic.PossessAs - resolved %s body: %s"),
 			bIsXBody ? TEXT("X") : TEXT("BASE (no _X found!)"), *GetNameSafe(PartClass));
 
-		// The stock CharacterParts controller component (module-private class -> matched by NAME).
-		// ⚠ MUST walk the class SUPER-CHAIN: the component on the controller is a BP SUBCLASS
-		// (B_BagMan_AssignCharacterPart_C), so testing only the LEAF class name misses it every time --
-		// which is exactly how the first cut of this cheat silently no-op'd and left the stock body in place.
-		// Mirrors UAFLCharacterPartSelectorComponent::AddBody, which documents the same trap.
-		UActorComponent* StockPartsComp = nullptr;
+		FString Err;
+		if (!AFLPossessAs_Apply(World, PartClass, Err))
 		{
-			TInlineComponentArray<UActorComponent*> Comps(PC);
-			for (UActorComponent* Comp : Comps)
-			{
-				if (!Comp) { continue; }
-				for (const UClass* C = Comp->GetClass(); C; C = C->GetSuperClass())
-				{
-					if (C->GetName().Contains(TEXT("LyraControllerComponent_CharacterParts")))
-					{
-						StockPartsComp = Comp;
-						break;
-					}
-				}
-				if (StockPartsComp) { break; }
-			}
-		}
-		UFunction* AddFn = StockPartsComp ? StockPartsComp->FindFunction(FName(TEXT("AddCharacterPart"))) : nullptr;
-		UFunction* RemoveAllFn = StockPartsComp ? StockPartsComp->FindFunction(FName(TEXT("RemoveAllCharacterParts"))) : nullptr;
-		if (!StockPartsComp || !AddFn)
-		{
-			Ar.Log(TEXT("afl.Cosmetic.PossessAs - stock CharacterParts component / AddCharacterPart not found on the controller."));
+			Ar.Logf(TEXT("afl.Cosmetic.PossessAs - %s"), *Err);
 			return;
 		}
 
-		if (RemoveAllFn) { StockPartsComp->ProcessEvent(RemoveAllFn, nullptr); }
-		struct FAddCharacterPartArgs { FLyraCharacterPart NewPart; };
-		FAddCharacterPartArgs AddArgs;
-		AddArgs.NewPart.PartClass = PartClass;
-		AddArgs.NewPart.SocketName = NAME_None;
-		AddArgs.NewPart.CollisionMode = ECharacterCustomizationCollisionMode::NoCollision;
-		StockPartsComp->ProcessEvent(AddFn, &AddArgs);
+		// Arm STICKY re-apply so a death/respawn cannot silently revert the body mid-QA.
+		GStickyPossess.World = World;
+		GStickyPossess.Brand = Brand;
+		GStickyPossess.bForceBase = bForceBase;
+		GStickyPossess.WantClass = PartClass;
+		GStickyPossess.ReapplyCount = 0;
+		World->GetTimerManager().SetTimer(GStickyPossess.Timer,
+			FTimerDelegate::CreateStatic(&AFLStickyPossess_Tick), 1.0f, true);
 
-		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PossessAs brand=%s class=%s]"), *Brand, *GetNameSafe(PartClass));
-		Ar.Logf(TEXT("afl.Cosmetic.PossessAs - body swapped to %s. Re-run afl.Cosmetic.RosterTest now; AFL_TEST[Body=...] will confirm which body and whether it is locked."),
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PossessAs brand=%s class=%s sticky=ON]"), *Brand, *GetNameSafe(PartClass));
+		Ar.Logf(TEXT("afl.Cosmetic.PossessAs - body swapped to %s (STICKY: re-applied on respawn; 'afl.Cosmetic.PossessAs off' to clear). AFL_TEST[Body=...] confirms which body and whether it is locked."),
 			*GetNameSafe(PartClass));
 	}
 
@@ -2062,6 +2137,75 @@ namespace
 		TEXT("afl.Cosmetic.SetWeaponSkin"),
 		TEXT("INDEPENDENT weapon-skin axis: client-issued PURE caller of ServerSetCosmeticSelection (sets WeaponSkinId -> the NeonCamo MI on ANY equipped weapon, overriding its baked original). Usage: afl.Cosmetic.SetWeaponSkin <[Pattern.]Color> (e.g. CrimsonArc, NeonCamo.CrimsonArc, or full AFL.WeaponSkin.<Pattern>.<Color>). Entitlement-gated: afl.Wallet.Buy first."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetWeaponSkin));
+
+	// --- WEAPON-EQUIP selection seam: afl.Cosmetic.SetWeapon <Name> (the WeaponId axis) ---
+	// MIRRORS HandleAFLCosmeticSetWeaponSkin EXACTLY, but sets WeaponId -- the axis that REPLACES the equipped
+	// weapon (RefreshWeaponForPawn -> ResolveAsset -> UAFLWeaponCosmeticAsset -> EquipmentDefinition -> EquipItem)
+	// rather than re-tinting whatever is already held.
+	//
+	// WHY THIS EXISTS (the gap this closes): a UFUNCTION(Exec) sibling already existed --
+	// UAFLCombatCheats::SetCosmeticWeapon -- but an Exec on a CheatManagerExtension only routes WHEN THE CHEAT
+	// MANAGER IS ACTIVE, and Lyra gates that. Typed in a normal PIE session it produced NO output at all: not the
+	// success log, not the no-loadout warning, not even "command not recognized" -- it simply never ran, which
+	// reads exactly like "the weapon is broken". Two PIE sessions were spent chasing the data chain before the
+	// log showed the Cmd echo with nothing after it. Every OTHER cosmetic axis (Edge/Body/Beam/WeaponSkin/
+	// Facemask/Identity/Character) already had an always-on console command for precisely this reason; the
+	// weapon-equip axis was the one that never got one. Same rationale as the SetEdge comment above -- and the
+	// world-context delegate also resolves the PIE WINDOW's PlayerController, so a command typed in a CLIENT
+	// window takes the genuine client->server hop.
+	//
+	// PURE CALLER, identical contract to its siblings: build FAFLCosmeticSelection from the current replicated
+	// selection (don't clobber identity; seed AFL.Team.ARIA if unset so _Validate passes), set WeaponId, hand to
+	// ServerSetCosmeticSelection. Server does all validation/entitlement/gating/commit/replicate.
+	void HandleAFLCosmeticSetWeapon(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetWeapon - usage: afl.Cosmetic.SetWeapon <BigSixx | Akuma | ZenKoan | Ripsaw | ...> (or full AFL.Weapon.<Name>)."));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetWeapon - no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetWeapon - no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		// Accept "BigSixx" or the full "AFL.Weapon.BigSixx". CosmeticId comparison is FName-based (case-
+		// insensitive), so the caller's casing does not matter.
+		FString IdStr = Args[0].TrimStartAndEnd();
+		if (!IdStr.StartsWith(TEXT("AFL.Weapon."), ESearchCase::IgnoreCase))
+		{
+			IdStr = FString::Printf(TEXT("AFL.Weapon.%s"), *IdStr);
+		}
+		const FName WeaponId(*IdStr);
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		if (Request.GetActiveIdentityId() == NAME_None)
+		{
+			Request.IdentityType = EAFLIdentityType::Team;
+			Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+		}
+		Request.WeaponId = WeaponId;
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetWeapon - client issued ServerSetCosmeticSelection(weapon=%s). Entitlement-gated (GrantedFree weapons need no purchase; otherwise afl.Wallet.Buy %s). Watch [SkinDiag] RefreshWeapon equip the pawn with `afl.SkinDiag 1`."),
+			*WeaponId.ToString(), *WeaponId.ToString());
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetWeaponCmd(
+		TEXT("afl.Cosmetic.SetWeapon"),
+		TEXT("WEAPON-EQUIP axis: client-issued PURE caller of ServerSetCosmeticSelection (sets WeaponId -> REPLACES the equipped weapon via RefreshWeaponForPawn). Usage: afl.Cosmetic.SetWeapon <Name> (e.g. BigSixx, Akuma, or full AFL.Weapon.<Name>). Always available -- unlike the afl.Cosmetic.SetCosmeticWeapon Exec, which only routes when Lyra's cheat manager is active."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetWeapon));
 
 	// =====================================================================================================
 	// afl.Cosmetic.Cycle <axis> [holdSeconds] -- the STANDING VOLUME-PROOF HARNESS (reusable per-axis).
