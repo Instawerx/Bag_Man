@@ -107,7 +107,38 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Beam")
 	FLinearColor BeamColorOverride = FLinearColor(0, 0, 0, 0);
 
+	/**
+	 * COSMETIC CONVERGING FAN -- N beams from muzzle-offset origins, ALL ending at the SAME confirmed
+	 * impact point, so they visually converge on the crosshair target.
+	 *
+	 * ⚠ PURELY COSMETIC. Gameplay is untouched: the ability still runs ONE trace and applies ONE
+	 * beam's damage. This adds Niagara components only -- it never multiplies damage. (The spread ->
+	 * converge ruling: gameplay owns the trace, cosmetics own the beam.)
+	 *
+	 * 1 = single beam = byte-identical to the pre-fan behaviour, so every existing beam weapon is
+	 * unaffected until it opts in (the same gated-addition pattern as bHoming / bSpreadCone).
+	 *   2      -> a symmetric PAIR on the weapon's lateral axis (Aria twin-prong, RiftOne split barrel)
+	 *   3..12  -> an evenly-spaced RING around the beam axis (Astra starburst, Aurelia ring aperture)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Beam|ConvergeFan", meta = (ClampMin = "1", ClampMax = "12"))
+	int32 ConvergeFanCount = 1;
+
+	/** Fan origin radius (cm) around the published muzzle, perpendicular to the muzzle->impact axis. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Beam|ConvergeFan",
+		meta = (EditCondition = "ConvergeFanCount > 1", ClampMin = "0.0"))
+	float ConvergeFanRadius = 6.0f;
+
 private:
+	/**
+	 * Fan origin offsets in WORLD space for the current beam axis. Index 0 is always the axis centre
+	 * (zero offset) so the primary BeamNC keeps its exact pre-fan position when ConvergeFanCount == 1.
+	 */
+	void ComputeFanOffsets(const FVector& Axis, TArray<FVector>& OutOffsets) const;
+
+	/** Extra fan beams (indices 1..ConvergeFanCount-1). EMPTY when ConvergeFanCount == 1. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UNiagaraComponent>> ExtraBeamNCs;
+
 	/** Replicated toggle. OnRep drives remote clients; the server applies locally in SetBeamActive. */
 	UPROPERTY(ReplicatedUsing = OnRep_bBeamActive, Transient)
 	bool bBeamActive = false;

@@ -123,6 +123,41 @@ void UAFLBeamVisualComponent::ApplyBeamActiveState(bool bActive)
 			}
 
 			BeamNC->Activate(/*bReset=*/ true);
+
+			// CONVERGING FAN (cosmetic): bring up ConvergeFanCount-1 EXTRA persistent beams alongside the
+			// primary. Same spawn/toggle contract -- never spawned per fire, never destroyed per fire. At the
+			// default count of 1 this loop does nothing, so the pre-fan path is untouched.
+			const int32 ExtraWanted = FMath::Max(0, ConvergeFanCount - 1);
+			while (ExtraBeamNCs.Num() < ExtraWanted)
+			{
+				USceneComponent* FanRoot = GetOwner() ? GetOwner()->GetRootComponent() : nullptr;
+				UNiagaraComponent* Extra = UNiagaraFunctionLibrary::SpawnSystemAttached(
+					BeamSystem, FanRoot, NAME_None,
+					FVector::ZeroVector, FRotator::ZeroRotator,
+					EAttachLocation::KeepRelativeOffset,
+					/*bAutoDestroy=*/ false,
+					/*bAutoActivate=*/ false);
+				if (!Extra)
+				{
+					break;
+				}
+				ExtraBeamNCs.Add(Extra);
+			}
+			for (int32 i = 0; i < ExtraBeamNCs.Num(); ++i)
+			{
+				UNiagaraComponent* Extra = ExtraBeamNCs[i];
+				if (!Extra) continue;
+				if (i < ExtraWanted)
+				{
+					if (Tint.A > 0.0f) { Extra->SetVariableLinearColor(ColorParam, Tint); }
+					Extra->Activate(/*bReset=*/ true);
+				}
+				else
+				{
+					Extra->Deactivate();     // count was lowered at runtime -- park the surplus
+				}
+			}
+
 			SetComponentTickEnabled(true);   // start feeding the endpoint
 		}
 	}
@@ -132,7 +167,49 @@ void UAFLBeamVisualComponent::ApplyBeamActiveState(bool bActive)
 		{
 			BeamNC->Deactivate();            // toggle OFF -- ribbons fade, component persists
 		}
+		for (UNiagaraComponent* Extra : ExtraBeamNCs)
+		{
+			if (Extra) { Extra->Deactivate(); }
+		}
 		SetComponentTickEnabled(false);
+	}
+}
+
+void UAFLBeamVisualComponent::ComputeFanOffsets(const FVector& Axis, TArray<FVector>& OutOffsets) const
+{
+	// Index 0 is ALWAYS the zero offset, so the primary beam sits exactly where it did pre-fan.
+	OutOffsets.Reset();
+	const int32 N = FMath::Clamp(ConvergeFanCount, 1, 12);
+	OutOffsets.Add(FVector::ZeroVector);
+	if (N <= 1 || ConvergeFanRadius <= KINDA_SMALL_NUMBER || Axis.IsNearlyZero())
+	{
+		return;
+	}
+
+	// Build a stable basis perpendicular to the beam. UpVector degenerates when firing straight up or
+	// down, so fall back to the forward axis for the cross product in that case.
+	FVector Right = FVector::CrossProduct(Axis, FVector::UpVector);
+	if (Right.IsNearlyZero())
+	{
+		Right = FVector::CrossProduct(Axis, FVector::ForwardVector);
+	}
+	Right = Right.GetSafeNormal();
+	const FVector Up = FVector::CrossProduct(Right, Axis).GetSafeNormal();
+
+	if (N == 2)
+	{
+		// PAIR: symmetric about the axis -- reads as twin prongs / a split barrel, not a ring of two.
+		OutOffsets[0] = Right * ConvergeFanRadius;
+		OutOffsets.Add(Right * -ConvergeFanRadius);
+		return;
+	}
+
+	// RING: N evenly spaced around the axis (starburst / ring aperture).
+	for (int32 i = 0; i < N; ++i)
+	{
+		const float Theta = (2.0f * PI * static_cast<float>(i)) / static_cast<float>(N);
+		const FVector Off = (Right * FMath::Cos(Theta) + Up * FMath::Sin(Theta)) * ConvergeFanRadius;
+		if (i == 0) { OutOffsets[0] = Off; } else { OutOffsets.Add(Off); }
 	}
 }
 
@@ -165,13 +242,38 @@ void UAFLBeamVisualComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	// Position the NS start at the muzzle (the persistent component follows the weapon, but we set
 	// world location so the beam start sits exactly at the published barrel tip). With Absolute Beam
 	// End on the marketplace NS, the endpoint is world-space and needs no component rotation.
+	// CONVERGING FAN: every beam ends at the SAME confirmed impact point -- only the ORIGIN differs, so
+	// they visually converge on the crosshair target. ⚠ This is Niagara only: the ability ran ONE trace
+	// and applied ONE beam's damage, and nothing here touches either. At ConvergeFanCount == 1 the
+	// offset list is a single zero vector and this is byte-identical to the pre-fan drive.
+	TArray<FVector> Offsets;
+	ComputeFanOffsets((ImpactPoint - Muzzle).GetSafeNormal(), Offsets);
+
 	if (!Muzzle.IsNearlyZero())
 	{
-		BeamNC->SetWorldLocation(Muzzle);
+		BeamNC->SetWorldLocation(Muzzle + Offsets[0]);
 	}
 	if (!ImpactPoint.IsNearlyZero())
 	{
 		BeamNC->SetVariableVec3(BeamEndParam, ImpactPoint);
+	}
+
+	for (int32 i = 0; i < ExtraBeamNCs.Num(); ++i)
+	{
+		UNiagaraComponent* Extra = ExtraBeamNCs[i];
+		if (!Extra || !Extra->IsActive())
+		{
+			continue;
+		}
+		const FVector Off = Offsets.IsValidIndex(i + 1) ? Offsets[i + 1] : FVector::ZeroVector;
+		if (!Muzzle.IsNearlyZero())
+		{
+			Extra->SetWorldLocation(Muzzle + Off);
+		}
+		if (!ImpactPoint.IsNearlyZero())
+		{
+			Extra->SetVariableVec3(BeamEndParam, ImpactPoint);   // SHARED endpoint == the convergence
+		}
 	}
 }
 
