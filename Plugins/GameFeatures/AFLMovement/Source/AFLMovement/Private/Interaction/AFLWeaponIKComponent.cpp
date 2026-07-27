@@ -206,11 +206,13 @@ void UAFLWeaponIKComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 
 	// --- REACH-GATE SECOND (the 94% backstop): a flung / over-stretched arm can never ship ---------------
 	TargetAlpha = 0.0f;
+	float DbgDist = -1.0f, DbgSafeReach = -1.0f;   // diagnostics only (hoisted out of the gate block)
 	if (bHaveTarget && bArmLenCached)
 	{
 		const FVector ShoulderComp = Mesh->GetBoneLocation(ShoulderBone, EBoneSpaces::ComponentSpace); // upperarm_l = chain root
 		const float DistToTarget = FVector::Dist(ShoulderComp, TargetCompLoc);
 		const float SafeReach = TotalArmLength * ArmLengthBufferPercent;
+		DbgDist = DistToTarget; DbgSafeReach = SafeReach;
 		if (DistToTarget <= SafeReach && DistToTarget >= MinReachDistance)
 		{
 			TargetAlpha = 1.0f;
@@ -225,6 +227,29 @@ void UAFLWeaponIKComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	// On fade-out we keep the last target/pole so the hand eases off, exactly like the proven right-hand channel.
 	CurrentAlpha = FMath::FInterpTo(CurrentAlpha, TargetAlpha, DeltaTime, InterpSpeed);
 	CachedIKOutputs.LeftHandIKAlpha = CurrentAlpha;
+
+	// --- DIAGNOSTIC: the whole gate chain on one line, 1 Hz. Every step below can silently zero the solve,
+	//     so this attributes "no IK" in a single PIE run instead of by elimination.
+	if (bLogIKDiagnostics)
+	{
+		const double NowSec = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+		if (NowSec - IKLogWindowStartSeconds >= 1.0)
+		{
+			IKLogWindowStartSeconds = NowSec;
+			const TCHAR* HandlingStr =
+				  (CurrentHandling == EAFLWeaponHandling::TwoHanded) ? TEXT("TwoHanded")
+				: (CurrentHandling == EAFLWeaponHandling::OneHanded) ? TEXT("OneHanded")
+				: (CurrentHandling == EAFLWeaponHandling::Thrown)    ? TEXT("Thrown")
+				:                                                      TEXT("None");
+			UE_LOG(LogAFLMovement, Log,
+				TEXT("AFL_WEAPONIK_DIAG: handling=%s weapon=%s equipMgr=%s haveTarget=%d armCached=%d ")
+				TEXT("dist=%.1f safeReach=%.1f minReach=%.1f targetAlpha=%.2f alpha=%.2f rig=%s"),
+				HandlingStr, *GetNameSafe(WeaponActor), EquipMgr ? TEXT("yes") : TEXT("NULL"),
+				bHaveTarget ? 1 : 0, bArmLenCached ? 1 : 0,
+				DbgDist, DbgSafeReach, MinReachDistance, TargetAlpha, CurrentAlpha,
+				*GetNameSafe(CachedControlRig.Get()));
+		}
+	}
 
 	// --- Deliver to the native CR_AFL_CoreIK solve (Path B). Resolve the rig once (cached), then push the 3
 	//     controls it reads. If no rig yet (pre-possession), we simply don't push -- alpha stays baked-pose safe.

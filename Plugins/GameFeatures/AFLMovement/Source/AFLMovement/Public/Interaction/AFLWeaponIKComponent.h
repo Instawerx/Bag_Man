@@ -118,6 +118,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|IK|Settings")
 	bool bOneHandedCupStance = true;
 
+	/** DIAGNOSTIC: log the whole gate chain once per second -- handling class, weapon actor, whether the
+	 *  foregrip resolved, reach distance vs both gates, alpha, and whether the Control Rig resolved. Every
+	 *  step that can silently zero the solve is on one line, so "no IK" can be attributed in ONE PIE run
+	 *  instead of guessed at. Note SetControlValue has no return value, so a MISSING control is invisible
+	 *  here: rig resolved + alpha 1.0 + still no visible plant == the CR controls are absent/unwired. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|IK|Settings")
+	bool bLogIKDiagnostics = false;
+
 	/** Presence of this tag on the owner's ASC = a throw is in progress -> the Thrown branch (IK off). Set to
 	 *  the grenade-active state tag in the details panel (thrown is an ability, not a weapon field). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|IK|Settings")
@@ -147,6 +155,7 @@ private:
 	EAFLWeaponHandling CurrentHandling = EAFLWeaponHandling::None;
 	float TargetAlpha  = 0.0f;
 	float CurrentAlpha = 0.0f;
+	double IKLogWindowStartSeconds = 0.0;   // bLogIKDiagnostics: throttles the per-tick summary to 1 Hz
 
 	// Runtime-computed arm lengths FROM the ref skeleton (NOT the spec's 32.5/29.0 hardcode). Lazy-cached on
 	// the first tick with a valid posed mesh (bone lengths are pose-invariant, so any pose measures them).

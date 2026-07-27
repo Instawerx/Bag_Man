@@ -229,8 +229,20 @@ void UAFLAG_Hitscan_Base::AutoFireTick()
 			const float MontageLen = FMath::Max(CharacterFireMontage->GetPlayLength(), KINDA_SMALL_NUMBER);
 			const float PlayRate   = FMath::Clamp((MontageLen / FMath::Max(Interval, KINDA_SMALL_NUMBER))
 				* AutoFireMontageRateScale, 0.1f, 8.0f);
-			CurrentActorInfo->AbilitySystemComponent->PlayMontage(
-				this, CurrentActivationInfo, CharacterFireMontage, PlayRate);
+
+			// THROTTLE -- do NOT restart per shot. At 1400 RPM the interval (0.043s) is shorter than even a
+			// rate-8 play (0.067s), so replaying every shot retriggered the montage before it cleared its
+			// blend-in: the animation never became visible and the weapon read as "no shot animation" (this
+			// is the jank the original no-montage comment predicted). Replaying only once the previous play
+			// has finished gives a VISIBLE kick at the fastest cadence the clip supports; above that RPM the
+			// montage simply stops being the thing that carries the rate (the tracer cues do).
+			const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+			if (Now - LastAutoMontageStartSeconds >= static_cast<double>(MontageLen / PlayRate))
+			{
+				CurrentActorInfo->AbilitySystemComponent->PlayMontage(
+					this, CurrentActivationInfo, CharacterFireMontage, PlayRate);
+				LastAutoMontageStartSeconds = Now;
+			}
 		}
 
 		// DIAGNOSTIC: measured cadence, flushed once per second. This is the ground truth for "did the RPM

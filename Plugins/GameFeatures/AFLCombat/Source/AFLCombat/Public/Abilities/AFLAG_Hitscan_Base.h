@@ -215,6 +215,9 @@ private:
 	// bLogAutoFireCadence window: shots counted since CadenceWindowStartSeconds, flushed once per second.
 	int32  AutoShotsThisWindow = 0;
 	double CadenceWindowStartSeconds = 0.0;
+	// Auto-fire montage throttle: a montage restarted before it clears its blend-in never becomes visible,
+	// so we only replay once the previous play has actually finished.
+	double LastAutoMontageStartSeconds = 0.0;
 	float  HeatNorm = 0.0f;
 	double LastShotTimeSeconds = 0.0;
 	bool   bOverheated = false;
