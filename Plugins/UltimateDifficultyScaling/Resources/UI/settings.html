@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Ultimate Difficulty Scaling — Info</title>
+<style>
+:root {
+  --bg:       #161616;
+  --bg-2:     #1d1d1d;
+  --bg-3:     #262626;
+  --bg-4:     #303030;
+  --border:   #2e2e2e;
+  --text:     #e8e8e8;
+  --text-dim: #9a9a9a;
+  --accent:   #7c5cff;
+  --accent-h: #9279ff;
+  --error:    #e06060;
+  --success:  #4cb96a;
+}
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size:14px; }
+button { font-family:inherit; cursor:pointer; }
+a { color:var(--accent); text-decoration:none; }
+
+#root { display:grid; grid-template-rows:44px 1fr; height:100vh; }
+header { display:flex; align-items:center; justify-content:space-between;
+  padding:0 14px; background:var(--bg-2); border-bottom:1px solid var(--border); }
+header .title { font-weight:600; }
+header button { background:transparent; color:var(--text-dim); border:none; padding:6px 12px; border-radius:6px; }
+header button:hover { background:var(--bg-3); color:var(--text); }
+
+main { display:grid; grid-template-columns:210px 1fr; min-height:0; }
+
+nav#tabs { background:var(--bg-2); border-right:1px solid var(--border); padding:12px 6px;
+  display:flex; flex-direction:column; gap:4px; }
+nav#tabs button { background:transparent; color:var(--text-dim); border:none; text-align:left;
+  padding:8px 12px; border-radius:6px; font-size:13px; }
+nav#tabs button.active { background:var(--bg-3); color:var(--text); }
+nav#tabs button:hover { background:var(--bg-3); color:var(--text); }
+
+/* "Get the full Copilot" tab — static gradient (no infinite animation: a
+   perpetually-animating element pins CEF at full repaint and makes it feel heavy). */
+nav#tabs button.glow {
+  background:linear-gradient(135deg, #7c5cff 0%, #4f7cff 50%, #39c4a8 100%);
+  color:white; font-weight:600; margin-top:14px;
+  box-shadow:0 2px 10px rgba(124,92,255,0.35);
+  transition:box-shadow 0.15s ease, filter 0.15s ease;
+}
+nav#tabs button.glow:hover { box-shadow:0 4px 16px rgba(124,92,255,0.6); filter:brightness(1.08); }
+nav#tabs button.glow.active { box-shadow:0 2px 10px rgba(124,92,255,0.35); }
+
+/* Upsell tab content */
+.upsell { max-width:760px; }
+.upsell .hero { width:100%; border-radius:10px; border:1px solid var(--border); margin-bottom:18px; display:block; }
+.upsell .tagline { font-size:18px; font-weight:600; line-height:1.4; margin:0 0 12px;
+  background:linear-gradient(135deg, #ffd57a, #ff7a8a 60%, #ff6a6a);
+  -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+.upsell .pitch { color:var(--text-dim); line-height:1.55; margin:0 0 14px; font-size:14px; }
+.upsell .trial-line { color:var(--text); margin:14px 0; font-size:14px; }
+.upsell .trial-line .bulb { color:#ffd57a; margin-right:4px; }
+.upsell .trial-line a { color:var(--accent); font-weight:500; }
+.upsell .trial-line a:hover { text-decoration:underline; }
+.upsell .badge { display:inline-block; padding:8px 14px; border-radius:6px;
+  background:linear-gradient(135deg, rgba(255,213,122,0.15), rgba(255,122,138,0.1));
+  border:1px solid rgba(255,213,122,0.4); color:#ffd57a; font-weight:600; font-size:13px; margin:6px 0 18px; }
+.upsell .legacy { color:var(--text-dim); line-height:1.55; font-size:13px; margin:0 0 24px;
+  padding-left:12px; border-left:3px solid var(--accent); }
+.upsell .cta-row { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 20px; }
+.upsell .cta-row button { padding:10px 18px; border-radius:6px; border:none; cursor:pointer;
+  font-family:inherit; font-size:14px; font-weight:600; }
+.upsell .cta-row .cta-primary { background:linear-gradient(135deg, #7c5cff 0%, #4f7cff 100%); color:white;
+  box-shadow:0 4px 12px rgba(124,92,255,0.35); }
+.upsell .cta-row .cta-primary:hover { background:linear-gradient(135deg, #9279ff, #6a93ff); }
+.upsell .cta-row .cta-secondary { background:var(--bg-3); color:var(--text); border:1px solid var(--border); }
+.upsell .cta-row .cta-secondary:hover { background:var(--bg-4); }
+
+section.tab { display:none; padding:24px 28px; overflow-y:auto; }
+section.tab.active { display:block; }
+h2 { margin:0 0 6px; font-size:18px; }
+
+/* AI / API key slots */
+.ai-intro { color:var(--text-dim); font-size:13px; line-height:1.55; margin-bottom:16px; max-width:760px; }
+.slot { background:var(--bg-2); border:1px solid var(--border); border-radius:8px; padding:14px 16px; margin-bottom:14px; max-width:760px; }
+.slot.active { border-color:var(--accent); }
+.slot-header { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.slot-header .badge { padding:2px 8px; background:var(--bg-3); border-radius:4px; font-size:11px; color:var(--text-dim); }
+.slot-header .badge.active { background:var(--accent); color:#fff; }
+.slot-header input.slot-name { flex:1; background:var(--bg-3); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:13px; }
+.slot-header input.slot-name:focus { outline:none; border-color:var(--accent); }
+.slot-header button { padding:4px 10px; border-radius:4px; border:1px solid var(--border); background:var(--bg-3); color:var(--text-dim); font-size:12px; }
+.slot-header button:hover { background:var(--bg-4); color:var(--text); }
+.slot-header button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+.slot-header button:disabled { opacity:0.5; cursor:default; }
+.field { display:grid; grid-template-columns:110px 1fr; align-items:center; gap:10px; margin-bottom:8px; }
+.field label { color:var(--text-dim); font-size:13px; }
+.field input { background:var(--bg-3); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 9px; font-size:13px; width:100%; }
+.field input:focus { outline:none; border-color:var(--accent); }
+.slot .hint { margin:8px 0 0; }
+
+/* custom select (avoids CEF native <select> popup crash) */
+.csel { position:relative; user-select:none; width:100%; }
+.csel-face { display:flex; align-items:center; justify-content:space-between; gap:8px; background:var(--bg-3); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 9px; font-size:13px; cursor:pointer; }
+.csel-face:hover, .csel.open .csel-face { border-color:var(--accent); }
+.csel-arrow { color:var(--text-dim); font-size:11px; }
+.csel-popup { display:none; position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:50; background:var(--bg-3); border:1px solid var(--accent); border-radius:6px; box-shadow:0 6px 22px rgba(0,0,0,0.45); max-height:240px; overflow-y:auto; }
+.csel.open .csel-popup { display:block; }
+.csel-opt { padding:8px 10px; font-size:13px; cursor:pointer; }
+.csel-opt:hover { background:var(--bg-4); }
+.csel-opt.active { background:var(--accent); color:#fff; }
+.hint { color:var(--text-dim); font-size:13px; margin-bottom:18px; line-height:1.5; }
+
+#info-pane .field { display:grid; grid-template-columns:120px 1fr; align-items:center; gap:10px; margin-bottom:8px; }
+#info-pane .field label { color:var(--text-dim); font-size:13px; }
+#info-pane .links { margin-top:16px; display:flex; gap:12px; }
+#info-pane .links button { padding:8px 14px; border:none; border-radius:6px; background:var(--bg-3); color:var(--text); }
+#info-pane .links button:hover { background:var(--bg-4); }
+
+/* tooltip (in-page — CEF off-screen browsers don't render native title= tooltips) */
+#tip { position:fixed; z-index:1000; pointer-events:none; max-width:300px;
+  background:#0c0c0c; color:var(--text); border:1px solid var(--accent); border-radius:6px;
+  padding:7px 10px; font-size:12px; line-height:1.45; box-shadow:0 8px 24px rgba(0,0,0,0.55);
+  opacity:0; transition:opacity 0.1s; }
+#tip.show { opacity:1; }
+
+/* ════════════════════ Visual polish ════════════════════ */
+:root {
+  --bg:#121318; --bg-2:#171a23; --bg-3:#20232f; --bg-4:#2b2f40;
+  --border:#2a2e3c; --border-2:#3a4056;
+  --text:#eef0f6; --text-dim:#949ab0;
+  --accent:#8b6bff; --accent-h:#9d82ff;
+  --grad:linear-gradient(135deg,#7c5cff 0%,#4f7cff 55%,#39c4a8 120%);
+}
+body {
+  background:
+    radial-gradient(1100px 380px at 80% -14%, rgba(124,92,255,0.11), transparent 60%),
+    radial-gradient(820px 300px at -5% 0%, rgba(57,196,168,0.06), transparent 55%),
+    var(--bg);
+}
+#root { position:relative; }
+#root::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--grad); z-index:60; }
+
+::-webkit-scrollbar { width:11px; height:11px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--bg-4); border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+::-webkit-scrollbar-thumb:hover { background:#3c4258; background-clip:padding-box; }
+
+header { background:linear-gradient(180deg,var(--bg-2),rgba(23,26,35,0.6)); }
+header .title { letter-spacing:0.02em; }
+nav#tabs { background:linear-gradient(180deg,var(--bg-2),var(--bg)); }
+nav#tabs button { transition:background-color 0.1s ease, color 0.1s ease; }
+nav#tabs button.active:not(.glow) { background:var(--bg-3); box-shadow:inset 2px 0 0 var(--accent); }
+
+.slot { background:linear-gradient(180deg,var(--bg-2),rgba(23,26,35,0.5)); }
+.slot.active { border-color:transparent; box-shadow:0 0 0 1px var(--accent), 0 6px 18px rgba(124,92,255,0.16); }
+.slot-header button.primary { background:var(--grad); border:none; }
+.slot-header button.primary:hover { filter:brightness(1.08); }
+.field input { transition:border-color 0.12s ease, box-shadow 0.12s ease; }
+.field input:focus { box-shadow:0 0 0 3px rgba(124,92,255,0.18); }
+
+.upsell .cta-row .cta-primary:hover { filter:brightness(1.06); }
+</style>
+</head>
+<body>
+<div id="root">
+  <header>
+    <div class="title">Ultimate Difficulty Scaling</div>
+    <button id="btn-back" data-tip="Return to the difficulty-scaling tool.">← Back to Tool</button>
+  </header>
+  <main>
+    <nav id="tabs">
+      <button data-tab="ai" class="active" data-tip="Bring-your-own-key AI: set up your provider so the difficulty tool can suggest values.">AI / Keys</button>
+      <button data-tab="info" data-tip="Plugin version, docs, and links.">Info</button>
+      <button data-tab="upsell" class="glow" data-tip="Discover the full Ultimate Engine Copilot — generate gameplay, not just tune it.">✨ Get the full Copilot</button>
+    </nav>
+
+    <section id="tab-ai" class="tab active">
+      <h2>AI — API Keys</h2>
+      <p class="ai-intro">Bring your own key. Pick a provider, paste your API key, and choose a model. The <b>active</b> slot is the one the difficulty tool's AI uses. For local models (Ollama, LM Studio, vLLM, llama.cpp…) choose <b>Custom</b> and paste the base URL, e.g. <code>http://localhost:11434/v1</code>. Keys are stored locally on your machine and are never sent anywhere except to the provider you choose.</p>
+      <div id="slots-host"></div>
+    </section>
+
+    <section id="tab-info" class="tab">
+      <h2>Plugin Info</h2>
+      <div id="info-pane">
+        <div class="field"><label>Name</label>       <span id="info-name">-</span></div>
+        <div class="field"><label>Version</label>    <span id="info-version">-</span></div>
+        <div class="field"><label>UE Version</label> <span id="info-ue">-</span></div>
+        <div class="field"><label>Docs</label>       <a id="info-docs" href="#">-</a></div>
+        <div class="links">
+          <button onclick="rpc('openexternalurl','https://discord.gg/w65xMuxEhb')">Join Discord</button>
+          <button onclick="rpc('openexternalurl','https://www.fab.com/sellers/BlueprintsLab')">Other Plugins</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-upsell" class="tab">
+      <div class="upsell">
+        <h2>Ultimate Engine Copilot</h2>
+        <p class="pitch" style="margin-bottom:18px;">Ultimate Difficulty Scaling tunes your Blueprint variables per difficulty. If you also want to <b>generate</b> the gameplay itself, the same studio makes the full Copilot.</p>
+
+        <img class="hero" src="data:image/jpeg;base64,%%HERO_IMG_BASE64%%" alt="Ultimate Engine Copilot" />
+
+        <p class="tagline">The most comprehensive AI copilot ever built for Unreal Engine.</p>
+        <p class="pitch">
+          Generate Blueprints, animations, materials, Niagara VFX, sequencer cinematics, UMG widgets, PCG worlds, behavior trees, and more from natural language. Analyze your project, talk to your engine with voice, and run concurrent AI agents inside the editor.
+        </p>
+
+        <p class="trial-line">
+          <span class="bulb">💡</span><b>Try before you buy</b> with our
+          <a href="#" id="upsell-trial">free 5-day trial</a>, and watch
+          <a href="#" id="upsell-video">the Overview video</a>.
+        </p>
+
+        <div class="badge">⭐ Featured on FAB (Feb 5–9, 2026) AND (Apr 13–15) ⭐</div>
+
+        <p class="legacy">
+          The very first AI Copilot to emerge for Unreal Engine 5 back in 2025, and still the most complete toolset on the market today. This plugin pioneered AI-assisted game development inside the editor and continues to push the boundaries of what's possible. Join the fastest-growing community in the UE ecosystem, trusted by thousands of developers worldwide.
+        </p>
+
+        <div class="cta-row">
+          <button class="cta-primary"   id="upsell-fab"     data-tip="Open the Ultimate Engine Copilot listing on FAB.">Get it on FAB →</button>
+          <button class="cta-secondary" id="upsell-trial-2" data-tip="Start the free 5-day trial.">Start 5-day Trial</button>
+          <button class="cta-secondary" id="upsell-video-2" data-tip="Watch the overview video on YouTube.">▶ Watch Overview</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="tip"></div>
+
+<script>
+'use strict';
+
+function $(id) { return document.getElementById(id); }
+
+function switchTab(name) {
+  document.querySelectorAll('nav#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('section.tab').forEach(s => s.classList.toggle('active', s.id === ('tab-' + name)));
+}
+// Called by C++ to deep-link straight to a tab (e.g. the footer upsell button).
+window.focusTab = function (name) { switchTab(name); };
+
+// ── DOM + custom-select helpers ──
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  if (attrs) Object.entries(attrs).forEach(([k, v]) => {
+    if (k === 'class') e.className = v;
+    else if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else if (k.startsWith('on') && typeof v === 'function') e[k.toLowerCase()] = v;
+    else if (v !== null && v !== undefined) e.setAttribute(k, v);
+  });
+  kids.flat().forEach(k => { if (k !== null && k !== undefined) e.append(k.nodeType ? k : document.createTextNode(k)); });
+  return e;
+}
+function csel(opts, currentValue, onChange) {
+  const wrap = el('div', { class: 'csel' });
+  const face = el('div', { class: 'csel-face' });
+  const labelSpan = el('span', { class: 'csel-label' });
+  const arrow = el('span', { class: 'csel-arrow' }, '▾');
+  face.append(labelSpan, arrow);
+  const popup = el('div', { class: 'csel-popup' });
+  function findLabel(val) { const m = opts.find(o => o[1] === val); return m ? m[0] : (val || ''); }
+  function rebuild() {
+    popup.innerHTML = '';
+    opts.forEach(([lbl, val]) => {
+      const o = el('div', { class: 'csel-opt' + (val === wrap._value ? ' active' : '') }, lbl);
+      o.onclick = (e) => { e.stopPropagation(); setValue(val, true); close(); };
+      popup.appendChild(o);
+    });
+  }
+  function setValue(val, fire) { wrap._value = val; labelSpan.textContent = findLabel(val); rebuild(); if (fire && typeof wrap.onChange === 'function') wrap.onChange(val); }
+  function open() { closeAllSelects(); wrap.classList.add('open'); }
+  function close() { wrap.classList.remove('open'); }
+  face.onclick = (e) => { e.stopPropagation(); wrap.classList.contains('open') ? close() : open(); };
+  Object.defineProperty(wrap, 'value', { get() { return wrap._value; }, set(v) { setValue(v, false); } });
+  wrap.onChange = onChange || null;
+  wrap.append(face, popup);
+  setValue(currentValue, false);
+  return wrap;
+}
+function closeAllSelects() { document.querySelectorAll('.csel.open').forEach(el => el.classList.remove('open')); }
+document.addEventListener('click', closeAllSelects);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllSelects(); });
+
+// ── API key slots ──
+let settingsState = null;
+const DEFAULT_MODELS = { OpenAI:'gpt-4o-mini', Anthropic:'claude-sonnet-4-5', Gemini:'gemini-2.5-flash', DeepSeek:'deepseek-chat', Custom:'' };
+const MODEL_HINTS = {
+  OpenAI:'e.g. gpt-4o, gpt-4o-mini, o4-mini', Anthropic:'e.g. claude-sonnet-4-5, claude-opus-4-6',
+  Gemini:'e.g. gemini-2.5-flash, gemini-2.5-pro', DeepSeek:'e.g. deepseek-chat', Custom:'e.g. llama3.1, qwen2.5-coder'
+};
+function modelFieldFor(provider) {
+  const p = (provider || '').toLowerCase();
+  if (p === 'openai')                    return 'openaiModel';
+  if (p === 'anthropic' || p === 'claude') return 'claudeModel';
+  if (p === 'gemini')                    return 'geminiModel';
+  if (p === 'deepseek')                  return 'deepseekModel';
+  return 'customModelName';
+}
+function renderSlots() {
+  const host = $('slots-host');
+  if (!host) return;
+  host.innerHTML = '';
+  const slots = (settingsState && settingsState.slots) || [];
+  const active = settingsState ? settingsState.activeSlot : 0;
+  const providers = (settingsState && settingsState.providers) || ['OpenAI','Anthropic','Gemini','DeepSeek','Custom'];
+
+  slots.forEach((s, idx) => {
+    const isActive = idx === active;
+    const card = el('div', { class: 'slot' + (isActive ? ' active' : '') });
+
+    const hdr = el('div', { class: 'slot-header' });
+    hdr.append(el('span', { class: 'badge' + (isActive ? ' active' : '') }, 'Slot ' + (idx + 1)));
+    const nameInput = el('input', { class: 'slot-name', type: 'text', value: s.name || '', placeholder: 'Label (e.g. "My OpenAI")' });
+    hdr.append(nameInput);
+    const setActiveBtn = el('button', {}, isActive ? 'Active' : 'Set Active');
+    if (isActive) setActiveBtn.disabled = true; else setActiveBtn.onclick = () => rpc('setactiveslot', idx);
+    const saveBtn = el('button', { class: 'primary' }, 'Save');
+    const clearBtn = el('button', {}, 'Clear');
+    hdr.append(setActiveBtn, saveBtn, clearBtn);
+    card.append(hdr);
+
+    const providerSel = csel(providers.map(p => [p, p]), s.provider || providers[0]);
+    const apiInput   = el('input', { type: 'password', value: s.apiKey || '', placeholder: 'Paste your API key (local models may not need one)' });
+    const modelInput = el('input', { type: 'text' });
+    const baseInput  = el('input', { type: 'text', value: s.customBaseURL || '', placeholder: 'e.g. http://localhost:11434/v1' });
+
+    const providerField = el('div', { class: 'field' }, el('label', null, 'Provider'), providerSel);
+    const apiField      = el('div', { class: 'field' }, el('label', null, 'API key'), apiInput);
+    const modelField    = el('div', { class: 'field' }, el('label', null, 'Model'), modelInput);
+    const baseField     = el('div', { class: 'field' }, el('label', null, 'Base URL'), baseInput);
+    const hint          = el('div', { class: 'hint' }, '');
+    card.append(providerField, apiField, modelField, baseField, hint);
+
+    function curModelFor(prov) { const f = modelFieldFor(prov); return (s[f] && s[f].length) ? s[f] : (DEFAULT_MODELS[prov] || ''); }
+    function refresh() {
+      const prov = providerSel.value;
+      const isCustom = (prov || '').toLowerCase() === 'custom';
+      baseField.style.display = isCustom ? '' : 'none';
+      modelInput.placeholder = MODEL_HINTS[prov] || '';
+      modelInput.value = curModelFor(prov);
+      hint.textContent = isCustom ? 'Custom = any OpenAI-compatible endpoint; the base URL gets /chat/completions appended automatically.' : '';
+    }
+    providerSel.onChange = () => refresh();
+    refresh();
+
+    saveBtn.onclick = () => {
+      const prov = providerSel.value;
+      const payload = {
+        slotIndex: idx, name: nameInput.value, provider: prov, apiKey: apiInput.value,
+        customBaseURL: baseInput.value, customModelName: s.customModelName || '',
+        geminiModel: s.geminiModel || '', openaiModel: s.openaiModel || '', claudeModel: s.claudeModel || '', deepseekModel: s.deepseekModel || ''
+      };
+      payload[modelFieldFor(prov)] = modelInput.value;
+      rpc('saveslot', JSON.stringify(payload));
+      hint.textContent = 'Saved.';
+    };
+    clearBtn.onclick = () => {
+      rpc('saveslot', JSON.stringify({ slotIndex: idx, name: '', provider: '', apiKey: '', customBaseURL: '', customModelName: '', geminiModel: '', openaiModel: '', claudeModel: '', deepseekModel: '' }));
+    };
+
+    host.append(card);
+  });
+}
+function applySettings(jsonStr) { try { settingsState = JSON.parse(jsonStr); renderSlots(); } catch (e) { console.error('applySettings failed', e); } }
+// C++ pushes settings here on load and after each mutation (works even when the Mac bridge is flaky).
+window.onSettingsData = function (jsonStr) { if (jsonStr) applySettings(jsonStr); };
+function loadAll() { try { const raw = window.ue.bridge.loadallsettings(); Promise.resolve(raw).then(applySettings).catch(() => {}); } catch (e) {} }
+
+function fillPluginInfo(jsonStr) {
+  try {
+    const i = JSON.parse(jsonStr);
+    $('info-name').textContent    = i.name      || '-';
+    $('info-version').textContent = i.version   || '-';
+    $('info-ue').textContent      = i.ueVersion || '-';
+    if (i.docsUrl) {
+      $('info-docs').textContent = i.docsUrl;
+      $('info-docs').href = i.docsUrl;
+      $('info-docs').onclick = (e) => { e.preventDefault(); rpc('openexternalurl', i.docsUrl); };
+    }
+  } catch (e) {}
+}
+// C++ pushes plugin info here on load (works even when the lazy bridge bind is flaky on Mac).
+window.onPluginInfo = function (jsonStr) { if (jsonStr) fillPluginInfo(jsonStr); };
+
+const FAB_URL   = 'https://www.fab.com/listings/8d776721-5da3-44ce-b7ef-be17a023be59';
+const TRIAL_URL = 'https://www.gamedevcore.com/trial';
+const VIDEO_URL = 'https://www.youtube.com/watch?v=_DUzvrxM_sw';
+function openExt(url) { rpc('openexternalurl', url); }
+
+// RPC helper — settings browser lives in a hidden SWidgetSwitcher slot, so the
+// UFUNCTION bridge can silently fail to bind on Mac. We emit each RPC on TWO
+// channels (console.log + document.title) that the host widget listens to. A
+// monotonic counter dedupes when both fire. The bridge is attempted first as a
+// fast path on Windows but never relied upon.
+let udsRpcCounter = 0;
+function rpc(method, ...args) {
+  const lower = method.toLowerCase();
+  udsRpcCounter++;
+  try {
+    const b = window.ue && window.ue.bridge;
+    if (b && typeof b[lower] === 'function') b[lower].apply(b, args);
+  } catch (e) {}
+  const payload = JSON.stringify({ m: lower, a: args, n: udsRpcCounter });
+  try { console.log('UDS_RPC:' + payload); } catch (e) {}
+  try { document.title = 'UDS_RPC:' + payload; } catch (e) {}
+}
+
+function whenBridgeReady(cb) {
+  let tries = 0;
+  const tick = () => {
+    if (window.ue && window.ue.bridge) return cb();
+    if (tries++ < 200) return setTimeout(tick, 25);
+    cb(); // give up on the bridge; C++ still pushes info via onPluginInfo
+  };
+  tick();
+}
+
+// ── Tooltips (in-page; CEF OSR doesn't show native title= tooltips) ──
+let _tipTimer = null, _tipTarget = null;
+function showTip(target) {
+  const text = target.getAttribute('data-tip');
+  if (!text) return;
+  const tip = $('tip');
+  tip.textContent = text;
+  tip.classList.add('show');
+  const r = target.getBoundingClientRect();
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let top = r.bottom + 6;
+  if (top + th > window.innerHeight - 4) top = r.top - th - 6;
+  if (top < 4) top = 4;
+  let left = r.left;
+  if (left + tw > window.innerWidth - 4) left = window.innerWidth - tw - 4;
+  if (left < 4) left = 4;
+  tip.style.top = top + 'px';
+  tip.style.left = left + 'px';
+}
+function hideTip() { _tipTarget = null; clearTimeout(_tipTimer); $('tip').classList.remove('show'); }
+function initTooltips() {
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target.closest ? e.target.closest('[data-tip]') : null;
+    if (!t || t === _tipTarget) return;
+    _tipTarget = t; clearTimeout(_tipTimer);
+    _tipTimer = setTimeout(() => { if (_tipTarget === t) showTip(t); }, 350);
+  });
+  document.addEventListener('mouseout', (e) => {
+    const t = e.target.closest ? e.target.closest('[data-tip]') : null;
+    if (t && t === _tipTarget) hideTip();
+  });
+  document.addEventListener('mousedown', hideTip, true);
+  document.addEventListener('scroll', hideTip, true);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initTooltips();
+  document.querySelectorAll('nav#tabs button').forEach(b => { b.onclick = () => switchTab(b.dataset.tab); });
+  $('btn-back').onclick = () => rpc('closesettings');
+
+  ['upsell-fab'].forEach(id => { const e = $(id); if (e) e.onclick = () => openExt(FAB_URL); });
+  ['upsell-trial', 'upsell-trial-2'].forEach(id => { const e = $(id); if (e) e.onclick = (ev) => { if (ev) ev.preventDefault(); openExt(TRIAL_URL); }; });
+  ['upsell-video', 'upsell-video-2'].forEach(id => { const e = $(id); if (e) e.onclick = (ev) => { if (ev) ev.preventDefault(); openExt(VIDEO_URL); }; });
+
+  whenBridgeReady(() => {
+    try {
+      const raw = window.ue.bridge.requestplugininfo();
+      Promise.resolve(raw).then(fillPluginInfo).catch(() => {});
+    } catch (e) {}
+    loadAll();
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+{
+	"FileVersion": 3,
+	"Version": 3,
+	"VersionName": "2.0.5",
+	"FriendlyName": "Ultimate Difficulty Scaling",
+	"Description": "An intuitive plugin for managing difficulty scaling of blueprint variables.",
+	"Category": "Other",
+	"CreatedBy": "BlueprintsLab-Roly Dev",
+	"CreatedByURL": "https://www.fab.com/sellers/BlueprintsLab",
+	"DocsURL": "https://www.gamedevcore.com/docs/uds",
+	"MarketplaceURL": "",
+	"SupportURL": "https://discord.gg/w65xMuxEhb",
+	"EngineVersion": "5.6.0",
+	"CanContainContent": true,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "UltimateDifficultyScaling",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac"
+			]
+		},
+		{
+			"Name": "UltimateDifficultyScalingEditor",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac"
+			],
+			"AdditionalDependencies": [
+				"WebBrowser"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "WebBrowserWidget",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		}
+	]
+}

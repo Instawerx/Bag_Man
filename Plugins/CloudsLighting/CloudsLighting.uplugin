@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 2,
+	"VersionName": "0.3.3.1",
+	"FriendlyName": "CloudsLighting",
+	"Description": "Volumetric clouds dynamic illumination system",
+	"Category": "Rendering",
+	"CreatedBy": "Lukerrr",
+	"CreatedByURL": "https://www.youtube.com/channel/UC8pbjiqo99yjqwjq5mYd47Q",
+	"DocsURL": "https://clouds.lukerrr.io/docs/introduction.html",
+	"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/a54a45caa08e41bb97b1c19cebfe1093",
+	"SupportURL": "https://clouds.lukerrr.io/contacts.html",
+	"EngineVersion": "5.6.0",
+	"CanContainContent": true,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "CloudsLighting",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux",
+				"IOS",
+				"Android"
+			]
+		}
+	]
+}

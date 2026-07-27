@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Ultimate Difficulty Scaling</title>
+<style>
+:root {
+  --bg:       #161616;
+  --bg-2:     #1d1d1d;
+  --bg-3:     #262626;
+  --bg-4:     #303030;
+  --border:   #2e2e2e;
+  --text:     #e8e8e8;
+  --text-dim: #9a9a9a;
+  --accent:   #7c5cff;
+  --accent-h: #9279ff;
+  --error:    #e06060;
+  --warn:     #e6a93e;
+  --success:  #4cb96a;
+}
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size:13px; }
+button { font-family:inherit; cursor:pointer; }
+a { color:var(--accent); text-decoration:none; }
+input { font-family:inherit; }
+
+#root { display:grid; grid-template-rows:auto auto 1fr auto; height:100vh; min-height:0; }
+
+/* ── Config bar ── */
+#config-bar {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:10px 14px; background:var(--bg-2); border-bottom:1px solid var(--border);
+}
+#config-bar .label { color:var(--text-dim); font-size:12px; }
+#config-bar .spacer { flex:1; }
+.diff-chips { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.diff-chip {
+  display:inline-flex; align-items:center; gap:4px; background:var(--bg-3);
+  border:1px solid var(--border); border-radius:14px; padding:2px 4px 2px 10px;
+}
+.diff-chip input {
+  background:transparent; border:none; color:var(--text); font-size:12px; width:74px; padding:2px;
+}
+.diff-chip input:focus { outline:none; }
+.diff-chip .x {
+  border:none; background:transparent; color:var(--text-dim); border-radius:50%;
+  width:18px; height:18px; line-height:1; font-size:13px; padding:0;
+}
+.diff-chip .x:hover { background:var(--error); color:#fff; }
+.chip-add {
+  border:1px dashed var(--border); background:transparent; color:var(--text-dim);
+  border-radius:14px; padding:3px 10px; font-size:12px;
+}
+.chip-add:hover { border-color:var(--accent); color:var(--text); }
+
+/* ── Toolbar ── */
+#toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 14px;
+  background:var(--bg); border-bottom:1px solid var(--border); }
+.btn {
+  background:var(--bg-3); color:var(--text); border:1px solid var(--border);
+  border-radius:6px; padding:6px 12px; font-size:12px;
+  transition:background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.btn:not(.is-disabled):hover { background:var(--bg-4); }
+.btn.is-disabled { opacity:0.4; cursor:default; }
+.btn.primary { background:linear-gradient(135deg, #7c5cff, #4f7cff); color:#fff; border:none; }
+.btn.primary:not(.is-disabled):hover { background:linear-gradient(135deg, #9279ff, #6a93ff); }
+.btn.danger:not(.is-disabled):hover { background:var(--error); border-color:var(--error); color:#fff; }
+
+/* ── Body split ── */
+#body { display:grid; grid-template-columns:var(--bp-width, 240px) 5px 1fr; min-height:0; }
+#body.bp-collapsed { grid-template-columns:1fr; }
+#body.bp-collapsed #bp-pane, #body.bp-collapsed #bp-resizer { display:none; }
+#btn-toggle-bp { font-size:15px; line-height:1; padding:6px 10px; }
+#bp-resizer { cursor:col-resize; background:transparent; transition:background-color 0.1s ease; }
+#bp-resizer:hover, #bp-resizer.dragging { background:var(--accent); }
+#bp-pane { display:flex; flex-direction:column; min-height:0; background:var(--bg-2); }
+#bp-pane .pane-title { padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;
+  color:var(--text-dim); border-bottom:1px solid var(--border); }
+#bp-list { overflow-y:auto; flex:1; }
+.bp-row { padding:8px 12px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.03);
+  display:flex; align-items:center; gap:6px; }
+.bp-row:hover { background:var(--bg-3); }
+.bp-row.selected { background:var(--accent); color:#fff; }
+.bp-row .star { color:var(--success); font-weight:700; }
+.bp-row.selected .star { color:#fff; }
+.empty-hint { padding:18px 14px; color:var(--text-dim); font-size:12px; line-height:1.5; }
+
+#var-pane { display:flex; flex-direction:column; min-height:0; }
+#var-controls { display:flex; align-items:center; gap:12px; padding:8px 14px; border-bottom:1px solid var(--border); }
+#search { flex:1; background:var(--bg-3); color:var(--text); border:1px solid var(--border);
+  border-radius:6px; padding:7px 10px; font-size:13px; }
+#search:focus { outline:none; border-color:var(--accent); }
+.check { display:inline-flex; align-items:center; gap:6px; color:var(--text-dim); font-size:12px; user-select:none; cursor:pointer; }
+#var-scroll { overflow-y:auto; flex:1; padding:10px 14px; }
+
+/* scaled variable table */
+.section-title { font-size:11px; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-dim);
+  margin:6px 0 10px; }
+.diff-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; padding-left:130px; }
+.diff-head .col { flex:1; text-align:center; font-size:12px; font-weight:600; color:var(--text-dim); }
+.var-row { display:flex; align-items:center; gap:8px; padding:5px 6px; border-radius:6px; margin-bottom:4px; background:var(--bg-2); }
+.var-row.orphan { background:rgba(224,96,96,0.12); border:1px solid rgba(224,96,96,0.4); }
+.var-row .rm { border:none; background:var(--bg-3); color:var(--text-dim); border-radius:4px; width:22px; height:22px; font-size:12px; }
+.var-row .rm:hover { background:var(--error); color:#fff; }
+.var-row .vname { width:120px; flex:none; font-size:12px; display:flex; align-items:center; gap:5px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.var-row .warn { color:var(--warn); }
+.var-row .cell { flex:1; }
+.var-row .cell input[type=text] { width:100%; background:var(--bg-3); color:var(--text); border:1px solid var(--border);
+  border-radius:5px; padding:5px 7px; font-size:12px; }
+.var-row .cell input[type=text]:focus { outline:none; border-color:var(--accent); }
+.var-row .cell input.bad { border-color:var(--error); }
+.var-row .cell.center { display:flex; justify-content:center; }
+
+/* available variable tree */
+.tree { margin-top:6px; }
+.tnode-row { display:flex; align-items:center; gap:4px; padding:3px 4px; border-radius:5px; }
+.tnode-row:hover { background:var(--bg-2); }
+.tnode-row .caret { width:16px; text-align:center; color:var(--text-dim); cursor:pointer; user-select:none; }
+.tnode-row .caret.leaf { visibility:hidden; }
+.tnode-row .ticon { color:var(--text-dim); }
+.tnode-row .tname { flex:1; font-size:12px; }
+.tnode-row.container .tname { font-weight:600; }
+.tnode-row .add { border:none; background:var(--bg-3); color:var(--accent); border-radius:4px; width:22px; height:20px; font-size:13px; }
+.tnode-row .add:hover { background:var(--accent); color:#fff; }
+.tchildren { margin-left:16px; border-left:1px solid var(--border); padding-left:2px; }
+
+/* ── Custom select (avoids CEF native <select> popup crash) ── */
+.csel { position:relative; user-select:none; width:100%; }
+.csel-face { display:flex; align-items:center; justify-content:space-between; gap:8px;
+  background:var(--bg-3); color:var(--text); border:1px solid var(--border); border-radius:5px;
+  padding:5px 7px; font-size:12px; cursor:pointer; }
+.csel-face:hover, .csel.open .csel-face { border-color:var(--accent); }
+.csel-arrow { color:var(--text-dim); font-size:10px; }
+.csel-popup { display:none; position:absolute; top:calc(100% + 3px); left:0; right:0; z-index:50;
+  background:var(--bg-3); border:1px solid var(--accent); border-radius:5px;
+  box-shadow:0 6px 22px rgba(0,0,0,0.45); max-height:240px; overflow-y:auto; }
+.csel.open .csel-popup { display:block; }
+.csel-opt { padding:6px 9px; font-size:12px; cursor:pointer; }
+.csel-opt:hover { background:var(--bg-4); }
+.csel-opt.active { background:var(--accent); color:#fff; }
+
+/* ── Footer ── */
+#footer { display:flex; align-items:center; justify-content:space-between; padding:8px 14px;
+  background:var(--bg-2); border-top:1px solid var(--border); }
+#footer .links { display:flex; gap:14px; font-size:12px; }
+#footer .links a { color:var(--text-dim); }
+#footer .links a:hover { color:var(--text); }
+/* NOTE: no infinite animation here on purpose — a perpetually-animating element
+   forces CEF to repaint every frame, which makes the whole editor browser feel
+   heavy. Static gradient + hover effect keeps it eye-catching but lets CEF idle. */
+#btn-upsell {
+  background:linear-gradient(135deg, #7c5cff 0%, #4f7cff 50%, #39c4a8 100%); color:#fff;
+  border:none; border-radius:6px; padding:7px 14px; font-size:12px; font-weight:600;
+  box-shadow:0 2px 10px rgba(124,92,255,0.35);
+  transition:box-shadow 0.15s ease, filter 0.15s ease;
+}
+#btn-upsell:hover { box-shadow:0 4px 16px rgba(124,92,255,0.6); filter:brightness(1.08); }
+
+#footer .footer-cta { display:flex; align-items:center; gap:10px; }
+#btn-discord {
+  display:inline-flex; align-items:center; gap:7px;
+  background:linear-gradient(135deg, #5865F2, #4752c4); color:#fff;
+  border:none; border-radius:6px; padding:7px 14px; font-size:12px; font-weight:600;
+  box-shadow:0 2px 10px rgba(88,101,242,0.4);
+  transition:box-shadow 0.15s ease, filter 0.15s ease;
+}
+#btn-discord:hover { box-shadow:0 4px 16px rgba(88,101,242,0.7); filter:brightness(1.08); }
+#btn-discord svg { width:16px; height:16px; }
+
+/* tooltip (in-page — CEF off-screen browsers don't render native title= tooltips) */
+#tip {
+  position:fixed; z-index:1000; pointer-events:none; max-width:300px;
+  background:#0c0c0c; color:var(--text); border:1px solid var(--accent);
+  border-radius:6px; padding:7px 10px; font-size:12px; line-height:1.45;
+  box-shadow:0 8px 24px rgba(0,0,0,0.55); opacity:0; transition:opacity 0.1s; }
+#tip.show { opacity:1; }
+
+/* toast */
+#toast { position:fixed; bottom:64px; left:50%; transform:translateX(-50%);
+  background:var(--bg-4); color:var(--text); border:1px solid var(--border); border-radius:8px;
+  padding:10px 16px; font-size:13px; opacity:0; transition:opacity 0.2s; pointer-events:none; z-index:100; }
+#toast.show { opacity:1; }
+#toast.error { border-color:var(--error); }
+#toast.success { border-color:var(--success); }
+
+/* ── AI ── */
+#ai-bar { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid var(--border); background:var(--bg-2); }
+#ai-bar.ai-hidden { display:none; }
+#ai-intent { flex:1; background:var(--bg-3); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 10px; font-size:12px; }
+#ai-intent:focus { outline:none; border-color:var(--accent); }
+.ai-btn { background:linear-gradient(135deg,#7c5cff,#4f7cff); color:#fff; border:none; border-radius:6px; padding:7px 12px; font-size:12px; font-weight:600; white-space:nowrap;
+  transition:filter 0.12s ease, box-shadow 0.12s ease; box-shadow:0 2px 8px rgba(124,92,255,0.3); }
+.ai-btn:hover:not(:disabled) { filter:brightness(1.08); }
+.ai-btn.secondary { background:var(--bg-3); color:var(--text); border:1px solid var(--border); box-shadow:none; }
+.ai-btn.secondary:hover:not(:disabled) { background:var(--bg-4); filter:none; }
+.ai-btn:disabled { opacity:0.5; cursor:default; }
+#ai-spinner { width:15px; height:15px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:ai-spin 0.7s linear infinite; }
+@keyframes ai-spin { to { transform:rotate(360deg); } }
+.ai-hidden { display:none !important; }
+#ai-msg { padding:6px 14px; font-size:12px; color:var(--warn); background:var(--bg-2); border-bottom:1px solid var(--border); }
+#ai-msg a { color:var(--accent); cursor:pointer; text-decoration:underline; }
+
+#ai-preview { border:1px solid var(--accent); border-radius:8px; background:var(--bg-2); margin-bottom:14px; box-shadow:0 4px 18px rgba(124,92,255,0.18); }
+#ai-preview .ap-head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid var(--border); }
+#ai-preview .ap-title { font-weight:600; }
+#ai-preview .ap-body { padding:8px 12px; max-height:340px; overflow-y:auto; }
+.ap-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
+.ap-name { width:140px; flex:none; font-size:12px; display:flex; align-items:center; gap:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ap-new { font-size:9px; background:var(--success); color:#06210f; border-radius:3px; padding:1px 4px; font-weight:700; }
+.ap-cell { flex:1; display:flex; flex-direction:column; gap:2px; }
+.ap-cell input[type=text] { width:100%; background:var(--bg-3); color:var(--text); border:1px solid var(--border); border-radius:5px; padding:4px 6px; font-size:12px; }
+.ap-cell input.changed { border-color:var(--accent); }
+.ap-cell.center { align-items:center; }
+.ap-cur { font-size:10px; color:var(--text-dim); }
+#ai-preview .ap-foot { display:flex; justify-content:flex-end; gap:8px; padding:10px 12px; border-top:1px solid var(--border); }
+
+/* ════════════════════ Visual polish ════════════════════ */
+:root {
+  --bg:#121318; --bg-2:#171a23; --bg-3:#20232f; --bg-4:#2b2f40;
+  --border:#2a2e3c; --border-2:#3a4056;
+  --text:#eef0f6; --text-dim:#949ab0;
+  --accent:#8b6bff; --accent-h:#9d82ff;
+  --grad:linear-gradient(135deg,#7c5cff 0%,#4f7cff 55%,#39c4a8 120%);
+}
+body {
+  background:
+    radial-gradient(1100px 380px at 78% -14%, rgba(124,92,255,0.11), transparent 60%),
+    radial-gradient(820px 300px at -5% 0%, rgba(57,196,168,0.06), transparent 55%),
+    var(--bg);
+}
+#root { position:relative; }
+#root::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--grad); z-index:60; }
+
+::-webkit-scrollbar { width:11px; height:11px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--bg-4); border-radius:8px; border:3px solid transparent; background-clip:padding-box; }
+::-webkit-scrollbar-thumb:hover { background:#3c4258; background-clip:padding-box; }
+
+#config-bar { background:linear-gradient(180deg,var(--bg-2),rgba(23,26,35,0.55)); box-shadow:0 1px 0 var(--border); }
+#config-bar .label, .pane-title, .section-title { letter-spacing:0.06em; }
+#toolbar { background:linear-gradient(180deg,rgba(18,19,24,0.55),var(--bg)); }
+
+.btn {
+  background:linear-gradient(180deg,var(--bg-3),var(--bg-2));
+  border:1px solid var(--border); font-weight:500;
+  box-shadow:0 1px 2px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.btn:not(.is-disabled):hover { background:linear-gradient(180deg,var(--bg-4),var(--bg-3)); border-color:var(--border-2); }
+.btn.primary { background:var(--grad); border:none; box-shadow:0 2px 10px rgba(124,92,255,0.35); }
+.btn.primary:not(.is-disabled):hover { filter:brightness(1.08); }
+
+input[type=text], input[type=password] { transition:border-color 0.12s ease, box-shadow 0.12s ease; }
+#search:focus, #ai-intent:focus, #new-config-name:focus,
+.var-row .cell input[type=text]:focus, .ap-cell input[type=text]:focus {
+  box-shadow:0 0 0 3px rgba(124,92,255,0.18);
+}
+
+.pane-title { background:linear-gradient(180deg,var(--bg-2),transparent); color:var(--text-dim); }
+.bp-row { transition:background-color 0.1s ease; }
+.bp-row.selected { background:var(--grad); box-shadow:0 2px 12px rgba(124,92,255,0.32); }
+
+.section-title { position:relative; padding-left:11px; }
+.section-title::before { content:''; position:absolute; left:0; top:1px; bottom:1px; width:3px; border-radius:2px; background:var(--grad); }
+
+.var-row { background:linear-gradient(180deg,var(--bg-2),rgba(23,26,35,0.5)); border:1px solid var(--border); transition:border-color 0.1s ease; }
+.var-row:hover { border-color:var(--border-2); }
+
+.diff-chip { background:linear-gradient(180deg,var(--bg-3),var(--bg-2)); box-shadow:inset 0 1px 0 rgba(255,255,255,0.04); }
+.chip-add:hover { border-style:solid; border-color:var(--accent); color:var(--text); }
+
+#footer { background:linear-gradient(180deg,rgba(18,19,24,0.4),var(--bg-2)); box-shadow:0 -1px 0 var(--border); }
+
+#var-empty { text-align:center; padding:64px 24px 24px; color:var(--text-dim); }
+#var-empty::before { content:'✦'; display:block; font-size:36px; line-height:1;
+  background:var(--grad); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+  opacity:0.85; margin-bottom:14px; }
+</style>
+</head>
+<body>
+<div id="root">
+
+  <div id="config-bar">
+    <span class="label" data-tip="Choose which Difficulty Config data asset this panel edits. The choice is saved to Project Settings.">Config</span>
+    <div id="config-select-host" style="min-width:200px;"></div>
+    <button class="btn" id="btn-new-config" data-tip="Create a new Difficulty Config asset (in /Game) and make it active.">New…</button>
+    <span id="new-config-form" style="display:none; gap:6px; align-items:center;">
+      <input id="new-config-name" type="text" placeholder="DA_DifficultyConfig"
+             style="background:var(--bg-3); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 9px; font-size:12px;" />
+      <button class="btn primary" id="btn-create-config">Create</button>
+      <button class="btn" id="btn-cancel-config">Cancel</button>
+    </span>
+    <span class="spacer"></span>
+    <span class="label" data-tip="Difficulty levels become the value columns for every scaled variable. Edit a name inline, or use + Add / × to manage them.">Difficulties</span>
+    <div class="diff-chips" id="diff-chips"></div>
+  </div>
+
+  <div id="toolbar">
+    <button class="btn" id="btn-toggle-bp" data-tip="Show / hide the Blueprint list to free up space.">☰</button>
+    <button class="btn" id="btn-refresh" data-tip="Reload the Blueprint list and component status from the active config.">↻ Refresh</button>
+    <button class="btn" id="btn-add-bp" data-tip="Pick Blueprint assets to add to this config. You can also drag Blueprints from the Content Browser onto this panel.">+ Add Blueprint</button>
+    <button class="btn is-disabled" id="btn-add-comp" data-tip="Select a Blueprint first, then add a DifficultyScalableComponent so it applies the scaled values at runtime. (✦ marks Blueprints that already have it.)">Add Component</button>
+    <button class="btn danger is-disabled" id="btn-remove-bp" data-tip="Select a Blueprint to remove it (and its scaled variables) from this config.">Remove</button>
+    <button class="btn is-disabled" id="btn-clean" data-tip="Select a Blueprint, then delete saved variables that no longer exist on it — e.g. after a rename or delete (shown with a ⚠).">Clean Orphaned</button>
+    <button class="btn danger is-disabled" id="btn-clear" data-tip="Remove every Blueprint from this config. The Blueprints themselves are not touched.">Clear All</button>
+  </div>
+
+  <div id="body">
+    <div id="bp-pane">
+      <div class="pane-title">Blueprints</div>
+      <div id="bp-list"></div>
+    </div>
+
+    <div id="bp-resizer" data-tip="Drag to resize the Blueprint list."></div>
+
+    <div id="var-pane">
+      <div id="var-controls">
+        <input id="search" type="text" placeholder="Search variables…" data-tip="Filter the scaled-variables list below by name." />
+        <label class="check" data-tip="Also include variables inherited from parent classes/components in the 'Available Variables' tree."><input type="checkbox" id="show-inherited" /> Show Inherited</label>
+      </div>
+      <div id="ai-bar" class="ai-hidden">
+        <input id="ai-intent" type="text" placeholder="Describe the tuning you want, e.g. 'aggressive boss — ramp health & damage hard, keep move speed flat'" />
+        <button class="ai-btn" id="ai-fill" data-tip="Ask AI to propose per-difficulty values for the variables already in the table. You review before anything is applied.">✨ Fill values</button>
+        <button class="ai-btn secondary" id="ai-scan" data-tip="Let AI also pick which of this Blueprint's variables are worth scaling, then propose values. You review before applying.">✨ Suggest what to scale</button>
+        <div id="ai-spinner" class="ai-hidden"></div>
+      </div>
+      <div id="ai-msg" class="ai-hidden"></div>
+      <div id="var-scroll">
+        <div id="ai-preview" class="ai-hidden"></div>
+        <div id="var-empty" class="empty-hint">Select a Blueprint on the left to edit its difficulty-scaled variables.</div>
+        <div id="scaled-host" style="display:none;"></div>
+        <div id="tree-host" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="footer">
+    <div class="links">
+      <a href="#" id="footer-settings" data-tip="API keys, AI setup, plugin info.">⚙ Settings</a>
+      <a href="#" id="footer-docs" data-tip="Open the plugin documentation in your browser.">Docs</a>
+    </div>
+    <div class="footer-cta">
+      <button id="btn-discord" data-tip="Join 2,000+ game devs building with Unreal. Get help, share builds, and request features.">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.444.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.369a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.891.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+        Join 2,000+ devs
+      </button>
+      <button id="btn-upsell" data-tip="Get the full Ultimate Engine Copilot — generate Blueprints, materials, Niagara VFX, behavior trees and more from natural language.">✨ Ultimate Copilot</button>
+    </div>
+  </div>
+</div>
+<div id="tip"></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+// ── Bridge plumbing ───────────────────────────────────────────────────────────
+function appBridge() { return (window.ue && window.ue.app) ? window.ue.app : null; }
+function call(method, ...args) {
+  try {
+    const b = appBridge();
+    if (b && typeof b[method] === 'function') { b[method].apply(b, args); return true; }
+  } catch (e) { console.error('bridge call failed:', method, e); }
+  return false;
+}
+function whenBridgeReady(cb) {
+  let tries = 0;
+  const tick = () => {
+    if (appBridge()) return cb();
+    if (tries++ < 200) return setTimeout(tick, 25);
+  };
+  tick();
+}
+
+function $(id) { return document.getElementById(id); }
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  if (attrs) Object.entries(attrs).forEach(([k, v]) => {
+    if (k === 'class') e.className = v;
+    else if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else if (k.startsWith('on') && typeof v === 'function') e[k.toLowerCase()] = v;
+    else if (v !== null && v !== undefined) e.setAttribute(k, v);
+  });
+  kids.flat().forEach(k => { if (k !== null && k !== undefined) e.append(k.nodeType ? k : document.createTextNode(k)); });
+  return e;
+}
+
+// ── Custom select component ────────────────────────────────────────────────────
+function csel(opts, currentValue, onChange) {
+  const wrap = el('div', { class: 'csel' });
+  const face = el('div', { class: 'csel-face' });
+  const labelSpan = el('span', { class: 'csel-label' });
+  const arrow = el('span', { class: 'csel-arrow' }, '▾');
+  face.append(labelSpan, arrow);
+  const popup = el('div', { class: 'csel-popup' });
+
+  function findLabel(val) { const m = opts.find(o => o[1] === val); return m ? m[0] : (val || ''); }
+  function rebuild() {
+    popup.innerHTML = '';
+    opts.forEach(([lbl, val]) => {
+      const o = el('div', { class: 'csel-opt' + (val === wrap._value ? ' active' : '') }, lbl);
+      o.onclick = (e) => { e.stopPropagation(); setValue(val, true); close(); };
+      popup.appendChild(o);
+    });
+  }
+  function setValue(val, fire) {
+    wrap._value = val; labelSpan.textContent = findLabel(val); rebuild();
+    if (fire && typeof wrap.onChange === 'function') wrap.onChange(val);
+  }
+  function open() { closeAllSelects(); wrap.classList.add('open'); }
+  function close() { wrap.classList.remove('open'); }
+  face.onclick = (e) => { e.stopPropagation(); wrap.classList.contains('open') ? close() : open(); };
+
+  Object.defineProperty(wrap, 'value', { get() { return wrap._value; }, set(v) { setValue(v, false); } });
+  wrap.onChange = onChange || null;
+  wrap.append(face, popup);
+  setValue(currentValue, false);
+  return wrap;
+}
+function closeAllSelects() { document.querySelectorAll('.csel.open').forEach(el => el.classList.remove('open')); }
+document.addEventListener('click', closeAllSelects);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllSelects(); });
+
+// ── State ──────────────────────────────────────────────────────────────────────
+let STATE = { configs: [], activeConfig: '', difficultyNames: [], blueprints: [] };
+let SELECTED_BP = '';
+let SEARCH = '';
+let VAR_DATA = null;       // last onVariableData payload
+let treeReqId = 0;
+const treePending = {};    // requestId -> container DOM element to fill
+
+// ── Config bar ───────────────────────────────────────────────────────────────
+function renderConfigBar() {
+  const host = $('config-select-host');
+  host.innerHTML = '';
+  const opts = STATE.configs.map(c => [c.name, c.path]);
+  if (opts.length === 0) opts.push(['(no config asset — create one →)', '']);
+  const sel = csel(opts, STATE.activeConfig || opts[0][1], (v) => { if (v) call('selectconfig', v); });
+  host.appendChild(sel);
+
+  renderDiffChips();
+  const hasConfig = !!STATE.activeConfig;
+  // Difficulty editing requires a config.
+  $('diff-chips').style.opacity = hasConfig ? '1' : '0.4';
+  $('diff-chips').style.pointerEvents = hasConfig ? 'auto' : 'none';
+}
+
+function renderDiffChips() {
+  const host = $('diff-chips');
+  host.innerHTML = '';
+  (STATE.difficultyNames || []).forEach((name, i) => {
+    const chip = el('div', { class: 'diff-chip' });
+    const inp = el('input', { type: 'text', value: name, 'data-tip': 'Rename this difficulty (press Enter). Existing values keep their column.' });
+    inp.onchange = () => { const v = inp.value.trim(); if (v && v !== name) call('renamedifficulty', i, v); };
+    inp.onkeydown = (e) => { if (e.key === 'Enter') inp.blur(); };
+    const x = el('button', { class: 'x', 'data-tip': 'Remove this difficulty and its value column from every variable.' }, '×');
+    x.onclick = () => call('removedifficultyname', i);
+    chip.append(inp, x);
+    host.appendChild(chip);
+  });
+  const add = el('button', { class: 'chip-add', 'data-tip': 'Add a new difficulty level (a new value column).' }, '+ Add');
+  add.onclick = () => call('adddifficultyname', '');
+  host.appendChild(add);
+}
+
+// ── Blueprint list ───────────────────────────────────────────────────────────
+function renderBlueprints() {
+  const host = $('bp-list');
+  host.innerHTML = '';
+  if (!STATE.activeConfig) {
+    host.appendChild(el('div', { class: 'empty-hint' }, 'No Difficulty Config selected. Pick one above or click "New…" to create one.'));
+    updateToolbar();
+    return;
+  }
+  if (!STATE.blueprints || STATE.blueprints.length === 0) {
+    host.appendChild(el('div', { class: 'empty-hint' }, 'No Blueprints yet. Click "+ Add Blueprint", or drag Blueprint assets from the Content Browser onto this panel.'));
+    updateToolbar();
+    return;
+  }
+  STATE.blueprints.forEach(bp => {
+    const row = el('div', { class: 'bp-row' + (bp.path === SELECTED_BP ? ' selected' : ''),
+      'data-tip': (bp.hasComponent ? '✦ Has DifficultyScalableComponent. ' : '') + 'Click to edit its scaled variables. (' + bp.path + ')' });
+    if (bp.hasComponent) row.append(el('span', { class: 'star' }, '✦'));
+    row.append(el('span', { class: 'tname' }, bp.name));
+    row.onclick = () => selectBp(bp.path);
+    host.appendChild(row);
+  });
+  updateToolbar();
+}
+
+function selectBp(path) {
+  SELECTED_BP = path;
+  hideAiPreview();
+  setAiMsg('');
+  renderBlueprints();
+  call('selectblueprint', path);
+}
+
+function setDisabled(id, dis) { $(id).classList.toggle('is-disabled', !!dis); }
+function isDisabled(id) { return $(id).classList.contains('is-disabled'); }
+function updateToolbar() {
+  const has = !!SELECTED_BP;
+  setDisabled('btn-add-comp', !has);
+  setDisabled('btn-remove-bp', !has);
+  setDisabled('btn-clean', !has);
+  setDisabled('btn-add-bp', !STATE.activeConfig);
+  setDisabled('btn-clear', !(STATE.blueprints && STATE.blueprints.length));
+}
+
+// ── Variable editor ──────────────────────────────────────────────────────────
+function renderVariables() {
+  const empty = $('var-empty'), scaledHost = $('scaled-host'), treeHost = $('tree-host');
+  const hasBp = !!(VAR_DATA && VAR_DATA.blueprint);
+  $('ai-bar').classList.toggle('ai-hidden', !hasBp);
+  if (!hasBp) {
+    empty.style.display = ''; scaledHost.style.display = 'none'; treeHost.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none'; scaledHost.style.display = ''; treeHost.style.display = '';
+  renderScaled();
+  renderTree();
+}
+
+function renderScaled() {
+  const host = $('scaled-host');
+  host.innerHTML = '';
+  const diffs = VAR_DATA.difficultyNames || [];
+  host.appendChild(el('div', { class: 'section-title' }, 'Scaled Variables'));
+
+  if (diffs.length === 0) {
+    host.appendChild(el('div', { class: 'empty-hint' }, 'Add at least one difficulty (top-right) before scaling variables.'));
+    return;
+  }
+
+  const vars = (VAR_DATA.scaledVars || []).filter(v => !SEARCH || v.name.toLowerCase().includes(SEARCH));
+  if (vars.length === 0) {
+    host.appendChild(el('div', { class: 'empty-hint', style: { padding: '8px 2px' } }, 'No scaled variables yet — add some from the list below.'));
+  } else {
+    const head = el('div', { class: 'diff-head' });
+    diffs.forEach(d => head.append(el('div', { class: 'col' }, d)));
+    host.appendChild(head);
+    vars.forEach(v => host.appendChild(buildVarRow(v, diffs.length)));
+  }
+}
+
+function buildVarRow(v, diffCount) {
+  const row = el('div', { class: 'var-row' + (v.valid ? '' : ' orphan') });
+
+  const rm = el('button', { class: 'rm', 'data-tip': 'Remove this variable from difficulty scaling.' }, '×');
+  rm.onclick = () => call('removevariable', v.name);
+  row.append(rm);
+
+  const nameWrap = el('div', { class: 'vname', 'data-tip': (v.valid ? '' : '⚠ This variable no longer exists on the Blueprint. ') + v.name });
+  if (!v.valid) nameWrap.append(el('span', { class: 'warn' }, '⚠'));
+  nameWrap.append(document.createTextNode(shortName(v.name)));
+  row.append(nameWrap);
+
+  for (let i = 0; i < diffCount; i++) {
+    const value = (v.values && v.values[i] !== undefined) ? v.values[i] : '';
+    row.append(buildValueCell(v, i, value));
+  }
+  return row;
+}
+
+function shortName(full) { const p = full.split('.'); return p.length > 1 ? '…' + p[p.length - 1] : full; }
+
+function buildValueCell(v, idx, value) {
+  const cell = el('div', { class: 'cell' });
+  const control = v.control || 'text';
+
+  if (control === 'bool') {
+    cell.classList.add('center');
+    const cb = el('input', { type: 'checkbox' });
+    cb.checked = String(value).toLowerCase() === 'true';
+    cb.onchange = () => call('setvalue', v.name, idx, cb.checked ? 'true' : 'false');
+    cell.append(cb);
+  } else if (control === 'enum') {
+    const opts = (v.options || []).map(o => [o, o]);
+    if (opts.length === 0) opts.push([value || '', value || '']);
+    const sel = csel(opts, value || opts[0][1], (nv) => call('setvalue', v.name, idx, nv));
+    cell.append(sel);
+  } else {
+    const inp = el('input', { type: 'text', value: value });
+    inp.dataset.last = value;
+    if (control === 'numeric') {
+      inp.oninput = () => {
+        if (validNumeric(inp.value, !!v.integer)) { inp.classList.remove('bad'); inp.dataset.last = inp.value; }
+        else { inp.classList.add('bad'); }
+      };
+      inp.onchange = () => {
+        if (!validNumeric(inp.value, !!v.integer)) { inp.value = inp.dataset.last || ''; inp.classList.remove('bad'); }
+        call('setvalue', v.name, idx, inp.value);
+      };
+    } else {
+      inp.onchange = () => call('setvalue', v.name, idx, inp.value);
+    }
+    cell.append(inp);
+  }
+  return cell;
+}
+
+// Mirrors C++ OnVerifyNumericInput.
+function validNumeric(text, integer) {
+  if (text === '') return true;
+  if (text.indexOf('-', 1) !== -1) return false;            // '-' only at start
+  let dots = 0;
+  for (const ch of text) {
+    if (ch === '.') { if (integer) return false; dots++; }
+    else if (!(ch >= '0' && ch <= '9') && ch !== '-') return false;
+  }
+  return dots <= 1;
+}
+
+// ── Available-variable tree ────────────────────────────────────────────────────
+function renderTree() {
+  const host = $('tree-host');
+  host.innerHTML = '';
+  host.appendChild(el('div', { class: 'section-title' }, 'Available Variables To Add'));
+  const treeWrap = el('div', { class: 'tree' });
+  (VAR_DATA.tree || []).forEach(node => treeWrap.appendChild(buildTreeNode(node)));
+  host.appendChild(treeWrap);
+}
+
+function buildTreeNode(node) {
+  const wrap = el('div', { class: 'tnode' });
+  const row = el('div', { class: 'tnode-row' + (node.expandable ? ' container' : '') });
+
+  const caret = el('span', { class: 'caret' + (node.expandable ? '' : ' leaf') }, '▸');
+  const childBox = el('div', { class: 'tchildren' });
+  childBox.style.display = 'none';
+  let loaded = false, openState = false;
+
+  if (node.expandable) {
+    caret.onclick = () => {
+      openState = !openState;
+      caret.textContent = openState ? '▾' : '▸';
+      childBox.style.display = openState ? '' : 'none';
+      if (openState && !loaded) {
+        loaded = true;
+        const rid = ++treeReqId;
+        treePending[rid] = childBox;
+        childBox.appendChild(el('div', { class: 'empty-hint', style: { padding: '4px 2px' } }, 'Loading…'));
+        call('requesttreechildren', node.path, rid);
+      }
+    };
+  }
+  row.append(caret);
+  row.append(el('span', { class: 'ticon' }, node.expandable ? '📁' : '•'));
+  row.append(el('span', { class: 'tname' }, node.name));
+
+  if (node.addable && !node.scaled) {
+    const add = el('button', { class: 'add', 'data-tip': 'Add "' + node.path + '" to the scaled-variables list.' }, '+');
+    add.onclick = () => call('addvariable', node.path);
+    row.append(add);
+  }
+  wrap.append(row, childBox);
+  return wrap;
+}
+
+// ── C++ → JS callbacks ──────────────────────────────────────────────────────────
+window.onInitialState = function (state) {
+  STATE = state || STATE;
+  if (STATE.activeConfig && !SELECTED_BP) { /* keep no selection until user picks */ }
+  // Keep selection only if it still exists.
+  if (SELECTED_BP && !(STATE.blueprints || []).some(b => b.path === SELECTED_BP)) SELECTED_BP = '';
+  renderConfigBar();
+  renderBlueprints();
+};
+
+window.onBlueprintList = function (list) {
+  STATE.blueprints = list || [];
+  if (SELECTED_BP && !STATE.blueprints.some(b => b.path === SELECTED_BP)) SELECTED_BP = '';
+  renderBlueprints();
+};
+
+window.onVariableData = function (data) {
+  VAR_DATA = data || null;
+  // Keep difficulty names in sync (config may have changed them).
+  if (data && data.difficultyNames) STATE.difficultyNames = data.difficultyNames;
+  renderVariables();
+};
+
+window.onTreeChildren = function (requestId, children) {
+  const box = treePending[requestId];
+  if (!box) return;
+  delete treePending[requestId];
+  box.innerHTML = '';
+  if (!children || children.length === 0) {
+    box.appendChild(el('div', { class: 'empty-hint', style: { padding: '4px 2px' } }, '(no editable properties)'));
+    return;
+  }
+  children.forEach(node => box.appendChild(buildTreeNode(node)));
+};
+
+// ── Tooltips ────────────────────────────────────────────────────────────────
+// In-page tooltips: a single floating element positioned via JS (so it's never
+// clipped by scroll containers), driven by event delegation so it also covers
+// dynamically-created buttons. CEF off-screen browsers don't show native title=.
+let _tipTimer = null, _tipTarget = null;
+function showTip(target) {
+  const text = target.getAttribute('data-tip');
+  if (!text) return;
+  const tip = $('tip');
+  tip.textContent = text;
+  tip.classList.add('show');
+  const r = target.getBoundingClientRect();
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let top = r.bottom + 6;
+  if (top + th > window.innerHeight - 4) top = r.top - th - 6;   // flip above if no room below
+  if (top < 4) top = 4;
+  let left = r.left;
+  if (left + tw > window.innerWidth - 4) left = window.innerWidth - tw - 4;
+  if (left < 4) left = 4;
+  tip.style.top = top + 'px';
+  tip.style.left = left + 'px';
+}
+function hideTip() { _tipTarget = null; clearTimeout(_tipTimer); $('tip').classList.remove('show'); }
+function initTooltips() {
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target.closest ? e.target.closest('[data-tip]') : null;
+    if (!t || t === _tipTarget) return;
+    _tipTarget = t;
+    clearTimeout(_tipTimer);
+    _tipTimer = setTimeout(() => { if (_tipTarget === t) showTip(t); }, 350);
+  });
+  document.addEventListener('mouseout', (e) => {
+    const t = e.target.closest ? e.target.closest('[data-tip]') : null;
+    if (t && t === _tipTarget) hideTip();
+  });
+  document.addEventListener('mousedown', hideTip, true);
+  document.addEventListener('scroll', hideTip, true);
+}
+
+// ── AI suggest / preview / apply ──────────────────────────────────────────────
+let AI_ROWS = [];          // [{name, isNew, inputs:[()=>value]}]
+
+function setAiMsg(msg, needsKey) {
+  const box = $('ai-msg');
+  box.innerHTML = '';
+  if (!msg) { box.classList.add('ai-hidden'); return; }
+  box.classList.remove('ai-hidden');
+  box.append(document.createTextNode(msg + ' '));
+  if (needsKey) {
+    const a = el('a', {}, 'Open Settings → AI');
+    a.onclick = () => call('openaisettings');
+    box.append(a);
+  }
+}
+
+function setAiBusy(b) {
+  $('ai-spinner').classList.toggle('ai-hidden', !b);
+  ['ai-fill', 'ai-scan'].forEach(id => { const e = $(id); if (e) e.disabled = b; });
+}
+
+window.onAiThinking = function (b) { setAiBusy(b); if (b) setAiMsg(''); };
+window.onAiError = function (msg, needsKey) { setAiBusy(false); setAiMsg(msg, needsKey); };
+window.onAiSuggestion = function (data) { setAiBusy(false); setAiMsg(''); showAiPreview(data); };
+
+function buildApRow(row, diffCount) {
+  const r = el('div', { class: 'ap-row' });
+  const nameWrap = el('div', { class: 'ap-name', title: row.name });
+  if (row.isNew) nameWrap.append(el('span', { class: 'ap-new' }, 'NEW'));
+  nameWrap.append(document.createTextNode(shortName(row.display || row.name)));
+  r.append(nameWrap);
+
+  const getters = [];
+  for (let i = 0; i < diffCount; i++) {
+    const cell = el('div', { class: 'ap-cell' });
+    const proposed = (row.proposed && row.proposed[i] !== undefined) ? row.proposed[i] : '';
+    const current = (row.current && row.current[i] !== undefined) ? row.current[i] : '';
+    let getVal;
+
+    if (row.control === 'enum') {
+      const opts = (row.options || []).map(o => [o, o]);
+      if (!opts.length) opts.push([proposed, proposed]);
+      const sel = csel(opts, proposed || opts[0][1]);
+      cell.classList.add('center');
+      cell.append(sel);
+      getVal = () => sel.value;
+    } else if (row.control === 'bool') {
+      const cb = el('input', { type: 'checkbox' });
+      cb.checked = String(proposed).toLowerCase() === 'true';
+      cell.classList.add('center');
+      cell.append(cb);
+      getVal = () => (cb.checked ? 'true' : 'false');
+    } else {
+      const inp = el('input', { type: 'text', value: proposed });
+      if (!row.isNew && String(proposed) !== String(current)) inp.classList.add('changed');
+      cell.append(inp);
+      getVal = () => inp.value;
+    }
+    if (!row.isNew && current !== '') cell.append(el('div', { class: 'ap-cur' }, 'was ' + current));
+    getters.push(getVal);
+    r.append(cell);
+  }
+  AI_ROWS.push({ name: row.name, isNew: !!row.isNew, inputs: getters });
+  return r;
+}
+
+function showAiPreview(data) {
+  AI_ROWS = [];
+  const host = $('ai-preview');
+  host.innerHTML = '';
+  host.classList.remove('ai-hidden');
+  const diffs = data.difficultyNames || [];
+
+  const head = el('div', { class: 'ap-head' });
+  head.append(el('div', { class: 'ap-title' }, '✨ AI suggestion — review & apply'));
+  head.append(el('div', { class: 'ap-cur' }, (data.rows || []).length + ' variable(s)'));
+  host.append(head);
+
+  const body = el('div', { class: 'ap-body' });
+  const hr = el('div', { class: 'ap-row' });
+  hr.append(el('div', { class: 'ap-name' }, ''));
+  diffs.forEach(d => hr.append(el('div', { class: 'ap-cell', style: { fontSize: '11px', color: 'var(--text-dim)', textAlign: 'center' } }, d)));
+  body.append(hr);
+  (data.rows || []).forEach(row => body.append(buildApRow(row, diffs.length)));
+  host.append(body);
+
+  const foot = el('div', { class: 'ap-foot' });
+  const discard = el('button', { class: 'ai-btn secondary' }, 'Discard');
+  discard.onclick = hideAiPreview;
+  const apply = el('button', { class: 'ai-btn' }, 'Apply all');
+  apply.onclick = applyAiPreview;
+  foot.append(discard, apply);
+  host.append(foot);
+
+  $('var-scroll').scrollTop = 0;
+}
+
+function hideAiPreview() {
+  AI_ROWS = [];
+  const h = $('ai-preview');
+  h.innerHTML = '';
+  h.classList.add('ai-hidden');
+}
+
+function applyAiPreview() {
+  const rows = AI_ROWS.map(r => ({ name: r.name, isNew: r.isNew, values: r.inputs.map(f => String(f())) }));
+  call('applyaisuggestion', JSON.stringify({ rows }));
+  hideAiPreview();
+}
+
+window.onToast = function (msg, kind) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'show ' + (kind || '');
+  clearTimeout(window._toastT);
+  window._toastT = setTimeout(() => { t.className = (kind || ''); }, 2600);
+};
+
+// ── Resizable blueprint pane ──────────────────────────────────────────────────
+function initBpResizer() {
+  const resizer = $('bp-resizer');
+  if (!resizer) return;
+  let dragging = false, startX = 0, startW = 0;
+
+  resizer.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startW = $('bp-pane').offsetWidth || 240;
+    resizer.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const w = Math.max(150, Math.min(600, startW + (e.clientX - startX)));
+    $('body').style.setProperty('--bp-width', w + 'px');
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('dragging');
+    document.body.style.userSelect = '';
+  });
+}
+
+// ── Wire up ──────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initTooltips();
+  $('btn-refresh').onclick   = () => call('refreshlist');
+  $('btn-add-bp').onclick    = () => { if (!isDisabled('btn-add-bp')) call('addblueprints'); };
+  $('btn-add-comp').onclick  = () => { if (SELECTED_BP && !isDisabled('btn-add-comp')) call('addcomponent', SELECTED_BP); };
+  $('btn-remove-bp').onclick = () => { if (SELECTED_BP && !isDisabled('btn-remove-bp')) call('removeblueprint', SELECTED_BP); };
+  $('btn-clean').onclick     = () => { if (SELECTED_BP && !isDisabled('btn-clean')) call('cleanorphans'); };
+  $('btn-clear').onclick     = () => { if (!isDisabled('btn-clear')) call('clearall'); };
+
+  $('btn-new-config').onclick = () => {
+    $('new-config-form').style.display = 'inline-flex';
+    $('btn-new-config').style.display = 'none';
+    $('new-config-name').focus();
+  };
+  $('btn-cancel-config').onclick = () => {
+    $('new-config-form').style.display = 'none';
+    $('btn-new-config').style.display = '';
+    $('new-config-name').value = '';
+  };
+  $('btn-create-config').onclick = () => {
+    const name = $('new-config-name').value.trim();
+    call('createconfig', name);
+    $('btn-cancel-config').onclick();
+  };
+  $('new-config-name').onkeydown = (e) => { if (e.key === 'Enter') $('btn-create-config').onclick(); };
+
+  $('search').oninput = () => { SEARCH = $('search').value.trim().toLowerCase(); renderScaled(); };
+  $('show-inherited').onchange = () => call('setshowinherited', $('show-inherited').checked);
+
+  const runAi = (allowAdd) => {
+    const intent = $('ai-intent').value.trim();
+    setAiMsg('');
+    call('aisuggest', intent, allowAdd);
+  };
+  $('ai-fill').onclick = () => runAi(false);
+  $('ai-scan').onclick = () => runAi(true);
+  $('ai-intent').onkeydown = (e) => { if (e.key === 'Enter') runAi(false); };
+
+  $('btn-toggle-bp').onclick  = () => $('body').classList.toggle('bp-collapsed');
+  initBpResizer();
+  $('footer-settings').onclick = (e) => { e.preventDefault(); call('openaisettings'); };
+  $('footer-docs').onclick    = (e) => { e.preventDefault(); call('openexternalurl', 'https://docs.google.com/document/d/14kw-G2m-_DMMXEQz3Q5luojD7So6WN8JWKx2yGPKVzo/edit?usp=sharing'); };
+  $('btn-discord').onclick    = () => call('openexternalurl', 'https://discord.gg/w65xMuxEhb');
+  $('btn-upsell').onclick     = () => call('openupsell');
+
+  whenBridgeReady(() => call('requestinitialstate'));
+});
+</script>
+</body>
+</html>
