@@ -496,12 +496,48 @@ void UAFLAG_Hitscan_Base::OnTargetDataReadyCallback(const FGameplayAbilityTarget
 			const FGameplayAbilityTargetData* Raw = LocalHandle.Get(i);
 			if (!Raw || Raw->GetScriptStruct() != FAFLAbilityTargetData_Hitscan::StaticStruct()) continue;
 			const FAFLAbilityTargetData_Hitscan* TD = static_cast<const FAFLAbilityTargetData_Hitscan*>(Raw);
-			FGameplayCueParameters TracerParams;
-			TracerParams.Location = FVector(TD->ClaimedMuzzleLocation); TracerParams.Instigator = AvatarPawn; TracerParams.SourceObject = Src;
-			FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
-			Ctx.AddHitResult(TD->HitResult);
-			TracerParams.EffectContext = Ctx;
-			K2_ExecuteGameplayCueWithParams(TAG_GC_Tracer_HB, TracerParams);
+			const FVector TracerMuzzle = FVector(TD->ClaimedMuzzleLocation);
+			const FVector TracerImpact = TD->HitResult.ImpactPoint;
+
+			// CONVERGING TRACER FAN (cosmetic): re-execute the SAME tracer cue N times from muzzle-OFFSET
+			// origins, all carrying the SAME HitResult -- so N tracers converge on the one confirmed impact.
+			// ⚠ This adds no target data and no hit: the damage loop below iterates LocalHandle, which is
+			// untouched here. At the default count of 1 the offset is zero and this is byte-identical to the
+			// pre-fan single execution, which is why the shared cue is safe for every other tracer user.
+			const int32 FanN = FMath::Clamp(ConvergeFanCount, 1, 12);
+			FVector FanRight = FVector::ZeroVector, FanUp = FVector::ZeroVector;
+			if (FanN > 1 && ConvergeFanRadius > KINDA_SMALL_NUMBER)
+			{
+				const FVector Axis = (TracerImpact - TracerMuzzle).GetSafeNormal();
+				if (!Axis.IsNearlyZero())
+				{
+					FanRight = FVector::CrossProduct(Axis, FVector::UpVector);
+					if (FanRight.IsNearlyZero())
+					{
+						FanRight = FVector::CrossProduct(Axis, FVector::ForwardVector);   // firing straight up/down
+					}
+					FanRight = FanRight.GetSafeNormal();
+					FanUp    = FVector::CrossProduct(FanRight, Axis).GetSafeNormal();
+				}
+			}
+
+			for (int32 F = 0; F < FanN; ++F)
+			{
+				FVector Offset = FVector::ZeroVector;
+				if (FanN > 1 && !FanRight.IsNearlyZero())
+				{
+					// N==2 falls out of the ring as the symmetric pair (theta 0 and PI = +/-Right).
+					const float Theta = (2.0f * PI * static_cast<float>(F)) / static_cast<float>(FanN);
+					Offset = (FanRight * FMath::Cos(Theta) + FanUp * FMath::Sin(Theta)) * ConvergeFanRadius;
+				}
+				FGameplayCueParameters TracerParams;
+				TracerParams.Location = TracerMuzzle + Offset;   // ORIGIN differs...
+				TracerParams.Instigator = AvatarPawn; TracerParams.SourceObject = Src;
+				FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
+				Ctx.AddHitResult(TD->HitResult);                 // ...ENDPOINT is shared == the convergence
+				TracerParams.EffectContext = Ctx;
+				K2_ExecuteGameplayCueWithParams(TAG_GC_Tracer_HB, TracerParams);
+			}
 		}
 	}
 

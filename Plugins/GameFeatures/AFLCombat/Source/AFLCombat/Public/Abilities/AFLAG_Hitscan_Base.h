@@ -163,6 +163,31 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire"))
 	bool bLogAutoFireCadence = false;
 
+	/**
+	 * COSMETIC CONVERGING TRACER FAN -- the hitscan counterpart of the beam fan. Draws N tracers from
+	 * muzzle-OFFSET origins to the SAME confirmed impact point, so they converge on the crosshair target.
+	 *
+	 * ⚠ PURELY COSMETIC. Gameplay is untouched: the ability still runs ONE trace and applies ONE hit's
+	 * damage. This only re-executes the EXISTING tracer cue with a shifted origin -- it never adds target
+	 * data, never adds a hit, and cannot multiply damage. (The spread->converge ruling: gameplay owns the
+	 * trace, cosmetics own the beam.)
+	 *
+	 * ⚠ NO NEW CUE TAG NEEDED. Other tracer users (Pulse, Charge, Railgun, SMG, Flak) leave this at 1, so
+	 * they execute the cue exactly once as before -- byte-identical. The gate is the COUNT, not the tag,
+	 * which is why this does not disturb the shared GCN_AFL_Pulse_Tracer.
+	 *
+	 *   1     = single tracer (default, unchanged behaviour)
+	 *   2     = symmetric pair on the lateral axis
+	 *   3..12 = evenly spaced ring around the shot axis
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|ConvergeFan", meta=(ClampMin="1", ClampMax="12"))
+	int32 ConvergeFanCount = 1;
+
+	/** Fan origin radius (cm) around the muzzle, perpendicular to the muzzle->impact axis. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|ConvergeFan",
+		meta=(EditCondition="ConvergeFanCount > 1", ClampMin="0.0"))
+	float ConvergeFanRadius = 6.0f;
+
 private:
 
 	/** The shared fire path: trace -> pack handle -> ship -> (authority) apply. Called on activate (instant) or release (charge). */
