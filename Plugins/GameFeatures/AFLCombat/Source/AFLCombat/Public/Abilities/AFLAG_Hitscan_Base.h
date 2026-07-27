@@ -123,12 +123,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto")
 	bool bAutoFire = false;
 
-	/** Fire interval at zero heat -- the COLD RPM (0.15s = 400 RPM). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.02"))
+	/** Fire interval at zero heat -- the COLD RPM (0.15s = 400 RPM). Floor 0.01 = 6000 RPM; note the timer
+	 *  manager cannot beat one frame, so below ~0.0167 the effective rate is frame-capped, not interval-capped. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.01"))
 	float ColdFireInterval = 0.15f;
 
 	/** Fire interval at max heat -- the HOT RPM (0.067s = ~900 RPM). Interval Lerps Cold->Hot as HeatNorm 0->1. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.02"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.01"))
 	float HotFireInterval = 0.067f;
 
 	/** Heat added per shot [0..1]. MUST exceed HeatDecayPerSec*ColdFireInterval so a HELD burst heats even from cold. */
@@ -148,6 +149,19 @@ protected:
 	/** Third-person fire montage (trigger-pull + kick), fire-and-forget like Pulse. BP child may override. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|FX")
 	TObjectPtr<UAnimMontage> CharacterFireMontage;
+
+	/** AUTO-FIRE CADENCE FEEL. Auto-shots historically played NO montage (restarting a ~0.5s clip every
+	 *  0.15s read as jank), so the visible cadence came only from the burst muzzle/tracer cues -- which
+	 *  saturate, making a fast RPM still look slow. With this > 0 each auto-shot replays the montage with
+	 *  PlayRate = (MontageLength / FireInterval) * this, so one play fits inside one shot cycle and the
+	 *  recoil visibly tracks the RPM. 0 = legacy (no montage on auto-shots). Start at 1.0. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.0"))
+	float AutoFireMontageRateScale = 0.0f;
+
+	/** DIAGNOSTIC: log the MEASURED auto-fire cadence (shots/sec + the interval being scheduled) once per
+	 *  second while held. Answers "is the rate actually changing?" without eyeballing it. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire"))
+	bool bLogAutoFireCadence = false;
 
 private:
 
@@ -198,6 +212,9 @@ private:
 	// the fire cadence is a client-feel thing; the server independently ramps its own copy per received shot
 	// for the authoritative overheat lockout.
 	FTimerHandle AutoFireTimerHandle;
+	// bLogAutoFireCadence window: shots counted since CadenceWindowStartSeconds, flushed once per second.
+	int32  AutoShotsThisWindow = 0;
+	double CadenceWindowStartSeconds = 0.0;
 	float  HeatNorm = 0.0f;
 	double LastShotTimeSeconds = 0.0;
 	bool   bOverheated = false;

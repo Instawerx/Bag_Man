@@ -186,6 +186,9 @@ void UAFLAG_Hitscan_Base::OnChargeInputReleased(float /*TimeHeld*/)
 void UAFLAG_Hitscan_Base::StartAutoFire()
 {
 	bOverheated = false;
+	// Fresh cadence window per burst (the counter is InstancedPerActor state and would otherwise carry over).
+	AutoShotsThisWindow       = 0;
+	CadenceWindowStartSeconds = 0.0;
 	// LOCAL CLIENT ONLY: the fire timer + input-release gate are client-driven. On the server (a remote
 	// client's ability instance) there is no local input -- it processes the replicated shots as they arrive
 	// and ends when the client's EndAbility replicates.
@@ -209,12 +212,52 @@ void UAFLAG_Hitscan_Base::AutoFireTick()
 		return;
 	}
 	// One shot WITHOUT Fire()'s bFired guard / per-shot CommitAbility -- the timer + overheat gate the rate,
-	// not a cooldown GE. The fire montage is intentionally NOT played per auto-shot (restarting it every
-	// ~0.1s reads as jank; the per-shot muzzle+tracer cues carry the FX -- a looping fire montage is a later
-	// polish pass). ClientPredictAndSend -> OnTargetDataReadyCallback ramps HeatNorm (and may set bOverheated).
+	// not a cooldown GE. ClientPredictAndSend -> OnTargetDataReadyCallback ramps HeatNorm (and may set bOverheated).
+	const float Interval = CurrentFireInterval();
 	if (CurrentActorInfo && CurrentActorInfo->IsLocallyControlled())
 	{
 		ClientPredictAndSend();
+
+		// AUTO-FIRE CADENCE FEEL (AutoFireMontageRateScale > 0). The montage was historically skipped on
+		// auto-shots, so the only visible cadence came from the burst muzzle/tracer cues -- and those saturate,
+		// which is why raising the RPM did NOT read as faster on screen. Replaying the montage per shot with
+		// PlayRate scaled to the interval makes one play fit one shot cycle, so the recoil tracks the real RPM
+		// instead of a fixed-length clip. Rate is clamped so a very short interval can't drive an absurd rate.
+		if (AutoFireMontageRateScale > 0.0f && CharacterFireMontage
+			&& CurrentActorInfo->AbilitySystemComponent.IsValid())
+		{
+			const float MontageLen = FMath::Max(CharacterFireMontage->GetPlayLength(), KINDA_SMALL_NUMBER);
+			const float PlayRate   = FMath::Clamp((MontageLen / FMath::Max(Interval, KINDA_SMALL_NUMBER))
+				* AutoFireMontageRateScale, 0.1f, 8.0f);
+			CurrentActorInfo->AbilitySystemComponent->PlayMontage(
+				this, CurrentActivationInfo, CharacterFireMontage, PlayRate);
+		}
+
+		// DIAGNOSTIC: measured cadence, flushed once per second. This is the ground truth for "did the RPM
+		// actually change?" -- the scheduled interval AND the shots that really landed in the last second.
+		if (bLogAutoFireCadence)
+		{
+			if (const UWorld* World = GetWorld())
+			{
+				const double Now = World->GetTimeSeconds();
+				if (CadenceWindowStartSeconds <= 0.0)
+				{
+					CadenceWindowStartSeconds = Now;
+				}
+				++AutoShotsThisWindow;
+				const double Elapsed = Now - CadenceWindowStartSeconds;
+				if (Elapsed >= 1.0)
+				{
+					UE_LOG(LogAFLCombat, Log,
+						TEXT("AFL_AUTOFIRE_CADENCE: %s -> %.1f shots/sec (%.0f RPM) | scheduled interval %.4fs (%.0f RPM) | HeatNorm %.2f"),
+						*GetNameSafe(GetAvatarActorFromActorInfo()),
+						AutoShotsThisWindow / Elapsed, (AutoShotsThisWindow / Elapsed) * 60.0,
+						Interval, 60.0f / FMath::Max(Interval, KINDA_SMALL_NUMBER), HeatNorm);
+					AutoShotsThisWindow = 0;
+					CadenceWindowStartSeconds = Now;
+				}
+			}
+		}
 	}
 	if (bOverheated)
 	{
@@ -223,7 +266,7 @@ void UAFLAG_Hitscan_Base::AutoFireTick()
 	}
 	if (UWorld* World = GetWorld())
 	{
-		World->GetTimerManager().SetTimer(AutoFireTimerHandle, this, &ThisClass::AutoFireTick, CurrentFireInterval(), /*bLoop=*/false);
+		World->GetTimerManager().SetTimer(AutoFireTimerHandle, this, &ThisClass::AutoFireTick, Interval, /*bLoop=*/false);
 	}
 }
 
