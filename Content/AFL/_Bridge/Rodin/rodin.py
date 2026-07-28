@@ -90,16 +90,14 @@ def submit(a):
     if a.prompt:            fields.append(("prompt", a.prompt))
     if a.seed is not None:  fields.append(("seed", str(a.seed)))
     if a.polycount is not None: fields.append(("quality_override", str(a.polycount)))
-    if a.highpack:          fields.append(("addons", "HighPack"))   # 4K + 16x faces (Quad); +1 cr
+    if a.highpack:          fields.append(("addons", "HighPack"))   # plain field (NOT json) -- proven working; 4K+16x faces
     if a.hd_texture:        fields.append(("hd_texture", "true"))
     if a.delight:           fields.append(("texture_delight", "true"))
     if a.micro:             fields.append(("is_micro", "true"))      # Extreme-High only
     if a.preview:           fields.append(("preview_render", "true"))
-    for lbl in (a.label or []):
-        fields.append(("image_label", lbl))    # order must match --image order
-    if a.bbox:
-        for v in a.bbox:                        # [Y, Z, X]
-            fields.append(("bbox_condition", str(v)))
+    # image_label / bbox_condition are JSON.parse()d server-side -> send as JSON strings (a lone "R" is invalid JSON)
+    if a.label:             fields.append(("image_label", json.dumps(a.label)))   # order matches --image order
+    if a.bbox:              fields.append(("bbox_condition", json.dumps([int(v) for v in a.bbox])))  # [Y, Z, X]
 
     # multipart parts: text fields -> (None, value) ; images -> (fname, fh, mime)
     parts = [(k, (None, v)) for k, v in fields]
