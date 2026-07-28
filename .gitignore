@@ -125,3 +125,14 @@ Config/Custom/EOS/DefaultEngine.ini
 /Content/AFL/_Bridge/Blender/pending/
 /Content/_BridgeTest/
 /Content/BagMan/_BridgeTest/
+
+# --- transient: crash evidence (never commit) ---
+Tools/_crash_evidence/
+*.dmp
+
+# --- vendor archives: extract, never commit (zip is bloat risk) ---
+Tools/*.zip
+
+# --- Tripo authoring masters (BM-WEAPON-002: kept uncommitted by design) ---
+/Content/BagMan/Equipment/Generated/SM_AFL_PulseCarbine_v1/
+/Content/BagMan/Equipment/Generated/SM_AFL_PulseCarbine_v2_parts/
