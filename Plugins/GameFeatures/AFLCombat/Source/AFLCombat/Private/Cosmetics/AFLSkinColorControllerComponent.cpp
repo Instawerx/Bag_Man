@@ -456,6 +456,10 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 		WeaponTrackedPawn = Pawn;
 		SelectedWeaponInstance = nullptr;
 		EquippedWeaponId = NAME_None;
+		// DUAL-MOUNT: drop the LEFT-hand tracking too so a respawn re-equips both cannons clean (shared tracking
+		// with RefreshHandCannonsForPawn, which is only ever dispatched from below).
+		SelectedLeftWeaponInstance = nullptr;
+		EquippedLeftWeaponId = NAME_None;
 	}
 
 	// Read the selected WeaponId off the PAWN's PlayerState first (respawn-race-safe -- the exact PS resolution
@@ -468,6 +472,25 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 	// STORE PREVIEW: the effective selection is the preview override if set, else the committed loadout.
 	const FAFLCosmeticSelection* EffSel = GetEffectiveSelection(SelectionPS);
 	const FName WeaponId = EffSel ? EffSel->WeaponId : NAME_None;
+	const FName LeftWeaponId = EffSel ? EffSel->LeftWeaponId : NAME_None;
+
+	// DUAL-MOUNT DISPATCH (Hand-Cannon line): a LEFT weapon set -> the akimbo body that holds BOTH cannons at once
+	// (D2/D3). Every single-held gun leaves LeftWeaponId == NAME_None and never enters here, so the single path
+	// below stays byte-identical. Reached AFTER the authority gate + bot skip + new-pawn reset above.
+	if (LeftWeaponId != NAME_None)
+	{
+		RefreshHandCannonsForPawn(Pawn, WeaponId, LeftWeaponId);
+		return;
+	}
+
+	// DUAL->SINGLE transition: we WERE holding a left cannon but the selection dropped it (back to a single gun).
+	// The single replace below unequips ALL ranged (which includes the now-orphaned left cannon), so the gun ends
+	// up alone -- just clear the stale left tracking here so it doesn't linger as a false idempotency key.
+	if (EquippedLeftWeaponId != NAME_None)
+	{
+		SelectedLeftWeaponInstance = nullptr;
+		EquippedLeftWeaponId = NAME_None;
+	}
 
 	// IDEMPOTENT: already realized this WeaponId on this pawn -> no-op. The dual spine re-runs (possession + OnRep
 	// + nudge) MUST NOT re-equip/stack. A dropped instance (id set but the instance went stale) falls through ->
@@ -563,6 +586,119 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 				AttachParent ? *AttachParent->GetName() : TEXT("<none>"),
 				Root ? *Root->GetAttachSocketName().ToString() : TEXT("<none>"));
 		}
+	}
+}
+
+void UAFLSkinColorControllerComponent::RefreshHandCannonsForPawn(APawn* Pawn, FName RightWeaponId, FName LeftWeaponId)
+{
+	// DUAL-MOUNT body (Hand-Cannon line). Reached ONLY from RefreshWeaponForPawn when LeftWeaponId != NAME_None,
+	// AFTER its authority gate + bot skip + new-pawn reset -- so Pawn is valid, we are the server, this is a player
+	// pawn, and WeaponTrackedPawn == Pawn (tracking is fresh on a respawn). This holds BOTH cannons at once (D2
+	// both-at-once / D3 one-trigger-per-hand): a TARGETED unequip that keeps our two tracked instances, then an
+	// independent equip/replace per hand. NOTHING here runs for single-held guns -- they never carry a LeftWeaponId.
+	ULyraEquipmentManagerComponent* EquipMgr = Pawn->FindComponentByClass<ULyraEquipmentManagerComponent>();
+	if (!EquipMgr)
+	{
+		// Equipment manager not ready this early in possession -> bail; the spine re-drives later (OnRep / next
+		// possession), the same idempotent re-apply the single path relies on. Leave tracking so the retry re-resolves.
+		return;
+	}
+
+	// Resolve BOTH definitions BEFORE tearing anything down (fail SAFE + LOUD, exactly like the single path): a
+	// per-hand catalog/carrier MISS keeps that hand's current cannon and never strips the other hand.
+	auto ResolveEquipDef = [this](FName WeaponId) -> TSubclassOf<ULyraEquipmentDefinition>
+	{
+		if (WeaponId == NAME_None)
+		{
+			return nullptr;
+		}
+		if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+		{
+			// UNIFORM resolution (D1): ResolveAsset -> the UAFLWeaponCosmeticAsset carrier -> EquipmentDefinition.
+			if (const UAFLWeaponCosmeticAsset* WeaponAsset =
+					Cast<UAFLWeaponCosmeticAsset>(Catalog->ResolveAsset(WeaponId)))
+			{
+				return WeaponAsset->EquipmentDefinition.LoadSynchronous();
+			}
+		}
+		return nullptr;
+	};
+	const TSubclassOf<ULyraEquipmentDefinition> RightDef = ResolveEquipDef(RightWeaponId);
+	const TSubclassOf<ULyraEquipmentDefinition> LeftDef = ResolveEquipDef(LeftWeaponId);
+
+	// TARGETED UNEQUIP -- the divergence from the single path's D2 "unequip ALL". Drop every ranged instance that
+	// is NOT one of our two tracked cannons: this removes the hero default primary + any stale prior selection, but
+	// KEEPS the other hand alive so equipping/refreshing one cannon never tears down the other (D2 coexist, not
+	// replace). The attach socket (weapon_lowerarm_r / _l) is DATA on each cannon's EquipmentDefinition (AIK) -- not
+	// set here; both hands share this one equip rail.
+	for (ULyraEquipmentInstance* Existing : EquipMgr->GetEquipmentInstancesOfType(ULyraRangedWeaponInstance::StaticClass()))
+	{
+		if (!Existing)
+		{
+			continue;
+		}
+		if (Existing == SelectedWeaponInstance.Get() || Existing == SelectedLeftWeaponInstance.Get())
+		{
+			continue; // one of ours -> keep (this is exactly what makes the two coexist)
+		}
+		EquipMgr->UnequipItem(Existing);
+	}
+
+	// RIGHT hand -- (re)equip when the id changed OR the tracked instance went stale (self-heal parity with the
+	// single path). A resolve MISS records the id (no re-resolve churn beyond the warning) and keeps whatever holds.
+	if (RightWeaponId != EquippedWeaponId || (RightWeaponId != NAME_None && !SelectedWeaponInstance.IsValid()))
+	{
+		if (RightDef)
+		{
+			if (SelectedWeaponInstance.IsValid())
+			{
+				EquipMgr->UnequipItem(SelectedWeaponInstance.Get());
+			}
+			SelectedWeaponInstance = EquipMgr->EquipItem(RightDef);
+			EquippedWeaponId = RightWeaponId;
+		}
+		else if (RightWeaponId != NAME_None) // MISS -> keep current hand, don't strip
+		{
+			if (AFLSkinDiag::IsOn())
+			{
+				UE_LOG(LogAFLSkinDiag, Warning, TEXT("%s%s : RefreshHandCannons R weaponId=%s MISS (no carrier/EquipDef) -> hand kept"),
+					*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *RightWeaponId.ToString());
+			}
+			EquippedWeaponId = RightWeaponId;
+		}
+	}
+
+	// LEFT hand -- symmetric to the right, against the parallel left-hand tracking.
+	if (LeftWeaponId != EquippedLeftWeaponId || (LeftWeaponId != NAME_None && !SelectedLeftWeaponInstance.IsValid()))
+	{
+		if (LeftDef)
+		{
+			if (SelectedLeftWeaponInstance.IsValid())
+			{
+				EquipMgr->UnequipItem(SelectedLeftWeaponInstance.Get());
+			}
+			SelectedLeftWeaponInstance = EquipMgr->EquipItem(LeftDef);
+			EquippedLeftWeaponId = LeftWeaponId;
+		}
+		else if (LeftWeaponId != NAME_None) // MISS -> keep current hand, don't strip
+		{
+			if (AFLSkinDiag::IsOn())
+			{
+				UE_LOG(LogAFLSkinDiag, Warning, TEXT("%s%s : RefreshHandCannons L weaponId=%s MISS (no carrier/EquipDef) -> hand kept"),
+					*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *LeftWeaponId.ToString());
+			}
+			EquippedLeftWeaponId = LeftWeaponId;
+		}
+	}
+
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : RefreshHandCannons R=%s L=%s -> Rinst=%s Linst=%s"),
+			*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
+			(RightWeaponId != NAME_None) ? *RightWeaponId.ToString() : TEXT("<none>"),
+			(LeftWeaponId != NAME_None) ? *LeftWeaponId.ToString() : TEXT("<none>"),
+			SelectedWeaponInstance.IsValid() ? *SelectedWeaponInstance->GetName() : TEXT("none"),
+			SelectedLeftWeaponInstance.IsValid() ? *SelectedLeftWeaponInstance->GetName() : TEXT("none"));
 	}
 }
 

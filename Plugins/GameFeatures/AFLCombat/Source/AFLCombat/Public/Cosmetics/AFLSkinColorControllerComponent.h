@@ -75,6 +75,19 @@ public:
 	 */
 	void RefreshWeaponForPawn(APawn* Pawn);
 
+	/**
+	 * DUAL-MOUNT (Hand-Cannon line) spine body -- engaged ONLY when the selection carries a LeftWeaponId
+	 * (arm-worn pair). RefreshWeaponForPawn dispatches here BEFORE its single-held logic, so the 7 existing
+	 * projectile/beam/pulse guns + every single gun are byte-identical (LeftWeaponId == NAME_None -> never here).
+	 *
+	 * Divergence from D2 (the single path unequips ALL ranged, "replace the primary"): this holds TWO at once
+	 * (D2 both-at-once / D3 one-trigger-per-hand). It does a TARGETED unequip -- it drops every ranged instance
+	 * that is NOT one of our two tracked cannons (removes the hero default primary + any stale), then equips/
+	 * replaces each hand independently. The attach socket (weapon_lowerarm_r / _l) is DATA on each cannon's
+	 * EquipmentDefinition (AIK), not set here. Authority-only, server-tracked (mirrors RefreshWeaponForPawn).
+	 */
+	void RefreshHandCannonsForPawn(APawn* Pawn, FName RightWeaponId, FName LeftWeaponId);
+
 	/** AUTHORITY-spine (const; NOT authority-gated in the body -- SetWeaponSkin's HasAuthority guard + OnRep
 	 *  handle clients, exactly like RefreshFacemaskForPawn): consume the INDEPENDENT WeaponSkinId axis
 	 *  (FAFLCosmeticSelection.WeaponSkinId, "AFL.WeaponSkin.<Pattern>.<Color>" -- a weapon skin is its OWN owned
@@ -160,6 +173,12 @@ private:
 	TWeakObjectPtr<ULyraEquipmentInstance> SelectedWeaponInstance;
 	/** The WeaponId currently realized on WeaponTrackedPawn (idempotency key; NAME_None = none). */
 	FName EquippedWeaponId = NAME_None;
+
+	// --- DUAL-MOUNT (Hand-Cannon) LEFT-hand tracking -- parallel to the right-hand pair above. Only ever set by
+	// RefreshHandCannonsForPawn; the single-held path leaves these NAME_None/null (and clears them on dual->single). ---
+	TWeakObjectPtr<ULyraEquipmentInstance> SelectedLeftWeaponInstance;
+	/** The LeftWeaponId currently realized on WeaponTrackedPawn (idempotency key; NAME_None = none/single-held). */
+	FName EquippedLeftWeaponId = NAME_None;
 
 	// --- STORE PREVIEW override (front-end try-before-buy) ---
 	/** When set, the Refresh*ForPawn read THIS instead of the committed loadout selection. Unset -> the normal

@@ -70,9 +70,15 @@ struct FAFLCosmeticSelection
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
 	FName HelmetId = NAME_None;
 
-	/** AFL.Weapon.<Name>. Axis taxonomy generalizes in S-ECON-CAT. */
+	/** AFL.Weapon.<Name>. Axis taxonomy generalizes in S-ECON-CAT. RIGHT hand when a dual (arm-worn) pair is set. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
 	FName WeaponId = NAME_None;
+
+	/** AFL.Weapon.<Name> for the LEFT hand. NAME_None (default) = single-held path (WeaponId is the only weapon,
+	 *  every existing gun stays byte-identical). Set ONLY for ARM-WORN Hand-Cannon pairs -> the dual-mount path
+	 *  (RefreshHandCannonsForPawn) holds BOTH cannons at once (D2/D3), never unequipping the other hand. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
+	FName LeftWeaponId = NAME_None;
 
 	/** AFL.WeaponSkin.<Pattern>.<Color>. INDEPENDENT weapon-skin axis (parallel to BeamId): a skin is its OWN
 	 *  owned item that applies to ANY equipped weapon, OVERRIDING the weapon's baked original color -- NOT the
