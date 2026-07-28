@@ -194,6 +194,11 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	if (Requested.BodyId   != NAME_None && AxisEntitled(Requested.BodyId))   { NewSelection.BodyId   = Requested.BodyId;   }
 	if (Requested.HelmetId != NAME_None && AxisEntitled(Requested.HelmetId)) { NewSelection.HelmetId = Requested.HelmetId; }
 	if (Requested.WeaponId != NAME_None && AxisEntitled(Requested.WeaponId)) { NewSelection.WeaponId = Requested.WeaponId; }
+	// LEFT-hand (dual-mount Hand-Cannon) axis: takes the FACEMASK shape, NOT the WeaponId shape -- NAME_None is a
+	// MEANINGFUL un-equip (SetLeftWeapon none drops the left cannon back to the single-held path), so the request's
+	// LeftWeaponId ALWAYS overwrites (entitlement gates a non-None equip; clearing needs none). Without this copy the
+	// server dropped LeftWeaponId, RefreshWeaponForPawn never saw it, and the dual dispatch never fired.
+	if (Requested.LeftWeaponId == NAME_None || AxisEntitled(Requested.LeftWeaponId)) { NewSelection.LeftWeaponId = Requested.LeftWeaponId; }
 	if (Requested.WeaponSkinId != NAME_None && AxisEntitled(Requested.WeaponSkinId)) { NewSelection.WeaponSkinId = Requested.WeaponSkinId; }
 	if (Requested.BeamId   != NAME_None && AxisEntitled(Requested.BeamId))   { NewSelection.BeamId   = Requested.BeamId;   }
 	// FACEMASK axis: equip a NEW facemask (entitled, non-None), OR un-equip when the request is explicitly
