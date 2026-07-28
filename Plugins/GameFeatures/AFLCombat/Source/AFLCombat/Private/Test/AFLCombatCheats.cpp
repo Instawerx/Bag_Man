@@ -2207,6 +2207,70 @@ namespace
 		TEXT("WEAPON-EQUIP axis: client-issued PURE caller of ServerSetCosmeticSelection (sets WeaponId -> REPLACES the equipped weapon via RefreshWeaponForPawn). Usage: afl.Cosmetic.SetWeapon <Name> (e.g. BigSixx, Akuma, or full AFL.Weapon.<Name>). Always available -- unlike the afl.Cosmetic.SetCosmeticWeapon Exec, which only routes when Lyra's cheat manager is active."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetWeapon));
 
+	// --- DUAL-MOUNT LEFT-hand seam: afl.Cosmetic.SetLeftWeapon <Name> (the NEW LeftWeaponId axis) ---
+	// MIRRORS HandleAFLCosmeticSetWeapon EXACTLY, but sets LeftWeaponId -- the field that engages the arm-worn
+	// Hand-Cannon dual path (RefreshWeaponForPawn dispatches to RefreshHandCannonsForPawn WHENEVER LeftWeaponId is
+	// set). The RIGHT hand is still WeaponId: set it FIRST with afl.Cosmetic.SetWeapon (or leave the current
+	// selection's WeaponId), then this adds the left cannon so BOTH coexist. Pass "none"/"clear" to drop the left
+	// hand back to the single-held path. Test harness for the dual-mount PIE (HANDOFF_AIK_HANDCANNON_DUALMOUNT.md).
+	void HandleAFLCosmeticSetLeftWeapon(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 1)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetLeftWeapon - usage: afl.Cosmetic.SetLeftWeapon <HandCannon.FANATICS.L | ... | none> (or full AFL.Weapon.<Name>). Set the RIGHT hand first with afl.Cosmetic.SetWeapon."));
+			return;
+		}
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetLeftWeapon - no game world (run inside PIE)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetLeftWeapon - no UAFLCosmeticLoadoutComponent on the local player's PlayerState."));
+			return;
+		}
+
+		// "none"/"clear"/"off" -> NAME_None (drop the left cannon, back to single-held). Otherwise accept
+		// "HandCannon.FANATICS.L" or the full "AFL.Weapon.HandCannon.FANATICS.L" (FName compare is case-insensitive).
+		FString IdStr = Args[0].TrimStartAndEnd();
+		FName LeftWeaponId = NAME_None;
+		if (!IdStr.Equals(TEXT("none"), ESearchCase::IgnoreCase)
+			&& !IdStr.Equals(TEXT("clear"), ESearchCase::IgnoreCase)
+			&& !IdStr.Equals(TEXT("off"), ESearchCase::IgnoreCase))
+		{
+			if (!IdStr.StartsWith(TEXT("AFL.Weapon."), ESearchCase::IgnoreCase))
+			{
+				IdStr = FString::Printf(TEXT("AFL.Weapon.%s"), *IdStr);
+			}
+			LeftWeaponId = FName(*IdStr);
+		}
+
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		if (Request.GetActiveIdentityId() == NAME_None)
+		{
+			Request.IdentityType = EAFLIdentityType::Team;
+			Request.TeamId = FName(TEXT("AFL.Team.ARIA"));
+		}
+		Request.LeftWeaponId = LeftWeaponId; // WeaponId (right) is left untouched -> set it with SetWeapon.
+
+		Loadout->ServerSetCosmeticSelection(Request); // PURE: client-issued; server does the rest.
+
+		Ar.Logf(TEXT("afl.Cosmetic.SetLeftWeapon - client issued ServerSetCosmeticSelection(left=%s, right=%s). %s Watch [SkinDiag] RefreshHandCannons equip BOTH forearms with `afl.SkinDiag 1`."),
+			(LeftWeaponId != NAME_None) ? *LeftWeaponId.ToString() : TEXT("<none>"),
+			(Request.WeaponId != NAME_None) ? *Request.WeaponId.ToString() : TEXT("<none -- set with afl.Cosmetic.SetWeapon>"),
+			(LeftWeaponId != NAME_None) ? TEXT("DUAL path engaged (both cannons coexist).") : TEXT("Left cleared -> single-held path."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetLeftWeaponCmd(
+		TEXT("afl.Cosmetic.SetLeftWeapon"),
+		TEXT("DUAL-MOUNT LEFT-hand axis (arm-worn Hand Cannons): client-issued PURE caller of ServerSetCosmeticSelection (sets LeftWeaponId -> engages RefreshHandCannonsForPawn, holding BOTH cannons). Usage: afl.Cosmetic.SetLeftWeapon <HandCannon.FANATICS.L | none> (or full AFL.Weapon.<Name>). Set the RIGHT hand with afl.Cosmetic.SetWeapon first."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetLeftWeapon));
+
 	// =====================================================================================================
 	// afl.Cosmetic.Cycle <axis> [holdSeconds] -- the STANDING VOLUME-PROOF HARNESS (reusable per-axis).
 	// Auto-cycles EVERY purchasable SKU of one cosmetic AXIS on the equipped weapon: grants ownership (so the
