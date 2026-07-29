@@ -14,6 +14,12 @@ reference sheets, then run through the standard arm-worn conform.
 | **DRAGON_SOUL** | `..._DRAGON_SOUL_R/_L.fbx` | `*_DRAGON_SOUL.png` | blue lightning | `AFL.Weapon.HandCannon.DRAGONSOUL[.L]` |
 | **RUN_IT_BACK** | `..._RUN_IT_BACK_R/_L.fbx` | `*_RUN_IT_BACK.png` | teal green | `AFL.Weapon.HandCannon.RUNITBACK[.L]` |
 | **FUTURE_WARRIOR** | `..._FUTURE_WARRIOR_R/_L.fbx` | `*_FUTURE_WARRIOR.png` | magenta/purple | `AFL.Weapon.HandCannon.FUTUREWARRIOR[.L]` |
+| **JAGUAR_NEON** ⚠ | `..._JAGUAR_NEON_R/_L.fbx` | `*_JAGUAR_NEON.png` | magenta + green | `AFL.Weapon.HandCannon.JAGUARNEON[.L]` |
+
+⚠ **JAGUAR_NEON is a DISTINCT creature** — a cyber-jaguar/panther head, NOT the dragon base. Own geometry
+(~43.3k tri) + own skeleton, but conformed to the identical spec (40 cm, cuff pivot, muzzle +Y = the green bore
+in the mouth, `root`/`root_l`). Give it its own SK/skeleton asset; the socket + rig setup is the same shape as
+the dragons. "México" wordmark + jaguar roundel baked in.
 
 Each mesh (identical spec to FANATICS2): **40 cm** muzzle axis, **cuff at pivot/origin**, **muzzle = +Y**,
 horns **+Z**, single-root rig (**R bone `root` · L bone `root_l`**), ~44k tri LOD0, 4K PBR.
