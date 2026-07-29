@@ -41,13 +41,15 @@ reference the reskin was generated from). So the mesh already reads IRONICS / SI
 5. Rides the **dual-mount C++ that already landed** (`LeftWeaponId` → `RefreshHandCannonsForPawn` →
    `weapon_lowerarm_*`; `InputTag.Weapon.Fire.Left`; `afl.Cosmetic.SetLeftWeapon` cheat). FBIK aim + additive recoil.
 
-## JAGUAR — Standard 6 color skins
-Six flagship-color variants of the ONE JAGUAR mesh (no extra meshes): `colorskins/Color_HandCannon_JAGUAR_<Color>.png`
-for NeonBlue/NeonGreen/NeonYellow/NeonRed/NeonPink/NeonPurple (the locked registry colors). **Only the albedo
-changes** — the JAGUAR **Normal + ORM are shared** across all 6. AIK: one `SK_AFL_HandCannon_JAGUAR_NEON` +
-**6 MIs** (`MI_AFL_HandCannon_JAGUAR_<Color>` = that color diffuse + the shared Normal/ORM + NeonColor set to the
-registry hex). Name the WIDs `AFL.Weapon.HandCannon.JAGUAR.<Color>`. (Recolor = baked hue-set into the diffuse,
-not a layered pass — clean single-color neon on black; the same technique extends to any brand's color axis.)
+## Standard 6 color skins — EVERY design
+All seven designs (FANATICS2 · IRONICS · SIMULARENT · DRAGON_SOUL · RUN_IT_BACK · FUTURE_WARRIOR · JAGUAR)
+ship the locked Standard 6 as **albedo-only recolors of their ONE proven mesh** — no extra meshes.
+`colorskins/Color_HandCannon_<Design>_<Color>.png` for NeonBlue/NeonGreen/NeonYellow/NeonRed/NeonPink/NeonPurple
+(42 maps total: 7 designs × 6). **Only the albedo changes** — each design's **Normal + ORM are shared** across
+its 6 colors. AIK per design: one SK + **6 MIs** (`MI_AFL_HandCannon_<Design>_<Color>` = that color diffuse +
+the design's shared Normal/ORM + NeonColor = registry hex); WIDs `AFL.Weapon.HandCannon.<Design>.<Color>`.
+(Recolor = baked hue-SET into the diffuse, not a layered pass — clean single-color neon on black. Wordmarks/logos
+recolor with the neon, which is intended.)
 
 | Color | Hex | | Color | Hex |
 |---|---|---|---|---|
