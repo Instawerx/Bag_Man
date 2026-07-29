@@ -104,14 +104,21 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics|Weapon", meta = (ClampMin = "0"))
 	int32 CosmeticWeaponQuickBarSlot = 3;
 
+	// NOTE: the Block-28 QuickBarRoutedWeaponIds allowlist is GONE. It existed to hold 62 weapons on the
+	// legacy path while one canary proved the rail. With every routable weapon migrated it gated nothing,
+	// and with the legacy branch deleted an UNLISTED weapon would fall through to no equip at all -- i.e.
+	// the allowlist had turned from a safety net into a way to silently break a new weapon by forgetting to
+	// add it. Removing it makes routing the DEFAULT: a new weapon SKU needs no per-weapon recipe step.
+
 	/**
-	 * CANARY ALLOWLIST. WeaponIds routed through TryEquipWeaponViaQuickBar; everything else keeps the
-	 * legacy direct-equip path byte-for-byte. Defaults to the single canary weapon so one build proves the
-	 * rail before 60+ weapons move onto it. Widening it is a data edit, not a code change; emptying it
-	 * disables the new route entirely.
+	 * Clear the cosmetic weapon out of its QuickBar slot (the WeaponId == NAME_None deselect path).
+	 *
+	 * ⚠ RemoveItemFromSlot LEAVES THE PLAYER EMPTY-HANDED when the removed slot is the active one: it calls
+	 * UnequipItemInSlot() and sets ActiveSlotIndex = -1, and nothing re-equips. So this re-activates slot 0
+	 * afterwards, but ONLY when our slot was the active one -- otherwise it would yank the player off a
+	 * weapon they were deliberately holding.
 	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics|Weapon")
-	TArray<FName> QuickBarRoutedWeaponIds;
+	void ClearWeaponFromQuickBar();
 
 	/**
 	 * DUAL-MOUNT (Hand-Cannon line) spine body -- engaged ONLY when the selection carries a LeftWeaponId
@@ -208,6 +215,15 @@ private:
 	// per-pawn: the instance dies with its pawn, so WeaponTrackedPawn guards a stale cross-pawn read -- a respawn
 	// resets tracking and the new pawn re-equips clean.
 	TWeakObjectPtr<APawn> WeaponTrackedPawn;
+	/**
+	 * The inventory item the QuickBar rail granted for the current selection. This is the IDEMPOTENCY
+	 * HANDLE, and it is load-bearing: the guard at the top of RefreshWeaponForPawn used to test
+	 * SelectedWeaponInstance, which the QuickBar path NEVER sets -- so every possession/respawn re-ran the
+	 * route and called AddItemDefinition again, accumulating one orphaned item per respawn. Invisible in a
+	 * watch (slot 3 always shows the newest) and only findable by reading the guard.
+	 */
+	TWeakObjectPtr<class ULyraInventoryItemInstance> QuickBarRoutedItem;
+
 	TWeakObjectPtr<ULyraEquipmentInstance> SelectedWeaponInstance;
 	/** The WeaponId currently realized on WeaponTrackedPawn (idempotency key; NAME_None = none). */
 	FName EquippedWeaponId = NAME_None;

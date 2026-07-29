@@ -50,13 +50,6 @@ UAFLSkinColorControllerComponent::UAFLSkinColorControllerComponent(const FObject
 	// GROUND-ZERO body default (house identity). Same shape as BaseFacemask above: a DIRECT data-asset path,
 	// not a CosmeticId, so the base look resolves regardless of catalog/entitlement state. This is the LAST
 	// body tier -- it fires ONLY when a brand has no authored default in BrandEdgeMap.
-	// BLOCK 28 CANARY. ONE weapon rides the new QuickBar rail; the other 52 keep the legacy direct-equip
-	// path byte-for-byte until this proves out. RiftOne chosen deliberately: plain single-mount, on the
-	// shared AbilitySet_AFL_BeamFire_Shotgun (so it exercises the same ability 26 weapons use), and NOT
-	// Aria -- Aria is the slot-0 beam regression canary and double-purposing it would blur two signals.
-	// Verified to carry an ItemDefClass; a row without one silently falls back and would prove nothing.
-	QuickBarRoutedWeaponIds = { FName(TEXT("AFL.Weapon.RiftOne")) };
-
 	BaseBodyFinish = TSoftObjectPtr<UAFLSkinColorAsset>(FSoftObjectPath(
 		TEXT("/Game/BagMan/Characters/Cosmetics/Finishes/DA_AFL_Finish_Blue_Ironics.DA_AFL_Finish_Blue_Ironics")));
 }
@@ -505,7 +498,12 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 	// IDEMPOTENT: already realized this WeaponId on this pawn -> no-op. The dual spine re-runs (possession + OnRep
 	// + nudge) MUST NOT re-equip/stack. A dropped instance (id set but the instance went stale) falls through ->
 	// self-heals by re-equipping.
-	if (WeaponId == EquippedWeaponId && (WeaponId == NAME_None || SelectedWeaponInstance.IsValid()))
+	// ⚠ QuickBarRoutedItem is the handle the RAIL sets; SelectedWeaponInstance is the handle the legacy path
+	// set. Testing only the latter (as this did) meant the guard NEVER short-circuited for a routed weapon,
+	// so every possession/respawn re-ran the route and granted ANOTHER inventory item -- one orphan per
+	// respawn, invisible in PIE because slot 3 always displays the newest.
+	if (WeaponId == EquippedWeaponId
+		&& (WeaponId == NAME_None || QuickBarRoutedItem.IsValid() || SelectedWeaponInstance.IsValid()))
 	{
 		return;
 	}
@@ -545,66 +543,41 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 		}
 	}
 
-	// BLOCK 28 CANARY -- the QuickBar rail. Tried BEFORE the legacy direct-equip block below, and only for
-	// ids on QuickBarRoutedWeaponIds, so all other weapons take the byte-identical legacy path. On success
-	// the QuickBar owns equip/unequip from here (cycling works, pickups stop stacking) and we return
-	// WITHOUT running the unequip-every-ranged sweep -- that layer-skip is exactly the desync being retired.
-	if (WeaponId != NAME_None && QuickBarRoutedWeaponIds.Contains(WeaponId))
+	// THE ONE EQUIP RAIL (Block 34). Every weapon goes through the QuickBar -- no allowlist, no legacy
+	// direct-equip branch. The QuickBar owns equip/unequip, which is what makes cycling work, stops a pickup
+	// stacking a third weapon, and keeps the held-weapon state single-sourced.
+	//
+	// The old direct EquipMgr->EquipItem branch that used to live here is DELETED. It equipped outside the
+	// QuickBar, so the QuickBar could never unequip what it had not equipped: the mesh stayed in hand while
+	// cycling swapped the QuickBar item underneath and the player held two weapons with the wrong one's
+	// abilities live (watched on ASTRA). That layer-skip was the whole defect.
+	if (WeaponId != NAME_None)
 	{
 		if (TryEquipWeaponViaQuickBar(WeaponId))
 		{
 			EquippedWeaponId = WeaponId;
-			return;
 		}
-		UE_LOG(LogAFLSkinDiag, Warning,
-			TEXT("%s%s : QuickBar route FAILED for %s -- falling back to the legacy direct equip."),
-			*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString());
+		else
+		{
+			// PERMANENT NET, kept unconditional on purpose. There is no fallback path any more, so a weapon
+			// that cannot route does not equip at all -- this line is the only thing that names it. Reaching
+			// here means the SKU is mis-authored (not Weapon-typed, or no ItemDefClass), not that the rail
+			// is broken.
+			UE_LOG(LogAFLSkinDiag, Warning,
+				TEXT("%s%s : QuickBar route FAILED for '%s' -- weapon NOT equipped. Check the catalog row is "
+				     "Type==Weapon and carries an ItemDefClass."),
+				*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString());
+			EquippedWeaponId = WeaponId;   // record so we do not re-attempt the same bad row every re-drive
+		}
+		return;
 	}
 
-	// LEGACY-PATH INSTRUMENT (Block 33). A weapon reaching here equips OUTSIDE the QuickBar, so nothing in
-	// the cycle path can ever unequip it: its mesh stays in hand while cycling swaps the QuickBar's item
-	// underneath, and the player holds two weapons with the wrong one's abilities live. That was watched on
-	// ASTRA and is the whole reason the migration is happening.
-	//
-	// WARNING level deliberately, not Verbose: this must be visible with no config change, so the one
-	// remaining legacy weapon is nameable from a normal log instead of a PIE watch. Until now the legacy
-	// branch was SILENT, which is why the Astra failure needed eyes on screen to find.
-	//
-	// This log is DEAD CODE once the branch below is deleted -- it goes out with it.
-	if (WeaponId != NAME_None && !QuickBarRoutedWeaponIds.Contains(WeaponId))
-	{
-		UE_LOG(LogAFLSkinDiag, Warning,
-			TEXT("%s%s : LEGACY direct-equip path for '%s' -- NOT in QuickBarRoutedWeaponIds. It will not "
-			     "unmount on weapon cycle (the QuickBar cannot see an instance it did not equip)."),
-			*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString());
-	}
-
-	if (EquipDef) // a valid, entitled weapon selection -> REPLACE the primary
-	{
-		// D2 REPLACE (self-contained -- NO AFLHeroComponent coupling, the standing hazard): unequip every
-		// currently-equipped weapon (the hero default primary AND any prior selection) so the new selection
-		// replaces rather than stacks a second held weapon. Targeted to the ranged-weapon instance type (all AFL
-		// weapons derive from it); broaden to ULyraWeaponInstance if a melee weapon ever lands.
-		for (ULyraEquipmentInstance* Existing : EquipMgr->GetEquipmentInstancesOfType(ULyraRangedWeaponInstance::StaticClass()))
-		{
-			if (Existing)
-			{
-				EquipMgr->UnequipItem(Existing);
-			}
-		}
-		// EQUIP -> Lyra's FLyraEquipmentList fast-array replicates to all clients (OnEquipped -> SpawnedActors).
-		// Proven rail; zero new replication code.
-		SelectedWeaponInstance = EquipMgr->EquipItem(EquipDef);
-	}
-	else // WeaponId == NAME_None -> deselect: remove only OUR tracked selection (first cut: no default restore --
-	{    // the QuickBar era owns slot restore; the D5 near-horizon).
-		if (SelectedWeaponInstance.IsValid())
-		{
-			EquipMgr->UnequipItem(SelectedWeaponInstance.Get());
-		}
-		SelectedWeaponInstance = nullptr;
-	}
-	EquippedWeaponId = WeaponId;
+	// DESELECT (WeaponId == NAME_None) -- the QuickBar-side replacement for the deleted else branch. The old
+	// one unequipped SelectedWeaponInstance, a handle the rail never sets, so deselecting a routed weapon
+	// removed nothing and left it in slot 3 forever.
+	ClearWeaponFromQuickBar();
+	QuickBarRoutedItem = nullptr;
+	EquippedWeaponId = NAME_None;
 
 	if (AFLSkinDiag::IsOn())
 	{
@@ -719,6 +692,10 @@ bool UAFLSkinColorControllerComponent::TryEquipWeaponViaQuickBar(FName WeaponId)
 	FSetActiveSlotIndexArgs SetArgs{ CosmeticWeaponQuickBarSlot };
 	QuickBar->ProcessEvent(SetFn, &SetArgs);
 
+	// IDEMPOTENCY HANDLE -- see QuickBarRoutedItem's comment. Without this the guard at the top of
+	// RefreshWeaponForPawn never short-circuits for a routed weapon and every respawn grants another item.
+	QuickBarRoutedItem = Instance;
+
 	if (AFLSkinDiag::IsOn())
 	{
 		UE_LOG(LogAFLSkinDiag, Log,
@@ -726,6 +703,76 @@ bool UAFLSkinColorControllerComponent::TryEquipWeaponViaQuickBar(FName WeaponId)
 			*AFLSkinDiag::Prefix(this), *WeaponId.ToString(), *GetNameSafe(Instance), CosmeticWeaponQuickBarSlot);
 	}
 	return true;
+}
+
+void UAFLSkinColorControllerComponent::ClearWeaponFromQuickBar()
+{
+	AController* OwningController = GetController<AController>();
+	if (!OwningController)
+	{
+		return;
+	}
+
+	// Same class-NAME super-chain walk as the equip side -- ULyraQuickBarComponent has no LYRAGAME_API
+	// export, so this module cannot name the type.
+	UActorComponent* QuickBar = nullptr;
+	TInlineComponentArray<UActorComponent*> Comps(OwningController);
+	for (UActorComponent* Comp : Comps)
+	{
+		if (!Comp) { continue; }
+		for (const UClass* C = Comp->GetClass(); C; C = C->GetSuperClass())
+		{
+			if (C->GetName().Contains(TEXT("LyraQuickBarComponent"))) { QuickBar = Comp; break; }
+		}
+		if (QuickBar) { break; }
+	}
+	if (!QuickBar)
+	{
+		return;
+	}
+
+	UFunction* GetActiveFn = QuickBar->FindFunction(FName(TEXT("GetActiveSlotIndex")));
+	UFunction* RemoveFn    = QuickBar->FindFunction(FName(TEXT("RemoveItemFromSlot")));
+	UFunction* SetFn       = QuickBar->FindFunction(FName(TEXT("SetActiveSlotIndex")));
+	if (!RemoveFn)
+	{
+		return;
+	}
+
+	// Was OUR slot the one being held? Ask BEFORE removing -- afterwards ActiveSlotIndex is already -1 and
+	// the answer is unrecoverable. (Return value occupies a trailing arg-struct member.)
+	bool bWasActive = false;
+	if (GetActiveFn)
+	{
+		struct FGetActiveSlotIndexArgs { int32 ReturnValue; };
+		FGetActiveSlotIndexArgs GetArgs{ INDEX_NONE };
+		QuickBar->ProcessEvent(GetActiveFn, &GetArgs);
+		bWasActive = (GetArgs.ReturnValue == CosmeticWeaponQuickBarSlot);
+	}
+
+	struct FRemoveItemFromSlotArgs { int32 SlotIndex; ULyraInventoryItemInstance* ReturnValue; };
+	FRemoveItemFromSlotArgs RemoveArgs{ CosmeticWeaponQuickBarSlot, nullptr };
+	QuickBar->ProcessEvent(RemoveFn, &RemoveArgs);
+
+	// ⚠ THE EMPTY-HAND CASE. RemoveItemFromSlot, when the removed slot is active, calls UnequipItemInSlot()
+	// and sets ActiveSlotIndex = -1 -- and NOTHING re-equips, so the player is left holding nothing with no
+	// slot selected (mouse-wheel cycling from -1 also behaves oddly). Re-activate slot 0, which is the
+	// loadout's first weapon. Only when our slot WAS active: otherwise this would yank the player off a
+	// weapon they were deliberately holding.
+	if (bWasActive && SetFn)
+	{
+		struct FSetActiveSlotIndexArgs2 { int32 NewIndex; };
+		FSetActiveSlotIndexArgs2 SetArgs{ 0 };
+		QuickBar->ProcessEvent(SetFn, &SetArgs);
+	}
+
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log,
+			TEXT("%sQuickBar deselect: cleared slot %d (wasActive=%d -> %s)"),
+			*AFLSkinDiag::Prefix(this), CosmeticWeaponQuickBarSlot, bWasActive ? 1 : 0,
+			bWasActive ? TEXT("re-activated slot 0") : TEXT("active slot untouched"));
+	}
 }
 
 void UAFLSkinColorControllerComponent::RefreshHandCannonsForPawn(APawn* Pawn, FName RightWeaponId, FName LeftWeaponId)
