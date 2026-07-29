@@ -3,8 +3,10 @@
 #include "Abilities/AFLAG_GrantLoadout.h"
 
 #include "AFLCombat.h"
+#include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // Block 28: the durable WeaponId selection
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerState.h"
 #include "Inventory/LyraInventoryItemDefinition.h"
 #include "Inventory/LyraInventoryItemInstance.h"
 #include "Inventory/LyraInventoryManagerComponent.h"
@@ -79,10 +81,34 @@ void UAFLAG_GrantLoadout::ActivateAbility(
 		}
 	}
 
+	// DEFER TO THE COSMETIC SELECTION (Block 28). Read the player's DURABLE, replicated selection off the
+	// PlayerState -- never "has the cosmetic spine run yet". Both this OnSpawn ability and
+	// UAFLSkinColorControllerComponent::RefreshWeaponForPawn hang off possession with no guaranteed order
+	// between them; keying on state rather than sequence is what makes that race stop mattering.
+	//
+	// Slots 0..N are still granted and populated above -- only the "what do I spawn holding" decision is
+	// handed over, so the player can still cycle to Ripsaw/Verdant/Scatterhawk.
+	bool bCosmeticWeaponSelected = false;
+	if (bDeferActiveSlotToCosmeticSelection)
+	{
+		if (const APlayerState* PS = Controller->PlayerState)
+		{
+			if (const UAFLCosmeticLoadoutComponent* Loadout = PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
+			{
+				bCosmeticWeaponSelected = (Loadout->GetSelection().WeaponId != NAME_None);
+			}
+		}
+	}
+
 	// Equip the active slot so the hero holds a weapon on spawn (BP event -> SetActiveSlotIndex).
-	if (GrantedCount > 0)
+	if (GrantedCount > 0 && !bCosmeticWeaponSelected)
 	{
 		EquipActiveSlot(ActiveSlotIndex);
+	}
+	else if (bCosmeticWeaponSelected)
+	{
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_LOADOUT: cosmetic WeaponId selected -- slots granted, active-slot equip deferred to the selection."));
 	}
 
 	UE_LOG(LogAFLCombat, Log,

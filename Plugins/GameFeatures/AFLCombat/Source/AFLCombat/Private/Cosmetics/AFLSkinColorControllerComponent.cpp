@@ -18,6 +18,9 @@
 #include "Cosmetics/AFLWeaponCosmeticAsset.h"         // the carrier (WeaponId -> EquipmentDefinition); AFLCombat-homed, brings the full ULyraEquipmentDefinition type
 #include "Equipment/LyraEquipmentManagerComponent.h"  // EquipItem / UnequipItem / GetEquipmentInstancesOfType
 #include "Equipment/LyraEquipmentInstance.h"          // the equipped instance we track + unequip
+#include "Inventory/LyraInventoryItemDefinition.h"    // Block 28: the QuickBar rail grants an ITEM, not equipment
+#include "Inventory/LyraInventoryItemInstance.h"      // ... the granted instance handed to AddItemToSlot
+#include "Inventory/LyraInventoryManagerComponent.h"  // ... AddItemDefinition (UE_API-exported, safe from C++)
 #include "Weapons/LyraRangedWeaponInstance.h"         // the weapon instance type we replace (AFL weapons derive from it)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLSkinColorControllerComponent)
@@ -47,6 +50,13 @@ UAFLSkinColorControllerComponent::UAFLSkinColorControllerComponent(const FObject
 	// GROUND-ZERO body default (house identity). Same shape as BaseFacemask above: a DIRECT data-asset path,
 	// not a CosmeticId, so the base look resolves regardless of catalog/entitlement state. This is the LAST
 	// body tier -- it fires ONLY when a brand has no authored default in BrandEdgeMap.
+	// BLOCK 28 CANARY. ONE weapon rides the new QuickBar rail; the other 52 keep the legacy direct-equip
+	// path byte-for-byte until this proves out. RiftOne chosen deliberately: plain single-mount, on the
+	// shared AbilitySet_AFL_BeamFire_Shotgun (so it exercises the same ability 26 weapons use), and NOT
+	// Aria -- Aria is the slot-0 beam regression canary and double-purposing it would blur two signals.
+	// Verified to carry an ItemDefClass; a row without one silently falls back and would prove nothing.
+	QuickBarRoutedWeaponIds = { FName(TEXT("AFL.Weapon.RiftOne")) };
+
 	BaseBodyFinish = TSoftObjectPtr<UAFLSkinColorAsset>(FSoftObjectPath(
 		TEXT("/Game/BagMan/Characters/Cosmetics/Finishes/DA_AFL_Finish_Blue_Ironics.DA_AFL_Finish_Blue_Ironics")));
 }
@@ -535,6 +545,22 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 		}
 	}
 
+	// BLOCK 28 CANARY -- the QuickBar rail. Tried BEFORE the legacy direct-equip block below, and only for
+	// ids on QuickBarRoutedWeaponIds, so all other weapons take the byte-identical legacy path. On success
+	// the QuickBar owns equip/unequip from here (cycling works, pickups stop stacking) and we return
+	// WITHOUT running the unequip-every-ranged sweep -- that layer-skip is exactly the desync being retired.
+	if (WeaponId != NAME_None && QuickBarRoutedWeaponIds.Contains(WeaponId))
+	{
+		if (TryEquipWeaponViaQuickBar(WeaponId))
+		{
+			EquippedWeaponId = WeaponId;
+			return;
+		}
+		UE_LOG(LogAFLSkinDiag, Warning,
+			TEXT("%s%s : QuickBar route FAILED for %s -- falling back to the legacy direct equip."),
+			*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString());
+	}
+
 	if (EquipDef) // a valid, entitled weapon selection -> REPLACE the primary
 	{
 		// D2 REPLACE (self-contained -- NO AFLHeroComponent coupling, the standing hazard): unequip every
@@ -587,6 +613,101 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 				Root ? *Root->GetAttachSocketName().ToString() : TEXT("<none>"));
 		}
 	}
+}
+
+bool UAFLSkinColorControllerComponent::TryEquipWeaponViaQuickBar(FName WeaponId)
+{
+	AController* OwningController = GetController<AController>();
+	if (!OwningController)
+	{
+		return false;
+	}
+
+	// 1. id -> the Lyra ITEM-def class. ResolveWeaponItemDefClass is type-gated to Weapon rows and returns
+	//    null when the row carries no ItemDefClass, so a mis-authored SKU fails here rather than silently
+	//    granting nothing. (It hands back UClass* because AFLCosmeticCore does not link LyraGame.)
+	const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this);
+	UClass* ItemDefClass = Catalog ? Catalog->ResolveWeaponItemDefClass(WeaponId) : nullptr;
+	if (!ItemDefClass)
+	{
+		return false;
+	}
+
+	// 2. Grant the item into the CONTROLLER's inventory. AddItemDefinition is UE_API-exported -> a direct
+	//    C++ call is safe (the same call UAFLAG_GrantLoadout makes).
+	ULyraInventoryManagerComponent* Inventory = OwningController->FindComponentByClass<ULyraInventoryManagerComponent>();
+	if (!Inventory)
+	{
+		return false;
+	}
+	ULyraInventoryItemInstance* Instance =
+		Inventory->AddItemDefinition(TSubclassOf<ULyraInventoryItemDefinition>(ItemDefClass), /*StackCount=*/1);
+	if (!Instance)
+	{
+		return false;
+	}
+
+	// 3. Find the QuickBar by CLASS NAME. ULyraQuickBarComponent has no LYRAGAME_API export, so this module
+	//    cannot name the type at all -- walk the super-chain by name, exactly as the CharacterParts selector
+	//    does for its unexported stock component. B_QuickBarComponent is a BP subclass, so a leaf-name match
+	//    would miss; the super-chain walk is load-bearing, not defensive.
+	UActorComponent* QuickBar = nullptr;
+	TInlineComponentArray<UActorComponent*> Comps(OwningController);
+	for (UActorComponent* Comp : Comps)
+	{
+		if (!Comp) { continue; }
+		for (const UClass* C = Comp->GetClass(); C; C = C->GetSuperClass())
+		{
+			if (C->GetName().Contains(TEXT("LyraQuickBarComponent")))
+			{
+				QuickBar = Comp;
+				break;
+			}
+		}
+		if (QuickBar) { break; }
+	}
+	if (!QuickBar)
+	{
+		return false;
+	}
+
+	UFunction* RemoveFn = QuickBar->FindFunction(FName(TEXT("RemoveItemFromSlot")));
+	UFunction* AddFn    = QuickBar->FindFunction(FName(TEXT("AddItemToSlot")));
+	UFunction* SetFn    = QuickBar->FindFunction(FName(TEXT("SetActiveSlotIndex")));
+	if (!AddFn || !SetFn)
+	{
+		return false;
+	}
+
+	// 4. REMOVE-then-ADD on our one designated slot. AddItemToSlot no-ops SILENTLY on an occupied slot, so
+	//    the remove is what makes a re-drive (respawn, nudge, re-selection) idempotent instead of a no-op.
+	//    ⚠ RemoveItemFromSlot RETURNS a value -- the return occupies a trailing member of the ProcessEvent
+	//    arg struct. Omitting it corrupts the stack frame.
+	if (RemoveFn)
+	{
+		struct FRemoveItemFromSlotArgs { int32 SlotIndex; ULyraInventoryItemInstance* ReturnValue; };
+		FRemoveItemFromSlotArgs RemoveArgs{ CosmeticWeaponQuickBarSlot, nullptr };
+		QuickBar->ProcessEvent(RemoveFn, &RemoveArgs);
+	}
+
+	struct FAddItemToSlotArgs { int32 SlotIndex; ULyraInventoryItemInstance* Item; };
+	FAddItemToSlotArgs AddArgs{ CosmeticWeaponQuickBarSlot, Instance };
+	QuickBar->ProcessEvent(AddFn, &AddArgs);
+
+	// 5. Make it the held weapon. ⚠ SetActiveSlotIndex is UFUNCTION(Server, Reliable) -- NOT symmetric with
+	//    the two above. We are on the authority here (RefreshWeaponForPawn's HasAuthority gate), so
+	//    ProcessEvent runs _Implementation locally rather than dispatching an RPC.
+	struct FSetActiveSlotIndexArgs { int32 NewIndex; };
+	FSetActiveSlotIndexArgs SetArgs{ CosmeticWeaponQuickBarSlot };
+	QuickBar->ProcessEvent(SetFn, &SetArgs);
+
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log,
+			TEXT("%sQuickBar route: %s -> item=%s slot=%d (active)"),
+			*AFLSkinDiag::Prefix(this), *WeaponId.ToString(), *GetNameSafe(Instance), CosmeticWeaponQuickBarSlot);
+	}
+	return true;
 }
 
 void UAFLSkinColorControllerComponent::RefreshHandCannonsForPawn(APawn* Pawn, FName RightWeaponId, FName LeftWeaponId)

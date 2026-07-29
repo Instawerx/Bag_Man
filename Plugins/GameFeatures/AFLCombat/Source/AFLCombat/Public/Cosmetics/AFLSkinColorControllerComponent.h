@@ -76,6 +76,44 @@ public:
 	void RefreshWeaponForPawn(APawn* Pawn);
 
 	/**
+	 * QUICKBAR ROUTE (Block 28) -- the D5 transition this class's header has anticipated since #43.
+	 *
+	 * Grants the selected weapon's ITEM into the controller's inventory and slots it in the cosmetic axis's
+	 * ONE designated QuickBar slot (Remove-then-Add, so it is idempotent and re-driveable on every respawn
+	 * and nudge), then makes that slot active. The QuickBar then owns equip/unequip -- which is what lets
+	 * the player cycle to the loadout weapons and back, and what stops a pickup stacking a third weapon.
+	 *
+	 * Returns false when the weapon cannot be routed (no catalog ItemDefClass, no inventory/QuickBar
+	 * component, reflection lookup failed) so the caller can fall back to the legacy direct-equip path
+	 * rather than leave the player empty-handed.
+	 *
+	 * ⚠ REFLECTION, NOT DIRECT CALLS. ULyraQuickBarComponent carries no LYRAGAME_API export, so AFLCombat
+	 * cannot even name the type -- the component is found by walking class NAMES and its UFUNCTIONs are
+	 * invoked via ProcessEvent. Same mechanism, same reason, as
+	 * UAFLCharacterPartSelectorComponent::AddCharacterPart (shipping since 8e459755).
+	 */
+	bool TryEquipWeaponViaQuickBar(FName WeaponId);
+
+	/**
+	 * The ONE QuickBar slot the cosmetic weapon axis owns. 3 by default: outside UAFLAG_GrantLoadout's
+	 * {0,1,2}, so AddItemToSlot never lands on an occupied slot (it no-ops SILENTLY when it does --
+	 * LyraQuickBarComponent.cpp:169-172, no return value, no log), and leaves slot 4 free for pickups.
+	 *
+	 * Never next-free (silently fails once 5 slots fill) and never the active slot (non-deterministic).
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics|Weapon", meta = (ClampMin = "0"))
+	int32 CosmeticWeaponQuickBarSlot = 3;
+
+	/**
+	 * CANARY ALLOWLIST. WeaponIds routed through TryEquipWeaponViaQuickBar; everything else keeps the
+	 * legacy direct-equip path byte-for-byte. Defaults to the single canary weapon so one build proves the
+	 * rail before 60+ weapons move onto it. Widening it is a data edit, not a code change; emptying it
+	 * disables the new route entirely.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Cosmetics|Weapon")
+	TArray<FName> QuickBarRoutedWeaponIds;
+
+	/**
 	 * DUAL-MOUNT (Hand-Cannon line) spine body -- engaged ONLY when the selection carries a LeftWeaponId
 	 * (arm-worn pair). RefreshWeaponForPawn dispatches here BEFORE its single-held logic, so the 7 existing
 	 * projectile/beam/pulse guns + every single gun are byte-identical (LeftWeaponId == NAME_None -> never here).

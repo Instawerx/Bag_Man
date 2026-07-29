@@ -71,6 +71,23 @@ protected:
 	int32 ActiveSlotIndex = 0;
 
 	/**
+	 * DEFER TO A LIVE COSMETIC SELECTION (Block 28). When true and the player's FAFLCosmeticSelection
+	 * carries a WeaponId, this ability still grants and slots every loadout weapon but does NOT call
+	 * EquipActiveSlot -- so the hero spawns holding the weapon they chose, not slot 0.
+	 *
+	 * ⚠ IT READS THE SELECTION, NOT AN EXECUTION ORDER. The cosmetic spine
+	 * (UAFLSkinColorControllerComponent::RefreshWeaponForPawn) and this OnSpawn ability both hang off
+	 * possession and their relative order is NOT guaranteed by anything in the engine or Lyra. Keying
+	 * off the durable, replicated PlayerState selection is what makes that order stop mattering -- do
+	 * NOT "improve" this by testing whether Refresh has already run.
+	 *
+	 * With NO selection (WeaponId == NAME_None) this is inert and spawn behaviour is byte-identical to
+	 * before it existed, which is the regression gate for every player who never opens Loadout.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Loadout")
+	bool bDeferActiveSlotToCosmeticSelection = true;
+
+	/**
 	 * Slot a granted item instance into the controller's QuickBar at SlotIndex. The BP child
 	 * implements this with the stock ULyraQuickBarComponent::AddItemToSlot node (that method is
 	 * BlueprintCallable but not C++-exportable -- see the class comment). Called once per weapon
