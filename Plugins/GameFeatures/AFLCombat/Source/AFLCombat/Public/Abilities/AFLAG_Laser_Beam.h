@@ -54,6 +54,20 @@ public:
 
 protected:
 
+	/**
+	 * Adds the per-instance vent gate on top of the stock checks: once this cannon has overheated it
+	 * cannot re-channel until ITS OWN HeatNorm has decayed to HeatVentResumeNorm. Replaces the pawn-wide
+	 * State.Overheated ActivationBlockedTags gate as the thing normal beam fire trips -- that tag stays
+	 * in the container (so the ForceOverheat cheat still locks the beam out) but the beam no longer
+	 * drives it, which is what decouples two arm-cannons from each other.
+	 */
+	virtual bool CanActivateAbility(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayTagContainer* SourceTags,
+		const FGameplayTagContainer* TargetTags,
+		FGameplayTagContainer* OptionalRelevantTags) const override;
+
 	virtual void ActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
@@ -85,18 +99,24 @@ protected:
 	TSubclassOf<UGameplayEffect> ReleaseCooldownEffectClass;
 
 	/**
-	 * Per-tick heat GE applied source-to-source. Defaults to
-	 * GE_AFL_Heat_BeamTick (Override HeatPerBeamTick +4 per tick). The
-	 * AttributeSet folds the delta into Heat and grants State.Overheated
-	 * at the cap. AFL-0207.
+	 * Per-tick heat GE (GE_AFL_Heat_BeamTick, Override HeatPerBeamTick +4 -> the AttributeSet folds it
+	 * into the shared Heat pool and grants State.Overheated at the cap). AFL-0207.
+	 *
+	 * ⚠ BLOCK 19: THE BEAM NO LONGER APPLIES THIS. Heat is now per ability instance (HeatPerTick below),
+	 * because the pool and its State.Overheated tag are per-PAWN and coupled the two arm-cannons. The
+	 * property and its default are retained so the GE stays reachable and no content reference breaks,
+	 * but nothing in this ability applies it. Do not "restore" the apply without re-reading that header
+	 * block -- it re-introduces the dual-mount bug.
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat")
 	TSubclassOf<UGameplayEffect> HeatTickEffectClass;
 
 	/**
-	 * 0.5s carrier GE granting State.Combat.CoolingGate on the source.
-	 * Applied alongside HeatTickEffectClass each tick; suppresses passive
-	 * Heat decay while firing. AFL-0207.
+	 * 0.5s carrier GE granting State.Combat.CoolingGate on the source; suppressed passive Heat decay
+	 * while firing. AFL-0207.
+	 *
+	 * ⚠ BLOCK 19: THE BEAM NO LONGER APPLIES THIS EITHER -- HeatCoolingGraceSeconds below is its
+	 * per-instance replacement. Retained for the same reason as HeatTickEffectClass.
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat")
 	TSubclassOf<UGameplayEffect> HeatCoolingGateEffectClass;
@@ -109,6 +129,52 @@ protected:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat")
 	TSubclassOf<UGameplayEffect> HeatDecayEffectClass;
+
+	// ---------------------------------------------------------------------------------------------
+	// PER-INSTANCE HEAT (Block 19). Replaces the shared-ASC Heat pool as the beam's overheat gate.
+	//
+	// WHY: Heat is ONE attribute per AbilitySystemComponent and State.Overheated is a pawn-wide loose
+	// tag. Two arm-cannons therefore heated a SINGLE gauge at 2x rate and overheated together -- the
+	// left's overheat force-ended the right's channel and blocked its re-entry. HeatNorm/bOverheated
+	// below are ability-INSTANCE state (each equipment grant is its own FGameplayAbilitySpec, and
+	// InstancedPerActor gives each spec its own instance), so each cannon heats and vents alone.
+	//
+	// The Heat / MaxHeat / HeatDecayRate / HeatPerBeamTick attributes, the four Heat GEs and the
+	// afl.Combat.Heat / ForceOverheat / ResetHeat cheats are ALL untouched and still function -- the
+	// beam simply no longer drives them. State.Overheated also stays in ActivationBlockedTags, so
+	// ForceOverheat still locks the beam out as a diagnostic; nothing in normal beam fire sets it now.
+	//
+	// Defaults are a 1:1 normalisation of the shared-pool tuning they replace, so channel feel is
+	// unchanged:  0.04 = the GE's +4 of MaxHeat 100  ->  25 ticks = 2.5s to overheat.
+	//             0.2  = HeatDecayRate 20 of MaxHeat 100.
+	//             0.5  = the GE_AFL_Heat_CoolingGate duration, now a grace window (see AdvanceHeat).
+	//             0.3  = the AttributeSet's MaxHeat * 0.3 vent-resume threshold -> 3.5s to vent.
+	// ---------------------------------------------------------------------------------------------
+
+	/** Heat added per authoritative channel tick, normalised [0..1]. MUST exceed the per-tick decay. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat", meta=(ClampMin="0.0", UIMin="0.0"))
+	float HeatPerTick = 0.04f;
+
+	/** Heat shed per second of IDLE time -- the gap since the last tick BEYOND HeatCoolingGraceSeconds. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat", meta=(ClampMin="0.0", UIMin="0.0"))
+	float HeatDecayPerSec = 0.2f;
+
+	/**
+	 * Grace window before idle decay starts, seconds -- the per-instance port of GE_AFL_Heat_CoolingGate,
+	 * which suppressed passive decay while firing. A gap shorter than this (i.e. a continuous channel at
+	 * TickInterval) decays NOTHING, so a held beam heats at the full HeatPerTick exactly as it did.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat", meta=(ClampMin="0.0", UIMin="0.0"))
+	float HeatCoolingGraceSeconds = 0.5f;
+
+	/**
+	 * Vent-resume threshold, normalised. Once overheated the beam cannot re-channel until HeatNorm has
+	 * decayed to at or below this -- the port of the AttributeSet clearing State.Overheated below
+	 * MaxHeat * 0.3. Hysteresis is the point: without it the beam would re-fire the instant it dipped
+	 * off the cap.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam|Heat", meta=(ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0"))
+	float HeatVentResumeNorm = 0.3f;
 
 	/** Channel tick interval in seconds. 0.1s = 10 ticks/sec = 12 dps at 1.2 dmg/tick. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Beam", meta=(ClampMin="0.01", UIMin="0.01"))
@@ -132,6 +198,31 @@ private:
 
 	/** Called by the FTimerManager on the locally-controlled client every TickInterval. */
 	void TickChannel();
+
+	/**
+	 * Fold this tick's heat in: shed HeatDecayPerSec for every second of the gap since the last tick
+	 * BEYOND HeatCoolingGraceSeconds, then add HeatPerTick, clamped [0..1]. Returns the new HeatNorm.
+	 * A continuous channel ticks well inside the grace window, so it sheds nothing and heats at the
+	 * full rate -- the per-instance equivalent of the CoolingGate GE suppressing decay while firing.
+	 * Called from OnTargetDataReadyCallback on BOTH client and server so the two stay in step.
+	 */
+	float AdvanceHeat();
+
+	/**
+	 * HeatNorm as of NOW, with idle decay applied but NOT committed -- const, so CanActivateAbility can
+	 * ask "am I vented yet?" without mutating. ActivateAbility commits the same value.
+	 */
+	float CurrentHeatNorm() const;
+
+	// --- per-instance heat state. NOT attributes, NOT replicated (each side runs its own ramp off the
+	// same per-tick target data, exactly like the hitscan auto-fire model). Both PERSIST across
+	// channels: HeatNorm so venting is real time-based cooling rather than a free reset, bOverheated
+	// so the lockout survives the force-end. ⚠ Unlike hitscan, EndAbility must NOT clear bOverheated --
+	// this ability force-ends ITSELF on overheat, so clearing there would erase the lockout instantly.
+	// It clears in ActivateAbility, which CanActivateAbility has already gated on being vented.
+	float  HeatNorm            = 0.0f;
+	double LastHeatTimeSeconds = 0.0;
+	bool   bOverheated         = false;
 
 	/**
 	 * AFL-0208: resolve the weapon MUZZLE world location for the visible beam START. Copy of

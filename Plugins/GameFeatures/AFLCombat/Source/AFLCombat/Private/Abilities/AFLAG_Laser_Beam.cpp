@@ -147,6 +147,15 @@ void UAFLAG_Laser_Beam::ActivateAbility(
 
 	UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
 
+	// PER-INSTANCE HEAT: commit the idle decay accrued since the last channel and clear the vent lock.
+	// CanActivateAbility has already refused this activation unless HeatNorm is back at/below
+	// HeatVentResumeNorm, so reaching here means this cannon is genuinely vented. Committing rather
+	// than resetting keeps cooling honest -- a short pause resumes a hot beam, it doesn't hand back a
+	// full gauge. Touches ONLY this instance; the other arm's heat is a different object.
+	HeatNorm            = CurrentHeatNorm();
+	LastHeatTimeSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	bOverheated         = false;
+
 	// Authority ensures Heat_Decay is present on the source ASC. Idempotent:
 	// if a Decay GE is already active we skip. Once AFL-0214's AbilitySet
 	// grants Decay at pawn spawn this block becomes redundant but harmless.
@@ -430,6 +439,56 @@ UAFLBeamChannelComponent* UAFLAG_Laser_Beam::ResolveBeamChannel()
 	return Channel;
 }
 
+float UAFLAG_Laser_Beam::CurrentHeatNorm() const
+{
+	// Idle decay applied but NOT committed, so this is safe to call from the const CanActivateAbility.
+	const UWorld* World = GetWorld();
+	if (!World || LastHeatTimeSeconds <= 0.0)
+	{
+		return HeatNorm;
+	}
+
+	const float Gap = static_cast<float>(World->GetTimeSeconds() - LastHeatTimeSeconds);
+
+	// Only the portion of the gap PAST the grace window cools -- the per-instance port of
+	// GE_AFL_Heat_CoolingGate. A channel ticking every TickInterval (0.1s) never leaves the 0.5s
+	// window, so it sheds nothing and heats at the full HeatPerTick, exactly as the gated GE did.
+	const float IdleGap = FMath::Max(0.0f, Gap - HeatCoolingGraceSeconds);
+	return FMath::Clamp(HeatNorm - HeatDecayPerSec * IdleGap, 0.0f, 1.0f);
+}
+
+float UAFLAG_Laser_Beam::AdvanceHeat()
+{
+	const UWorld* World = GetWorld();
+	HeatNorm            = FMath::Clamp(CurrentHeatNorm() + HeatPerTick, 0.0f, 1.0f);
+	LastHeatTimeSeconds = World ? World->GetTimeSeconds() : 0.0;
+	return HeatNorm;
+}
+
+bool UAFLAG_Laser_Beam::CanActivateAbility(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayTagContainer* SourceTags,
+	const FGameplayTagContainer* TargetTags,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+	{
+		return false;
+	}
+
+	// PER-INSTANCE VENT GATE. Once this cannon overheats it stays locked until ITS OWN heat has cooled
+	// to HeatVentResumeNorm -- the hysteresis the AttributeSet used to provide by holding State.Overheated
+	// until Heat fell below MaxHeat * 0.3. Because the state is per ability instance, the other cannon's
+	// gate is completely independent: one arm venting never blocks the other.
+	if (bOverheated && CurrentHeatNorm() > HeatVentResumeNorm)
+	{
+		return false;
+	}
+
+	return true;
+}
+
 FVector UAFLAG_Laser_Beam::ResolveMuzzleLocation(UObject* SourceEquipment, APawn* AvatarPawn) const
 {
 	// SIDE-SCOPED overload -- the dual-mount (arm-cannon) correct resolve, mirroring
@@ -561,6 +620,22 @@ void UAFLAG_Laser_Beam::OnTargetDataReadyCallback(const FGameplayAbilityTargetDa
 	const bool bIsAuthority         = CurrentActorInfo->IsNetAuthority();
 	const bool bIsLocallyControlled = CurrentActorInfo->IsLocallyControlled();
 
+	// PER-INSTANCE HEAT RAMP (Block 19) -- runs on BOTH client and server, off the same per-tick target
+	// data, so the predicting client and the authoritative server reach the cap on the SAME tick without
+	// replicating anything. This is the hitscan auto-fire model; it replaces applying GE_AFL_Heat_BeamTick
+	// + GE_AFL_Heat_CoolingGate to the shared ASC Heat pool (see the header for why the pool couples the
+	// two arm-cannons). Set BEFORE the dispatch below so ServerApplyTargetData sees bOverheated and ends
+	// the channel WITHOUT applying this tick's damage -- preserving the boundary the old ASC-tag check
+	// guarded ("no squeezing an extra damage tick out of the overheat boundary").
+	//
+	// The payload is still shipped/dispatched on the overheating tick: cutting it short here would leave
+	// the server one tick behind the client forever, so the server's own ramp would never reach the cap
+	// and the lockout would stop being server-authoritative.
+	if (AdvanceHeat() >= 1.0f)
+	{
+		bOverheated = true;
+	}
+
 	// Client predicting on a remote client: ship the per-tick payload up.
 	// Listen-server host: both flags true, skip the RPC because the server
 	// delegate fires from this same call.
@@ -587,6 +662,17 @@ void UAFLAG_Laser_Beam::OnTargetDataReadyCallback(const FGameplayAbilityTargetDa
 	// EndAbility from here — unlike Pulse, Beam keeps running until the
 	// input release task fires. The next tick produces the next payload.
 	ASC->ConsumeClientReplicatedTargetData(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey());
+
+	// ...with ONE exception: overheat on a REMOTE client. ServerApplyTargetData force-ends the channel,
+	// but that only runs on authority, so a remote client would keep channelling until the server's
+	// EndAbility replicated back. Ending locally makes overheat feel instant and matches the prediction
+	// the server is about to confirm. The listen-server host is bIsAuthority, already ended above.
+	if (bOverheated && !bIsAuthority && bIsLocallyControlled)
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BEAM: overheat (client predict) — ending channel"));
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo,
+			/*bReplicateEndAbility=*/true, /*bWasCancelled=*/true);
+	}
 }
 
 #if WITH_SERVER_CODE
@@ -598,46 +684,23 @@ void UAFLAG_Laser_Beam::ServerApplyTargetData(const FGameplayAbilityTargetDataHa
 		return;
 	}
 
-	// AFL-0207 per-tick heat: apply BeamTick (+4 HeatPerBeamTick) and
-	// CoolingGate (0.5s gate that suppresses Heat_Decay) source-to-source on
-	// every authoritative tick, regardless of whether the trace hit anything.
-	// CoolingGate is removed first so re-application produces a fresh 0.5s
-	// window — DurationPolicy alone doesn't refresh existing actives.
-	if (HeatCoolingGateEffectClass)
-	{
-		FGameplayEffectQuery RemoveQuery;
-		RemoveQuery.EffectDefinition = HeatCoolingGateEffectClass;
-		SourceASC->RemoveActiveEffects(RemoveQuery);
+	// BLOCK 19: the per-tick heat GEs that used to run here are GONE from this ability's hot path.
+	// GE_AFL_Heat_BeamTick (+4) and GE_AFL_Heat_CoolingGate (0.5s decay suppressor) both wrote the
+	// SHARED per-ASC Heat pool, so two arm-cannons filled ONE gauge at double rate and tripped the
+	// pawn-wide State.Overheated together. OnTargetDataReadyCallback now ramps this ability instance's
+	// own HeatNorm instead (same 0.04/tick, same 0.5s grace, same 25-tick/2.5s cap), so each cannon
+	// overheats and vents on its own clock.
+	//
+	// Both GE classes, the Heat attributes and the afl.Combat.* cheats remain in place and functional --
+	// they are simply no longer driven by beam fire. HeatDecayEffectClass is STILL ensured on the ASC in
+	// ActivateAbility, so cheat-set Heat continues to decay and clear State.Overheated as before.
 
-		FGameplayEffectContextHandle GateContext = SourceASC->MakeEffectContext();
-		GateContext.AddInstigator(CurrentActorInfo->OwnerActor.Get(), CurrentActorInfo->AvatarActor.Get());
-		FGameplayEffectSpecHandle GateSpec =
-			SourceASC->MakeOutgoingSpec(HeatCoolingGateEffectClass, GetAbilityLevel(), GateContext);
-		if (GateSpec.IsValid())
-		{
-			SourceASC->ApplyGameplayEffectSpecToSelf(*GateSpec.Data.Get());
-		}
-	}
-
-	if (HeatTickEffectClass)
-	{
-		FGameplayEffectContextHandle HeatContext = SourceASC->MakeEffectContext();
-		HeatContext.AddInstigator(CurrentActorInfo->OwnerActor.Get(), CurrentActorInfo->AvatarActor.Get());
-		FGameplayEffectSpecHandle HeatSpec =
-			SourceASC->MakeOutgoingSpec(HeatTickEffectClass, GetAbilityLevel(), HeatContext);
-		if (HeatSpec.IsValid())
-		{
-			SourceASC->ApplyGameplayEffectSpecToSelf(*HeatSpec.Data.Get());
-		}
-	}
-
-	// Mid-channel overheat check. The heat-tick we just applied may have
-	// driven Heat to MaxHeat and granted State.Overheated; if so, end the
-	// channel before the damage GEs run so the player can't squeeze an extra
-	// damage tick out of the overheat boundary. ActivationBlockedTags only
-	// gates re-entry — once an ability is already active the engine doesn't
-	// re-check those tags.
-	if (SourceASC->HasMatchingGameplayTag(TAG_State_Overheated_Beam))
+	// Mid-channel overheat check, now on this instance's own flag rather than the pawn-wide
+	// State.Overheated tag (which would have force-ended BOTH cannons when either one capped). Runs
+	// before the damage GEs so the player still can't squeeze an extra damage tick out of the overheat
+	// boundary. ActivationBlockedTags only gates re-entry — once an ability is already active the engine
+	// doesn't re-check those tags, which is why this explicit check has to exist at all.
+	if (bOverheated)
 	{
 		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BEAM: overheat — ending channel"));
 		// EndAbility now applies the release cooldown for EVERY channel-end (single apply point),
