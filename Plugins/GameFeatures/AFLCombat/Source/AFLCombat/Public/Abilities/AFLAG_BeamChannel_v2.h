@@ -149,16 +149,45 @@ private:
 	UAFLBeamVisualComponent* ResolveWeaponVisual() const;
 
 	/**
-	 * WHICH BEAM SLOT THIS ABILITY PUBLISHES TO (Block 22). The channel component on the pawn now
-	 * carries two beams; this resolves which one belongs to the equipment that granted this ability,
-	 * so two arm-cannons stop overwriting each other's muzzle and endpoint.
+	 * PLURAL form -- one visual component per spawned actor (XT: one weapon, two mounts). The singular
+	 * resolver above returns the FIRST match, which is right for a one-mount weapon and silently wrong
+	 * for two: both mounts would toggle the same renderer and only one beam would ever appear.
 	 *
-	 * Walks ResolveLaserVisualProvider() -> ULyraEquipmentInstance -> its first spawned display actor,
-	 * then defers to UAFLBeamChannelComponent::ResolveBeamSlotForActor -- the SAME function the reading
-	 * visual component calls. No equipment (activate-by-class harness, bot GameplayEvent fire) -> 0,
-	 * which is exactly where every single-beam weapon already publishes.
+	 * Appends to OutVisuals. At ONE spawned actor this yields exactly one element and every caller's
+	 * loop runs exactly once -- byte-identical to the singular path for all 62 single-mount weapons.
 	 */
-	int32 ResolveBeamSlot() const;
+	void ResolveWeaponVisuals(TArray<UAFLBeamVisualComponent*>& OutVisuals) const;
+
+	/**
+	 * The spawned mount actors this ability publishes for, in GetSpawnedActors() order. Empty when
+	 * there is no equipment (activate-by-class harness, bot GameplayEvent fire) -- callers then fall
+	 * back to the pawn-scoped single-beam path, exactly as before XT existed.
+	 */
+	void ResolveMountActors(TArray<AActor*>& OutActors) const;
+
+	// NOTE: the Block-22 scalar ResolveBeamSlot() is GONE. It answered "which ONE slot is this ability's",
+	// which stopped being a well-formed question once one ability could own two mounts. PublishPerMount
+	// now derives a slot PER MOUNT via UAFLBeamChannelComponent::ResolveBeamSlotForActor -- still the one
+	// shared rule the reading visual component uses, just applied per actor instead of once.
+
+	/**
+	 * Record that this ability published to Slot, so EndAbility can close exactly the slots it opened.
+	 *
+	 * ⚠ THE 53a848e2 HAZARD, PRESERVED. At EndAbility the ability spec can already be gone, so the
+	 * mount actors are no longer reachable and the slot set cannot be re-derived. Closing a guessed
+	 * slot 0 would clear a DIFFERENT weapon's beam flag. Under XT one ability owns BOTH slots, so the
+	 * scalar cache of that commit becomes a set -- same hazard, same fix, wider container.
+	 */
+	void MarkSlotPublished(int32 Slot);
+
+	/**
+	 * Publish this tick's beam for EVERY mount, into each mount's own slot. The ONE place the per-mount
+	 * fan-out lives, so the local-predict path and the authority path cannot drift apart.
+	 *
+	 * ImpactPoint is shared by every mount by design -- one trace, one confirmed hit, N origins
+	 * converging on it. AvatarPawn is only the fallback muzzle source for the no-equipment case.
+	 */
+	void PublishPerMount(class UAFLBeamChannelComponent& Channel, const FVector& ImpactPoint, APawn* AvatarPawn);
 
 	void OnTargetDataReadyCallback(const FGameplayAbilityTargetDataHandle& InData, FGameplayTag ApplicationTag);
 	void ServerApplyTargetData(const FGameplayAbilityTargetDataHandle& Data);
@@ -174,9 +203,12 @@ private:
 	TWeakObjectPtr<UAFLBeamVisualComponent> WeaponVisual;
 
 	/**
-	 * Cached beam slot (see ResolveBeamSlot). INDEX_NONE = never resolved, which also means this
-	 * ability never published -- EndAbility relies on that to know there is nothing to close.
-	 * One instance belongs to one spec belongs to one equipment, so the slot never changes.
+	 * Every slot this ability has published to this channel. EMPTY = never published, which is how
+	 * EndAbility knows there is nothing to close (guessing 0 would clear another weapon's flag -- see
+	 * MarkSlotPublished). A single-mount weapon holds exactly one entry, so EndAbility closes exactly
+	 * the one slot it opened, identical to the scalar behaviour it replaces. XT holds both.
+	 *
+	 * Bounded by NumBeamSlots; TArray (not a bitmask) so it reads plainly at a breakpoint.
 	 */
-	int32 CachedBeamSlot = INDEX_NONE;
+	TArray<int32> PublishedBeamSlots;
 };

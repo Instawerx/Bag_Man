@@ -181,11 +181,15 @@ void UAFLAG_BeamChannel_v2::ActivateAbility(
 	// remote proxy via the SAME shared ApplyBeamActiveState (Edge 1). NO GameplayCue spawn here.
 	if (ActorInfo->IsNetAuthority())
 	{
-		if (UAFLBeamVisualComponent* Visual = ResolveWeaponVisual())
+		// PER-MOUNT (Block 25): open EVERY mount's renderer, not just the first. One mount = one
+		// iteration = the pre-XT behaviour; XT opens both maws.
+		TArray<UAFLBeamVisualComponent*> Visuals;
+		ResolveWeaponVisuals(Visuals);
+		for (UAFLBeamVisualComponent* Visual : Visuals)
 		{
 			Visual->SetBeamActive(true);
 		}
-		else
+		if (Visuals.Num() == 0)
 		{
 			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_BEAMV2: no UAFLBeamVisualComponent on the equipped weapon actor -- beam will not show."));
 		}
@@ -242,7 +246,16 @@ void UAFLAG_BeamChannel_v2::EndAbility(
 		// -> OnRep Deactivates on every proxy; server applies locally). Mirrors the open in Activate.
 		if (ActorInfo && ActorInfo->IsNetAuthority())
 		{
-			if (UAFLBeamVisualComponent* Visual = WeaponVisual.IsValid() ? WeaponVisual.Get() : ResolveWeaponVisual())
+			// PER-MOUNT close, mirroring the per-mount open in ActivateAbility.
+			TArray<UAFLBeamVisualComponent*> Visuals;
+			ResolveWeaponVisuals(Visuals);
+			if (Visuals.Num() == 0 && WeaponVisual.IsValid())
+			{
+				// Equipment already torn down (unequip/death) -> the cached singular still points at a
+				// live renderer; close it rather than leave a beam stuck on.
+				Visuals.Add(WeaponVisual.Get());
+			}
+			for (UAFLBeamVisualComponent* Visual : Visuals)
 			{
 				Visual->SetBeamActive(false);
 			}
@@ -262,14 +275,16 @@ void UAFLAG_BeamChannel_v2::EndAbility(
 		// other consumer. (The bridge stays on the pawn; only its active flag flips.)
 		if (UAFLBeamChannelComponent* Channel = BeamChannel.Get())
 		{
-			// Close OUR slot only -- the other cannon may still be channeling. An unresolved slot
-			// means this ability never published (PublishImpact is the only thing that raises the
-			// flag), so there is nothing to close and guessing 0 would clear the OTHER cannon.
-			if (CachedBeamSlot != INDEX_NONE)
+			// Close EVERY slot this ability opened -- and ONLY those. An empty set means it never
+			// published (PublishImpact is the only thing that raises the flag), so there is nothing to
+			// close and guessing 0 would clear a DIFFERENT weapon's beam. Recorded at publish time
+			// because by now the spec can be gone and the mounts are no longer reachable to re-derive.
+			for (const int32 Slot : PublishedBeamSlots)
 			{
-				Channel->SetBeamActive(false, CachedBeamSlot);
+				Channel->SetBeamActive(false, Slot);
 			}
 		}
+		PublishedBeamSlots.Reset();
 		BeamChannel.Reset();
 		WeaponVisual.Reset();
 
@@ -344,11 +359,15 @@ void UAFLAG_BeamChannel_v2::TickChannel()
 	// component READS these on its own tick (Edge 2: replicated cadence, not per-frame).
 	if (UAFLBeamChannelComponent* Channel = ResolveBeamChannel())
 	{
-		// Block 22: into OUR slot. Two arm-cannons publish to different slots, so neither overwrites
-		// the other's muzzle/endpoint. Every single-beam weapon resolves 0 -- unchanged behaviour.
-		const int32 Slot = ResolveBeamSlot();
-		Channel->PublishImpact(Hit.ImpactPoint, Slot);
-		Channel->PublishMuzzle(ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn), Slot);
+		// BLOCK 25 -- PER-MOUNT PUBLISH. One publish per spawned mount actor, each into the slot ITS
+		// OWN attach socket names. XT (one weapon, two mounts) therefore drives two beams from two
+		// maws; every single-mount weapon has exactly one mount, so the loop runs once and this is
+		// byte-identical to the pre-XT single publish.
+		//
+		// ⚠ ONE TRACE, ONE ENDPOINT: every mount publishes the SAME Hit.ImpactPoint. This is the
+		// converge shape -- two origins, one confirmed hit. The trace above ran once and the damage
+		// path is untouched; a second trace would be Phase 2 and is deliberately NOT here.
+		PublishPerMount(*Channel, Hit.ImpactPoint, AvatarPawn);
 	}
 
 	// Reuse the proven hitscan payload (AFLNetTypes) — no per-weapon fork.
@@ -425,11 +444,10 @@ void UAFLAG_BeamChannel_v2::ServerApplyTargetData(const FGameplayAbilityTargetDa
 				if (RawData->GetScriptStruct() == FAFLAbilityTargetData_Hitscan::StaticStruct())
 				{
 					const FAFLAbilityTargetData_Hitscan* Hitscan = static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData);
-					// Authority publish -- same slot as the local publish above, so proxies read the
-					// same side's values the owning client does.
-					const int32 Slot = ResolveBeamSlot();
-					Channel->PublishImpact(Hitscan->HitResult.ImpactPoint, Slot);
-					Channel->PublishMuzzle(ResolveMuzzleLocation(ResolveLaserVisualProvider(), Cast<APawn>(CurrentActorInfo->AvatarActor.Get())), Slot);
+					// Authority publish -- same per-mount loop as the local publish above, so proxies
+					// read the same mounts' values the owning client does.
+					PublishPerMount(*Channel, Hitscan->HitResult.ImpactPoint,
+						Cast<APawn>(CurrentActorInfo->AvatarActor.Get()));
 					break;
 				}
 			}
@@ -685,38 +703,84 @@ UAFLBeamVisualComponent* UAFLAG_BeamChannel_v2::ResolveWeaponVisual() const
 	return nullptr;
 }
 
-int32 UAFLAG_BeamChannel_v2::ResolveBeamSlot() const
+void UAFLAG_BeamChannel_v2::ResolveMountActors(TArray<AActor*>& OutActors) const
 {
-	// Which of the channel's two beams is ours. Keyed off the display actor THIS equipment spawned,
-	// through the one shared rule -- so the visual component on that same actor derives the same slot.
-	//
-	// CACHED because EndAbility needs it: by then GetCurrentAbilitySpec() can already be gone, and an
-	// unresolved fallback of 0 there would clear the OTHER cannon's active flag. The cache is filled
-	// on the first publish (every channel tick calls this), so EndAbility always has the real value.
-	if (CachedBeamSlot != INDEX_NONE)
-	{
-		return CachedBeamSlot;
-	}
-
+	OutActors.Reset();
 	if (const ULyraEquipmentInstance* Equipment = Cast<ULyraEquipmentInstance>(ResolveLaserVisualProvider()))
 	{
 		for (AActor* Spawned : Equipment->GetSpawnedActors())
 		{
-			if (!IsValid(Spawned))
+			if (IsValid(Spawned))
 			{
-				continue;
+				OutActors.Add(Spawned);
 			}
-			// Do NOT latch before the actor is attached -- its socket reads NAME_None until then, and
-			// caching that would pin the LEFT cannon to slot 0 permanently. Answer 0 for now, retry
-			// next tick. Same guard as UAFLBeamVisualComponent::ResolveBeamSlot on the reading side.
-			if (Spawned->GetAttachParentSocketName().IsNone())
-			{
-				return 0;
-			}
-			const_cast<UAFLAG_BeamChannel_v2*>(this)->CachedBeamSlot =
-				UAFLBeamChannelComponent::ResolveBeamSlotForActor(Spawned);
-			return CachedBeamSlot;
 		}
 	}
-	return 0;   // no equipment -> slot 0, where every single-beam weapon already publishes
+	// No equipment -> empty. Callers fall back to the proven pawn-scoped single-beam path.
 }
+
+void UAFLAG_BeamChannel_v2::ResolveWeaponVisuals(TArray<UAFLBeamVisualComponent*>& OutVisuals) const
+{
+	OutVisuals.Reset();
+
+	TArray<AActor*> Mounts;
+	ResolveMountActors(Mounts);
+	for (AActor* Mount : Mounts)
+	{
+		if (UAFLBeamVisualComponent* Visual = Mount->FindComponentByClass<UAFLBeamVisualComponent>())
+		{
+			OutVisuals.Add(Visual);
+		}
+	}
+
+	// No equipment (activate-by-class harness, bot GameplayEvent fire) -> the singular resolver's proven
+	// pawn-walk, so those specless paths behave exactly as they did before XT.
+	if (OutVisuals.Num() == 0)
+	{
+		if (UAFLBeamVisualComponent* Fallback = ResolveWeaponVisual())
+		{
+			OutVisuals.Add(Fallback);
+		}
+	}
+}
+
+void UAFLAG_BeamChannel_v2::MarkSlotPublished(int32 Slot)
+{
+	PublishedBeamSlots.AddUnique(Slot);
+}
+
+void UAFLAG_BeamChannel_v2::PublishPerMount(UAFLBeamChannelComponent& Channel, const FVector& ImpactPoint, APawn* AvatarPawn)
+{
+	TArray<AActor*> Mounts;
+	ResolveMountActors(Mounts);
+
+	// NO EQUIPMENT (activate-by-class harness, bot GameplayEvent fire, un-granted spec): the proven
+	// pawn-scoped single publish into slot 0, byte-for-byte what those paths did before XT existed.
+	if (Mounts.Num() == 0)
+	{
+		Channel.PublishImpact(ImpactPoint, 0);
+		Channel.PublishMuzzle(ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn), 0);
+		MarkSlotPublished(0);
+		return;
+	}
+
+	// ONE publish per mount, each into the slot its own attach socket names, each from its own muzzle.
+	// A single-mount weapon runs this exactly once -- same slot, same values, as the pre-XT path.
+	for (AActor* Mount : Mounts)
+	{
+		const int32 Slot = UAFLBeamChannelComponent::ResolveBeamSlotForActor(Mount);
+		Channel.PublishImpact(ImpactPoint, Slot);                              // SHARED endpoint == the convergence
+		Channel.PublishMuzzle(ResolveMuzzleLocationForActor(Mount), Slot);     // per-mount origin
+		MarkSlotPublished(Slot);
+	}
+}
+
+// The Block-22 scalar UAFLAG_BeamChannel_v2::ResolveBeamSlot() lived here. It is GONE: it answered
+// "which ONE slot is this ability's", a question that stops being well-formed once a single ability owns
+// two mounts. PublishPerMount above derives the slot PER MOUNT through the same shared
+// UAFLBeamChannelComponent::ResolveBeamSlotForActor rule, so reader and writer still cannot disagree.
+//
+// Its don't-latch-before-attachment guard is NOT lost -- it moved to where it belongs. Slot resolution is
+// now per-tick and uncached on the publishing side, so a mount that is not yet attached simply resolves 0
+// this tick and its real slot the next, with nothing to un-pin. The reading side
+// (UAFLBeamVisualComponent::ResolveBeamSlot) still caches and still carries the explicit guard.

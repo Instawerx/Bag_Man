@@ -186,6 +186,44 @@ FVector UAFLAG_Laser_Base::ResolveMuzzleLocation(UObject* SourceEquipment, APawn
 	return ResolveMuzzleLocation(AvatarPawn);
 }
 
+FVector UAFLAG_Laser_Base::ResolveMuzzleLocationForActor(AActor* WeaponActor) const
+{
+	// PER-ACTOR form (XT: one equipment definition, two mounted actors). Deliberately looks at NOTHING
+	// but the actor handed in -- no pawn walk, no equipment walk -- so it stays correct when called in a
+	// loop over GetSpawnedActors() and can never return the other mount's barrel.
+	if (!IsValid(WeaponActor))
+	{
+		return FVector::ZeroVector;
+	}
+
+	TInlineComponentArray<UMeshComponent*> MeshComps;
+	WeaponActor->GetComponents<UMeshComponent>(MeshComps);
+	for (UMeshComponent* MeshComp : MeshComps)
+	{
+		if (!MeshComp)
+		{
+			continue;
+		}
+		for (const FName& SocketName : MuzzleSocketCandidates)
+		{
+			if (!SocketName.IsNone() && MeshComp->DoesSocketExist(SocketName))
+			{
+				const FVector Resolved = MeshComp->GetSocketLocation(SocketName);
+				UE_LOG(LogAFLCombat, Verbose,
+					TEXT("AFL_LASER/MUZZLE(actor): '%s' on %s (%s) at world=%s"),
+					*SocketName.ToString(), *MeshComp->GetName(), *WeaponActor->GetName(), *Resolved.ToString());
+				return Resolved;
+			}
+		}
+	}
+
+	// Same deliberate deviation as the equipment-scoped resolver: this actor's own origin, so a mesh
+	// with no candidate socket still emits from ITS mount rather than world origin or the other barrel.
+	UE_LOG(LogAFLCombat, Verbose,
+		TEXT("AFL_LASER/MUZZLE(actor): no candidate socket on %s -> its actor origin"), *WeaponActor->GetName());
+	return WeaponActor->GetActorLocation();
+}
+
 UObject* UAFLAG_Laser_Base::ResolveLaserVisualProvider() const
 {
 	// The WID AbilitySet grant sets the spec's SourceObject to the equipment/weapon instance (which

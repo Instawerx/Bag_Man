@@ -6,6 +6,7 @@
 
 #include "AFLAG_Laser_Base.generated.h"
 
+class AActor;
 class APawn;
 
 /**
@@ -71,6 +72,21 @@ protected:
 	 * proven behaviour byte-for-byte. Additive: the pawn-scoped signature is unchanged.
 	 */
 	FVector ResolveMuzzleLocation(UObject* SourceEquipment, APawn* AvatarPawn) const;
+
+	/**
+	 * PER-ACTOR muzzle resolve -- the XT (one weapon, two mounted actors) form. The two resolvers above
+	 * both answer "the muzzle for this pawn/equipment", which is a single point; a weapon whose ONE
+	 * equipment definition spawns TWO actors needs a muzzle per actor.
+	 *
+	 * Returns the world location of the first MuzzleSocketCandidates socket found on WeaponActor's own
+	 * mesh components. Falls back to that actor's origin -- never world origin, never another actor's
+	 * barrel. Pure: it looks at nothing but the actor handed to it, which is what makes it safe to call
+	 * in a loop over ULyraEquipmentInstance::GetSpawnedActors().
+	 *
+	 * ADDITIVE. ResolveMuzzleLocation(UObject*, APawn*) is unchanged and all seven of its call sites are
+	 * untouched; that overload is simply the first-spawned-actor case of this one.
+	 */
+	FVector ResolveMuzzleLocationForActor(AActor* WeaponActor) const;
 
 	/**
 	 * The equipped weapon instance that granted this ability -- the cue SourceObject the AFL laser FX
