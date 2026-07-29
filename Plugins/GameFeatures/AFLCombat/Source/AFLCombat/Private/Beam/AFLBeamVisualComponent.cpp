@@ -257,8 +257,13 @@ void UAFLBeamVisualComponent::TickComponent(float DeltaTime, ELevelTick TickType
 		}
 	}
 
-	const FVector ImpactPoint = Channel->GetBeamImpactPoint();
-	const FVector Muzzle      = Channel->GetBeamMuzzleLocation();
+	// BLOCK 22: read OUR slot, not the pawn's single set. Before this, both cannons' visual components
+	// read the same published pair, so the one drawn beam's origin flipped between the two maws every
+	// tick as each ability published -- the "alternating fire" symptom. Slot 0 for every weapon that
+	// isn't the left cannon, so this is byte-identical for all 60 shipped weapons.
+	const int32   Slot        = ResolveBeamSlot();
+	const FVector ImpactPoint = Channel->GetBeamImpactPoint(Slot);
+	const FVector Muzzle      = Channel->GetBeamMuzzleLocation(Slot);
 
 	// Position the NS start at the muzzle (the persistent component follows the weapon, but we set
 	// world location so the beam start sits exactly at the published barrel tip). With Absolute Beam
@@ -296,6 +301,28 @@ void UAFLBeamVisualComponent::TickComponent(float DeltaTime, ELevelTick TickType
 			Extra->SetVariableVec3(BeamEndParam, ImpactPoint);   // SHARED endpoint == the convergence
 		}
 	}
+}
+
+int32 UAFLBeamVisualComponent::ResolveBeamSlot()
+{
+	if (CachedBeamSlot != INDEX_NONE)
+	{
+		return CachedBeamSlot;
+	}
+
+	const AActor* DisplayActor = GetOwner();
+
+	// Do NOT latch while the owner is still unattached -- its socket reads NAME_None on the first
+	// frames (and on a proxy until attachment replicates), and latching then would pin the LEFT cannon
+	// to slot 0 permanently. Stay unresolved and answer 0 until a real socket appears.
+	if (!DisplayActor || DisplayActor->GetAttachParentSocketName().IsNone())
+	{
+		return 0;
+	}
+
+	// Same function the publishing ability calls -- one rule, so reader and writer cannot disagree.
+	CachedBeamSlot = UAFLBeamChannelComponent::ResolveBeamSlotForActor(DisplayActor);
+	return CachedBeamSlot;
 }
 
 UAFLBeamChannelComponent* UAFLBeamVisualComponent::ResolveChannel() const

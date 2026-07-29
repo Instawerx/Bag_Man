@@ -14,6 +14,7 @@
 #include "CollisionQueryParams.h"
 #include "Effects/GE_AFL_Cooldown_Beam.h"
 #include "Effects/GE_AFL_Damage_BeamTick.h"
+#include "Equipment/LyraEquipmentInstance.h"   // side-scoped visual + beam-slot resolve
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -261,7 +262,13 @@ void UAFLAG_BeamChannel_v2::EndAbility(
 		// other consumer. (The bridge stays on the pawn; only its active flag flips.)
 		if (UAFLBeamChannelComponent* Channel = BeamChannel.Get())
 		{
-			Channel->SetBeamActive(false);
+			// Close OUR slot only -- the other cannon may still be channeling. An unresolved slot
+			// means this ability never published (PublishImpact is the only thing that raises the
+			// flag), so there is nothing to close and guessing 0 would clear the OTHER cannon.
+			if (CachedBeamSlot != INDEX_NONE)
+			{
+				Channel->SetBeamActive(false, CachedBeamSlot);
+			}
 		}
 		BeamChannel.Reset();
 		WeaponVisual.Reset();
@@ -337,8 +344,11 @@ void UAFLAG_BeamChannel_v2::TickChannel()
 	// component READS these on its own tick (Edge 2: replicated cadence, not per-frame).
 	if (UAFLBeamChannelComponent* Channel = ResolveBeamChannel())
 	{
-		Channel->PublishImpact(Hit.ImpactPoint);
-		Channel->PublishMuzzle(ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn));
+		// Block 22: into OUR slot. Two arm-cannons publish to different slots, so neither overwrites
+		// the other's muzzle/endpoint. Every single-beam weapon resolves 0 -- unchanged behaviour.
+		const int32 Slot = ResolveBeamSlot();
+		Channel->PublishImpact(Hit.ImpactPoint, Slot);
+		Channel->PublishMuzzle(ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn), Slot);
 	}
 
 	// Reuse the proven hitscan payload (AFLNetTypes) — no per-weapon fork.
@@ -415,8 +425,11 @@ void UAFLAG_BeamChannel_v2::ServerApplyTargetData(const FGameplayAbilityTargetDa
 				if (RawData->GetScriptStruct() == FAFLAbilityTargetData_Hitscan::StaticStruct())
 				{
 					const FAFLAbilityTargetData_Hitscan* Hitscan = static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData);
-					Channel->PublishImpact(Hitscan->HitResult.ImpactPoint);
-					Channel->PublishMuzzle(ResolveMuzzleLocation(ResolveLaserVisualProvider(), Cast<APawn>(CurrentActorInfo->AvatarActor.Get())));
+					// Authority publish -- same slot as the local publish above, so proxies read the
+					// same side's values the owning client does.
+					const int32 Slot = ResolveBeamSlot();
+					Channel->PublishImpact(Hitscan->HitResult.ImpactPoint, Slot);
+					Channel->PublishMuzzle(ResolveMuzzleLocation(ResolveLaserVisualProvider(), Cast<APawn>(CurrentActorInfo->AvatarActor.Get())), Slot);
 					break;
 				}
 			}
@@ -629,15 +642,36 @@ UAFLBeamVisualComponent* UAFLAG_BeamChannel_v2::ResolveWeaponVisual() const
 	{
 		return Cached;
 	}
+	// SIDE-SCOPED FIRST (Block 22) -- the identical treatment 48c879dc applied to muzzle resolution.
+	// The pawn-walk below returns the FIRST attached actor carrying a visual component, which is right
+	// for one held weapon and silently WRONG for two: both cannons' abilities resolved the SAME visual
+	// component, so the second cannon's renderer was never activated at all and only one beam could
+	// ever appear. Confining the search to the actors THIS equipment spawned gives each side its own.
+	if (const ULyraEquipmentInstance* Equipment = Cast<ULyraEquipmentInstance>(ResolveLaserVisualProvider()))
+	{
+		for (AActor* Spawned : Equipment->GetSpawnedActors())
+		{
+			if (!IsValid(Spawned))
+			{
+				continue;
+			}
+			if (UAFLBeamVisualComponent* Visual = Spawned->FindComponentByClass<UAFLBeamVisualComponent>())
+			{
+				const_cast<UAFLAG_BeamChannel_v2*>(this)->WeaponVisual = Visual;
+				return Visual;
+			}
+		}
+	}
+
 	const APawn* AvatarPawn = Cast<APawn>(GetAvatarActorFromActorInfo());
 	if (!AvatarPawn)
 	{
 		return nullptr;
 	}
 
-	// The cross-actor reach (pawn-ability -> weapon display actor -> visual component). Walk the
-	// pawn's attached actors for the one carrying the visual component. This is the bridge the
-	// shipping system needs; proving it works is the canary's point.
+	// No equipment resolved (activate-by-class harness, bot GameplayEvent fire, un-granted spec) ->
+	// the proven pawn-walk, byte-for-byte unchanged. The cross-actor reach (pawn-ability -> weapon
+	// display actor -> visual component); this is the bridge the shipping system needs.
 	TArray<AActor*> AttachedActors;
 	AvatarPawn->GetAttachedActors(AttachedActors);
 	for (AActor* Attached : AttachedActors)
@@ -649,4 +683,40 @@ UAFLBeamVisualComponent* UAFLAG_BeamChannel_v2::ResolveWeaponVisual() const
 		}
 	}
 	return nullptr;
+}
+
+int32 UAFLAG_BeamChannel_v2::ResolveBeamSlot() const
+{
+	// Which of the channel's two beams is ours. Keyed off the display actor THIS equipment spawned,
+	// through the one shared rule -- so the visual component on that same actor derives the same slot.
+	//
+	// CACHED because EndAbility needs it: by then GetCurrentAbilitySpec() can already be gone, and an
+	// unresolved fallback of 0 there would clear the OTHER cannon's active flag. The cache is filled
+	// on the first publish (every channel tick calls this), so EndAbility always has the real value.
+	if (CachedBeamSlot != INDEX_NONE)
+	{
+		return CachedBeamSlot;
+	}
+
+	if (const ULyraEquipmentInstance* Equipment = Cast<ULyraEquipmentInstance>(ResolveLaserVisualProvider()))
+	{
+		for (AActor* Spawned : Equipment->GetSpawnedActors())
+		{
+			if (!IsValid(Spawned))
+			{
+				continue;
+			}
+			// Do NOT latch before the actor is attached -- its socket reads NAME_None until then, and
+			// caching that would pin the LEFT cannon to slot 0 permanently. Answer 0 for now, retry
+			// next tick. Same guard as UAFLBeamVisualComponent::ResolveBeamSlot on the reading side.
+			if (Spawned->GetAttachParentSocketName().IsNone())
+			{
+				return 0;
+			}
+			const_cast<UAFLAG_BeamChannel_v2*>(this)->CachedBeamSlot =
+				UAFLBeamChannelComponent::ResolveBeamSlotForActor(Spawned);
+			return CachedBeamSlot;
+		}
+	}
+	return 0;   // no equipment -> slot 0, where every single-beam weapon already publishes
 }

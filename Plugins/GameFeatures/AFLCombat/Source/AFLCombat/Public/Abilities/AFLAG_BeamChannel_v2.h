@@ -148,6 +148,18 @@ private:
 	 */
 	UAFLBeamVisualComponent* ResolveWeaponVisual() const;
 
+	/**
+	 * WHICH BEAM SLOT THIS ABILITY PUBLISHES TO (Block 22). The channel component on the pawn now
+	 * carries two beams; this resolves which one belongs to the equipment that granted this ability,
+	 * so two arm-cannons stop overwriting each other's muzzle and endpoint.
+	 *
+	 * Walks ResolveLaserVisualProvider() -> ULyraEquipmentInstance -> its first spawned display actor,
+	 * then defers to UAFLBeamChannelComponent::ResolveBeamSlotForActor -- the SAME function the reading
+	 * visual component calls. No equipment (activate-by-class harness, bot GameplayEvent fire) -> 0,
+	 * which is exactly where every single-beam weapon already publishes.
+	 */
+	int32 ResolveBeamSlot() const;
+
 	void OnTargetDataReadyCallback(const FGameplayAbilityTargetDataHandle& InData, FGameplayTag ApplicationTag);
 	void ServerApplyTargetData(const FGameplayAbilityTargetDataHandle& Data);
 	void ApplyReleaseCooldown();
@@ -160,4 +172,11 @@ private:
 	FTimerHandle TickTimerHandle;
 	TWeakObjectPtr<UAFLBeamChannelComponent> BeamChannel;
 	TWeakObjectPtr<UAFLBeamVisualComponent> WeaponVisual;
+
+	/**
+	 * Cached beam slot (see ResolveBeamSlot). INDEX_NONE = never resolved, which also means this
+	 * ability never published -- EndAbility relies on that to know there is nothing to close.
+	 * One instance belongs to one spec belongs to one equipment, so the slot never changes.
+	 */
+	int32 CachedBeamSlot = INDEX_NONE;
 };

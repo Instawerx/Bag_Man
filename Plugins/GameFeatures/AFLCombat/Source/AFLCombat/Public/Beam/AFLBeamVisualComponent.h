@@ -78,6 +78,18 @@ protected:
 	UAFLBeamChannelComponent* ResolveChannel() const;
 
 	/**
+	 * WHICH BEAM SLOT IS MINE (Block 22). The channel component lives on the PAWN and now carries two
+	 * beams; this component lives on the WEAPON DISPLAY ACTOR, one per cannon, so our own owner is the
+	 * side identity. Delegates to UAFLBeamChannelComponent::ResolveBeamSlotForActor(GetOwner()) -- the
+	 * SAME function the publishing ability calls, so reader and writer cannot disagree.
+	 *
+	 * INDEX_NONE until the owner is actually attached (its socket reads NAME_None on the first frames,
+	 * and latching then would pin a left cannon to slot 0 forever). Callers treat INDEX_NONE as slot 0,
+	 * so the worst case during those frames is drawing the primary beam, never drawing nothing.
+	 */
+	int32 ResolveBeamSlot();
+
+	/**
 	 * THE UNIFIED FX TINT INPUT. Reads the weapon's IAFLLaserVisualProvider::GetBeamColor -- the SAME
 	 * per-weapon tint the pulse Fire/Tracer cues drive User.Color from. Walks owner-actor -> pawn ->
 	 * equipment manager -> the instance that spawned us, and reads its GetBeamColor. The colour is
@@ -172,6 +184,9 @@ private:
 	/** The persistent beam NS instance (Auto-Activate OFF). Spawned once, toggled -- never destroyed per fire. */
 	UPROPERTY(Transient)
 	TObjectPtr<UNiagaraComponent> BeamNC = nullptr;
+
+	/** Cached beam slot (see ResolveBeamSlot). INDEX_NONE = not resolved yet; treated as slot 0. */
+	int32 CachedBeamSlot = INDEX_NONE;
 
 	/** Cached pawn beam-channel bridge (re-resolved if stale). */
 	UPROPERTY(Transient)
