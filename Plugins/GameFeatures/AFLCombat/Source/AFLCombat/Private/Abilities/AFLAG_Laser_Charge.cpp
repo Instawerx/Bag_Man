@@ -260,7 +260,7 @@ void UAFLAG_Laser_Charge::ClientPredictAndSend()
 	NewTargetData->ClaimedViewOrigin           = ViewLocation;
 	NewTargetData->ClaimedAimDirection         = AimDirection;
 	NewTargetData->AimAngularVelocityDegPerSec = 0.0f;
-	NewTargetData->ClaimedMuzzleLocation       = ResolveMuzzleLocation(AvatarPawn);
+	NewTargetData->ClaimedMuzzleLocation       = ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn);
 
 	FGameplayAbilityTargetDataHandle TargetDataHandle;
 	TargetDataHandle.Add(NewTargetData);

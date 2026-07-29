@@ -9,6 +9,7 @@
 #include "Beam/AFLBeamChannelComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "CollisionQueryParams.h"
+#include "Components/MeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Character.h"
@@ -19,6 +20,7 @@
 #include "Effects/GE_AFL_Heat_Decay.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
+#include "Equipment/LyraEquipmentInstance.h"   // side-scoped resolver: GetSpawnedActors()
 #include "GameFramework/PlayerController.h"
 #include "GameplayEffect.h"
 #include "NativeGameplayTags.h"
@@ -366,7 +368,7 @@ void UAFLAG_Laser_Beam::TickChannel()
 		// eye-point. Publish the muzzle world-location (Pulse's proven resolve + weapon_r
 		// fallback) so the cue anchors the START there. Local-side immediate; the authority
 		// path below publishes it too for sim proxies.
-		Channel->PublishMuzzle(ResolveMuzzleLocation(AvatarPawn));
+		Channel->PublishMuzzle(ResolveMuzzleLocation(GetAFLLaserWeaponInstance(), AvatarPawn));
 	}
 
 	// Reuse the Pulse hitscan struct — the brief is explicit that Beam does
@@ -426,6 +428,55 @@ UAFLBeamChannelComponent* UAFLAG_Laser_Beam::ResolveBeamChannel()
 		BeamChannel = Channel;
 	}
 	return Channel;
+}
+
+FVector UAFLAG_Laser_Beam::ResolveMuzzleLocation(UObject* SourceEquipment, APawn* AvatarPawn) const
+{
+	// SIDE-SCOPED overload -- the dual-mount (arm-cannon) correct resolve, mirroring
+	// UAFLAG_Laser_Base's. ⚠ This class is a SIBLING of UAFLAG_Laser_Base, not a child
+	// (UAFLAG_Laser_Beam : public ULyraGameplayAbility), so it cannot inherit that overload and
+	// carries its own here -- same contract, its own equipment accessor (GetAFLLaserWeaponInstance).
+	//
+	// The pawn-scoped sibling below returns the FIRST "Muzzle"-socketed mesh across EVERY attached
+	// actor: right for one held weapon, wrong for two (both cannons resolved the same first match).
+	// Confining the search to the actors THIS equipment instance spawned gives each hand its own muzzle.
+	if (const ULyraEquipmentInstance* Equipment = Cast<ULyraEquipmentInstance>(SourceEquipment))
+	{
+		for (AActor* Spawned : Equipment->GetSpawnedActors())
+		{
+			if (!IsValid(Spawned))
+			{
+				continue;
+			}
+
+			// UMeshComponent (not the old UStaticMeshComponent-only walk) so skeletal weapon meshes --
+			// which every AFL harvest weapon uses -- resolve too.
+			TInlineComponentArray<UMeshComponent*> MeshComps;
+			Spawned->GetComponents<UMeshComponent>(MeshComps);
+			for (UMeshComponent* MeshComp : MeshComps)
+			{
+				if (MeshComp && MeshComp->DoesSocketExist(FName("Muzzle")))
+				{
+					const FVector Resolved = MeshComp->GetSocketLocation(FName("Muzzle"));
+					UE_LOG(LogAFLCombat, Verbose,
+						TEXT("AFL_LASER/MUZZLE(side): 'Muzzle' on %s (equip %s) at world=%s"),
+						*MeshComp->GetName(), *GetNameSafe(SourceEquipment), *Resolved.ToString());
+					return Resolved;
+				}
+			}
+
+			// Side-correct fallback: this equipment's own actor, never the other cannon's barrel,
+			// never the shared weapon_r hand socket, never world origin.
+			UE_LOG(LogAFLCombat, Verbose,
+				TEXT("AFL_LASER/MUZZLE(side): no Muzzle socket on %s -> its actor origin"),
+				*Spawned->GetName());
+			return Spawned->GetActorLocation();
+		}
+	}
+
+	// No equipment (activate-by-class harness, bot GameplayEvent fire, no current spec) -> the proven
+	// pawn-scoped path below, byte-for-byte unchanged.
+	return ResolveMuzzleLocation(AvatarPawn);
 }
 
 FVector UAFLAG_Laser_Beam::ResolveMuzzleLocation(APawn* AvatarPawn) const
@@ -619,7 +670,7 @@ void UAFLAG_Laser_Beam::ServerApplyTargetData(const FGameplayAbilityTargetDataHa
 				Channel->PublishImpact(static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData)->HitResult.ImpactPoint);
 				// Publish the muzzle on the authority too (the visible START), so simulated
 				// proxies emit the beam from the barrel. Resolved from the avatar pawn.
-				Channel->PublishMuzzle(ResolveMuzzleLocation(Cast<APawn>(CurrentActorInfo ? CurrentActorInfo->AvatarActor.Get() : nullptr)));
+				Channel->PublishMuzzle(ResolveMuzzleLocation(GetAFLLaserWeaponInstance(), Cast<APawn>(CurrentActorInfo ? CurrentActorInfo->AvatarActor.Get() : nullptr)));
 			}
 		}
 

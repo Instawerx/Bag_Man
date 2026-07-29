@@ -513,7 +513,7 @@ void UAFLAG_Laser_Pulse::ClientPredictAndSend()
 	// Pack the OWNER-resolved muzzle (same ResolveMuzzleLocation the Fire cue uses above; log-confirmed
 	// correct on role=2). The authoritative Fire cue on the server reads THIS instead of resolving the
 	// muzzle server-side, so the proxy's flash sits at the correct barrel tip. COSMETIC-only.
-	NewTargetData->ClaimedMuzzleLocation      = ResolveMuzzleLocation(AvatarPawn);
+	NewTargetData->ClaimedMuzzleLocation      = ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn);
 
 	FGameplayAbilityTargetDataHandle TargetDataHandle;
 	TargetDataHandle.Add(NewTargetData);

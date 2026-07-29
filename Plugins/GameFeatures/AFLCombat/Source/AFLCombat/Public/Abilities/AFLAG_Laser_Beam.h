@@ -143,6 +143,23 @@ private:
 	FVector ResolveMuzzleLocation(class APawn* AvatarPawn) const;
 
 	/**
+	 * SIDE-SCOPED muzzle resolve -- the dual-mount (arm-cannon) correct overload. The pawn-scoped
+	 * sibling above returns the FIRST "Muzzle" socket across EVERY attached mesh, which is right for a
+	 * single held weapon and WRONG for two: both cannons resolved the same first match, so the left
+	 * fired from the right's barrel. This confines the search to the actors SourceEquipment itself
+	 * spawned, so each hand resolves its own muzzle.
+	 *
+	 * ⚠ UAFLAG_Laser_Beam is a SIBLING of UAFLAG_Laser_Base, not a child (it derives straight from
+	 * ULyraGameplayAbility), so it cannot inherit the base's overload -- it carries its own, same
+	 * contract, fed by its own GetAFLLaserWeaponInstance() rather than ResolveLaserVisualProvider().
+	 *
+	 * Pass GetAFLLaserWeaponInstance(). When it is null (activate-by-class harness, bot GameplayEvent
+	 * fire, no current spec) this DELEGATES to the pawn-scoped resolver, so every pre-existing path
+	 * keeps its proven behaviour byte-for-byte. Additive: the pawn-scoped signature is unchanged.
+	 */
+	FVector ResolveMuzzleLocation(UObject* SourceEquipment, class APawn* AvatarPawn) const;
+
+	/**
 	 * AFL-0208 (RP-2): the equipment/weapon instance that granted this ability and
 	 * supplies the beam look (implements IAFLLaserVisualProvider). Used as the beam
 	 * GameplayCue's SourceObject. Resolves from the current ability spec's SourceObject

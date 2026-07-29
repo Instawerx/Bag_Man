@@ -118,7 +118,7 @@ void UAFLAG_Projectile_Base::ActivateAbility(
 	{
 		if (UWorld* World = AvatarPawn->GetWorld())
 		{
-			const FVector  MuzzleLoc = ResolveMuzzleLocation(AvatarPawn);  // inherited; never world origin
+			const FVector  MuzzleLoc = ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn);  // inherited; never world origin
 			const FRotator AimRot    = AvatarPawn->GetBaseAimRotation();
 			const FVector  AimDir    = AimRot.Vector();
 

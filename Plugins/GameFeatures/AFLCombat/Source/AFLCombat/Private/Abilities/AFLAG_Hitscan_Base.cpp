@@ -436,7 +436,7 @@ void UAFLAG_Hitscan_Base::ClientPredictAndSend()
 	// Pack EACH hit as its own FAFLAbilityTargetData_Hitscan into ONE handle. The server's apply-loop
 	// iterates every entry -> pierce damages each body. Reuses the AFLNetTypes struct -> no GameFeature
 	// net-struct registration trap. Ownership transfers to the handle (deletes on destruction).
-	const FVector MuzzleLoc = ResolveMuzzleLocation(AvatarPawn);
+	const FVector MuzzleLoc = ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn);
 	FGameplayAbilityTargetDataHandle Handle;
 	for (const FHitResult& Hit : Hits)
 	{
@@ -476,7 +476,7 @@ void UAFLAG_Hitscan_Base::OnTargetDataReadyCallback(const FGameplayAbilityTarget
 	{
 		UObject* Tint = ResolveLaserVisualProvider();
 		UObject* Src  = Tint ? Tint : static_cast<UObject*>(AvatarPawn);
-		FVector MuzzleLoc = ResolveMuzzleLocation(AvatarPawn);
+		FVector MuzzleLoc = ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn);
 		if (LocalHandle.Num() > 0)
 		{
 			if (const FGameplayAbilityTargetData* R0 = LocalHandle.Get(0))

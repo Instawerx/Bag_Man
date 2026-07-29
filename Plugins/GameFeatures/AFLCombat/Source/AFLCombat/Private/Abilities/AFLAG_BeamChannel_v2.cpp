@@ -338,7 +338,7 @@ void UAFLAG_BeamChannel_v2::TickChannel()
 	if (UAFLBeamChannelComponent* Channel = ResolveBeamChannel())
 	{
 		Channel->PublishImpact(Hit.ImpactPoint);
-		Channel->PublishMuzzle(ResolveMuzzleLocation(AvatarPawn));
+		Channel->PublishMuzzle(ResolveMuzzleLocation(ResolveLaserVisualProvider(), AvatarPawn));
 	}
 
 	// Reuse the proven hitscan payload (AFLNetTypes) — no per-weapon fork.
@@ -416,7 +416,7 @@ void UAFLAG_BeamChannel_v2::ServerApplyTargetData(const FGameplayAbilityTargetDa
 				{
 					const FAFLAbilityTargetData_Hitscan* Hitscan = static_cast<const FAFLAbilityTargetData_Hitscan*>(RawData);
 					Channel->PublishImpact(Hitscan->HitResult.ImpactPoint);
-					Channel->PublishMuzzle(ResolveMuzzleLocation(Cast<APawn>(CurrentActorInfo->AvatarActor.Get())));
+					Channel->PublishMuzzle(ResolveMuzzleLocation(ResolveLaserVisualProvider(), Cast<APawn>(CurrentActorInfo->AvatarActor.Get())));
 					break;
 				}
 			}

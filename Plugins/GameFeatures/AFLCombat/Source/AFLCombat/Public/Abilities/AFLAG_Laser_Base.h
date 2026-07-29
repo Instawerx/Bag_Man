@@ -59,6 +59,20 @@ protected:
 	FVector ResolveMuzzleLocation(APawn* AvatarPawn) const;
 
 	/**
+	 * SIDE-SCOPED muzzle resolve -- the dual-mount (arm-cannon) correct overload. The pawn-scoped
+	 * sibling above returns the FIRST candidate socket across EVERY attached mesh, which is right for a
+	 * single held weapon and WRONG for two: both cannons resolved the same first match, so the left
+	 * fired from the right's barrel. This confines the search to the actors SourceEquipment itself
+	 * spawned, so each hand resolves its own muzzle.
+	 *
+	 * Pass ResolveLaserVisualProvider() -- the spec SourceObject the WID AbilitySet grant already sets
+	 * to the equipment instance. When it is null (activate-by-class harness, bot GameplayEvent fire,
+	 * no current spec) this DELEGATES to the pawn-scoped resolver, so every pre-existing path keeps its
+	 * proven behaviour byte-for-byte. Additive: the pawn-scoped signature is unchanged.
+	 */
+	FVector ResolveMuzzleLocation(UObject* SourceEquipment, APawn* AvatarPawn) const;
+
+	/**
 	 * The equipped weapon instance that granted this ability -- the cue SourceObject the AFL laser FX
 	 * cues read IAFLLaserVisualProvider::GetBeamColor (the per-weapon tint) off. Reads the current
 	 * ability spec's SourceObject (the WID AbilitySet grant sets it to the equipment instance),

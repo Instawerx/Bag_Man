@@ -5,6 +5,7 @@
 #include "AFLCombat.h"
 #include "Components/MeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Equipment/LyraEquipmentInstance.h"   // side-scoped resolver: GetSpawnedActors()
 #include "GameFramework/Character.h"
 #include "NativeGameplayTags.h"
 
@@ -122,6 +123,67 @@ FVector UAFLAG_Laser_Base::ResolveMuzzleLocation(APawn* AvatarPawn) const
 		TEXT("AFL_LASER/MUZZLE: no candidate socket resolved -> weapon_r fallback at world=%s"),
 		*MuzzleLocation.ToString());
 	return MuzzleLocation;
+}
+
+FVector UAFLAG_Laser_Base::ResolveMuzzleLocation(UObject* SourceEquipment, APawn* AvatarPawn) const
+{
+	// SIDE-SCOPED overload (dual arm-cannons). The pawn-scoped sibling above returns the FIRST
+	// candidate socket found across EVERY attached mesh -- correct while exactly one weapon is held,
+	// and silently wrong the moment a second one is: both cannons' abilities resolved the SAME first
+	// match, so the left cannon fired from the right cannon's barrel. This overload confines the search
+	// to the actors THIS equipment instance spawned (ULyraEquipmentInstance::GetSpawnedActors), so each
+	// side resolves its own muzzle no matter what else is attached to the pawn.
+	//
+	// Callers pass ResolveLaserVisualProvider() -- the spec's SourceObject, which the WID AbilitySet
+	// grant already sets to the equipment instance. No reparent to ULyraGameplayAbility_FromEquipment:
+	// that would impose an equipment requirement on the activate-by-class test path
+	// (AFLMatchTestRunner) and the five GameplayEvent bot-fire triggers, which have no spec/source.
+	if (const ULyraEquipmentInstance* Equipment = Cast<ULyraEquipmentInstance>(SourceEquipment))
+	{
+		for (AActor* Spawned : Equipment->GetSpawnedActors())
+		{
+			if (!IsValid(Spawned))
+			{
+				continue;
+			}
+
+			TInlineComponentArray<UMeshComponent*> MeshComps;
+			Spawned->GetComponents<UMeshComponent>(MeshComps);
+			for (UMeshComponent* MeshComp : MeshComps)
+			{
+				if (!MeshComp)
+				{
+					continue;
+				}
+				for (const FName& SocketName : MuzzleSocketCandidates)
+				{
+					if (!SocketName.IsNone() && MeshComp->DoesSocketExist(SocketName))
+					{
+						const FVector Resolved = MeshComp->GetSocketLocation(SocketName);
+						UE_LOG(LogAFLCombat, Verbose,
+							TEXT("AFL_LASER/MUZZLE(side): '%s' on %s (equip %s) at world=%s"),
+							*SocketName.ToString(), *MeshComp->GetName(),
+							*GetNameSafe(SourceEquipment), *Resolved.ToString());
+						return Resolved;
+					}
+				}
+			}
+
+			// ⚠ DELIBERATE DEVIATION from "no fallback" -- flagged to the operator. A weapon whose mesh
+			// authors no candidate socket would otherwise return ZeroVector and emit FX from WORLD
+			// ORIGIN. Falling back to THIS equipment's own spawned-actor location keeps the failure
+			// mode side-correct and on the pawn: never the other cannon's barrel (the bug being fixed),
+			// never the shared weapon_r hand socket, never origin.
+			UE_LOG(LogAFLCombat, Verbose,
+				TEXT("AFL_LASER/MUZZLE(side): no candidate socket on %s -> its actor origin"),
+				*Spawned->GetName());
+			return Spawned->GetActorLocation();
+		}
+	}
+
+	// No equipment resolved at all (activate-by-class, bot GameplayEvent, un-granted spec): fall through
+	// to the proven pawn-scoped resolver so those paths behave EXACTLY as before this change.
+	return ResolveMuzzleLocation(AvatarPawn);
 }
 
 UObject* UAFLAG_Laser_Base::ResolveLaserVisualProvider() const
