@@ -13,7 +13,7 @@ reference sheets, then run through the standard arm-worn conform.
 | **SIMULARENT** | `..._SIMULARENT_R/_L.fbx` | `*_SIMULARENT.png` | neon green | `AFL.Weapon.HandCannon.SIMULARENT[.L]` |
 | **DRAGON_SOUL** | `..._DRAGON_SOUL_R/_L.fbx` | `*_DRAGON_SOUL.png` | blue lightning | `AFL.Weapon.HandCannon.DRAGONSOUL[.L]` |
 | **RUN_IT_BACK** | `..._RUN_IT_BACK_R/_L.fbx` | `*_RUN_IT_BACK.png` | teal green | `AFL.Weapon.HandCannon.RUNITBACK[.L]` |
-| FUTURE_WARRIOR | ⏳ pending v3 (floating-barrel artifact re-gen) | — | magenta/purple | `AFL.Weapon.HandCannon.FUTUREWARRIOR[.L]` |
+| **FUTURE_WARRIOR** | `..._FUTURE_WARRIOR_R/_L.fbx` | `*_FUTURE_WARRIOR.png` | magenta/purple | `AFL.Weapon.HandCannon.FUTUREWARRIOR[.L]` |
 
 Each mesh (identical spec to FANATICS2): **40 cm** muzzle axis, **cuff at pivot/origin**, **muzzle = +Y**,
 horns **+Z**, single-root rig (**R bone `root` · L bone `root_l`**), ~44k tri LOD0, 4K PBR.
@@ -40,4 +40,4 @@ reference the reskin was generated from). So the mesh already reads IRONICS / SI
   across them, so wire one and clone the rig/socket config for the rest.
 - Source Rodin tasks: IRONICS `9924ec21` · SIMULARENT `40a96418` · DRAGON_SOUL `5d101a39` (v2) ·
   RUN_IT_BACK `4bdc78d6` (v2). Conform recipe: `reference-rodin-gen-pipeline` memory + the FANATICS2 spec.
-- FUTURE_WARRIOR v3 lands separately; same treatment.
+  RUN_IT_BACK `4bdc78d6` (v2) · FUTURE_WARRIOR `byin0q9j4`/v3 (tight body-only crop; fused floating-barrel fixed).
