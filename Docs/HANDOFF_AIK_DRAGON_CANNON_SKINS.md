@@ -41,6 +41,20 @@ reference the reskin was generated from). So the mesh already reads IRONICS / SI
 5. Rides the **dual-mount C++ that already landed** (`LeftWeaponId` → `RefreshHandCannonsForPawn` →
    `weapon_lowerarm_*`; `InputTag.Weapon.Fire.Left`; `afl.Cosmetic.SetLeftWeapon` cheat). FBIK aim + additive recoil.
 
+## JAGUAR — Standard 6 color skins
+Six flagship-color variants of the ONE JAGUAR mesh (no extra meshes): `colorskins/Color_HandCannon_JAGUAR_<Color>.png`
+for NeonBlue/NeonGreen/NeonYellow/NeonRed/NeonPink/NeonPurple (the locked registry colors). **Only the albedo
+changes** — the JAGUAR **Normal + ORM are shared** across all 6. AIK: one `SK_AFL_HandCannon_JAGUAR_NEON` +
+**6 MIs** (`MI_AFL_HandCannon_JAGUAR_<Color>` = that color diffuse + the shared Normal/ORM + NeonColor set to the
+registry hex). Name the WIDs `AFL.Weapon.HandCannon.JAGUAR.<Color>`. (Recolor = baked hue-set into the diffuse,
+not a layered pass — clean single-color neon on black; the same technique extends to any brand's color axis.)
+
+| Color | Hex | | Color | Hex |
+|---|---|---|---|---|
+| NeonBlue | #006BFF | | NeonRed | #FF0D0D |
+| NeonGreen | #00FF40 | | NeonPink | #FF1A99 |
+| NeonYellow | #FFE61A | | NeonPurple | #9900FF |
+
 ## Notes
 - All five share the **same dragon base topology** (variant skins) — the skeleton + socket setup is identical
   across them, so wire one and clone the rig/socket config for the rest.
