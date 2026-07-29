@@ -561,6 +561,24 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 			*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString());
 	}
 
+	// LEGACY-PATH INSTRUMENT (Block 33). A weapon reaching here equips OUTSIDE the QuickBar, so nothing in
+	// the cycle path can ever unequip it: its mesh stays in hand while cycling swaps the QuickBar's item
+	// underneath, and the player holds two weapons with the wrong one's abilities live. That was watched on
+	// ASTRA and is the whole reason the migration is happening.
+	//
+	// WARNING level deliberately, not Verbose: this must be visible with no config change, so the one
+	// remaining legacy weapon is nameable from a normal log instead of a PIE watch. Until now the legacy
+	// branch was SILENT, which is why the Astra failure needed eyes on screen to find.
+	//
+	// This log is DEAD CODE once the branch below is deleted -- it goes out with it.
+	if (WeaponId != NAME_None && !QuickBarRoutedWeaponIds.Contains(WeaponId))
+	{
+		UE_LOG(LogAFLSkinDiag, Warning,
+			TEXT("%s%s : LEGACY direct-equip path for '%s' -- NOT in QuickBarRoutedWeaponIds. It will not "
+			     "unmount on weapon cycle (the QuickBar cannot see an instance it did not equip)."),
+			*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString());
+	}
+
 	if (EquipDef) // a valid, entitled weapon selection -> REPLACE the primary
 	{
 		// D2 REPLACE (self-contained -- NO AFLHeroComponent coupling, the standing hazard): unequip every
