@@ -564,7 +564,19 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 	// That silence is the actual defect being addressed here. The race itself is NOT fixed by this commit --
 	// the durable fix is registering as an init-state feature so GameplayReady gates the equip. Until then,
 	// equipping anyway is deliberately preserved: an ability-less weapon is better in play than no weapon.
-	if (WeaponId != NAME_None && Pawn && !UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn))
+	// PREVIEW-PAWN SUPPRESSION (Block 46). Both warnings below are silenced for a pawn with NO CONTROLLER.
+	//
+	// Gated on the controller, not on a class name, because no-controller IS the cause: no controller means no
+	// ULyraInventoryManagerComponent and no ULyraQuickBarComponent (both are UControllerComponents), so the
+	// route legitimately cannot run and the ASC legitimately does not exist. AFLLoadoutDisplayPawn is today's
+	// instance, but any future controller-less preview pawn is covered by the same test.
+	//
+	// This exists because a log that fires every time the front-end opens is a log nobody reads -- which is
+	// precisely how the ASC spawn race stayed hidden through several watches. The 7 SPAWN RACE hits in the
+	// Block 44 run were 3 real (B_Hero_BagMan_C_0) and 4 preview noise; only the real ones should speak.
+	const bool bIsPreviewPawn = (Pawn && Pawn->GetController() == nullptr);
+
+	if (WeaponId != NAME_None && Pawn && !bIsPreviewPawn && !UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn))
 	{
 		UE_LOG(LogAFLSkinDiag, Warning,
 			TEXT("%s%s : SPAWN RACE -- equipping '%s' with NO AbilitySystemComponent yet. Lyra grants the "
@@ -582,11 +594,15 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 		}
 		else
 		{
-			// PERMANENT NET, kept unconditional on purpose. There is no fallback path any more, so a weapon
-			// that cannot route does not equip at all -- this line is the only thing that names it. Reaching
-			// here means the SKU is mis-authored (not Weapon-typed, or no ItemDefClass), not that the rail
-			// is broken.
-			UE_LOG(LogAFLSkinDiag, Warning,
+			// PERMANENT NET for a REAL pawn. There is no fallback path any more, so a weapon that cannot
+			// route does not equip at all -- this line is the only thing that names it. Reaching here on a
+			// controlled pawn means the SKU is mis-authored (not Weapon-typed, or no ItemDefClass), not that
+			// the rail is broken.
+			//
+			// Suppressed on a controller-less preview pawn: the route CANNOT succeed there (inventory and
+			// QuickBar are both UControllerComponents), so the failure is expected and says nothing. That
+			// accounts for the 4 route-FAILED lines in the Block 44 run, all on AFLLoadoutDisplayPawn_0.
+			UE_CLOG(!bIsPreviewPawn, LogAFLSkinDiag, Warning,
 				TEXT("%s%s : QuickBar route FAILED for '%s' -- weapon NOT equipped. Check the catalog row is "
 				     "Type==Weapon and carries an ItemDefClass."),
 				*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString());
