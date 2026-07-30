@@ -98,12 +98,43 @@ Config/Custom/EOS/DefaultEngine.ini
 !Config/Custom/EOS/DefaultEngine.ini.example
 
 # === AFL hygiene (2026-06-23): marketplace demo dupes + parked vendor plugin ===
-# Marketplace / anim-pack Demo/ subtrees are unreferenced demo dupes. Verified safe: the only
-# tracked content that reaches into Demo/ (the FreeAnimationLibrary climb anims -> SK_Mannequin)
-# depends solely on already-committed assets; the ignored remainder (SKM_Manny_Simple, demo
-# materials/textures/maps) has no inbound refs. gitignore never untracks, so nothing committed is
-# affected -- this only keeps the dupes out of `git status`.
+# Marketplace / anim-pack Demo/ subtrees are unreferenced demo dupes. gitignore never untracks, so
+# nothing committed is affected -- this only keeps the dupes out of `git status`.
+#
+# ⚠ CORRECTED 2026-07-30. The original note claimed "the ignored remainder (SKM_Manny_Simple, demo
+# materials/textures/maps) has no inbound refs." That was FALSE. A dependency sweep found FOUR tracked
+# assets reaching into ignored Demo/ subtrees:
+#     IK_AFL_VoxelPack + RTG_AFL_VoxelPack_to_Lyra   -> FreeAnimationLibrary/Demo/.../SKM_Manny_Simple
+#     IK_AFL_EpicSample + RTG_AFL_EpicSample_to_Lyra -> FreeSampleAnimationSet/Demo/.../SKM_Manny
+# i.e. tracked assets whose source skeleton is deliberately excluded -> they load with a NULL source on
+# any fresh clone. All four had ZERO external referencers (their live output is the AFL_*_Retargeted
+# AnimSequences, which do not depend on the marketplace source) and were DELETED, which is what makes
+# the "no inbound refs" claim true rather than assumed. If a future retarget re-creates such an asset,
+# it re-creates this clone break -- check with a tracked-refs-untracked-target sweep, do not assume.
 **/Demo/
+
+# --- Marketplace animation packs: IGNORED WHOLESALE (2026-07-30) ---------------------------------
+# ~756 untracked files, ~849 MB, on a 250 GB LFS repo. Previously untracked-but-NOT-ignored, so a
+# blind `git add .` would have committed every byte. Ignoring each pack ENTIRELY rather than only its
+# Demo/ subtree: the half-ignored state above is precisely what produced the clone breaks.
+#
+# ⚠ Content/FreeAnimationLibrary is MIXED -- 18 files are already TRACKED (the climb animations +
+# AM_AFL_ClimbWarp, load-bearing for the CLIMB system). Ignoring the directory does NOT untrack them;
+# they stay committed, diffable and functional. The ignore only stops the 88 untracked siblings from
+# appearing in status.
+/Content/Fab/
+/Content/FreeAnimationLibrary/
+/Content/FreeSampleAnimationSet/
+/Content/FreeLadderAnimationSet/
+/Content/DynamicFalling/
+
+# --- Source art that landed in Content/ instead of _Bridge (2026-07-30) --------------------------
+# Raw .wav sources sitting beside their imported SoundWave .uasset. The imported assets ARE committed;
+# these are the originals. ⚠ The directory name contains a SPACE, which is a cook/path hazard in
+# Content/ -- if these are needed, relocate to Content/AFL/_Bridge/ with an underscore name.
+/Content/Effects/Audio Sound Effects/
+# Gib source FBX; source meshes belong under Content/AFL/_Bridge/, not Content/BagMan/.
+/Content/BagMan/Characters/Dismember/SM_AFL_RobotHead_Gib.fbx
 # OmniWalk vendor plugin: PARKED (kept on disk, not committed, not deleted) -- needed later for the
 # gravity-gun lane. Untracked + ignored so it stops cluttering status without being lost.
 /Plugins/OmniWalk07f218f7e14eV2/
