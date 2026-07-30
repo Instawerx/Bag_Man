@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>IRONICS BOLT - revised (cyan core / purple rim) for sign-off</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{--cyan:#00F8FF;--violet:#A855F7;--bg:#06090F;--glass:rgba(255,255,255,.07);--border:rgba(0,248,255,.28);--txt:#E8FBFF;--txt2:rgba(232,251,255,.6);}
+  *{box-sizing:border-box;} body{margin:0;background:radial-gradient(1200px 700px at 50% -10%,#0b1726,var(--bg));color:var(--txt);font-family:'Chakra Petch',sans-serif;padding:40px 48px;}
+  h1{font-weight:700;letter-spacing:.08em;margin:0 0 4px;} h2{color:var(--cyan);letter-spacing:.12em;font-weight:600;border-bottom:1px solid var(--border);padding-bottom:10px;margin-top:40px;}
+  .mono{font-family:'JetBrains Mono',monospace;color:var(--txt2);font-size:13px;line-height:1.5;}
+  .row{display:flex;gap:30px;align-items:center;flex-wrap:wrap;}
+  .panel{background:var(--glass);border:1px solid var(--border);border-radius:20px;padding:20px 26px;backdrop-filter:blur(20px);box-shadow:0 16px 48px rgba(0,0,0,.4);}
+  .lbl{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;color:var(--txt2);margin-top:8px;text-align:center;}
+  .chip{display:inline-block;width:16px;height:16px;border-radius:4px;vertical-align:middle;margin:0 6px;}
+  .appicon{border-radius:22%;background:linear-gradient(160deg,#0b1f2b,#05080d);border:1px solid rgba(0,248,255,.3);}
+</style></head><body>
+<h1>IRONICS &mdash; BOLT &middot; REVISED (cyan core / purple rim)</h1>
+<p class="mono">House-Cyan <span class="chip" style="background:#00F8FF"></span>#00F8FF core + Arc-Violet <span class="chip" style="background:#A855F7"></span>#A855F7 rim = the electric-arc accent. For sign-off.</p>
+
+<svg width="0" height="0"><defs>
+  <linearGradient id="boltG" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#DBFEFF"/><stop offset="55%" stop-color="#00F8FF"/><stop offset="100%" stop-color="#06B8C2"/></linearGradient>
+  <filter id="cyanGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="arc" x="-140%" y="-140%" width="380%" height="380%"><feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#A855F7" flood-opacity="0.9"/><feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#C77DFF" flood-opacity="0.9"/></filter>
+</defs></svg>
+
+<h2>Chosen secondary: ARC VIOLET &middot; #A855F7</h2>
+<p class="mono" style="max-width:900px">WHY this value blends (not clashes): it is a <b>blue-leaning violet (hue ~271&deg;)</b>, so the cyan(182&deg;)&rarr;violet(271&deg;) transition sweeps through <b>electric blue (~220&deg;)</b> &mdash; the rim reads as one continuous arc off the cyan, a single electric palette rather than two colors fighting. Its high saturation matches cyan's neon energy. Deliberately bluer than the existing identity-axis NeonPurple #CB00FF (that one is magenta-leaning, for team/store, not brand chrome). Role: <b>RIM / EDGE-GLOW only &mdash; never the readable core, fill, or text.</b></p>
+
+<h2>1 &middot; cyan-only &nbsp;vs&nbsp; cyan + arc-violet rim &mdash; the accent's effect</h2>
+<div class="row">
+  <div class="panel"><svg viewBox="0 0 620 170" width="500">
+    <g transform="translate(80,85)"><polygon points="0,-58 56,0 0,58 -56,0" fill="rgba(0,248,255,.06)" stroke="#00F8FF" stroke-width="2"/><path d="M 11 -36 L -17 4 L 2 4 L -11 38 L 25 -8 L 6 -8 Z" fill="url(#boltG)" filter="url(#cyanGlow)"/></g>
+    <path d="M 196 44 L 178 86 L 192 86 L 182 126" fill="none" stroke="url(#boltG)" stroke-width="9" stroke-linejoin="round" stroke-linecap="round" filter="url(#cyanGlow)"/>
+    <text x="208" y="112" font-family="Chakra Petch" font-weight="700" font-size="58" letter-spacing="4" fill="#E8FBFF">RONICS</text>
+  </svg><div class="lbl">CYAN ONLY (previous)</div></div>
+  <div class="panel"><svg viewBox="0 0 620 170" width="500">
+    <g transform="translate(80,85)"><polygon points="0,-58 56,0 0,58 -56,0" fill="rgba(0,248,255,.06)" stroke="#00F8FF" stroke-width="2" filter="url(#arc)"/><path d="M 11 -36 L -17 4 L 2 4 L -11 38 L 25 -8 L 6 -8 Z" fill="url(#boltG)" filter="url(#arc)"/></g>
+    <path d="M 196 44 L 178 86 L 192 86 L 182 126" fill="none" stroke="url(#boltG)" stroke-width="9" stroke-linejoin="round" stroke-linecap="round" filter="url(#arc)"/>
+    <text x="208" y="112" font-family="Chakra Petch" font-weight="700" font-size="58" letter-spacing="4" fill="#E8FBFF">RONICS</text>
+    <text x="208" y="140" font-family="JetBrains Mono" font-weight="400" font-size="13" letter-spacing="7" fill="#00F8FF" opacity=".75">BETA LANDS V1.0</text>
+  </svg><div class="lbl" style="color:#C77DFF">+ ARC-VIOLET RIM (revised)</div></div>
+</div>
+
+<h2>2 &middot; the revised primary lockup</h2>
+<div class="panel" style="display:inline-block"><svg viewBox="0 0 620 180" width="560">
+  <g transform="translate(82,88)"><polygon points="0,-58 56,0 0,58 -56,0" fill="rgba(0,248,255,.06)" stroke="#00F8FF" stroke-width="2" filter="url(#arc)"/><polygon points="0,-50 48,0 0,50 -48,0" fill="none" stroke="#00F8FF" stroke-width="1" opacity=".35"/><path d="M 11 -36 L -17 4 L 2 4 L -11 38 L 25 -8 L 6 -8 Z" fill="url(#boltG)" filter="url(#arc)"/></g>
+  <path d="M 198 46 L 180 88 L 194 88 L 184 128" fill="none" stroke="url(#boltG)" stroke-width="9" stroke-linejoin="round" stroke-linecap="round" filter="url(#arc)"/>
+  <text x="210" y="114" font-family="Chakra Petch" font-weight="700" font-size="58" letter-spacing="4" fill="#E8FBFF">RONICS</text>
+  <text x="210" y="142" font-family="JetBrains Mono" font-weight="400" font-size="13" letter-spacing="7" fill="#00F8FF" opacity=".75">BETA LANDS V1.0</text>
+</svg></div>
+
+<h2>3 &middot; icon legibility across sizes &mdash; the rim SCALES with size</h2>
+<p class="mono">Finding: the purple rim is a glow; at small sizes it bleeds into the mark. So the rim is size-gated.</p>
+<div class="row">
+  <div style="text-align:center"><svg width="128" height="128" viewBox="-78 -78 156 156"><polygon points="0,-58 56,0 0,58 -56,0" fill="rgba(0,248,255,.06)" stroke="#00F8FF" stroke-width="3" filter="url(#arc)"/><path d="M 11 -36 L -17 4 L 2 4 L -11 38 L 25 -8 L 6 -8 Z" fill="url(#boltG)" filter="url(#arc)"/></svg><div class="lbl" style="color:#C77DFF">128 &mdash; rim ON</div></div>
+  <div style="text-align:center"><svg width="64" height="64" viewBox="-78 -78 156 156"><polygon points="0,-58 56,0 0,58 -56,0" fill="rgba(0,248,255,.06)" stroke="#00F8FF" stroke-width="4" filter="url(#arc)"/><path d="M 11 -36 L -17 4 L 2 4 L -11 38 L 25 -8 L 6 -8 Z" fill="url(#boltG)"/></svg><div class="lbl" style="color:#C77DFF">64 &mdash; rim ON</div></div>
+  <div style="text-align:center;opacity:.55"><svg width="32" height="32" viewBox="-78 -78 156 156"><polygon points="0,-58 56,0 0,58 -56,0" fill="rgba(168,85,247,.12)" stroke="#A855F7" stroke-width="6" filter="url(#arc)"/><path d="M 11 -36 L -17 4 L 2 4 L -11 38 L 25 -8 L 6 -8 Z" fill="#00F8FF"/></svg><div class="lbl">32 + rim = MUDDY (rejected)</div></div>
+  <div style="text-align:center"><svg width="32" height="32" viewBox="-78 -78 156 156"><polygon points="0,-58 56,0 0,58 -56,0" fill="rgba(0,248,255,.08)" stroke="#00F8FF" stroke-width="6"/><path d="M 11 -36 L -17 4 L 2 4 L -11 38 L 25 -8 L 6 -8 Z" fill="#00F8FF"/></svg><div class="lbl" style="color:#00F8FF">32 &mdash; cyan-dominant (USE)</div></div>
+  <div style="text-align:center"><svg width="16" height="16" viewBox="-78 -78 156 156"><polygon points="0,-58 56,0 0,58 -56,0" fill="rgba(0,248,255,.1)" stroke="#00F8FF" stroke-width="9"/><path d="M 11 -36 L -17 4 L 2 4 L -11 38 L 25 -8 L 6 -8 Z" fill="#00F8FF"/></svg><div class="lbl" style="color:#00F8FF">16 &mdash; cyan only (USE)</div></div>
+</div>
+
+<h2>4 &middot; the blend rule (proposed for the SSOT)</h2>
+<p class="mono" style="max-width:960px"><b>Cyan core + purple rim = the electric-arc accent.</b> Cyan LEADS (core / fill / readable text / active state). Arc-Violet SUPPORTS (rim / edge-glow / halo / focus / hover). Purple NEVER touches the readable core. <b>Rim is size-gated:</b> ON at &ge;64px (lockup, hub emblem, large tiles); the mark goes cyan-dominant at &le;32px (HUD watermark, 16px favicon) so it stays crisp. On the in-match combat HUD the readability law still rules &mdash; purple stays edge-glow chrome on menu/header surfaces, never a solid combat-overlay marker (clears the INDIGO beam hue).</p>
+</body></html>

@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 880" font-family="'Chakra Petch','Rajdhani','Segoe UI',sans-serif">
+  <!-- IRONICS Surface 3 / Layer 1 -- Spectate-out overlay. Style = IRONICS_UI_STYLE_SSOT (approved).
+       Mock is the WBP layout spec: glass panel, house-cyan border, ALL-CAPS display, off the beam hues. -->
+  <defs>
+    <linearGradient id="arena" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#10202c"/>
+      <stop offset="0.55" stop-color="#0a141c"/>
+      <stop offset="1" stop-color="#070d12"/>
+    </linearGradient>
+    <linearGradient id="glassfill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.08"/>
+    </linearGradient>
+    <filter id="softblur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <filter id="panelshadow" x="-40%" y="-40%" width="180%" height="200%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.30"/>
+    </filter>
+    <filter id="cyanglow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#00F8FF" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- ============ SCREEN (1280x720, 16:9) ============ -->
+  <rect x="0" y="0" width="1280" height="720" fill="url(#arena)"/>
+  <!-- faint arena horizon + a downed-pawn hint (today's hold-cam view: your own ragdoll) -->
+  <line x1="0" y1="470" x2="1280" y2="470" stroke="#1c3340" stroke-width="2" opacity="0.6"/>
+  <ellipse cx="640" cy="500" rx="120" ry="16" fill="#000000" opacity="0.35" filter="url(#softblur)"/>
+  <g opacity="0.45" filter="url(#softblur)">
+    <rect x="560" y="452" width="150" height="40" rx="18" fill="#5a2330"/>
+    <circle cx="566" cy="458" r="13" fill="#5a2330"/>
+  </g>
+  <text x="640" y="430" text-anchor="middle" fill="#3c5663" font-size="13" letter-spacing="2">HOLD-CAM ON OWN RAGDOLL (LAYER 1) -- FOLLOW-TEAMMATE = LAYER 2</text>
+
+  <!-- Surface 1 (round header) up top -- shown ghosted to prove NO COLLISION with the new overlay -->
+  <g opacity="0.85">
+    <rect x="545" y="22" width="190" height="52" rx="14" fill="url(#glassfill)" stroke="#00F8FF" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="640" y="42" text-anchor="middle" fill="#cfeef2" font-size="12" letter-spacing="2">ROUND 4</text>
+    <text x="640" y="64" text-anchor="middle" fill="#00F8FF" font-size="20" font-weight="700" letter-spacing="1">0:51</text>
+    <text x="568" y="64" text-anchor="middle" fill="#7fd6e0" font-size="18" font-weight="700">3</text>
+    <text x="712" y="64" text-anchor="middle" fill="#e08a8a" font-size="18" font-weight="700">1</text>
+  </g>
+  <text x="640" y="92" text-anchor="middle" fill="#42606c" font-size="11" letter-spacing="1">SURFACE 1 -- ModeStatus/TeamScore (live; clock still readable while dead)</text>
+
+  <!-- ============ STATE A: dead + RoundActive ============ -->
+  <!-- panel: lower-center, ~460x140, radius 20, Glass.Bg.Primary + cyan active border + Glass.Shadow -->
+  <g filter="url(#panelshadow)">
+    <rect x="410" y="540" width="460" height="142" rx="20" fill="url(#glassfill)"/>
+    <!-- optional Glass.Tint.Danger wash behind the ELIMINATED line -->
+    <rect x="410" y="540" width="460" height="74" rx="20" fill="#ff5050" opacity="0.13"/>
+    <rect x="410" y="600" width="460" height="14" fill="#ff5050" opacity="0.13"/>
+    <rect x="410" y="540" width="460" height="142" rx="20" fill="none" stroke="#00F8FF" stroke-width="2" filter="url(#cyanglow)"/>
+    <!-- top inner highlight (glass sheen) -->
+    <rect x="412" y="542" width="456" height="2" rx="1" fill="#ffffff" opacity="0.20"/>
+  </g>
+  <text x="640" y="600" text-anchor="middle" fill="#ffffff" font-size="48" font-weight="700" letter-spacing="6">ELIMINATED</text>
+  <line x1="500" y1="624" x2="780" y2="624" stroke="#00F8FF" stroke-width="1" opacity="0.45"/>
+  <text x="640" y="658" text-anchor="middle" fill="#ffffff" fill-opacity="0.72" font-size="21" letter-spacing="4">RESPAWN NEXT ROUND</text>
+
+  <!-- forward note: where Layer 2 extends this same widget -->
+  <text x="640" y="700" text-anchor="middle" fill="#42606c" font-size="12" letter-spacing="1">LAYER 2 adds: "SPECTATING &lt;TEAMMATE&gt;"  +  [ &lt; / &gt; ] CYCLE HINT</text>
+
+  <text x="36" y="40" fill="#00F8FF" font-size="15" font-weight="700" letter-spacing="2">IRONICS / SURFACE 3 -- SPECTATE OVERLAY</text>
+  <text x="36" y="58" fill="#5e7a85" font-size="11" letter-spacing="1">LAYER 1 (overlay on hold-cam) -- bound to local death + round phase</text>
+
+  <!-- ============ ANNOTATION STRIP ============ -->
+  <rect x="0" y="720" width="1280" height="160" fill="#0c1218"/>
+  <line x1="0" y1="720" x2="1280" y2="720" stroke="#1c3340" stroke-width="1"/>
+
+  <!-- State B inset: dead + RoundEnd (the ~5s reset tail) -->
+  <text x="60" y="752" fill="#5e7a85" font-size="12" letter-spacing="2">STATE B -- ROUND END / HALFTIME (~5s tail)</text>
+  <g filter="url(#panelshadow)">
+    <rect x="60" y="764" width="330" height="86" rx="18" fill="url(#glassfill)"/>
+    <rect x="60" y="764" width="330" height="86" rx="18" fill="none" stroke="#00F8FF" stroke-width="2"/>
+    <rect x="62" y="766" width="326" height="2" rx="1" fill="#ffffff" opacity="0.20"/>
+  </g>
+  <text x="225" y="816" text-anchor="middle" fill="#ffffff" font-size="30" font-weight="700" letter-spacing="5">RESPAWNING...</text>
+
+  <!-- token legend -->
+  <text x="470" y="752" fill="#5e7a85" font-size="12" letter-spacing="2">SSOT TOKENS (approved)</text>
+  <g font-size="13" fill="#bcd9df">
+    <text x="470" y="778">Container  UIPanel.Glass -- fill Glass.Bg.Primary rgba(255,255,255,0.12), Blur 20-40px</text>
+    <text x="470" y="800">Border     UI.House.Cyan #00F8FF (active)  *  Radius 16-24px  *  Glass.Shadow 0/8/32 a.30</text>
+    <text x="470" y="822">Type       Chakra Petch BOLD, ALL-CAPS -- Text.Primary #fff / Secondary a.72</text>
+    <text x="470" y="844">Wash       Glass.Tint.Danger rgba(255,80,80,0.15) on ELIMINATED (optional)</text>
+    <text x="470" y="866" fill="#7a949e">Law: house cyan/white + glass only -- OFF the 5 beam hues (no-green-on-green). No AFL/BAG MAN, no USD.</text>
+  </g>
+</svg>

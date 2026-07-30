@@ -1,0 +1,39 @@
+{
+  "task_id": "20260720-1328-shieldbarrier",
+  "created_utc": "2026-07-20T14:05:00Z",
+  "flow": "A-import (Claude-Code Tripo genAI -> Blender conform -> headless UE import). FIRST real Tripo generation; recipe-setter for the 6 weapon gens.",
+  "summary": "IRONICS deployable SHIELD BARRIER (chrome/gunmetal frame + inner translucent electric-blue #1E5AFF emissive energy field; freestanding wide/low cover a soldier crouches behind). Tripo v2.5 text-to-model (v2 gen c8a120f2; v1 regenerated for aspect+figure-junk). Static prop: no rig/grip/muzzle. Conformed 200x60x150cm, base-center origin, LOD0 40k tris (from 341k), 1 slot, UCX convex collision.",
+  "ue_project_root": "C:\\Dev\\Bag_Man",
+  "items": [
+    {
+      "kind": "mesh",
+      "source_blend": "pending/20260720-1328-shieldbarrier/SM_AFL_ShieldBarrier.blend",
+      "output_file": "pending/20260720-1328-shieldbarrier/SM_AFL_ShieldBarrier.fbx",
+      "destination": "/Game/BagMan/Equipment/Deployables/SM_AFL_ShieldBarrier",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": false,
+        "combine_meshes": true,
+        "import_materials": false,
+        "lods_generated_ue_side": 4,
+        "collision_generated_ue_side": "convex_decomposition(6 hulls,24v)",
+        "material_remap": [
+          { "slot": 0, "asset": "/Game/BagMan/Equipment/Deployables/MI_AFL_ShieldBarrier" }
+        ]
+      },
+      "collision": "IMPORT LEARNING: FBX-authored UCX did NOT survive combine_meshes=true (folded into render mesh -> 0 collision). Collision generated UE-side post-import via StaticMeshEditorSubsystem.set_convex_decomposition_collisions -> 6 convex hulls. Blocks pawns + projectiles.",
+      "material_bind": "slot0 -> MI_AFL_ShieldBarrier (chrome base + emissive #1E5AFF field), authored UE-side; import_materials=false. Tripo Color/NormalGL/ORM PNGs available in pending/textures/ if the UE material author wants a base.",
+      "notes": "DESTINATION PATH IS PROPOSED (no existing B_AFL_ShieldBarrier blueprint found in Content) -- AIK to confirm/relocate to co-locate with the deployable blueprint. Nanite on for PC/console; lod_count=4 gives UE-generated fallback LODs for mobile."
+    }
+  ],
+  "audit": {
+    "passed": true,
+    "warnings": [
+      "GenAI-sourced: topology is decimated Tripo triangulation, not hand-retopo. Fine for a mid-ground static cover prop; visual-inspect if it ever goes hero.",
+      "v1 Tripo gen (0f0c9a9f) rejected: near-square 1.07:1 + hallucinated crouching-soldier blob. v2 (c8a120f2) accepted after prompt tuned for wide/low aspect + negative_prompt figure exclusion.",
+      "Editor was OPEN; user authorized live import via AIK MCP (not the headless editor-closed lane). PIE confirmed NOT running before any write."
+    ],
+    "report": "IMPORTED & UE-VERIFIED at /Game/BagMan/Equipment/Deployables/SM_AFL_ShieldBarrier: dims 199.99 x 60.17 x 150.0 cm (target 200-250w x 120-150h -> uniform x2.0 lands both). Pivot base-center (bounds center 0,0,75; local Z 0->150; plants flush). 1 material slot MI_AFL_ShieldBarrier. Collision 6 convex hulls (blocks pawns+projectiles). LOD chain [39999,20000,9999,4999], LOD0 full 40k (from 341,348 via COLLAPSE-only decimate). Nanite off (Mobile-safe traditional LODs). UV0 'UVMap'. FBX 1.63MB, locked AFL flags. High-poly backup SM_AFL_ShieldBarrier_HIGH in .blend for future Nanite/hero."
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "task_id": "20260709-swatches",
+  "created_utc": "2026-07-12T02:26:42Z",
+  "flow": "Texture swatches (Claude-Code generated) -> AIK imports as UI Texture2D + assigns ShopThumbnail",
+  "summary": "12 AUTHENTIC color swatches (256x256 PNG, IRONICS neon-chip, sRGB from DA_AFL_ColorIdentityRegistry linear values -- NOT invented). Covers all 11 EDGE SKUs + the 6 FREE beams. The remaining 43 beams (Impulse+Premium rich palette) are NOT headlessly resolvable -- RGB baked in the 49 MI uassets; see the FLAG.",
+  "ue_project_root": "C:\Dev\Bag_Man",
+  "swatches_dir": "pending/20260709-swatches/",
+  "sku_mapping": {
+    "edge_skus_11": "AFL.Edge.<Color> -> T_Thumb_<Color> (NeonBlue/NeonGreen/NeonPurple/NeonPink/NeonRed/NeonYellow/Black + Crimson/Indigo/Solar/Magenta/Lime)",
+    "free_beam_skus_6": "AFL.Beam.<Color> -> T_Thumb_<Color> (NeonBlue/NeonGreen/NeonPurple/NeonPink/NeonRed/NeonYellow -- the base palette)"
+  },
+  "import_settings": { "texture_group": "UI", "srgb": true, "compression": "UserInterface2D", "mip_gen": false },
+  "audit": { "passed": true,
+    "warnings": [
+      "43 of 49 beams UNRESOLVED: the Impulse(30)+Premium(13) rich palette (CrimsonArc, NeonScarlet, ElectricBlue, IceCyan, CobaltDeep, SapphireNight, AzureSurge, GlacierFrost, EmeraldPlasma, GoldPlasma, SolarFlare, etc.) has NO registry RGB -- values are baked in the 49 MI uassets. AIK must extract the MI vector-param colors (editor, one pass) OR the operator provides the 49-color hex list. The 49 names+families are in IRONICS_CATALOG_MATRIX.md:109-133.",
+      "The swatch GENERATOR (Blender numpy neon-chip, sRGB-correct) is proven on these 12 -- once the full 49 hex list is provided, all beams generate in one run."
+    ],
+    "report": "12 authentic swatches: NeonBlue #00ADFF, NeonGreen #00FF89, NeonPurple #CB00FF, NeonPink #FF59CB, NeonRed #FF3F3F, NeonYellow #FFF359, Crimson #DA0059, Indigo #A089FF, Solar #FFB300, Magenta #FF59DA, Lime #E7FF00, Black #27272C (sRGB). 256x256 PNG, neon radial glow + rim, IRONICS dark backdrop." }
+}

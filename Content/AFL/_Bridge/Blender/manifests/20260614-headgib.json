@@ -1,0 +1,30 @@
+{
+  "task_id": "20260614-headgib",
+  "created_utc": "2026-06-14T03:48:27Z",
+  "flow": "B-extract / A-import",
+  "summary": "SKM_Manny head gib \u2014 extracted at the M_HeadLegs/M_torso material seam, neck capped, origin-centered. Severed-head physics prop.",
+  "ue_project_root": "C:\\Dev\\Bag_Man",
+  "items": [
+    {
+      "kind": "mesh",
+      "output_file": "pending/20260614-headgib/SM_AFL_RobotHead_Gib.fbx",
+      "destination": "/Game/BagMan/Characters/Dismember/SM_AFL_RobotHead_Gib",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": true,
+        "import_lods": false,
+        "import_materials": false
+      }
+    }
+  ],
+  "audit": {
+    "passed": true,
+    "warnings": [
+      "Material slot names differ from grounding: FBX carries MI_Manny_02_Blue (slot0)/MI_Manny_01_Blue (slot1), not M_torso/M_HeadLegs. Slot 1 empirically confirmed = head+legs (spans floor->crown).",
+      "Extraction method switched from material-seam-cap-Z to skeletal weighting (head+neck_01+neck_02): the material-cap recipe over-captured clavicle/upperarm caps (slot1, >1.40m) and fragmented the head into 5 shells.",
+      "Mesh imported at metre scale; cm thresholds mapped accordingly. Armature 0.01 unit-scale re-baked into the static mesh after parent removal."
+    ],
+    "report": "Head extracted by head/neck bone weight, seams welded (merge-by-distance, 5 shells -> 1), neck hole capped (n-gon+poke), normals outward. Closed manifold: 0 open-boundary / 0 non-manifold edges. 4662 verts / 9320 tris-source. Bbox 17.7 x 22.7 x 26.7 cm (head-sized). Origin = volume center of mass at world origin; transform clean (loc0/rot0/scale1)."
+  }
+}

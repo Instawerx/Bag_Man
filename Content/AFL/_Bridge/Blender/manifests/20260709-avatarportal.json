@@ -1,0 +1,20 @@
+{
+  "task_id": "20260709-avatarportal",
+  "created_utc": "2026-07-11T19:45:02Z",
+  "flow": "A-import (Claude-Code Blender author -> conformant FBX -> AIK UE import/wire)",
+  "summary": "AVATAR PORTAL (extraction #9 zone portal AND the pod backdrop/entry effect -- one asset, two uses). IRONICS neon-glass, author-clean (Tripo substituted with direct Blender authoring -- production-clean topology from the start; AIK/NeoStack can add organic Tripo detail if wanted). 2-slot (slot1=MI_AFL_NeonGlass_Skin, #1E5AFF emissive). Conform-to-beacon; round-trip verified.",
+  "ue_project_root": "C:\Dev\Bag_Man",
+  "items": [
+    {
+      "kind": "mesh",
+      "output_file": "pending/20260709-avatarportal/SM_AFL_AvatarPortal.fbx",
+      "destination": "/Game/AFL/Assets/Teleporters/SM_AFL_AvatarPortal",
+      "action": "new",
+      "import_settings": { "build_nanite": false, "auto_collision": true, "import_lods": false, "import_materials": false },
+      "material_bind": { "slot1": "AIK assigns the IRONICS neon-glass UE material (emissive/glass/energy) to slot1 post-import (import_materials=false)" }
+    }
+  ],
+  "audit": { "passed": true,
+    "warnings": ["Author-clean substitute for the raw-Tripo asset (that .uasset did not register). If the organic Tripo SCULPT detail is wanted, that is AIK/NeoStack's editor-side genAI lane.", "507 tris, 457 neon faces (ring frame + energy surface glow; base mount=slot0)."],
+    "report": "SM_AFL_AvatarPortal: bbox 248 x 110 x 254 cm (2.5m doorway portal), 2 material slots, transform clean (loc0/rot0/scale1), metre scale (no cm-trap), FBX 7400 re-import round-trip valid. Production-clean poly." }
+}

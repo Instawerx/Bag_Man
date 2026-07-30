@@ -1,0 +1,26 @@
+{
+  "task_id": "20260614-bridgetest-cube",
+  "created_utc": "2026-06-14T03:12:49Z",
+  "flow": "B-extract / A-import",
+  "summary": "Trivial cube \u2014 bridge pipe verification, disposable",
+  "ue_project_root": "C:\\Dev\\Bag_Man",
+  "items": [
+    {
+      "kind": "mesh",
+      "output_file": "pending/20260614-bridgetest-cube/SM_AFL_BridgeTest_Cube.fbx",
+      "destination": "/Game/BagMan/_BridgeTest/SM_AFL_BridgeTest_Cube",
+      "action": "new",
+      "import_settings": {
+        "build_nanite": false,
+        "auto_collision": true,
+        "import_lods": false,
+        "import_materials": false
+      }
+    }
+  ],
+  "audit": {
+    "passed": true,
+    "warnings": [],
+    "report": ""
+  }
+}

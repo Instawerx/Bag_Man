@@ -1,0 +1,13 @@
+{
+  "task_id": "20260709-beamswatches",
+  "created_utc": "2026-07-12T02:40:39Z",
+  "flow": "Texture swatches (Claude-Code generated from AIK-extracted colors) -> AIK imports as UI Texture2D + assigns ShopThumbnail",
+  "summary": "49 BEAM color swatches (256x256 PNG, IRONICS neon-chip, same generator as the authentic 12). Colors used VERBATIM from AIK's DA_AFL_BeamColor_<name>.BeamColor sRGB extraction -- not adjusted, not invented. Naming T_Thumb_Beam_<Color> -> AIK assigns AFL.Beam.<Color>.ShopThumbnail mechanically.",
+  "ue_project_root": "C:\Dev\Bag_Man",
+  "swatches_dir": "pending/20260709-beamswatches/",
+  "sku_mapping": "AFL.Beam.<Color> -> T_Thumb_Beam_<Color> (49: all beam colors)",
+  "import_settings": { "texture_group": "UI", "srgb": true, "compression": "UserInterface2D", "mip_gen": false },
+  "audit": { "passed": true,
+    "warnings": ["Colors sourced from AIK's DA_AFL_BeamColor extraction (sRGB), used verbatim. If AIK later reports corrected values, regenerate is a one-pass re-run.", "The 11 EDGE swatches are separate (T_Thumb_<Color>, registry-derived, pending AIK's edge-DA verification -- regenerate those 11 if AIK's edge values differ)."],
+    "report": "49 beam swatches generated (verified 49/49 on disk). Neon radial glow + rim, IRONICS dark backdrop, sRGB written verbatim via Raw view-transform (no double gamma). Completes the 60-swatch set with the 11 edges." }
+}

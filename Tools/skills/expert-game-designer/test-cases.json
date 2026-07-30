@@ -1,0 +1,71 @@
+[
+  {
+    "prompt": "Design a health bar for our AFL game HUD in the Apple Glass style",
+    "assertions": [
+      "produces an inline SVG or HTML mockup of the health bar",
+      "uses Glass color tokens (rgba white fills, blur, border highlight)",
+      "includes a written design spec with dimensions, colors, animation",
+      "includes a Midjourney prompt for hi-fi concept art",
+      "includes a NeoStack AIK prompt to generate the UMG widget",
+      "references AFL naming conventions (AFLW_HUD_HealthBar)",
+      "includes mobile fallback consideration"
+    ]
+  },
+  {
+    "prompt": "Create a concept for a sci-fi interior level — clean, minimal, Glass aesthetic",
+    "assertions": [
+      "produces an inline SVG mood board or layout diagram",
+      "describes 3-layer lighting strategy (ambient/key/fill)",
+      "defines a color palette with shadow/midtone/highlight zones",
+      "includes a Midjourney environment concept prompt",
+      "includes NeoStack AIK prompt for UE5 material or fog setup",
+      "mentions Lumen settings relevant to the style"
+    ]
+  },
+  {
+    "prompt": "Design a futuristic soldier character for AFL with a glass visor and emissive armor",
+    "assertions": [
+      "produces an SVG silhouette or proportion concept",
+      "applies 3-color rule (dominant/secondary/accent breakdown)",
+      "describes glass visor material properties",
+      "includes Midjourney character concept prompt with turnaround spec",
+      "includes NeoStack AIK prompt for the layered character material",
+      "mentions LOD targets",
+      "fills out the character design spec template"
+    ]
+  },
+  {
+    "prompt": "Design a pause menu for AFL using the Apple Glass style",
+    "assertions": [
+      "produces an inline mockup of the pause menu layout",
+      "uses Glass panel with blur, border highlight, rounded corners",
+      "specifies AFL layer routing (UI.Layer.GameMenu)",
+      "references UCommonActivatableWidget with correct InputConfig",
+      "includes entry/exit animation spec",
+      "includes platform rules (console focus states, mobile tap targets)",
+      "includes AIK prompt to generate the widget"
+    ]
+  },
+  {
+    "prompt": "Write a Midjourney prompt for a dark fantasy dungeon environment",
+    "assertions": [
+      "produces a specific, detailed Midjourney prompt",
+      "includes style descriptors appropriate to dark fantasy",
+      "includes aspect ratio parameter",
+      "includes version parameter",
+      "references UE5 / game art quality markers",
+      "describes lighting and atmosphere in the prompt"
+    ]
+  },
+  {
+    "prompt": "How do I implement the Apple Glass blur effect on a UMG panel in UE5?",
+    "assertions": [
+      "explains UBackgroundBlur widget",
+      "gives specific blur strength values",
+      "explains mobile fallback (LowQualityFallback solid panel)",
+      "mentions performance limit (2-3 blur widgets max)",
+      "provides material or widget configuration details",
+      "references AFL glass color tokens where relevant"
+    ]
+  }
+]

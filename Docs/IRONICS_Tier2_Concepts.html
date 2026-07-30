@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>IRONICS - Tier-2 Identity Concepts + Shell Mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{--cyan:#00F8FF;--bg:#06090F;--glass:rgba(255,255,255,.07);--border:rgba(0,248,255,.28);--txt:#E8FBFF;--txt2:rgba(232,251,255,.6);}
+  *{box-sizing:border-box;} body{margin:0;background:radial-gradient(1200px 700px at 50% -10%,#0b1726,var(--bg));color:var(--txt);font-family:'Chakra Petch',sans-serif;padding:40px 48px;}
+  h1{font-weight:700;letter-spacing:.08em;margin:0 0 4px;} h2{color:var(--cyan);letter-spacing:.14em;font-weight:600;border-bottom:1px solid var(--border);padding-bottom:10px;margin-top:44px;}
+  .mono{font-family:'JetBrains Mono',monospace;color:var(--txt2);font-size:13px;}
+  .grid{display:flex;gap:22px;flex-wrap:wrap;}
+  .card{background:var(--glass);border:1px solid var(--border);border-radius:20px;padding:16px 18px 20px;backdrop-filter:blur(20px);width:540px;box-shadow:0 16px 48px rgba(0,0,0,.4);}
+  .card h3{color:var(--cyan);margin:8px 0 4px;letter-spacing:.12em;font-size:20px;} .card p{color:var(--txt2);font-size:14px;line-height:1.55;margin:6px 0 0;}
+  .svgbox{background:#05080D;border-radius:14px;border:1px solid rgba(255,255,255,.08);}
+  .shell{width:100%;max-width:1280px;border-radius:18px;border:1px solid var(--border);box-shadow:0 24px 64px rgba(0,0,0,.5);}
+</style></head><body>
+  <h1>IRONICS &mdash; TIER-2 IDENTITY CONCEPTS + SHELL MOCK</h1>
+  <p class="mono">Electric / House-Cyan #00F8FF / Apple-Glass / Chakra Petch &middot; pick ONE direction &middot; concepts only, no production yet</p>
+
+  <h2>1 &middot; IDENTITY CONCEPTS &mdash; pick ONE direction (lockup + emblem)</h2>
+  <div class="grid">
+
+    <div class="card"><svg class="svgbox" viewBox="0 0 500 200" width="100%">
+      <defs><filter id="gA" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+      <g transform="translate(72,100)" fill="none" stroke="#00F8FF">
+        <polygon points="0,-46 40,-23 40,23 0,46 -40,23 -40,-23" stroke-width="2" opacity=".75"/>
+        <g stroke-width="1.4" opacity=".7"><line x1="0" y1="0" x2="40" y2="-23"/><line x1="0" y1="0" x2="-40" y2="23"/><line x1="0" y1="0" x2="0" y2="-46"/><line x1="0" y1="0" x2="0" y2="46"/></g>
+        <circle r="6" fill="#CFFCFF" filter="url(#gA)"/><circle cx="40" cy="-23" r="3" fill="#00F8FF"/><circle cx="-40" cy="23" r="3" fill="#00F8FF"/><circle cx="0" cy="-46" r="3" fill="#00F8FF"/><circle cx="0" cy="46" r="3" fill="#00F8FF"/></g>
+      <text x="142" y="112" font-family="Chakra Petch" font-weight="700" font-size="44" letter-spacing="7" fill="#E8FBFF">IRONICS</text>
+      <line x1="144" y1="130" x2="472" y2="130" stroke="#00F8FF" stroke-width="1" opacity=".5"/>
+      <circle cx="144" cy="130" r="3" fill="#00F8FF"/><circle cx="308" cy="130" r="3" fill="#00F8FF"/><circle cx="472" cy="130" r="3" fill="#00F8FF"/>
+    </svg><h3>A &middot; TRACE</h3><p>PCB / circuit-trace. Engineered, precise, semiconductor-literal &mdash; reads "Infineon" instantly. Hex chip node + routed traces; the wordmark sits on a signal bus. Cool, technical, restrained. Strongest for the Nano/Infineon roster theme.</p></div>
+
+    <div class="card"><svg class="svgbox" viewBox="0 0 500 200" width="100%">
+      <defs><radialGradient id="cB"><stop offset="0%" stop-color="#DBFEFF"/><stop offset="42%" stop-color="#00F8FF"/><stop offset="100%" stop-color="#00F8FF" stop-opacity="0"/></radialGradient><filter id="gB"><feGaussianBlur stdDeviation="4"/></filter></defs>
+      <g transform="translate(74,100)"><circle r="46" fill="url(#cB)" opacity=".55"/><circle r="30" fill="none" stroke="#00F8FF" stroke-width="1.5" opacity=".55"/><circle r="20" fill="none" stroke="#00F8FF" stroke-width="1.5" opacity=".85"/><circle r="8" fill="#DBFEFF" filter="url(#gB)"/><path d="M -36 -20 A 42 42 0 0 1 36 -20" fill="none" stroke="#00F8FF" stroke-width="2"/><path d="M -36 20 A 42 42 0 0 0 36 20" fill="none" stroke="#00F8FF" stroke-width="2"/></g>
+      <text x="146" y="116" font-family="Chakra Petch" font-weight="600" font-size="44" letter-spacing="6" fill="#E8FBFF">IR</text>
+      <g transform="translate(244,99)"><circle r="22" fill="none" stroke="#E8FBFF" stroke-width="3"/><circle r="11" fill="url(#cB)"/><circle r="4" fill="#DBFEFF" filter="url(#gB)"/></g>
+      <text x="276" y="116" font-family="Chakra Petch" font-weight="600" font-size="44" letter-spacing="6" fill="#E8FBFF">NICS</text>
+    </svg><h3>B &middot; CORE</h3><p>Energy reactor / luminous core &mdash; the "O" is a power cell. Soft, premium, Apple-Glass-native (glow IS the brand). Best 3D-hero potential: the core becomes a rotating volumetric emblem. Warmer, more "energy" than "circuit."</p></div>
+
+    <div class="card"><svg class="svgbox" viewBox="0 0 500 200" width="100%">
+      <defs><filter id="gC" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+      <g transform="translate(72,100)"><polygon points="0,-50 48,0 0,50 -48,0" fill="none" stroke="#00F8FF" stroke-width="2" opacity=".55"/><path d="M 10 -34 L -16 6 L 1 6 L -10 34 L 22 -8 L 5 -8 Z" fill="#00F8FF" filter="url(#gC)"/></g>
+      <path d="M 156 70 L 142 100 L 154 100 L 146 130" fill="none" stroke="#00F8FF" stroke-width="7" stroke-linejoin="round" stroke-linecap="round" filter="url(#gC)"/>
+      <text x="168" y="116" font-family="Chakra Petch" font-weight="700" font-size="46" letter-spacing="3" fill="#E8FBFF">RONICS</text>
+    </svg><h3>C &middot; BOLT</h3><p>Voltage monogram &mdash; the "I" IS a bolt. Bold, iconic, instant-read at favicon size; the diamond-bolt emblem stands alone as an app/match icon. Most aggressive/gamey of the three. Scales hardest, brands fastest.</p></div>
+
+  </div>
+
+  <h2>2 &middot; THE SHELL HUB MOCK &mdash; IRONICS main menu (fork+brand of W_LyraFrontEnd)</h2>
+  <svg class="shell" viewBox="0 0 1280 720" width="100%">
+    <defs>
+      <linearGradient id="bgS" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0B1726"/><stop offset="100%" stop-color="#05080D"/></linearGradient>
+      <radialGradient id="haloS" cx="66%" cy="44%" r="42%"><stop offset="0%" stop-color="#00F8FF" stop-opacity=".16"/><stop offset="100%" stop-color="#00F8FF" stop-opacity="0"/></radialGradient>
+    </defs>
+    <rect width="1280" height="720" fill="url(#bgS)"/><rect width="1280" height="720" fill="url(#haloS)"/>
+    <g stroke="#00F8FF" stroke-width="1" opacity=".06"><line x1="0" y1="120" x2="1280" y2="120"/><line x1="0" y1="600" x2="1280" y2="600"/><line x1="900" y1="0" x2="900" y2="720"/></g>
+    <g transform="translate(60,52)"><text font-family="Chakra Petch" font-weight="700" font-size="30" letter-spacing="6" fill="#E8FBFF">IRONICS</text><text y="22" font-family="JetBrains Mono" font-size="11" letter-spacing="2" fill="#00F8FF" opacity=".7">[ chosen 2D lockup drops here ]</text></g>
+    <g transform="translate(630,160)"><circle cx="210" cy="200" r="188" fill="rgba(0,248,255,.04)" stroke="#00F8FF" stroke-width="1.5" stroke-dasharray="6 9" opacity=".55"/><text x="210" y="190" text-anchor="middle" font-family="JetBrains Mono" font-size="12" letter-spacing="2" fill="#00F8FF" opacity=".7">RESERVED FOCAL SLOT</text><text x="210" y="216" text-anchor="middle" font-family="Chakra Petch" font-weight="600" font-size="20" letter-spacing="2" fill="#E8FBFF">3D HERO EMBLEM</text><text x="210" y="240" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="rgba(232,251,255,.45)">Tripo -&gt; Blender -&gt; material (parallel track)</text></g>
+    <g transform="translate(60,172)">
+      <rect width="420" height="476" rx="22" fill="rgba(255,255,255,.06)" stroke="rgba(0,248,255,.25)" stroke-width="1"/>
+      <g transform="translate(28,30)"><rect width="364" height="86" rx="16" fill="rgba(0,248,255,.14)" stroke="#00F8FF" stroke-width="1.5"/><text x="28" y="44" font-family="Chakra Petch" font-weight="700" font-size="30" letter-spacing="3" fill="#E8FBFF">PLAY</text><text x="28" y="66" font-family="JetBrains Mono" font-size="11" letter-spacing="1" fill="#00F8FF">-&gt; PROVEN host loop (NanoWatt / Infineon)</text></g>
+      <g transform="translate(28,138)"><rect width="364" height="54" rx="14" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.16)" stroke-width="1"/><text x="24" y="34" font-family="Chakra Petch" font-weight="600" font-size="22" letter-spacing="2" fill="#E8FBFF">SETTINGS</text></g>
+      <line x1="28" y1="214" x2="392" y2="214" stroke="rgba(255,255,255,.12)"/><text x="28" y="236" font-family="JetBrains Mono" font-size="10" letter-spacing="2" fill="rgba(232,251,255,.4)">TIER-3 // PERSISTENCE-GATED</text>
+      <g font-family="Chakra Petch" font-weight="600" font-size="20" letter-spacing="2">
+        <g transform="translate(28,248)"><rect width="364" height="48" rx="12" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.08)"/><text x="22" y="31" fill="rgba(232,251,255,.35)">LOADOUT</text><text x="248" y="30" font-family="JetBrains Mono" font-size="10" fill="rgba(0,248,255,.5)">COMING SOON</text></g>
+        <g transform="translate(28,304)"><rect width="364" height="48" rx="12" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.08)"/><text x="22" y="31" fill="rgba(232,251,255,.35)">STORE</text><text x="248" y="30" font-family="JetBrains Mono" font-size="10" fill="rgba(0,248,255,.5)">COMING SOON</text></g>
+        <g transform="translate(28,360)"><rect width="364" height="48" rx="12" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.08)"/><text x="22" y="31" fill="rgba(232,251,255,.35)">IDENTITY</text><text x="248" y="30" font-family="JetBrains Mono" font-size="10" fill="rgba(0,248,255,.5)">COMING SOON</text></g>
+      </g>
+    </g>
+    <g transform="translate(60,672)"><text font-family="JetBrains Mono" font-size="12" letter-spacing="1" fill="rgba(232,251,255,.5)">IRONICS // BETA LANDS V1.0</text></g>
+    <text x="1220" y="684" text-anchor="end" font-family="JetBrains Mono" font-size="12" fill="rgba(0,248,255,.6)">PRESS-START -&gt; HUB</text>
+  </svg>
+  <p class="mono">Glass nav rail (left) + reserved 3D-emblem focal slot (right). PLAY = the proven host loop. Tier-3 tiles present-but-disabled. The chosen lockup replaces the top-left placeholder; the chosen emblem fills the focal slot when the art pipeline finishes &mdash; neither gates the shell build.</p>
+</body></html>

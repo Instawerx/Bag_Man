@@ -1,0 +1,19 @@
+{
+  "task_id": "20260709-extractmarker",
+  "created_utc": "2026-07-11T02:58:05Z",
+  "flow": "A-import (Claude-Code authors -> conformant FBX -> AIK BATCH UE import/wire)",
+  "summary": "Extraction-zone MARKER pylon. IRONICS neon-glass, author-new (#9 extractor). 2-slot (slot1=MI_AFL_NeonGlass_Skin, #1E5AFF emissive). Conform-to-beacon; round-trip verified.",
+  "ue_project_root": "C:\Dev\Bag_Man",
+  "items": [
+    {
+      "kind": "mesh",
+      "output_file": "pending/20260709-extractmarker/SM_AFL_ExtractZoneMarker.fbx",
+      "destination": "/Game/BagMan/World/Extraction/SM_AFL_ExtractZoneMarker",
+      "action": "new",
+      "import_settings": { "build_nanite": false, "auto_collision": true, "import_lods": false, "import_materials": false },
+      "material_bind": { "slot1": "AIK assigns the IRONICS neon-glass UE material to slot1 post-import (import_materials=false)" }
+    }
+  ],
+  "audit": { "passed": true, "warnings": ["Author-new #9 piece. UE import + neon-material assignment = AIK's lane (batch, when free -- do NOT interrupt Loadout)."],
+    "report": "SM_AFL_ExtractZoneMarker: bbox 14 x 14 x 90 cm (0.9m pylon; AIK places N around the ring), 2 material slots, transform clean (loc0/rot0/scale1), metre scale (no cm-trap), FBX 7400 re-import round-trip valid. Sized to the 300cm ZoneSphere (AFLExtractionZone.cpp:43)." }
+}
