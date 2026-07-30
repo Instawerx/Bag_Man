@@ -2,6 +2,7 @@
 
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
 
+#include "AbilitySystemGlobals.h"                    // Block 44: spawn-race probe (ASC-not-ready Warning)
 #include "Components/ChildActorComponent.h"
 #include "Cosmetics/AFLBrandEdgeMap.h"
 #include "Cosmetics/AFLCharacterPartActor.h"
@@ -551,6 +552,28 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 	// QuickBar, so the QuickBar could never unequip what it had not equipped: the mesh stayed in hand while
 	// cycling swapped the QuickBar item underneath and the player held two weapons with the wrong one's
 	// abilities live (watched on ASTRA). That layer-skip was the whole defect.
+	// SPAWN-RACE VOICE (Block 44). DIAGNOSTIC ONLY -- this does NOT gate, bail, or change the equip.
+	//
+	// FLyraEquipmentList::AddEntry grants the equipment's AbilitySets only `if (ASC)` and its else branch is
+	// literally `//@TODO: Warning logging?` -- nothing. SpawnEquipmentActors then runs REGARDLESS. So when
+	// this fires before ULyraPawnExtensionComponent has wired the ASC (Lyra keeps it on the PlayerState, and
+	// OnPossessedPawnChanged broadcasts from AController::SetPawn which precedes that init), the weapon
+	// spawns looking perfect, sits correctly, and has NO fire ability -- with zero trace anywhere. Cycling
+	// out and back re-equips once the ASC exists, which is why it then works.
+	//
+	// That silence is the actual defect being addressed here. The race itself is NOT fixed by this commit --
+	// the durable fix is registering as an init-state feature so GameplayReady gates the equip. Until then,
+	// equipping anyway is deliberately preserved: an ability-less weapon is better in play than no weapon.
+	if (WeaponId != NAME_None && Pawn && !UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn))
+	{
+		UE_LOG(LogAFLSkinDiag, Warning,
+			TEXT("%s%s : SPAWN RACE -- equipping '%s' with NO AbilitySystemComponent yet. Lyra grants the "
+			     "weapon's AbilitySets only when the ASC exists (FLyraEquipmentList::AddEntry) and logs "
+			     "nothing when it does not, so this weapon will SPAWN AND LOOK CORRECT BUT CANNOT FIRE until "
+			     "it is re-equipped (cycle out and back). Equipping anyway -- behaviour unchanged."),
+			*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString());
+	}
+
 	if (WeaponId != NAME_None)
 	{
 		if (TryEquipWeaponViaQuickBar(WeaponId))
