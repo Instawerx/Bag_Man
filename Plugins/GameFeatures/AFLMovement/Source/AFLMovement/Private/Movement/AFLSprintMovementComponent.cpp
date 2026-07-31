@@ -1,0 +1,171 @@
+// Copyright C12 AI Gaming. All Rights Reserved.
+
+#include "Movement/AFLSprintMovementComponent.h"
+
+#include "AFLMovement.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "Character/LyraPawnExtensionComponent.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/Pawn.h"
+#include "NativeGameplayTags.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(AFLSprintMovementComponent)
+
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Movement_Sprinting_SprintComp, "State.Movement.Sprinting");
+
+UAFLSprintMovementComponent::UAFLSprintMovementComponent()
+{
+	// Event-driven (tag listener), not tick-driven.
+	PrimaryComponentTick.bCanEverTick = false;
+}
+
+void UAFLSprintMovementComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// ASC resolve: DIRECT first (self-ASC'd pawns have it ready at BeginPlay), PawnExtension hook as the
+	// FALLBACK for the possessed PLAYER (PlayerState ASC lands after pawn BeginPlay). Exact pattern proven
+	// on B_Hero_BagMan by UAFLDashMovementComponent / UAFLDeathComponent.
+	if (AActor* Owner = GetOwner())
+	{
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
+		{
+			BindToAbilitySystem(ASC);
+		}
+		else if (ULyraPawnExtensionComponent* PawnExt = ULyraPawnExtensionComponent::FindPawnExtensionComponent(Owner))
+		{
+			PawnExt->OnAbilitySystemInitialized_RegisterAndCall(
+				FSimpleMulticastDelegate::FDelegate::CreateUObject(this, &ThisClass::OnAbilitySystemReady));
+		}
+	}
+}
+
+void UAFLSprintMovementComponent::OnAbilitySystemReady()
+{
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_SPRINT: %s OnAbilitySystemReady -> binding sprint tag listener."),
+		*GetNameSafe(GetOwner()));
+	if (AActor* Owner = GetOwner())
+	{
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
+		{
+			BindToAbilitySystem(ASC);
+		}
+	}
+}
+
+void UAFLSprintMovementComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (bSprintSwapped)
+	{
+		RestoreSprintTuning();
+	}
+	UnbindFromAbilitySystem();
+	Super::EndPlay(EndPlayReason);
+}
+
+void UAFLSprintMovementComponent::BindToAbilitySystem(UAbilitySystemComponent* InASC)
+{
+	if (!InASC)
+	{
+		return;
+	}
+	if (CachedASC.Get() == InASC && SprintTagChangedHandle.IsValid())
+	{
+		return; // idempotent
+	}
+	if (CachedASC.IsValid() && CachedASC.Get() != InASC)
+	{
+		UnbindFromAbilitySystem(); // controller swap -> fresh PlayerState ASC
+	}
+
+	CachedASC = InASC;
+	SprintTagChangedHandle = InASC->RegisterGameplayTagEvent(
+			TAG_State_Movement_Sprinting_SprintComp, EGameplayTagEventType::NewOrRemoved)
+		.AddUObject(this, &UAFLSprintMovementComponent::HandleSprintTagChanged);
+
+	UE_LOG(LogAFLMovement, Log, TEXT("AFL_SPRINT: %s bound sprint tag listener (ASC %s)."),
+		*GetNameSafe(GetOwner()), *GetNameSafe(InASC));
+}
+
+void UAFLSprintMovementComponent::UnbindFromAbilitySystem()
+{
+	if (UAbilitySystemComponent* ASC = CachedASC.Get())
+	{
+		if (SprintTagChangedHandle.IsValid())
+		{
+			ASC->RegisterGameplayTagEvent(TAG_State_Movement_Sprinting_SprintComp, EGameplayTagEventType::NewOrRemoved)
+				.Remove(SprintTagChangedHandle);
+		}
+	}
+	SprintTagChangedHandle.Reset();
+	CachedASC.Reset();
+}
+
+void UAFLSprintMovementComponent::HandleSprintTagChanged(const FGameplayTag Tag, int32 NewCount)
+{
+	if (NewCount > 0)
+	{
+		ApplySprintTuning();
+	}
+	else
+	{
+		RestoreSprintTuning();
+	}
+}
+
+UCharacterMovementComponent* UAFLSprintMovementComponent::GetOwnerCMC() const
+{
+	if (const ACharacter* Char = Cast<ACharacter>(GetOwner()))
+	{
+		return Char->GetCharacterMovement();
+	}
+	return nullptr;
+}
+
+void UAFLSprintMovementComponent::ApplySprintTuning()
+{
+	// Re-entrancy guard (Overdrive precedent): cache is written ONLY when not already swapped, so a duplicate
+	// rise event can never bake the boosted value in as the restore target.
+	if (bSprintSwapped)
+	{
+		return;
+	}
+	UCharacterMovementComponent* CMC = GetOwnerCMC();
+	if (!CMC)
+	{
+		return;
+	}
+
+	// Cache at sprint ENTRY -- captures modifications other systems applied up to this moment (e.g. a live
+	// Overdrive buff), so restore returns to the real pre-sprint state, not construction defaults.
+	CachedMaxWalkSpeed = CMC->MaxWalkSpeed;
+	CachedMaxAcceleration = CMC->MaxAcceleration;
+
+	CMC->MaxWalkSpeed = CachedMaxWalkSpeed * SprintSpeedMultiplier;
+	CMC->MaxAcceleration = CachedMaxAcceleration * SprintAccelMultiplier;
+	bSprintSwapped = true;
+
+	UE_LOG(LogAFLMovement, Log,
+		TEXT("AFL_SPRINT: tuning applied -> speed %.0f->%.0f, accel %.0f->%.0f"),
+		CachedMaxWalkSpeed, CMC->MaxWalkSpeed, CachedMaxAcceleration, CMC->MaxAcceleration);
+}
+
+void UAFLSprintMovementComponent::RestoreSprintTuning()
+{
+	if (!bSprintSwapped)
+	{
+		return;
+	}
+	if (UCharacterMovementComponent* CMC = GetOwnerCMC())
+	{
+		CMC->MaxWalkSpeed = CachedMaxWalkSpeed;
+		CMC->MaxAcceleration = CachedMaxAcceleration;
+
+		UE_LOG(LogAFLMovement, Log,
+			TEXT("AFL_SPRINT: tuning restored -> speed->%.0f, accel->%.0f"),
+			CMC->MaxWalkSpeed, CMC->MaxAcceleration);
+	}
+	bSprintSwapped = false;
+}
