@@ -8,6 +8,7 @@
 #include "Equipment/LyraEquipmentInstance.h"   // side-scoped resolver: GetSpawnedActors()
 #include "GameFramework/Character.h"
 #include "NativeGameplayTags.h"
+#include "Weapons/LyraWeaponInstance.h"        // UpdateFiringTime() -- weapon-state hygiene (not the aim driver)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_Laser_Base)
 
@@ -34,6 +35,38 @@ UAFLAG_Laser_Base::UAFLAG_Laser_Base()
 	// new front-socket name just appends here -- the resolver is shared, so both Pulse and Beam (and
 	// any later laser) pick it up with no code edit.
 	MuzzleSocketCandidates = { FName("Muzzle"), FName("Barrel"), FName("Slide") };
+}
+
+void UAFLAG_Laser_Base::ActivateAbility(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo,
+	const FGameplayEventData* TriggerEventData)
+{
+	// Stamp "last fired" on the equipped weapon instance BEFORE the shot runs, so the AnimBP's
+	// HipFireUpperBodyOverrideWeight raises the upper body to aim for RaiseWeaponAfterFiringDuration after
+	// each shot -- this is what makes firing-while-running snap the weapon up instead of staying at the
+	// relaxed aim-offset. The spec SourceObject IS the equipment/weapon instance (the WID AbilitySet grant
+	// sets it; same handle ResolveLaserVisualProvider reads). Guarded so bot GameplayEvent / activate-by-class
+	// fire paths with no weapon instance still activate. Runs per shot (each sustained-fire shot re-activates)
+	// on the owning client + server; mirrors ULyraGameplayAbility_RangedWeapon::ActivateAbility.
+	// Keep the equipped weapon instance's "last fired" time honest (ULyraWeaponInstance::UpdateFiringTime),
+	// mirroring ULyraGameplayAbility_RangedWeapon::ActivateAbility. NOTE: run-and-shoot's upper-body raise is
+	// driven by the State.Firing.* tag path in the AnimBP's GameplayTagPropertyMap (GameplayTag_IsFiring), NOT
+	// by this stamp -- the AnimBP self-accumulates TimeSinceFiredWeapon and never reads the weapon instance. So
+	// this is weapon hygiene, not the aim driver. It STAYS because GetTimeSinceLastInteractedWith() feeds other
+	// consumers (idle-break timing, telemetry) and a clean rebuild carrying this stamp is what cleared the
+	// "weapon dead on first spawn until you cycle" bug -- do not drop it. One site covers the whole laser tree
+	// (every subclass calls Super::ActivateAbility; each sustained-fire shot is its own activation).
+	if (const FGameplayAbilitySpec* Spec = GetCurrentAbilitySpec())
+	{
+		if (ULyraWeaponInstance* Weapon = Cast<ULyraWeaponInstance>(Spec->SourceObject.Get()))
+		{
+			Weapon->UpdateFiringTime();
+		}
+	}
+
+	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 }
 
 FVector UAFLAG_Laser_Base::ResolveMuzzleLocation(APawn* AvatarPawn) const

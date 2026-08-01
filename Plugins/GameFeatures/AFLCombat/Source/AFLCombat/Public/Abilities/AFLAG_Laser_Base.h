@@ -36,6 +36,21 @@ public:
 protected:
 
 	/**
+	 * Shared fire entry for the whole AFL laser tree. Stamps the equipped weapon instance's "last fired" time
+	 * (ULyraWeaponInstance::UpdateFiringTime), mirroring ULyraGameplayAbility_RangedWeapon::ActivateAbility --
+	 * AFL fire abilities root at ULyraGameplayAbility, so nothing was calling it and GetTimeSinceLastInteractedWith
+	 * reported time-since-equip forever. This is weapon-state HYGIENE, not the run-and-shoot aim driver: that raise
+	 * is on the State.Firing.* tag path in the AnimBP (GameplayTag_IsFiring), which never reads the weapon instance.
+	 * Kept because GetTimeSinceLastInteractedWith feeds other consumers and this stamp is tied to the first-spawn-
+	 * fire fix. One site covers the whole tree (subclasses call Super::ActivateAbility; each shot is its own activation).
+	 */
+	virtual void ActivateAbility(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo,
+		const FGameplayEventData* TriggerEventData) override;
+
+	/**
 	 * Ordered muzzle socket-name candidates. ResolveMuzzleLocation returns the world location of the
 	 * FIRST of these that exists on the avatar's attached weapon mesh. Default {"Muzzle","Barrel",
 	 * "Slide"} spans the AFL roster: Rifle/Carbine + Shotgun author a "Muzzle" socket; the Pistol has
