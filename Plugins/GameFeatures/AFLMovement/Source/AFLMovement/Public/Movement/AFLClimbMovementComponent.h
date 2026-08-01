@@ -71,10 +71,10 @@ private:
 	void ApplyClimbState();
 	void RestoreClimbState();
 
-	/** Decision B holster: hide the equipped weapon's spawned actors while climbing, restore on exit.
-	 *  Tag-symmetric with the CMC swap (same ApplyClimbState/RestoreClimbState lifecycle, same tag). The rifle
-	 *  is an upper-body anim layer that would fight a full-body climb montage; holstering it lets the climb
-	 *  anim play unobstructed and reads correctly (you don't scale a wall while aiming). */
+	/** Decision B holster (Phase 3 unified): hold HolsterReason.Climb on UAFLHolsterComponent while climbing,
+	 *  release it on exit. The rifle is an upper-body anim layer that would fight a full-body climb montage;
+	 *  sheathing it lets the climb anim play unobstructed. Routes through the holster SSOT's reason-refcount
+	 *  (not a private hidden-list) so climb + grab compose instead of stomping each other's weapon-hide. */
 	void HolsterEquippedWeapon();
 	void RestoreEquippedWeapon();
 
@@ -82,10 +82,6 @@ private:
 	float CachedGravityScale = 1.0f;
 	TEnumAsByte<EMovementMode> CachedMovementMode = MOVE_Walking;
 	bool bClimbStateActive = false;
-
-	/** Spawned weapon actors we hid on climb-entry; restored 1:1 on exit (only those we actually hid). */
-	UPROPERTY()
-	TArray<TWeakObjectPtr<AActor>> HolsteredWeaponActors;
 
 	UPROPERTY()
 	TWeakObjectPtr<UAbilitySystemComponent> CachedASC;

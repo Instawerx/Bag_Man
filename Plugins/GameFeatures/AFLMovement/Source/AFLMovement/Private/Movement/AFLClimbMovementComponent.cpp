@@ -15,11 +15,13 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
+#include "Interaction/AFLHolsterComponent.h"
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLClimbMovementComponent)
 
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Movement_Climbing_ClimbComp, "State.Movement.Climbing");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_HolsterReason_Climb, "HolsterReason.Climb");
 
 UAFLClimbMovementComponent::UAFLClimbMovementComponent()
 {
@@ -187,59 +189,29 @@ void UAFLClimbMovementComponent::RestoreClimbState()
 
 void UAFLClimbMovementComponent::HolsterEquippedWeapon()
 {
-	HolsteredWeaponActors.Reset();
-
-	// The equipment manager for this hero's ranged weapons lives on the PlayerState (Lyra ranged-weapon
-	// pattern; UAFLHeroComponent attaches there). Our owner is the pawn -> reach the PS via the pawn.
-	const APawn* Pawn = Cast<APawn>(GetOwner());
-	AActor* PSActor = Pawn ? Cast<AActor>(Pawn->GetPlayerState()) : nullptr;
-	ULyraEquipmentManagerComponent* EquipMgr =
-		PSActor ? PSActor->FindComponentByClass<ULyraEquipmentManagerComponent>() : nullptr;
-	if (!EquipMgr)
+	// Unified holster SSOT (Phase 3): hold the HolsterReason.Climb refcount on UAFLHolsterComponent rather than
+	// hiding the weapon actors from our own private list. The old per-component hidden-list stomped grab's list
+	// (whichever restored last un-hid a weapon the other still wanted holstered); the reason-refcount composes
+	// them -- the weapon sheaths to the back socket and stays there until EVERY reason clears. Server-authoritative
+	// (AddHolsterReason no-ops off the server); clients mirror the sheath via OnRep_Holstered. Sibling-component
+	// lookup mirrors UAFLGameplayAbility_HolsterToggle.
+	if (UAFLHolsterComponent* Holster = GetOwner() ? GetOwner()->FindComponentByClass<UAFLHolsterComponent>() : nullptr)
 	{
-		// No manager (e.g. pre-possession) -> nothing to holster; the climb still works, rifle just stays.
-		UE_LOG(LogAFLMovement, Verbose, TEXT("AFL_CLIMB: holster skipped (no EquipmentManager on PlayerState)."));
-		return;
+		Holster->AddHolsterReason(TAG_HolsterReason_Climb);
 	}
-
-	int32 HiddenCount = 0;
-	for (ULyraEquipmentInstance* Instance : EquipMgr->GetEquipmentInstancesOfType(ULyraEquipmentInstance::StaticClass()))
+	else
 	{
-		if (!Instance)
-		{
-			continue;
-		}
-		for (AActor* WeaponActor : Instance->GetSpawnedActors())
-		{
-			if (WeaponActor && WeaponActor->GetRootComponent() && WeaponActor->IsHidden() == false)
-			{
-				WeaponActor->SetActorHiddenInGame(true);
-				HolsteredWeaponActors.Add(WeaponActor);
-				++HiddenCount;
-			}
-		}
+		// No holster component (e.g. a non-Pro pawn) -> climb still works, the rifle just stays in hand.
+		UE_LOG(LogAFLMovement, Verbose, TEXT("AFL_CLIMB: holster skipped (no UAFLHolsterComponent on owner)."));
 	}
-
-	UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: holstered %d weapon actor(s) for climb."), HiddenCount);
 }
 
 void UAFLClimbMovementComponent::RestoreEquippedWeapon()
 {
-	// Restore ONLY the actors we hid (1:1), so we never un-hide something hidden for another reason.
-	int32 RestoredCount = 0;
-	for (const TWeakObjectPtr<AActor>& WeakActor : HolsteredWeaponActors)
+	// Release ONLY the climb reason; if grab (or manual) still holds a reason the weapon stays holstered.
+	if (UAFLHolsterComponent* Holster = GetOwner() ? GetOwner()->FindComponentByClass<UAFLHolsterComponent>() : nullptr)
 	{
-		if (AActor* WeaponActor = WeakActor.Get())
-		{
-			WeaponActor->SetActorHiddenInGame(false);
-			++RestoredCount;
-		}
-	}
-	HolsteredWeaponActors.Reset();
-
-	if (RestoredCount > 0)
-	{
-		UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: restored %d weapon actor(s) after climb."), RestoredCount);
+		Holster->RemoveHolsterReason(TAG_HolsterReason_Climb);
 	}
 }
 

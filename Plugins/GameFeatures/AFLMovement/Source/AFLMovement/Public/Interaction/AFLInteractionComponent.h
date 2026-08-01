@@ -204,7 +204,8 @@ private:
 	void CancelOwningGrabAbility();
 
 	/** Holster the equipped weapon during carry (mirror climb's holster) so the rifle's upper-body anim layer
-	 *  doesn't fight the grab reach + hold. Hide on grab, restore on release. */
+	 *  doesn't fight the grab reach + hold. Holds HolsterReason.Grab on the holster SSOT (reason-refcount) --
+	 *  NOT a private hidden-list -- so carry + climb compose instead of stomping each other's weapon-hide. */
 	void HolsterEquippedWeapon();
 	void RestoreEquippedWeapon();
 
@@ -237,10 +238,6 @@ private:
 	/** 4e: resolved set for the carried actor; cached at grab-begin, cleared on release. Consumed in 4f. */
 	UPROPERTY(Transient)
 	TObjectPtr<UAFLObjectClassAnimSet> ActiveAnimSet = nullptr;
-
-	/** Weapon actors hidden on grab (the holster); restored 1:1 on release. */
-	UPROPERTY()
-	TArray<TWeakObjectPtr<AActor>> HolsteredWeaponActors;
 
 	UPROPERTY()
 	TWeakObjectPtr<UAbilitySystemComponent> CachedASC;

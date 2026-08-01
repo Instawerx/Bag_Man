@@ -11,12 +11,14 @@
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Interaction/AFLHolsterComponent.h"
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLWallRunMovementComponent)
 
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Movement_WallRunning_WRComp, "State.Movement.WallRunning");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Movement_WallRun_Detected, "Event.Movement.WallRun.Detected");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_HolsterReason_WallRun, "HolsterReason.WallRun");
 
 UAFLWallRunMovementComponent::UAFLWallRunMovementComponent()
 {
@@ -133,6 +135,15 @@ void UAFLWallRunMovementComponent::EnterWallRunState()
 	CMC->GravityScale = 0.0f;
 	CMC->SetMovementMode(MOVE_Flying);
 	bWallRunActive = true;
+
+	// Holster SSOT (Phase 3 unified): hold HolsterReason.WallRun so the rifle sheaths to the back for the wall-run
+	// (it would fight the traversal pose, same rationale as climb). Composes with climb/grab/manual via the
+	// reason-refcount; released in ExitWallRunState. Server-auth; clients mirror via OnRep_Holstered.
+	if (UAFLHolsterComponent* Holster = GetOwner() ? GetOwner()->FindComponentByClass<UAFLHolsterComponent>() : nullptr)
+	{
+		Holster->AddHolsterReason(TAG_HolsterReason_WallRun);
+	}
+
 	UE_LOG(LogAFLMovement, Log, TEXT("AFL_WALLRUN: enter state (gravity 0 / flying)."));
 }
 
@@ -150,6 +161,13 @@ void UAFLWallRunMovementComponent::ExitWallRunState()
 	bWallRunActive = false;
 	CurrentWallNormal = FVector::ZeroVector;
 	ReattachTimer = ReattachCooldown;
+
+	// Release ONLY the wall-run reason; if climb/grab/manual still holds one the weapon stays holstered.
+	if (UAFLHolsterComponent* Holster = GetOwner() ? GetOwner()->FindComponentByClass<UAFLHolsterComponent>() : nullptr)
+	{
+		Holster->RemoveHolsterReason(TAG_HolsterReason_WallRun);
+	}
+
 	UE_LOG(LogAFLMovement, Log, TEXT("AFL_WALLRUN: exit state (restored gravity, falling)."));
 }
 
