@@ -167,3 +167,6 @@ Tools/*.zip
 # --- Tripo authoring masters (BM-WEAPON-002: kept uncommitted by design) ---
 /Content/BagMan/Equipment/Generated/SM_AFL_PulseCarbine_v1/
 /Content/BagMan/Equipment/Generated/SM_AFL_PulseCarbine_v2_parts/
+
+# Marketplace parkour anim pack (staging for retarget; keep only retargeted outputs)
+/Content/ParkourAnimations/

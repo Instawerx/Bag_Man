@@ -5,6 +5,7 @@
 #include "AFLMovement.h"                               // LogAFLMovement
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "NativeGameplayTags.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Controller.h"
@@ -19,6 +20,11 @@
 #include "Animation/AnimInstance.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLWeaponIKComponent)
+
+// Holster gate (Phase 3 holster SSOT): a holstered weapon is on the back, not in hand -> the left-hand IK
+// must not chase the weapon actor there. State.Weapon.Holstered is granted by GE_AFL_State_Holstered
+// (UAFLHolsterComponent). Native-declared to remove ini load-order fragility (dash/climb precedent).
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Weapon_Holstered_WIK, "State.Weapon.Holstered");
 
 UAFLWeaponIKComponent::UAFLWeaponIKComponent()
 {
@@ -77,6 +83,18 @@ EAFLWeaponHandling UAFLWeaponIKComponent::ResolveHandling(const ULyraEquipmentMa
 			{
 				return EAFLWeaponHandling::Thrown;
 			}
+		}
+	}
+
+	// 1b) HOLSTERED -- weapon sheathed on the back (UAFLHolsterComponent); the left-hand IK must not chase it
+	//     there. Return None so the standard off-path fades LeftHandIKAlpha out smoothly via the existing
+	//     FInterpTo (no snap, no frozen-alpha bug). This is the whole fix — the right arm is pose-driven (anim
+	//     layer relink), the left arm is IK-driven (here), so both need gating on holster.
+	if (const UAbilitySystemComponent* ASC = UAbilitySystemGlobals::Get().GetAbilitySystemComponentFromActor(GetOwner()))
+	{
+		if (ASC->HasMatchingGameplayTag(TAG_State_Weapon_Holstered_WIK))
+		{
+			return EAFLWeaponHandling::None;
 		}
 	}
 
