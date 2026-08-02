@@ -75,7 +75,6 @@ void UAFLRoundManagerComponent::GetLifetimeReplicatedProps(TArray<FLifetimePrope
 	DOREPLIFETIME(UAFLRoundManagerComponent, Team0Score);
 	DOREPLIFETIME(UAFLRoundManagerComponent, Team1Score);
 	DOREPLIFETIME(UAFLRoundManagerComponent, RoundTimeRemaining);
-	DOREPLIFETIME(UAFLRoundManagerComponent, WarmupTimeRemaining);
 	DOREPLIFETIME(UAFLRoundManagerComponent, bSidesSwapped);
 	DOREPLIFETIME(UAFLRoundManagerComponent, ParticipatingTeams);
 	DOREPLIFETIME(UAFLRoundManagerComponent, LastWinningTeam);
@@ -174,37 +173,6 @@ void UAFLRoundManagerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason
 void UAFLRoundManagerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	// WARMUP COUNTDOWN -- published BEFORE the RoundActive gate below, because warmup is by definition not
-	// RoundActive. UAFLMatchPhaseComponent owns the clock (it holds WarmupTimer) but is a server-only
-	// driver that replicates nothing; this component already ticks and already replicates, so it mirrors
-	// the value out. Reading the phase component's live timer means there is no second countdown to drift.
-	if (HasAuth())
-	{
-		float NewWarmup = 0.f;
-		if (Phase == EAFLRoundPhase::WarmUp)
-		{
-			if (!PhaseComp.IsValid())
-			{
-				const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr;
-				PhaseComp = GS ? GS->FindComponentByClass<UAFLMatchPhaseComponent>() : nullptr;
-			}
-			if (const UAFLMatchPhaseComponent* MP = PhaseComp.Get())
-			{
-				NewWarmup = FMath::Max(0.f, MP->GetWarmupSecondsRemaining());
-			}
-		}
-		// Whole-second throttle: the HUD re-texts on second boundaries only, so replicating every frame
-		// would be bandwidth for no visible change.
-		if (FMath::CeilToInt(NewWarmup) != FMath::CeilToInt(WarmupTimeRemaining))
-		{
-			WarmupTimeRemaining = NewWarmup;
-			// ~30 lines per warmup, one per second. Diagnostic for the countdown watch: if these tick
-			// down but the HUD does not, the fault is the render; if they never appear, it is the
-			// publish. Drop to Verbose once the countdown is signed off.
-			UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: warmup countdown -> %.0fs"), NewWarmup);
-		}
-	}
 
 	if (!HasAuth() || Phase != EAFLRoundPhase::RoundActive)
 	{
@@ -511,12 +479,6 @@ void UAFLRoundManagerComponent::Server_EndMatch(int32 WinningTeamId)
 
 void UAFLRoundManagerComponent::SetRoundRespawnSuppressed(bool bSuppressed)
 {
-	// ORDERING INVARIANT: CACHE BEFORE SWEEPING. bRespawnSuppressed is the source of truth for every
-	// later joiner (site #4 has no live query to ask), so it must be correct before anything -- including
-	// a same-frame join -- can read it. Set it first, unconditionally, even on the early-out below.
-	// IF THIS EVER BECOMES LATENT OR TIMER-DRIVEN, REDO THIS ANALYSIS.
-	bRespawnSuppressed = bSuppressed;
-
 	const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr;
 	if (!GS)
 	{
@@ -637,69 +599,25 @@ int32 UAFLRoundManagerComponent::TeamHoldingCore() const
 	return INDEX_NONE;   // none or both channeling -> Replay
 }
 
-bool UAFLRoundManagerComponent::BindDeathDelegateForPawn(APawn* Pawn)
-{
-	ULyraHealthComponent* HC = Pawn ? ULyraHealthComponent::FindHealthComponent(Pawn) : nullptr;
-	if (!HC || BoundHealthComps.Contains(HC))
-	{
-		return false;   // THE GUARD. Two paths reach here (round-start reconcile + per-possession join);
-		                // AddDynamic is not idempotent, and a double bind would count each death twice.
-	}
-	HC->OnDeathStarted.AddDynamic(this, &UAFLRoundManagerComponent::HandlePlayerDeath);
-	BoundHealthComps.Add(HC);
-	return true;
-}
-
 void UAFLRoundManagerComponent::BindDeathDelegates()
 {
-	// KEPT, not removed, now that ApplyJoinStateToPawn binds per possession. This is a full reconcile at a
-	// known-good moment: it drops stale weak entries from destroyed pawns and guarantees round-start
-	// correctness even if a possession was never observed (a pawn possessed before this component's
-	// BeginPlay, or a controller that never travelled OnGameModePlayerInitialized). Making round-start
-	// depend solely on delegate coverage, with no backstop, is the single-mechanism fragility that
-	// produced this whole bug class. It is cheap and idempotent -- keep the belt with the braces.
 	UnbindDeathDelegates();
 	const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr;
 	if (!GS)
 	{
 		return;
 	}
-	int32 Bound = 0;
 	for (APlayerState* PS : GS->PlayerArray)
 	{
 		if (!PS) { continue; }
-		if (BindDeathDelegateForPawn(PS->GetPawn()))
+		if (const APawn* P = PS->GetPawn())
 		{
-			++Bound;
+			if (ULyraHealthComponent* HC = ULyraHealthComponent::FindHealthComponent(P))
+			{
+				HC->OnDeathStarted.AddDynamic(this, &UAFLRoundManagerComponent::HandlePlayerDeath);
+				BoundHealthComps.Add(HC);
+			}
 		}
-	}
-	// The COUNT is the proof, same as the tag sweeps: a bind count below the live population means a
-	// pawn's death will never reach AliveCount and the round cannot resolve on elimination.
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: death delegates reconciled -- %d pawn(s) bound of %d player(s)."),
-		Bound, GS->PlayerArray.Num());
-}
-
-void UAFLRoundManagerComponent::ApplyJoinStateToPlayer(AController* NewPlayer, UAbilitySystemComponent* PlayerStateASC)
-{
-	if (!PlayerStateASC)
-	{
-		return;
-	}
-	// SITE #4. Cached, not inferred: there is no live query for "is respawn suppressed right now", and
-	// deriving it from Phase would go wrong across the between-rounds window. Set-count, not Add.
-	PlayerStateASC->SetLooseGameplayTagCount(TAG_State_Round_NoRespawn, bRespawnSuppressed ? 1 : 0);
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_JOIN: round state applied to %s -- NoRespawn=%d (phase %d)."),
-		*GetNameSafe(NewPlayer), bRespawnSuppressed ? 1 : 0, static_cast<int32>(Phase));
-}
-
-void UAFLRoundManagerComponent::ApplyJoinStateToPawn(AController* Controller, APawn* NewPawn)
-{
-	// SITE #3. Fires on join AND on every respawn, so a pawn created mid-round -- exactly the case the
-	// round-start reconcile could not see -- is bound the moment it is possessed.
-	if (BindDeathDelegateForPawn(NewPawn))
-	{
-		UE_LOG(LogAFLCombat, Log, TEXT("AFL_JOIN: death delegate bound on %s (controller %s)."),
-			*GetNameSafe(NewPawn), *GetNameSafe(Controller));
 	}
 }
 

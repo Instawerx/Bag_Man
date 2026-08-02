@@ -2,8 +2,8 @@
 
 #pragma once
 
+#include "Components/GameStateComponent.h"
 #include "GameplayTagContainer.h"
-#include "Match/AFLMatchPopulationComponent.h"
 
 #include "AFLMatchPhaseComponent.generated.h"
 
@@ -26,31 +26,20 @@ class APlayerState;
  * phase lives HERE instead -- the driver is a C++ module class and links fine, and it reaches the
  * (non-exported) subsystem only through its UFUNCTION surface (K2_StartPhase / IsPhaseActive).
  *
- * WHAT "FROZEN" MEANS HERE -- it blocks ABILITIES, not locomotion. State.Match.Warmup /
- * State.Match.Ended are loose tags that the fire and movement abilities carry in their constructors'
- * ActivationBlockedTags (AFLAG_Hitscan_Base.cpp:64, AFLGameplayAbility_Dash.cpp:37, and the rest of
- * the fire/movement set plus 13 BP weapon abilities). NOTHING touches the CharacterMovementComponent:
- * a "frozen" player still walks, strafes and jumps -- they cannot fire, dash, climb, sprint, slide,
- * roll, vault, wall-run or grab. The old wording ("fire/movement frozen") overstated it, which is
- * precisely how a real gap stayed hidden for five sessions.
- *
  * THE FULL MATCH SPINE (S9 cycle 1): BeginPlay -> Warmup (30s, grants State.Match.Warmup to all
- * pawns -> fire+movement ABILITIES blocked; the zone stays Inactive for free since windows only open
- * under Playing) -> chains to Playing (auto-cancels Warmup, removes the warmup tag, snapshots each
+ * pawns -> fire/movement frozen; the zone stays Inactive for free since windows only open under
+ * Playing) -> chains to Playing (auto-cancels Warmup, removes the warmup tag, snapshots each
  * player's Watts, arms the window cadence + the ActiveDuration timer) -> windows open/close on
  * cadence -> ActiveDuration elapses -> PostGame (auto-cancels Playing + .ExtractionWindow -> the
  * zone observer sweeps handles + any channeler self-cancels, NO explicit window force-close needed;
- * clears the cadence so no window reopens; grants State.Match.Ended -> abilities blocked again;
+ * clears the cadence so no window reopens; grants State.Match.Ended -> fire/movement frozen again;
  * dual-broadcasts Event.Match.Ended PER PLAYER with this-match Watts) -> HOLDS (terminal, no restart
  * this cycle). Each StartPhase is reflection-routed (the phase wall). FULL SCOREBOARD (kills /
  * energy-extracted) is named S-later debt -- needs a per-player stats component; cycle 1 ships
  * only the wallet's Watts delta.
- *
- * JOIN COVERAGE: every population write above is a one-shot sweep over who exists at the phase edge.
- * UAFLMatchPopulationComponent supplies the other half -- see ApplyJoinStateToPlayer below.
  */
 UCLASS(ClassGroup = (AFL), meta = (BlueprintSpawnableComponent))
-class AFLCOMBAT_API UAFLMatchPhaseComponent : public UAFLMatchPopulationComponent
+class AFLCOMBAT_API UAFLMatchPhaseComponent : public UGameStateComponent
 {
 	GENERATED_BODY()
 
@@ -79,12 +68,6 @@ public:
 	 *  the harness (a different TU) shares the one tested path. */
 	static bool IsPhaseActiveReflected(const UWorld* World, const FGameplayTag& PhaseTag);
 
-	/** Seconds left on the Warmup->Playing chain timer, or -1 when warmup is not running. This component
-	 *  is a pure SERVER driver and replicates nothing, so it exposes the clock rather than publishing it:
-	 *  UAFLRoundManagerComponent (which already ticks and already replicates) mirrors this into its
-	 *  WarmupTimeRemaining for the HUD. Reads the timer manager directly -- no second countdown to drift. */
-	float GetWarmupSecondsRemaining() const;
-
 	/** The phase shells -- BP children of ULyraGamePhaseAbility (the C++ subclass boundary above).
 	 *  Default-resolved by soft path in the ctor; a BP child of this component could override. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Match")
@@ -110,29 +93,18 @@ public:
 	 *  extraction-window cadence is UNAFFECTED. Default false = this component is the authority (time path). */
 	void SetExternalMatchEndAuthority(bool bExternal) { bExternalMatchEndAuthority = bExternal; }
 
-protected:
-	/** JOIN COVERAGE (stage 1). Applies Warmup / Ended / NoDismember to a joiner's PlayerState ASC.
-	 *  Warmup + Ended come from LIVE phase queries -- IsPhaseActiveReflected -- so there is no cache to
-	 *  go stale. NoDismember is the one site with no live query, hence bCleanHealthMode. */
-	virtual void ApplyJoinStateToPlayer(AController* NewPlayer, UAbilitySystemComponent* PlayerStateASC) override;
-
 private:
 	// -- the match spine --
 	void StartSpineFromWarmup();        // shared by BeginPlay + RestartMatch (reads cvars fresh)
 	void EnterPlaying();                // WarmupTimer fire: chain Warmup -> Playing
 	void EnterPostGame();               // ActiveTimer fire: Playing -> PostGame (terminal)
 	void StartPhaseByClass(TSubclassOf<ULyraGamePhaseAbility> PhaseClass, const FGameplayTag& PhaseTag);
-	/** Sweep every pawn's ASC and SET the tag on/off. Returns the ASC count covered -- log it: a count
-	 *  of 1 on a 6-player match is exactly what would have exposed the join gap on day one.
-	 *  SET, not Add/Remove: the join handler writes the same tag to the same PlayerState ASC, and
-	 *  refcounted adds would leave a stuck tag after one removal. Keeps the PAWN iteration on purpose --
-	 *  that is what reaches the level-placed target dummy, which no join hook can ever see. */
-	int32 SetMatchTagOnAllPawns(const FGameplayTag& Tag, bool bPresent);
+	void GrantMatchTagToAllPawns(const FGameplayTag& Tag);
+	void RemoveMatchTagFromAllPawns(const FGameplayTag& Tag);
 	/** Deferred clean-health applier: registered on the experience-loaded delegate (reading the experience
 	 *  any earlier asserts on LoadState). When the active experience OMITS the AFLDismember game feature
 	 *  (Pro Mod / Melee), stamps State.Mode.NoDismember on every combatant ASC -- PlayerState ASCs (persist
-	 *  across respawns) + pawns (the target dummy). Haywire keeps AFLDismember -> no-op. Also CACHES the
-	 *  decision into bCleanHealthMode for the join path. */
+	 *  across respawns) + pawns (the target dummy). Haywire keeps AFLDismember -> no-op. */
 	void OnExperienceLoaded_ApplyModeTags(const ULyraExperienceDefinition* Experience);
 	void SnapshotMatchStartWatts();
 	void BroadcastMatchEnded();         // per-player dual-broadcast with this-match Watts
@@ -155,12 +127,6 @@ private:
 	bool bWindowOpen = false;
 	bool bMatchEnded = false;           // PostGame reached -> cadence no-ops, terminal
 	bool bExternalMatchEndAuthority = false;   // round FSM owns match-end -> the 480s time-conclude no-ops
-
-	/** SITE #1's cached decision -- the ONLY new state this fix adds, because it is the only one of the
-	 *  five with no live query to ask. Set once in OnExperienceLoaded_ApplyModeTags. The join handler
-	 *  reads THIS and never re-reads the experience: that re-read is what asserted on LoadState and
-	 *  crashed the editor (see the deferral comment in BeginPlay). */
-	bool bCleanHealthMode = false;
 
 	/** Per-player Watts at Playing start, keyed by PlayerState. The match-end payload per player =
 	 *  GetWatts() - this snapshot (the wallet is per-player; each client shows its own). */
