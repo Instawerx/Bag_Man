@@ -6,6 +6,7 @@
 #include "Misc/Guid.h"   // A1.3b: FGuid MatchId + EGuidFormats
 #include "GameFramework/GameplayMessageSubsystem.h"   // FGameplayMessageListenerHandle (member)
 #include "AFLRoundRestartPolicy.h"                     // IAFLRoundRestartPolicy (the always-loaded AFLGameCore seam)
+#include "AFLMatchTierSource.h"                        // IAFLMatchTierSource (same seam -- bot aim tiering)
 
 #include "AFLRoundManagerComponent.generated.h"
 
@@ -63,7 +64,7 @@ enum class EAFLRoundWinReason : uint8
  *                  ControllerCanRestart is private/non-virtual -> the gate lives on the game mode).
  */
 UCLASS(ClassGroup = (AFL), meta = (BlueprintSpawnableComponent))
-class AFLCOMBAT_API UAFLRoundManagerComponent : public UAFLMatchPopulationComponent, public IAFLRoundRestartPolicy
+class AFLCOMBAT_API UAFLRoundManagerComponent : public UAFLMatchPopulationComponent, public IAFLRoundRestartPolicy, public IAFLMatchTierSource
 {
 	GENERATED_BODY()
 
@@ -125,6 +126,16 @@ public:
 	/** A1.3b: the per-match id as a hyphenated string (the earn contract's matchId field). Server-authored,
 	 *  replicated; empty-guid string until ServerStartMatch has run. Wired to nothing this cycle. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Round") FString GetMatchId() const { return MatchId.ToString(EGuidFormats::DigitsWithHyphens); }
+	//~IAFLMatchTierSource -- the always-loaded seam AAFLBotController reads for aim tiering. Exposes ONLY
+	// symmetric match state (round number, score line); nothing about an individual player's performance,
+	// because bot difficulty keyed off how well the human is doing is rubber-banding and, with staking and
+	// MMR in the mode, an integrity problem. The delta is sign-free: a consumer can brake on a blowout but
+	// cannot tell which side is ahead, so it can never build a comeback mechanic.
+	virtual int32 GetCurrentRoundNumber() const override { return CurrentRound; }
+	virtual int32 GetRoundsToWin() const override        { return RoundsToWin; }
+	virtual int32 GetScoreDelta() const override         { return FMath::Abs(Team0Score - Team1Score); }
+	//~End of IAFLMatchTierSource
+
 	//~IAFLRoundRestartPolicy -- the seam AAFLGameMode (always-loaded AFLGameCore) queries; routes to the
 	// existing logic unchanged.
 	virtual bool ShouldBlockRestart() const override { return IsRoundActive() && !bAllowMidRoundRespawn; }
