@@ -96,8 +96,49 @@ public:
 	/** False until OnPossess has rolled and resolved. Config assertions are meaningless before this. */
 	bool IsProfileResolved() const { return CachedRound >= 0 && Roll.bRolled; }
 
+	// ================= AI-2 MOVEMENT =================
+
+	/** Blackboard key names the controller writes and EQS_AFL_CombatReposition reads as query params.
+	 *  These are the contract between C++ and the AFL blackboard asset -- rename one and the query
+	 *  silently falls back to its defaults, which is a bot with no personality and no warning. */
+	static const FName BBKey_PreferredRange;
+	static const FName BBKey_RangeBand;
+	static const FName BBKey_RepositionInterval;
+	static const FName BBKey_LateralBias;
+
+	const FAFLBotMoveProfile& GetMoveProfile() const { return MoveProfile; }
+
+	/** True once the four movement params reached the blackboard. If this is false the bot is running on
+	 *  the query's authored defaults, NOT its own personality -- the probe must not call that a pass. */
+	bool AreMoveParamsPushed() const { return bMoveParamsPushed; }
+
+	// -- movement metrics, lifetime, asserted by afl.Bot.MoveProbe --
+
+	/** Fraction of tracked combat time spent under the stationary speed threshold. TWO-SIDED: too high is
+	 *  the standing-still bug; ~zero is a bot that never pauses, which is equally inhuman. */
+	float GetStationaryFraction() const;
+
+	/** Distinct 200cm world cells occupied while in combat. 1-2 means the reposition cycle is terminating
+	 *  and the bot is shuffling in place. */
+	int32 GetDistinctCellsVisited() const { return VisitedCells.Num(); }
+
+	/** Mean |lateral| / |forward| speed relative to aim. Near zero = not strafing, which is the exact
+	 *  symptom of a query that generates toward the target. */
+	float GetLateralRatio() const;
+
+	/** Lateral direction sign-changes per second. TWO-SIDED with StationaryFraction: a single-sided
+	 *  "more movement is better" test passes a bot vibrating in place at 10Hz. */
+	float GetReversalsPerSecond() const;
+
+	/** Mean distance held from the focus target, cm. Compared against this bot's own PreferredRangeCm. */
+	float GetMeanRangeCm() const;
+
+	/** Seconds of combat sampled. Zero = NO DATA, never PASS. */
+	float GetCombatSampleSeconds() const { return CombatSampleSeconds; }
+
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void UpdateControlRotation(float DeltaTime, bool bUpdatePawn) override;
 
 private:
@@ -109,6 +150,16 @@ private:
 
 	/** Continuous two-frequency drift, degrees. Incommensurate rates so it never visibly repeats. */
 	float Wobble(double TimeSeconds, float PhaseA, float PhaseB) const;
+
+	/** Write the four movement params to the blackboard. The blackboard does not exist at OnPossess (the
+	 *  BT starts after), so this retries on a bounded timer -- the same not-ready-yet poll shape used by
+	 *  UAFLW_RoundHeader::TryArm and the population reconcile. Silent failure here means every bot runs
+	 *  the query's authored defaults, so it logs and it is probe-visible. */
+	void PushMoveParamsToBlackboard();
+
+	/** Per-frame movement sampling for the probe. Only accumulates while a focus target exists -- idle
+	 *  wandering is not combat movement and must not dilute the metrics. */
+	void SampleMovement(float DeltaTime, const APawn* MyPawn, const AActor* FocusActor);
 
 	FAFLBotAimRoll    Roll;
 	FAFLBotAimProfile Profile;
@@ -149,4 +200,21 @@ private:
 	float  LifetimeMinReactionDelay = TNumericLimits<float>::Max();
 	int32  AcquisitionCount        = 0;
 	bool   bHasTrackedEver         = false;
+
+	// -- AI-2 movement state --
+	FAFLBotMoveProfile MoveProfile;
+	bool      bMoveParamsPushed = false;
+	int32     MovePushAttempts  = 0;
+	FTimerHandle MovePushRetryTimer;
+
+	// -- AI-2 movement metrics (combat time only) --
+	float CombatSampleSeconds   = 0.0f;
+	float StationarySeconds     = 0.0f;
+	float LateralSpeedSum       = 0.0f;
+	float ForwardSpeedSum       = 0.0f;
+	float RangeSumCm            = 0.0f;
+	int32 RangeSamples          = 0;
+	int32 LateralReversals      = 0;
+	int32 LastLateralSign       = 0;
+	TSet<FIntVector> VisitedCells;
 };

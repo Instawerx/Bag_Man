@@ -55,7 +55,42 @@ struct FAFLBotAimRoll
 	float SteadyError   = 0.0f;
 	float ErrorFreq     = 0.0f;
 
+	// -- AI-2 movement. Same roll, same seed, same lifetime: a bot's aim and its footwork are one person. --
+	float PreferredRange = 0.0f;
+	float RangeBand      = 0.0f;
+	float RepositionRate = 0.0f;
+	float LateralBias    = 0.0f;
+
 	bool bRolled = false;
+};
+
+/** The RESOLVED movement values for the current tier. Written to the blackboard at possession, read by
+ *  EQS_AFL_CombatReposition as query parameters. */
+USTRUCT()
+struct FAFLBotMoveProfile
+{
+	GENERATED_BODY()
+
+	/** Centre of the donut this bot repositions within, cm from its target. AGGRESSION AS DISTANCE:
+	 *  low = pusher, high = kiter. This replaces the stock query's only live term -- a prefer-greater
+	 *  distance score that, with nothing opposing it on a coverless map, is an unbounded retreat. A held
+	 *  range is a number; a retreat bias is a direction. */
+	float PreferredRangeCm = 700.0f;
+
+	/** Half-width of that band. Wide = roams, tight = holds a line. */
+	float RangeBandCm = 300.0f;
+
+	/** Seconds between repositions. THE CONTINUITY LEVER: the bot must be re-tasked before it arrives,
+	 *  or the MoveTo completes, the sequence ends, and it stands still waiting to be re-entered -- which
+	 *  is the entire bug AI-2 exists to fix. At 600 uu/s a bot covers ~900cm in 1.5s, so a donut band
+	 *  beyond that guarantees re-task-before-arrival and continuity becomes emergent, not authored. */
+	float RepositionIntervalSec = 1.5f;
+
+	/** Weight on the angular (Dot) test -- how much this bot prefers moving AROUND its target versus
+	 *  toward it. THE STRAFE TERM. bAllowStrafe is already true on the combat MoveTo and produces nothing
+	 *  visible, because the stock query generates toward the target so velocity and facing are parallel
+	 *  and there is no lateral component to render. Strafe is authored here, not in movement code. */
+	float LateralBias = 1.0f;
 };
 
 /** The RESOLVED per-bot values for the current tier. Recomputed when the round advances. */
@@ -150,6 +185,44 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotAim|Clamps", meta = (ClampMin = "0.0"))
 	float ReactionJitterSeconds = 0.05f;
 
+	// -- AI-2 MOVEMENT AXES. Same resolution contract: lerp the tier, apply the bot's roll, clamp last. --
+
+	/** Engagement range, cm. Falls slightly with tier -- a better bot presses. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotMove|Axes")
+	FAFLBotAimAxis PreferredRange = { 850.0f, 650.0f, 250.0f };
+
+	/** Band half-width, cm. The PerBotSpread here is what makes one bot a roamer and another a holder. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotMove|Axes")
+	FAFLBotAimAxis RangeBand = { 300.0f, 250.0f, 80.0f };
+
+	/** Seconds between repositions. Falls with tier -- a better bot resets its angle more often. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotMove|Axes")
+	FAFLBotAimAxis RepositionInterval = { 1.8f, 1.2f, 0.4f };
+
+	/** Angular-test weight. Rises with tier -- a better bot strafes more and walks straight at you less. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotMove|Axes")
+	FAFLBotAimAxis LateralBias = { 0.8f, 1.6f, 0.35f };
+
+	// -- MOVEMENT CLAMPS --
+
+	/** Never reposition faster than this. The fast-cadence extreme: the goal moves before the bot can
+	 *  commit to a path, direction reverses every tick, and it thrashes between two points -- which reads
+	 *  WORSE than standing still. afl.Bot.MoveProbe asserts REVERSALS two-sided for exactly this. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotMove|Clamps", meta = (ClampMin = "0.25"))
+	float MinRepositionIntervalSec = 0.8f;
+
+	/** Never reposition slower than this, or the stationary gaps the whole phase exists to remove return. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotMove|Clamps", meta = (ClampMin = "0.5"))
+	float MaxRepositionIntervalSec = 3.0f;
+
+	/** Donut inner radius can never collapse below this -- a bot standing on its target is not combat. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotMove|Clamps", meta = (ClampMin = "50.0"))
+	float MinEngagementRangeCm = 250.0f;
+
+	/** ...nor exceed this, or bots disengage to the far side of the map and the round stalls. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotMove|Clamps", meta = (ClampMin = "100.0"))
+	float MaxEngagementRangeCm = 2500.0f;
+
 	/** v1 = 0. The score-delta brake is wired and inert until the base model is proven -- confounding two
 	 *  axes during first tuning tunes neither. When enabled it may only ever REDUCE tier. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|BotAim|Tier", meta = (ClampMin = "0.0", ClampMax = "1.0"))
@@ -182,5 +255,23 @@ public:
 		P.SteadyErrorDeg         = FMath::Max(MinSteadyErrorDeg, ResolveAxis(SteadyError,     Tier, Roll.SteadyError));
 		P.ErrorFrequencyHz       = FMath::Max(0.05f,             ResolveAxis(ErrorFrequency,  Tier, Roll.ErrorFreq));
 		return P;
+	}
+
+	/** Movement resolution. Identical contract, clamps last. */
+	FAFLBotMoveProfile ResolveMove(float Tier, const FAFLBotAimRoll& Roll) const
+	{
+		FAFLBotMoveProfile M;
+		M.PreferredRangeCm = FMath::Clamp(ResolveAxis(PreferredRange, Tier, Roll.PreferredRange),
+			MinEngagementRangeCm, MaxEngagementRangeCm);
+		M.RangeBandCm      = FMath::Max(50.0f, ResolveAxis(RangeBand, Tier, Roll.RangeBand));
+		M.RepositionIntervalSec = FMath::Clamp(ResolveAxis(RepositionInterval, Tier, Roll.RepositionRate),
+			MinRepositionIntervalSec, MaxRepositionIntervalSec);
+		M.LateralBias      = FMath::Max(0.0f, ResolveAxis(LateralBias, Tier, Roll.LateralBias));
+
+		// The donut's inner edge must stay positive after the band is subtracted, or the generator
+		// degenerates to a disc centred on the target and the bot walks into its face.
+		M.RangeBandCm = FMath::Min(M.RangeBandCm, M.PreferredRangeCm - MinEngagementRangeCm * 0.5f);
+		M.RangeBandCm = FMath::Max(50.0f, M.RangeBandCm);
+		return M;
 	}
 };

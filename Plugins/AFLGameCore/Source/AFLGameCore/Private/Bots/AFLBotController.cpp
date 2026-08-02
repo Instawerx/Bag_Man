@@ -5,13 +5,32 @@
 #include "AFLGameCore.h"
 #include "AFLMatchTierSource.h"
 #include "AITypes.h"                 // FAISystem::IsValidLocation -- the stock focal-point validity check
+#include "BehaviorTree/BlackboardComponent.h"   // AI-2: per-bot movement params -> query params
 #include "Engine/World.h"
+#include "TimerManager.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
 #include "Math/RandomStream.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLBotController)
+
+// The C++ <-> blackboard contract for AI-2. EQS_AFL_CombatReposition binds its query params to these
+// exact names; a mismatch is silent (the query falls back to authored defaults) so it is logged below
+// and surfaced by afl.Bot.MoveProbe rather than left to be noticed as "bots feel samey".
+const FName AAFLBotController::BBKey_PreferredRange      = TEXT("BotPreferredRange");
+const FName AAFLBotController::BBKey_RangeBand           = TEXT("BotRangeBand");
+const FName AAFLBotController::BBKey_RepositionInterval  = TEXT("BotRepositionInterval");
+const FName AAFLBotController::BBKey_LateralBias         = TEXT("BotLateralBias");
+
+namespace
+{
+	/** Below this speed a bot counts as stationary for the probe. Chosen well under a walk so a bot
+	 *  turning on the spot or micro-adjusting is not scored as "moving". */
+	constexpr float StationarySpeedThreshold = 40.0f;
+	/** Cell edge for the distinct-positions metric, cm. */
+	constexpr float PositionCellSizeCm = 200.0f;
+}
 
 AAFLBotController::AAFLBotController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -29,6 +48,61 @@ void AAFLBotController::OnPossess(APawn* InPawn)
 		TEXT("AFL_BOTAIM: ROLL    %s tier=%.2f react=%.3fs rate=%.0fd/s stiff=%.0f damp=%.2f err=%.2fdeg freq=%.2fHz"),
 		*GetName(), CachedTier, Profile.ReactionSeconds, Profile.MaxTrackRateDegPerSec,
 		Profile.TrackStiffness, Profile.TrackDampingRatio, Profile.SteadyErrorDeg, Profile.ErrorFrequencyHz);
+
+	UE_LOG(LogAFLGameCore, Log,
+		TEXT("AFL_BOTMOVE: ROLL    %s tier=%.2f range=%.0fcm band=%.0fcm interval=%.2fs lateral=%.2f"),
+		*GetName(), CachedTier, MoveProfile.PreferredRangeCm, MoveProfile.RangeBandCm,
+		MoveProfile.RepositionIntervalSec, MoveProfile.LateralBias);
+
+	// The blackboard does not exist yet -- the BT starts after possession -- so this self-retries.
+	MovePushAttempts = 0;
+	bMoveParamsPushed = false;
+	PushMoveParamsToBlackboard();
+}
+
+void AAFLBotController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(MovePushRetryTimer);
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+void AAFLBotController::PushMoveParamsToBlackboard()
+{
+	static constexpr int32 MaxAttempts = 40;      // x 0.25s = 10s
+	static constexpr float RetryPeriod = 0.25f;
+	++MovePushAttempts;
+
+	if (UBlackboardComponent* BB = GetBlackboardComponent())
+	{
+		BB->SetValueAsFloat(BBKey_PreferredRange,     MoveProfile.PreferredRangeCm);
+		BB->SetValueAsFloat(BBKey_RangeBand,          MoveProfile.RangeBandCm);
+		BB->SetValueAsFloat(BBKey_RepositionInterval, MoveProfile.RepositionIntervalSec);
+		BB->SetValueAsFloat(BBKey_LateralBias,        MoveProfile.LateralBias);
+		bMoveParamsPushed = true;
+		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_BOTMOVE: PUSH    %s -> blackboard (attempt %d)."),
+			*GetName(), MovePushAttempts);
+		return;
+	}
+
+	if (MovePushAttempts < MaxAttempts)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(MovePushRetryTimer,
+				FTimerDelegate::CreateWeakLambda(this, [this] { PushMoveParamsToBlackboard(); }),
+				RetryPeriod, /*loop=*/false);
+		}
+		return;
+	}
+
+	// Loud, because the failure is otherwise invisible: the query keeps working on its authored
+	// defaults and every bot moves identically, which reads as "the personality axes did nothing".
+	UE_LOG(LogAFLGameCore, Warning,
+		TEXT("AFL_BOTMOVE: PUSH FAILED %s -- no BlackboardComponent after %d attempts. Bot will run the query's DEFAULTS, not its own profile."),
+		*GetName(), MovePushAttempts);
 }
 
 void AAFLBotController::RollProfile()
@@ -61,6 +135,12 @@ void AAFLBotController::RollProfile()
 	Roll.Damping     = Signed();
 	Roll.SteadyError = Signed();
 	Roll.ErrorFreq   = Signed();
+	// AI-2 draws from the SAME stream, so a bot's footwork and its aim come from one identity rather
+	// than two unrelated dice. A jumpy aimer is also a restless mover.
+	Roll.PreferredRange = Signed();
+	Roll.RangeBand      = Signed();
+	Roll.RepositionRate = Signed();
+	Roll.LateralBias    = Signed();
 	Roll.bRolled     = true;
 
 	// Distinct wobble phases so a squad never drifts in sympathy -- synchronised wobble across five bots
@@ -108,7 +188,8 @@ void AAFLBotController::RefreshTier()
 		0.0f, 1.0f);
 	CachedTier = RoundProgress * (1.0f - AimTiers->BlowoutDamping * Blowout);
 
-	Profile = AimTiers->Resolve(CachedTier, Roll);
+	Profile     = AimTiers->Resolve(CachedTier, Roll);
+	MoveProfile = AimTiers->ResolveMove(CachedTier, Roll);
 
 	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_BOTAIM: TIER    round=%d/%d delta=%d -> tier=%.2f (blowout damp %.2f)"),
 		Round, RoundsToWin, ScoreDelta, CachedTier, AimTiers->BlowoutDamping * Blowout);
@@ -126,10 +207,87 @@ float AAFLBotController::Wobble(double TimeSeconds, float PhaseA, float PhaseB) 
 	          + 0.4f * FMath::Sin(2.0f * PI * F * 1.7f * T + PhaseB));
 }
 
+void AAFLBotController::SampleMovement(float DeltaTime, const APawn* MyPawn, const AActor* FocusActor)
+{
+	// COMBAT TIME ONLY. Idle wandering between engagements is not the behaviour under test, and letting
+	// it into the denominator would let a bot that stands still in every firefight pass STATIONARY by
+	// having strolled around a lot beforehand.
+	if (!MyPawn || !FocusActor || DeltaTime <= 0.0f)
+	{
+		return;
+	}
+
+	CombatSampleSeconds += DeltaTime;
+
+	const FVector Vel = MyPawn->GetVelocity();
+	const FVector Flat(Vel.X, Vel.Y, 0.0f);
+	const float Speed = Flat.Size();
+	if (Speed < StationarySpeedThreshold)
+	{
+		StationarySeconds += DeltaTime;
+		LastLateralSign = 0;   // a stop breaks the reversal chain; resuming is not a direction change
+	}
+	else
+	{
+		// Decompose velocity against where the bot is AIMING, not where it is heading -- lateral means
+		// "sideways relative to the target", which is what strafe looks like to the person being shot at.
+		const FVector Fwd = GetControlRotation().Vector().GetSafeNormal2D();
+		const FVector Right = FVector::CrossProduct(FVector::UpVector, Fwd);
+		const float FwdSpeed = FMath::Abs(FVector::DotProduct(Flat, Fwd));
+		const float LatSpeed = FVector::DotProduct(Flat, Right);
+
+		ForwardSpeedSum += FwdSpeed * DeltaTime;
+		LateralSpeedSum += FMath::Abs(LatSpeed) * DeltaTime;
+
+		const int32 Sign = (LatSpeed > StationarySpeedThreshold) ? 1 : ((LatSpeed < -StationarySpeedThreshold) ? -1 : 0);
+		if (Sign != 0)
+		{
+			if (LastLateralSign != 0 && Sign != LastLateralSign)
+			{
+				++LateralReversals;
+			}
+			LastLateralSign = Sign;
+		}
+	}
+
+	const FVector P = MyPawn->GetActorLocation();
+	VisitedCells.Add(FIntVector(
+		FMath::FloorToInt(P.X / PositionCellSizeCm),
+		FMath::FloorToInt(P.Y / PositionCellSizeCm),
+		0));
+
+	RangeSumCm += FVector::Dist2D(P, FocusActor->GetActorLocation());
+	++RangeSamples;
+}
+
+float AAFLBotController::GetStationaryFraction() const
+{
+	return (CombatSampleSeconds > KINDA_SMALL_NUMBER) ? (StationarySeconds / CombatSampleSeconds) : 0.0f;
+}
+
+float AAFLBotController::GetLateralRatio() const
+{
+	return (ForwardSpeedSum > KINDA_SMALL_NUMBER) ? (LateralSpeedSum / ForwardSpeedSum) : 0.0f;
+}
+
+float AAFLBotController::GetReversalsPerSecond() const
+{
+	return (CombatSampleSeconds > KINDA_SMALL_NUMBER) ? (LateralReversals / CombatSampleSeconds) : 0.0f;
+}
+
+float AAFLBotController::GetMeanRangeCm() const
+{
+	return (RangeSamples > 0) ? (RangeSumCm / RangeSamples) : 0.0f;
+}
+
 void AAFLBotController::UpdateControlRotation(float DeltaTime, bool bUpdatePawn)
 {
 	APawn* const MyPawn = GetPawn();
 	UWorld* const World = GetWorld();
+
+	// AI-2 sampling rides the same per-frame call as the aim model. Deliberately BEFORE the inert-return
+	// below, so movement is still measured on a build where the aim model is switched off.
+	SampleMovement(DeltaTime, MyPawn, GetFocusActor());
 
 	// INERT WITHOUT A TIER TABLE. Falls back to stock snap-aim rather than to a bot that cannot aim.
 	if (!MyPawn || !World || !AimTiers)
