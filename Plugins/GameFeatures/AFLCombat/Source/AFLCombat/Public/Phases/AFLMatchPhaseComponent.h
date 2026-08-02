@@ -9,6 +9,7 @@
 
 class ULyraGamePhaseAbility;
 class ULyraGamePhaseSubsystem;
+class ULyraExperienceDefinition;
 class APlayerState;
 
 /**
@@ -100,6 +101,11 @@ private:
 	void StartPhaseByClass(TSubclassOf<ULyraGamePhaseAbility> PhaseClass, const FGameplayTag& PhaseTag);
 	void GrantMatchTagToAllPawns(const FGameplayTag& Tag);
 	void RemoveMatchTagFromAllPawns(const FGameplayTag& Tag);
+	/** Deferred clean-health applier: registered on the experience-loaded delegate (reading the experience
+	 *  any earlier asserts on LoadState). When the active experience OMITS the AFLDismember game feature
+	 *  (Pro Mod / Melee), stamps State.Mode.NoDismember on every combatant ASC -- PlayerState ASCs (persist
+	 *  across respawns) + pawns (the target dummy). Haywire keeps AFLDismember -> no-op. */
+	void OnExperienceLoaded_ApplyModeTags(const ULyraExperienceDefinition* Experience);
 	void SnapshotMatchStartWatts();
 	void BroadcastMatchEnded();         // per-player dual-broadcast with this-match Watts
 

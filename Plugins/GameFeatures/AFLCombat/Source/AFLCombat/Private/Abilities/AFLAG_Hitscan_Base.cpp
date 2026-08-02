@@ -7,6 +7,7 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Animation/AnimMontage.h"
+#include "Attributes/AFLAttributeSet_Combat.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
@@ -623,11 +624,25 @@ void UAFLAG_Hitscan_Base::ServerApplyTargetData(const FGameplayAbilityTargetData
 			continue;
 		}
 
+		// Seed Source.Damage on the firing ASC. UAFLDamageExecCalc reads base damage from the CAPTURED
+		// ATTRIBUTE UAFLAttributeSet_Combat::Damage (Source-side, bSnapshot=true) -- it does NOT read a
+		// SetByCaller named "Source.Damage" (its only SetByCaller reads are the Data.Damage.Headshot /
+		// .Distance / .Weakpoint multipliers). The SetByCaller alone therefore left RawDamage at 0.0 and
+		// every hitscan shot early-returned as `hitscan_reject reason=mitigated raw=0.0`. Override
+		// semantics overwrite any stale value from a previous shot, and the write MUST land BEFORE
+		// MakeOutgoingGameplayEffectSpec because the capture is snapshotted at spec creation.
+		// Mirrors UAFLAG_Laser_Pulse's proven seed step.
+		SourceASC->ApplyModToAttribute(
+			UAFLAttributeSet_Combat::GetDamageAttribute(),
+			EGameplayModOp::Override,
+			BaseDamage);
+
 		FGameplayEffectSpecHandle Spec = MakeOutgoingGameplayEffectSpec(DamageEffectClass, GetAbilityLevel());
 		if (Spec.IsValid())
 		{
-			// Full-damage-through on pierce for the pilot (per-body falloff is a later scalar). UAFLDamageExecCalc
-			// reads Source.Damage; a HitResult on the context routes zone/headshot in the ExecCalc.
+			// Full-damage-through on pierce for the pilot (per-body falloff is a later scalar). The
+			// SetByCaller is kept as the multiplier-contract carrier; a HitResult on the context routes
+			// zone/headshot in the ExecCalc.
 			Spec.Data->SetSetByCallerMagnitude(TAG_Source_Damage_HB, BaseDamage);
 			Spec.Data->GetContext().AddHitResult(TD->HitResult);
 			SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);

@@ -72,7 +72,9 @@ protected:
 	virtual void PerformTrace(UWorld* World, const FVector& ViewOrigin, const FVector& AimDir,
 		AActor* IgnoreActor, TArray<FHitResult>& OutHits) const;
 
-	/** GE applied to each hit target's ASC (seeds Source.Damage = BaseDamage via SetByCaller). */
+	/** GE applied to each hit target's ASC. BaseDamage reaches UAFLDamageExecCalc via the SOURCE-side
+	 *  captured attribute UAFLAttributeSet_Combat::Damage (seeded with ApplyModToAttribute before the
+	 *  spec is made), NOT via the Source.Damage SetByCaller -- the ExecCalc never reads that tag. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan")
 	TSubclassOf<UGameplayEffect> DamageEffectClass;
 

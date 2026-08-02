@@ -41,6 +41,7 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Ability_Laser_Pulse, "Ability.Laser.Pulse");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Firing_Pulse, "State.Firing.Pulse");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Carrying_Pulse, "State.Carrying");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_ThrowRecovery_Pulse, "State.Weapon.ThrowRecovery");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Holstered_Pulse, "State.Weapon.Holstered");
 // Match-flow gates (S9 AFL-0902): firing is blocked during Warmup and PostGame. Same defensive
 // native-declare pattern as the movement abilities (dash/climb/grab already block on these).
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Warmup_Pulse, "State.Match.Warmup");
@@ -161,6 +162,11 @@ UAFLAG_Laser_Pulse::UAFLAG_Laser_Pulse()
 	// ...and the press that THREW must not fire either: the throw applies GE_AFL_ThrowRecovery (0.4s)
 	// granting this tag, covering the post-throw frames where the carry tag is already gone.
 	ActivationBlockedTags.AddTag(TAG_State_ThrowRecovery_Pulse);
+
+	// Holster fire-block (Phase 3 holster SSOT): a holstered weapon can't fire. UAFLHolsterComponent grants
+	// State.Weapon.Holstered via GE_AFL_State_Holstered. Pulse is granted as a C++ class (no BP child to
+	// data-edit its blocked tags, unlike the other AFL fire GAs which AIK covered in data), so it's here in code.
+	ActivationBlockedTags.AddTag(TAG_State_Holstered_Pulse);
 
 	// Match-flow freeze (S9 AFL-0902): no firing during Warmup or PostGame. The driver grants these
 	// loosely to all pawns at phase-enter; movement abilities already block the same pair.

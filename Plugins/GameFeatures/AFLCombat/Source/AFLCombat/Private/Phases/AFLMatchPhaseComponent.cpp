@@ -16,6 +16,8 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
+#include "GameModes/LyraExperienceDefinition.h"
+#include "GameModes/LyraExperienceManagerComponent.h"
 #include "GameModes/LyraGameState.h"
 #include "HAL/IConsoleManager.h"
 #include "Messages/LyraVerbMessage.h"
@@ -34,6 +36,10 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Extraction_WindowClosed_Driver, "Event.E
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Match_Ended_Driver, "Event.Match.Ended");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Warmup_Driver, "State.Match.Warmup");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Match_Ended_Driver, "State.Match.Ended");
+// Clean-health MODE gate (IRONICS_GAME_MODES_SSOT sec.4). Applied to every combatant ASC at Warmup in
+// Pro Mod / Melee (experiences that drop the AFLDismember game feature); read off the TARGET by
+// UAFLDamageExecCalc, which then forces bIsZoneRouted=false -> conventional single body-health.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Mode_NoDismember_Driver, "State.Mode.NoDismember");
 
 // Match spine durations (S9) + the window cadence/duration (extraction cycle 1). Cvars so the
 // harness compresses without a rebuild (afl.Match.Test.Run uses Warmup 3 / Active 10 / window 4/3).
@@ -142,6 +148,16 @@ void UAFLMatchPhaseComponent::BeginPlay()
 	if (!GS->HasAuthority())
 	{
 		return; // pure server driver (the experience row is server-flagged too).
+	}
+
+	// Clean-health MODE gate (IRONICS_GAME_MODES_SSOT sec.4): defer the mode read to the experience-loaded
+	// delegate. This component's BeginPlay runs DURING AFLCombat game-feature activation -- before the
+	// experience manager reaches LoadState::Loaded -- so reading the experience here asserts. The delegate
+	// fires once loaded (immediately if already), by which point PlayerState/dummy ASCs exist.
+	if (ULyraExperienceManagerComponent* ExpMgr = GS->FindComponentByClass<ULyraExperienceManagerComponent>())
+	{
+		ExpMgr->CallOrRegister_OnExperienceLoaded(
+			FOnLyraExperienceLoaded::FDelegate::CreateUObject(this, &UAFLMatchPhaseComponent::OnExperienceLoaded_ApplyModeTags));
 	}
 
 	ULyraGamePhaseSubsystem* PhaseSub = UWorld::GetSubsystem<ULyraGamePhaseSubsystem>(GetWorld());
@@ -274,6 +290,46 @@ void UAFLMatchPhaseComponent::RemoveMatchTagFromAllPawns(const FGameplayTag& Tag
 			ASC->RemoveLooseGameplayTag(Tag);
 		}
 	}
+}
+
+void UAFLMatchPhaseComponent::OnExperienceLoaded_ApplyModeTags(const ULyraExperienceDefinition* Experience)
+{
+	// Mode == the active experience. Pro Mod / Melee DROP the AFLDismember game feature; Haywire keeps it.
+	if (!Experience || Experience->GameFeaturesToEnable.Contains(TEXT("AFLDismember")))
+	{
+		return;   // Haywire (or unreadable) -> dismember stays ON; never alter the current gore path.
+	}
+
+	// Clean-health mode: stamp State.Mode.NoDismember on every combatant ASC so UAFLDamageExecCalc forces
+	// bIsZoneRouted=false (single body-health). Cover PlayerState ASCs (persist across respawns) AND pawns
+	// (the target dummy carries its own ASC). Dedup because a player's pawn and PlayerState share one ASC.
+	TSet<UAbilitySystemComponent*> Applied;
+	auto ApplyTo = [&Applied](AActor* Actor)
+	{
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Actor))
+		{
+			if (!Applied.Contains(ASC))
+			{
+				ASC->AddLooseGameplayTag(TAG_State_Mode_NoDismember_Driver);
+				Applied.Add(ASC);
+			}
+		}
+	};
+
+	if (const AGameStateBase* GS = GetGameState<AGameStateBase>())
+	{
+		for (APlayerState* PS : GS->PlayerArray)
+		{
+			ApplyTo(PS);
+		}
+	}
+	for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+	{
+		ApplyTo(*It);
+	}
+
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MODE: NoDismember applied to %d combatant ASC(s) (clean single-health -- experience '%s' omits AFLDismember)."),
+		Applied.Num(), *GetNameSafe(Experience));
 }
 
 void UAFLMatchPhaseComponent::SnapshotMatchStartWatts()

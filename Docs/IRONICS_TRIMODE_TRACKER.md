@@ -1,5 +1,26 @@
 # Tri-Mode System — Haywire / Pro Mod / Melee — Build Plan & Tracker
 
+## Progress log (live) — as of 2026-07-30
+
+Senior-dev takeover of the tri-mode build. Verified against a headless UE-Python asset inspection (Python Editor Script Plugin enabled in `Bag_Man.uproject` for deterministic commandlet-driven asset ops).
+
+**Phase 0 — DONE & verified.** `B_Experience_BagMan` is now an **ObjectRedirector** → `B_Experience_Haywire` (correct rename, *not* a duplicate). Haywire GFE keeps `AFLDismember`.
+
+**Phase 1 — mode-plumbing DONE & PIE-verified.** ProMod slice is structurally correct:
+- `B_Experience_ProMod` — GFE `[ShooterCore, AFLCore, AFLCombat, AFLMovement]` (**AFLDismember dropped**); DefaultPawnData = `HeroData_BagMan_Pro`.
+- **Naming note:** AIK used the project's real convention — Pro PawnData is **`HeroData_BagMan_Pro`** (not the plan's placeholder `DA_AFL_PawnData_Hero_Pro`); default is **`HeroData_BagMan`**. Treat `HeroData_BagMan_Pro` as canonical going forward.
+- `B_Hero_BagMan_Pro` spawns under ProMod (PIE-confirmed).
+
+**P1-8 clean-health gate — ✅ DONE & PIE-VERIFIED (2026-07-30).** Two-layer C++, built two-engine (D: source + C: launcher):
+- `AFLDamageExecCalc.cpp` — target carrying `State.Mode.NoDismember` forces `bIsZoneRouted=false` → single body-health. *(Also carries AIK's `raw=0.0` fix + `AFL_DMG` outcome instrumentation.)*
+- **Tag application (final mechanism):** `UAFLMatchPhaseComponent::OnExperienceLoaded_ApplyModeTags` stamps `State.Mode.NoDismember` on every combatant ASC (PlayerState ASCs + pawns, deduped) **when the active experience omits `AFLDismember`**. Registered via `CallOrRegister_OnExperienceLoaded`. Auto-scoped (Haywire untouched); covers the dummy.
+- **⚠ Crash + fix (learned):** first cut read the experience at `BeginPlay` via `GetCurrentExperienceChecked()` → assert `LoadState==Loaded`. This component's `BeginPlay` runs DURING AFLCombat game-feature activation, BEFORE the experience finalizes loading. Fix = defer the read to the `OnExperienceLoaded` delegate. **Rule: never read the experience from a GameFeature-added component's BeginPlay; defer to `CallOrRegister_OnExperienceLoaded`.**
+- **PIE PROOF (tag live):** ProMod — torso `LANDED`; **`zone=2 bone=hand_l → LANDED health=8.0`** (was `ZONE_CONSUMED`); dummy **died from accumulated body health** (`AFL_DEATH … out of Health`) — no sever. Clean single-health confirmed. Haywire regression check owed (limb must still `ZONE_CONSUMED`).
+
+**P1-6/P1-7 movement — ✅ DONE & verified (2026-07-30).** AIK already tuned it, matching plan targets: Pro CMC (`LyraCharacterMovementComponent` on `B_Hero_BagMan_Pro`) = MaxWalkSpeed **700** (vs default 600), MaxAcceleration **3200** (vs 1200), BrakingDecelWalking **2600** (vs 1400), GroundFriction **9** (vs 8). `HeroData_BagMan_Pro` grants Dash + Climb + Interaction(Grab) + ShooterHero/EMP/Loadout. Weapon IK live (PIE). **Plan's `DA_AFL_MoveProfile_Pro` NOT needed** — numbers live on the pawn CMC directly. **Phase 1 mode-plumbing slice = COMPLETE.**
+
+**Still open on Pro Mod:** **Phase 1B — true FBIK** (Pro pawn still resolves `rig=CR_AFL_IRONICS`, Two-Bone/Aim/foot-trace only; no PBIK full-body solve). The single largest new-authoring item and the operator's core Pro-Mod ask. Minor: spawn-race warning persists (weapon fires once ASC arrives — parked); "routing to match play on map" UX friction (mode-select, Phase 4).
+
 ## Context
 
 Character-mod work kept colliding with the **dismemberment game feature** (the zone-HP + gib system baked into the core combat/pawn). Rather than rework the character system to accommodate mods, we resolve it as a **major upgrade**: split the game into **modes**, where dismemberment becomes a *per-mode rule* instead of an always-on coupling.

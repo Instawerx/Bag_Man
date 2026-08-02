@@ -277,10 +277,18 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	//     Head overflow STILL flows to health (head is the lethal zone). Torso/None: SKIP (body damage).
 	//     The sever decision is computed from the CAPTURED (pre-change) zone-HP vs EffectiveDamage --
 	//     never from a post-clamp read (PreAttributeChange only floors the STORED value).
+	// AFL_DMG outcome-log carriers. Zone/ZoneBone/ZoneHP below are scoped to the zone block, so hoist
+	// copies for the outcome log after it. -1 = "zone routing did not classify this hit" (Torso/None).
+	int32 LoggedZone    = -1;
+	FName LoggedZoneBone = NAME_None;
+	float LoggedZoneHP  = -1.0f;
+
 	{
 		const FHitResult* ZoneHitResult = Spec.GetEffectContext().GetHitResult();
 		const FName ZoneBone = ZoneHitResult ? ZoneHitResult->BoneName : NAME_None;
 		const EAFLBodyZone Zone = AFLCore::BoneToZone(ZoneBone);
+		LoggedZone     = static_cast<int32>(Zone);
+		LoggedZoneBone = ZoneBone;
 
 		// Map the zone -> its captured HP + the FGameplayAttribute to drain. Head/limbs only.
 		float ZoneHP = -1.0f;            // -1 = "not a zone we route" (Torso/None handled by the if below)
@@ -294,6 +302,25 @@ void UAFLDamageExecCalc::Execute_Implementation(
 		case EAFLBodyZone::LeftLeg:  ZoneHP = TargetLeftLegHealth;  ZoneAttr = UAFLAttributeSet_Combat::GetLeftLegHealthAttribute();  break;
 		case EAFLBodyZone::RightLeg: ZoneHP = TargetRightLegHealth; ZoneAttr = UAFLAttributeSet_Combat::GetRightLegHealthAttribute(); break;
 		default:                     bIsZoneRouted = false;         break;   // Torso / None -> body chain unchanged
+		}
+		LoggedZoneHP = ZoneHP;
+
+		// CLEAN-HEALTH GATE (Pro Mod / Melee -- IRONICS_GAME_MODES_SSOT sec.4). A target carrying
+		// State.Mode.NoDismember opts out of zone routing entirely: bIsZoneRouted -> false so ALL damage
+		// flows down the normal shield/health chain (conventional single-health). Because the
+		// Event.Dismember.Sever.AFL broadcast lives inside the zone-routed block below, gating here also
+		// means it never fires (no gibs), AND it sidesteps the unseeded-zone-HP zero-damage trap by
+		// construction. Inert until an Experience applies the tag to the pawn ASC, so Haywire is unchanged.
+		if (bIsZoneRouted)
+		{
+			static const FGameplayTag NoDismemberTag = FGameplayTag::RequestGameplayTag(FName("State.Mode.NoDismember"));
+			if (const UAbilitySystemComponent* GateASC = ExecutionParams.GetTargetAbilitySystemComponent())
+			{
+				if (GateASC->HasMatchingGameplayTag(NoDismemberTag))
+				{
+					bIsZoneRouted = false;
+				}
+			}
 		}
 
 		if (bIsZoneRouted)
@@ -389,6 +416,19 @@ void UAFLDamageExecCalc::Execute_Implementation(
 	{
 		// S4-INC3: a dead-zone hit (severed limb / off head) fully consumed the hit. No shield/health
 		// modifiers, no overkill. Mirrors the step-5 mitigated early-return (no body damage lands).
+		//
+		// AFL_DMG outcome instrumentation: this path used to return SILENTLY, which made "no damage"
+		// indistinguishable from "the exec never ran" (a shot into geometry has no target ASC and never
+		// reaches this function). Every execution now emits exactly one AFL_DMG line, so an absent line
+		// means the trace missed a damageable actor -- never "damage was silently eaten".
+		{
+			UAbilitySystemComponent* DbgASC = ExecutionParams.GetTargetAbilitySystemComponent();
+			UE_LOG(LogAFLCombat, Log,
+				TEXT("AFL_DMG: outcome=ZONE_CONSUMED zone=%d bone=%s zoneHP=%.1f target=%s -- whole hit absorbed, "
+				     "no health damage (zone HP <= 0 reads as an already-severed dead zone)."),
+				LoggedZone, *LoggedZoneBone.ToString(), LoggedZoneHP,
+				*GetNameSafe(DbgASC ? DbgASC->GetAvatarActor_Direct() : nullptr));
+		}
 		return;
 	}
 
@@ -449,6 +489,19 @@ void UAFLDamageExecCalc::Execute_Implementation(
 			ULyraHealthSet::GetDamageAttribute(),
 			EGameplayModOp::Additive,
 			HealthDamage));
+	}
+
+	// AFL_DMG outcome instrumentation (the LANDED case). Health damage is emitted to ULyraHealthSet's
+	// Damage meta, which carries NO logging of its own -- and the AFL_DEATH "Health X -> Y" line reads
+	// UAFLAttributeSet_Combat, a DIFFERENT set, so it can never show a damage delta. Without this line
+	// there is no way to tell a landed hit from a missed one in a log.
+	{
+		UAbilitySystemComponent* DbgASC = ExecutionParams.GetTargetAbilitySystemComponent();
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_DMG: outcome=LANDED zone=%d bone=%s raw=%.1f effective=%.1f shield=%.1f health=%.1f target=%s"),
+			LoggedZone, *LoggedZoneBone.ToString(), RawDamage, EffectiveDamage,
+			-ShieldDelta, HealthDamage,
+			*GetNameSafe(DbgASC ? DbgASC->GetAvatarActor_Direct() : nullptr));
 	}
 
 	// 9. AFL-0204 hit-confirm. EffectiveDamage > 0 has already been guaranteed
