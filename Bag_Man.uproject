@@ -411,6 +411,18 @@
 		{
 			"Name": "UltimateDifficultyScaling",
 			"Enabled": true
+		},
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		},
+		{
+			"Name": "FullBodyIK",
+			"Enabled": true
 		}
 	],
 	"EpicSampleNameHash": "451731683"
