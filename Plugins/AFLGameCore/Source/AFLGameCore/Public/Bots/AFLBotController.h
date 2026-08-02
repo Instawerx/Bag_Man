@@ -61,10 +61,40 @@ public:
 	/** 0..1 tier currently resolved from match state. */
 	float GetAimTier() const { return CachedTier; }
 
-	/** Metrics the probe asserts on. Reset at each acquisition. */
+	/** PER-ACQUISITION metrics. DIAGNOSTIC ONLY -- these reset on every acquisition, and bots re-acquire
+	 *  every 1-2s, so a probe sampling one instant reads whatever fragment happens to be in flight. That
+	 *  is what produced four false OVERSHOOT failures against a model that logged 147 real crossings in
+	 *  the same session. Assert on the lifetime values below instead. */
 	float GetLastReactionDelay() const { return LastReactionDelay; }
 	float GetPeakTrackRate() const { return PeakTrackRateThisAcquire; }
 	int32 GetErrorSignCrossings() const { return SignCrossings; }
+
+	// -- LIFETIME metrics. These are what the probe asserts on: monotonic, never reset. --
+
+	/** Most true-error sign crossings seen in any single acquisition. */
+	int32 GetLifetimeMaxCrossings() const { return LifetimeMaxCrossings; }
+
+	/** Fastest slew ever achieved, deg/sec. Compared against the resolved cap. */
+	float GetLifetimePeakRate() const { return LifetimePeakRate; }
+
+	/** Deepest the aim ever went PAST the true target after a crossing, degrees. This is the number that
+	 *  says how far it overshot -- unlike the old per-crossing figure, which sampled the error AT the
+	 *  zero-crossing and was therefore ~0 by construction. */
+	float GetLifetimeMaxOvershootDeg() const { return LifetimeMaxOvershootDeg; }
+
+	/** Shortest reaction delay ever rolled. The floor assertion cares about the minimum, not the last. */
+	float GetLifetimeMinReactionDelay() const { return LifetimeMinReactionDelay; }
+
+	/** How many targets this bot has acquired. Zero = no runtime data exists yet. */
+	int32 GetAcquisitionCount() const { return AcquisitionCount; }
+
+	/** True once the bot has actually tracked (past a reaction window, non-zero slew). VACUOUS-SAMPLE
+	 *  GUARD: without this a bot sitting inside its reaction window reports 0 d/s and trivially satisfies
+	 *  a 69 d/s ceiling -- a test a dead bot passes. */
+	bool HasTrackedEver() const { return bHasTrackedEver; }
+
+	/** False until OnPossess has rolled and resolved. Config assertions are meaningless before this. */
+	bool IsProfileResolved() const { return CachedRound >= 0 && Roll.bRolled; }
 
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
@@ -96,11 +126,27 @@ private:
 	int32 CachedRound = -1;
 	float CachedTier  = 0.0f;
 
-	// -- probe metrics --
+	// -- probe metrics, per acquisition (diagnostic) --
 	double AcquireTimeSeconds      = 0.0;
 	float  LastReactionDelay       = 0.0f;
 	float  PeakTrackRateThisAcquire = 0.0f;
 	int32  SignCrossings           = 0;
-	int32  LastYawErrorSign        = 0;
+	/** Sign of the error to the TRUE (un-wobbled) focal point. Crossings are counted on THIS, not on the
+	 *  wobbled error: the wobble reverses direction roughly twice a second, so a wobbled-error crossing is
+	 *  indistinguishable from the target drifting through a perfectly still aim. Measuring the true error
+	 *  is what makes the overshoot assertion falsifiable. */
+	int32  LastTrueYawErrorSign    = 0;
 	bool   bTrackingStarted        = false;
+
+	/** Running peak of |true error| since the last crossing -- how far past the target this excursion went. */
+	float  OvershootPeakThisExcursion = 0.0f;
+	bool   bInOvershootWindow         = false;
+
+	// -- probe metrics, LIFETIME (asserted) --
+	int32  LifetimeMaxCrossings    = 0;
+	float  LifetimePeakRate        = 0.0f;
+	float  LifetimeMaxOvershootDeg = 0.0f;
+	float  LifetimeMinReactionDelay = TNumericLimits<float>::Max();
+	int32  AcquisitionCount        = 0;
+	bool   bHasTrackedEver         = false;
 };

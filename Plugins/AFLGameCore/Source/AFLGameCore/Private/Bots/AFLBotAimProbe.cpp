@@ -79,9 +79,25 @@ namespace
 				}
 
 				int32 Fails = 0;
-				int32 NoAcquireYet = 0;
+				int32 NoData = 0;
+
+				// THREE outcomes, not two. A test that can only say PASS or FAIL will report PASS for a
+				// bot that has never moved -- "peak rate 0 vs cap 69" is a test a dead bot passes, and two
+				// of those shipped in the first version. NO DATA is counted separately and keeps the run
+				// from being called green.
 				auto Check = [&Ar, &Fails](bool bOk, const TCHAR* Label, const FString& Detail)
 				{
+					Ar.Logf(TEXT("  [%s] %-9s %s"), bOk ? TEXT("PASS") : TEXT("FAIL"), Label, *Detail);
+					if (!bOk) { ++Fails; }
+				};
+				auto CheckData = [&Ar, &Fails, &NoData](bool bHasData, bool bOk, const TCHAR* Label, const FString& Detail)
+				{
+					if (!bHasData)
+					{
+						Ar.Logf(TEXT("  [ -- ] %-9s NO DATA -- %s"), Label, *Detail);
+						++NoData;
+						return;
+					}
 					Ar.Logf(TEXT("  [%s] %-9s %s"), bOk ? TEXT("PASS") : TEXT("FAIL"), Label, *Detail);
 					if (!bOk) { ++Fails; }
 				};
@@ -99,34 +115,52 @@ namespace
 						P.ReactionSeconds, P.MaxTrackRateDegPerSec, P.TrackStiffness,
 						P.TrackDampingRatio, P.SteadyErrorDeg, P.ErrorFrequencyHz);
 
-					Check(P.ReactionSeconds >= Tiers->MinReactionSeconds - KINDA_SMALL_NUMBER, TEXT("REACTION"),
+					// -- CONFIG assertions. Valid only once OnPossess has rolled and resolved. --
+					const bool bResolved = B->IsProfileResolved();
+
+					CheckData(bResolved, P.ReactionSeconds >= Tiers->MinReactionSeconds - KINDA_SMALL_NUMBER, TEXT("REACTION"),
 						FString::Printf(TEXT("resolved %.3fs vs floor %.3fs"), P.ReactionSeconds, Tiers->MinReactionSeconds));
 
-					Check(P.MaxTrackRateDegPerSec <= Tiers->MaxTrackRateCeilingDegPerSec + KINDA_SMALL_NUMBER, TEXT("RATECAP"),
+					CheckData(bResolved, P.MaxTrackRateDegPerSec <= Tiers->MaxTrackRateCeilingDegPerSec + KINDA_SMALL_NUMBER, TEXT("RATECAP"),
 						FString::Printf(TEXT("resolved %.0f vs ceiling %.0f"), P.MaxTrackRateDegPerSec, Tiers->MaxTrackRateCeilingDegPerSec));
 
-					Check(P.SteadyErrorDeg >= Tiers->MinSteadyErrorDeg - KINDA_SMALL_NUMBER, TEXT("WOBBLE"),
+					CheckData(bResolved, P.SteadyErrorDeg >= Tiers->MinSteadyErrorDeg - KINDA_SMALL_NUMBER, TEXT("WOBBLE"),
 						FString::Printf(TEXT("resolved %.2fdeg vs floor %.2fdeg (must never be 0)"), P.SteadyErrorDeg, Tiers->MinSteadyErrorDeg));
 
-					Check(P.TrackDampingRatio < 1.0f, TEXT("DAMPING"),
+					CheckData(bResolved, P.TrackDampingRatio < 1.0f, TEXT("DAMPING"),
 						FString::Printf(TEXT("%.2f -- must stay <1 so aim overshoots and corrects"), P.TrackDampingRatio));
 
-					Check(B->GetAimTier() >= 0.0f && B->GetAimTier() <= 1.0f, TEXT("TIER"),
+					CheckData(bResolved, B->GetAimTier() >= 0.0f && B->GetAimTier() <= 1.0f, TEXT("TIER"),
 						FString::Printf(TEXT("%.2f in [0,1]"), B->GetAimTier()));
 
-					// Live acquisition metrics only exist once the bot has actually engaged something.
-					if (B->GetLastReactionDelay() <= 0.0f)
-					{
-						++NoAcquireYet;
-						Ar.Logf(TEXT("  [ .. ] ACQUIRED  no acquisition yet -- overshoot/peak-rate unproven for this bot"));
-						continue;
-					}
-					Check(B->GetLastReactionDelay() >= Tiers->MinReactionSeconds - KINDA_SMALL_NUMBER, TEXT("REACTED"),
-						FString::Printf(TEXT("last delay %.3fs vs floor %.3fs"), B->GetLastReactionDelay(), Tiers->MinReactionSeconds));
-					Check(B->GetPeakTrackRate() <= P.MaxTrackRateDegPerSec + 1.0f, TEXT("PEAKRATE"),
-						FString::Printf(TEXT("observed %.0fd/s vs cap %.0fd/s"), B->GetPeakTrackRate(), P.MaxTrackRateDegPerSec));
-					Check(B->GetErrorSignCrossings() >= 1, TEXT("OVERSHOOT"),
-						FString::Printf(TEXT("%d error sign-crossing(s) -- 0 means asymptotic, which reads robotic"), B->GetErrorSignCrossings()));
+					// -- RUNTIME assertions, all on LIFETIME maxima. Per-acquisition counters reset every
+					//    1-2s, so sampling them at one instant reads a fragment: that is what produced four
+					//    false OVERSHOOT failures against a model logging 147 real crossings. --
+					const int32 Acqs = B->GetAcquisitionCount();
+					const bool  bTracked = B->HasTrackedEver();
+
+					CheckData(Acqs > 0,
+						B->GetLifetimeMinReactionDelay() >= Tiers->MinReactionSeconds - KINDA_SMALL_NUMBER, TEXT("REACTED"),
+						FString::Printf(TEXT("min over %d acquisition(s) %.3fs vs floor %.3fs"),
+							Acqs, B->GetLifetimeMinReactionDelay(), Tiers->MinReactionSeconds));
+
+					CheckData(bTracked,
+						B->GetLifetimePeakRate() <= P.MaxTrackRateDegPerSec + 1.0f, TEXT("PEAKRATE"),
+						FString::Printf(TEXT("lifetime peak %.0fd/s vs cap %.0fd/s"),
+							B->GetLifetimePeakRate(), P.MaxTrackRateDegPerSec));
+
+					CheckData(bTracked,
+						B->GetLifetimeMaxCrossings() >= 1, TEXT("OVERSHOOT"),
+						FString::Printf(TEXT("%d true-error crossing(s) in the best acquisition (%d total acqs) -- 0 means asymptotic"),
+							B->GetLifetimeMaxCrossings(), Acqs));
+
+					CheckData(bTracked && B->GetLifetimeMaxCrossings() >= 1,
+						B->GetLifetimeMaxOvershootDeg() > KINDA_SMALL_NUMBER, TEXT("DEPTH"),
+						FString::Printf(TEXT("went %.2fdeg past the true target at its deepest"),
+							B->GetLifetimeMaxOvershootDeg()));
+
+					Ar.Logf(TEXT("        (diagnostic, current acquisition: crossings=%d peak=%.0fd/s lastReact=%.3fs)"),
+						B->GetErrorSignCrossings(), B->GetPeakTrackRate(), B->GetLastReactionDelay());
 				}
 
 				// PER-BOT VARIANCE: two bots at the same tier must differ, or the roster is one AI in five hats.
@@ -150,12 +184,13 @@ namespace
 					Ar.Logf(TEXT("  [PASS] VARIANCE  all %d profiles distinct"), Bots.Num());
 				}
 
-				Ar.Logf(TEXT("afl.Bot.AimProbe -- %s (%d failure(s)%s)"),
-					Fails == 0 ? TEXT("PASS") : TEXT("FAIL"), Fails,
-					NoAcquireYet > 0 ? *FString::Printf(TEXT(", %d bot(s) had not engaged yet"), NoAcquireYet) : TEXT(""));
-				if (NoAcquireYet > 0)
+				// A run with unproven assertions is NOT green. Reporting PASS while checks were skipped is
+				// how the first version called a dead bot healthy.
+				const TCHAR* Verdict = (Fails > 0) ? TEXT("FAIL") : (NoData > 0 ? TEXT("INCONCLUSIVE") : TEXT("PASS"));
+				Ar.Logf(TEXT("afl.Bot.AimProbe -- %s (%d failure(s), %d unproven)"), Verdict, Fails, NoData);
+				if (NoData > 0)
 				{
-					Ar.Log(TEXT("  NOTE: overshoot and peak-rate are only asserted for bots that have acquired a target. Re-run mid-firefight."));
+					Ar.Log(TEXT("  NO DATA means the bot had not tracked yet, NOT that it passed. Re-run mid-firefight, after bots have engaged."));
 				}
 			}));
 }

@@ -157,17 +157,27 @@ void AAFLBotController::UpdateControlRotation(float DeltaTime, bool bUpdatePawn)
 		// this is what stops a bot punishing every peek on the frame it becomes visible.
 		if (FocusActor != LastFocusActor.Get())
 		{
+			// Fold the closing acquisition's excursion into the lifetime maxima BEFORE resetting, or a
+			// bot that overshoots then re-acquires loses the evidence -- which is exactly how the probe
+			// came to read 0 crossings on bots that had been crossing all round.
+			LifetimeMaxOvershootDeg = FMath::Max(LifetimeMaxOvershootDeg, OvershootPeakThisExcursion);
+			LifetimeMaxCrossings    = FMath::Max(LifetimeMaxCrossings, SignCrossings);
+
 			LastFocusActor = FocusActor;
 			const float Jitter = FMath::FRandRange(-AimTiers->ReactionJitterSeconds, AimTiers->ReactionJitterSeconds);
 			LastReactionDelay = FMath::Max(AimTiers->MinReactionSeconds, Profile.ReactionSeconds + Jitter);
 			ReactionEndsAtSeconds = Now + LastReactionDelay;
+			LifetimeMinReactionDelay = FMath::Min(LifetimeMinReactionDelay, LastReactionDelay);
+			++AcquisitionCount;
 
 			AimVelYawDegPerSec = 0.0f;          // start from rest: accelerates in, never steps
 			AimVelPitchDegPerSec = 0.0f;
 			AcquireTimeSeconds = Now;
 			PeakTrackRateThisAcquire = 0.0f;
 			SignCrossings = 0;
-			LastYawErrorSign = 0;
+			LastTrueYawErrorSign = 0;
+			OvershootPeakThisExcursion = 0.0f;
+			bInOvershootWindow = false;
 			bTrackingStarted = false;
 
 			UE_LOG(LogAFLGameCore, Log, TEXT("AFL_BOTAIM: ACQUIRE %s target=%s reactionDelay=%.3fs"),
@@ -176,8 +186,14 @@ void AAFLBotController::UpdateControlRotation(float DeltaTime, bool bUpdatePawn)
 
 		if (Now >= ReactionEndsAtSeconds)
 		{
+			// TrueDesired is the un-wobbled solution: where a perfect aimbot would point. The MODEL does
+			// not use it -- the spring still chases the wobbled point exactly as before -- but every
+			// overshoot measurement is taken against it, because that is the only frame in which
+			// "the aim passed the target" means anything.
+			const FRotator TrueDesired = (FocalPoint - MyPawn->GetPawnViewLocation()).Rotation();
+
 			// Perfect aim, then displaced by the drifting error. The spring chases the WOBBLED point.
-			FRotator Desired = (FocalPoint - MyPawn->GetPawnViewLocation()).Rotation();
+			FRotator Desired = TrueDesired;
 			Desired.Yaw   += Wobble(Now, WobblePhaseA, WobblePhaseB);
 			Desired.Pitch += Wobble(Now, WobblePhaseB, WobblePhaseA) * 0.5f;   // less vertical wander
 
@@ -200,30 +216,55 @@ void AAFLBotController::UpdateControlRotation(float DeltaTime, bool bUpdatePawn)
 				AimVelYawDegPerSec   *= Scale;
 				AimVelPitchDegPerSec *= Scale;
 			}
-			PeakTrackRateThisAcquire = FMath::Max(PeakTrackRateThisAcquire, FMath::Min(Speed, Profile.MaxTrackRateDegPerSec));
+			const float AchievedRate = FMath::Min(Speed, Profile.MaxTrackRateDegPerSec);
+			PeakTrackRateThisAcquire = FMath::Max(PeakTrackRateThisAcquire, AchievedRate);
+			LifetimePeakRate         = FMath::Max(LifetimePeakRate, AchievedRate);
 
 			NewControlRotation.Yaw   += AimVelYawDegPerSec   * DeltaTime;
 			NewControlRotation.Pitch += AimVelPitchDegPerSec * DeltaTime;
 
-			// Overshoot detection: the error changing sign means aim passed the target and is correcting.
-			// crossings >= 1 is a PASS criterion -- never crossing means the tracker is asymptotic.
-			const int32 Sign = (ErrYaw > 0.0f) ? 1 : ((ErrYaw < 0.0f) ? -1 : 0);
-			if (LastYawErrorSign != 0 && Sign != 0 && Sign != LastYawErrorSign)
+			// -- OVERSHOOT, measured against the TRUE target --
+			// A sign change on the TRUE error means the aim genuinely passed the target and is coming
+			// back. The old test used the WOBBLED error, which reverses whenever the wobble does -- about
+			// twice a second -- so it counted crossings on a perfectly still aim and a damping regression
+			// would have sailed through it. This version can actually fail.
+			const float TrueErrYaw = FRotator::NormalizeAxis(TrueDesired.Yaw - NewControlRotation.Yaw);
+			const int32 TrueSign = (TrueErrYaw > 0.0f) ? 1 : ((TrueErrYaw < 0.0f) ? -1 : 0);
+
+			if (bInOvershootWindow)
+			{
+				// How far PAST the target this excursion reached. Measured across the window, not at the
+				// crossing -- the error at a zero-crossing is ~0 by definition, which is why the previous
+				// figure was an arithmetic tautology rather than a measurement.
+				OvershootPeakThisExcursion = FMath::Max(OvershootPeakThisExcursion, FMath::Abs(TrueErrYaw));
+			}
+
+			if (LastTrueYawErrorSign != 0 && TrueSign != 0 && TrueSign != LastTrueYawErrorSign)
 			{
 				++SignCrossings;
+				LifetimeMaxCrossings = FMath::Max(LifetimeMaxCrossings, SignCrossings);
+				LifetimeMaxOvershootDeg = FMath::Max(LifetimeMaxOvershootDeg, OvershootPeakThisExcursion);
+				OvershootPeakThisExcursion = 0.0f;
+				bInOvershootWindow = true;
+
 				if (SignCrossings == 1)
 				{
 					UE_LOG(LogAFLGameCore, Log,
-						TEXT("AFL_BOTAIM: SETTLE  %s timeToTrack=%.3fs peakRate=%.0fd/s overshootDeg=%.2f crossings=%d"),
+						TEXT("AFL_BOTAIM: SETTLE  %s timeToTrack=%.3fs peakRate=%.0fd/s trueErr=%.2fdeg crossings=%d"),
 						*GetName(), static_cast<float>(Now - AcquireTimeSeconds),
-						PeakTrackRateThisAcquire, FMath::Abs(ErrYaw), SignCrossings);
+						PeakTrackRateThisAcquire, FMath::Abs(TrueErrYaw), SignCrossings);
 				}
 			}
-			if (Sign != 0)
+			if (TrueSign != 0)
 			{
-				LastYawErrorSign = Sign;
+				LastTrueYawErrorSign = TrueSign;
 			}
+
 			bTrackingStarted = true;
+			if (AchievedRate > KINDA_SMALL_NUMBER)
+			{
+				bHasTrackedEver = true;   // vacuous-sample guard: a bot that never moved proves nothing
+			}
 		}
 		// else: still inside the reaction window -- control rotation is deliberately left where it was.
 	}
