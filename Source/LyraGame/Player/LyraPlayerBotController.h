@@ -7,6 +7,8 @@
 
 #include "LyraPlayerBotController.generated.h"
 
+#define UE_API LYRAGAME_API
+
 namespace ETeamAttitude { enum Type : int; }
 struct FGenericTeamId;
 
@@ -20,47 +22,47 @@ struct FFrame;
  *
  *	The controller class used by player bots in this project.
  */
-UCLASS(Blueprintable)
+UCLASS(MinimalAPI, Blueprintable)
 class ALyraPlayerBotController : public AModularAIController, public ILyraTeamAgentInterface
 {
 	GENERATED_BODY()
 
 public:
-	ALyraPlayerBotController(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+	UE_API ALyraPlayerBotController(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	//~ILyraTeamAgentInterface interface
-	virtual void SetGenericTeamId(const FGenericTeamId& NewTeamID) override;
-	virtual FGenericTeamId GetGenericTeamId() const override;
-	virtual FOnLyraTeamIndexChangedDelegate* GetOnTeamIndexChangedDelegate() override;
-	ETeamAttitude::Type GetTeamAttitudeTowards(const AActor& Other) const override;
+	UE_API virtual void SetGenericTeamId(const FGenericTeamId& NewTeamID) override;
+	UE_API virtual FGenericTeamId GetGenericTeamId() const override;
+	UE_API virtual FOnLyraTeamIndexChangedDelegate* GetOnTeamIndexChangedDelegate() override;
+	UE_API ETeamAttitude::Type GetTeamAttitudeTowards(const AActor& Other) const override;
 	//~End of ILyraTeamAgentInterface interface
 
 	// Attempts to restart this controller (e.g., to respawn it)
-	void ServerRestartController();
+	UE_API void ServerRestartController();
 
 	//Update Team Attitude for the AI
 	UFUNCTION(BlueprintCallable, Category = "Lyra AI Player Controller")
-	void UpdateTeamAttitude(UAIPerceptionComponent* AIPerception);
+	UE_API void UpdateTeamAttitude(UAIPerceptionComponent* AIPerception);
 
-	virtual void OnUnPossess() override;
+	UE_API virtual void OnUnPossess() override;
 
 
 private:
 	UFUNCTION()
-	void OnPlayerStateChangedTeam(UObject* TeamAgent, int32 OldTeam, int32 NewTeam);
+	UE_API void OnPlayerStateChangedTeam(UObject* TeamAgent, int32 OldTeam, int32 NewTeam);
 
 protected:
 	// Called when the player state is set or cleared
-	virtual void OnPlayerStateChanged();
+	UE_API virtual void OnPlayerStateChanged();
 
 private:
-	void BroadcastOnPlayerStateChanged();
+	UE_API void BroadcastOnPlayerStateChanged();
 
 protected:	
 	//~AController interface
-	virtual void InitPlayerState() override;
-	virtual void CleanupPlayerState() override;
-	virtual void OnRep_PlayerState() override;
+	UE_API virtual void InitPlayerState() override;
+	UE_API virtual void CleanupPlayerState() override;
+	UE_API virtual void OnRep_PlayerState() override;
 	//~End of AController interface
 
 private:
@@ -70,3 +72,5 @@ private:
 	UPROPERTY()
 	TObjectPtr<APlayerState> LastSeenPlayerState;
 };
+
+#undef UE_API

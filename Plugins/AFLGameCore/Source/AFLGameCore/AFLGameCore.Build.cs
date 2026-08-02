@@ -22,6 +22,7 @@ public class AFLGameCore : ModuleRules
 				"AIModule",   // FGenericTeamId (GenericTeamAgentInterface.h) for the team-assignment seam
 				"GameplayMessageRuntime",   // UGameplayMessageSubsystem -- Lyra.Elimination.Message anti-camp feed (T1.4b-ii)
 				"LyraGame",   // ALyraGameMode + ULyraTeamCreationComponent bases (the always-loaded project module)
+				"ModularGameplayActors",   // AModularAIController base of ALyraPlayerBotController (AAFLBotController's grandparent)
 			}
 		);
 	}
