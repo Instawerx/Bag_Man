@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "Components/GameStateComponent.h"
+#include "Match/AFLMatchPopulationComponent.h"          // join coverage: sites #3 (pawn) + #4 (PlayerState ASC)
 #include "Misc/Guid.h"   // A1.3b: FGuid MatchId + EGuidFormats
 #include "GameFramework/GameplayMessageSubsystem.h"   // FGameplayMessageListenerHandle (member)
 #include "AFLRoundRestartPolicy.h"                     // IAFLRoundRestartPolicy (the always-loaded AFLGameCore seam)
@@ -63,7 +63,7 @@ enum class EAFLRoundWinReason : uint8
  *                  ControllerCanRestart is private/non-virtual -> the gate lives on the game mode).
  */
 UCLASS(ClassGroup = (AFL), meta = (BlueprintSpawnableComponent))
-class AFLCOMBAT_API UAFLRoundManagerComponent : public UGameStateComponent, public IAFLRoundRestartPolicy
+class AFLCOMBAT_API UAFLRoundManagerComponent : public UAFLMatchPopulationComponent, public IAFLRoundRestartPolicy
 {
 	GENERATED_BODY()
 
@@ -92,6 +92,13 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_Score, BlueprintReadOnly, Category = "AFL|Round") int32 Team0Score = 0;
 	UPROPERTY(ReplicatedUsing = OnRep_Score, BlueprintReadOnly, Category = "AFL|Round") int32 Team1Score = 0;
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|Round") float RoundTimeRemaining = 0.f;
+
+	/** The WARMUP countdown, mirrored from UAFLMatchPhaseComponent::GetWarmupSecondsRemaining (that
+	 *  component owns the clock but is server-only and replicates nothing; this one already ticks and
+	 *  already replicates, so it is the cheap place to publish). 0 outside warmup. Whole-second throttled
+	 *  server-side -- the header only re-texts on a second boundary, so per-frame float churn would be
+	 *  pure bandwidth for no visible gain. */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|Round") float WarmupTimeRemaining = 0.f;
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|Round") bool  bSidesSwapped = false;
 
 	/** The two participating team ids, resolved from ULyraTeamSubsystem at ServerStartMatch (NO magic
@@ -151,6 +158,16 @@ protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
+	/** JOIN COVERAGE stage 1 (site #4): re-apply State.Round.NoRespawn to a joiner from the cached
+	 *  bRespawnSuppressed. No live query exists for "is respawn currently suppressed" -- the flag mirrors
+	 *  the last SetRoundRespawnSuppressed call and is written BEFORE that sweep runs. */
+	virtual void ApplyJoinStateToPlayer(AController* NewPlayer, UAbilitySystemComponent* PlayerStateASC) override;
+
+	/** JOIN COVERAGE stage 2 (site #3): bind OnDeathStarted on a pawn as it is possessed -- on join AND
+	 *  on every respawn. This is the site that made the round hang: a pawn spawning after round start was
+	 *  never bound, so its death never reached HandlePlayerDeath and never counted toward AliveCount. */
+	virtual void ApplyJoinStateToPawn(AController* Controller, APawn* NewPawn) override;
+
 	// -- the server FSM --
 	void Server_BeginRound();
 	void Server_ResolveRound(int32 WinningTeamId, EAFLRoundWinReason Reason);
@@ -177,12 +194,19 @@ private:
 	bool HasAuth() const;                                // GetOwner()->HasAuthority() (the GameState actor)
 	int32 AliveCount(int32 TeamId) const;                // enumerate PlayerArray by team, count !IsDeadOrDying
 	int32 TeamHoldingCore() const;                       // the team with a pawn carrying State.Extracting (else INDEX_NONE)
-	void BindDeathDelegates();                           // bind OnDeathStarted on every current pawn
+	void BindDeathDelegates();                           // full reconcile: rebind OnDeathStarted across PlayerArray
+	/** Bind one pawn's health component, guarded. AddDynamic is NOT idempotent -- a double bind fires
+	 *  HandlePlayerDeath twice per death, double-decrements the AliveCount check and ends rounds early.
+	 *  Shared by the round-start reconcile and the per-possession join path, so it MUST stay guarded. */
+	bool BindDeathDelegateForPawn(APawn* Pawn);
 	void UnbindDeathDelegates();
 	void SetPhaseAuthoritative(EAFLRoundPhase NewPhase);  // set + drive OnRep locally (listen-host)
 	void SetRoundRespawnSuppressed(bool bSuppressed);     // apply/remove State.Round.NoRespawn on every player ASC -> round FSM is the lone respawn authority
 
 	bool bMatchStarted = false;
+	/** SITE #4's cached decision -- mirrors the last SetRoundRespawnSuppressed call, so a joiner can be
+	 *  given the state that is true NOW without replaying the round history. Written before the sweep. */
+	bool bRespawnSuppressed = false;
 	int32 Team0Banked = 0;                               // per-round banked accumulator (timeout tiebreak)
 	int32 Team1Banked = 0;
 	float TraverseSampleAccum = 0.f;                     // s6 traversal sampler throttle accumulator (Tick)
@@ -190,4 +214,7 @@ private:
 	FTimerHandle ResetTimerHandle;                       // RoundEnd -> between-rounds -> begin
 	FGameplayMessageListenerHandle ExtractListenerHandle;
 	TArray<TWeakObjectPtr<ULyraHealthComponent>> BoundHealthComps;
+	/** Lazily resolved sibling on the GameState -- the warmup clock's owner. Cached so the countdown
+	 *  publish is not a FindComponentByClass every frame of warmup. */
+	TWeakObjectPtr<class UAFLMatchPhaseComponent> PhaseComp;
 };

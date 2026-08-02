@@ -120,8 +120,12 @@ void UAFLW_RoundHeader::Refresh()
 
 	// Clock while RoundActive, else the phase label. Re-text only on a phase or whole-second change.
 	const uint8 PhaseByte = static_cast<uint8>(R->Phase);
-	const int32 ClockSec = (R->Phase == EAFLRoundPhase::RoundActive)
-		? FMath::CeilToInt(FMath::Max(0.0f, R->RoundTimeRemaining)) : -1;
+	// WarmUp now counts down too, so it needs a per-second change signal exactly like RoundActive --
+	// without this the text would be latched at whatever second the phase was entered.
+	const int32 ClockSec =
+		  (R->Phase == EAFLRoundPhase::RoundActive) ? FMath::CeilToInt(FMath::Max(0.0f, R->RoundTimeRemaining))
+		: (R->Phase == EAFLRoundPhase::WarmUp)      ? FMath::CeilToInt(FMath::Max(0.0f, R->WarmupTimeRemaining))
+		: -1;
 	if (PhaseByte != LastPhase || ClockSec != LastClockSec)
 	{
 		LastPhase = PhaseByte;
@@ -136,7 +140,15 @@ void UAFLW_RoundHeader::Refresh()
 				Out = FormatClock(R->RoundTimeRemaining);
 				if (R->RoundTimeRemaining <= TimerLowThreshold) { Col = TimerLowColor; }
 				break;
-			case EAFLRoundPhase::WarmUp:   Out = NSLOCTEXT("AFL", "PhWarm", "WARMUP"); break;
+			case EAFLRoundPhase::WarmUp:
+				// "WARMUP 0:30" -> "WARMUP 0:00". Falls back to the bare label if the countdown has not
+				// been published yet (first frames) or the phase component is absent, so a missing clock
+				// degrades to the previous behaviour rather than showing a misleading 0:00.
+				Out = (R->WarmupTimeRemaining > 0.f)
+					? FText::Format(NSLOCTEXT("AFL", "PhWarmClock", "WARMUP {0}"), FormatClock(R->WarmupTimeRemaining))
+					: NSLOCTEXT("AFL", "PhWarm", "WARMUP");
+				if (R->WarmupTimeRemaining > 0.f && R->WarmupTimeRemaining <= TimerLowThreshold) { Col = TimerLowColor; }
+				break;
 			case EAFLRoundPhase::RoundEnd: Out = NSLOCTEXT("AFL", "PhEnd", "ROUND END"); break;
 			case EAFLRoundPhase::HalfTime: Out = NSLOCTEXT("AFL", "PhHalf", "HALFTIME"); break;
 			case EAFLRoundPhase::MatchEnd: Out = NSLOCTEXT("AFL", "PhMatch", "MATCH END"); break;

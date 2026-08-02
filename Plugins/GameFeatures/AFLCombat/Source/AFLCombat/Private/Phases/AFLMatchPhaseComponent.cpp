@@ -12,6 +12,7 @@
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "GameFramework/Controller.h"
 #include "GameFramework/GameplayMessageSubsystem.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
@@ -173,14 +174,39 @@ void UAFLMatchPhaseComponent::BeginPlay()
 
 void UAFLMatchPhaseComponent::StartSpineFromWarmup()
 {
-	// THE SPINE STARTS AT WARMUP. Start the phase, freeze fire/movement on all pawns, arm the
+	// THE SPINE STARTS AT WARMUP. Start the phase, block fire/movement abilities on all pawns, arm the
 	// warmup->playing chain timer (reads the cvar FRESH so RestartMatch can compress it).
 	bMatchEnded = false;
+
+	// ORDERING INVARIANT: START THE PHASE BEFORE SWEEPING. The join handler answers "is warmup live?"
+	// with IsPhaseActiveReflected, so the phase must already be true when the sweep (and anyone joining
+	// after it) reads it. Correct order here; EnterPlaying had it backwards -- see the note there.
+	// IF ANY PHASE TRANSITION EVER BECOMES LATENT OR TIMER-DRIVEN, REDO THIS ANALYSIS: it holds only
+	// because StartPhaseByClass is synchronous (ProcessEvent, not a latent node), so no join can
+	// interleave between the state change and the sweep.
 	StartPhaseByClass(WarmupPhaseClass, TAG_AFL_GamePhase_Warmup_Driver);
-	GrantMatchTagToAllPawns(TAG_State_Match_Warmup_Driver);
+	const int32 Covered = SetMatchTagOnAllPawns(TAG_State_Match_Warmup_Driver, /*bPresent=*/true);
+
 	const float Warmup = FMath::Max(0.1f, CVarAFLMatchWarmupDuration.GetValueOnGameThread());
 	GetWorld()->GetTimerManager().SetTimer(WarmupTimer, this, &UAFLMatchPhaseComponent::EnterPlaying, Warmup, /*loop=*/false);
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: WARMUP started (%.0fs; fire/movement frozen)."), Warmup);
+	// The COUNT is the proof. This sweep runs during game-feature activation, before any player has
+	// joined -- so on a 6-player match it legitimately reads 1 (the level-placed target dummy), and the
+	// remaining five are covered by ApplyJoinStateToPlayer as they arrive. A count of 1 with NO join
+	// coverage was the original bug, invisible because the log said only "frozen".
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_PHASE: WARMUP started (%.0fs; fire + movement ABILITIES blocked, base locomotion unaffected) -- %d ASC(s) swept; joiners covered on arrival."),
+		Warmup, Covered);
+}
+
+float UAFLMatchPhaseComponent::GetWarmupSecondsRemaining() const
+{
+	const UWorld* World = GetWorld();
+	if (!World || !WarmupTimer.IsValid())
+	{
+		return -1.f;
+	}
+	const float Remaining = World->GetTimerManager().GetTimerRemaining(WarmupTimer);
+	return (Remaining > 0.f) ? Remaining : -1.f;   // -1 == not running, so callers never show a stale 0
 }
 
 void UAFLMatchPhaseComponent::RestartMatch()
@@ -199,8 +225,8 @@ void UAFLMatchPhaseComponent::RestartMatch()
 		World->GetTimerManager().ClearTimer(WindowOpenTimer);
 		World->GetTimerManager().ClearTimer(WindowDurationTimer);
 	}
-	RemoveMatchTagFromAllPawns(TAG_State_Match_Warmup_Driver);
-	RemoveMatchTagFromAllPawns(TAG_State_Match_Ended_Driver);
+	SetMatchTagOnAllPawns(TAG_State_Match_Warmup_Driver, /*bPresent=*/false);
+	SetMatchTagOnAllPawns(TAG_State_Match_Ended_Driver,  /*bPresent=*/false);
 	bWindowOpen = false;
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: RESTART -- spine reset, re-entering Warmup with fresh cvars."));
 	StartSpineFromWarmup();
@@ -212,10 +238,18 @@ void UAFLMatchPhaseComponent::EnterPlaying()
 	{
 		return;
 	}
-	// Lift the warmup freeze, go active (auto-cancels Warmup), snapshot Watts, arm the cadence + the
+	// Lift the warmup block, go active (auto-cancels Warmup), snapshot Watts, arm the cadence + the
 	// match-duration timer.
-	RemoveMatchTagFromAllPawns(TAG_State_Match_Warmup_Driver);
+	//
+	// ORDERING INVARIANT -- THIS ORDER IS LOAD-BEARING AND WAS PREVIOUSLY REVERSED. Starting Playing is
+	// what cancels the Warmup phase, so it must happen BEFORE the sweep: otherwise there is a window in
+	// which the sweep has already cleared the tag while IsPhaseActiveReflected(Warmup) still answers
+	// true, and a joiner reading that would be tagged into a phase that just ended -- with nothing left
+	// to untag it. PERMANENTLY FROZEN. Idempotent writes do not protect against this; ordering does.
+	// IF ANY PHASE TRANSITION EVER BECOMES LATENT OR TIMER-DRIVEN, REDO THIS ANALYSIS.
 	StartPhaseByClass(PlayingPhaseClass, TAG_AFL_GamePhase_Playing_Driver);
+	const int32 Lifted = SetMatchTagOnAllPawns(TAG_State_Match_Warmup_Driver, /*bPresent=*/false);
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: warmup block lifted -- %d ASC(s) swept."), Lifted);
 	SnapshotMatchStartWatts();
 	ScheduleNextWindow();
 	const float Active = FMath::Max(0.1f, CVarAFLMatchActiveDuration.GetValueOnGameThread());
@@ -254,11 +288,15 @@ void UAFLMatchPhaseComponent::ConcludeMatch()
 	// Starting PostGame auto-cancels Playing AND .ExtractionWindow (non-ancestor siblings) -> the
 	// zone's WhenPhaseEnds observer fires -> SetZoneActive(false) -> handle sweep -> any channeler's
 	// GA self-cancels. NO explicit window force-close needed (the cancel chain, proven in cycle 1).
+	// ORDERING INVARIANT: phase started BEFORE the sweep (already correct here) so a joiner's
+	// IsPhaseActiveReflected(PostGame) query agrees with what the sweep just wrote.
 	StartPhaseByClass(PostGamePhaseClass, TAG_AFL_GamePhase_PostGame_Driver);
 	bWindowOpen = false;
-	GrantMatchTagToAllPawns(TAG_State_Match_Ended_Driver);     // fire/movement frozen, terminal
+	const int32 Covered = SetMatchTagOnAllPawns(TAG_State_Match_Ended_Driver, /*bPresent=*/true);   // abilities blocked, terminal
 	BroadcastMatchEnded();                                     // per-player dual-broadcast w/ Watts
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: POSTGAME (match concluded -- Playing+Window cancelled, frozen, ended-broadcast sent)."));
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_PHASE: POSTGAME (match concluded -- Playing+Window cancelled, fire + movement ABILITIES blocked on %d ASC(s), ended-broadcast sent)."),
+		Covered);
 }
 
 void UAFLMatchPhaseComponent::StartPhaseByClass(TSubclassOf<ULyraGamePhaseAbility> PhaseClass, const FGameplayTag& PhaseTag)
@@ -270,32 +308,68 @@ void UAFLMatchPhaseComponent::StartPhaseByClass(TSubclassOf<ULyraGamePhaseAbilit
 	}
 }
 
-void UAFLMatchPhaseComponent::GrantMatchTagToAllPawns(const FGameplayTag& Tag)
+int32 UAFLMatchPhaseComponent::SetMatchTagOnAllPawns(const FGameplayTag& Tag, bool bPresent)
 {
+	// SetLooseGameplayTagCount, not Add/Remove: ApplyJoinStateToPlayer writes the SAME tag to the SAME
+	// PlayerState ASC (a player's pawn resolves to it), and refcounted adds would reach 2 and survive a
+	// single removal -- a permanently blocked player. Set is idempotent across both paths.
+	//
+	// The PAWN iteration is deliberate and must stay. B_AFL_TargetDummy_C_0 is level-placed, carries its
+	// own ASC, and never passes through OnGameModePlayerInitialized -- this sweep is the only thing that
+	// can ever reach it, and it is what the clean-health gate (4b89557b) was proven against. Dedup so a
+	// pawn and its PlayerState sharing one ASC counts once.
+	TSet<UAbilitySystemComponent*> Seen;
 	for (TActorIterator<APawn> It(GetWorld()); It; ++It)
 	{
 		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(*It))
 		{
-			ASC->AddLooseGameplayTag(Tag);
+			if (!Seen.Contains(ASC))
+			{
+				ASC->SetLooseGameplayTagCount(Tag, bPresent ? 1 : 0);
+				Seen.Add(ASC);
+			}
 		}
 	}
+	return Seen.Num();
 }
 
-void UAFLMatchPhaseComponent::RemoveMatchTagFromAllPawns(const FGameplayTag& Tag)
+void UAFLMatchPhaseComponent::ApplyJoinStateToPlayer(AController* NewPlayer, UAbilitySystemComponent* PlayerStateASC)
 {
-	for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+	if (!PlayerStateASC)
 	{
-		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(*It))
-		{
-			ASC->RemoveLooseGameplayTag(Tag);
-		}
+		return;
 	}
+
+	// LIVE QUERIES, no cache -- IsPhaseActiveReflected is the same call StartPhaseByClass uses as its
+	// re-entrancy guard, so "what is true now" is answered by the phase system itself and there is
+	// nothing to keep in sync. Sites #2 and #5.
+	const UWorld* World = GetWorld();
+	const bool bWarmupLive = IsPhaseActiveReflected(World, TAG_AFL_GamePhase_Warmup_Driver);
+	const bool bEndedLive  = IsPhaseActiveReflected(World, TAG_AFL_GamePhase_PostGame_Driver);
+	PlayerStateASC->SetLooseGameplayTagCount(TAG_State_Match_Warmup_Driver, bWarmupLive ? 1 : 0);
+	PlayerStateASC->SetLooseGameplayTagCount(TAG_State_Match_Ended_Driver,  bEndedLive  ? 1 : 0);
+
+	// SITE #1 -- the CACHED decision. Do NOT re-read the experience here: that read asserts on
+	// LoadState when it happens off the loaded delegate, which is the crash BeginPlay defers around.
+	if (bCleanHealthMode)
+	{
+		PlayerStateASC->SetLooseGameplayTagCount(TAG_State_Mode_NoDismember_Driver, 1);
+	}
+
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_JOIN: phase state applied to %s -- Warmup=%d Ended=%d NoDismember=%d."),
+		*GetNameSafe(NewPlayer), bWarmupLive ? 1 : 0, bEndedLive ? 1 : 0, bCleanHealthMode ? 1 : 0);
 }
 
 void UAFLMatchPhaseComponent::OnExperienceLoaded_ApplyModeTags(const ULyraExperienceDefinition* Experience)
 {
 	// Mode == the active experience. Pro Mod / Melee DROP the AFLDismember game feature; Haywire keeps it.
-	if (!Experience || Experience->GameFeaturesToEnable.Contains(TEXT("AFLDismember")))
+	//
+	// ORDERING INVARIANT: CACHE THE DECISION BEFORE SWEEPING. This is the one site of the five with no
+	// live query to ask (there is no "is clean-health mode active" phase), so the cache IS the source of
+	// truth for every later joiner -- it must be true before anything reads it.
+	bCleanHealthMode = (Experience != nullptr) && !Experience->GameFeaturesToEnable.Contains(TEXT("AFLDismember"));
+	if (!bCleanHealthMode)
 	{
 		return;   // Haywire (or unreadable) -> dismember stays ON; never alter the current gore path.
 	}
