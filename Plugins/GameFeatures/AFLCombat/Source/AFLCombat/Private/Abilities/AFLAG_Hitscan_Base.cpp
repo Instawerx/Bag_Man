@@ -89,6 +89,9 @@ void UAFLAG_Hitscan_Base::ActivateAbility(
 		return;
 	}
 	bFired = false;
+	// ABOVE EVERY BRANCH, deliberately. One activation = one shot that ends when it resolves, UNLESS a
+	// branch below explicitly claims ownership of the end. Only the human sustained-autofire branch does.
+	bSingleShotActivation = true;
 
 	// Bind the target-data-ready callback (fires on the predicting client immediately, and on the server when
 	// the client's replicated data arrives). Flush any already-cached data first (Lyra pattern).
@@ -104,12 +107,21 @@ void UAFLAG_Hitscan_Base::ActivateAbility(
 	{
 		// AUTO-FIRE (SMG): sustained fire while held, RPM ramps with heat. Overrides charge/instant. Bots
 		// (GameplayEvent -- no input to hold) fire ONE shot per event via the proven single-shot Fire().
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_AUTOFIRE: ACTIVATE %s -- path=%s."),
+			*GetNameSafe(GetAvatarActorFromActorInfo()),
+			bFromEvent ? TEXT("EVENT (single shot)") : TEXT("INPUT (sustained)"));
 		if (bFromEvent)
 		{
+			// bSingleShotActivation stays TRUE: this branch has no loop, so the terminator must end it.
+			// Leaving it to the sustained loop's release/overheat -- which never runs here -- is what left
+			// the InstancedPerActor instance active for ever and made every later fire event get refused.
 			Fire();
 		}
 		else
 		{
+			// THE ONE OPT-OUT. This branch owns its own end: OnAutoFireInputReleased or overheat ->
+			// StopAutoFire -> EndAbility. The terminator must NOT end it per shot.
+			bSingleShotActivation = false;
 			StartAutoFire();
 		}
 		return;
@@ -570,6 +582,11 @@ void UAFLAG_Hitscan_Base::OnTargetDataReadyCallback(const FGameplayAbilityTarget
 		if (AdvanceHeat() >= 1.0f)
 		{
 			bOverheated = true;
+			// The one genuinely unmeasured path -- nothing here logged, so "no overheat in the log" proved
+			// nothing about whether overheat was firing. (AutoFireTick always logged CADENCE and MONTAGE.)
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_AUTOFIRE: OVERHEAT %s -- heat maxed%s."),
+				*GetNameSafe(GetAvatarActorFromActorInfo()),
+				bIsAuthority ? TEXT(", applying State.Weapon.Overheated cooldown GE") : TEXT(" (client copy)"));
 #if WITH_SERVER_CODE
 			if (bIsAuthority && OverheatCooldownEffectClass)
 			{
@@ -586,11 +603,30 @@ void UAFLAG_Hitscan_Base::OnTargetDataReadyCallback(const FGameplayAbilityTarget
 
 	ASC->ConsumeClientReplicatedTargetData(CurrentSpecHandle, CurrentActivationInfo.GetActivationPredictionKey());
 
-	// SINGLE-SHOT / charge / spread END here (one activation = one shot). AUTO-FIRE must NOT end per shot --
-	// its loop runs until release (OnAutoFireInputReleased) or overheat (bOverheated -> StopAutoFire).
-	if ((bIsLocallyControlled || bIsAuthority) && !bAutoFire)
+	// THE TERMINATOR. Ends every activation that fires one shot; skips only the branch that owns its own
+	// end (human sustained autofire -- release/overheat -> StopAutoFire).
+	//
+	// This reads bSingleShotActivation, set at the fork. It used to read `!bAutoFire`, and that inference
+	// was WRONG: bAutoFire says the WEAPON can sustain, not that THIS activation did. A bot triggers via
+	// GameplayEvent, takes the bFromEvent -> Fire() branch, and never enters StartAutoFire -- so there was
+	// no loop to end it and this guard skipped the only other EndAbility. The InstancedPerActor instance
+	// stayed active with bFired=true for ever and GAS refused every later fire event
+	// (bRetriggerInstancedAbility is unset): exactly ONE shot per pawn, for the pawn's whole life.
+	// Corroborated by 281 AFL_AUTOFIRE_CADENCE/MONTAGE lines in the 08.20 session, every one on the host
+	// and none on any bot -- bots never entered the loop the old comment assumed would end their ability.
+	// Do NOT reintroduce a bAutoFire term here; the fork is the only place that knows which path ran.
+	if ((bIsLocallyControlled || bIsAuthority) && bSingleShotActivation)
 	{
 		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, /*bReplicate=*/true, /*bCancelled=*/false);
+	}
+	else if (!bSingleShotActivation && !WaitReleaseTask)
+	{
+		// Should be unreachable: the only path that clears bSingleShotActivation is StartAutoFire's, which
+		// arms WaitReleaseTask. If this ever fires, an activation has claimed ownership of its own end and
+		// then failed to arm the thing that delivers it -- the original bug's shape, returning.
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_AUTOFIRE: TERMINATOR SKIPPED %s -- sustained activation with NO release task armed; nothing will end this ability."),
+			*GetNameSafe(GetAvatarActorFromActorInfo()));
 	}
 }
 
@@ -660,6 +696,13 @@ void UAFLAG_Hitscan_Base::EndAbility(
 {
 	// AUTO-FIRE: kill the repeating fire timer so a queued tick can't fire after the ability ends. HeatNorm
 	// and LastShotTimeSeconds PERSIST (InstancedPerActor) so the gap-based decay cools between bursts.
+	if (bAutoFire)
+	{
+		// Pair against AFL_AUTOFIRE: ACTIVATE. A pawn with an ACTIVATE and no END is holding an
+		// InstancedPerActor instance open, and GAS will refuse every later fire event on it.
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_AUTOFIRE: END %s (cancelled=%d)."),
+			*GetNameSafe(GetAvatarActorFromActorInfo()), bWasCancelled ? 1 : 0);
+	}
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(AutoFireTimerHandle);

@@ -234,6 +234,19 @@ private:
 	bool   bFired = false;
 	bool   bChargeCueAdded = false;   // looping charge cue live -> RemoveGameplayCue in EndAbility
 
+	/** Does THIS activation end when its shot resolves? Set at the fork in ActivateAbility, read by the
+	 *  terminator in OnTargetDataReadyCallback. It replaces an inference (`!bAutoFire`) that was simply
+	 *  wrong for one branch -- see the terminator's comment.
+	 *
+	 *  DEFAULTS TO TRUE, reset alongside bFired at the TOP of ActivateAbility above every branch, and set
+	 *  false in exactly one place: the human sustained-autofire branch, which owns its own end via
+	 *  release/overheat. Two reasons for that polarity:
+	 *    - InstancedPerActor state that is only written on SOME paths is how the bFired latch survived; a
+	 *      reset above every branch cannot go stale.
+	 *    - "ends after its shot" is the safe default. A new branch added later terminates unless it opts
+	 *      out, which is the opposite of the failure this fixes. */
+	bool   bSingleShotActivation = true;
+
 	// AUTO-FIRE (bAutoFire) ability-local state. HeatNorm + LastShotTimeSeconds PERSIST across bursts
 	// (InstancedPerActor) so the gap-based decay cools between bursts. NOT an attribute, NOT replicated --
 	// the fire cadence is a client-feel thing; the server independently ramps its own copy per received shot
