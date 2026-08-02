@@ -52,6 +52,14 @@ protected:
 
 private:
 	void TryArm();
+	/** Resolve the local player's team id, KEEPING the last good value. Two rules, both learned the hard
+	 *  way and both already honoured by UAFLW_RoundHeader:59 and UAFLW_MatchScoreboard:118 -- this widget
+	 *  was the odd one out:
+	 *    1. GUARD on INDEX_NONE. At NativeConstruct the team is usually NOT yet assigned/replicated, and
+	 *       writing that miss over LocalTeam poisons it permanently.
+	 *    2. RE-RESOLVE at use time, not just at arm time. A one-shot read of "who am I" taken before the
+	 *       answer exists is the same population/timing bug class as the join-coverage fix. */
+	int32 ResolveLocalTeam();
 	void HandleRoundResolved(int32 WinningTeam, EAFLRoundWinReason Reason);
 	void Hide();
 
