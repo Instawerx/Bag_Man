@@ -171,72 +171,130 @@ namespace AFLBotProbe
 					Rounds.RemoveAll([](const FAFLBotRoundSummary& R) { return R.CombatSeconds < MinCombatSeconds; });
 					const bool bRounds = Rounds.Num() > 0;
 
-					/** Fail on the worst round for a metric; report which round and the value. */
-					auto WorstOf = [&Rounds](TFunctionRef<float(const FAFLBotRoundSummary&)> Get,
-					                         TFunctionRef<bool(float)> bBad,
-					                         float& OutVal, int32& OutRound) -> bool
+					// THE UNIT IS THE EDGE, NOT THE ASSERTION.
+					//
+					// "Per-round" was too coarse a rule. An edge that means SOMETHING WENT WRONG THIS ROUND is
+					// per-round: one wedged round is a wedged round however good the others were. An edge that
+					// means THIS NEVER HAPPENED AT ALL is match-scoped: a bot that does not sprint in round 0 is
+					// correct -- enemies spawn close, there is nothing to cross -- while a bot that never sprints
+					// all match is broken. Flattening both to per-round made every bot fail SPRINT for
+					// round 0 = 0%, which was the right behaviour being called a bug.
+					//
+					// EVALUATION ORDER. Every result below is computed into a LOCAL before CheckData is called.
+					// The previous version passed !WorstOf(...) as one argument and read the out-params in
+					// another; C++ leaves argument order unspecified, MSVC evaluates right-to-left, so the
+					// message was built before the out-params were set and every FAIL printed the PASS wording.
+					// The verdict was right and the explanation was inverted, which is the worse of the two.
+
+					/** PER-ROUND: does ANY round breach the ceiling? Reports the worst. */
+					auto AnyRoundAbove = [&Rounds](TFunctionRef<float(const FAFLBotRoundSummary&)> Get, float Ceiling,
+					                               float& OutVal, int32& OutRound) -> bool
 					{
 						bool bAny = false;
 						for (const FAFLBotRoundSummary& R : Rounds)
 						{
 							const float V = Get(R);
-							if (bBad(V) && (!bAny || FMath::Abs(V) > FMath::Abs(OutVal)))
+							if (V > Ceiling && (!bAny || V > OutVal)) { OutVal = V; OutRound = R.Round; bAny = true; }
+						}
+						return bAny;
+					};
+
+					/** MATCH-SCOPED: did even the BEST round fail to clear the floor? Reports that best round. */
+					auto BestRoundBelow = [&Rounds](TFunctionRef<float(const FAFLBotRoundSummary&)> Get, float Floor,
+					                                float& OutVal, int32& OutRound) -> bool
+					{
+						float Best = -TNumericLimits<float>::Max(); int32 BestR = INDEX_NONE;
+						for (const FAFLBotRoundSummary& R : Rounds)
+						{
+							const float V = Get(R);
+							if (V > Best) { Best = V; BestR = R.Round; }
+						}
+						OutVal = Best; OutRound = BestR;
+						return BestR != INDEX_NONE && Best < Floor;
+					};
+
+					/** PER-ROUND, symmetric: worst |deviation| in any round. */
+					auto AnyRoundOutside = [&Rounds](TFunctionRef<float(const FAFLBotRoundSummary&)> Get, float Limit,
+					                                 float& OutVal, int32& OutRound) -> bool
+					{
+						bool bAny = false;
+						for (const FAFLBotRoundSummary& R : Rounds)
+						{
+							const float V = Get(R);
+							if (FMath::Abs(V) > Limit && (!bAny || FMath::Abs(V) > FMath::Abs(OutVal)))
 							{
 								OutVal = V; OutRound = R.Round; bAny = true;
 							}
 						}
-						return bAny;   // true => at least one round is outside the window
+						return bAny;
 					};
 
-					float BadV = 0.0f; int32 BadR = INDEX_NONE;
+					float HiV = 0.0f, LoV = 0.0f; int32 HiR = INDEX_NONE, LoR = INDEX_NONE;
 
-					BadV = 0.f; BadR = INDEX_NONE;
-					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return R.Stationary; },
-							[](float V){ return V > StationaryMax || V < StationaryMin; }, BadV, BadR), TEXT("STATIONARY"),
-						BadR == INDEX_NONE
-							? FString::Printf(TEXT("every one of %d round(s) inside %.0f-%.0f%%"), Rounds.Num(), StationaryMin*100.f, StationaryMax*100.f)
-							: FString::Printf(TEXT("round %d hit %.0f%% (window %.0f-%.0f%%, %d rounds checked; high = the standing-still bug, near-zero = never pauses)"),
-								BadR, BadV*100.f, StationaryMin*100.f, StationaryMax*100.f, Rounds.Num()));
+					// STATIONARY. HIGH per-round (one wedged round is a wedge). LOW match-scoped ("never pauses"
+					// is a character trait, and a single frantic round is legitimate).
+					auto GetStat = [](const FAFLBotRoundSummary& R){ return R.Stationary; };
+					HiV = LoV = 0.f; HiR = LoR = INDEX_NONE;
+					const bool bStatHi = AnyRoundAbove(GetStat, StationaryMax, HiV, HiR);
+					const bool bStatLo = BestRoundBelow(GetStat, StationaryMin, LoV, LoR);
+					CheckData(bRounds, !(bStatHi || bStatLo), TEXT("STATIONARY"),
+						bStatHi ? FString::Printf(TEXT("round %d hit %.0f%% (per-round ceiling %.0f%%) -- the standing-still bug"), HiR, HiV*100.f, StationaryMax*100.f)
+						: bStatLo ? FString::Printf(TEXT("never paused all match -- best round only %.0f%% (match floor %.0f%%); reads as a machine on rails"), LoV*100.f, StationaryMin*100.f)
+						: FString::Printf(TEXT("%d round(s): peak %.0f%% under the %.0f%% ceiling, and it does pause"), Rounds.Num(), HiV*100.f, StationaryMax*100.f));
 
-					BadV = 0.f; BadR = INDEX_NONE;
-					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return (float)R.Cells; },
-							[](float V){ return V < (float)DistinctCellsMin; }, BadV, BadR), TEXT("POSITIONS"),
-						BadR == INDEX_NONE
-							? FString::Printf(TEXT("every one of %d round(s) >= %d cells"), Rounds.Num(), DistinctCellsMin)
-							: FString::Printf(TEXT("round %d covered only %.0f cells (min %d; the reposition cycle terminated that round)"), BadR, BadV, DistinctCellsMin));
+					// POSITIONS. One-sided and per-round: a round with <3 cells IS the terminated cycle.
+					HiV = 0.f; HiR = INDEX_NONE;
+					const bool bPosBad = AnyRoundAbove([](const FAFLBotRoundSummary& R){ return -(float)R.Cells; },
+						-(float)DistinctCellsMin, HiV, HiR);
+					CheckData(bRounds, !bPosBad, TEXT("POSITIONS"),
+						bPosBad ? FString::Printf(TEXT("round %d covered only %.0f cells (min %d) -- the reposition cycle terminated"), HiR, -HiV, DistinctCellsMin)
+						        : FString::Printf(TEXT("every one of %d round(s) >= %d cells"), Rounds.Num(), DistinctCellsMin));
 
-					BadV = 0.f; BadR = INDEX_NONE;
-					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return R.Lateral; },
-							[](float V){ return V < LateralRatioMin; }, BadV, BadR), TEXT("LATERAL"),
-						BadR == INDEX_NONE
-							? FString::Printf(TEXT("every one of %d round(s) >= %.2f lateral/forward"), Rounds.Num(), LateralRatioMin)
-							: FString::Printf(TEXT("round %d fell to %.2f lateral/forward (min %.2f; velocity parallel to aim = not strafing)"), BadR, BadV, LateralRatioMin));
+					// LATERAL. MATCH-scoped: "velocity parallel to aim" is the AI-2 authoring symptom, a systemic
+					// property. One travel-heavy round of straight lines is not that -- and sprint makes those
+					// rounds more common, so a per-round floor here would fail on the feature working.
+					HiV = LoV = 0.f; HiR = LoR = INDEX_NONE;
+					const bool bLatBad = BestRoundBelow([](const FAFLBotRoundSummary& R){ return R.Lateral; },
+						LateralRatioMin, LoV, LoR);
+					CheckData(bRounds, !bLatBad, TEXT("LATERAL"),
+						bLatBad ? FString::Printf(TEXT("never strafed all match -- best round only %.2f lateral/forward (match floor %.2f); velocity parallel to aim"), LoV, LateralRatioMin)
+						        : FString::Printf(TEXT("best round %.2f lateral/forward over %d round(s), clears the %.2f floor"), LoV, Rounds.Num(), LateralRatioMin));
 
-					BadV = 0.f; BadR = INDEX_NONE;
-					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return R.Reversals; },
-							[](float V){ return V > ReversalsMax || V < ReversalsMin; }, BadV, BadR), TEXT("REVERSALS"),
-						BadR == INDEX_NONE
-							? FString::Printf(TEXT("every one of %d round(s) inside %.2f-%.1f/s"), Rounds.Num(), ReversalsMin, ReversalsMax)
-							: FString::Printf(TEXT("round %d hit %.2f/s (window %.2f-%.1f; high = thrashing, zero = one straight line)"), BadR, BadV, ReversalsMin, ReversalsMax));
+					// REVERSALS. HIGH per-round (thrashing ruins the round it happens in). LOW match-scoped
+					// (one straight-line round is legitimate; never turning all match is not).
+					auto GetRev = [](const FAFLBotRoundSummary& R){ return R.Reversals; };
+					HiV = LoV = 0.f; HiR = LoR = INDEX_NONE;
+					const bool bRevHi = AnyRoundAbove(GetRev, ReversalsMax, HiV, HiR);
+					const bool bRevLo = BestRoundBelow(GetRev, ReversalsMin, LoV, LoR);
+					CheckData(bRounds, !(bRevHi || bRevLo), TEXT("REVERSALS"),
+						bRevHi ? FString::Printf(TEXT("round %d hit %.2f/s (per-round ceiling %.1f) -- thrashing between goals"), HiR, HiV, ReversalsMax)
+						: bRevLo ? FString::Printf(TEXT("never changed lateral direction all match -- best round %.2f/s (match floor %.2f)"), LoV, ReversalsMin)
+						: FString::Printf(TEXT("%d round(s): peak %.2f/s under %.1f, and it does turn"), Rounds.Num(), HiV, ReversalsMax));
 
-					BadV = 0.f; BadR = INDEX_NONE;
-					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return R.Sprint; },
-							[](float V){ return V > SprintFractionMax || V < SprintFractionMin; }, BadV, BadR), TEXT("SPRINT"),
-						BadR == INDEX_NONE
-							? FString::Printf(TEXT("every one of %d round(s) inside %.0f-%.0f%%"), Rounds.Num(), SprintFractionMin*100.f, SprintFractionMax*100.f)
-							: FString::Printf(TEXT("round %d hit %.0f%% sprinting (window %.0f-%.0f%%, %d rounds checked; ~0 = event never reached the ability, high = one gear / lease not expiring)"),
-								BadR, BadV*100.f, SprintFractionMin*100.f, SprintFractionMax*100.f, Rounds.Num()));
+					// SPRINT. The case that forced this split. HIGH per-round: 92% in one round is one gear, and
+					// is also how a non-expiring lease would look. LOW match-scoped: 0% in round 0 is CORRECT --
+					// enemies spawn close, nothing to cross -- but 0% in every round means the GameplayEvent
+					// never reached the ability at all.
+					auto GetSpr = [](const FAFLBotRoundSummary& R){ return R.Sprint; };
+					HiV = LoV = 0.f; HiR = LoR = INDEX_NONE;
+					const bool bSprHi = AnyRoundAbove(GetSpr, SprintFractionMax, HiV, HiR);
+					const bool bSprLo = BestRoundBelow(GetSpr, SprintFractionMin, LoV, LoR);
+					CheckData(bRounds, !(bSprHi || bSprLo), TEXT("SPRINT"),
+						bSprHi ? FString::Printf(TEXT("round %d hit %.0f%% sprinting (per-round ceiling %.0f%%) -- one gear, or the lease is not expiring"), HiR, HiV*100.f, SprintFractionMax*100.f)
+						: bSprLo ? FString::Printf(TEXT("never sprinted all match -- best round only %.0f%% (match floor %.0f%%); the event is not reaching the ability"), LoV*100.f, SprintFractionMin*100.f)
+						: FString::Printf(TEXT("%d round(s): peak %.0f%% under the %.0f%% ceiling, and it does sprint"), Rounds.Num(), HiV*100.f, SprintFractionMax*100.f));
 
-					// RANGE compares each round against the profile HELD THAT ROUND. Preferred range moves with
-					// the tier, so a whole-match mean measured against the current profile is the wrong yardstick.
-					BadV = 0.f; BadR = INDEX_NONE;
-					CheckData(bRounds, !WorstOf(
-							[](const FAFLBotRoundSummary& R){ return (R.RangeBandCm > KINDA_SMALL_NUMBER && R.MeanRangeCm > 0.f)
-								? (R.MeanRangeCm - R.PreferredRangeCm) / R.RangeBandCm : 0.0f; },
-							[](float V){ return FMath::Abs(V) > RangeTolerance; }, BadV, BadR), TEXT("RANGE"),
-						BadR == INDEX_NONE
-							? FString::Printf(TEXT("every one of %d round(s) held within +/-%.0fx its own band"), Rounds.Num(), RangeTolerance)
-							: FString::Printf(TEXT("round %d held %+.2f bands off its own preferred range (limit %.0fx)"), BadR, BadV, RangeTolerance));
+					// RANGE. BOTH edges per-round, and deliberately so: neither direction is a "never happened"
+					// edge -- holding the wrong distance is a thing that goes wrong IN a round, in either
+					// direction. Compared against the profile held THAT round; preferred range moves with tier.
+					HiV = 0.f; HiR = INDEX_NONE;
+					const bool bRangeBad = AnyRoundOutside(
+						[](const FAFLBotRoundSummary& R){ return (R.RangeBandCm > KINDA_SMALL_NUMBER && R.MeanRangeCm > 0.f)
+							? (R.MeanRangeCm - R.PreferredRangeCm) / R.RangeBandCm : 0.0f; },
+						RangeTolerance, HiV, HiR);
+					CheckData(bRounds, !bRangeBad, TEXT("RANGE"),
+						bRangeBad ? FString::Printf(TEXT("round %d held %+.2f bands off its own preferred range (limit +/-%.0fx)"), HiR, HiV, RangeTolerance)
+						          : FString::Printf(TEXT("every one of %d round(s) held within +/-%.0fx its own band"), Rounds.Num(), RangeTolerance));
 
 					Ar.Logf(TEXT("        (lifetime, diagnostic only: stationary=%.0f%% sprint=%.0f%% cells=%d range=%.0fcm)"),
 						B->GetStationaryFraction()*100.f, B->GetSprintFraction()*100.f,
