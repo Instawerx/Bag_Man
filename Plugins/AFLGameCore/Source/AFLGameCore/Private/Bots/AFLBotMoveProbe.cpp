@@ -132,7 +132,15 @@ namespace AFLBotProbe
 
 					// If the params never reached the blackboard the bot is running the query's authored
 					// defaults, so every metric below describes the wrong thing. Fail loudly, not silently.
-					CheckData(true, B->AreMoveParamsPushed(), TEXT("PARAMS"),
+					//
+					// GATED ON IsProfileResolved -- i.e. "this controller has possessed a pawn at least once".
+					// It used to assert unconditionally and reported FAIL for two bots on an 8v8, which read as
+					// a push timeout at scale. It was not: the log carried ZERO "PUSH FAILED" lines and every
+					// push landed on attempt 1 (x40) or 2 (x13). Those two controllers simply had not possessed
+					// yet when the probe ran, so OnPossess -- and therefore the push -- had never started.
+					// Asserting on a controller with no pawn is asking a question it cannot have an answer to;
+					// that is NO DATA, which is the third outcome this probe already exists to report.
+					CheckData(B->IsProfileResolved(), B->AreMoveParamsPushed(), TEXT("PARAMS"),
 						B->AreMoveParamsPushed()
 							? FString(TEXT("movement params reached the blackboard"))
 							: FString(TEXT("params NOT pushed -- bot is on the query's DEFAULTS, not its profile")));

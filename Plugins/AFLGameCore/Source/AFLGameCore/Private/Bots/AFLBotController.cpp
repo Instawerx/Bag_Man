@@ -226,17 +226,25 @@ void AAFLBotController::RollProfile()
 		return;   // personality is for life. Re-rolling turns character into noise.
 	}
 
-	// SEED STABILITY is the whole point. The bot's own name is stable for its lifetime, unique between
-	// bots, and survives possession changes -- so the same bot always rolls the same personality while
-	// two bots at the same tier reliably differ. Prefer the PlayerState name (the RandomBotNames entry,
-	// which is also what shows in the scoreboard) so a logged roll is traceable to a bot you can see.
+	// SEED STABILITY is the whole point: the same bot must always roll the same personality, and two bots
+	// must reliably differ.
+	//
+	// THE PLAYER NAME ALONE IS NOT UNIQUE. It comes from the RandomBotNames pool, and at 16 bots that pool
+	// is exhausted -- a 3-round 8v8 log showed SIX distinct names across the roster, with "Tinplate" on 50
+	// snapshot rows against 5 for the others, plus at least one bot whose name was empty. Duplicate name ->
+	// identical CRC -> byte-identical personality, which is what failed ROLLED. It gets worse at BR 36.
+	//
+	// So the seed is NAME + the controller's own object name. GetName() is unique per actor instance and
+	// stable for its whole life (possession changes do not rename it), which is exactly the guarantee this
+	// needs -- cross-session stability was never required, since bot identities are built fresh each match.
+	// The player name stays in the seed purely so a logged roll is still traceable to a bot you can see.
 	FString SeedSource = GetName();
 	if (const APlayerState* PS = GetPlayerState<APlayerState>())
 	{
 		const FString PlayerName = PS->GetPlayerName();
 		if (!PlayerName.IsEmpty())
 		{
-			SeedSource = PlayerName;
+			SeedSource = PlayerName + TEXT(":") + GetName();
 		}
 	}
 
