@@ -64,11 +64,33 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Sprint")
 	bool bRequireGrounded = true;
 
+	/** LEASE WINDOW for the event-driven (bot) path. A GameplayEvent has no release, so the bot path cannot
+	 *  end the way the human path does -- it must expire. The requester re-sends the event on its own cadence;
+	 *  each one re-arms this window, and the window firing IS the end of the sprint.
+	 *
+	 *  Must exceed the requester's tick interval with margin: the BT service ticks at 0.5s, so 1.25s tolerates
+	 *  two consecutive missed renewals before sprint drops. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Sprint")
+	float BotSprintLeaseSeconds = 1.25f;
+
 private:
-	/** Input-release callback (WaitInputRelease) -> end the sprint. */
+	/** Input-release callback (WaitInputRelease) -> end the sprint. HUMAN PATH ONLY. */
 	UFUNCTION()
 	void OnInputReleased(float TimeHeld);
 
+	/** Renewal callback -- another Sprint.Requested arrived while already sprinting. BOT PATH ONLY. */
+	UFUNCTION()
+	void OnSprintRenewed(FGameplayEventData Payload);
+
+	/** (Re)arm the lease. Called on activation and on every renewal. */
+	void RenewBotLease();
+
+	/** Lease ran out -- nobody asked for sprint recently enough. End it. */
+	void OnBotLeaseExpired();
+
 	/** First-exit-wins guard so a duplicate release / task-end can't double-EndAbility. */
 	bool bEnding = false;
+
+	/** One-shot, re-armed on every renewal. Firing means expiry. */
+	FTimerHandle BotLeaseTimer;
 };
