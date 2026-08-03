@@ -3,6 +3,7 @@
 #include "Bots/AFLBotController.h"
 
 #include "AFLGameCore.h"
+#include "Bots/AFLBotProbe.h"   // auto-verdict at teardown
 #include "AFLMatchTierSource.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
@@ -153,6 +154,21 @@ void AAFLBotController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		World->GetTimerManager().ClearTimer(MovePushRetryTimer);
 		World->GetTimerManager().ClearTimer(RoundWatchTimer);
 		World->GetTimerManager().ClearTimer(GoalWatchTimer);
+
+		// AUTO-VERDICT. The probe used to be reachable only by typing it at the right moment, and timing cost
+		// two reads running -- once never typed, once typed 3s in and correctly reporting INCONCLUSIVE against
+		// 0 rounds of history. The data existed both times; the verdict did not.
+		//
+		// Runs ONCE per world: whichever bot tears down first does it for everyone. Ordering does not matter
+		// because RunMove reads RoundHistory PLUS each bot's in-progress round, so a bot that has not emitted
+		// its final snapshot yet is still counted.
+		static TWeakObjectPtr<UWorld> LastAutoProbedWorld;
+		if (World->GetNetMode() != NM_Client && LastAutoProbedWorld.Get() != World)
+		{
+			LastAutoProbedWorld = World;
+			UE_LOG(LogAFLGameCore, Log, TEXT("AFL_MOVEPROBE: auto-run at end of play -- no console timing required."));
+			AFLBotProbe::RunMove(World, *GLog);
+		}
 	}
 	Super::EndPlay(EndPlayReason);
 }

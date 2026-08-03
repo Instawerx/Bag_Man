@@ -1,5 +1,7 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
+#include "Bots/AFLBotProbe.h"
+
 #include "AFLGameCore.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Bots/AFLBotController.h"
@@ -64,12 +66,15 @@ namespace
 			&& Near(A.LateralBias, B.LateralBias);
 	}
 
-	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLBotMoveProbeCmd(
-		TEXT("afl.Bot.MoveProbe"),
-		TEXT("AI-2 proof: assert combat movement against every live AAFLBotController -- stationary fraction (two-sided), distinct positions, lateral/forward ratio, direction reversals (two-sided), range holding, per-bot variance. HOST only; run mid-firefight."),
-		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
-			[](const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
-			{
+}   // end anonymous namespace
+
+namespace AFLBotProbe
+{
+	void RunMove(UWorld* World, FOutputDevice& Ar)
+	{
+		// Body identical whether a human typed the command or the world tore down. Two call sites, one
+		// implementation -- an auto-run that drifted from the console version would be worse than none.
+		{
 				if (!World || World->GetNetMode() == NM_Client)
 				{
 					Ar.Log(TEXT("afl.Bot.MoveProbe -- HOST window only (bot controllers are server-side)."));
@@ -308,5 +313,18 @@ namespace
 				{
 					Ar.Logf(TEXT("  NO DATA means under %.0fs of COMBAT time (focus target held), not that it passed. Re-run mid-firefight."), MinCombatSeconds);
 				}
+		}
+	}
+}   // namespace AFLBotProbe
+
+namespace
+{
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLBotMoveProbeCmd(
+		TEXT("afl.Bot.MoveProbe"),
+		TEXT("AI-2/AI-3 proof: assert combat movement PER ROUND against every live AAFLBotController -- stationary, distinct positions, lateral ratio, reversals, sprint fraction, range holding, per-bot variance. HOST only. Also auto-runs at end of play, so console timing is optional."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
+			[](const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+			{
+				AFLBotProbe::RunMove(World, Ar);
 			}));
 }
