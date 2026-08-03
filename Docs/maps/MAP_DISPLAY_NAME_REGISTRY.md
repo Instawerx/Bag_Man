@@ -15,19 +15,31 @@ So: to rename a config, edit its playlist DA; to know what a display name *is*, 
 |---|---|---|---|---|---|
 | **NANOWATT** / 3V3 SPEED | `DA_AFL_Arena01_Extract3v3` | `B_AFLExperience_Arena01_Extract3v3` | **`/Game/Maps/L_Arena_01`** (OURS) | Arena 3v3 Extract | ✅ **BUILT** (greybox PIE-proven, T1; brief `Docs/maps/Arena_01_DESIGN.md`) |
 | **INFINEON** / 8V8 SIEGE | `DA_AFL_Arena01_Extract4v4` | `B_AFLExperience_Arena01_Extract4v4` | **`/ShooterMaps/Maps/L_Expanse`** (LYRA STOCK) | 8v8 (Tier C) | ⚠ **WASH IN PROGRESS** on a stock map — NOT a 4v4, NOT Arena_01 |
-| **ARCANEON** / 5V5 HAYWIRE | `DA_AFL_Arena04_5v5_Haywire` | `B_AFLExperience_Arena04_5v5_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | 🚧 playlist BUILT + **HIDDEN**; experience NOT authored |
-| **ARCANEON** / 5V5 PROMOD | `DA_AFL_Arena04_5v5_ProMod` | `B_AFLExperience_Arena04_5v5_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | 🚧 playlist BUILT + **HIDDEN**; experience NOT authored |
-| **ARCANEON** / 8V8 HAYWIRE | `DA_AFL_Arena04_8v8_Haywire` | `B_AFLExperience_Arena04_8v8_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | 🚧 playlist BUILT + **HIDDEN**; experience NOT authored |
-| **ARCANEON** / 8V8 PROMOD | `DA_AFL_Arena04_8v8_ProMod` | `B_AFLExperience_Arena04_8v8_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | 🚧 playlist BUILT + **HIDDEN**; experience NOT authored |
+| **ARCANEON** / 5V5 HAYWIRE | `DA_AFL_Arena04_5v5_Haywire` | `B_AFLExperience_Arena04_5v5_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | ✅ **LIVE** — playlist + experience built, PIE-watched |
+| **ARCANEON** / 5V5 PROMOD | `DA_AFL_Arena04_5v5_ProMod` | `B_AFLExperience_Arena04_5v5_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | ✅ **LIVE** — playlist + experience built, PIE-watched |
+| **ARCANEON** / 8V8 HAYWIRE | `DA_AFL_Arena04_8v8_Haywire` | `B_AFLExperience_Arena04_8v8_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | ✅ **LIVE** — playlist + experience built, PIE-watched |
+| **ARCANEON** / 8V8 PROMOD | `DA_AFL_Arena04_8v8_ProMod` | `B_AFLExperience_Arena04_8v8_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | ✅ **LIVE** — playlist + experience built, PIE-watched |
 
-### ARCANEON — why the four tiles are HIDDEN (`bShowInFrontEnd = False`)
-Their `ExperienceID`s name experiences that **do not exist yet** — the per-map experience carries a
-`GameFeatureAction_AddComponents` ComponentList (the AFL trio) which the bridge **cannot write**, so that step is
-AIK-in-editor or the `Arena_04_WIRING_AIK.md` §B manual fallback. A visible tile whose experience does not resolve
-is a broken HOST entry for every player, so they ship hidden and the flag flips when the experiences land.
+### ARCANEON — LIVE (`bShowInFrontEnd = True`, 2026-08-03)
+All four configs PIE-watched before the flag was flipped. `L_Arena_04` is committed (62f7fe63) and the whole
+chain — 4 playlists → map → 4 experiences → `LAS_AFL_Teams_5v5/8v8` → bot-fills → `B_AFL_BotController` — is
+tracked, so a clean clone resolves.
 **`max_player_count` is EXACT SEATS** (TeamSize × 2) — 6 / 10 / 16, never headroom.
-⚠ **`/Game/Maps/L_Arena_04` was UNTRACKED when these were authored** — four committed playlists pointing at an
-uncommitted `.umap` breaks every clean clone. Confirm with the map lane.
+
+**The gore-free split is STRUCTURAL and experience-driven — proven on the same map, at both sizes:**
+
+| | `NoDismember` | `AFL_DISMEMBER` | `GIB` |
+|---|---|---|---|
+| ProMod 5v5 / 8v8  | `=1` | 0 | 0 |
+| Haywire 5v5 / 8v8 | `=0` | 45 / 61 | 87 / 96 |
+
+ProMod drops `AFLDismember` from `GameFeaturesToEnable` **and** carries an empty ComponentList, so
+`AFLDismemberLegPenaltyComponent` is never attached. There is no runtime switch to get wrong.
+
+⚠ **THE AI-3 MOVEMENT KIT IS PROMOD-ONLY.** Sprint, Slide, Vault and Roll are granted on `HeroData_BagMan_Pro`
+alone; Haywire runs `HeroData_BagMan` — Dash, Climb and Grab only. So the human-vs-bot movement parity AI-3 was
+built for exists in ProMod and **does not exist in Haywire**. Haywire logging zero Sprint/Slide/Roll is CORRECT,
+not a defect — and any probe asserting those against a Haywire config is asserting the wrong thing.
 
 ## The internal-codename ↔ external-tile split (BY DESIGN — do NOT "fix" by renaming)
 The DA file / experience / MapID names are **internal codenames**; `TileTitle`/`TileSubTitle` are the **external
@@ -42,12 +54,16 @@ the filename instead of the MapID. (Both DAs still carry the stock `TileDescript
 ShooterCore"` — placeholder, unwashed.)
 
 ## Clean build-state (roster of 10, per IRONICS_MAP_MODE_SPEC §4)
-- **1 BUILT net-new AFL map:** **Arena_01 = NANOWATT** (roster #3, Tier B, Arena 3v3 Extract; brief exists).
+- **2 BUILT net-new AFL maps:** **Arena_01 = NANOWATT** (roster #3, Tier B, Arena 3v3 Extract) and
+  **Arena_04 = ARCANEON** (Tier C, 5v5 + 8v8 × Haywire + ProMod — 4 configs, all PIE-watched, briefs on disk).
 - **1 WASH-in-progress (stock map reskinned):** **INFINEON 8V8 SIEGE** on stock `L_Expanse` (a Tier-C 8v8 prototype
   on a Lyra map — not a net-new roster map).
-- **9 roster maps DESIGN-ONLY** (no map/experience/brief): Duel_01, Duel_02, Arena_02, Arena_03, Arena_04,
-  Arena_05, BR_18, BR_36, Shrink_Yard.
-- **No phantom second AFL map.** Exactly one built AFL map + one stock-map wash.
+- **8 roster maps DESIGN-ONLY:** Duel_01, Duel_02, Arena_02 (brief on disk, unapproved), Arena_03
+  (netcode-blocked), Arena_05, BR_18, BR_36, Shrink_Yard.
+- **The picker now shows 6 tiles**, all AFL, no stock leakage: NANOWATT 3V3 SPEED · INFINEON 8V8 SIEGE ·
+  ARCANEON ×4.
+- **Bracket coverage:** Arena = 1 venue (NANOWATT). Team = 2 (ARCANEON + INFINEON). **Duel = NOTHING** — 1v1 and
+  2v2 have no map at all, which is the largest hole in the matrix.
 
 ## INFINEON remaining wash-work (for its config to be real 8v8) — CODENAMES STAY
 1. The experience `B_AFLExperience_Arena01_Extract4v4` team-size config (bot-fill Target + team setup) must be 8v8
