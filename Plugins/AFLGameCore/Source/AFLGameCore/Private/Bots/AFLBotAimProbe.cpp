@@ -154,10 +154,16 @@ namespace
 						FString::Printf(TEXT("%d true-error crossing(s) in the best acquisition (%d total acqs) -- 0 means asymptotic"),
 							B->GetLifetimeMaxCrossings(), Acqs));
 
-					CheckData(bTracked && B->GetLifetimeMaxCrossings() >= 1,
-						B->GetLifetimeMaxOvershootDeg() > KINDA_SMALL_NUMBER, TEXT("DEPTH"),
-						FString::Printf(TEXT("went %.2fdeg past the true target at its deepest"),
-							B->GetLifetimeMaxOvershootDeg()));
+					// DEPTH -- DIAGNOSTIC, NOT AN ASSERTION. It reported 140.53deg "past the true target",
+					// which is not an overshoot; it is the bearing swinging when a close target crosses the
+					// bot. The number measures target geometry, not the tracker. It also could not fail in
+					// practice -- any crossing at all leaves a non-zero peak, so ">0" was satisfied by
+					// construction. Same family as OBSERVED in the move probe: keep the number visible
+					// because it is occasionally informative, but stop letting it stand as proof.
+					// OVERSHOOT above is the real assertion -- crossings reset per acquisition, so they
+					// cannot be manufactured by a target switch.
+					Ar.Logf(TEXT("  [ ~~ ] %-9s peak %.2fdeg past the true target -- DIAGNOSTIC ONLY (bearing swing on a crossing target inflates this; not an overshoot measure)"),
+						TEXT("DEPTH"), B->GetLifetimeMaxOvershootDeg());
 
 					Ar.Logf(TEXT("        (diagnostic, current acquisition: crossings=%d peak=%.0fd/s lastReact=%.3fs)"),
 						B->GetErrorSignCrossings(), B->GetPeakTrackRate(), B->GetLastReactionDelay());

@@ -8,6 +8,44 @@
 #include "AFLBotController.generated.h"
 
 /**
+ * One set of movement accumulators. TWO instances exist per bot -- a lifetime one (what afl.Bot.MoveProbe
+ * asserts on) and a per-round one (what AFL_MOVESNAP emits) -- and SampleMovement feeds both from the same
+ * code path so they can never disagree about what a metric means.
+ *
+ * WHY PER-ROUND ACCUMULATORS RATHER THAN SNAPSHOT DELTAS. Subtracting the previous snapshot from the running
+ * lifetime totals is cheaper and works for every scalar here, but it is WRONG for Cells: bots respawn each
+ * round and re-walk ground they already covered, so "new distinct cells since the last snapshot" falls off
+ * round over round for a bot whose behaviour never changed. That is the same dilution artefact the tier curve
+ * is being built to avoid, hiding in a different metric -- so the round accumulator is real, and cleared.
+ */
+struct FAFLBotMoveAccum
+{
+	float CombatSeconds     = 0.0f;
+	float StationarySeconds = 0.0f;
+	float LateralSpeedSum   = 0.0f;
+	float ForwardSpeedSum   = 0.0f;
+	float RangeSumCm        = 0.0f;
+	int32 RangeSamples      = 0;
+	int32 LateralReversals  = 0;
+	TSet<FIntVector> Cells;
+
+	// -- goal / path watch. Answers "did the query give this bot anywhere to go, and did it try to go?" --
+	int32 GoalPolls       = 0;   // polls taken while in combat
+	int32 GoalValid       = 0;   // MoveGoal was SET  <=> the query returned >=1 item (see below)
+	int32 GoalChanges     = 0;   // a genuinely new goal was issued
+	int32 PollsNoProgress = 0;   // goal set + path active, yet the bot had not moved since the last poll
+	int32 PollsPathIdle   = 0;   // goal set but path following idle -- the move was never issued
+	float FrozenSeconds   = 0.0f;// sampling SKIPPED because move input was ignored (round-edge freeze)
+
+	void Reset() { *this = FAFLBotMoveAccum(); }
+
+	float StationaryFraction() const { return (CombatSeconds  > KINDA_SMALL_NUMBER) ? (StationarySeconds / CombatSeconds) : 0.0f; }
+	float LateralRatio()       const { return (ForwardSpeedSum > KINDA_SMALL_NUMBER) ? (LateralSpeedSum / ForwardSpeedSum) : 0.0f; }
+	float ReversalsPerSecond() const { return (CombatSeconds  > KINDA_SMALL_NUMBER) ? (LateralReversals / CombatSeconds)  : 0.0f; }
+	float MeanRangeCm()        const { return (RangeSamples > 0) ? (RangeSumCm / RangeSamples) : 0.0f; }
+};
+
+/**
  * AAFLBotController  (AI-1 -- the bot aim model)
  *
  * THE PROBLEM. Stock bot aim is a perfect, instantaneous ray. BTS_SetFocus calls SetFocus(target) and
@@ -77,9 +115,13 @@ public:
 	/** Fastest slew ever achieved, deg/sec. Compared against the resolved cap. */
 	float GetLifetimePeakRate() const { return LifetimePeakRate; }
 
-	/** Deepest the aim ever went PAST the true target after a crossing, degrees. This is the number that
-	 *  says how far it overshot -- unlike the old per-crossing figure, which sampled the error AT the
-	 *  zero-crossing and was therefore ~0 by construction. */
+	/** Deepest the aim ever went PAST the true target after a crossing, degrees.
+	 *
+	 *  DIAGNOSTIC ONLY -- do not assert on this. It was intended as "how far did it overshoot", but it
+	 *  reads 140deg+ in practice, because when a target crosses the bot at close range the BEARING swings
+	 *  that far on its own; the peak is target geometry, not tracker behaviour. It is also unfalsifiable as
+	 *  a test: any crossing leaves a non-zero peak, so "> 0" passes by construction. GetLifetimeMaxCrossings
+	 *  is the honest overshoot signal -- crossings reset per acquisition and cannot come from a switch. */
 	float GetLifetimeMaxOvershootDeg() const { return LifetimeMaxOvershootDeg; }
 
 	/** Shortest reaction delay ever rolled. The floor assertion cares about the minimum, not the last. */
@@ -110,6 +152,10 @@ public:
 	static const FName BBKey_DonutOuter;
 	static const FName BBKey_LateralBias;
 
+	/** READ-ONLY here. The BT's RunEQS service owns this key; the controller only observes it, to learn
+	 *  whether the query gave this bot anywhere to go. Never written from C++. */
+	static const FName BBKey_MoveGoal;
+
 	/** WRITTEN BUT NOT CONSUMED. UBTService::Interval is a plain float with no FAIDataProvider behind it, so
 	 *  there is no binding surface for a per-bot reposition cadence -- every bot re-queries on the shared
 	 *  1.5s +/- 0.5s node interval. The key is still published so the value is visible to the probe and to
@@ -136,7 +182,7 @@ public:
 
 	/** Distinct 200cm world cells occupied while in combat. 1-2 means the reposition cycle is terminating
 	 *  and the bot is shuffling in place. */
-	int32 GetDistinctCellsVisited() const { return VisitedCells.Num(); }
+	int32 GetDistinctCellsVisited() const { return Lifetime.Cells.Num(); }
 
 	/** Mean |lateral| / |forward| speed relative to aim. Near zero = not strafing, which is the exact
 	 *  symptom of a query that generates toward the target. */
@@ -150,7 +196,7 @@ public:
 	float GetMeanRangeCm() const;
 
 	/** Seconds of combat sampled. Zero = NO DATA, never PASS. */
-	float GetCombatSampleSeconds() const { return CombatSampleSeconds; }
+	float GetCombatSampleSeconds() const { return Lifetime.CombatSeconds; }
 
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
@@ -182,8 +228,33 @@ private:
 	void PushMoveParamsToBlackboard();
 
 	/** Per-frame movement sampling for the probe. Only accumulates while a focus target exists -- idle
-	 *  wandering is not combat movement and must not dilute the metrics. */
+	 *  wandering is not combat movement and must not dilute the metrics. Feeds BOTH accumulators. */
 	void SampleMovement(float DeltaTime, const APawn* MyPawn, const AActor* FocusActor);
+
+	/** 1 Hz poll that detects a round change and emits the snapshot for the round just finished.
+	 *
+	 *  READ-ONLY BY DESIGN. It reads the round number for snapshot bookkeeping and NOTHING else -- in
+	 *  particular it does NOT call RefreshTier. Refreshing the tier here would make difficulty advance on a
+	 *  round boundary instead of on re-possession, which is a behaviour change wearing an instrumentation
+	 *  hat. See the RefreshTier comment: that may well be the right fix one day, but not on this pass. */
+	void TickRoundWatch();
+
+	/** Emit one AFL_MOVESNAP line for the round just finished, then clear ThisRound. */
+	void EmitMoveSnapshot(int32 ForRound, const TCHAR* Trigger);
+
+	/** 2 Hz poll of MoveGoal + path following. THE WEDGE DISCRIMINATOR.
+	 *
+	 *  WHY MoveGoal IS THE EQS ITEM COUNT. UBTService_RunEQS::OnQueryFinished computes
+	 *  `bSuccess = Result->IsSuccessful() && (Result->Items.Num() >= 1)`; on success it writes MoveGoal, and
+	 *  with bUpdateBBOnFail (set on our node) it CLEARS MoveGoal otherwise. The engine has already reduced
+	 *  the item count to the one bit that matters, and parked that bit in the blackboard. Reading it here
+	 *  costs nothing and needs no replacement BT service class -- which would have meant re-authoring the
+	 *  QueryConfig binding that was just proven, to learn something the blackboard already knows.
+	 *
+	 *    GoalValid ~ 0 of N polls  -> the query is returning NOTHING. EQS authoring.
+	 *    GoalValid ~ N, no progress -> it had somewhere to go and could not get there. Pathing/collision.
+	 *    GoalValid ~ N, path idle   -> the move was never issued. Behaviour tree. */
+	void TickGoalWatch();
 
 	FAFLBotAimRoll    Roll;
 	FAFLBotAimProfile Profile;
@@ -234,13 +305,19 @@ private:
 	FTimerHandle MovePushRetryTimer;
 
 	// -- AI-2 movement metrics (combat time only) --
-	float CombatSampleSeconds   = 0.0f;
-	float StationarySeconds     = 0.0f;
-	float LateralSpeedSum       = 0.0f;
-	float ForwardSpeedSum       = 0.0f;
-	float RangeSumCm            = 0.0f;
-	int32 RangeSamples          = 0;
-	int32 LateralReversals      = 0;
-	int32 LastLateralSign       = 0;
-	TSet<FIntVector> VisitedCells;
+	FAFLBotMoveAccum Lifetime;    // never reset; what afl.Bot.MoveProbe asserts on
+	FAFLBotMoveAccum ThisRound;   // cleared at every round transition; what AFL_MOVESNAP emits
+	int32 LastLateralSign = 0;    // shared direction state -- a reversal counts once, into both
+
+	// -- AI-2 round watch (instrumentation only) --
+	/** Round the current ThisRound accumulator belongs to. INDEX_NONE until the first read. */
+	int32 SnapRound = INDEX_NONE;
+	FTimerHandle RoundWatchTimer;
+	TWeakObjectPtr<UObject> CachedTierSource;
+
+	// -- AI-2 goal watch (instrumentation only) --
+	FTimerHandle GoalWatchTimer;
+	FVector LastPolledGoal = FVector::ZeroVector;
+	FVector LastPolledPos  = FVector::ZeroVector;
+	bool    bHasPolledOnce = false;
 };

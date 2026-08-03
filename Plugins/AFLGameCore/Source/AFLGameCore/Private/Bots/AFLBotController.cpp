@@ -8,10 +8,12 @@
 #include "BehaviorTree/BlackboardComponent.h"   // AI-2: per-bot movement params -> query params
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "GameFramework/CharacterMovementComponent.h"   // RVO avoidance opt-in, per instance
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
 #include "Math/RandomStream.h"
+#include "Navigation/PathFollowingComponent.h"   // wedge discriminator: did it try to move, and get anywhere
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLBotController)
 
@@ -22,6 +24,7 @@ const FName AAFLBotController::BBKey_DonutInner          = TEXT("BotDonutInner")
 const FName AAFLBotController::BBKey_DonutOuter          = TEXT("BotDonutOuter");
 const FName AAFLBotController::BBKey_RepositionInterval  = TEXT("BotRepositionInterval");
 const FName AAFLBotController::BBKey_LateralBias         = TEXT("BotLateralBias");
+const FName AAFLBotController::BBKey_MoveGoal            = TEXT("MoveGoal");   // observed, never written
 
 namespace
 {
@@ -35,6 +38,18 @@ namespace
 	 *  or the generator degenerates to a disc; thickness must stay positive or the ring has no area. */
 	constexpr float MinDonutInnerCm     = 100.0f;
 	constexpr float MinDonutThicknessCm = 100.0f;
+
+	/** Goal-watch poll period and its two distance epsilons. Measurement resolution, not behaviour: at 0.5s
+	 *  a bot walking at ~400 uu/s covers ~200cm, so 60cm of travel is comfortably "it moved" while still
+	 *  ignoring collision jitter, and a goal that shifted less than 100cm is the same goal re-issued. */
+	constexpr float GoalWatchPeriodSec  = 0.5f;
+	constexpr float NewGoalEpsilonCm    = 100.0f;
+	constexpr float NoProgressEpsilonCm = 60.0f;
+
+	/** Every avoidance group. The hero CDOs ship with GroupsToAvoid EMPTY so that a pawn registers with the
+	 *  UAvoidanceManager -- and is therefore avoidable -- without ever being deflected itself. Bots opt IN
+	 *  to dodging by taking this mask at possession; the player never does, so player input stays untouched. */
+	constexpr int32 AvoidAllGroups = static_cast<int32>(0xFFFFFFFFu);
 }
 
 AAFLBotController::AAFLBotController(const FObjectInitializer& ObjectInitializer)
@@ -59,17 +74,78 @@ void AAFLBotController::OnPossess(APawn* InPawn)
 		*GetName(), CachedTier, MoveProfile.PreferredRangeCm, MoveProfile.RangeBandCm,
 		MoveProfile.RepositionIntervalSec, MoveProfile.LateralBias);
 
+	// AVOIDANCE OPT-IN, PER INSTANCE. This one line is the entire difference between a bot and the player:
+	// both share B_Hero_BagMan_C and both register with the UAvoidanceManager (CDO has bUseRVOAvoidance on),
+	// but the CDO's GroupsToAvoid is EMPTY, so by default a pawn is avoidable and never deflected. Bots take
+	// the full mask here and start dodging; the player never runs this and keeps clean input.
+	//
+	// Logged with a READ-BACK rather than assumed: a silent miss leaves bots registered but avoiding nothing,
+	// which is indistinguishable from a partial fix on screen -- piles would still form and the cause would
+	// look like "RVO does not work" instead of "the mask never landed".
+	if (UCharacterMovementComponent* CMC = InPawn ? InPawn->FindComponentByClass<UCharacterMovementComponent>() : nullptr)
+	{
+		CMC->SetGroupsToAvoidMask(AvoidAllGroups);
+
+		const int32 ReadBack = CMC->GetGroupsToAvoidMask();
+		const bool  bOk = CMC->bUseRVOAvoidance && (ReadBack == AvoidAllGroups);
+
+		// UE_LOG pastes the verbosity as a token, so it cannot be a runtime ternary. Build the line once and
+		// pick the call, rather than duplicating the format string across two branches.
+		const FString Msg = FString::Printf(
+			TEXT("AFL_BOTMOVE: AVOID   %s rvo=%s weight=%.2f radius=%.0f groupsToAvoid=0x%08X -- %s"),
+			*GetName(),
+			CMC->bUseRVOAvoidance ? TEXT("on") : TEXT("OFF"),
+			CMC->AvoidanceWeight,
+			CMC->AvoidanceConsiderationRadius,
+			ReadBack,
+			bOk ? TEXT("ok") : TEXT("MISSED -- this bot is registered but will avoid NOTHING"));
+
+		if (bOk) { UE_LOG(LogAFLGameCore, Log,     TEXT("%s"), *Msg); }
+		else     { UE_LOG(LogAFLGameCore, Warning, TEXT("%s"), *Msg); }
+	}
+	else
+	{
+		UE_LOG(LogAFLGameCore, Warning,
+			TEXT("AFL_BOTMOVE: AVOID   %s -- no CharacterMovementComponent on the possessed pawn; no avoidance."),
+			*GetName());
+	}
+
 	// The blackboard does not exist yet -- the BT starts after possession -- so this self-retries.
 	MovePushAttempts = 0;
 	bMoveParamsPushed = false;
 	PushMoveParamsToBlackboard();
+
+	// Round watch for AFL_MOVESNAP. A poll rather than a possession hook precisely BECAUSE possession is
+	// what the tier already rides: hanging the snapshot off OnPossess would miss the final round, where the
+	// match ends and nothing re-possesses. 1 Hz x 5 bots is free next to a round that lasts a minute.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(RoundWatchTimer,
+			FTimerDelegate::CreateWeakLambda(this, [this] { TickRoundWatch(); }),
+			1.0f, /*loop=*/true);
+
+		World->GetTimerManager().SetTimer(GoalWatchTimer,
+			FTimerDelegate::CreateWeakLambda(this, [this] { TickGoalWatch(); }),
+			GoalWatchPeriodSec, /*loop=*/true);
+	}
+	bHasPolledOnce = false;   // a new pawn is a new position history
 }
 
 void AAFLBotController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// THE LAST ROUND ONLY EXISTS HERE. The round watch emits a snapshot when it sees the number CHANGE, and
+	// after the final round it never does -- the match ends and the world tears down. Without this the curve
+	// would be missing its most interesting point, and missing it silently.
+	if (SnapRound != INDEX_NONE)
+	{
+		EmitMoveSnapshot(SnapRound, TEXT("end-of-play"));
+	}
+
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(MovePushRetryTimer);
+		World->GetTimerManager().ClearTimer(RoundWatchTimer);
+		World->GetTimerManager().ClearTimer(GoalWatchTimer);
 	}
 	Super::EndPlay(EndPlayReason);
 }
@@ -232,14 +308,28 @@ void AAFLBotController::SampleMovement(float DeltaTime, const APawn* MyPawn, con
 		return;
 	}
 
-	CombatSampleSeconds += DeltaTime;
+	// ROUND-LIVE GATE. A pawn frozen at a round edge still holds its focus target, so without this every
+	// frozen second lands in StationarySeconds as though the bot chose to stand there -- pure inflation, and
+	// the likeliest reason warmup read 66.9%. The gate REPORTS ON ITSELF: FrozenSeconds is emitted on the
+	// snapshot, so if it stays 0.00 the freeze is not implemented via move-input suppression and this gate
+	// caught nothing. That is a fact worth seeing rather than assuming away.
+	if (MyPawn->IsMoveInputIgnored())
+	{
+		Lifetime.FrozenSeconds  += DeltaTime;
+		ThisRound.FrozenSeconds += DeltaTime;
+		return;
+	}
+
+	Lifetime.CombatSeconds  += DeltaTime;
+	ThisRound.CombatSeconds += DeltaTime;
 
 	const FVector Vel = MyPawn->GetVelocity();
 	const FVector Flat(Vel.X, Vel.Y, 0.0f);
 	const float Speed = Flat.Size();
 	if (Speed < StationarySpeedThreshold)
 	{
-		StationarySeconds += DeltaTime;
+		Lifetime.StationarySeconds  += DeltaTime;
+		ThisRound.StationarySeconds += DeltaTime;
 		LastLateralSign = 0;   // a stop breaks the reversal chain; resuming is not a direction change
 	}
 	else
@@ -251,49 +341,181 @@ void AAFLBotController::SampleMovement(float DeltaTime, const APawn* MyPawn, con
 		const float FwdSpeed = FMath::Abs(FVector::DotProduct(Flat, Fwd));
 		const float LatSpeed = FVector::DotProduct(Flat, Right);
 
-		ForwardSpeedSum += FwdSpeed * DeltaTime;
-		LateralSpeedSum += FMath::Abs(LatSpeed) * DeltaTime;
+		Lifetime.ForwardSpeedSum  += FwdSpeed * DeltaTime;
+		ThisRound.ForwardSpeedSum += FwdSpeed * DeltaTime;
+		Lifetime.LateralSpeedSum  += FMath::Abs(LatSpeed) * DeltaTime;
+		ThisRound.LateralSpeedSum += FMath::Abs(LatSpeed) * DeltaTime;
 
 		const int32 Sign = (LatSpeed > StationarySpeedThreshold) ? 1 : ((LatSpeed < -StationarySpeedThreshold) ? -1 : 0);
 		if (Sign != 0)
 		{
 			if (LastLateralSign != 0 && Sign != LastLateralSign)
 			{
-				++LateralReversals;
+				++Lifetime.LateralReversals;
+				++ThisRound.LateralReversals;
 			}
 			LastLateralSign = Sign;
 		}
 	}
 
 	const FVector P = MyPawn->GetActorLocation();
-	VisitedCells.Add(FIntVector(
+	const FIntVector Cell(
 		FMath::FloorToInt(P.X / PositionCellSizeCm),
 		FMath::FloorToInt(P.Y / PositionCellSizeCm),
-		0));
+		0);
+	Lifetime.Cells.Add(Cell);
+	ThisRound.Cells.Add(Cell);
 
-	RangeSumCm += FVector::Dist2D(P, FocusActor->GetActorLocation());
-	++RangeSamples;
+	const float R = FVector::Dist2D(P, FocusActor->GetActorLocation());
+	Lifetime.RangeSumCm  += R;
+	ThisRound.RangeSumCm += R;
+	++Lifetime.RangeSamples;
+	++ThisRound.RangeSamples;
 }
 
-float AAFLBotController::GetStationaryFraction() const
+void AAFLBotController::TickRoundWatch()
 {
-	return (CombatSampleSeconds > KINDA_SMALL_NUMBER) ? (StationarySeconds / CombatSampleSeconds) : 0.0f;
+	// Resolve the tier source once and cache it. Same lookup RefreshTier does; done here so the 1 Hz poll
+	// does not walk the component list of every actor forever.
+	IAFLMatchTierSource* Src = Cast<IAFLMatchTierSource>(CachedTierSource.Get());
+	if (!Src)
+	{
+		if (const UWorld* World = GetWorld())
+		{
+			if (const AGameStateBase* GS = World->GetGameState())
+			{
+				for (UActorComponent* Comp : GS->GetComponents())
+				{
+					if (IAFLMatchTierSource* Found = Cast<IAFLMatchTierSource>(Comp))
+					{
+						CachedTierSource = Comp;
+						Src = Found;
+						break;
+					}
+				}
+			}
+		}
+	}
+	if (!Src)
+	{
+		return;   // no round authority in this mode -- nothing to snapshot against
+	}
+
+	const int32 Round = Src->GetCurrentRoundNumber();
+	if (SnapRound == INDEX_NONE)
+	{
+		SnapRound = Round;      // first read: adopt, do not emit an empty snapshot for a round we missed
+		return;
+	}
+	if (Round != SnapRound)
+	{
+		EmitMoveSnapshot(SnapRound, TEXT("round-change"));
+		SnapRound = Round;
+	}
 }
 
-float AAFLBotController::GetLateralRatio() const
+void AAFLBotController::TickGoalWatch()
 {
-	return (ForwardSpeedSum > KINDA_SMALL_NUMBER) ? (LateralSpeedSum / ForwardSpeedSum) : 0.0f;
+	const APawn* MyPawn = GetPawn();
+	const AActor* Focus = GetFocusActor();
+	const UBlackboardComponent* BB = GetBlackboardComponent();
+
+	// Same gates as the sampler, so the counters share a denominator with stationary and the two can be
+	// read against each other on one line.
+	if (!MyPawn || !Focus || !BB || MyPawn->IsMoveInputIgnored())
+	{
+		bHasPolledOnce = false;   // do not measure "progress" across a gap in observation
+		return;
+	}
+
+	const FVector Pos  = MyPawn->GetActorLocation();
+	const bool    bSet = BB->IsVectorValueSet(BBKey_MoveGoal);
+	const FVector Goal = bSet ? BB->GetValueAsVector(BBKey_MoveGoal) : FVector::ZeroVector;
+
+	++Lifetime.GoalPolls;
+	++ThisRound.GoalPolls;
+
+	if (bSet)
+	{
+		++Lifetime.GoalValid;
+		++ThisRound.GoalValid;
+
+		if (!bHasPolledOnce || FVector::DistSquared2D(Goal, LastPolledGoal) > FMath::Square(NewGoalEpsilonCm))
+		{
+			++Lifetime.GoalChanges;
+			++ThisRound.GoalChanges;
+		}
+
+		// Did it TRY, and did trying achieve anything? Path status separates "never asked to move" from
+		// "asked, and physically could not".
+		const UPathFollowingComponent* PFC = GetPathFollowingComponent();
+		const bool bPathActive = PFC && (PFC->GetStatus() == EPathFollowingStatus::Moving);
+		if (!bPathActive)
+		{
+			++Lifetime.PollsPathIdle;
+			++ThisRound.PollsPathIdle;
+		}
+		else if (bHasPolledOnce && FVector::DistSquared2D(Pos, LastPolledPos) < FMath::Square(NoProgressEpsilonCm))
+		{
+			++Lifetime.PollsNoProgress;
+			++ThisRound.PollsNoProgress;
+		}
+	}
+
+	LastPolledGoal = Goal;
+	LastPolledPos  = Pos;
+	bHasPolledOnce = true;
 }
 
-float AAFLBotController::GetReversalsPerSecond() const
+void AAFLBotController::EmitMoveSnapshot(int32 ForRound, const TCHAR* Trigger)
 {
-	return (CombatSampleSeconds > KINDA_SMALL_NUMBER) ? (LateralReversals / CombatSampleSeconds) : 0.0f;
+	const APlayerState* PS = GetPlayerState<APlayerState>();
+	const FString Name = PS ? PS->GetPlayerName() : GetName();
+
+	// NO DATA, NEVER A ZERO. A bot that never engaged this round has 0 combat seconds, and every ratio below
+	// would divide to 0.0 -- which reads as "perfectly mobile" and would drag the curve down with a sample
+	// that measures nothing. It is reported as absent, in the same shape the probes use.
+	if (ThisRound.CombatSeconds <= KINDA_SMALL_NUMBER)
+	{
+		// frozen= is reported even here: a round that is ALL freeze and no combat looks identical to a round
+		// the bot sat out, and those are very different facts.
+		UE_LOG(LogAFLGameCore, Log,
+			TEXT("AFL_MOVESNAP: round=%d tier=%.2f bot=%s NO DATA -- no combat time this round (frozen=%.1fs) (%s)"),
+			ForRound, CachedTier, *Name, ThisRound.FrozenSeconds, Trigger);
+		ThisRound.Reset();
+		return;
+	}
+
+	// goalvalid% IS the EQS item count, reduced to the bit that decides: see TickGoalWatch.
+	const int32 P = FMath::Max(1, ThisRound.GoalPolls);
+	UE_LOG(LogAFLGameCore, Log,
+		TEXT("AFL_MOVESNAP: round=%d tier=%.2f bot=%s combat=%.1fs stationary=%.0f%% cells=%d lateral=%.2f ")
+		TEXT("reversals=%.2f/s range=%.0fcm donut=[%.0f..%.0f] pref=%.0f band=%.0f latbias=%.2f ")
+		TEXT("| polls=%d goalvalid=%.0f%% goalchanges=%d pathidle=%.0f%% noprogress=%.0f%% frozen=%.1fs (%s)"),
+		ForRound, CachedTier, *Name,
+		ThisRound.CombatSeconds,
+		ThisRound.StationaryFraction() * 100.0f,
+		ThisRound.Cells.Num(),
+		ThisRound.LateralRatio(),
+		ThisRound.ReversalsPerSecond(),
+		ThisRound.MeanRangeCm(),
+		PushedDonutInnerCm, PushedDonutOuterCm,
+		MoveProfile.PreferredRangeCm, MoveProfile.RangeBandCm, MoveProfile.LateralBias,
+		ThisRound.GoalPolls,
+		100.0f * ThisRound.GoalValid       / P,
+		ThisRound.GoalChanges,
+		100.0f * ThisRound.PollsPathIdle   / P,
+		100.0f * ThisRound.PollsNoProgress / P,
+		ThisRound.FrozenSeconds,
+		Trigger);
+
+	ThisRound.Reset();
 }
 
-float AAFLBotController::GetMeanRangeCm() const
-{
-	return (RangeSamples > 0) ? (RangeSumCm / RangeSamples) : 0.0f;
-}
+float AAFLBotController::GetStationaryFraction() const { return Lifetime.StationaryFraction(); }
+float AAFLBotController::GetLateralRatio()       const { return Lifetime.LateralRatio(); }
+float AAFLBotController::GetReversalsPerSecond() const { return Lifetime.ReversalsPerSecond(); }
+float AAFLBotController::GetMeanRangeCm()        const { return Lifetime.MeanRangeCm(); }
 
 void AAFLBotController::UpdateControlRotation(float DeltaTime, bool bUpdatePawn)
 {
