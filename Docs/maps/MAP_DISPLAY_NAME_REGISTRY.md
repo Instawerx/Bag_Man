@@ -15,6 +15,19 @@ So: to rename a config, edit its playlist DA; to know what a display name *is*, 
 |---|---|---|---|---|---|
 | **NANOWATT** / 3V3 SPEED | `DA_AFL_Arena01_Extract3v3` | `B_AFLExperience_Arena01_Extract3v3` | **`/Game/Maps/L_Arena_01`** (OURS) | Arena 3v3 Extract | ✅ **BUILT** (greybox PIE-proven, T1; brief `Docs/maps/Arena_01_DESIGN.md`) |
 | **INFINEON** / 8V8 SIEGE | `DA_AFL_Arena01_Extract4v4` | `B_AFLExperience_Arena01_Extract4v4` | **`/ShooterMaps/Maps/L_Expanse`** (LYRA STOCK) | 8v8 (Tier C) | ⚠ **WASH IN PROGRESS** on a stock map — NOT a 4v4, NOT Arena_01 |
+| **ARCANEON** / 5V5 HAYWIRE | `DA_AFL_Arena04_5v5_Haywire` | `B_AFLExperience_Arena04_5v5_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | 🚧 playlist BUILT + **HIDDEN**; experience NOT authored |
+| **ARCANEON** / 5V5 PROMOD | `DA_AFL_Arena04_5v5_ProMod` | `B_AFLExperience_Arena04_5v5_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | 🚧 playlist BUILT + **HIDDEN**; experience NOT authored |
+| **ARCANEON** / 8V8 HAYWIRE | `DA_AFL_Arena04_8v8_Haywire` | `B_AFLExperience_Arena04_8v8_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | 🚧 playlist BUILT + **HIDDEN**; experience NOT authored |
+| **ARCANEON** / 8V8 PROMOD | `DA_AFL_Arena04_8v8_ProMod` | `B_AFLExperience_Arena04_8v8_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | 🚧 playlist BUILT + **HIDDEN**; experience NOT authored |
+
+### ARCANEON — why the four tiles are HIDDEN (`bShowInFrontEnd = False`)
+Their `ExperienceID`s name experiences that **do not exist yet** — the per-map experience carries a
+`GameFeatureAction_AddComponents` ComponentList (the AFL trio) which the bridge **cannot write**, so that step is
+AIK-in-editor or the `Arena_04_WIRING_AIK.md` §B manual fallback. A visible tile whose experience does not resolve
+is a broken HOST entry for every player, so they ship hidden and the flag flips when the experiences land.
+**`max_player_count` is EXACT SEATS** (TeamSize × 2) — 6 / 10 / 16, never headroom.
+⚠ **`/Game/Maps/L_Arena_04` was UNTRACKED when these were authored** — four committed playlists pointing at an
+uncommitted `.umap` breaks every clean clone. Confirm with the map lane.
 
 ## The internal-codename ↔ external-tile split (BY DESIGN — do NOT "fix" by renaming)
 The DA file / experience / MapID names are **internal codenames**; `TileTitle`/`TileSubTitle` are the **external
