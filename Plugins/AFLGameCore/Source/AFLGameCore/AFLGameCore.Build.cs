@@ -20,6 +20,7 @@ public class AFLGameCore : ModuleRules
 				"GameplayTags",
 				"Json",       // T2: parse the GameLift matchmaker GameSessionData contract (UAFLMatchmakerDataProvider)
 				"AIModule",   // FGenericTeamId (GenericTeamAgentInterface.h) for the team-assignment seam
+				"GameplayAbilities",   // AI-3: send Event.Movement.Sprint.Requested; read State.Movement.Sprinting
 				"GameplayMessageRuntime",   // UGameplayMessageSubsystem -- Lyra.Elimination.Message anti-camp feed (T1.4b-ii)
 				"LyraGame",   // ALyraGameMode + ULyraTeamCreationComponent bases (the always-loaded project module)
 				"ModularGameplayActors",   // AModularAIController base of ALyraPlayerBotController (AAFLBotController's grandparent)

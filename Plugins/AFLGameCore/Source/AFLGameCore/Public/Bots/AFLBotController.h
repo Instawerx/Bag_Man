@@ -36,6 +36,9 @@ struct FAFLBotMoveAccum
 	int32 PollsNoProgress = 0;   // goal set + path active, yet the bot had not moved since the last poll
 	int32 PollsPathIdle   = 0;   // goal set but path following idle -- the move was never issued
 	float FrozenSeconds   = 0.0f;// sampling SKIPPED because move input was ignored (round-edge freeze)
+	float SprintSeconds   = 0.0f;// AI-3: combat time holding State.Movement.Sprinting
+
+	float SprintFraction() const { return (CombatSeconds > KINDA_SMALL_NUMBER) ? (SprintSeconds / CombatSeconds) : 0.0f; }
 
 	void Reset() { *this = FAFLBotMoveAccum(); }
 
@@ -43,6 +46,33 @@ struct FAFLBotMoveAccum
 	float LateralRatio()       const { return (ForwardSpeedSum > KINDA_SMALL_NUMBER) ? (LateralSpeedSum / ForwardSpeedSum) : 0.0f; }
 	float ReversalsPerSecond() const { return (CombatSeconds  > KINDA_SMALL_NUMBER) ? (LateralReversals / CombatSeconds)  : 0.0f; }
 	float MeanRangeCm()        const { return (RangeSamples > 0) ? (RangeSumCm / RangeSamples) : 0.0f; }
+};
+
+/**
+ * One finished round, frozen. THE UNIT EVERY BEHAVIOURAL ASSERTION IS EVALUATED OVER.
+ *
+ * A lifetime mean cannot see an intermittent extreme -- it reports a bot that was wedged solid for one round
+ * and fine for seven as mildly sluggish. That mistake has now been made twice on this probe (STATIONARY, then
+ * SPRINT), so the fix is not another per-metric patch: assertions evaluate over EVERY recorded round and fail
+ * on the WORST one, naming it. A single current-round check would not do either, because the probe runs at one
+ * instant and would miss a bad round that already ended.
+ *
+ * PreferredRange/RangeBand are captured PER ROUND on purpose: they move with the tier, so comparing a
+ * whole-match mean against the profile the bot happens to hold right now compares against the wrong yardstick.
+ */
+struct FAFLBotRoundSummary
+{
+	int32 Round            = INDEX_NONE;
+	float Tier             = 0.0f;
+	float CombatSeconds    = 0.0f;
+	float Stationary       = 0.0f;
+	int32 Cells            = 0;
+	float Lateral          = 0.0f;
+	float Reversals        = 0.0f;
+	float Sprint           = 0.0f;
+	float MeanRangeCm      = 0.0f;
+	float PreferredRangeCm = 0.0f;   // the profile AT THAT ROUND -- tier moves it
+	float RangeBandCm      = 0.0f;
 };
 
 /**
@@ -198,6 +228,19 @@ public:
 	/** Seconds of combat sampled. Zero = NO DATA, never PASS. */
 	float GetCombatSampleSeconds() const { return Lifetime.CombatSeconds; }
 
+	/** AI-3. Fraction of combat time spent sprinting. TWO-SIDED: ~0 means the ability is inert (the event
+	 *  never reached it, or the threshold is unreachable); very high means the bot never walks, which is one
+	 *  gear wearing two names and reads exactly as robotic as never sprinting.
+	 *  LIFETIME -- diagnostic only. Assert on GetRoundHistory(); this one read 62% while three bots sat at
+	 *  94-95% for the only real combat round. */
+	float GetSprintFraction() const { return Lifetime.SprintFraction(); }
+
+	/** Every finished round. What the behavioural assertions are evaluated over. */
+	const TArray<FAFLBotRoundSummary>& GetRoundHistory() const { return RoundHistory; }
+
+	/** The round in progress, as a summary. Combat seconds may be tiny -- the caller decides if it is enough. */
+	FAFLBotRoundSummary GetCurrentRoundSummary() const;
+
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -312,6 +355,9 @@ private:
 	// -- AI-2 round watch (instrumentation only) --
 	/** Round the current ThisRound accumulator belongs to. INDEX_NONE until the first read. */
 	int32 SnapRound = INDEX_NONE;
+
+	/** Appended by EmitMoveSnapshot just before ThisRound is cleared. Bounded by rounds-per-match. */
+	TArray<FAFLBotRoundSummary> RoundHistory;
 	FTimerHandle RoundWatchTimer;
 	TWeakObjectPtr<UObject> CachedTierSource;
 

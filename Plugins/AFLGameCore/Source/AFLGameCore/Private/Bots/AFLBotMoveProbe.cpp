@@ -34,6 +34,18 @@ namespace
 	constexpr int32 DistinctCellsMin   = 3;       // below: the reposition cycle is still terminating
 	constexpr float MinCombatSeconds   = 5.0f;    // below this, nothing is asserted -- sample too thin
 
+	/** AI-3 sprint window, two-sided.
+	 *
+	 *  LOW EDGE 0.03. Below 3% the ability is effectively inert -- the GameplayEvent never reached it, the
+	 *  threshold is unreachable, or the lease is expiring before the speed swap lands. Zero is the specific
+	 *  reading for "a bot cannot trigger this at all", which is the state AI-3 exists to leave behind.
+	 *
+	 *  HIGH EDGE 0.70. Above 70% the bot has one gear. A bot permanently at 1.4x is no more human than a bot
+	 *  permanently at 1.0x -- the tell is the CHANGE of pace, and a sprint that never ends also means the lease
+	 *  is not expiring, which is the AI-0 latch wearing a new hat. This edge is the one that catches it. */
+	constexpr float SprintFractionMin  = 0.03f;
+	constexpr float SprintFractionMax  = 0.70f;
+
 	/** Mean held range must be within PreferredRangeCm +/- RangeBandCm * this.
 	 *  WAS 2.0, WHICH COULD NOT FAIL. Every bot ran the same fixed 400-1100 donut, so every mean landed
 	 *  inside a doubled band by construction and RANGE passed while the per-bot mechanism was entirely
@@ -105,13 +117,13 @@ namespace
 					const FAFLBotMoveProfile& M = B->GetMoveProfile();
 					const APlayerState* PS = B->GetPlayerState<APlayerState>();
 					const float T = B->GetCombatSampleSeconds();
-					const bool bEnough = T >= MinCombatSeconds;
 
 					Ar.Logf(TEXT("--- %s (%s) tier=%.2f  combat=%.1fs ---"),
 						*B->GetName(), PS ? *PS->GetPlayerName() : TEXT("?"), B->GetAimTier(), T);
-					Ar.Logf(TEXT("    range=%.0fcm band=%.0fcm interval=%.2fs lateral=%.2f  pushed=%s"),
+					Ar.Logf(TEXT("    range=%.0fcm band=%.0fcm interval=%.2fs lateral=%.2f  pushed=%s  sprintAt>%.0fcm"),
 						M.PreferredRangeCm, M.RangeBandCm, M.RepositionIntervalSec, M.LateralBias,
-						B->AreMoveParamsPushed() ? TEXT("yes") : TEXT("NO"));
+						B->AreMoveParamsPushed() ? TEXT("yes") : TEXT("NO"),
+						FMath::Max(300.0f, M.PreferredRangeCm));
 
 					// If the params never reached the blackboard the bot is running the query's authored
 					// defaults, so every metric below describes the wrong thing. Fail loudly, not silently.
@@ -139,29 +151,91 @@ namespace
 							BBInner, BBOuter, BBLateral,
 							B->GetDonutInnerCm(), B->GetDonutOuterCm(), M.LateralBias));
 
-					const float Stat = B->GetStationaryFraction();
-					CheckData(bEnough, Stat <= StationaryMax && Stat >= StationaryMin, TEXT("STATIONARY"),
-						FString::Printf(TEXT("%.0f%% of combat below %.0f uu/s (window %.0f-%.0f%%; high = the standing-still bug, near-zero = never pauses)"),
-							Stat * 100.f, 40.0f, StationaryMin * 100.f, StationaryMax * 100.f));
+					// ================= PER-ROUND ASSERTIONS =================
+					// Everything below is evaluated over EVERY round with a usable sample and fails on the
+					// WORST one, naming it. A lifetime mean cannot see an intermittent extreme -- it read
+					// STATIONARY as a mild 2-of-5 tuning miss while bots sat wedged at 97%, and SPRINT as a
+					// comfortable 62% while three bots ran 94-95% for the only real combat round. Both were
+					// found from the per-round snapshot log, not from this command. Now the command sees it.
+					TArray<FAFLBotRoundSummary> Rounds = B->GetRoundHistory();
+					const FAFLBotRoundSummary Cur = B->GetCurrentRoundSummary();
+					if (Cur.CombatSeconds >= MinCombatSeconds)
+					{
+						Rounds.Add(Cur);   // the round in progress counts once it has a real sample
+					}
+					Rounds.RemoveAll([](const FAFLBotRoundSummary& R) { return R.CombatSeconds < MinCombatSeconds; });
+					const bool bRounds = Rounds.Num() > 0;
 
-					CheckData(bEnough, B->GetDistinctCellsVisited() >= DistinctCellsMin, TEXT("POSITIONS"),
-						FString::Printf(TEXT("%d distinct 2m cells (min %d; 1-2 means the reposition cycle is terminating)"),
-							B->GetDistinctCellsVisited(), DistinctCellsMin));
+					/** Fail on the worst round for a metric; report which round and the value. */
+					auto WorstOf = [&Rounds](TFunctionRef<float(const FAFLBotRoundSummary&)> Get,
+					                         TFunctionRef<bool(float)> bBad,
+					                         float& OutVal, int32& OutRound) -> bool
+					{
+						bool bAny = false;
+						for (const FAFLBotRoundSummary& R : Rounds)
+						{
+							const float V = Get(R);
+							if (bBad(V) && (!bAny || FMath::Abs(V) > FMath::Abs(OutVal)))
+							{
+								OutVal = V; OutRound = R.Round; bAny = true;
+							}
+						}
+						return bAny;   // true => at least one round is outside the window
+					};
 
-					CheckData(bEnough, B->GetLateralRatio() >= LateralRatioMin, TEXT("LATERAL"),
-						FString::Printf(TEXT("%.2f lateral/forward (min %.2f; near-zero = velocity parallel to aim, i.e. not strafing)"),
-							B->GetLateralRatio(), LateralRatioMin));
+					float BadV = 0.0f; int32 BadR = INDEX_NONE;
 
-					const float Rev = B->GetReversalsPerSecond();
-					CheckData(bEnough, Rev <= ReversalsMax && Rev >= ReversalsMin, TEXT("REVERSALS"),
-						FString::Printf(TEXT("%.2f/s (window %.2f-%.1f; high = thrashing between goals, zero = one straight line)"),
-							Rev, ReversalsMin, ReversalsMax));
+					BadV = 0.f; BadR = INDEX_NONE;
+					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return R.Stationary; },
+							[](float V){ return V > StationaryMax || V < StationaryMin; }, BadV, BadR), TEXT("STATIONARY"),
+						BadR == INDEX_NONE
+							? FString::Printf(TEXT("every one of %d round(s) inside %.0f-%.0f%%"), Rounds.Num(), StationaryMin*100.f, StationaryMax*100.f)
+							: FString::Printf(TEXT("round %d hit %.0f%% (window %.0f-%.0f%%, %d rounds checked; high = the standing-still bug, near-zero = never pauses)"),
+								BadR, BadV*100.f, StationaryMin*100.f, StationaryMax*100.f, Rounds.Num()));
 
-					const float MeanR = B->GetMeanRangeCm();
-					const bool bRangeOk = FMath::Abs(MeanR - M.PreferredRangeCm) <= M.RangeBandCm * RangeTolerance;
-					CheckData(bEnough && MeanR > 0.0f, bRangeOk, TEXT("RANGE"),
-						FString::Printf(TEXT("held %.0fcm vs preferred %.0f +/- %.0f (x%.0f tolerance)"),
-							MeanR, M.PreferredRangeCm, M.RangeBandCm, RangeTolerance));
+					BadV = 0.f; BadR = INDEX_NONE;
+					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return (float)R.Cells; },
+							[](float V){ return V < (float)DistinctCellsMin; }, BadV, BadR), TEXT("POSITIONS"),
+						BadR == INDEX_NONE
+							? FString::Printf(TEXT("every one of %d round(s) >= %d cells"), Rounds.Num(), DistinctCellsMin)
+							: FString::Printf(TEXT("round %d covered only %.0f cells (min %d; the reposition cycle terminated that round)"), BadR, BadV, DistinctCellsMin));
+
+					BadV = 0.f; BadR = INDEX_NONE;
+					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return R.Lateral; },
+							[](float V){ return V < LateralRatioMin; }, BadV, BadR), TEXT("LATERAL"),
+						BadR == INDEX_NONE
+							? FString::Printf(TEXT("every one of %d round(s) >= %.2f lateral/forward"), Rounds.Num(), LateralRatioMin)
+							: FString::Printf(TEXT("round %d fell to %.2f lateral/forward (min %.2f; velocity parallel to aim = not strafing)"), BadR, BadV, LateralRatioMin));
+
+					BadV = 0.f; BadR = INDEX_NONE;
+					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return R.Reversals; },
+							[](float V){ return V > ReversalsMax || V < ReversalsMin; }, BadV, BadR), TEXT("REVERSALS"),
+						BadR == INDEX_NONE
+							? FString::Printf(TEXT("every one of %d round(s) inside %.2f-%.1f/s"), Rounds.Num(), ReversalsMin, ReversalsMax)
+							: FString::Printf(TEXT("round %d hit %.2f/s (window %.2f-%.1f; high = thrashing, zero = one straight line)"), BadR, BadV, ReversalsMin, ReversalsMax));
+
+					BadV = 0.f; BadR = INDEX_NONE;
+					CheckData(bRounds, !WorstOf([](const FAFLBotRoundSummary& R){ return R.Sprint; },
+							[](float V){ return V > SprintFractionMax || V < SprintFractionMin; }, BadV, BadR), TEXT("SPRINT"),
+						BadR == INDEX_NONE
+							? FString::Printf(TEXT("every one of %d round(s) inside %.0f-%.0f%%"), Rounds.Num(), SprintFractionMin*100.f, SprintFractionMax*100.f)
+							: FString::Printf(TEXT("round %d hit %.0f%% sprinting (window %.0f-%.0f%%, %d rounds checked; ~0 = event never reached the ability, high = one gear / lease not expiring)"),
+								BadR, BadV*100.f, SprintFractionMin*100.f, SprintFractionMax*100.f, Rounds.Num()));
+
+					// RANGE compares each round against the profile HELD THAT ROUND. Preferred range moves with
+					// the tier, so a whole-match mean measured against the current profile is the wrong yardstick.
+					BadV = 0.f; BadR = INDEX_NONE;
+					CheckData(bRounds, !WorstOf(
+							[](const FAFLBotRoundSummary& R){ return (R.RangeBandCm > KINDA_SMALL_NUMBER && R.MeanRangeCm > 0.f)
+								? (R.MeanRangeCm - R.PreferredRangeCm) / R.RangeBandCm : 0.0f; },
+							[](float V){ return FMath::Abs(V) > RangeTolerance; }, BadV, BadR), TEXT("RANGE"),
+						BadR == INDEX_NONE
+							? FString::Printf(TEXT("every one of %d round(s) held within +/-%.0fx its own band"), Rounds.Num(), RangeTolerance)
+							: FString::Printf(TEXT("round %d held %+.2f bands off its own preferred range (limit %.0fx)"), BadR, BadV, RangeTolerance));
+
+					Ar.Logf(TEXT("        (lifetime, diagnostic only: stationary=%.0f%% sprint=%.0f%% cells=%d range=%.0fcm)"),
+						B->GetStationaryFraction()*100.f, B->GetSprintFraction()*100.f,
+						B->GetDistinctCellsVisited(), B->GetMeanRangeCm());
 				}
 
 				// -- VARIANCE, in two halves. The first is cheap and was all the original had; the second

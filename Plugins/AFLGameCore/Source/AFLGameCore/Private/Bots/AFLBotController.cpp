@@ -4,6 +4,8 @@
 
 #include "AFLGameCore.h"
 #include "AFLMatchTierSource.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
 #include "AITypes.h"                 // FAISystem::IsValidLocation -- the stock focal-point validity check
 #include "BehaviorTree/BlackboardComponent.h"   // AI-2: per-bot movement params -> query params
 #include "Engine/World.h"
@@ -13,6 +15,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
 #include "Math/RandomStream.h"
+#include "NativeGameplayTags.h"
 #include "Navigation/PathFollowingComponent.h"   // wedge discriminator: did it try to move, and get anywhere
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLBotController)
@@ -25,6 +28,10 @@ const FName AAFLBotController::BBKey_DonutOuter          = TEXT("BotDonutOuter")
 const FName AAFLBotController::BBKey_RepositionInterval  = TEXT("BotRepositionInterval");
 const FName AAFLBotController::BBKey_LateralBias         = TEXT("BotLateralBias");
 const FName AAFLBotController::BBKey_MoveGoal            = TEXT("MoveGoal");   // observed, never written
+
+// AI-3 probe input. Granted by GE_AFL_Sprint_Active and watched by UAFLSprintMovementComponent -- reading the
+// tag keeps AFLGameCore free of any AFLMovement dependency.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Movement_Sprinting, "State.Movement.Sprinting");
 
 namespace
 {
@@ -323,6 +330,18 @@ void AAFLBotController::SampleMovement(float DeltaTime, const APawn* MyPawn, con
 	Lifetime.CombatSeconds  += DeltaTime;
 	ThisRound.CombatSeconds += DeltaTime;
 
+	// AI-3. Read the STATE TAG rather than UAFLSprintMovementComponent::IsSprinting(): AFLGameCore is always
+	// loaded and must not take a dependency on the AFLMovement GameFeature. The tag is the same contract the
+	// movement component itself listens to, so this observes exactly what drives the speed swap.
+	if (const UAbilitySystemComponent* ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(const_cast<APawn*>(MyPawn)))
+	{
+		if (ASC->HasMatchingGameplayTag(TAG_State_Movement_Sprinting))
+		{
+			Lifetime.SprintSeconds  += DeltaTime;
+			ThisRound.SprintSeconds += DeltaTime;
+		}
+	}
+
 	const FVector Vel = MyPawn->GetVelocity();
 	const FVector Flat(Vel.X, Vel.Y, 0.0f);
 	const float Speed = Flat.Size();
@@ -491,7 +510,7 @@ void AAFLBotController::EmitMoveSnapshot(int32 ForRound, const TCHAR* Trigger)
 	UE_LOG(LogAFLGameCore, Log,
 		TEXT("AFL_MOVESNAP: round=%d tier=%.2f bot=%s combat=%.1fs stationary=%.0f%% cells=%d lateral=%.2f ")
 		TEXT("reversals=%.2f/s range=%.0fcm donut=[%.0f..%.0f] pref=%.0f band=%.0f latbias=%.2f ")
-		TEXT("| polls=%d goalvalid=%.0f%% goalchanges=%d pathidle=%.0f%% noprogress=%.0f%% frozen=%.1fs (%s)"),
+		TEXT("| polls=%d goalvalid=%.0f%% goalchanges=%d pathidle=%.0f%% noprogress=%.0f%% frozen=%.1fs sprint=%.0f%% (%s)"),
 		ForRound, CachedTier, *Name,
 		ThisRound.CombatSeconds,
 		ThisRound.StationaryFraction() * 100.0f,
@@ -507,9 +526,42 @@ void AAFLBotController::EmitMoveSnapshot(int32 ForRound, const TCHAR* Trigger)
 		100.0f * ThisRound.PollsPathIdle   / P,
 		100.0f * ThisRound.PollsNoProgress / P,
 		ThisRound.FrozenSeconds,
+		ThisRound.SprintFraction() * 100.0f,
 		Trigger);
 
+	// Freeze the round before clearing it. This is what the probe asserts on -- see FAFLBotRoundSummary.
+	FAFLBotRoundSummary S;
+	S.Round            = ForRound;
+	S.Tier             = CachedTier;
+	S.CombatSeconds    = ThisRound.CombatSeconds;
+	S.Stationary       = ThisRound.StationaryFraction();
+	S.Cells            = ThisRound.Cells.Num();
+	S.Lateral          = ThisRound.LateralRatio();
+	S.Reversals        = ThisRound.ReversalsPerSecond();
+	S.Sprint           = ThisRound.SprintFraction();
+	S.MeanRangeCm      = ThisRound.MeanRangeCm();
+	S.PreferredRangeCm = MoveProfile.PreferredRangeCm;
+	S.RangeBandCm      = MoveProfile.RangeBandCm;
+	RoundHistory.Add(S);
+
 	ThisRound.Reset();
+}
+
+FAFLBotRoundSummary AAFLBotController::GetCurrentRoundSummary() const
+{
+	FAFLBotRoundSummary S;
+	S.Round            = SnapRound;
+	S.Tier             = CachedTier;
+	S.CombatSeconds    = ThisRound.CombatSeconds;
+	S.Stationary       = ThisRound.StationaryFraction();
+	S.Cells            = ThisRound.Cells.Num();
+	S.Lateral          = ThisRound.LateralRatio();
+	S.Reversals        = ThisRound.ReversalsPerSecond();
+	S.Sprint           = ThisRound.SprintFraction();
+	S.MeanRangeCm      = ThisRound.MeanRangeCm();
+	S.PreferredRangeCm = MoveProfile.PreferredRangeCm;
+	S.RangeBandCm      = MoveProfile.RangeBandCm;
+	return S;
 }
 
 float AAFLBotController::GetStationaryFraction() const { return Lifetime.StationaryFraction(); }
