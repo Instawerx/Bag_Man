@@ -18,8 +18,8 @@
 // The C++ <-> blackboard contract for AI-2. EQS_AFL_CombatReposition binds its query params to these
 // exact names; a mismatch is silent (the query falls back to authored defaults) so it is logged below
 // and surfaced by afl.Bot.MoveProbe rather than left to be noticed as "bots feel samey".
-const FName AAFLBotController::BBKey_PreferredRange      = TEXT("BotPreferredRange");
-const FName AAFLBotController::BBKey_RangeBand           = TEXT("BotRangeBand");
+const FName AAFLBotController::BBKey_DonutInner          = TEXT("BotDonutInner");
+const FName AAFLBotController::BBKey_DonutOuter          = TEXT("BotDonutOuter");
 const FName AAFLBotController::BBKey_RepositionInterval  = TEXT("BotRepositionInterval");
 const FName AAFLBotController::BBKey_LateralBias         = TEXT("BotLateralBias");
 
@@ -30,6 +30,11 @@ namespace
 	constexpr float StationarySpeedThreshold = 40.0f;
 	/** Cell edge for the distinct-positions metric, cm. */
 	constexpr float PositionCellSizeCm = 200.0f;
+
+	/** Donut floors applied when converting preferred-range/band into radii. Inner must stay clear of zero
+	 *  or the generator degenerates to a disc; thickness must stay positive or the ring has no area. */
+	constexpr float MinDonutInnerCm     = 100.0f;
+	constexpr float MinDonutThicknessCm = 100.0f;
 }
 
 AAFLBotController::AAFLBotController(const FObjectInitializer& ObjectInitializer)
@@ -77,13 +82,23 @@ void AAFLBotController::PushMoveParamsToBlackboard()
 
 	if (UBlackboardComponent* BB = GetBlackboardComponent())
 	{
-		BB->SetValueAsFloat(BBKey_PreferredRange,     MoveProfile.PreferredRangeCm);
-		BB->SetValueAsFloat(BBKey_RangeBand,          MoveProfile.RangeBandCm);
+		// The query wants radii around the enemy, so convert here -- see BBKey_DonutInner. The inner floor
+		// is not cosmetic: EnvQueryGenerator_Donut with InnerRadius <= 0 degenerates into a disc that
+		// generates points ON the target, which is how this query got broken once already.
+		const float Inner = FMath::Max(MinDonutInnerCm, MoveProfile.PreferredRangeCm - MoveProfile.RangeBandCm);
+		const float Outer = FMath::Max(Inner + MinDonutThicknessCm, MoveProfile.PreferredRangeCm + MoveProfile.RangeBandCm);
+
+		BB->SetValueAsFloat(BBKey_DonutInner,         Inner);
+		BB->SetValueAsFloat(BBKey_DonutOuter,         Outer);
 		BB->SetValueAsFloat(BBKey_RepositionInterval, MoveProfile.RepositionIntervalSec);
 		BB->SetValueAsFloat(BBKey_LateralBias,        MoveProfile.LateralBias);
+		PushedDonutInnerCm = Inner;
+		PushedDonutOuterCm = Outer;
 		bMoveParamsPushed = true;
-		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_BOTMOVE: PUSH    %s -> blackboard (attempt %d)."),
-			*GetName(), MovePushAttempts);
+		UE_LOG(LogAFLGameCore, Log,
+			TEXT("AFL_BOTMOVE: PUSH    %s -> donut=[%.0f..%.0f]cm lateral=%.2f (from range=%.0f band=%.0f, attempt %d)."),
+			*GetName(), Inner, Outer, MoveProfile.LateralBias,
+			MoveProfile.PreferredRangeCm, MoveProfile.RangeBandCm, MovePushAttempts);
 		return;
 	}
 

@@ -100,17 +100,33 @@ public:
 
 	/** Blackboard key names the controller writes and EQS_AFL_CombatReposition reads as query params.
 	 *  These are the contract between C++ and the AFL blackboard asset -- rename one and the query
-	 *  silently falls back to its defaults, which is a bot with no personality and no warning. */
-	static const FName BBKey_PreferredRange;
-	static const FName BBKey_RangeBand;
-	static const FName BBKey_RepositionInterval;
+	 *  silently falls back to its defaults, which is a bot with no personality and no warning.
+	 *
+	 *  THE KEYS ARE RADII, NOT PREFERRED-RANGE/BAND. FEQSParametrizedQueryExecutionRequest::Execute binds a
+	 *  query param straight to a blackboard key -- FEnvQueryRequest::SetDynamicParam reads the float and
+	 *  passes it through, with nowhere to evaluate an expression. So the (preferred -/+ band) arithmetic is
+	 *  done here and the blackboard carries the FINISHED donut radii. */
+	static const FName BBKey_DonutInner;
+	static const FName BBKey_DonutOuter;
 	static const FName BBKey_LateralBias;
+
+	/** WRITTEN BUT NOT CONSUMED. UBTService::Interval is a plain float with no FAIDataProvider behind it, so
+	 *  there is no binding surface for a per-bot reposition cadence -- every bot re-queries on the shared
+	 *  1.5s +/- 0.5s node interval. The key is still published so the value is visible to the probe and to
+	 *  a future C++ BT service that can honour it; treat a non-zero value here as intent, not behaviour. */
+	static const FName BBKey_RepositionInterval;
 
 	const FAFLBotMoveProfile& GetMoveProfile() const { return MoveProfile; }
 
 	/** True once the four movement params reached the blackboard. If this is false the bot is running on
 	 *  the query's authored defaults, NOT its own personality -- the probe must not call that a pass. */
 	bool AreMoveParamsPushed() const { return bMoveParamsPushed; }
+
+	/** The donut radii this bot actually pushed, cm. Exposed so afl.Bot.MoveProbe can compare them against
+	 *  what the live blackboard reads back WITHOUT re-deriving the arithmetic -- a probe that recomputes the
+	 *  expected value from the same inputs cannot catch a key-name drift, it just agrees with itself. */
+	float GetDonutInnerCm() const { return PushedDonutInnerCm; }
+	float GetDonutOuterCm() const { return PushedDonutOuterCm; }
 
 	// -- movement metrics, lifetime, asserted by afl.Bot.MoveProbe --
 
@@ -145,7 +161,15 @@ private:
 	/** Roll the personality ONCE, from a seed stable for this bot's life. */
 	void RollProfile();
 
-	/** Re-resolve Profile from the current round. Cheap; called only when the round number changes. */
+	/** Re-resolve Profile and MoveProfile from the current round.
+	 *
+	 *  WHEN THIS ACTUALLY RUNS: OnPossess, plus a first-frame guard in UpdateControlRotation. NOTHING WATCHES
+	 *  THE ROUND NUMBER. The tier advances because bots re-possess on respawn and rounds end with everyone
+	 *  dead, not because a change is detected -- so a bot that somehow held one pawn across a round boundary
+	 *  would keep round-1 difficulty. Tying this to an actual round-changed event is the correct fix if that
+	 *  ever happens; polling the tier source per frame per bot is not (RefreshTier walks components to find
+	 *  IAFLMatchTierSource). PushMoveParamsToBlackboard rides the same schedule, so aim and movement can
+	 *  never disagree about which tier they are on. */
 	void RefreshTier();
 
 	/** Continuous two-frequency drift, degrees. Incommensurate rates so it never visibly repeats. */
@@ -205,6 +229,8 @@ private:
 	FAFLBotMoveProfile MoveProfile;
 	bool      bMoveParamsPushed = false;
 	int32     MovePushAttempts  = 0;
+	float     PushedDonutInnerCm = 0.0f;
+	float     PushedDonutOuterCm = 0.0f;
 	FTimerHandle MovePushRetryTimer;
 
 	// -- AI-2 movement metrics (combat time only) --

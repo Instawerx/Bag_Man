@@ -1,6 +1,7 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "AFLGameCore.h"
+#include "BehaviorTree/BlackboardComponent.h"
 #include "Bots/AFLBotController.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -32,7 +33,15 @@ namespace
 	constexpr float LateralRatioMin    = 0.25f;   // below: velocity parallel to aim -> the stock symptom
 	constexpr int32 DistinctCellsMin   = 3;       // below: the reposition cycle is still terminating
 	constexpr float MinCombatSeconds   = 5.0f;    // below this, nothing is asserted -- sample too thin
-	constexpr float RangeTolerance     = 2.0f;    // mean range must be within band * this
+
+	/** Mean held range must be within PreferredRangeCm +/- RangeBandCm * this.
+	 *  WAS 2.0, WHICH COULD NOT FAIL. Every bot ran the same fixed 400-1100 donut, so every mean landed
+	 *  inside a doubled band by construction and RANGE passed while the per-bot mechanism was entirely
+	 *  disconnected. 1.0 means the bot must actually hold ITS OWN donut. */
+	constexpr float RangeTolerance     = 1.0f;
+
+	// (An ObservedSpreadMinRatio threshold was written here and deleted: replayed against a run with the
+	//  mechanism provably disconnected it scored 1.32 and would have passed. See the OBSERVED block.)
 
 	bool MoveProfilesEqual(const FAFLBotMoveProfile& A, const FAFLBotMoveProfile& B)
 	{
@@ -74,6 +83,23 @@ namespace
 				Ar.Logf(TEXT("afl.Bot.MoveProbe -- %d bot(s); windows: stationary %.0f-%.0f%%, reversals %.2f-%.1f/s, lateral>=%.2f, cells>=%d"),
 					Bots.Num(), StationaryMin * 100.f, StationaryMax * 100.f, ReversalsMin, ReversalsMax, LateralRatioMin, DistinctCellsMin);
 
+					// DETECTOR SELF-TEST. BOUND below infers "the key name is right" from the blackboard
+					// reading back a non-zero value -- which is only evidence if a WRONG name really does
+					// read zero. So read a key that cannot exist and prove the detector discriminates before
+					// believing anything it says. UBlackboardComponent::GetValue returns InvalidValue silently
+					// for an unknown key, so a non-zero control means BOUND is measuring nothing at all.
+					for (const AAFLBotController* B : Bots)
+					{
+						if (const UBlackboardComponent* BB = B->GetBlackboardComponent())
+						{
+							const float Control = BB->GetValueAsFloat(TEXT("AFL_NoSuchKey_DetectorSelfTest"));
+							CheckData(true, FMath::IsNearlyZero(Control), TEXT("SELFTEST"),
+								FString::Printf(TEXT("a key that cannot exist reads %.2f -- BOUND %s discriminate a key-name drift"),
+									Control, FMath::IsNearlyZero(Control) ? TEXT("CAN") : TEXT("CANNOT")));
+							break;
+						}
+					}
+
 				for (const AAFLBotController* B : Bots)
 				{
 					const FAFLBotMoveProfile& M = B->GetMoveProfile();
@@ -93,6 +119,25 @@ namespace
 						B->AreMoveParamsPushed()
 							? FString(TEXT("movement params reached the blackboard"))
 							: FString(TEXT("params NOT pushed -- bot is on the query's DEFAULTS, not its profile")));
+
+					// BOUND -- the C++ <-> blackboard half of the EQS binding, read back from the LIVE
+					// blackboard rather than trusted. This is the one check that can catch a key-name drift:
+					// SetValueAsFloat on a key the asset does not have is a silent no-op, so a renamed key
+					// leaves the value at 0 here while PARAMS above still reports "pushed". Compared against
+					// the controller's own pushed radii, never re-derived -- a probe that recomputes the
+					// expectation from the same inputs only ever agrees with itself.
+					const UBlackboardComponent* BB = B->GetBlackboardComponent();
+					const float BBInner   = BB ? BB->GetValueAsFloat(AAFLBotController::BBKey_DonutInner)  : 0.0f;
+					const float BBOuter   = BB ? BB->GetValueAsFloat(AAFLBotController::BBKey_DonutOuter)  : 0.0f;
+					const float BBLateral = BB ? BB->GetValueAsFloat(AAFLBotController::BBKey_LateralBias) : 0.0f;
+					const bool bBound = BB
+						&& FMath::IsNearlyEqual(BBInner,   B->GetDonutInnerCm(), 1.0f)
+						&& FMath::IsNearlyEqual(BBOuter,   B->GetDonutOuterCm(), 1.0f)
+						&& FMath::IsNearlyEqual(BBLateral, M.LateralBias,        KINDA_SMALL_NUMBER);
+					CheckData(B->AreMoveParamsPushed(), bBound, TEXT("BOUND"),
+						FString::Printf(TEXT("blackboard reads donut=[%.0f..%.0f] lateral=%.2f vs pushed [%.0f..%.0f] %.2f (all-zero = key-name drift; EQS would silently run its authored defaults)"),
+							BBInner, BBOuter, BBLateral,
+							B->GetDonutInnerCm(), B->GetDonutOuterCm(), M.LateralBias));
 
 					const float Stat = B->GetStationaryFraction();
 					CheckData(bEnough, Stat <= StationaryMax && Stat >= StationaryMin, TEXT("STATIONARY"),
@@ -119,6 +164,8 @@ namespace
 							MeanR, M.PreferredRangeCm, M.RangeBandCm, RangeTolerance));
 				}
 
+				// -- VARIANCE, in two halves. The first is cheap and was all the original had; the second
+				//    is the one that can actually fail when the profiles drive nothing. --
 				bool bDup = false;
 				for (int32 i = 0; i < Bots.Num() && !bDup; ++i)
 				{
@@ -126,7 +173,7 @@ namespace
 					{
 						if (MoveProfilesEqual(Bots[i]->GetMoveProfile(), Bots[j]->GetMoveProfile()))
 						{
-							Ar.Logf(TEXT("  [FAIL] VARIANCE   %s and %s resolved IDENTICAL movement profiles"),
+							Ar.Logf(TEXT("  [FAIL] ROLLED     %s and %s resolved IDENTICAL movement profiles"),
 								*Bots[i]->GetName(), *Bots[j]->GetName());
 							bDup = true; ++Fails; break;
 						}
@@ -134,7 +181,51 @@ namespace
 				}
 				if (!bDup && Bots.Num() > 1)
 				{
-					Ar.Logf(TEXT("  [PASS] VARIANCE   all %d movement profiles distinct"), Bots.Num());
+					Ar.Logf(TEXT("  [PASS] ROLLED     all %d rolled profiles distinct (structs only -- says nothing about behaviour)"), Bots.Num());
+				}
+
+				// OBSERVED variance. Five distinct profiles feeding one shared donut produce five nearly
+				// identical mean ranges -- which is exactly the state this probe previously called a PASS.
+				// Requiring the MEASURED spread to track the INTENDED spread is what makes a disconnected
+				// mechanism fail instead of hide.
+				float PrefMin = TNumericLimits<float>::Max(), PrefMax = -PrefMin;
+				float ObsMin  = TNumericLimits<float>::Max(), ObsMax  = -ObsMin;
+				int32 Sampled = 0;
+				for (const AAFLBotController* B : Bots)
+				{
+					if (B->GetCombatSampleSeconds() < MinCombatSeconds || B->GetMeanRangeCm() <= 0.0f) { continue; }
+					PrefMin = FMath::Min(PrefMin, B->GetMoveProfile().PreferredRangeCm);
+					PrefMax = FMath::Max(PrefMax, B->GetMoveProfile().PreferredRangeCm);
+					ObsMin  = FMath::Min(ObsMin,  B->GetMeanRangeCm());
+					ObsMax  = FMath::Max(ObsMax,  B->GetMeanRangeCm());
+					++Sampled;
+				}
+				if (Sampled < 2)
+				{
+					Ar.Logf(TEXT("  [ -- ] OBSERVED   NO DATA -- need 2+ bots with %.0fs of combat to compare spreads"), MinCombatSeconds);
+					++NoData;
+				}
+				else
+				{
+					const float PrefSpread = PrefMax - PrefMin;
+					const float ObsSpread  = ObsMax - ObsMin;
+					const float Ratio = (PrefSpread > KINDA_SMALL_NUMBER) ? (ObsSpread / PrefSpread) : 0.0f;
+
+					// DIAGNOSTIC, NOT AN ASSERTION -- and that is deliberate.
+					//
+					// This was written as a pass/fail on Ratio >= 0.30, then replayed against a run where
+					// the per-bot mechanism was PROVABLY disconnected (BT_AFL_Bot referenced the four
+					// blackboard keys zero times, every bot on one fixed 400-1100 donut). It scored 1.32
+					// and would have PASSED. It measures combat noise -- bots fight at whatever distance
+					// the fight happens -- not whether a profile drives geometry.
+					//
+					// The root cause is the tier values, not the test: PreferredRange spans ~290cm across
+					// bots while each band is 237-368cm wide, so every bot's [pref-band, pref+band] window
+					// overlaps every other's almost completely. No behavioural test can separate five bots
+					// whose intended ranges are indistinguishable. Widen the spread (or narrow the bands)
+					// and this becomes assertable; until then a pass here would mean nothing.
+					Ar.Logf(TEXT("  [ ~~ ] OBSERVED   held-range spread %.0fcm vs preferred spread %.0fcm = %.2f -- DIAGNOSTIC ONLY (bands overlap; cannot discriminate a disconnected mechanism)"),
+						ObsSpread, PrefSpread, Ratio);
 				}
 
 				const TCHAR* Verdict = (Fails > 0) ? TEXT("FAIL") : (NoData > 0 ? TEXT("INCONCLUSIVE") : TEXT("PASS"));
