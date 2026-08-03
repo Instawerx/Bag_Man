@@ -13,6 +13,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayEffect.h"
 #include "MotionWarpingComponent.h"
+#include "Movement/AFLMovementPathScope.h"
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLGameplayAbility_Slide)
@@ -21,6 +22,7 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Slide_State_Match_Warmup, "State.Match.Warmup"
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Slide_State_Match_Ended, "State.Match.Ended");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Slide_State_Extracting, "State.Extracting");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Slide_State_Movement_Climbing, "State.Movement.Climbing");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Movement_Slide_Requested, "Event.Movement.Slide.Requested");
 
 UAFLGameplayAbility_Slide::UAFLGameplayAbility_Slide(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -33,6 +35,12 @@ UAFLGameplayAbility_Slide::UAFLGameplayAbility_Slide(const FObjectInitializer& O
 	ActivationBlockedTags.AddTag(TAG_Slide_State_Match_Ended);
 	ActivationBlockedTags.AddTag(TAG_Slide_State_Extracting);
 	ActivationBlockedTags.AddTag(TAG_Slide_State_Movement_Climbing);
+
+	// AI-3 bot entry point, additive to InputTag.Movement.Slide. Conforms to WallRun.cpp:35-37.
+	FAbilityTriggerData Trigger;
+	Trigger.TriggerTag = TAG_Event_Movement_Slide_Requested;
+	Trigger.TriggerSource = EGameplayAbilityTriggerSource::GameplayEvent;
+	AbilityTriggers.Add(Trigger);
 }
 
 void UAFLGameplayAbility_Slide::ActivateAbility(
@@ -43,6 +51,11 @@ void UAFLGameplayAbility_Slide::ActivateAbility(
 {
 	// InstancedPerActor -> clear per-activation state.
 	bExiting = false;
+
+	// PATH SCOPE. The slide montage owns the body via root motion + MotionWarping; path following would
+	// fight it every frame. Paired with Resume in EndAbility, which GAS funnels every exit through.
+	// No-op for humans (resolved through AAIController). See AFLMovementPathScope.h.
+	AFLMovementPath::Suspend(ActorInfo);
 	bWarpApplied = false;
 	MontageTask = nullptr;
 
@@ -223,6 +236,11 @@ void UAFLGameplayAbility_Slide::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
+	// THE OTHER HALF OF THE PATH SCOPE. First statement in EndAbility on purpose: every exit path -- normal
+	// completion, cancel, death, match end, a failed activation after commit -- funnels through here, and a
+	// path paused and never resumed is a bot frozen for the rest of the round.
+	AFLMovementPath::Resume(ActorInfo);
+
 	// Clear the warp target this ability added (mirror Climb).
 	if (bWarpApplied)
 	{

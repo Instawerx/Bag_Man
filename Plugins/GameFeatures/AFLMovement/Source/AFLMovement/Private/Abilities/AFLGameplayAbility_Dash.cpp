@@ -22,6 +22,8 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Extracting, "State.Extracting");
 // (Cue.Movement.Dash.Activated); GCN_AFL_Dash_Activated receives it and plays the random
 // MS_AFL_DashWoosh. Fired at dash start, mirroring UAFLAG_Laser_Pulse's fire cue.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Cue_Movement_Dash_Activated, "Cue.Movement.Dash.Activated");
+// AI-3: the bot entry point. A bot has no input component, so InputTag.Ability.Dash is unreachable.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Movement_Dash_Requested, "Event.Movement.Dash.Requested");
 
 UAFLGameplayAbility_Dash::UAFLGameplayAbility_Dash(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -37,6 +39,13 @@ UAFLGameplayAbility_Dash::UAFLGameplayAbility_Dash(const FObjectInitializer& Obj
 	ActivationBlockedTags.AddTag(TAG_State_Match_Warmup);
 	ActivationBlockedTags.AddTag(TAG_State_Match_Ended);
 	ActivationBlockedTags.AddTag(TAG_State_Extracting);
+
+	// AI-3 bot entry point. Additive to InputTag.Ability.Dash -- the human path is untouched. Conforms to
+	// AFLGameplayAbility_WallRun.cpp:35-37, the working model in this module.
+	FAbilityTriggerData Trigger;
+	Trigger.TriggerTag = TAG_Event_Movement_Dash_Requested;
+	Trigger.TriggerSource = EGameplayAbilityTriggerSource::GameplayEvent;
+	AbilityTriggers.Add(Trigger);
 }
 
 void UAFLGameplayAbility_Dash::ActivateAbility(

@@ -54,4 +54,41 @@ protected:
 	 *  one gear and is a probe failure in its own right. */
 	UPROPERTY(EditAnywhere, Category = "AFL|Sprint", meta = (ClampMin = "0.0"))
 	float MinThresholdCm = 300.0f;
+
+	// ================= AI-3b: the rest of the kit =================
+	//
+	// ONE LADDER, keyed on distance-to-goal expressed in units of the bot's OWN preferred range. Sprint is
+	// continuous (a lease, renewed every tick it applies); dash/slide/roll are one-shots gated by a per-bot
+	// cadence so a 0.5s service does not spam them.
+	//
+	//   d > Pref * ThresholdScale            SPRINT   crossing the arena
+	//   sprinting and d < SlideArrivalCm     SLIDE    arriving out of a sprint, the way a human uses it
+	//   DashBand * Pref < d <= sprint edge   DASH     mid-range burst; its own cooldown GE also limits it
+	//   d <= RollBand * Pref                 ROLL     in the fight, a short dodge
+	//
+	// PER-BOT VARIANCE COMES FROM TWO AXES ALREADY ROLLED, no new randomness: every threshold scales off
+	// PreferredRangeCm, and the discretionary cadence is RepositionIntervalSec -- the axis that has been
+	// dead since AI-2 because UBTService::Interval is a plain float and could not be data-bound. Used here
+	// it finally does something, and two bots stop dashing on the same beat.
+
+	/** Slide when already sprinting and this close to the goal. */
+	UPROPERTY(EditAnywhere, Category = "AFL|Kit", meta = (ClampMin = "0.0"))
+	float SlideArrivalCm = 400.0f;
+
+	/** Dash when distance-to-goal exceeds this multiple of preferred range (and is under the sprint edge). */
+	UPROPERTY(EditAnywhere, Category = "AFL|Kit", meta = (ClampMin = "0.0"))
+	float DashBand = 0.60f;
+
+	/** Roll when distance-to-goal is under this multiple of preferred range -- in the fight, not travelling. */
+	UPROPERTY(EditAnywhere, Category = "AFL|Kit", meta = (ClampMin = "0.0"))
+	float RollBand = 0.35f;
+
+	/** Master switch for the one-shots. Sprint is unaffected -- it shipped and is proven. */
+	UPROPERTY(EditAnywhere, Category = "AFL|Kit")
+	bool bEnableOneShots = true;
+
+private:
+	/** Next time (world seconds) this bot may fire a discretionary one-shot. Spacing is the bot's own
+	 *  RepositionIntervalSec, so cadence varies per bot without a new roll. */
+	double NextOneShotTime = 0.0;
 };

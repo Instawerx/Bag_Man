@@ -8,6 +8,7 @@
 #include "Animation/AnimMontage.h"
 #include "GameFramework/Character.h"
 #include "GameplayEffect.h"
+#include "Movement/AFLMovementPathScope.h"
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLGameplayAbility_Roll)
@@ -18,6 +19,7 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Roll_State_Extracting, "State.Extracting");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Roll_State_Movement_Climbing, "State.Movement.Climbing");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Roll_State_Movement_Vaulting, "State.Movement.Vaulting");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Roll_State_Carrying, "State.Carrying");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Movement_Roll_Requested, "Event.Movement.Roll.Requested");
 
 UAFLGameplayAbility_Roll::UAFLGameplayAbility_Roll(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -31,6 +33,12 @@ UAFLGameplayAbility_Roll::UAFLGameplayAbility_Roll(const FObjectInitializer& Obj
 	ActivationBlockedTags.AddTag(TAG_Roll_State_Movement_Climbing); // can't roll while climbing
 	ActivationBlockedTags.AddTag(TAG_Roll_State_Movement_Vaulting); // or mid-vault
 	ActivationBlockedTags.AddTag(TAG_Roll_State_Carrying);          // or while carrying
+
+	// AI-3 bot entry point, additive to InputTag.Movement.Roll. Conforms to WallRun.cpp:35-37.
+	FAbilityTriggerData Trigger;
+	Trigger.TriggerTag = TAG_Event_Movement_Roll_Requested;
+	Trigger.TriggerSource = EGameplayAbilityTriggerSource::GameplayEvent;
+	AbilityTriggers.Add(Trigger);
 }
 
 void UAFLGameplayAbility_Roll::ActivateAbility(
@@ -41,6 +49,10 @@ void UAFLGameplayAbility_Roll::ActivateAbility(
 {
 	bExiting = false;
 	MontageTask = nullptr;
+
+	// PATH SCOPE. The roll montage owns the body via root motion; path following would fight it every frame.
+	// Paired with Resume in EndAbility. No-op for humans. See AFLMovementPathScope.h.
+	AFLMovementPath::Suspend(ActorInfo);
 
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
 	{
@@ -163,6 +175,10 @@ void UAFLGameplayAbility_Roll::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
+	// THE OTHER HALF OF THE PATH SCOPE. First statement on purpose: GAS funnels every exit through EndAbility,
+	// and a path paused and never resumed is a bot frozen for the rest of the round.
+	AFLMovementPath::Resume(ActorInfo);
+
 	// Remove the roll-active GE so State.Movement.Rolling clears. (The i-frame GE, if any, is duration-based
 	// and auto-removes on its own window -- we do NOT force-clear it here so its i-frames aren't cut short.)
 	if (RollActiveEffectClass && ActorInfo)
