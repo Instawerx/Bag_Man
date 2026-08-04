@@ -10,6 +10,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "NativeGameplayTags.h"
+#include "TimerManager.h"
+#include "Engine/World.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLSprintMovementComponent)
 
@@ -153,6 +155,36 @@ void UAFLSprintMovementComponent::ApplySprintTuning()
 	UE_LOG(LogAFLMovement, Log,
 		TEXT("AFL_SPRINT: %s tuning applied -> speed %.0f->%.0f, accel %.0f->%.0f"),
 		*GetNameSafe(GetOwner()), CachedMaxWalkSpeed, CMC->MaxWalkSpeed, CachedMaxAcceleration, CMC->MaxAcceleration);
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(SprintDiagTimer,
+			FTimerDelegate::CreateWeakLambda(this, [this] { TickSprintDiag(); }),
+			0.25f, /*bLoop*/ true);
+	}
+}
+
+void UAFLSprintMovementComponent::TickSprintDiag()
+{
+	const UCharacterMovementComponent* CMC = GetOwnerCMC();
+	const AActor* Owner = GetOwner();
+	const APawn* Pawn = Cast<APawn>(Owner);
+	if (!CMC || !Pawn)
+	{
+		return;
+	}
+
+	// TOLD vs DOING. MaxWalkSpeed is what we set; Velocity is what the character actually achieves. Role tells
+	// us WHICH instance is speaking -- if the player pawn has a server and a client instance and only one
+	// swapped, correction pulls the player back to walking speed while both apply-logs read correct.
+	UE_LOG(LogAFLMovement, Log,
+		TEXT("AFL_SPRINTDIAG: %-26s auth=%d localCtl=%d role=%d | MaxWalkSpeed=%.0f Velocity2D=%.0f"),
+		*GetNameSafe(Owner),
+		Pawn->HasAuthority() ? 1 : 0,
+		Pawn->IsLocallyControlled() ? 1 : 0,
+		static_cast<int32>(Pawn->GetLocalRole()),
+		CMC->MaxWalkSpeed,
+		CMC->Velocity.Size2D());
 }
 
 void UAFLSprintMovementComponent::RestoreSprintTuning()
@@ -169,6 +201,10 @@ void UAFLSprintMovementComponent::RestoreSprintTuning()
 		UE_LOG(LogAFLMovement, Log,
 			TEXT("AFL_SPRINT: %s tuning restored -> speed->%.0f, accel->%.0f"),
 			*GetNameSafe(GetOwner()), CMC->MaxWalkSpeed, CMC->MaxAcceleration);
+	}
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SprintDiagTimer);
 	}
 	bSprintSwapped = false;
 }

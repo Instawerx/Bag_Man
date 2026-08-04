@@ -80,6 +80,14 @@ private:
 	float CachedMaxAcceleration = -1.0f;
 	bool bSprintSwapped = false;
 
+	/** DIAGNOSTIC. Ticks at 0.25s only while the swap is applied, and logs role + the two numbers that
+	 *  actually settle this: what the CMC was TOLD (MaxWalkSpeed) against what it is DOING (Velocity).
+	 *  Apply/restore logging cannot see a value that is set correctly and then ignored or corrected away,
+	 *  which is the entire remaining question. Runs on every instance, so if the player pawn has one on the
+	 *  server and one on the client, both report and the divergence is visible side by side with a bot. */
+	void TickSprintDiag();
+	FTimerHandle SprintDiagTimer;
+
 	UPROPERTY()
 	TWeakObjectPtr<UAbilitySystemComponent> CachedASC;
 
