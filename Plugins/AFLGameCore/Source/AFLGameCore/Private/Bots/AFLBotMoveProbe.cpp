@@ -3,6 +3,9 @@
 #include "Bots/AFLBotProbe.h"
 
 #include "AFLGameCore.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
+#include "GameFramework/Pawn.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Bots/AFLBotController.h"
 #include "Engine/World.h"
@@ -56,6 +59,41 @@ namespace
 
 	// (An ObservedSpreadMinRatio threshold was written here and deleted: replayed against a run with the
 	//  mechanism provably disconnected it scored 1.32 and would have passed. See the OBSERVED block.)
+
+	/**
+	 * Is this ability actually GRANTED to the bot's pawn?
+	 *
+	 * WHY THIS EXISTS. The kit is split by hero: Sprint, Slide, Vault, Roll, WallRun and Holster are granted
+	 * on HeroData_BagMan_Pro ALONE. Haywire runs HeroData_BagMan -- Dash, Climb, Grab and the stock set. So a
+	 * Haywire bot CANNOT sprint, and SPRINT's match-scoped floor ("never sprinted all match") fired on all 15
+	 * of them: an assertion that is correct in itself, asked of a config that cannot answer it.
+	 *
+	 * GENERIC ON PURPOSE. Sprint is only the one that surfaced first; Slide, Vault and Roll have identical
+	 * exposure the moment anything asserts on them. Scoping per-ability would leave the next one to be found
+	 * the same way.
+	 *
+	 * Matched on class NAME rather than class pointer deliberately: the abilities live in the AFLMovement
+	 * GameFeature, and AFLGameCore is always-loaded and must not take a dependency on it -- the same rule that
+	 * keeps IAFLMatchTierSource an interface and has the sprint event travelling as a tag string.
+	 */
+	bool BotHasAbility(const AAFLBotController* Bot, const TCHAR* ClassNameFragment)
+	{
+		const APawn* Pawn = Bot ? Bot->GetPawn() : nullptr;
+		const UAbilitySystemComponent* ASC = Pawn
+			? UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(const_cast<APawn*>(Pawn)) : nullptr;
+		if (!ASC)
+		{
+			return false;
+		}
+		for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+		{
+			if (Spec.Ability && Spec.Ability->GetClass()->GetName().Contains(ClassNameFragment))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
 
 	bool MoveProfilesEqual(const FAFLBotMoveProfile& A, const FAFLBotMoveProfile& B)
 	{
@@ -194,17 +232,30 @@ namespace AFLBotProbe
 					// message was built before the out-params were set and every FAIL printed the PASS wording.
 					// The verdict was right and the explanation was inverted, which is the worse of the two.
 
-					/** PER-ROUND: does ANY round breach the ceiling? Reports the worst. */
+					/** PER-ROUND: does ANY round breach the ceiling? ALWAYS reports the peak, breach or not.
+					 *
+					 *  THE "ALWAYS" IS THE FIX. This used to write OutVal only inside the `V > Ceiling` branch, so
+					 *  on the passing path OutVal kept the caller's reset value and every PASS message printed a
+					 *  fabricated 0: "REVERSALS peak 0.00/s" on 15 of 15 bots whose real peaks were 0.13-0.85/s,
+					 *  "STATIONARY peak 0%" on a bot that actually hit 25% -- exactly at its ceiling and therefore
+					 *  worth seeing. The VERDICTS were right the whole time; only the numbers in the passing text
+					 *  were invented, which is arguably worse, because a wrong number reads as a measurement.
+					 *
+					 *  BestRoundBelow never had the bug -- it writes unconditionally -- which is why LATERAL's
+					 *  pass line always matched MOVESNAP and REVERSALS' never did. That asymmetry was the tell.
+					 *  Both helpers now report unconditionally, so the shape is the same in both directions. */
 					auto AnyRoundAbove = [&Rounds](TFunctionRef<float(const FAFLBotRoundSummary&)> Get, float Ceiling,
 					                               float& OutVal, int32& OutRound) -> bool
 					{
-						bool bAny = false;
+						float Peak = -TNumericLimits<float>::Max(); int32 PeakR = INDEX_NONE;
 						for (const FAFLBotRoundSummary& R : Rounds)
 						{
 							const float V = Get(R);
-							if (V > Ceiling && (!bAny || V > OutVal)) { OutVal = V; OutRound = R.Round; bAny = true; }
+							if (V > Peak) { Peak = V; PeakR = R.Round; }
 						}
-						return bAny;
+						if (PeakR == INDEX_NONE) { return false; }   // no rounds -> leave the caller's reset value
+						OutVal = Peak; OutRound = PeakR;
+						return Peak > Ceiling;
 					};
 
 					/** MATCH-SCOPED: did even the BEST round fail to clear the floor? Reports that best round. */
@@ -221,20 +272,21 @@ namespace AFLBotProbe
 						return BestR != INDEX_NONE && Best < Floor;
 					};
 
-					/** PER-ROUND, symmetric: worst |deviation| in any round. */
+					/** PER-ROUND, symmetric: worst |deviation| in any round. Reports it whether or not it breached
+					 *  (same fix as AnyRoundAbove -- RANGE's pass line printed no number so it told no lie today,
+					 *  but the trap was armed for the first person to add one). */
 					auto AnyRoundOutside = [&Rounds](TFunctionRef<float(const FAFLBotRoundSummary&)> Get, float Limit,
 					                                 float& OutVal, int32& OutRound) -> bool
 					{
-						bool bAny = false;
+						float Worst = 0.0f; int32 WorstR = INDEX_NONE;
 						for (const FAFLBotRoundSummary& R : Rounds)
 						{
 							const float V = Get(R);
-							if (FMath::Abs(V) > Limit && (!bAny || FMath::Abs(V) > FMath::Abs(OutVal)))
-							{
-								OutVal = V; OutRound = R.Round; bAny = true;
-							}
+							if (WorstR == INDEX_NONE || FMath::Abs(V) > FMath::Abs(Worst)) { Worst = V; WorstR = R.Round; }
 						}
-						return bAny;
+						if (WorstR == INDEX_NONE) { return false; }
+						OutVal = Worst; OutRound = WorstR;
+						return FMath::Abs(Worst) > Limit;
 					};
 
 					float HiV = 0.0f, LoV = 0.0f; int32 HiR = INDEX_NONE, LoR = INDEX_NONE;
@@ -256,7 +308,7 @@ namespace AFLBotProbe
 						-(float)DistinctCellsMin, HiV, HiR);
 					CheckData(bRounds, !bPosBad, TEXT("POSITIONS"),
 						bPosBad ? FString::Printf(TEXT("round %d covered only %.0f cells (min %d) -- the reposition cycle terminated"), HiR, -HiV, DistinctCellsMin)
-						        : FString::Printf(TEXT("every one of %d round(s) >= %d cells"), Rounds.Num(), DistinctCellsMin));
+						        : FString::Printf(TEXT("every one of %d round(s) >= %d cells (leanest round %.0f)"), Rounds.Num(), DistinctCellsMin, -HiV));
 
 					// LATERAL. MATCH-scoped: "velocity parallel to aim" is the AI-2 authoring symptom, a systemic
 					// property. One travel-heavy round of straight lines is not that -- and sprint makes those
@@ -287,6 +339,21 @@ namespace AFLBotProbe
 					HiV = LoV = 0.f; HiR = LoR = INDEX_NONE;
 					const bool bSprHi = AnyRoundAbove(GetSpr, SprintFractionMax, HiV, HiR);
 					const bool bSprLo = BestRoundBelow(GetSpr, SprintFractionMin, LoV, LoR);
+
+					// NOT APPLICABLE is a THIRD answer, distinct from both FAIL and PASS. A Haywire bot has no
+					// Sprint ability, so "never sprinted" is not a defect and "sprinted enough" is not a proof.
+					// Reporting either would be a lie in a different direction.
+					// LIVE READ **OR** THE LATCH. The live read alone answers "does this bot have Sprint right now",
+					// and at EndPlay a dead bot has no pawn, so the honest answer to that question is no -- which
+					// the probe then reported as "not granted on this hero". Wrong question. What the verdict needs
+					// is "was this bot ever able to sprint", and only the controller's latch can answer it once the
+					// pawn is gone. Measured: 7 of 15 bots misreported this way, all of them short-lived, all of
+					// them with 61-94% sprint in their own final snapshot.
+					if (!BotHasAbility(B, TEXT("Sprint")) && !B->HasEverHadSprintAbility())
+					{
+						Ar.Logf(TEXT("  [ n/a ] %-10s not granted on this hero -- Sprint/Slide/Vault/Roll are HeroData_BagMan_Pro only"), TEXT("SPRINT"));
+					}
+					else
 					CheckData(bRounds, !(bSprHi || bSprLo), TEXT("SPRINT"),
 						bSprHi ? FString::Printf(TEXT("round %d hit %.0f%% sprinting (per-round ceiling %.0f%%) -- one gear, or the lease is not expiring"), HiR, HiV*100.f, SprintFractionMax*100.f)
 						: bSprLo ? FString::Printf(TEXT("never sprinted all match -- best round only %.0f%% (match floor %.0f%%); the event is not reaching the ability"), LoV*100.f, SprintFractionMin*100.f)
@@ -302,7 +369,7 @@ namespace AFLBotProbe
 						RangeTolerance, HiV, HiR);
 					CheckData(bRounds, !bRangeBad, TEXT("RANGE"),
 						bRangeBad ? FString::Printf(TEXT("round %d held %+.2f bands off its own preferred range (limit +/-%.0fx)"), HiR, HiV, RangeTolerance)
-						          : FString::Printf(TEXT("every one of %d round(s) held within +/-%.0fx its own band"), Rounds.Num(), RangeTolerance));
+						          : FString::Printf(TEXT("every one of %d round(s) held within +/-%.0fx its own band (worst %+.2f)"), Rounds.Num(), RangeTolerance, HiV));
 
 					Ar.Logf(TEXT("        (lifetime, diagnostic only: stationary=%.0f%% sprint=%.0f%% cells=%d range=%.0fcm)"),
 						B->GetStationaryFraction()*100.f, B->GetSprintFraction()*100.f,

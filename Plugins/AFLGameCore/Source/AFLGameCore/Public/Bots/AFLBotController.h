@@ -235,6 +235,18 @@ public:
 	 *  94-95% for the only real combat round. */
 	float GetSprintFraction() const { return Lifetime.SprintFraction(); }
 
+	/** Did this bot EVER hold the Sprint ability while it was alive?
+	 *
+	 *  A LATCH, not a live read, and that is the whole point. The probe runs at EndPlay, where a bot that died
+	 *  and did not respawn has no pawn -- so no ASC, so a live scan finds no abilities and reports "not granted
+	 *  on this hero" for a bot that spent its last round sprinting. Measured on the 2026-08-04 run: the 7 bots
+	 *  reporting n/a had 24.5-34.9s of combat, the 8 reporting a real verdict had 54.8-62.5s, no overlap -- and
+	 *  every one of the 7 logged 61-94% sprint in its final snapshot. The grant was never the problem; the
+	 *  observation window was.
+	 *
+	 *  Latched at 1 Hz while alive, so it survives the pawn it was read from. */
+	bool HasEverHadSprintAbility() const { return bSprintAbilityEverSeen; }
+
 	/** Every finished round. What the behavioural assertions are evaluated over. */
 	const TArray<FAFLBotRoundSummary>& GetRoundHistory() const { return RoundHistory; }
 
@@ -249,6 +261,10 @@ protected:
 private:
 	/** Roll the personality ONCE, from a seed stable for this bot's life. */
 	void RollProfile();
+
+	/** One-way latch for HasEverHadSprintAbility(). Cheap: returns immediately once set. */
+	void LatchSprintAbilityPresence();
+	bool bSprintAbilityEverSeen = false;
 
 	/** Re-resolve Profile and MoveProfile from the current round.
 	 *

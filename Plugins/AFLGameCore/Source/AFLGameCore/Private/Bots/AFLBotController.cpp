@@ -416,8 +416,37 @@ void AAFLBotController::SampleMovement(float DeltaTime, const APawn* MyPawn, con
 	++ThisRound.RangeSamples;
 }
 
+void AAFLBotController::LatchSprintAbilityPresence()
+{
+	if (bSprintAbilityEverSeen)
+	{
+		return;
+	}
+	const APawn* MyPawn = GetPawn();
+	const UAbilitySystemComponent* ASC = MyPawn
+		? UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(const_cast<APawn*>(MyPawn)) : nullptr;
+	if (!ASC)
+	{
+		return;
+	}
+	// Matched on class NAME, not pointer -- AFLGameCore is always-loaded and must not take a dependency on the
+	// AFLMovement GameFeature. Same rule that keeps the sprint request travelling as a tag string.
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (Spec.Ability && Spec.Ability->GetClass()->GetName().Contains(TEXT("Sprint")))
+		{
+			bSprintAbilityEverSeen = true;
+			return;
+		}
+	}
+}
+
 void AAFLBotController::TickRoundWatch()
 {
+	// BEFORE the tier gate below, deliberately. This must run on every poll for the whole life of the bot --
+	// gating it behind "is there a round authority" would reintroduce exactly the blind spot it exists to close.
+	LatchSprintAbilityPresence();
+
 	// Resolve the tier source once and cache it. Same lookup RefreshTier does; done here so the 1 Hz poll
 	// does not walk the component list of every actor forever.
 	IAFLMatchTierSource* Src = Cast<IAFLMatchTierSource>(CachedTierSource.Get());
