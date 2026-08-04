@@ -147,9 +147,12 @@ void UAFLSprintMovementComponent::ApplySprintTuning()
 	CMC->MaxAcceleration = CachedMaxAcceleration * SprintAccelMultiplier;
 	bSprintSwapped = true;
 
+	// PAWN NAME IS LOAD-BEARING, not decoration. Without it these lines are unattributable, and on a 16-bot
+	// match the player's two presses are lost among 55 bot sprints -- which produced a confident wrong
+	// diagnosis (a bot's 1.25s lease expiry read as the player's 5s hold ending early).
 	UE_LOG(LogAFLMovement, Log,
-		TEXT("AFL_SPRINT: tuning applied -> speed %.0f->%.0f, accel %.0f->%.0f"),
-		CachedMaxWalkSpeed, CMC->MaxWalkSpeed, CachedMaxAcceleration, CMC->MaxAcceleration);
+		TEXT("AFL_SPRINT: %s tuning applied -> speed %.0f->%.0f, accel %.0f->%.0f"),
+		*GetNameSafe(GetOwner()), CachedMaxWalkSpeed, CMC->MaxWalkSpeed, CachedMaxAcceleration, CMC->MaxAcceleration);
 }
 
 void UAFLSprintMovementComponent::RestoreSprintTuning()
@@ -164,8 +167,8 @@ void UAFLSprintMovementComponent::RestoreSprintTuning()
 		CMC->MaxAcceleration = CachedMaxAcceleration;
 
 		UE_LOG(LogAFLMovement, Log,
-			TEXT("AFL_SPRINT: tuning restored -> speed->%.0f, accel->%.0f"),
-			CMC->MaxWalkSpeed, CMC->MaxAcceleration);
+			TEXT("AFL_SPRINT: %s tuning restored -> speed->%.0f, accel->%.0f"),
+			*GetNameSafe(GetOwner()), CMC->MaxWalkSpeed, CMC->MaxAcceleration);
 	}
 	bSprintSwapped = false;
 }
