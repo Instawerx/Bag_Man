@@ -1,0 +1,2903 @@
+{
+ "map": "L_Arena_04",
+ "codename": "ARCANEON",
+ "phase": "P0_locked",
+ "actors": [
+  {
+   "label": "DirectionalLight",
+   "class": "DirectionalLight",
+   "folder": "Lighting",
+   "loc": [
+    0.0,
+    0.0,
+    400.0
+   ],
+   "rot": [
+    -49.5,
+    -10.3,
+    112.4
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    175.8,
+    128.0,
+    189.2
+   ]
+  },
+  {
+   "label": "SkyAtmosphere",
+   "class": "SkyAtmosphere",
+   "folder": "Lighting",
+   "loc": [
+    0.0,
+    0.0,
+    -6000.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ]
+  },
+  {
+   "label": "SkyLight",
+   "class": "SkyLight",
+   "folder": "Lighting",
+   "loc": [
+    0.0,
+    0.0,
+    600.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    256.0,
+    256.0,
+    428.5
+   ]
+  },
+  {
+   "label": "ExponentialHeightFog",
+   "class": "ExponentialHeightFog",
+   "folder": "Lighting",
+   "loc": [
+    -5600.0,
+    -50.0,
+    -6850.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    128.0
+   ]
+  },
+  {
+   "label": "VolumetricCloud",
+   "class": "VolumetricCloud",
+   "folder": "Lighting",
+   "loc": [
+    0.0,
+    0.0,
+    700.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    128.0
+   ]
+  },
+  {
+   "label": "SM_SkySphere",
+   "class": "StaticMeshActor",
+   "folder": "Lighting",
+   "loc": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    400.0,
+    400.0,
+    400.0
+   ],
+   "bounds_ext": [
+    1638400.0,
+    1638400.0,
+    1638400.0
+   ],
+   "mesh": "/Engine/EngineSky/SM_SkySphere.SM_SkySphere"
+  },
+  {
+   "label": "Floor_Pit",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    0.0,
+    -15.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    140.0,
+    90.0,
+    0.3
+   ],
+   "bounds_ext": [
+    7000.0,
+    4500.0,
+    15.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Wall_N",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    4500.0,
+    1000.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    140.0,
+    1.0,
+    20.0
+   ],
+   "bounds_ext": [
+    7000.0,
+    50.0,
+    1000.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Wall_S",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    -4500.0,
+    1000.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    140.0,
+    1.0,
+    20.0
+   ],
+   "bounds_ext": [
+    7000.0,
+    50.0,
+    1000.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Wall_E",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    7000.0,
+    0.0,
+    1000.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    90.0,
+    20.0
+   ],
+   "bounds_ext": [
+    50.0,
+    4500.0,
+    1000.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Wall_W",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    -7000.0,
+    0.0,
+    1000.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    90.0,
+    20.0
+   ],
+   "bounds_ext": [
+    50.0,
+    4500.0,
+    1000.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Bridge_A_N",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    2400.0,
+    785.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    70.0,
+    14.0,
+    0.3
+   ],
+   "bounds_ext": [
+    3500.0,
+    700.0,
+    15.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Bridge_B_S",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    -2400.0,
+    785.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    70.0,
+    14.0,
+    0.3
+   ],
+   "bounds_ext": [
+    3500.0,
+    700.0,
+    15.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ring_N",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    3200.0,
+    1585.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    84.0,
+    9.0,
+    0.3
+   ],
+   "bounds_ext": [
+    4200.0,
+    450.0,
+    15.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ring_S",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    -3200.0,
+    1585.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    84.0,
+    9.0,
+    0.3
+   ],
+   "bounds_ext": [
+    4200.0,
+    450.0,
+    15.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ring_E",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    4200.0,
+    0.0,
+    1585.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    9.0,
+    64.0,
+    0.3
+   ],
+   "bounds_ext": [
+    450.0,
+    3200.0,
+    15.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ring_W",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    -4200.0,
+    0.0,
+    1585.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    9.0,
+    64.0,
+    0.3
+   ],
+   "bounds_ext": [
+    450.0,
+    3200.0,
+    15.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Anvil_Platform",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    0.0,
+    17.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    24.0,
+    24.0,
+    0.35
+   ],
+   "bounds_ext": [
+    1200.0,
+    1200.0,
+    17.5
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Cover_Pit_0",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    1800.0,
+    900.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Cover_Pit_1",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    -1800.0,
+    900.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Cover_Pit_2",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    1800.0,
+    -900.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Cover_Pit_3",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    -1800.0,
+    -900.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Cover_Pit_4",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    1500.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Cover_Pit_5",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    -1500.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Parapet_Ring_N",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    2780.0,
+    1650.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    84.0,
+    0.5,
+    1.0
+   ],
+   "bounds_ext": [
+    4200.0,
+    25.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Parapet_Ring_S",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    0.0,
+    -2780.0,
+    1650.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    84.0,
+    0.5,
+    1.0
+   ],
+   "bounds_ext": [
+    4200.0,
+    25.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Start_W_0",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side0",
+   "loc": [
+    -6600.0,
+    -1500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F96DA0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.0\"))}>"
+  },
+  {
+   "label": "Start_W_1",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side0",
+   "loc": [
+    -6600.0,
+    -500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F968A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.0\"))}>"
+  },
+  {
+   "label": "Start_W_2",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side0",
+   "loc": [
+    -6600.0,
+    500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F959A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.0\"))}>"
+  },
+  {
+   "label": "Start_W_3",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side0",
+   "loc": [
+    -6600.0,
+    1500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F95EA0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.0\"))}>"
+  },
+  {
+   "label": "Start_W_4",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side0",
+   "loc": [
+    -6000.0,
+    -1500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F963A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.0\"))}>"
+  },
+  {
+   "label": "Start_W_5",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side0",
+   "loc": [
+    -6000.0,
+    -500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F972A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.0\"))}>"
+  },
+  {
+   "label": "Start_W_6",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side0",
+   "loc": [
+    -6000.0,
+    500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F931A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.0\"))}>"
+  },
+  {
+   "label": "Start_W_7",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side0",
+   "loc": [
+    -6000.0,
+    1500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F9D1A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.0\"))}>"
+  },
+  {
+   "label": "Start_E_0",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side1",
+   "loc": [
+    6000.0,
+    -1500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    180.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F936A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.1\"))}>"
+  },
+  {
+   "label": "Start_E_1",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side1",
+   "loc": [
+    6000.0,
+    -500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    180.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F93BA0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.1\"))}>"
+  },
+  {
+   "label": "Start_E_2",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side1",
+   "loc": [
+    6000.0,
+    500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    180.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F940A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.1\"))}>"
+  },
+  {
+   "label": "Start_E_3",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side1",
+   "loc": [
+    6000.0,
+    1500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    180.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F945A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.1\"))}>"
+  },
+  {
+   "label": "Start_E_4",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side1",
+   "loc": [
+    6600.0,
+    -1500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    180.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F9A9A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.1\"))}>"
+  },
+  {
+   "label": "Start_E_5",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side1",
+   "loc": [
+    6600.0,
+    -500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    180.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F9B8A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.1\"))}>"
+  },
+  {
+   "label": "Start_E_6",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side1",
+   "loc": [
+    6600.0,
+    500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    180.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F94AA0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.1\"))}>"
+  },
+  {
+   "label": "Start_E_7",
+   "class": "LyraPlayerStart",
+   "folder": "Arena04_Greybox/Spawns_Side1",
+   "loc": [
+    6600.0,
+    1500.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    180.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    184.0,
+    128.0,
+    128.0
+   ],
+   "start_tags": "<Struct 'GameplayTagContainer' (0x000002EFE5F954A0) {gameplay_tags: ((TagName=\"AFL.Spawn.Side.1\"))}>"
+  },
+  {
+   "label": "Arena04_NavBounds",
+   "class": "NavMeshBoundsVolume",
+   "folder": "None",
+   "loc": [
+    0.0,
+    0.0,
+    1000.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    73.0,
+    48.0,
+    12.0
+   ],
+   "bounds_ext": [
+    7300.0,
+    4800.0,
+    1200.0
+   ]
+  },
+  {
+   "label": "RecastNavMesh-Default",
+   "class": "RecastNavMesh",
+   "folder": "None",
+   "loc": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    6916.0,
+    4940.0,
+    810.0
+   ]
+  },
+  {
+   "label": "NL_Pit_Bridge_0",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    2500.0,
+    2400.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    410.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      10.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      810.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "NL_Pit_Bridge_1",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    -2500.0,
+    2400.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    410.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      10.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      810.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "NL_Pit_Bridge_2",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    2500.0,
+    -2400.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    410.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      10.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      810.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "NL_Pit_Bridge_3",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    -2500.0,
+    -2400.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    410.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      10.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      810.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "NL_Bridge_Ring_0",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    2500.0,
+    2900.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    810.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      810.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      1610.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "NL_Bridge_Ring_1",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    -2500.0,
+    2900.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    810.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      810.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      1610.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "NL_Bridge_Ring_2",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    2500.0,
+    -2900.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    810.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      810.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      1610.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "NL_Bridge_Ring_3",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    -2500.0,
+    -2900.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    810.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      810.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      1610.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "Ramp_Pit_BridgeA_E",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    4075.0,
+    2400.0,
+    400.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    145.2
+   ],
+   "scale": [
+    14.009,
+    6.0,
+    0.3
+   ],
+   "bounds_ext": [
+    700.4,
+    254.8,
+    183.6
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ramp_Pit_BridgeA_W",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    -4075.0,
+    2400.0,
+    400.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    -34.8
+   ],
+   "scale": [
+    14.009,
+    6.0,
+    0.3
+   ],
+   "bounds_ext": [
+    700.4,
+    254.8,
+    183.6
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ramp_Pit_BridgeB_E",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    4075.0,
+    -2400.0,
+    400.0
+   ],
+   "rot": [
+    0.0,
+    180.0,
+    145.2
+   ],
+   "scale": [
+    14.009,
+    6.0,
+    0.3
+   ],
+   "bounds_ext": [
+    700.4,
+    254.8,
+    183.6
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ramp_Pit_BridgeB_W",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    -4075.0,
+    -2400.0,
+    400.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    -34.8
+   ],
+   "scale": [
+    14.009,
+    6.0,
+    0.3
+   ],
+   "bounds_ext": [
+    700.4,
+    254.8,
+    183.6
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ramp_BridgeA_RingNE",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    3650.0,
+    2900.0,
+    1200.0
+   ],
+   "rot": [
+    33.7,
+    0.0,
+    -36.5
+   ],
+   "scale": [
+    13.454,
+    6.0,
+    0.3
+   ],
+   "bounds_ext": [
+    665.3,
+    250.1,
+    531.6
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ramp_BridgeA_RingNW",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    -3650.0,
+    2900.0,
+    1200.0
+   ],
+   "rot": [
+    33.7,
+    180.0,
+    143.5
+   ],
+   "scale": [
+    13.454,
+    6.0,
+    0.3
+   ],
+   "bounds_ext": [
+    665.3,
+    250.1,
+    531.6
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ramp_BridgeB_RingSE",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    3650.0,
+    -2900.0,
+    1200.0
+   ],
+   "rot": [
+    -33.7,
+    -0.0,
+    -36.5
+   ],
+   "scale": [
+    13.454,
+    6.0,
+    0.3
+   ],
+   "bounds_ext": [
+    665.3,
+    250.1,
+    531.6
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Ramp_BridgeB_RingSW",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Geometry",
+   "loc": [
+    -3650.0,
+    -2900.0,
+    1200.0
+   ],
+   "rot": [
+    -33.7,
+    180.0,
+    143.5
+   ],
+   "scale": [
+    13.454,
+    6.0,
+    0.3
+   ],
+   "bounds_ext": [
+    665.3,
+    250.1,
+    531.6
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Div_W_N",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Lanes",
+   "loc": [
+    -5300.0,
+    1600.0,
+    125.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    30.0,
+    0.6,
+    2.5
+   ],
+   "bounds_ext": [
+    1500.0,
+    30.0,
+    125.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Div_W_S",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Lanes",
+   "loc": [
+    -5300.0,
+    -1600.0,
+    125.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    30.0,
+    0.6,
+    2.5
+   ],
+   "bounds_ext": [
+    1500.0,
+    30.0,
+    125.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Div_E_N",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Lanes",
+   "loc": [
+    5300.0,
+    1600.0,
+    125.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    30.0,
+    0.6,
+    2.5
+   ],
+   "bounds_ext": [
+    1500.0,
+    30.0,
+    125.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Div_E_S",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Lanes",
+   "loc": [
+    5300.0,
+    -1600.0,
+    125.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    30.0,
+    0.6,
+    2.5
+   ],
+   "bounds_ext": [
+    1500.0,
+    30.0,
+    125.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_0",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    -5000.0,
+    3000.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_1",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    -4200.0,
+    3000.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_2",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    -5000.0,
+    -3000.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_3",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    -4200.0,
+    -3000.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_4",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    -4800.0,
+    0.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_5",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    5000.0,
+    3000.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_6",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    4200.0,
+    3000.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_7",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    5000.0,
+    -3000.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_8",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    4200.0,
+    -3000.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "Vault_Lane_9",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    4800.0,
+    0.0,
+    50.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    150.0,
+    50.0,
+    50.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "CQB_Mouth_0",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    -3900.0,
+    3000.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "bounds_ext": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "CQB_Mouth_1",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    -3900.0,
+    0.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "bounds_ext": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "CQB_Mouth_2",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    -3900.0,
+    -3000.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "bounds_ext": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "CQB_Mouth_3",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    3900.0,
+    3000.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "bounds_ext": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "CQB_Mouth_4",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    3900.0,
+    0.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "bounds_ext": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "CQB_Mouth_5",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Cover",
+   "loc": [
+    3900.0,
+    -3000.0,
+    100.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "bounds_ext": [
+    100.0,
+    100.0,
+    100.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "ClimbFace_N",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Climb",
+   "loc": [
+    0.0,
+    2950.0,
+    1200.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    0.3,
+    8.0
+   ],
+   "bounds_ext": [
+    150.0,
+    15.0,
+    400.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "ClimbFace_S",
+   "class": "StaticMeshActor",
+   "folder": "Arena04_Greybox/Climb",
+   "loc": [
+    0.0,
+    -2950.0,
+    1200.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    3.0,
+    0.3,
+    8.0
+   ],
+   "bounds_ext": [
+    150.0,
+    15.0,
+    400.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  },
+  {
+   "label": "NL_Climb_N",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    0.0,
+    2900.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    810.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      810.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      1610.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "NL_Climb_S",
+   "class": "NavLinkProxy",
+   "folder": "Arena04_Greybox/NavLinks",
+   "loc": [
+    0.0,
+    -2900.0,
+    0.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    0.0,
+    0.0,
+    810.0
+   ],
+   "navlinks": [
+    {
+     "left": [
+      0.0,
+      0.0,
+      810.0
+     ],
+     "right": [
+      0.0,
+      0.0,
+      1610.0
+     ]
+    }
+   ]
+  },
+  {
+   "label": "Extract1_Pit",
+   "class": "B_AFL_ExtractionZone_C",
+   "folder": "Arena04_Greybox/Extraction",
+   "loc": [
+    0.0,
+    0.0,
+    70.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    300.0,
+    300.0,
+    300.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cylinder.Cylinder"
+  },
+  {
+   "label": "Extract2_Bridge",
+   "class": "B_AFL_ExtractionZone_C",
+   "folder": "Arena04_Greybox/Extraction",
+   "loc": [
+    0.0,
+    2400.0,
+    840.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    300.0,
+    300.0,
+    300.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cylinder.Cylinder"
+  },
+  {
+   "label": "Extract3_Ring",
+   "class": "B_AFL_ExtractionZone_C",
+   "folder": "Arena04_Greybox/Extraction",
+   "loc": [
+    4200.0,
+    0.0,
+    1640.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    300.0,
+    300.0,
+    300.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cylinder.Cylinder"
+  },
+  {
+   "label": "WS_Pit_NE",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    2500.0,
+    1200.0,
+    60.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_Pit_NW",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    -2500.0,
+    1200.0,
+    60.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_Pit_SE",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    2500.0,
+    -1200.0,
+    60.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_Pit_SW",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    -2500.0,
+    -1200.0,
+    60.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_Pit_N",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    0.0,
+    2000.0,
+    60.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_Pit_S",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    0.0,
+    -2000.0,
+    60.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_BridgeA_E",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    1800.0,
+    2400.0,
+    840.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_BridgeA_W",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    -1800.0,
+    2400.0,
+    840.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_BridgeB_E",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    1800.0,
+    -2400.0,
+    840.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_BridgeB_W",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    -1800.0,
+    -2400.0,
+    840.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_RingE_N",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    4200.0,
+    1500.0,
+    1640.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_RingE_S",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    4200.0,
+    -1500.0,
+    1640.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_RingW",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    -4200.0,
+    0.0,
+    1640.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_Lane_E",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    4800.0,
+    0.0,
+    110.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "WS_Lane_W",
+   "class": "B_WeaponSpawner_C",
+   "folder": "Arena04_Greybox/POI_Weapons",
+   "loc": [
+    -4800.0,
+    0.0,
+    110.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "AS_Pit_Center",
+   "class": "B_AbilitySpawner_C",
+   "folder": "Arena04_Greybox/POI_Abilities",
+   "loc": [
+    0.0,
+    0.0,
+    90.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "AS_RingN",
+   "class": "B_AbilitySpawner_C",
+   "folder": "Arena04_Greybox/POI_Abilities",
+   "loc": [
+    0.0,
+    3200.0,
+    1640.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "AS_RingS",
+   "class": "B_AbilitySpawner_C",
+   "folder": "Arena04_Greybox/POI_Abilities",
+   "loc": [
+    0.0,
+    -3200.0,
+    1640.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bounds_ext": [
+    128.0,
+    128.0,
+    202.0
+   ],
+   "mesh": "/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"
+  },
+  {
+   "label": "Grab_Shard_BridgeExtract",
+   "class": "BP_AFL_TestGrabbable_C",
+   "folder": "Arena04_Greybox/Grab",
+   "loc": [
+    450.0,
+    2400.0,
+    900.0
+   ],
+   "rot": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    0.3,
+    0.3,
+    0.3
+   ],
+   "bounds_ext": [
+    15.0,
+    15.0,
+    15.0
+   ],
+   "mesh": "/Engine/BasicShapes/Cube.Cube"
+  }
+ ],
+ "counts": {
+  "DirectionalLight": 1,
+  "SkyAtmosphere": 1,
+  "SkyLight": 1,
+  "ExponentialHeightFog": 1,
+  "VolumetricCloud": 1,
+  "StaticMeshActor": 51,
+  "LyraPlayerStart": 16,
+  "NavMeshBoundsVolume": 1,
+  "RecastNavMesh": 1,
+  "NavLinkProxy": 10,
+  "B_AFL_ExtractionZone_C": 3,
+  "B_WeaponSpawner_C": 15,
+  "B_AbilitySpawner_C": 3,
+  "BP_AFL_TestGrabbable_C": 1
+ },
+ "total": 106
+}
