@@ -7,6 +7,7 @@
 #include "AFLGameplayAbility_Sprint.generated.h"
 
 class UGameplayEffect;
+class ULyraCameraMode;
 
 /**
  * UAFLGameplayAbility_Sprint  (Movement Overhaul — Phase 1: hold-to-sprint)
@@ -30,7 +31,8 @@ class UGameplayEffect;
  *
  * Native defaults (locked): InstancingPolicy = InstancedPerActor, NetExecutionPolicy = LocalPredicted,
  * ActivationPolicy = WhileInputActive.
- * BP-configured (GA_AFL_Sprint child): SprintActiveEffectClass -> GE_AFL_Sprint_Active_C.
+ * BP-configured (GA_AFL_Sprint child): SprintActiveEffectClass -> GE_AFL_Sprint_Active_C,
+ * SprintCameraMode -> CM_AFL_Sprint_C.
  */
 UCLASS(Abstract)
 class AFLMOVEMENT_API UAFLGameplayAbility_Sprint : public ULyraGameplayAbility
@@ -63,6 +65,24 @@ protected:
 	/** Require the character be grounded (not falling) to begin sprinting. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Sprint")
 	bool bRequireGrounded = true;
+
+	/** FEEDBACK, not gameplay. Sprint changes the numbers and nothing else -- no FOV, no shake, no anim, no HUD
+	 *  -- so the operator's report is "the first step is regular, then we are fast, but we never see or feel the
+	 *  shift to sprint." A camera mode is the cheapest honest signal: it is continuous (present for exactly as
+	 *  long as the state is), it needs no art, and it costs one property.
+	 *
+	 *  Pushed on the HUMAN path only. SetCameraMode routes through ULyraHeroComponent, which a bot pawn has no
+	 *  use for, and a bot has no viewpoint to widen.
+	 *
+	 *  The CLEAR is free: ULyraGameplayAbility::EndAbility already calls ClearCameraMode() (LyraGameplayAbility
+	 *  .cpp:197), so every exit path -- release, cancel, death, match-end -- unwinds it. There is deliberately no
+	 *  ClearCameraMode() call in this class; adding one would duplicate the base and is the kind of "safety"
+	 *  edit that hides a real regression if the base ever stops doing it.
+	 *
+	 *  Left empty here on purpose: the mode is a cosmetic asset (CM_AFL_Sprint) and a content path baked into a
+	 *  module constructor is the thing this project keeps out of C++. GA_AFL_Sprint sets it as data. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Sprint")
+	TSubclassOf<ULyraCameraMode> SprintCameraMode;
 
 	/** LEASE WINDOW for the event-driven (bot) path. A GameplayEvent has no release, so the bot path cannot
 	 *  end the way the human path does -- it must expire. The requester re-sends the event on its own cadence;

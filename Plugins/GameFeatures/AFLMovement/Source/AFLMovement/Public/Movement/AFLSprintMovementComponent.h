@@ -35,7 +35,18 @@ class UCharacterMovementComponent;
  * pawns), ULyraPawnExtensionComponent::OnAbilitySystemInitialized_RegisterAndCall fallback for the possessed
  * PLAYER whose PlayerState ASC lands after pawn BeginPlay.
  */
-UCLASS(ClassGroup = (AFL), meta = (BlueprintSpawnableComponent))
+/*
+ * Blueprintable is LOAD-BEARING, not decoration. BlueprintSpawnableComponent only lets a designer drop the
+ * component onto a BP actor; it does NOT permit a BP CHILD of the class, and the editor refuses with
+ * "Cannot create a blueprint based on the class 'AFLSprintMovementComponent'" (verified: the create popped a
+ * modal that blocked the game thread for 534s).
+ *
+ * A child is required because GameFeatureAction_AddComponents stores a class, not an instance -- there is no
+ * per-experience override, so SprintSpeedMultiplier / SprintAccelMultiplier below are EditDefaultsOnly on a CDO
+ * nothing can reach, and every tune costs a C++ build. UAFLHolsterComponent already carries Blueprintable for
+ * exactly this reason and BPC_AFL_Holster_C sits in the same ProMod ComponentList as this class.
+ */
+UCLASS(ClassGroup = (AFL), Blueprintable, meta = (BlueprintSpawnableComponent))
 class AFLMOVEMENT_API UAFLSprintMovementComponent : public UActorComponent
 {
 	GENERATED_BODY()
@@ -80,13 +91,20 @@ private:
 	float CachedMaxAcceleration = -1.0f;
 	bool bSprintSwapped = false;
 
-	/** DIAGNOSTIC. Ticks at 0.25s only while the swap is applied, and logs role + the two numbers that
+	/** DIAGNOSTIC. Ticks at 0.05s only while the swap is applied, and logs role + the two numbers that
 	 *  actually settle this: what the CMC was TOLD (MaxWalkSpeed) against what it is DOING (Velocity).
 	 *  Apply/restore logging cannot see a value that is set correctly and then ignored or corrected away,
 	 *  which is the entire remaining question. Runs on every instance, so if the player pawn has one on the
-	 *  server and one on the client, both report and the divergence is visible side by side with a bot. */
+	 *  server and one on the client, both report and the divergence is visible side by side with a bot.
+	 *
+	 *  20Hz because the OPEN question changed. "Does 980 arrive?" was answered at 0.25s; "what SHAPE does the
+	 *  ramp have?" cannot be -- a ramp that finishes inside ~0.3s gives two samples at 4Hz. An acceleration
+	 *  proposal argued off two points is a guess wearing a measurement's clothes. */
 	void TickSprintDiag();
 	FTimerHandle SprintDiagTimer;
+
+	/** World seconds at the moment of the swap, so each diag line can carry its own offset from sprint onset. */
+	float SprintStartTime = 0.0f;
 
 	UPROPERTY()
 	TWeakObjectPtr<UAbilitySystemComponent> CachedASC;

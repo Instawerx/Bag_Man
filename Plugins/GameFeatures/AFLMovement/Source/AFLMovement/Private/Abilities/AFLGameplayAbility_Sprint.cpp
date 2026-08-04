@@ -6,6 +6,7 @@
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
+#include "Camera/LyraCameraMode.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -106,7 +107,15 @@ void UAFLGameplayAbility_Sprint::ActivateAbility(
 	// from a player shot.
 	if (TriggerEventData == nullptr)
 	{
-		// HUMAN. Unchanged. bTestAlreadyReleased=FALSE so it waits for a genuine replicated InputReleased (the
+		// HUMAN. The FOV widen -- the only thing in this ability that the player can SEE. Human-side only: a bot
+		// has no viewpoint, and SetCameraMode resolves through ULyraHeroComponent. Never cleared here; the base
+		// EndAbility does it on every exit path.
+		if (SprintCameraMode)
+		{
+			SetCameraMode(SprintCameraMode);
+		}
+
+		// Unchanged. bTestAlreadyReleased=FALSE so it waits for a genuine replicated InputReleased (the
 		// =true first-frame-fire bug documented in GA_AFL_Climb).
 		if (UAbilityTask_WaitInputRelease* ReleaseTask = UAbilityTask_WaitInputRelease::WaitInputRelease(this, /*bTestAlreadyReleased*/ false))
 		{

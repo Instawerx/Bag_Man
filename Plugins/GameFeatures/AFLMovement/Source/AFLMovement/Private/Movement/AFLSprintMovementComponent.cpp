@@ -148,6 +148,7 @@ void UAFLSprintMovementComponent::ApplySprintTuning()
 	CMC->MaxWalkSpeed = CachedMaxWalkSpeed * SprintSpeedMultiplier;
 	CMC->MaxAcceleration = CachedMaxAcceleration * SprintAccelMultiplier;
 	bSprintSwapped = true;
+	SprintStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
 
 	// PAWN NAME IS LOAD-BEARING, not decoration. Without it these lines are unattributable, and on a 16-bot
 	// match the player's two presses are lost among 55 bot sprints -- which produced a confident wrong
@@ -156,11 +157,14 @@ void UAFLSprintMovementComponent::ApplySprintTuning()
 		TEXT("AFL_SPRINT: %s tuning applied -> speed %.0f->%.0f, accel %.0f->%.0f"),
 		*GetNameSafe(GetOwner()), CachedMaxWalkSpeed, CMC->MaxWalkSpeed, CachedMaxAcceleration, CMC->MaxAcceleration);
 
+	// 0.05s, not 0.25s. The question is the SHAPE of the 700->980 ramp, and at 0.25s a ramp that completes in
+	// ~0.3s yields two samples -- enough to say it happened, not enough to say how. 20Hz gives ~6 points across
+	// the same window, which is what an acceleration proposal has to be argued against.
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(SprintDiagTimer,
 			FTimerDelegate::CreateWeakLambda(this, [this] { TickSprintDiag(); }),
-			0.25f, /*bLoop*/ true);
+			0.05f, /*bLoop*/ true);
 	}
 }
 
@@ -177,13 +181,20 @@ void UAFLSprintMovementComponent::TickSprintDiag()
 	// TOLD vs DOING. MaxWalkSpeed is what we set; Velocity is what the character actually achieves. Role tells
 	// us WHICH instance is speaking -- if the player pawn has a server and a client instance and only one
 	// swapped, correction pulls the player back to walking speed while both apply-logs read correct.
+	//
+	// t= is time SINCE THE SWAP, not wall clock. The onset question is "how long from press to top speed", and
+	// answering it off log timestamps means parsing them and assuming the sampler and the swap started together.
+	// Carrying the offset in the payload makes the ramp readable straight off the line.
+	const float SinceOnset = GetWorld() ? (GetWorld()->GetTimeSeconds() - SprintStartTime) : 0.0f;
 	UE_LOG(LogAFLMovement, Log,
-		TEXT("AFL_SPRINTDIAG: %-26s auth=%d localCtl=%d role=%d | MaxWalkSpeed=%.0f Velocity2D=%.0f"),
+		TEXT("AFL_SPRINTDIAG: %-26s t=%.2f auth=%d localCtl=%d role=%d | MaxWalkSpeed=%.0f MaxAccel=%.0f Velocity2D=%.0f"),
 		*GetNameSafe(Owner),
+		SinceOnset,
 		Pawn->HasAuthority() ? 1 : 0,
 		Pawn->IsLocallyControlled() ? 1 : 0,
 		static_cast<int32>(Pawn->GetLocalRole()),
 		CMC->MaxWalkSpeed,
+		CMC->GetMaxAcceleration(),
 		CMC->Velocity.Size2D());
 }
 
