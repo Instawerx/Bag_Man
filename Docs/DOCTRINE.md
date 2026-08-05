@@ -98,14 +98,15 @@ Established by `ab6e0594`. This lived **only in code and one commit message** be
 
 | # | Law | Source | Verified |
 |---|---|---|---|
-| G1 | **Lyra is the spine. Extend; do not edit.** All AFL work lives in plugins under `Plugins/GameFeatures/`, preserving upstream mergeability. | `BAG_MAN_MASTER_BUILD_v2.0.md:135`, `:195`, `:1218` **+** `CORE_GAME_CONCEPT.md:162` *(converged)* | **VERIFIED-ON-DISK — with a documented exception, see G2** |
-| G2 | **DOCUMENTED EXCEPTION to G1.** Lyra core has been patched once, deliberately: `ALyraPlayerBotController` lacks an export macro, so a GameFeature C++ subclass fails at LINK. Fix = `MinimalAPI` + `UE_API` on the Lyra class. **Any such edit must be recorded here and re-applied after an engine bump.** G1 is not absolute; it is "no undocumented core edits." | commit `a9c8fdaf` | **VERIFIED-ON-DISK** |
+| G1 | **Lyra is the spine — extend it in an ORDER OF PREFERENCE, not under a prohibition.** ① **Clone and harvest** Lyra code into AFL modules wherever that is possible — the preferred route. ② **Patch Lyra core** where linkage or engine structure genuinely requires it (G2). AFL work lives in plugins under `Plugins/GameFeatures/` because that is the cleanest structure, **not** to preserve upstream mergeability. ⚠ **Upstream mergeability is NOT a constraint on this project** — the engine is frozen at revision, and the AAA-best option permanently overrides upstream purity. | `BAG_MAN_MASTER_BUILD_v2.0.md:135`, `:195`, `:1218` **+** `CORE_GAME_CONCEPT.md:162` *(converged)*; **amended by operator ruling R6** | **VERIFIED-ON-DISK** |
+| G2 | **Patching Lyra core is the CORRECT FALLBACK when clone-and-harvest cannot work — not a violation and not an exception.** Where the engine structure forbids the clean route, patch it. Precedent: `ALyraPlayerBotController` carries no export macro, so a GameFeature C++ subclass **fails at LINK**; the correct fix was `MinimalAPI` + `UE_API` on the Lyra class. **Every core patch is recorded here and re-applied after an engine bump** — that record is the only obligation the patch creates. | commit `a9c8fdaf`; **operator ruling R6** | **VERIFIED-ON-DISK** |
 | G3 | **Do not bypass Lyra's initialization choreography.** Bypassing breaks GameFeature hot-load, breaks Experience swap mid-match, and creates merge conflicts on every upstream pull. Wait for the InitState chain — do not poll, do not use a timer. | `BAG_MAN_MASTER_BUILD_v2.0.md:894`, `:935` | UNVERIFIED |
 | G4 | **`/Game` content must not reference GameFeature content, and a GameFeature map must not reference another GameFeature's content** (AssetReferenceRestrictions). | `IRONICS_PROMOD_CHARACTER_SSOT.md:301` | UNVERIFIED |
 | G5 | **A data asset with no consumer is inert.** Check for a reader before authoring config. | `IRONICS_PROMOD_CHARACTER_SSOT.md:300` | UNVERIFIED |
 | G6 | **`AddComponents` matches by class INCLUDING subclasses.** A duplicated BP is a *sibling*, not a child — entries targeting the source class will not apply to it. | `IRONICS_PROMOD_CHARACTER_SSOT.md:297` | UNVERIFIED |
 | G7 | **The backend microservice lives in a separate sibling repo (`Bag_Man_Backend`), never in the UE LFS repo.** Only deployed IDs cross back, as non-secret config. | `BAG_MAN_MASTER_BUILD_v2.0.md:515` | UNVERIFIED |
 | G8 | **Separate GAMEPLAY from ONLINE SERVICES from LIVE CONTENT.** Tangling them makes updates dangerous. | `CORE_GAME_CONCEPT.md:2296` *(rescued)* | UNVERIFIED |
+| G9 | **PRUNING: unused and unaffected Lyra content is pruned at the END of the project — never mid-flight.** This is safe precisely because upstream is owed nothing (G1): with no merge obligation, deleting what the game does not ship carries no future cost. Pruning early is what is dangerous — a system that looks unused mid-project is routinely a dependency of something not yet built. | operator ruling **R6** | UNVERIFIED (scheduled work) |
 
 ---
 
@@ -242,6 +243,7 @@ clients, one-mechanic-per-map, vertical-slices.
 | R3 | The Tier-3 tracker is **REBUILT from git log**, carrying forward only relevant notes. Not a merge of the five existing trackers. |
 | R4 | Both loot docs merge into `ssot/economy-store.md`; `IRONICS_LOOT_CARRY_MODEL.md` v7 is archived **verbatim** as a decision record. |
 | R5 | **FBIK is permanent doctrine** — all characters, current and future, on the rigged Manny/Quinn bases (`8367f0b8`). Carried as **A11**. |
+| R6 | **Lyra extension is an ORDER OF PREFERENCE, not a prohibition:** ① clone-and-harvest into AFL modules where possible · ② patch Lyra core where linkage/engine structure requires it — the correct fallback, not a violation · ③ **upstream mergeability is NOT a constraint** (engine frozen at revision; AAA-best-option overrides upstream purity permanently) · ④ **pruning** of unused Lyra content happens at the END of the project. Carried as **G1**, **G2**, **G9**. |
 
 ---
 
