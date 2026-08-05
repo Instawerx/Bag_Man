@@ -7,6 +7,28 @@
 
 ---
 
+## 0. Phase 0 — MEASURED (2026-08-05, in-editor via bridge)
+Demo_Map already open (540 actors). Measured live:
+
+| Measurement | Value |
+|---|---|
+| **Full landscape** (BR_36 envelope) | **617 m × 607 m**, Z 2816–6501 (37 m relief) |
+| **Town play-core** (28 buildings — BR_18 candidate) | **357 m × 302 m**, Z 3365–5209 (18 m relief), center ≈ (1774, 11958) |
+| **Robot height** (`SKM_Manny`) | **181 cm** → knee ≈ 51 cm, mid-thigh ≈ 81 cm |
+| **Water short-out threshold** | **~55–65 cm** submersion (tunable; confirm in PIE) |
+| **Ocean** | single flat plane at **Z = 3372**; depth **0 → ~5.5 m** (terrain floor 2816) |
+| **Harbor/docks** | boat decks mostly at sea level (~3230–3380) + small elevated pool (~4030–4060); blockades ~4200 |
+| **Underwater PostProcess volume** | present (intended submersion region) |
+| **Player starts** | only 2 (demo) — BR needs 18/36 drop/spawn distribution (P2) |
+
+**Verdicts:**
+1. **Scale = PASS (not a GOLD-BANKS repeat).** Town core **357 × 302 m** (vs ARCANEON 140 × 90 m) is BR-appropriate; assets are realistic shanty scale, correct against a 181 cm robot. Town core = **BR_18**; full landscape = **BR_36** envelope with ring headroom.
+2. **Lethal-depth rule self-seals the sea.** Ocean up to **5.5 m** deep vs **~0.65 m** threshold → only a thin shoreline is wadeable; essentially the whole sea is instant short-out → diegetic death boundary, no visible wall needed (§3B/§4 confirmed by data).
+
+**Phase 0 status:** ✅ complete — scale + water depth measured, go/no-go = **GO**. Next: P0.5 (BR-mode spike) / P1 (boundary + water-volume authoring), pending the deferred decisions in §9.
+
+---
+
 ## 1. What ShantyTown is (asset recon)
 Unlike ARCANEON (a kit-walled arena), this is a **Landscape-based open environment**:
 - **Terrain:** Landscape with ground/puddle layers, grass/foliage, backdrop **mountains** (natural wall).
@@ -47,7 +69,7 @@ Both layers required; both **server-authoritative**.
 
 **Implementation for tournament determinism:**
 - **Server-authoritative authored depth volumes** — `Water_Lethal` over all deep areas, optional `Water_Wade` for safe shallow margins, placed to match each body's bathymetry. Server-side overlap check, zero client trust. (Chosen over dynamic water-surface-vs-leg-socket math because authored volumes are verifiable and cannot desync.)
-- **Threshold calibrated in Phase 0** to the actual AFL robot leg height (knee vs mid-thigh becomes a concrete number once measured).
+- **Threshold calibrated in Phase 0 (measured):** robot = 181 cm → knee ≈ 51 cm, mid-thigh ≈ 81 cm → short-out trigger **~55–65 cm** submersion (final value confirmed in PIE).
 - **Respawn-on-land at nearest shore, disadvantaged** — never a free cross-map teleport; short vulnerable/penalty state so water is a real cost, not fast-travel, stall, or escape.
 - **Open sub-point:** what a water-death *costs in BR terms* (respawn vs. life lost vs. downed) depends on the BR ruleset (§2) — tied to that track, not guessed here.
 
