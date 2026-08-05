@@ -20,7 +20,7 @@
 
 // SetByCaller magnitude the device passes to DisableGE so the device's DisableDuration knob is the
 // single source of truth for how long enemies stay disabled. Native-registered (no ini needed -- the
-// same FNativeGameplayTag mechanism State.Weapon.Overheated uses). Author GE_AFL_EMP_Disable's
+// same FNativeGameplayTag mechanism State.Overheated uses). Author GE_AFL_EMP_Disable's
 // Duration Magnitude as SetByCaller of THIS tag.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Data_Combat_EMPDuration, "Data.Combat.EMPDuration");
 

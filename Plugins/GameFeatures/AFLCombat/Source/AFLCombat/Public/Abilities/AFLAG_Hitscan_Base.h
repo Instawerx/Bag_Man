@@ -143,8 +143,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire", ClampMin="0.0"))
 	float HeatDecayPerSec = 0.7f;
 
-	/** OVERHEAT LOCKOUT: server-applied cooldown GE when HeatNorm hits 1. Grant State.Weapon.Overheated (~1.5s);
-	 * that tag is in ActivationBlockedTags, so the lockout is server-validated (a client can't ignore it). */
+	/** OVERHEAT LOCKOUT: server-applied cooldown GE when HeatNorm hits 1. Grant State.Overheated (~1.5s);
+	 * that tag is in ActivationBlockedTags, so the lockout is server-validated (a client can't ignore it).
+	 * BLOCK-171 FIX 1: the assigned GE (BP asset) must grant State.Overheated (was the old undeclared
+	 * weapon-scoped overheat tag, now eliminated). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AFL|Hitscan|Auto", meta=(EditCondition="bAutoFire"))
 	TSubclassOf<UGameplayEffect> OverheatCooldownEffectClass;
 

@@ -39,7 +39,9 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GC_Fire_HB,   "GameplayCue.Weapon.Pulse.Fire")
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GC_Tracer_HB, "GameplayCue.Weapon.Pulse.Tracer");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_GC_Charge_HB, "GameplayCue.Weapon.Laser.Charge");
 // AUTO-FIRE overheat: the lockout GE grants this; it's in ActivationBlockedTags so the lockout is server-validated.
-UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Weapon_Overheated_HB, "State.Weapon.Overheated");
+// BLOCK-171 FIX 1: collapsed onto the single declared+granted State.Overheated (AFLCombatTags.ini:49 +
+// AFLAttributeSet_Combat.cpp) -- the old undeclared weapon-scoped overheat tag was declared in no .ini, now gone.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Overheated_HB, "State.Overheated");
 
 UAFLAG_Hitscan_Base::UAFLAG_Hitscan_Base()
 {
@@ -65,7 +67,7 @@ UAFLAG_Hitscan_Base::UAFLAG_Hitscan_Base()
 	ActivationBlockedTags.AddTag(TAG_State_Match_Ended_HB);
 	// AUTO-FIRE overheat lockout: blocks re-activation while the overheat cooldown GE is up. Harmless for
 	// non-auto weapons (they never receive the GE, so the tag is never present on them).
-	ActivationBlockedTags.AddTag(TAG_State_Weapon_Overheated_HB);
+	ActivationBlockedTags.AddTag(TAG_State_Overheated_HB);
 
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> FireMontageFinder(
 		TEXT("/Game/Weapons/Rifle/Animations/AM_MM_Rifle_Fire.AM_MM_Rifle_Fire"));
@@ -575,7 +577,7 @@ void UAFLAG_Hitscan_Base::OnTargetDataReadyCallback(const FGameplayAbilityTarget
 	// AUTO-FIRE heat ramp -- ability-local, per shot, on BOTH client and server so the RPM feel and the
 	// server-authoritative lockout stay in step. The client uses HeatNorm for the next FireInterval (RPM);
 	// the server (authority) applies the overheat cooldown GE when its copy maxes -- a REAL, server-validated
-	// lockout: the GE grants State.Weapon.Overheated (in ActivationBlockedTags), so a client that ignores its
+	// lockout: the GE grants State.Overheated (in ActivationBlockedTags), so a client that ignores its
 	// own overheat still can't re-activate. HeatNorm is NOT an attribute and is NOT replicated.
 	if (bAutoFire)
 	{
@@ -586,7 +588,7 @@ void UAFLAG_Hitscan_Base::OnTargetDataReadyCallback(const FGameplayAbilityTarget
 			// nothing about whether overheat was firing. (AutoFireTick always logged CADENCE and MONTAGE.)
 			UE_LOG(LogAFLCombat, Log, TEXT("AFL_AUTOFIRE: OVERHEAT %s -- heat maxed%s."),
 				*GetNameSafe(GetAvatarActorFromActorInfo()),
-				bIsAuthority ? TEXT(", applying State.Weapon.Overheated cooldown GE") : TEXT(" (client copy)"));
+				bIsAuthority ? TEXT(", applying State.Overheated cooldown GE") : TEXT(" (client copy)"));
 #if WITH_SERVER_CODE
 			if (bIsAuthority && OverheatCooldownEffectClass)
 			{
