@@ -1,0 +1,561 @@
+# SSOT — ECONOMY + STORE (Tier 2)
+
+**What this is:** what the economy, store and loot systems **are** and **why**. It changes when the system is
+redesigned.
+**What this is not:** a status board. **This document contains no status claims** — nothing here says what is
+built, proven, done or owed, and no commit hash appears as evidence of progress. Those belong to Tier 3
+(`LIVE_TRACKER`).
+
+> **Why the separation matters here in particular.** Economy documents accumulate phase tables and per-item
+> completion marks faster than any other kind, because the work is naturally itemised. The result is a design
+> document that reads as a burndown chart and is wrong within a week. **The model is the design; what has been
+> authored against it is not.**
+
+**Doctrine is cited, never restated.** Laws live in [`Docs/DOCTRINE.md`](../DOCTRINE.md) and are referenced by id
+(**N1**, **N11**, **N12**, **NM5**, **G5**, **P8**).
+
+---
+
+## 1. SCOPE
+
+This SSOT governs: the hard economic invariants · currencies and their roles · the pricing model (both ladders) ·
+the earn structure · the cosmetic axis system and its address scheme · the catalog and ownership spine ·
+server-authoritative purchase and entitlement · the persistence seam · in-match loot (taxonomy and carry
+mechanic) · the store surface · prizes and collection mechanics · and the interfaces owed to matchmaking and
+league.
+
+It does not govern: how a player reaches a match or how a stake is banded (→ `ssot/matchmaking.md`), rank and
+season structure (→ `ssot/league-play.md`), what a ruleset is (→ `ssot/match-modes.md`), character content
+(→ `ssot/character-system.md`), or the state of any implementation (→ Tier 3).
+
+---
+
+## 2. HARD INVARIANTS
+
+These are locked. Breaking any of them is a compliance re-review, not a design change.
+
+| # | Invariant | Why |
+|---|---|---|
+| **E1** | **PEG, in exact integer units.** `1 Volt = $0.001` · `10 Watts = 1 Volt` · `$1 = 1,000 Volts = 10,000 Watts`. **Balances are integers. Never floats.** | Float currency accumulates rounding error that becomes either a duplication exploit or an unexplainable missing balance. Integers make the ledger exact by construction. |
+| **E2** | **NO CASH-OUT, EVER.** One-way buy-in only. **No path converts Watts or Volts back to real money or out of the system.** | This is the load-bearing legal property. It is what makes staking a *structure* applied to in-game tokens rather than real-money wagering. |
+| **E3** | **NO RANDOMISED ACQUISITION for purchase.** No loot boxes, no gacha. **All purchases are direct and known-item** — the player sees exactly what they are buying before they buy it. | Randomised paid acquisition is legally radioactive in multiple territories and has produced bans and large settlements. Direct purchase is the transparent norm. *(This governs PURCHASE. Any randomised **reward** path is bound by §13's mitigations.)* |
+| **E4** | **One global currency system** (Watts + Volts). Branding may dress it; there are **no per-team or per-region currencies**. | Multiple currencies multiply the ledger surface, the exchange logic, and the ways a balance can be wrong. |
+
+---
+
+## 3. CURRENCIES, AND THE ONE WALLET
+
+| Currency | Type | Source | Spends on |
+|---|---|---|---|
+| **Watts** | Soft, earned | Gameplay (§5) | Accessible-tier cosmetics; discounts on higher tiers; lower stake tiers |
+| **Volts** | Hard, premium | Real-money purchase (gated) | Premium and prestige cosmetics; the pass; **stakes** |
+
+### 3.1 Volts are the stake currency, and there is only one wallet
+
+**The staking economy and the cosmetics economy meet in the same wallet.** A player does not hold "stake Volts"
+and "shop Volts" — they hold Volts. Three consequences follow, and all three are design constraints rather than
+implementation details:
+
+**(a) The two economies compete for the same balance.** A Volt committed to a stake is a Volt not spent in the
+store, and vice versa. This is intended — it is what makes a stake feel like a real decision — but it means
+**neither system can be balanced in isolation.** A store price change alters staking behaviour; a stake-tier
+change alters store conversion. Any tuning pass that touches one must state its expected effect on the other.
+
+**(b) Sinks and sources must be reckoned across both.** Staking between players is a **transfer**, not a sink:
+it moves currency sideways and removes none. The only true sink in a staked match is the **rake**. Store
+purchases are the primary sink. **Earned Watts are the primary source.** If staking volume grows while store
+conversion does not, currency accumulates — the rake is the pressure valve, and its rate is an economy-health
+lever, not merely revenue.
+
+**(c) Server authority over the ledger is absolute** (**N1**, **N11**). One wallet means a defect in *either*
+system corrupts *both*: a stake settlement that credits twice inflates the same balance that buys grails, and a
+purchase that fails to deduct funds the next stake. **There is exactly one mutation path** (§9), and every
+economic operation — purchase, earn, escrow, settlement, reward grant — goes through it. A second write path is
+not a shortcut; it is a second place for the ledger to be wrong.
+
+### 3.2 Player-to-player transfer
+
+Any direct transfer capability is a **separate, gated subsystem**, and it inherits **N12** in full:
+transactional locking, rollback, anti-duplication, escrow/confirm, and a per-SKU tradeable flag. A transfer path
+is not a feature of the wallet; it is its own subsystem with its own failure surface.
+
+---
+
+## 4. THE PRICING MODEL — TWO LADDERS, AN ITEM USES ONE
+
+An item is priced on **exactly one** of two ladders. Which ladder an item sits on is a product decision made
+once, per item.
+
+### 4.1 The standard ladder — unlimited stock, cheap-first
+
+| Rung | USD band | Buy with | Typical contents |
+|---|---|---|---|
+| **Free** | — | — | Base finish set + base edges + the free base identity |
+| **Impulse** | ~$1–2 | Volts **or** Watts | A single colour or edge |
+| **Standard** | ~$3–5 | Volts **or** Watts | Signature finishes, masks, standard weapon skins |
+| **Premium** | ~$8–15 | **Volts only** | Signature weapon skins, exclusive beams, event masks |
+| **Grail** | $500 | **Volts only** | The 1-of-1 container bundle (§4.2, §7.3) |
+
+**Cheap-first is the design, not a discount.** The lowest paid rung must sit at an impulse price reachable in a
+handful of matches (§5), because the first purchase is the conversion event that matters; everything above it
+is a decision the player makes *after* they already trust the store.
+
+**The Volts-only wall begins at Premium.** Below it, everything is payable either way. This is the soft/hard
+split that keeps the free path genuinely complete while leaving premium tiers meaningful — and it is **enforced
+at the purchase layer, not merely hidden in the UI** (§8).
+
+### 4.2 The rarity ladder — limited mint, scarcity as the product
+
+| Mint cap | Label | Currency | Discountable | Reissue |
+|---|---|---|---|---|
+| 10,000 | Static | Watts | yes | **never** |
+| 1,000 | Charge | Watts | yes | **never** |
+| 100 | Surge | Watts | yes | **never** |
+| 50 | Bolt | Watts | **never** | **never** |
+| 10 | Tempest | Volts | **never** | **never** |
+| **1** | **Singularity** | Volts | **never** | **never** |
+
+**NEVER-REISSUE applies to every limited tier.** The mint count is a hard permanent cap — **the fixed count
+*is* the product.** An edition that reopens was never limited, and a single reissue retroactively devalues
+every limited item ever sold, including the ones the reissue did not touch. This is the one policy in the
+economy that cannot be relaxed "just once."
+
+**NEVER-DISCOUNT cuts in at Bolt (50).** Below that, discounts are a legitimate volume-conversion tool. At and
+above it, a discount contradicts the scarcity being sold.
+
+**The curve is deliberately stretched at the top.** The entry tiers cluster low for mass conversion; the 1-of-1
+stands at roughly 100× the top Watts tier rather than a flat multiple. A grail priced on a linear extension of
+the volume tiers is not a grail — the gap *is* the signal.
+
+### 4.3 Two "rarity" concepts that must never share a field
+
+- **Shop-frame rarity** (Common → Legendary) — a *badge*, drives presentation and base pricing.
+- **Mint tier / cap** (the `1-of-N`) — the *scarcity product*.
+
+They are independent: a Common-framed item can be 1-of-50, and a Legendary-framed item can be unlimited.
+Collapsing them into one field makes both meaningless and is not reversible once content is authored against it.
+
+---
+
+## 5. THE EARN STRUCTURE
+
+**Watts are earned through a structure, not a flat per-match payout.** The structure is the engagement design;
+the flat rate is only its sum.
+
+| Source | Cadence | Purpose |
+|---|---|---|
+| Match base (win pays more; a loss still pays) | every match | Outcome matters, but losing is never punishing |
+| Daily first-win | once per day | The return hook |
+| Daily quests | daily | Varied play, a reason to come back |
+| Weekly challenges | weekly | Play-across-the-week retention |
+| **Combat loot** (§10) | in-match | Rewards varied play rather than kills alone |
+
+**Design principles:** reward variety, not just kills — saves, extraction, loot and objectives all earn. Gate a
+meaningful chunk behind *showing up* rather than *grinding*, so a player with an hour is not structurally behind
+a player with six. Reward skill, but never make losing feel like it cost you.
+
+**The earn rate is the anchor, and the price ladder is the lever.** When the grind feels wrong, the correct
+adjustment is almost always **price**, not earn inflation. Inflating earn devalues every balance already held
+and every price already set; adjusting a price affects only the item in question. **Earn stays locked; prices
+move.**
+
+---
+
+## 6. THE COSMETIC AXIS SYSTEM
+
+**Cosmetic axes are independent, individually-ownable categories — not sub-attributes of an item.** Each axis
+has its own SKU namespace, its own selection field, and its own consumer. A look is **composed at runtime** from
+one selection per axis.
+
+| Axis | Owns | Composed by |
+|---|---|---|
+| **Identity** (character / team) | The *who* — the emblem, the body | The part-selection path |
+| **Finish** | **Colour, and only colour.** Logo-less. The sole colour source | The material-parameter apply |
+| **Mask** | Face geometry / material | The part-attach path |
+| **Weapon** | The weapon as an owned item | A soft reference to its equipment definition |
+| **Accessory** | Per-identity attachments | The same part-attach mechanism |
+| **Bundle** | A set of the above | The entitlement grant loop |
+
+### 6.1 The conflict-prevention rule
+
+> **An identity NEVER encodes colour.** There is no "red Draco" identity — there is *Draco* (identity, owns the
+> emblem) composed with *Red* (finish, owns the colour).
+
+This is enforced structurally rather than by convention: the finish data carries no logo, mesh or identity
+field, and the identity's logo parameter is untouched by a recolour. **Colour physically cannot live in an
+identity, and an identity cannot carry a colour name without it being dead data.**
+
+**Why this matters more than it looks:** it is the property that lets a large roster share a colour palette and
+stay distinct. **Distinctness is by emblem; colour is a free axis anyone applies.** It also collapses the
+authoring surface from *identities × colours* to *identities + colours* — the difference between authoring a
+few dozen assets and a few hundred, for an identical result.
+
+### 6.2 Independence is the general rule
+
+The same logic governs every axis: a weapon skin is not a property of a weapon, an edge is not a property of a
+finish. Each is separately ownable, separately priced, separately tradeable, and separately selected. **A new
+cosmetic category is a new axis — never a field on an existing one.**
+
+### 6.3 Metadata is not the address
+
+Rarity, content tier, collection/family, and colour-family are **descriptive metadata on the catalog entry**,
+never encoded in the id. Colour-family is a *filter* ("show me the red-family identities"); the finish is the
+*address*. They never collide, because one describes and the other selects.
+
+---
+
+## 7. THE CATALOG AND THE OWNERSHIP SPINE
+
+### 7.1 The id is the join key
+
+Every ownership, entitlement and selection key is the **fully type-qualified id** (`AFL.<Type>.<Name>`), never
+a bare name. The type qualifier is part of the key, so an identity and a team of the same name are different
+ids that cannot collide.
+
+**A shipped id is never renamed** (**NM5**). Grouping and re-categorisation happen in metadata (§6.3), never by
+changing an id — a renamed id orphans every ownership record that references it.
+
+### 7.2 References are soft
+
+Catalog entries reference their assets **softly**. A catalog that hard-references its assets loads the entire
+content set whenever the catalog loads — and the catalog is loaded by the front end. This is the same
+constraint the matchmaking pool layer operates under (`ssot/matchmaking.md` §3.2), for the same reason.
+
+### 7.3 Bundles are a grant-many wrapper, not a second system
+
+A **bundle** is a SKU whose ownership grants a **set of child SKU ids**. One purchase deducts once and grants
+every child id into the owned set, atomically — or grants none. Children resolve individually afterwards,
+exactly as if bought separately.
+
+**The grail exception — container-locked children.** A 1-of-1 bundle trades **only as an intact unit**; its
+children are locked to the container and cannot be separated out while bundled. This is not a contradiction of
+general tradeability — it is what keeps "1-of-1" *true*. If the children could be sold off individually, the
+1-of-1 would quietly become several items with several owners, and the scarcity being sold would evaporate.
+
+### 7.4 Complete registration — no item may depend on a fallback
+
+**Every item must carry a complete, explicit set of registrations.** A fallback exists to catch *unregistered*
+ids; it is never the intended path for a registered one.
+
+> **An item that behaves correctly only because a global fallback happens to match its intent is a BUG** —
+> correct-by-accident, not correct-by-registration. It must be flagged and fixed, because the day the fallback
+> changes for an unrelated reason, the item silently breaks and nothing points at the cause.
+
+This applies to every per-item map and registration, current and future. **G5** is the related law: a data asset
+with no consumer is inert — and an item with no registration is worse, because it *appears* to work.
+
+---
+
+## 8. SERVER-AUTHORITATIVE PURCHASE AND ENTITLEMENT
+
+### 8.1 The server decides what you own
+
+The client **requests**; the server **decides** (**N11**). A client-side cache is permitted for offline display
+only — read-only, overwritten by the server on login. It never decides ownership.
+
+### 8.2 Price is enforced by the catalog, and the failure mode is specific
+
+**The price charged is the price in the catalog, read server-side at purchase time. A client-supplied price is
+never trusted** — a client that names its own price will eventually name zero.
+
+**The failure mode to design against: a seed price and a catalog price that disagree.** When an item's price
+exists in more than one place — a seeding/bootstrap value and the authoritative catalog entry — they drift, and
+the drift is silent. The player is shown one price and charged another; whichever is lower becomes an
+unintended discount, and whichever is higher becomes a support ticket and a refund. Worse, the discrepancy
+appears only for items whose price was *changed*, so it survives every test written against the original value.
+
+> **Rule: exactly one authority for price — the catalog entry.** Any seed or bootstrap data is a *fixture for
+> an empty catalog*, never a parallel source of truth, and must be either derived from the catalog or absent.
+
+### 8.3 The check-and-deduct must be atomic
+
+Splitting *check balance* and *deduct* into two operations is the textbook double-spend race: two simultaneous
+purchases both pass the check, and both deduct. **The balance test and the deduction are one indivisible
+operation** — and when a networked store backs the wallet, "indivisible" must mean a single conditional
+database write that succeeds only if the balance still covers it, not two calls that happen to be adjacent.
+
+### 8.4 Entitlement is a real gate, never a permissive stub
+
+**An entitlement check that returns "yes" while unimplemented is worse than no check at all.** It looks like
+enforcement in every test, in every review, and in every playthrough — and it is enforcement nowhere. The
+moment it is relied upon, everything is free and nothing reports an error.
+
+> **Rule: an unimplemented gate FAILS CLOSED.** If entitlement cannot be resolved, the answer is *no*. A
+> permissive stub is a security hole wearing the costume of a feature.
+
+The same rule governs ability-bearing cosmetics: where a cosmetic grants an ability, the grant is
+server-authoritative, so an ability can never be spoofed onto an unentitled item.
+
+---
+
+## 9. THE PERSISTENCE SEAM — ONE WRITE PATH
+
+**All economy mutation flows through a single persistence seam.** Purchase, earn, escrow, settlement, reward
+grant, consumable decrement — every operation that changes what a player owns or holds goes through the one
+interface.
+
+**Why a single seam is a requirement and not a preference:**
+
+1. **It is the only place invariants can be enforced.** The peg, integer-only balances, non-negative clamps and
+   atomicity are properties of *the write*. Two write paths mean two implementations of the same invariants, and
+   the second one is always the one that is subtly wrong.
+2. **It is the audit boundary.** A staked economy must be able to answer *"why does this player have this
+   balance"*. One path produces one ordered history; two paths produce two partial histories that must be
+   reconciled — and reconciliation of an economic ledger is exactly the work nobody has time for during an
+   incident.
+3. **It makes the backend swappable.** Session-only, local, or a networked store are implementations behind the
+   same seam. Anything that writes *around* the seam is pinned to whatever backing existed when it was written,
+   and becomes the reason the backend cannot be changed.
+4. **A bypass is invisible until it matters.** Code that writes directly still *works* — until an operation
+   needs to be durable, audited, or rolled back, at which point the bypass is discovered in production.
+
+> **Rule: no economic write bypasses the seam. A direct write is a defect regardless of whether it currently
+> produces the right number.**
+
+**Durability is a distinct property from authority.** Ownership can be fully server-authoritative and still be
+session-scoped. Everything durable — trade, limited-edition mint counts, sold-out state, cross-session
+ownership — depends on the seam having a durable implementation behind it, and **a mint cap cannot be enforced
+without durable state**: a counter that resets cannot make a 1-of-1 true. **P8** applies to that backend: it is
+proven standalone before anything integrates against it.
+
+---
+
+## 10. LOOT: TAXONOMY
+
+In-match loot is a generalised system with one shared core, not a family of bespoke pickups.
+
+### 10.1 Two value domains
+
+| Domain | What it grants | Budget impact |
+|---|---|---|
+| **Economy** | Watts / carried energy | Counts against the per-match earn budget (§5) |
+| **Gameplay-resource** | Ammo, health, equipment | **Not currency.** No peg impact; affects combat balance and needs its own balance pass |
+
+**Keeping these separate is the point.** A gameplay resource that quietly grants currency breaks the earn
+budget; a currency drop that quietly restores health breaks combat balance. Every loot category declares which
+domain it is in.
+
+### 10.2 The four axes — every category is a point in this space
+
+| Axis | Options |
+|---|---|
+| **Retrieval mode** | **INSTANT** (walk-over) · **CARRY** (deliberate, contestable) · **HARVEST** (channel-over-time yield) |
+| **Value model** | Instant-Watts · carry-to-extract value · reattach/no-grant · gameplay-resource · item/SKU grant |
+| **Eligibility** | Anyone · enemy-only · team-only |
+| **Lifetime** | Persist-until-looted · timed despawn · owner-death-vanish · regenerating |
+
+### 10.3 The shared core
+
+- A **loot contract** any object honours regardless of its base class — value, value model, eligibility, an
+  on-looted hook, and a lifetime policy. An interface rather than a base class, because loot objects are
+  otherwise unrelated (a severed part, an energy mote, a placed cache) and reparenting them to a common
+  ancestor would be the wrong coupling.
+- A **grant component** owning value dispatch, the eligibility branch, and a **grant-once guard**.
+- **Retrieval substrates** per mode, one each for instant, carry and harvest.
+- **Server-authoritative throughout** — spawn, eligibility, grant and consumption are server decisions; objects
+  replicate, and rest dormant when idle.
+
+**A loot object is therefore: a retrieval substrate + the grant component + a config.** New loot is a
+configuration, not a new system — which is the property that keeps the category list open-ended.
+
+### 10.4 The owner branch
+
+Dismemberment loot is **enemy-only**: an opposing player retrieving a severed part banks value, while the
+**owner** retrieving their own part **reattaches it and is granted nothing**. You do not profit from your own
+body.
+
+This is a design rule with an economic consequence: because the enemy-collect grant is an **earn source**, it is
+an anti-fraud surface. Feeding parts to a colluding opponent manufactures currency, and the integrity layer
+that guards it belongs to the economy (it is the currency being debased), not to staking alone.
+
+**Value ordering is deliberate**: the head is worth many times a limb, and arms outrank legs. The ordering
+makes the drop sequence meaningful — the cheap parts go first under fire, and the prize clings longest.
+
+---
+
+## 11. LOOT: THE CARRY MECHANIC
+
+### 11.1 Two kinds of grabbable, de-conflated
+
+| | **COLLECT (loot)** | **CARRY-OBJECT (map object)** |
+|---|---|---|
+| Destination | A fungible carried pool | The hero's hand |
+| Hands occupied? | **No** — move and shoot freely | Yes — carry pose, weapon stowed |
+| At risk? | **Yes** — a portion on hit, the remainder on death | Per-object policy |
+| Banked when | **Extraction** | n/a |
+
+**Collecting loot must not occupy your hands.** A player carrying value should still be able to fight — the
+tension comes from *risk*, not from being disarmed. Disarming the carrier converts a risk decision into a
+chase, which is a different and worse game.
+
+### 11.2 The carried pool is fungible
+
+Collected value goes into a **single fungible carried pool**, not a set of discrete objects. One pool is the
+carried-at-risk value. **The wallet is banked and safe; the pool is carried and at risk; extraction is the
+bridge between them.** That three-way distinction is the whole extraction loop in one line.
+
+### 11.3 Friction is the channel, not the hands
+
+CARRY retrieval is a brief **timed, interruptible channel** — approach, hold briefly, complete. Taking a
+confirmed hit cancels it; so does moving away. INSTANT retrieval has no channel.
+
+This restores the meaningful distinction between instant and deliberate loot as **exposure time** rather than
+occupied hands: you stand still and vulnerable for a moment to claim the higher-value thing. The channel needs
+visible progress feedback, because an interruptible action without progress feedback reads as a bug.
+
+**The channel is a general substrate, not a loot feature** — timed, interruptible, progress-reporting actions
+recur (harvesting, capturing, extracting). It is authored once and consumed by each.
+
+### 11.4 At-risk behaviour: a portion on hit, the remainder on death
+
+A carrier who takes a confirmed hit **scatters a portion** of the carried pool as recoverable world loot; death
+scatters the remainder. A grace period prevents a single burst from stripping the whole pool.
+
+**Why a portion rather than all-or-nothing:** dropping everything on the first hit makes carrying value
+unplayable under any pressure, and dropping nothing until death makes the carry risk-free until it is
+total. A portion on hit creates the actual decision — *keep pushing, or disengage and bank what is left* —
+which is the moment the extraction loop exists to produce. It also keeps the scattered value **in play** and
+contestable rather than deleted.
+
+---
+
+## 12. THE STORE SURFACE — SIMPLIFY THE OFFERING
+
+**Fewer, clearer choices. The store is not a catalogue dump.**
+
+**The principle:** choice overload reduces both conversion *and* satisfaction. Past a small number of options a
+buyer stops comparing and starts deferring — and a deferred purchase is usually an abandoned one. Worse, the
+buyer who *does* choose from an overwhelming set is measurably less happy with what they picked, because the
+alternatives they did not evaluate remain live as regret.
+
+**What this implies for surface design:**
+
+- **The catalog is large; the store surface must not be.** These are different things, and the store is a
+  *curated view* onto the catalog, never a rendering of it.
+- **A visit should present a small, comprehensible set** — enough to find something, few enough to decide.
+- **Rotation is how breadth is served over time** rather than depth-per-visit. Content earns its turn in front
+  of the player instead of permanently occupying a grid cell.
+- **Owned items leave the buying surface.** Anything already entitled is not merchandise; showing it is noise
+  that pushes real options off the screen.
+- **Search and filter serve intent, not browsing.** A player who knows what they want should reach it directly;
+  that path is separate from the curated surface and does not justify expanding it.
+- **Every surface has one job.** A screen that sells, showcases, and manages inventory simultaneously does none
+  of them well.
+
+*(Specific counts, rotation cadence and slot layouts are product decisions made against this principle, not
+fixed here.)*
+
+---
+
+## 13. PRIZES AND COLLECTION MECHANICS
+
+### 13.1 The design
+
+A **series-collection mechanic with a monthly prize**: players complete a collection over a period, and
+completion enters them for a prize. **Difficulty target: hard but achievable for a dedicated player** — a
+prize nobody wins is a broken promise, and one everybody wins is not a prize.
+
+**Prizes are donated items with no cash value, and are not redeemable for cash through us.** Eligibility is
+**territory-gated**.
+
+### 13.2 The mitigations are first-class requirements, not afterthoughts
+
+Any mechanic that combines *paid participation*, *randomness*, and *a prize of value* attracts regulatory
+attention in a number of territories, and the specific rules vary and change. The following are **designed in
+from the start**, not bolted on if challenged:
+
+| Requirement | What it means |
+|---|---|
+| **Published odds** | **Any randomised reward with a paid path publishes its odds**, plainly and before participation — not buried, not expressed only as a rarity word. |
+| **A free entry route** | There is a **genuine, non-purchase path to enter** — comparable in practical terms, not a token gesture that exists only on paper. |
+| **Territory eligibility gating** | Eligibility is enforced by territory (§`ssot/matchmaking.md` §6 is the region source), and the gate is **applied at award time**, not merely disclosed. |
+
+> ### ⚠ THE FRAMING WARNING — READ BEFORE BUILDING ON THIS
+> **"No cash value" is NOT, on its own, a sufficient justification, and this document does not record it as
+> one.** It is one relevant fact among several. Whether a mechanic is regulated turns on the combination of
+> paid entry, chance, and prize — and "the prize cannot be cashed out" does not by itself remove a mechanic
+> from that combination in every territory.
+>
+> **This design is recorded as designed-pending-counsel-review.** The mitigations above are included because
+> they are the standard, defensible baseline — *not* because a legal conclusion has been reached here. **Anyone
+> building on this section must treat counsel review as a prerequisite, not a formality.** A future reader who
+> finds only "no cash value, therefore fine" has been given an incomplete justification and would be exposed by
+> relying on it — which is precisely why that framing is rejected here in writing.
+
+### 13.3 Relationship to the invariants
+
+**E3 forbids randomised *purchase*** — you cannot buy a randomised box of cosmetics. A prize draw is a
+different shape: the item is not sold, participation has a free route, and odds are published. **The two must
+not be allowed to blur**: a "prize" that is functionally a paid randomised item purchase is an E3 violation
+wearing different words, regardless of what it is called.
+
+---
+
+## 14. INTERFACES OWED
+
+### 14.1 To matchmaking — the settlement interface
+
+Economy consumes, per match: the **match id** (the binding key), the **participants and their escrowed
+entries**, the **outcome ordering** the payout curve reads, and the **terminal state** — settled,
+cancelled-refund, or **held-pending-review**. The third state is required so an integrity review can hold a
+settlement without either paying out or refunding.
+
+Economy provides: **escrow at seat-take** and **settlement at result**, both atomic and both reversible
+(**N12**). A match that never forms returns every entry in full and strands none.
+
+### 14.2 To league — the reward grant interface
+
+League determines *who has earned what*; economy performs the grant. The interface carries the **recipient**,
+the **entitlement or currency granted**, and an **idempotency key** — season rewards are computed in bulk and
+retried, and a retry that grants twice is an inflation bug that is invisible until someone audits totals.
+
+**Economy never decides eligibility, and league never writes the ledger.** Each system's authority stops at the
+other's boundary, and the grant crosses it exactly once, through the seam (§9).
+
+---
+
+## 15. OPEN DESIGN QUESTIONS
+
+1. **Sink/source balance for Volts under staking.** Staking transfers rather than sinks; only the rake removes
+   currency (§3.1b). Undecided: whether the rake alone is sufficient pressure at scale, and what signal
+   indicates it is not — total float, velocity, or the ratio of staked to spent Volts.
+2. **The pricing-ladder rationale, revisited against real behaviour.** The band boundaries are anchored to a
+   cheap-first conversion argument (§4.1). Undecided: how the ladder responds if the impulse rung converts far
+   better or far worse than expected, and whether bands move or content re-tiers between them.
+3. **How randomised-reward odds are surfaced.** §13.2 requires published odds; *where and when* they appear is
+   undecided — at the point of entry, in a persistent info surface, or both — as is how they are expressed so
+   they are genuinely understood rather than merely disclosed.
+4. **Whether prize-series inventory is finite or generated.** A finite donated pool has a hard end and a
+   scarcity story; a generated pool sustains indefinitely but is closer to a manufactured reward. This choice
+   also determines whether "sold out" is a state the prize system needs at all.
+5. **The free-entry route's shape.** §13.2 requires one. Its form — an earned entry, a periodic grant, a
+   no-purchase request path — is undecided, and the decision must be made against *practical comparability*
+   rather than nominal existence.
+6. **Whether the two economies ever need a firewall.** §3.1 states they deliberately share one wallet. If
+   staking volume ever destabilises store pricing, a partial separation becomes a live option — and it should be
+   entered deliberately, with the acknowledgement that it reintroduces multi-currency complexity **E4** exists
+   to avoid.
+
+---
+
+## 16. RULINGS OF RECORD
+
+| Ruling | Date | Content |
+|---|---|---|
+| **R4 — the two loot documents merge here** | **2026-08-05** | Loot taxonomy (§10) and the loot carry mechanic (§11) are two sections of this SSOT. They previously lived in separate documents with **zero cross-citations between them** — drift by construction. The superseding decision history of the carry model is preserved by archiving that document verbatim; only decisions whose **reasoning is still load-bearing** are carried forward here. |
+| **R9 — Volts are the stake currency; one wallet** | **2026-08-05** | The staking and cosmetics economies share a single wallet (§3.1), with the three consequences recorded as design constraints: the two economies compete for the same balance and cannot be balanced independently; sinks and sources are reckoned across both, with rake the only true sink in a staked match; and server authority over the ledger is absolute, because a defect in either system corrupts both. |
+
+---
+
+## 17. RELATED
+
+- [`Docs/DOCTRINE.md`](../DOCTRINE.md) — laws cited here: **N1** server authority · **N11** the client never
+  decides ownership or balances · **N12** transactional transfer with escrow, rollback and anti-duplication ·
+  **NM5** a shipped id is never renamed · **G5** a data asset with no consumer is inert · **P8** a backend is
+  proven standalone before integration.
+- `ssot/matchmaking.md` — stake as a ticket parameter, banding, the settlement interface, and the region source
+  that territory gating reads.
+- `ssot/league-play.md` — what earns a reward; this document grants it.
+- `ssot/match-modes.md` — the rulesets whose outcomes settle a pool.
+- `ssot/character-system.md` — the character content the identity and finish axes dress.
+- `ssot/combat-arsenal.md` — the weapons the weapon axis owns as items.
