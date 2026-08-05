@@ -65,6 +65,13 @@ ShooterCore"` — placeholder, unwashed.)
   (`Docs/maps/ShantyTown_BR_DESIGN.md` §11 + Gate — one map covers the whole matrix via `District_Duel/Arena/Team`
   data layers). **No geometry authored yet; no front-end configs** (no playlist/experience). BR mode layer gated
   on the shrinking Zone system. District PLACEMENT within the town core still OWED.
+- **Arena_02 (Tier B, 3v3 + 4v4) — BRIEF BANKED, BUILD NOT APPROVED:** `Docs/maps/Arena_02_DESIGN.md`
+  committed as-is (`a241cc49`). **Gate = DRAFT awaiting operator approval (2026-08-02) — banking the brief
+  did NOT approve the build.** On disk: **no `.umap`**, **no front-end config** (no playlist/experience), and
+  its signature mechanic **MOVING LASER WALLS is UNBUILT** (disk-verified: no `LaserWall`/`FLaserWallState`/
+  `WallSweep` C++, no assets). Operator ruling 2026-08-05: **kept as a future marquee Tier-B venue, not
+  archived** — its signature mechanic is distinct from the ShantyTown **D2 Arena** district, which covers the
+  same 3v3/4v4 bracket without one. Brief specifies a single level, explicitly **NOT** World Partition.
 - **The picker now shows 6 tiles**, all AFL, no stock leakage: NANOWATT 3V3 SPEED · INFINEON 8V8 SIEGE ·
   ARCANEON ×4.
 - **Bracket coverage:** Arena = 1 venue (NANOWATT). Team = 2 (ARCANEON + INFINEON). **Duel = NOTHING** — 1v1 and
