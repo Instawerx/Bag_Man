@@ -1,6 +1,6 @@
 # ShantyTown — Battle Royale Map Design & Scope (v1)
 
-**Status:** SCOPE / DESIGN ONLY (no build started). **Date:** 2026-08-05.
+**Status:** SCOPE / DESIGN. **District Program OPERATOR-APPROVED 2026-08-05** (see **Gate**); the BR mode layer remains gated (Zone system + §9). **Date:** 2026-08-05.
 **Roster slots filled:** `BR_18` / `BR_36` (design-only in [MAP_DISPLAY_NAME_REGISTRY.md](MAP_DISPLAY_NAME_REGISTRY.md)).
 **Source pack:** `Content/ShantyTown/` (Landscape environment). **Demo map:** `Content/ShantyTown/Maps/Demo_Map.umap`.
 **Primary users (the driving constraint):** **Staked Battle Royales & Tournaments** — every choice below is filtered through "real stakes are on the line, assume incentive to cheat/grief."
@@ -40,9 +40,14 @@ Unlike ARCANEON (a kit-walled arena), this is a **Landscape-based open environme
 
 **Implication:** containment is a *landscape* problem, not tile-sealing — but the pack ships the exact diegetic props (compound fence + water blockade) for a fenced-compound edge.
 
-## 2. Hard dependency — the BR mode does not exist yet
-There are **no BR playlists/experiences** and **no shrinking-zone / last-standing / drop-deploy system** in the project — only Arena/Team-Extract modes. There *is* a `DA_AFL_LootConfig` and a respawn ability set to build on.
-**The BR ruleset is a prerequisite SYSTEM, not a map task**, and it gates a playable staked BR regardless of map quality. It is the single largest effort in this initiative. (Handling of this track = open decision, §9.)
+## 2. BR mode status — last-standing SHIPPED (C++); shrinking Zone still net-new
+**Corrected 2026-08-05.** The earlier "no BR ruleset exists / prerequisite SYSTEM" framing is **out of date**:
+- **`UAFLBattleRoyaleComponent` is committed (`e6e0ffa0`)** — server-authoritative **N-participant last-standing + placement**, **no-respawn baseline** (`State.Round.NoRespawn` + `IAFLRoundRestartPolicy`). Built on the existing match spine (`UAFLMatchPhaseComponent`), `MatchId`, join coverage, loot carry, and telemetry.
+- **PIE-proven TWICE** on assertions **A1** (match start + participant count), **A2** (descending placement ladder), and **A4** (no-respawn holds).
+- **STILL UNPROVEN — owed:** **A3 / A5** and **match conclusion**. Two PIE runs **stalled before resolving**, and the **cause is UNKNOWN** — an earlier team-split explanation was **retracted as unsupported**. Recorded as unknown, **not solved**.
+- **The genuinely net-new BR work that remains is the shrinking Zone system** (§3, Layer A) — nothing like it exists.
+
+So the BR ruleset is **no longer a from-scratch prerequisite**: last-standing / placement / no-respawn are shipped and partially proven. What's left is the **Zone system** plus **closing out A3 / A5 / match conclusion**. (Track handling = open decision, §9.)
 
 ## 3. Boundary containment — two-layer, hybrid model
 Both layers required; both **server-authoritative**.
@@ -110,11 +115,32 @@ GOLD BANKS (`L_ValleyVillage`) was parked because map-asset scale was wrong for 
 3. **Water-death BR cost:** respawn / life-lost / downed — resolve with the BR ruleset (§2, §4).
 
 ## 10. Top risks
-1. **BR mode doesn't exist** — largest effort, gates everything (§2).
+1. **BR mode conclusion unproven** — last-standing/placement/no-respawn are shipped + partially PIE-proven, but **A3/A5 + match conclusion are owed (cause unknown)** and the shrinking **Zone system** is still net-new; the largest remaining BR effort (§2).
 2. **Scale** — GOLD BANKS repeat risk (§7, gated first).
 3. **Landscape containment harder than a walled arena** — seams, terrain holes, roof/dock/boat perches (§3B).
 4. **Water edge-cases** — sloped shorelines, threshold-standing, dock-to-deep jumps (§4).
 5. **Perf at 36 players** on landscape + foliage (§6).
+
+---
+
+## 11. District Program (WP data layers) — the whole matchmaking matrix from one map
+**OPERATOR-APPROVED 2026-08-05** (see **Gate**). ShantyTown covers the **ENTIRE matchmaking matrix from a single map** via **fenced play-spaces (districts)**, rather than one map per bracket.
+
+**Architecture:** World Partition **data layers**, conforming to **`L_Expanse`** (the map INFINEON ships on), which uses **Layout / Gameplay / ExtraSpawn / Lighting**. [Arena_04_DESIGN.md:35](Arena_04_DESIGN.md) already names that organisation as inherited doctrine.
+- **Base layers:** `Layout` · `Gameplay` · `ExtraSpawn` · `Lighting`
+- **District layers:** `District_Duel` · `District_Arena` · `District_Team`
+
+| District | Area | Footprint | Covers |
+|---|---|---|---|
+| **D1 Duel** | ~3,460 m² | ~59 × 59 m | 1v1, 2v2 |
+| **D2 Arena** | ~7,500 m² | ~87 × 87 m | 3v3, 4v4 |
+| **D3 Team** | ~14,000 m² | ~118 × 118 m | 5v5, 8v8 |
+
+**Sizing basis (Block 162 ladder):** ~865 m²/player dense, ~1,400 m²/player sparse ceiling — calibrated from **NANOWATT 3v3 (850)** and **ARCANEON 8v8 (876)** agreeing within 3% across two independently authored maps. **D3 deliberately matches ARCANEON's 14,016 m²**, which hosts both 5v5 and 8v8 in production. Districts total **24,960 m² = 23% of the 357 × 302 m town core**. **BR still uses the whole map; districts are fenced regions INSIDE it, not carved out of it.**
+
+**OWED — not decided:** district **PLACEMENT** within the town core. That needs eyes on the actual layout — natural fencing, building density, sightlines. **No coordinates proposed here.**
+
+**Activation:** requires a small **server-only AFL `GameFeatureAction`** calling `UDataLayerManager::SetDataLayerRuntimeState`. Verified server-authoritative — `WorldDataLayers.cpp:152-159` refuses clients with `AuthoritativeFromClient`; state replicates outward. **Not yet written.**
 
 ---
 
@@ -123,3 +149,10 @@ GOLD BANKS (`L_ValleyVillage`) was parked because map-asset scale was wrong for 
 - ✅ **Boats = boardable, not drivable.**
 - ✅ **Containment = hybrid** (water self-seals via lethal depth; land via fence + invisible wall + ceiling + KillZ).
 - ✅ **Users = staked BR + tournaments** → server-authoritative, deterministic, exploit-free throughout.
+
+---
+
+## Gate
+Per spec §11: **this brief → operator approval → greybox → telemetry (§6) → balance → art → PIE sign-off.** A re-sent brief is not approval; disk state is verified before build.
+
+**OPERATOR-APPROVED 2026-08-05 — DISTRICT PROGRAM.** This approval covers the **District Program only** (the WP data-layer district architecture + the D1/D2/D3 envelopes in §11). It **unblocks district authoring**. It does **NOT** approve the BR mode layer — that remains gated on the shrinking **Zone system** (§2, §3) and the deferred **§9** decisions. District **PLACEMENT** within the town core is still **OWED** (needs eyes on the actual layout). **Do not build geometry beyond the approved district program before its corresponding gate.**

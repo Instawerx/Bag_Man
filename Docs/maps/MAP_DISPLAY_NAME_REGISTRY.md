@@ -59,7 +59,12 @@ ShooterCore"` — placeholder, unwashed.)
 - **1 WASH-in-progress (stock map reskinned):** **INFINEON 8V8 SIEGE** on stock `L_Expanse` (a Tier-C 8v8 prototype
   on a Lyra map — not a net-new roster map).
 - **8 roster maps DESIGN-ONLY:** Duel_01, Duel_02, Arena_02 (brief on disk, unapproved), Arena_03
-  (netcode-blocked), Arena_05, BR_18, BR_36, Shrink_Yard.
+  (netcode-blocked), Arena_05, BR_18/BR_36 (now have a WP base map — see ShantyTown below), Shrink_Yard.
+- **ShantyTown = `L_ShantyTown` (fills BR_18 / BR_36):** vendor `Demo_Map` forked to `/Game/Maps/L_ShantyTown`
+  and **World-Partition-converted (commit `c6db6c4d`)**; **District Program OPERATOR-APPROVED 2026-08-05**
+  (`Docs/maps/ShantyTown_BR_DESIGN.md` §11 + Gate — one map covers the whole matrix via `District_Duel/Arena/Team`
+  data layers). **No geometry authored yet; no front-end configs** (no playlist/experience). BR mode layer gated
+  on the shrinking Zone system. District PLACEMENT within the town core still OWED.
 - **The picker now shows 6 tiles**, all AFL, no stock leakage: NANOWATT 3V3 SPEED · INFINEON 8V8 SIEGE ·
   ARCANEON ×4.
 - **Bracket coverage:** Arena = 1 venue (NANOWATT). Team = 2 (ARCANEON + INFINEON). **Duel = NOTHING** — 1v1 and
