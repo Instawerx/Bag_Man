@@ -248,7 +248,14 @@ void UAFLBattleRoyaleComponent::Server_EndMatch(APlayerState* Winner)
 			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_BR: MATCH END but no UAFLMatchPhaseComponent resident -- conclusion (freeze/PostGame/Watts) SKIPPED."));
 		}
 	}
-	// NOTE: respawn stays blocked (BR = permadeath); PostGame freeze holds until the match tears down.
+	// RESTART-DEGRADATION FIX: restore respawn at match end (mirrors UAFLRoundManagerComponent::Server_EndMatch,
+	// which calls SetRoundRespawnSuppressed(false) here). Leaving State.Round.NoRespawn SET made an in-session
+	// restart begin with carried-over DEAD participants (alive < TotalParticipants), and let the bot-fill over-add
+	// across restarts (the 144-participant accumulation -- dead-not-respawnable pawns never count as alive, so the
+	// fill keeps adding). Permadeath still holds DURING the match (SetRespawnBlocked(true) at ServerStartMatch);
+	// this only frees the between-match reset / the next match. PostGame's freeze is an ability-block, not a
+	// respawn-block, so restoring respawn here is safe.
+	SetRespawnBlocked(false);
 }
 
 int32 UAFLBattleRoyaleComponent::AliveParticipants(APlayerState** OutLastAlive) const
