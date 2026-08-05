@@ -68,9 +68,17 @@ Applied per-Experience via a `GameFeatureAction` that sets the tag on Pro/Melee 
 also use the dismember-free pawn + drop `AFLDismember`, so nothing dismember loads. **Only this gate removes Layer 1's
 zone model** → conventional AAA damage feel.
 
-## 5. True FBIK (Pro/Melee) — NEW, currently MISSING
+## 5. True FBIK (Pro/Melee) — BUILT (corrected 2026-08-05)
 
-Verified: the project has **no full-body IK**. `CR_AFL_CoreIK` is a spec alias for
+**CORRECTION (2026-08-05, disk-verified):** this section previously read "NEW, currently MISSING" and
+asserted the project has **no full-body IK**. Both are **false**. FBIK is built and is permanent project
+doctrine (operator ruling): every character, current and future, is FBIK on the rigged Manny/Quinn skeleton
+bases. On disk: **`CR_ProMod_FBIK.uasset`**, **`ABP_ProMod_FBIK_PP.uasset`**, **`IK_ProMod_FBIK.uasset`**
+(`Content/BagMan/ProMod/`, banked `8367f0b8`), and the **`FullBodyIK` plugin is `"Enabled": true`** in
+`Bag_Man.uproject`. `IRONICS_PROMOD_CHARACTER_SSOT.md` §1 independently records FBIK as DONE
+(operator-confirmed 2026-07-31). The original design rationale below is retained as the authoring record.
+
+Original text (superseded): `CR_AFL_CoreIK` is a spec alias for
 `Content/Characters/Heroes/IRONICS/Animations/CR_AFL_IRONICS.uasset` — only per-limb Two-Bone IK + Aim + Lyra
 trace foot-placement. `IK_Mannequin` exists but is retarget-time only. Fix = author a new **`CR_ProMod_FBIK`**
 (Full-Body IK / PBIK solver over the shared `SK_Mannequin`) + a `SetControlValue` delivery component (mirror
