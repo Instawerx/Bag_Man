@@ -1,0 +1,435 @@
+# SSOT — MATCHMAKING (Tier 2)
+
+**What this is:** what the matchmaking system **is** and **why**. It changes when the system is redesigned.
+**What this is not:** a status board. **This document contains no status claims** — nothing here says what is
+built, proven, done or owed, and no commit hash appears as evidence of progress. Those belong to Tier 3
+(`LIVE_TRACKER`).
+
+> **Why the separation matters here in particular.** Matchmaking is where design decisions become *configuration*,
+> and configuration is the thing most likely to be described by what it currently contains rather than by what it
+> is for. A queue list is not a design; the rule that bounds the queue list is.
+
+**Doctrine is cited, never restated.** Laws live in [`Docs/DOCTRINE.md`](../DOCTRINE.md) and are referenced by id
+(**N1**, **N11**, **N12**, **G5**, **G7**, **P8**).
+
+---
+
+## 1. SCOPE
+
+This SSOT governs: what the player is actually choosing when they queue · the three-layer separation between
+player-facing queues, server-side pools, and the play-spaces that load · how stake enters a ticket and how it is
+banded · how region is handled · how population is disclosed · party formation and its relationship to team
+assignment · the staking contract's binding key and evidence chain · and the interfaces matchmaking owes to the
+league and economy systems.
+
+It does not govern: what a ruleset is (→ `ssot/match-modes.md`), which play-spaces exist or how they are sized
+(→ `ssot/map-build-system.md`), rating math or ladder shape (→ `ssot/league-play.md`), currency definitions,
+rake, or payout curves (→ `ssot/economy-store.md`), or the state of any implementation (→ Tier 3).
+
+---
+
+## 2. THE PLAYER NEVER PICKS THE MAP
+
+**The front end is a STAKE LOBBY, not a map browser.** A player chooses *what they are playing for* — bracket,
+league, ruleset, stake — and never *where*. **Venue is a server outcome**, disclosed honestly in the UI as
+*"venue assigned at match start."*
+
+### 2.1 Why
+
+**Population fragmentation.** Every player-facing choice splits the matchmaking pool, and the split is
+multiplicative. A map browser turns one queue into one queue *per venue*, and each resulting pool is a fraction
+of the population that has to fill a match on its own. **Queue time is the strongest single predictor of a
+multiplayer title failing** — not balance, not content volume. A player who waits does not experience the map
+they chose; they experience waiting, and then they leave. Map selection is a feature that consumes the thing
+that makes every other feature reachable.
+
+**Staked integrity.** Player-selected venue is a lever, and a lever in a staked match is an exploit surface:
+- **Map-specific advantage** — a player who has ground one venue selects it every time, converting familiarity
+  into an edge that the stake then pays out on.
+- **Opponent steering** — a player who can pick a venue can pick the venue an opponent is weakest on, and with
+  an open lobby browser can wait for that opponent specifically.
+
+**Server selection removes the lever entirely.** There is no venue preference to exploit because there is no
+venue preference to express. This is the same reasoning as server authority over match state (**N1**): if a
+client can influence a condition the wager settles on, that influence is worth money.
+
+### 2.2 What the player does control
+
+Bracket (how many a side) · league (how combat feels) · ruleset · stake amount · party. Everything they choose
+is a property of the *contest*. Nothing they choose is a property of the *terrain*.
+
+---
+
+## 3. THREE LAYERS, NOT ONE ASSET
+
+The failure this prevents: **configuration count growing with content.** If a venue is a lobby entry, then every
+new map, every new district and every new size variant adds a player-facing choice — the front end grows without
+bound, the pool fragments further with each addition, and content becomes something the game gets *worse* at
+absorbing.
+
+| Layer | Audience | What it carries | Growth behaviour |
+|---|---|---|---|
+| **QUEUE** | **Player-facing** | Bracket · league · party-size range · ranked flag · (ruleset — see §11.1) | **Few. Bounded. Does NOT grow with content** (§4) |
+| **MAP POOL** | **Server data** | Which play-spaces serve which party sizes; weighting, rotation, recency | Grows with content — one row per servable play-space |
+| **PLAY-SPACE** | **Never player-facing** | The experience that actually loads: map × district × size | **Unlimited** |
+
+### 3.1 The design property this buys
+
+> **Adding a district adds a POOL ROW, not a lobby entry. The lobby is invariant under content growth.**
+
+This is the property to protect. A new district, a new map, a new size variant on an existing map — each is a
+row in server data that changes what the server *may* select, and changes nothing the player sees or chooses.
+Content expands the server's options while the player's decision space stays fixed.
+
+The corollary is a test: **if a proposed feature would add a player-facing entry per unit of content, it is
+breaking this layer separation** — regardless of how reasonable it sounds in isolation.
+
+### 3.2 Soft references throughout
+
+Pools reference play-spaces **softly**. A pool that hard-references every experience it can select drags the
+entire map set into memory the moment the pool is loaded — and the pool is loaded by the front end, which is
+exactly where load cost is least affordable. The front end must be able to read *"this queue has 41 servable
+play-spaces"* without loading any of them.
+
+This also keeps the reference direction clean: pools point at play-spaces; play-spaces know nothing about pools
+(**G5** — a data asset with no consumer is inert, and the consumer here is the server-side selector, not the
+experience).
+
+### 3.3 Selection is a server concern
+
+Weighting, rotation and recency live in pool data because they are tuning, not design: how often a venue comes
+up, how long before it can repeat, whether a new venue is boosted while it is fresh. Changing them is a config
+edit and a live-ops lever — **never a code change and never a player-visible restructure.**
+
+---
+
+## 4. QUEUE COUNT IS BOUNDED BY DESIGN
+
+### 4.1 The arithmetic
+
+Queue count is the product of the **contest** dimensions only:
+
+```
+  queues  =  brackets  ×  leagues  ×  (ruleset dimension — see §11.1)
+```
+
+- **Brackets** — the party-size bands the district model serves: `1v1, 2v2` · `3v3, 4v4` · `5v5, 8v8`, plus the
+  BR counts. On the order of **8**.
+- **Leagues** — **2** (HAYWIRE, PRO MOD; `ssot/match-modes.md` §4).
+- **Rulesets** — **2** (SHOOTOUT, TURBO). Whether this multiplies the queue count or is expressed inside a
+  single queue is **the highest-impact open question in this document** (§11.1), because it is the difference
+  between roughly 16 and roughly 32 player-facing entries.
+
+A **ranked flag** rides the queue rather than doubling it wherever ranked and unranked can share a pool; where
+they cannot, it becomes another multiplier and should be recognised as such rather than added quietly.
+
+### 4.2 The invariant
+
+> **Content growth must never increase the queue count.**
+
+Maps, districts, play-spaces and size variants are **pool rows** (§3). The only things that may add a queue are
+a new bracket, a new league, or a new ruleset — all of which are *design* decisions made deliberately, and all
+of which are rare. **If the queue count is rising because content shipped, the layer separation has failed.**
+
+---
+
+## 5. STAKE IS A TICKET PARAMETER, NEVER A QUEUE DIMENSION
+
+**Stake is a free-entry amount carried on the ticket. It is not a queue.** A stake-tier queue set would multiply
+the queue count by the tier count and fragment the pool along a second axis — the precise failure §3 and §4
+exist to prevent.
+
+### 5.1 Entry UX
+
+- **Presets are primary** — the common amounts, one tap. Most players never leave this path.
+- **An editable numeric field is secondary** — for a player who wants a specific figure.
+- **NO SLIDER.** A slider is slow to land on a value, imprecise by construction, and poor on mobile where a
+  fingertip covers the target. Stake is a number the player has in mind; the interface should accept it, not
+  make them hunt for it.
+
+### 5.2 Banding — why an exact amount cannot be matched
+
+**The server bands the entered amount and matches within a tolerance band.** Without banding, two players
+entering 437 and 450 are two pools of one, and the free-entry field silently becomes the worst possible queue
+splitter — unbounded, invisible, and self-inflicted.
+
+- **Bands widen over wait time**, exactly as skill tolerance widens. A player who has waited is matched against
+  a broader stake range, because a slightly-off stake is strictly better than no match.
+- **The band is disclosed in the UI** — *"matching 400–500 V"*. The player must never believe they will be
+  returned their exact figure. Disclosing the band up front makes the settled amount expected rather than a
+  surprise, and a surprise about money is the kind of surprise that costs trust permanently.
+
+### 5.3 Server validation
+
+The server validates the entered amount against the player's balance and the tier table before a ticket is
+accepted. **A client never asserts what it can afford** (**N11**) — a balance is a server fact, and a stake
+accepted on a client's word is a stake that can be fabricated.
+
+---
+
+## 6. REGION IS A PLAYER PROFILE ATTRIBUTE, NEVER ON THE TICKET
+
+**Players queue from anywhere into any bracket.** Region does not split pools and adds no queue assets.
+
+### 6.1 The three read points
+
+Region is read at exactly three places, none of which is matchmaking:
+
+1. **League standings** — regional boards are *filtered views of the same result set*, not separate competitions
+   fed by separate pools.
+2. **Prize eligibility** — whether a player may receive a given prize in their territory.
+3. **Backend reporting** — population and health by region.
+
+### 6.2 Self-declared origin, with change friction
+
+Origin is **self-declared**. That is the right default: it needs no identity documents, no IP policing, and no
+false positives against travellers, VPN users, dual-nationals or anyone on a mobile carrier that geolocates
+badly.
+
+Self-declaration is gameable **once prizes attach** — a player could re-declare into whichever region has the
+weakest board. The defence is **friction, not verification**:
+
+> **Region is set once and changed rarely, and a change takes effect at the next season boundary — never
+> immediately.**
+
+This defeats leaderboard-shopping without any identity apparatus: the value of hopping regions comes from doing
+it *late*, when the standings are known. A change that lands only at the next season reset removes the timing
+that makes it worth doing, while remaining completely reasonable for the genuine case (a player who actually
+moved).
+
+### 6.3 Granularity — the schema decision
+
+**Store COUNTRY. Derive a broader REGION BRACKET for ranking.**
+
+- **Country is the fact, and it is what eligibility needs.** Prize eligibility is territorial and legal; it is
+  precise to a country and cannot be answered from a continent.
+- **A broader bracket is what ranking needs.** A country-level ladder in a small market is a leaderboard of
+  three people — it is not a competition, and it devalues the standing for everyone in it. Ranking needs
+  population depth, which means aggregating countries into brackets.
+- **Store the precise value; derive the coarse one via a mapping.** Storing only the bracket destroys
+  eligibility precision permanently and irreversibly. Storing only the country forces every future
+  bracket-boundary change into a data migration. Storing country as the fact and treating the bracket as a
+  **config-driven mapping** means bracket boundaries can be re-cut — as population shifts and a region grows
+  enough to stand alone — **without touching a single player record.**
+
+**Why this is decided here rather than later:** it determines the leaderboard schema, and a schema is expensive
+to change **once players hold standings in it**. Standings are a durable player-visible possession; a migration
+that re-buckets them either invalidates history or creates two incompatible eras of it.
+
+---
+
+## 7. POPULATION TRANSPARENCY
+
+**Live population counts and estimated wait are shown per size and per stake band.**
+
+This is three things at once:
+
+1. **The UI-side fix for fragmentation.** Given visible counts, players **self-select into populated bands**.
+   The pool consolidates because players can see where the players are — a behavioural solution to a
+   distribution problem, achieved without removing choice.
+2. **A live-ops lever.** A band that has gone cold **folds into its neighbour in configuration** — no code
+   change, no client update. Combined with §3's pool layer, the response to a population shift is a config edit.
+3. **Honesty.** An empty band **looks empty** rather than silently never matching. The failure mode being
+   avoided is a player queueing into a band that cannot fill, waiting, and concluding the game is broken. Showing
+   zero is a worse-looking UI and a far better experience: it converts a mysterious failure into an obvious,
+   actionable choice.
+
+The same disclosure principle governs the stake band (§5.2) and venue assignment (§2): **tell the player what
+the system is actually doing.** In a staked context this is not just courtesy — an undisclosed mechanism that
+affects money reads as a rigged one.
+
+---
+
+## 8. PARTY FORMATION AND TEAM ASSIGNMENT
+
+### 8.1 Party → eligible queues
+
+A party is formed before queueing and travels **with the ticket** as a unit. **Party size determines which
+queues the party is eligible for**: a queue carries a party-size range, and a party may enter any queue whose
+range admits it. A party larger than a bracket's team size cannot enter that bracket — there is no seat
+arrangement that keeps the party together, and splitting it is forbidden (§8.3).
+
+### 8.2 Team assignment is a provider decision, not a matchmaking decision
+
+Team assignment sits behind a **provider seam**: matchmaking (or a local source) produces assignments, and the
+in-match consumption layer applies them without knowing which source produced them.
+
+- **Matchmaker-authoritative** where a real matchmaking service is the source: teams arrive with the match
+  placement, balanced against skill.
+- **Local fill** otherwise — offline, casual, and editor testing. Assignment is computed locally and balanced by
+  live counts.
+
+**Why a seam rather than one implementation:** the match must always have a valid team source. A design where
+teams come only from the backend has no answer for offline or local testing, and the failure is total — no teams
+means no match. The seam makes the backend swappable and the local path permanently available.
+
+**Bot fill follows the same split:** permitted where a match should always start (offline, casual), and excluded
+where the result must mean something — **a ranked or staked result cannot be produced against bots**, and a
+ranked queue holds for real players with an honest visible wait rather than quietly filling.
+
+### 8.3 Party integrity is absolute
+
+> **Same-party members are NEVER placed on opposing sides.**
+
+This is not a balance preference; it is an integrity rule. Two people in a party on opposite sides of a staked
+match is the win-trading vector in its most convenient possible form — coordinated, pre-arranged, and invisible
+in the result. Balance is handled instead by **capping how many seats a single party may occupy** (no more than
+one team's worth), never by splitting the party across the fixture.
+
+The user-facing consequence is also the correct one: **you always play with your party, never against them.**
+
+### 8.4 Solo/FFA is a team CONFIGURATION, not a mode
+
+**Solo is expressed as one team per participant.** It is not a separate mode, a separate ruleset, or a separate
+code path — it is the team-assignment layer configured so that every participant is their own team.
+
+This is what makes **SHOOTOUT resolve to last *player* standing rather than last *team* standing**: the ruleset
+counts surviving teams, and when every participant is a team of one, the last surviving team is the last
+surviving player. The ruleset does not know or care which configuration it is running under.
+
+**The consequence to hold on to:** solo-versus-squad is a *lobby* property, and both rulesets support both.
+Anything that treats solo as a distinct mode has duplicated a configuration into a code path.
+
+---
+
+## 9. THE STAKING CONTRACT
+
+Staking applies a poker **structure** — entry → pool → payout — to non-cashable in-game currency. The currency
+definitions, rake, tiers and payout curves are owned by `ssot/economy-store.md`. What matchmaking owns is the
+**binding**: how a stake is attached to a specific contest and how that contest is later proven.
+
+### 9.1 Match id is the binding key
+
+**One server-authored identifier per match binds the stake, the participants, the result and the evidence.**
+Every downstream system — escrow, payout, league result, dispute review — keys off the same id. It is authored
+server-side once and replicated; a client never proposes it.
+
+Without a single binding key, a settlement is an assertion about which match it settles. With one, escrow,
+result and telemetry are three views of the same record.
+
+### 9.2 Server authority over escrow and payout
+
+Entry is **escrowed** — deducted and held — when a seat is taken, and settled from the pool on result. **Both
+operations are server-authoritative** (**N1**, **N11**), atomic, and reversible on failure: a match that never
+forms must return every entry in full, never strand one. This is the same transactional discipline required of
+any ownership transfer (**N12**) — the failure mode is identical (a player charged for something they did not
+receive) and so is the remedy.
+
+**The client's role is display.** It shows the stake, the band, the pool and the outcome. It computes none of
+them.
+
+### 9.3 The evidence chain
+
+A staked result must be **reconstructable after the fact**. The telemetry stream carries, keyed to the match id:
+participants and their assignment, eliminations with ordering and location, match state at each phase
+transition, and the resolution.
+
+**Why this is a matchmaking concern and not only a telemetry one:** the evidence must be complete *from the
+moment the ticket is accepted*, not from match start. A dispute about a match includes disputes about how the
+match was formed — who was matched with whom, at what stake band, into which venue. **A settlement that cannot be
+re-read is settled by assertion**, and in a staked economy the party who asserts loudest should not be the party
+who wins.
+
+### 9.4 One seat per account
+
+A single account occupies **exactly one seat** in a staked match. Multiple seats controlled by one person is
+direct control over the pool's outcome, and it is the collusion vector that requires no coordination with anyone
+else.
+
+---
+
+## 10. INTERFACES — WHAT MATCHMAKING OWES
+
+Stated as interfaces (shapes), not implementations.
+
+### 10.1 To the league system — the RESULT SHAPE
+
+Matchmaking (with the match) emits, per match:
+- the **match id** (§9.1);
+- the **participant set** with team assignment;
+- the **ruleset** the match ran, since rank input differs by ruleset — placement under SHOOTOUT, kill-ratio under
+  TURBO (`ssot/match-modes.md` §2);
+- the **result** in that ruleset's terms;
+- the **league** the match ran under;
+- **whether the match was ranked**, and **whether it was staked** — as *independent* facts.
+
+> **The firewall this interface must preserve: stake size is not a field the rating consumes.** Rank moves on
+> outcome and opponent skill only. A staked win and an unstaked win of the same result are the same rating event.
+> Emitting the stake alongside the result is fine; a rating that *reads* it would make rank buyable.
+
+### 10.2 To the economy — the SETTLEMENT SHAPE
+
+- the **match id** (the same key);
+- the **participants and their entries** as escrowed;
+- the **outcome ordering** the payout curve consumes — placement for SHOOTOUT, ratio standing for TURBO;
+- the **terminal state**: settled, cancelled-refund, or held-pending-review.
+
+**The third terminal state is required, not optional.** A match flagged for integrity review must be able to
+hold settlement without either paying out or refunding, or every review races the payout it is reviewing.
+
+### 10.3 From the league system
+
+Matchmaking **consumes** a skill rating to form fair matches. It does not own the rating math, the ladder, or
+the season structure. Anything that changes how rating is *calculated* is a league concern; how it is *used to
+sort a queue* is this document's.
+
+---
+
+## 11. OPEN DESIGN QUESTIONS
+
+Genuinely undecided, stated as design scope.
+
+### 11.1 ⭐ Do SHOOTOUT and TURBO share a queue, or split it? — **highest impact**
+
+This directly drives §4's arithmetic: sharing keeps the player-facing count near **16**; splitting takes it to
+roughly **32**, and doubles the fragmentation pressure on every bracket.
+
+- **Splitting** is honest — a player picks the format they want and gets it — but halves each pool.
+- **Sharing** (one queue, ruleset as a per-ticket preference or a server rotation) preserves pool depth but
+  either denies the player a choice or reintroduces a soft-preference matching problem that looks a lot like
+  stake banding (§5.2).
+
+It interacts with **every other decision here**: queue count (§4), population transparency granularity (§7 —
+counts shown per band would need a ruleset dimension too), and the result shape (§10.1 already carries the
+ruleset, so downstream is indifferent). **Decide this before the queue set is authored**, because unwinding it
+later means changing what players see.
+
+### 11.2 Skill input — and whether it is per-ruleset
+
+What rating drives fairness sorting, and **whether a player has one rating or one per ruleset**. Placement skill
+and kill-ratio skill are not obviously the same competence; a single rating is simpler and pools better, separate
+ratings are fairer but split the rating population the same way splitting queues splits the match population.
+
+### 11.3 The band-widening curve
+
+§5.2 establishes that stake bands widen with wait time. The **curve** is undecided: how fast, to what ceiling,
+and whether it widens symmetrically (a player may be matched above their entered stake as readily as below).
+Asymmetry is worth considering — being matched *down* costs a player nothing they did not offer, while being
+matched *up* exposes them beyond their intent.
+
+### 11.4 Minimum viable population per band before it folds
+
+§7 gives live-ops the lever to fold a cold band into its neighbour. The **threshold** — and whether folding is
+automatic or an operator action — is undecided. Automatic folding reacts faster; manual folding never surprises
+a player mid-session by moving the band they queued into.
+
+### 11.5 Party-versus-solo matching fairness
+
+A coordinated party has a real advantage over the same number of solo players. Options span strict segregation
+(fair, fragmenting), free mixing (fast, unfair), and compensation via the skill sort (moderate, hard to tune).
+This interacts with §8.1's party-size ranges and with §11.2's rating: if parties are matched against solos, the
+rating consumed should arguably account for coordination.
+
+---
+
+## 12. RELATED
+
+- [`Docs/DOCTRINE.md`](../DOCTRINE.md) — laws cited here: **N1** server authority · **N11** client never decides
+  balances/ownership · **N12** transactional transfer with escrow and rollback · **G5** inert data assets ·
+  **G7** backend residency · **P8** backend proven standalone before integration.
+- `ssot/match-modes.md` — the rulesets a queue offers; solo/FFA as the configuration that makes SHOOTOUT resolve
+  to last player standing.
+- `ssot/map-build-system.md` — what a play-space is, the district model, and the footprint ladder that decides
+  which brackets a play-space can serve.
+- `ssot/league-play.md` — the rating this system consumes and the standings it feeds.
+- `ssot/economy-store.md` — currencies, stake tiers, rake, payout curves, and the wallet the escrow acts on.
