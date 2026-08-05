@@ -55,5 +55,28 @@
 
 **Execution order for ARCANEON:** P0 snapshot → P1 approve theme/palette → P2 harvest the ARCANEON kit subset → P3 structure → P4 cover + crashed-UFO hero → P5 dressing → P6 lighting → P7 nav re-validate (diff vs P0) → P8 perf → P9 PIE both-GE sign-off + commit.
 
+---
+
+# EXTRACTOR ART SYSTEM (reusable across all maps)
+
+The `B_AFL_ExtractionZone` objectives are currently art-less — the one hole in placement. Build a **branded, AAA, hero Extractor** system: a modular Blueprint that skins the extraction volume, with **light-up pulse + audio cue**, that the player can **walk into to extract**, and that can be **coupled/blended into other map features** (inside a tunnel, back of an army truck, under a UFO, etc.).
+
+## Core: `B_AFL_Extractor` (modular BP wrapping the extraction volume)
+- **Skin slot** — swappable hero mesh (variant meshes below). Enterable interior/pad.
+- **Pulse FX** — emissive material driven by a sine/timeline (idle glow → fast pulse when extraction active/available); Niagara energy accents.
+- **Audio** — looping idle hum (`SC_AFL_Extractor_Idle`) + activation/extract cue (`SC_AFL_Extractor_Activate`), attenuated 3D.
+- **Branding** — IRONICS/BagMan logo decal + signature NeonColor ([[reference-standard6-flagship-colors]] / [[reference-finish-color-dump-method]]).
+- **Enter/Exit** — walk-in trigger = the extraction volume; clear ingress (ramp/door/pad).
+- **Modular coupling** — attach socket + "blend mode" so it nests into a tunnel mouth, a truck bed, a UFO underbelly, etc. (composable with map hero props).
+
+## Variants (start with 2)
+1. **SPACESHIP Extractor** — a landed dropship/UFO you board (ramp/hatch); hull pulses; engine glow; dust/heat Niagara. Mesh: SpaceshipInterior kit + **Rodin bespoke dropship/UFO**.
+2. **TELEPORTER Extractor** — a pad + portal ring; vertical energy column that pulses/beams on extract; you stand on the pad. Mesh: **Rodin portal ring/pad** + Niagara beam.
+
+## Build division
+- **Rodin gens** — bespoke spaceship (dropship/UFO) + teleporter (portal ring/pad) hero meshes ([[reference-rodin-gen-pipeline]]).
+- **AIK (in-editor)** — the pulse material (emissive + time node), Niagara FX, audio cues, and the `B_AFL_Extractor` BP graph (timeline, audio, branding decal, socket) — material/timeline/audio graphs are AIK's domain ([[afl-neostack-task-writer]]).
+- **Bridge (me)** — place `B_AFL_Extractor` on each map's extraction zones, swap in Rodin meshes, wire the extraction volume, screenshot/verify.
+
 ## Status
-- ARCANEON greybox inventoried (P0 ready to snapshot). Awaiting operator approval of the plan + theme, then execute phase by phase.
+- ARCANEON P0–P7 done + committed `ce1c6b44`. **Remaining:** Extractor art (this system, 2 variants) + EX2 PIE-verify + vault/UFO refine + P6 lighting + P8 perf + P9 sign-off.

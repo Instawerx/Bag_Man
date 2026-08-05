@@ -1,0 +1,15 @@
+{
+ "note": "Rodin Gen-2.5-High + highpack extractor hero meshes, submitted 2026-08-05. Download when Done: python rodin.py download --task <uuid> --out ./out/<name>",
+ "gens": [
+  {
+   "name": "Extractor_Spaceship",
+   "task_uuid": "61814044-a0d6-4416-89e9-32b4d1da5d67",
+   "subscription_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoxLCJqb2JJZHMiOlsiZTNlYTIzYzEtMjVhNy00OTI2LWE1NDItN2IwYmU1ZjA0MjczIiwiZTNhMjRjMmYtOGY5NC00MDk1LTk1NTAtMDIzOTU3ZGMwNTM4IiwiZTMyNGVlNWMtM2UwMi00NmQ3LWE0MDAtYWNhMTUyNjk1NTYxIiwiNzk0MjY4M2MtZDMxYi00ZmE2LTk5OTQtMGI3ZjhlYTU4NmI1IiwiNTUwYTY0ZmMtYmVlMi00YzU4LWEyMzMtOGZjNTc1ZGJkZWQzIiwiZDBmMjNkMzktZTgzMy00NGQ4LTkyODYtMjgzYmZlNDA5MzYyIiwiZWRkZGVhODYtZGI3Ni00ODA5LWEwMWQtMDQ2OWZiZDY2ODk3Il0sImlhdCI6MTc4NTg3MzkwM30.1t0TL4n13uO1ocj0VLER_fQWhsOfOR23e2a_SCMuETs"
+  },
+  {
+   "name": "Extractor_Teleporter",
+   "task_uuid": "aff508db-6c83-4f6d-9833-0d72a62a2875",
+   "subscription_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoxLCJqb2JJZHMiOlsiYzY2ODgyZGQtODI4NC00MzIzLWFjZWMtNzg5MGEzNDg4NTIwIiwiZmNkOTE3NGQtYjVmYy00YzExLTk2ZDMtZWFkZDAzNDZiM2Q5IiwiZmEwZDRhZWMtNjU1OC00Mjc3LTljMTEtNGQ1MTJiMWUxN2MyIiwiZjI4ZGRlOTQtNjc1NS00N2UxLWI4YjUtNDE4MzY3N2M1ODZmIiwiMTQ3YWE1MjMtM2IwZS00NzdjLTg5MTUtMjFiZWNjNmFhZThkIiwiMDcyOTFjNjQtOTk2OC00ZGQ0LTllNzYtMTg0NjVhNmNjYmRjIiwiNDhjZjc5NTItZDc2My00ZWQzLTg5MWItOTI2MjE1MzYxMzJmIl0sImlhdCI6MTc4NTg3MzkwNX0.A02W_d3Z7WJSjCq9l6ORotFdC5l6_yI2stcNXv8gdaY"
+  }
+ ]
+}
