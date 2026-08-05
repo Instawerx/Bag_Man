@@ -16,6 +16,7 @@
 #include "NativeGameplayTags.h"
 #include "Net/UnrealNetwork.h"
 #include "Phases/AFLMatchPhaseComponent.h"
+#include "Teams/LyraTeamSubsystem.h"   // BLOCK 177: runtime team id for the belief-state roster (same source as the round manager)
 #include "Telemetry/AFLCombatTelemetry.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLBattleRoyaleComponent)
@@ -158,12 +159,20 @@ void UAFLBattleRoyaleComponent::ServerStartMatch()
 
 	// Bind death on the now-live pawns (the per-possession join hook covers anyone arriving later).
 	BindDeathDelegates();
+
+	// INSTRUMENTATION (BLOCK 177): the FULL participant roster + team ids, logged ONCE at match start.
+	LogBeliefState(TEXT("MATCH_START"), nullptr);
 }
 
 void UAFLBattleRoyaleComponent::HandlePlayerDeath(AActor* OwningActor)
 {
 	if (!HasAuth() || Phase != EAFLBRPhase::Playing)
 	{
+#if !UE_BUILD_SHIPPING
+		// BLOCK 177: an early-return in the end-condition path is a STATED cause, not silence.
+		UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_BR_STATE: HandlePlayerDeath early-return (hasAuth=%s phase=%d, need Playing=%d) -- death NOT counted."),
+			HasAuth() ? TEXT("true") : TEXT("false"), (int32)Phase, (int32)EAFLBRPhase::Playing);
+#endif
 		return;
 	}
 
@@ -190,11 +199,23 @@ void UAFLBattleRoyaleComponent::HandlePlayerDeath(AActor* OwningActor)
 	APlayerState* LastAlive = nullptr;
 	AlivePlayers = AliveParticipants(&LastAlive);
 
+	// INSTRUMENTATION (BLOCK 177): state the FULL belief on every elimination so a stall is a READ, not an inference.
+	LogBeliefState(TEXT("ELIMINATION"), VictimPS);
+
 	if (AlivePlayers <= SurvivorsToWin)
 	{
 		// Last-standing (1 survivor) -> that PlayerState wins (placement 1); 0 survivors -> draw (null winner).
 		Server_EndMatch(AlivePlayers == 1 ? LastAlive : nullptr);
 	}
+#if !UE_BUILD_SHIPPING
+	else
+	{
+		// BLOCK 177: make the NON-conclusion visible as a stated cause. The end condition is re-checked ONLY on
+		// the next elimination (no timer/poll -- bCanEverTick=false), so if deaths stop above threshold, silence.
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR_STATE: NO CONCLUSION this elimination -- alive=%d > survivorsToWin=%d; next check is the NEXT death only (no timer/poll)."),
+			AlivePlayers, SurvivorsToWin);
+	}
+#endif
 }
 
 void UAFLBattleRoyaleComponent::Server_EndMatch(APlayerState* Winner)
@@ -259,6 +280,43 @@ int32 UAFLBattleRoyaleComponent::GetPlacementForPlayer(const APlayerState* PS) c
 	if (!PS) { return 0; }
 	const int32* Found = Placements.Find(PS);
 	return Found ? *Found : 0;
+}
+
+void UAFLBattleRoyaleComponent::LogBeliefState(const FString& Context, const APlayerState* JustEliminated) const
+{
+#if !UE_BUILD_SHIPPING
+	// PURE INSTRUMENTATION (BLOCK 177) -- no state change. Recomputes alive the same way the end condition does,
+	// then prints the summary + a per-participant roster with the runtime team id (the previously-unlogged field).
+	const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr;
+	const ULyraTeamSubsystem* Teams = GetWorld() ? GetWorld()->GetSubsystem<ULyraTeamSubsystem>() : nullptr;
+
+	const int32 Alive = AliveParticipants();
+	const bool bEndConditionMet = (Alive <= SurvivorsToWin);
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_BR_STATE: [%s] eliminated=%s | alive=%d | survivorsToWin=%d | endConditionMet=%s | total=%d | phase=%d | teamSubsystem=%s"),
+		*Context,
+		JustEliminated ? *GetNameSafe(JustEliminated) : TEXT("--"),
+		Alive, SurvivorsToWin, bEndConditionMet ? TEXT("true") : TEXT("false"),
+		TotalParticipants, (int32)Phase, Teams ? TEXT("present") : TEXT("MISSING"));
+
+	if (!GS)
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR_STATE:   (no GameState -- roster unavailable)"));
+		return;
+	}
+	for (APlayerState* PS : GS->PlayerArray)
+	{
+		if (!PS) { continue; }
+		const APawn* P = PS->GetPawn();
+		const ULyraHealthComponent* HC = P ? ULyraHealthComponent::FindHealthComponent(P) : nullptr;
+		const bool bAlive = (HC && !HC->IsDeadOrDying());
+		const int32 TeamId = Teams ? Teams->FindTeamFromObject(PS) : INDEX_NONE;   // load-bearing field: runtime team assignment
+		const int32 Place = GetPlacementForPlayer(PS);
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR_STATE:   %s | alive=%s | teamId=%d | placement=%s"),
+			*GetNameSafe(PS), bAlive ? TEXT("true") : TEXT("false"), TeamId,
+			Place > 0 ? *FString::FromInt(Place) : TEXT("--"));
+	}
+#endif
 }
 
 void UAFLBattleRoyaleComponent::SetRespawnBlocked(bool bBlocked)
@@ -375,6 +433,23 @@ static FAutoConsoleCommandWithWorld GAFLBRStartCmd(
 			if (UAFLBattleRoyaleComponent* BR = GS->FindComponentByClass<UAFLBattleRoyaleComponent>())
 			{
 				BR->ServerStartMatch();
+			}
+		}
+	}));
+
+// BLOCK 177: interrogate a LIVE stall on demand -- dumps the same belief state the elimination path logs, so the
+// operator can read a stalled match rather than only its post-mortem. Conforms to afl.BR.Start above.
+static FAutoConsoleCommandWithWorld GAFLBRDumpStateCmd(
+	TEXT("afl.BR.DumpState"),
+	TEXT("Dump the BR component's full belief state (alive/end-condition + per-participant roster w/ team ids) on demand."),
+	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+	{
+		if (!World) { return; }
+		if (AGameStateBase* GS = World->GetGameState())
+		{
+			if (const UAFLBattleRoyaleComponent* BR = GS->FindComponentByClass<UAFLBattleRoyaleComponent>())
+			{
+				BR->LogBeliefState(TEXT("DUMPSTATE_CHEAT"), nullptr);
 			}
 		}
 	}));

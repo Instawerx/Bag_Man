@@ -80,6 +80,13 @@ public:
 	/** Finishing place (1..N) booked for a player, or 0 if not yet resolved. */
 	UFUNCTION(BlueprintPure, Category = "AFL|BR") int32 GetPlacementForPlayer(const APlayerState* PS) const;
 
+	/** BLOCK 177 instrumentation (dev-only, `#if !UE_BUILD_SHIPPING`). Logs the component's FULL belief state:
+	 *  the `AFL_BR_STATE` summary (eliminated / alive / survivorsToWin / endConditionMet) + a per-participant
+	 *  roster line each (name | alive | teamId | placement). Team id is resolved from `ULyraTeamSubsystem`
+	 *  (the same source the round manager reads). Called on every elimination, once at match start, and by
+	 *  the `afl.BR.DumpState` cheat -- so a stall is a READ, not an inference. Pure logging; changes nothing. */
+	void LogBeliefState(const FString& Context, const APlayerState* JustEliminated = nullptr) const;
+
 	//~IAFLRoundRestartPolicy -- BR is no-respawn for the whole match: block every restart once Playing begins.
 	// GetTeamSideIndex default (INDEX_NONE) is correct -- BR has no fixed team sides.
 	virtual bool ShouldBlockRestart() const override { return bRespawnBlocked; }
