@@ -69,7 +69,7 @@ absorbing.
 
 | Layer | Audience | What it carries | Growth behaviour |
 |---|---|---|---|
-| **QUEUE** | **Player-facing** | Bracket · league · party-size range · ranked flag · (ruleset — see §11.1) | **Few. Bounded. Does NOT grow with content** (§4) |
+| **QUEUE** | **Player-facing** | **Ruleset** (the top-level split, §4.1) · bracket · league · party-size range · ranked flag | **Few. Bounded. Does NOT grow with content** (§4) |
 | **MAP POOL** | **Server data** | Which play-spaces serve which party sizes; weighting, rotation, recency | Grows with content — one row per servable play-space |
 | **PLAY-SPACE** | **Never player-facing** | The experience that actually loads: map × district × size | **Unlimited** |
 
@@ -105,25 +105,52 @@ edit and a live-ops lever — **never a code change and never a player-visible r
 
 ## 4. QUEUE COUNT IS BOUNDED BY DESIGN
 
-### 4.1 The arithmetic
+### 4.1 Ruleset is the TOP-LEVEL choice — the queue splits (R7)
+
+**SHOOTOUT and TURBO have separate queues, and ruleset is the FIRST choice a player makes — above size and
+above stake. Two tabs, not one doubled flat list.**
+
+The hierarchy matters as much as the split. A flat list of every `ruleset × bracket × league` combination is
+the same information presented as an undifferentiated wall; two tabs present it as *"which game are you here to
+play, and then what size."* The player answers one question before being asked the next.
+
+**Why the queue splits rather than merging:**
+
+- **They are different products, not variants of one.** A player who wants TURBO and is dropped into permadeath
+  does not experience a slightly-off match — they experience the wrong game. They quit, and **on a wagered match
+  they eat a leaver penalty for it.** That is the worst failure available in this system, and a merged queue
+  aims it squarely at the mode carrying money. No matching gain justifies it.
+- **Observed practice separates by FORMAT.** Wager and competitive platforms split on format, not on variant of
+  format; elimination and respawn formats are not merged into one entry anywhere it matters. The precedent is
+  consistent enough to be treated as a finding rather than a preference.
+- **The fragmentation objection does not survive contact.** Merging doubles the *entries* but does **not**
+  double the *pool*: those players were never interchangeable. A merged queue's population is **nominal, not
+  effective** — it counts people who would refuse the match it is about to offer them. Where a band genuinely
+  goes cold, the transparency mechanism (§7) already folds it into a neighbour in configuration, which is the
+  correct instrument for that problem.
+
+### 4.2 The arithmetic
 
 Queue count is the product of the **contest** dimensions only:
 
 ```
-  queues  =  brackets  ×  leagues  ×  (ruleset dimension — see §11.1)
+  queues  =  rulesets  ×  brackets  ×  leagues
 ```
 
+- **Rulesets** — **2** (SHOOTOUT, TURBO), split per R7 (§4.1) and expressed as the top-level tab.
 - **Brackets** — the party-size bands the district model serves: `1v1, 2v2` · `3v3, 4v4` · `5v5, 8v8`, plus the
   BR counts. On the order of **8**.
 - **Leagues** — **2** (HAYWIRE, PRO MOD; `ssot/match-modes.md` §4).
-- **Rulesets** — **2** (SHOOTOUT, TURBO). Whether this multiplies the queue count or is expressed inside a
-  single queue is **the highest-impact open question in this document** (§11.1), because it is the difference
-  between roughly 16 and roughly 32 player-facing entries.
+
+That places the player-facing entry count **on the order of 32**, reached through a two-level choice rather
+than presented flat. **Not every cell is necessarily offered** — a ruleset suited to dense footprints need not
+be published at every bracket (`ssot/match-modes.md` §2.2), and an unoffered cell is a pool that never had to
+be filled.
 
 A **ranked flag** rides the queue rather than doubling it wherever ranked and unranked can share a pool; where
 they cannot, it becomes another multiplier and should be recognised as such rather than added quietly.
 
-### 4.2 The invariant
+### 4.3 The invariant
 
 > **Content growth must never increase the queue count.**
 
@@ -220,7 +247,11 @@ that re-buckets them either invalidates history or creates two incompatible eras
 
 ## 7. POPULATION TRANSPARENCY
 
-**Live population counts and estimated wait are shown per size and per stake band.**
+**Live population counts and estimated wait are shown per size and per stake band — and, following R7 (§4.1),
+counts are per RULESET.** Because ruleset is the top-level choice, a player sees the population of the format
+they are actually choosing; an aggregate across both rulesets would advertise players who would never accept
+the match. **A count that includes people who would refuse the offer is worse than no count** — it converts an
+honest signal into a misleading one.
 
 This is three things at once:
 
@@ -379,50 +410,43 @@ sort a queue* is this document's.
 
 Genuinely undecided, stated as design scope.
 
-### 11.1 ⭐ Do SHOOTOUT and TURBO share a queue, or split it? — **highest impact**
-
-This directly drives §4's arithmetic: sharing keeps the player-facing count near **16**; splitting takes it to
-roughly **32**, and doubles the fragmentation pressure on every bracket.
-
-- **Splitting** is honest — a player picks the format they want and gets it — but halves each pool.
-- **Sharing** (one queue, ruleset as a per-ticket preference or a server rotation) preserves pool depth but
-  either denies the player a choice or reintroduces a soft-preference matching problem that looks a lot like
-  stake banding (§5.2).
-
-It interacts with **every other decision here**: queue count (§4), population transparency granularity (§7 —
-counts shown per band would need a ruleset dimension too), and the result shape (§10.1 already carries the
-ruleset, so downstream is indifferent). **Decide this before the queue set is authored**, because unwinding it
-later means changing what players see.
-
-### 11.2 Skill input — and whether it is per-ruleset
+### 11.1 Skill input — and whether it is per-ruleset
 
 What rating drives fairness sorting, and **whether a player has one rating or one per ruleset**. Placement skill
 and kill-ratio skill are not obviously the same competence; a single rating is simpler and pools better, separate
 ratings are fairer but split the rating population the same way splitting queues splits the match population.
 
-### 11.3 The band-widening curve
+### 11.2 The band-widening curve
 
 §5.2 establishes that stake bands widen with wait time. The **curve** is undecided: how fast, to what ceiling,
 and whether it widens symmetrically (a player may be matched above their entered stake as readily as below).
 Asymmetry is worth considering — being matched *down* costs a player nothing they did not offer, while being
 matched *up* exposes them beyond their intent.
 
-### 11.4 Minimum viable population per band before it folds
+### 11.3 Minimum viable population per band before it folds
 
 §7 gives live-ops the lever to fold a cold band into its neighbour. The **threshold** — and whether folding is
 automatic or an operator action — is undecided. Automatic folding reacts faster; manual folding never surprises
 a player mid-session by moving the band they queued into.
 
-### 11.5 Party-versus-solo matching fairness
+### 11.4 Party-versus-solo matching fairness
 
 A coordinated party has a real advantage over the same number of solo players. Options span strict segregation
 (fair, fragmenting), free mixing (fast, unfair), and compensation via the skill sort (moderate, hard to tune).
-This interacts with §8.1's party-size ranges and with §11.2's rating: if parties are matched against solos, the
+This interacts with §8.1's party-size ranges and with §11.1's rating: if parties are matched against solos, the
 rating consumed should arguably account for coordination.
 
 ---
 
-## 12. RELATED
+## 12. RULINGS OF RECORD
+
+| Ruling | Date | Content |
+|---|---|---|
+| **R7 — SHOOTOUT and TURBO SPLIT THE QUEUE** | **2026-08-05** | Ruleset is the **top-level choice**, above size and above stake — presented as **two tabs**, not one doubled flat list. Settled on three grounds: (1) **UX** — they are different products, not variants; a player who wants TURBO and is dropped into permadeath quits and **eats a leaver penalty on a wagered match**, the worst failure available in this system; (2) **observed practice** — wager and competitive platforms separate by **format**, never merging elimination and respawn formats; (3) **fragmentation does not apply** — merging doubles the entries but not the pool, because those players were never interchangeable, so a merged queue's population is **nominal, not effective**. A genuinely cold band folds into a neighbour via the transparency mechanism (§7), which is the correct instrument for that problem. Carried as **§4.1**, with the arithmetic in **§4.2** and per-ruleset counts in **§7**. **This is settled; a reader should not reopen it.** |
+
+---
+
+## 13. RELATED
 
 - [`Docs/DOCTRINE.md`](../DOCTRINE.md) — laws cited here: **N1** server authority · **N11** client never decides
   balances/ownership · **N12** transactional transfer with escrow and rollback · **G5** inert data assets ·
