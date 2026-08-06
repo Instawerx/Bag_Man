@@ -23,6 +23,33 @@ UAFLCharacterMovementComponent::UAFLCharacterMovementComponent(const FObjectInit
 	// down -- floating, no ground attachment). The dash tag-listener is event-driven
 	// (RegisterGameplayTagEvent), NOT tick-driven, so this component needs no tick code of its own --
 	// but it MUST keep the parent's movement tick. Leave PrimaryComponentTick to Super.
+
+	// ---- SWIM TUNING (water phase 2; Docs/design/ShantyTown_Water_Swim_DESIGN.md) ----
+	//
+	// AUTHORED HERE AND NOT IN THE EDITOR, deliberately. MaxSwimSpeed and Buoyancy are
+	// UPROPERTY(EditAnywhere, BlueprintReadWrite) -- NOT Config (CharacterMovementComponent.h:272, 380).
+	// A native class CDO is not an asset and has no ini backing, so an editor-side CDO edit lives only in
+	// memory and vanishes on restart: it would read as done and not be. The constructor is the only place
+	// these become durable defaults.
+
+	// 50% of the Pro pawn's 700 land reference. Unmistakably slower than running -- water should cost you
+	// something -- while still crossing the ~370 m swimmable band in reasonable time, so the sea reads as
+	// traversable rather than as a soft wall (R32).
+	//
+	// The engine default is 300, which at 43% is coincidentally close. THAT IS EXACTLY WHY THIS NEEDS
+	// AUTHORING: right-ish by accident is not a decision, and nothing downstream can tell the difference
+	// between a value someone chose and a value nobody touched.
+	MaxSwimSpeed = 350.0f;
+
+	// NEUTRAL BUOYANCY. At 1.0 the robot floats at the surface and stays visible, which is what R32's
+	// traversable-water ruling needs -- water is a route, and a route you can see yourself on. Below 1.0 the
+	// pawn sinks and water becomes a trap, which is the behaviour R32 retired.
+	//
+	// SET EXPLICITLY EVEN THOUGH IT EQUALS THE ENGINE DEFAULT. This is a RECORDED DECISION, not a
+	// non-change: the next reader should find the value chosen and reasoned, not absent. It will NOT
+	// serialise -- UE skips properties matching their default -- so the only trace it leaves is this line
+	// and this comment. That is the point of writing it.
+	Buoyancy = 1.0f;
 }
 
 void UAFLCharacterMovementComponent::InitializeComponent()
