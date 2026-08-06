@@ -403,7 +403,36 @@ implemented as a Pawn gets counted as a participant and stalls the round. **Here
 other way: a bot that is not counted as a participant leaves a round that cannot resolve, because something
 alive is not in the tally.**
 
-**The single exception is the input trigger** (§2), and it is invisible to every system above.
+**The single exception to the interface contract is the input trigger** (§2), and it is invisible to every
+system above.
+
+#### 8.2.1 R34 — a recorded, deliberate exception on CAPABILITY
+
+> **R34 (2026-08-05): bots are a TEMPORARY POPULATION MEASURE until real player counts support matches.
+> GAMEPLAY AND CHARACTER CAPABILITY ARE NEVER LIMITED TO KEEP BOTS VIABLE.**
+
+**The general rule above is not weakened.** A bot still counts, dies, places and scores through the same
+paths, and match logic still must not know whether a participant is a bot. **What R34 carves out is
+different: it settles who yields when a NEW capability outruns bot support.**
+
+The first instance is **water**. R32 makes water traversable and playable
+([`ShantyTown_Water_Swim_DESIGN.md`](../design/ShantyTown_Water_Swim_DESIGN.md)), and navmesh does not cover
+it — so bots cannot follow a player in. Under the general rule that would be a defect and a blocker. **Under
+R34 it is accepted**, and the navigation work is *opportunistic*: added if it is cheap once swim works,
+skipped otherwise.
+
+**The cost is understood and accepted, not overlooked.** While bots cannot swim, water is a bot-free space,
+and in a bot-populated match standing in it is advantageous. R34 accepts that because bots are transitional —
+the exploit expires when the population does.
+
+**Why this is recorded rather than simply done.** An exception that lives only in a decision nobody wrote down
+is indistinguishable from a defect to whoever finds it next: they see bots failing to enter water, read §8.2,
+and file it as a bug. **The carve-out has to be as findable as the rule it qualifies.**
+
+**The boundary of the exception, so it is not over-applied.** R34 governs **capability gaps on new features**.
+It does **not** license a bot that is miscounted, that dies through a different path, that is skipped by
+placement, or whose eliminations attribute differently — those remain defects, because they corrupt the match
+record rather than merely limiting where a bot can go.
 
 **Server authority applies throughout** (**N1**): bots exist and act on the server. There is no client-side bot.
 

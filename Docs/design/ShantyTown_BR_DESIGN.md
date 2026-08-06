@@ -65,7 +65,17 @@ Both layers required; both **server-authoritative**.
 - **Actively test dash / vault / grenade-jump at every seam.** Operator PIE is ground truth.
 - **Rule:** *"If a player can leave the play area anywhere, it is not playable AAA."*
 
-## 4. Water interaction — v1 LOCKED: "Robot short-out by depth"
+## 4. Water interaction — ⛔ SUPERSEDED BY R32
+
+> **⛔ THIS SECTION IS SUPERSEDED. OPERATOR RULING R32 (2026-08-05): WATER IS NOT LETHAL.**
+> Water is **traversable and playable**. Entering it starts a timer and health degrades; **swim traversal is
+> in scope.** The depth-lethality rule below — and the self-sealing water boundary §3B derives from it — no
+> longer hold.
+> **Current design: [`ShantyTown_Water_Swim_DESIGN.md`](ShantyTown_Water_Swim_DESIGN.md).**
+> The §0 measurements (robot height, knee and mid-thigh depths) remain valid as measurements; only the
+> lethality rule built on them is retired. The text below is retained as the decision record.
+
+### 4 (retired). Original rule — "Robot short-out by depth"
 **Rule:** We are robots. Wading past **~knee/mid-thigh depth** = short-circuit → **instant death → respawn on land**. Below that depth = freely wadeable. Applies to **every** water body (ocean, river, puddles, drainage) — one depth threshold governs all of it (puddles harmless; deep river channel + ocean lethal).
 
 **Why it's strong for a staked map:**
@@ -145,10 +155,19 @@ GOLD BANKS (`L_ValleyVillage`) was parked because map-asset scale was wrong for 
 ---
 
 ## Locked v1 decisions (summary)
-- ✅ **Water = robot short-out by depth** (past ~knee/mid-thigh, all water bodies, respawn on land, authored server-side depth volumes).
+- ⛔ **Water = robot short-out by depth** — **SUPERSEDED BY R32.** Water is **traversable and playable**: entry starts a timer and health degrades, and **swim traversal is in scope**. See §4 and [`ShantyTown_Water_Swim_DESIGN.md`](ShantyTown_Water_Swim_DESIGN.md).
 - ✅ **Boats = boardable, not drivable.**
-- ✅ **Containment = hybrid** (water self-seals via lethal depth; land via fence + invisible wall + ceiling + KillZ).
+- ◑ **Containment = hybrid — WATER HALF SUPERSEDED BY R32.** Land is unchanged (fence + invisible wall + ceiling + KillZ). Water **no longer self-seals**: lethal depth is retired, so the sea is crossable. Replacement is a swimmable band with distance-scaled degradation, backed by a blocking volume beyond any survivable swim — **C5**, containment is a correctness requirement, not polish. See [`ShantyTown_Water_Swim_DESIGN.md`](ShantyTown_Water_Swim_DESIGN.md) §5.
 - ✅ **Users = staked BR + tournaments** → server-authoritative, deterministic, exploit-free throughout.
+
+---
+
+## Rulings of record
+
+| Ruling | Date | Content |
+|---|---|---|
+| **R32 — water is NOT lethal** | 2026-08-05 | Water is **traversable and playable**. Entering it starts a timer; health then degrades. **Swim traversal is in scope.** Supersedes §4's depth-lethality rule and the water half of §3B's containment layer. Scope: [`ShantyTown_Water_Swim_DESIGN.md`](ShantyTown_Water_Swim_DESIGN.md). |
+| **R34 — bots are not a constraint on water** | 2026-08-05 | Bots are a **temporary population measure** until real player counts support matches. **Gameplay and character capability are never limited to keep bots viable.** The water nav-area work is therefore **opportunistic, not blocking** — add a nav modifier if it is cheap once swim works, otherwise bots stay on land and that is accepted. Recorded as a deliberate exception in `ssot/ai-bots.md` §8.2. |
 
 ---
 
