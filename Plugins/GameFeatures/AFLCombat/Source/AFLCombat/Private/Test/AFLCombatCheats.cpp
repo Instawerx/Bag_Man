@@ -21,6 +21,7 @@
 #include "Cosmetics/AFLSkinColorAsset.h"               // RosterTest: the preset type ApplySkinColor consumes
 #include "TimerManager.h"                              // RosterTest: the self-cycling FSM step timer
 #include "Cosmetics/LyraCharacterPartTypes.h"          // PossessAs: FLyraCharacterPart (the ProcessEvent arg struct)
+#include "UObject/StrongObjectPtr.h"                    // PossessAs: keep a cheat-loaded BP class alive while sticky is armed
 #include "Components/ChildActorComponent.h"           // panel-watch: reach the body part actor (a child-actor on the pawn)
 #include "AFLCosmeticCatalogSubsystem.h"             // S-ECON-CAT: catalog resolve cheats (AFLCosmeticCore)
 #include "AFLAbilityCosmeticAsset.h"                  // S-ECON-CAT: EMP ability-cosmetic resolve target (AFLCosmeticCore)
@@ -1801,6 +1802,7 @@ namespace
 		FString Brand;
 		bool bForceBase = false;
 		TWeakObjectPtr<UClass> WantClass;
+		TStrongObjectPtr<UClass> KeepAlive;   // hardening: a cheat-loaded BP class has no other hard referencer until the part actor spawns; hold a strong ref so sticky can't silently die on GC (reset when sticky clears)
 		FTimerHandle Timer;
 		int32 ReapplyCount = 0;
 	};
@@ -1895,16 +1897,11 @@ namespace
 		}
 		if (Args.Num() < 1)
 		{
-			Ar.Log(TEXT("afl.Cosmetic.PossessAs <BRAND>  e.g. 'ARIA' -> B_AFL_Robot_ARIA_X (falls back to B_AFL_Robot_ARIA). Append ':base' to force the stock original."));
+			Ar.Log(TEXT("afl.Cosmetic.PossessAs <BRAND>  e.g. 'ARIA' -> B_AFL_Robot_ARIA_X (falls back to B_AFL_Robot_ARIA). Append ':base' to force the stock original. OR a full path e.g. '/Game/BagMan/Characters/ProMod_M01/B_AFL_ProMod_M01' (package-only path auto-appends '.<Leaf>_C')."));
 			return;
 		}
 
-		FString Brand = Args[0].TrimStartAndEnd();
-		bool bForceBase = false;
-		if (Brand.EndsWith(TEXT(":base"), ESearchCase::IgnoreCase))
-		{
-			Brand.LeftChopInline(5); bForceBase = true;
-		}
+		FString Arg = Args[0].TrimStartAndEnd();
 
 		APlayerController* PC = World->GetFirstPlayerController();
 		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
@@ -1914,33 +1911,69 @@ namespace
 			return;
 		}
 
-		// Prefer the X body (unique-body: that is the whole point), fall back to the stock original.
-		const FString Root = TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_");
 		UClass* PartClass = nullptr;
-		FString Chosen;
-		if (!bForceBase)
+		FString Brand = Arg;          // sticky/log display token (the full path on the PATH branch)
+		bool bForceBase = false;
+
+		if (Arg.StartsWith(TEXT("/")))
 		{
-			Chosen = FString::Printf(TEXT("%s%s_X.B_AFL_Robot_%s_X_C"), *Root, *Brand, *Brand);
-			PartClass = LoadObject<UClass>(nullptr, *Chosen);
+			// PATH branch: a full object/class path (ProMod part BPs live outside the hardcoded robot
+			// folder/prefix). Load directly; skip the brand -> _X/base construction entirely.
+			// ':base' is BRAND-only -- it is NEVER chopped here, so a path is passed through verbatim.
+			FString PathStr = Arg;
+			if (!Arg.Contains(TEXT(".")))
+			{
+				// package-only path -> append ".<LeafName>_C"
+				FString Leaf;
+				if (Arg.Split(TEXT("/"), nullptr, &Leaf, ESearchCase::CaseSensitive, ESearchDir::FromEnd))
+				{
+					PathStr = FString::Printf(TEXT("%s.%s_C"), *Arg, *Leaf);
+				}
+			}
+			PartClass = LoadObject<UClass>(nullptr, *PathStr);
+			if (!PartClass)
+			{
+				Ar.Logf(TEXT("afl.Cosmetic.PossessAs - no class at '%s'."), *PathStr);
+				return;
+			}
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PossessAs resolve brand=%s variant=PATH class=%s]"),
+				*Arg, *GetNameSafe(PartClass));
+			Ar.Logf(TEXT("afl.Cosmetic.PossessAs - resolved PATH class: %s"), *GetNameSafe(PartClass));
 		}
-		if (!PartClass)
+		else
 		{
-			Chosen = FString::Printf(TEXT("%s%s.B_AFL_Robot_%s_C"), *Root, *Brand, *Brand);
-			PartClass = LoadObject<UClass>(nullptr, *Chosen);
+			// BRAND branch (UNCHANGED behaviour): 'ARIA' -> _X first, base fallback; ':base' forces stock.
+			if (Brand.EndsWith(TEXT(":base"), ESearchCase::IgnoreCase))
+			{
+				Brand.LeftChopInline(5); bForceBase = true;
+			}
+			// Prefer the X body (unique-body: that is the whole point), fall back to the stock original.
+			const FString Root = TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_");
+			FString Chosen;
+			if (!bForceBase)
+			{
+				Chosen = FString::Printf(TEXT("%s%s_X.B_AFL_Robot_%s_X_C"), *Root, *Brand, *Brand);
+				PartClass = LoadObject<UClass>(nullptr, *Chosen);
+			}
+			if (!PartClass)
+			{
+				Chosen = FString::Printf(TEXT("%s%s.B_AFL_Robot_%s_C"), *Root, *Brand, *Brand);
+				PartClass = LoadObject<UClass>(nullptr, *Chosen);
+			}
+			if (!PartClass)
+			{
+				Ar.Logf(TEXT("afl.Cosmetic.PossessAs - no body found for '%s' (tried _X then base)."), *Brand);
+				return;
+			}
+			// Announce the RESOLVED class before touching anything: if the _X body is missing and this silently
+			// fell back to the stock original, that must be visible in the log AND on the console, not inferred
+			// afterwards from "the wrong robot showed up".
+			const bool bIsXBody = Chosen.Contains(TEXT("_X."));
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PossessAs resolve brand=%s variant=%s class=%s]"),
+				*Brand, bIsXBody ? TEXT("X") : TEXT("BASE"), *GetNameSafe(PartClass));
+			Ar.Logf(TEXT("afl.Cosmetic.PossessAs - resolved %s body: %s"),
+				bIsXBody ? TEXT("X") : TEXT("BASE (no _X found!)"), *GetNameSafe(PartClass));
 		}
-		if (!PartClass)
-		{
-			Ar.Logf(TEXT("afl.Cosmetic.PossessAs - no body found for '%s' (tried _X then base)."), *Brand);
-			return;
-		}
-		// Announce the RESOLVED class before touching anything: if the _X body is missing and this silently
-		// fell back to the stock original, that must be visible in the log AND on the console, not inferred
-		// afterwards from "the wrong robot showed up".
-		const bool bIsXBody = Chosen.Contains(TEXT("_X."));
-		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PossessAs resolve brand=%s variant=%s class=%s]"),
-			*Brand, bIsXBody ? TEXT("X") : TEXT("BASE"), *GetNameSafe(PartClass));
-		Ar.Logf(TEXT("afl.Cosmetic.PossessAs - resolved %s body: %s"),
-			bIsXBody ? TEXT("X") : TEXT("BASE (no _X found!)"), *GetNameSafe(PartClass));
 
 		FString Err;
 		if (!AFLPossessAs_Apply(World, PartClass, Err))
@@ -1951,9 +1984,10 @@ namespace
 
 		// Arm STICKY re-apply so a death/respawn cannot silently revert the body mid-QA.
 		GStickyPossess.World = World;
-		GStickyPossess.Brand = Brand;
-		GStickyPossess.bForceBase = bForceBase;
+		GStickyPossess.Brand = Brand;            // display only (full path on the PATH branch)
+		GStickyPossess.bForceBase = bForceBase;  // always false on the PATH branch
 		GStickyPossess.WantClass = PartClass;
+		GStickyPossess.KeepAlive.Reset(PartClass); // hardening: hold a strong ref so the cheat-loaded BP class can't be GC'd out from under sticky
 		GStickyPossess.ReapplyCount = 0;
 		World->GetTimerManager().SetTimer(GStickyPossess.Timer,
 			FTimerDelegate::CreateStatic(&AFLStickyPossess_Tick), 1.0f, true);
@@ -1965,7 +1999,7 @@ namespace
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLPossessAsCmd(
 		TEXT("afl.Cosmetic.PossessAs"),
-		TEXT("DEV body swap, bypasses store+entitlement+loadout. Usage: afl.Cosmetic.PossessAs <BRAND> (prefers B_AFL_Robot_<BRAND>_X, falls back to the stock original; append ':base' to force stock). Needed because the X bodies are otherwise unreachable in PIE."),
+		TEXT("DEV body swap, bypasses store+entitlement+loadout. Usage: afl.Cosmetic.PossessAs <BRAND | /Full/Path> | off. BRAND (e.g. 'ARIA') prefers B_AFL_Robot_<BRAND>_X, falls back to stock; append ':base' to force stock. A leading '/' is a full class path (e.g. /Game/BagMan/Characters/ProMod_M01/B_AFL_ProMod_M01) -- package-only paths auto-append '.<Leaf>_C'; ':base' is brand-only and never chops a path. Reaches ProMod part BPs outside the robot folder/prefix."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLPossessAs));
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLRosterTestCmd(
