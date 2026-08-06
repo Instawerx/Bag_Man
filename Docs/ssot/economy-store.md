@@ -189,55 +189,113 @@ paid places = 1                      if positions < 10
 > Keying on player count would have required a team-mode exception, and an exception is a thing that gets
 > missed. Keying on positions makes the correct behaviour fall out of the arithmetic.
 
-**The locked splits.** Each row sums to 100.
+**The payout is a GENERATING RULE computed per exact field size — not a table.** Given `N` finishing positions
+and a rake `k`:
 
-| Finishing positions | Paid | Split (%) |
-|---|---|---|
-| **2–9, and ALL team modes** | 1 | **100** |
-| **10–13** | 3 | 50 / 30 / 20 |
-| **14–20** | 6 | 32 / 22 / 16 / 12 / 10 / 8 |
-| **21–36** | 11 | 25 / 17 / 12 / 9 / 7.5 / 6.5 / 5.5 / 5 / 4.5 / 4 / 4 |
+```
+p(N) = 1  if N < 10,  else  ceil(0.30 x N)      paid places
+B(N) = N x (1 - k)                              budget, in STAKE UNITS
+M    = 1.4                                      min cash, FIXED, in stake units
 
-**50 / 30 / 20 is the long-standing single-table standard and is adopted unchanged.** Verified: all four rows
-sum to exactly 100.
+Places decay geometrically from M at the last paid place up to 1st,
+with ratio r solved so the places sum to exactly B(N):
 
-**These are BANDS, and the formula describes how the band tops were derived — not a per-match computation.**
-The formula and the table agree at 9, 10, 20 and 36, and diverge inside the bands (at 13 the formula gives 4
-against a 3-place table; at 21 it gives 7 against an 11-place table). **The tables are authoritative.**
-Implementing the formula per-match would ask for a paid-place count the table cannot supply.
+    M x (r^p - 1) / (r - 1) = B(N)      solve for r > 1
+    place i (1 = last paid)  =  M x r^(i-1)
+```
 
-### 5.3 The two invariants — what must hold if the percentages are ever retuned
+**Why a rule beats tables, and it is one property doing the work:**
 
-**These matter more than the exact percentages.**
+> **MIN CASH IS AN INPUT, NOT AN OUTCOME.** In a percentage table the min cash is whatever the lowest
+> percentage happens to yield against whatever the pot happens to be — so it *drifts*, and it drifts most
+> exactly where the pot is smallest. Here the floor is fixed at `M` and the ratio `r` absorbs the variation.
+> **The floor cannot be missed, because it is the thing being solved around.**
+
+Two consequences follow for free: **there are no bands, so there are no band-bottom failures** — every field
+size gets its own exact solve rather than inheriting a neighbour's percentages. And **the whole structure is
+one rule rather than four tables that must be kept mutually consistent**, which removes an entire class of
+transcription and drift error.
+
+**Reference values at 5% rake — DERIVED FROM THE RULE, not authoritative in themselves.** The rule is the
+source of truth; these are spot checks recomputed from it.
+
+| Positions | Paid | Winner | Min cash |
+|---|---|---|---|
+| 2 | 1 | 1.90× | 1.90× |
+| 9 | 1 | 8.55× | 8.55× |
+| 10 | 3 | 5.36× | **1.40×** |
+| 18 | 6 | 4.86× | **1.40×** |
+| 21 | 7 | 4.89× | **1.40×** |
+| 36 | 11 | 5.69× | **1.40×** |
+
+At `p = 1` there is no ratio to solve: the single paid place takes the whole budget, which is why small fields
+show the winner and the min cash as the same figure.
+
+> **⚠ THE 9→10 CLIFF IS INTRINSIC — and it is a QUEUE-DESIGN concern, not a player-facing one.**
+> At 9 positions the winner takes **8.55×**; at 10 they take **5.36×**. That discontinuity cannot be smoothed
+> away: **any jump in paid places creates one**, because the same budget is suddenly divided more ways. It is a
+> property of paying more places, not a defect in the curve.
+>
+> **It never reaches a player, because a player never meets 9 and 10 in the same queue.** Queues have fixed
+> field sizes, and bot-fill lands them full (R34, `ssot/ai-bots.md` §8.2.1) — so a given queue always resolves
+> on one side of the threshold, never both.
+>
+> **DESIGN CONSTRAINT, recorded so it stays true: NO QUEUE MAY SIT AT A FIELD SIZE WHERE THE PAID-PLACES
+> THRESHOLD STRADDLES IT.** Cheap to honour when queue sizes are chosen, and it keeps the cliff permanently
+> away from players. The thresholds are wherever `ceil(0.30 × N)` increments — N = 10, 11, 14, 17, 21, 24, 27,
+> 31 and 34 — so a queue sized at one of those should be moved a position either way.
+
+### 5.3 The two invariants — one now holds by construction, one does not
+
+**These matter more than any particular number.**
 
 **1 — MIN CASH NEVER BELOW ~1.4× STAKE.** Paying 30% of a field is deeper than poker convention (10–15%), so
 the bottom of the curve thins fast. **A min cash near 1.0× means cashing feels like nothing happened** — the
 player survived most of the field and got their stake back, which reads as a loss of time rather than a win.
 
-**2 — THE WINNER'S MULTIPLE GROWS WITH FIELD SIZE.** A 36-position win must feel larger than a 10-position
+**2 — THE WINNER'S MULTIPLE GROWS WITH FIELD SIZE.** A 36-position win should feel larger than a 10-position
 win, or field size stops meaning anything.
 
-> **⚠ RECORDED FINDING: BOTH INVARIANTS HOLD AT BAND TOPS AND BREAK AT BAND BOTTOMS.**
-> Derived against the 5% working rake (§5.5), where `pot = positions × stake × 0.95`:
+> **✅ INVARIANT 1 HOLDS FOR EVERY FIELD SIZE.** Verified by solving the rule at 5% rake for **every N from 2
+> to 36**: min cash is exactly **1.40×** at every N ≥ 10, and at N < 10 the single paid place takes the whole
+> budget (1.90× at N=2, rising to 8.55× at N=9). **Zero failures.** It holds *by construction* — the floor is
+> an input, so the only way to miss it would be a field so small the budget cannot cover one minimum payout,
+> which first occurs below N=2 and is therefore unreachable.
+
+> **⚠ INVARIANT 2 IS NOT SATISFIED BY THIS RULE. Recorded rather than glossed.**
+> Solving across N=10…36, the winner's multiple **falls 8 times as the field grows**, dropping at every
+> increment of `p`, then climbing until the next one:
 >
-> | Positions | Min-cash place | Min cash | Against the 1.4× floor |
-> |---|---|---|---|
-> | 10 | 3rd @ 20% | **1.90×** | OK |
-> | 13 | 3rd @ 20% | **2.47×** | OK |
-> | **14** | 6th @ 8% | **1.06×** | **below 1.4×** |
-> | 20 | 6th @ 8% | **1.52×** | OK |
-> | **21** | 11th @ 4% | **0.80×** | **below 1.0× — cashing LOSES money** |
-> | 36 | 11th @ 4% | **1.37×** | marginally below 1.4× |
+> ```
+> N=10 p=3  5.36x     N=17 p=6  4.44x  <-- drop     N=27 p=9  4.93x  <-- drop
+> N=11 p=4  4.15x  <-- drop            N=20 p=6  5.72x            N=30 p=9  5.82x
+> N=13 p=4  5.34x                      N=21 p=7  4.89x  <-- drop  N=34 p=11 5.20x  <-- drop
+> N=14 p=5  4.32x  <-- drop            N=24 p=8  4.91x  <-- drop  N=36 p=11 5.69x
+> ```
 >
-> And the winner's multiple **is not monotonic** — it sawtooths at every band edge: 9 positions pays **8.55×**,
-> 10 positions pays **4.75×**. A player who wins a 10-position match earns *less* than one who wins a
-> 9-position match. The stated invariant (36 > 10) does hold, but **36 positions also pays exactly 8.55× —
-> identical to 9 positions.**
+> And the **trend is flat, not rising**: N=10 pays **5.36×** and N=36 pays **5.69×** — a 6% difference across a
+> 3.6× change in field size. The unscaled N=9 winner still takes **8.55×**, more than any scaled field pays.
 >
-> **This is the arithmetic consequence of banded tables, not an error in transcription.** It is recorded rather
-> than silently corrected because R37 locks these tables and names these two invariants as the things to
-> defend — so the gap between them is the operator's to close, and 21-position 11th place returning **0.80×**
-> is the case most worth ruling on.
+> **This is structural, not a tuning miss.** With `p` fixed at ~30% of the field and the floor fixed at `M`,
+> the budget per paid place is nearly constant, so the winner's share cannot grow much — the extra budget from
+> a larger field is consumed by the extra paid places it also creates. **Satisfying invariant 2 requires
+> relaxing something else**: a shallower paid-places curve, a lower floor at large N, or a steeper decay.
+> Recorded as an open question (§15.9) rather than resolved here, because each option trades against a
+> property the operator has already ruled on.
+
+> **HOW THE PREVIOUS STRUCTURE FAILED, kept so the reasoning is not lost.** The superseded version used
+> **fixed percentage tables across four bands**. That produced min-cash figures of **1.06×** at 14 positions
+> and **0.80× at 21 positions — a "cash" that was a net loss** — plus a winner sawtooth where 9 positions paid
+> 8.55× against 10 positions paying 4.75×.
+>
+> **The root cause is worth carrying forward as a general lesson: a PERCENTAGE OF A POT CANNOT HOLD A FLOOR
+> WHEN POT SIZE VARIES WITHIN THE BAND.** The percentage is fixed; the pot is not; so the product drifts, and
+> it drifts furthest at the band's small end where the floor matters most. Any future payout structure keyed
+> on percentages rather than absolute floors will reproduce this.
+>
+> It was found by checking the arithmetic against the stated invariants rather than transcribing the tables —
+> the tables were internally consistent (all four rows summed to exactly 100) and still wrong against their own
+> stated goal.
 
 ### 5.4 Staking is orthogonal to earning (R38)
 
@@ -659,9 +717,16 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
    health**, not revenue. Too low and staked play mints Volts with nothing removing them; too high and the
    pot thins until placing stops paying. **A materially different rake changes every min-cash floor in §5.3** —
    the figures there are valid only against 5%, and the 21-position 0.80× case gets worse as rake rises.
-8. **The band-edge behaviour in §5.3.** Whether the sub-1.4× min cash at band bottoms, the sub-1.0× case at
-   21 positions, and the non-monotonic winner's multiple are accepted as banding artefacts or corrected by
-   retuning. R37 locks the tables and names the invariants; it does not say which wins where they disagree.
+8. ~~**The band-edge behaviour.**~~ **RETIRED** — the generating rule (§5.2) resolves it. Bands no longer
+   exist, so band-bottom failures cannot occur, and min cash holds at exactly 1.40× for every field size.
+   What the question found is preserved in §5.3 as the general lesson: *a percentage of a pot cannot hold a
+   floor when pot size varies.*
+9. **⚠ INVARIANT 2 — the winner's multiple does not grow with field size (§5.3).** Verified across N=10…36:
+   the winner falls 8 times as the field grows, and the trend is flat (5.36× at N=10, 5.69× at N=36).
+   This is structural — with paid places fixed near 30% of the field and the floor fixed, extra budget from a
+   larger field is consumed by the extra paid places it creates. **Satisfying it requires relaxing something
+   already ruled on**: a shallower paid-places curve, a lower floor at large N, or a steeper decay. The
+   question is which of those is acceptable, or whether a flat winner's multiple is acceptable instead.
 
 ---
 
@@ -672,7 +737,7 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
 | **R4 — the two loot documents merge here** | **2026-08-05** | Loot taxonomy (§10) and the loot carry mechanic (§11) are two sections of this SSOT. They previously lived in separate documents with **zero cross-citations between them** — drift by construction. The superseding decision history of the carry model is preserved by archiving that document verbatim; only decisions whose **reasoning is still load-bearing** are carried forward here. |
 | **R9 — Volts are the stake currency; one wallet** | **2026-08-05** | The staking and cosmetics economies share a single wallet (§3.1), with the three consequences recorded as design constraints: the two economies compete for the same balance and cannot be balanced independently; sinks and sources are reckoned across both, with rake the only true sink in a staked match; and server authority over the ledger is absolute, because a defect in either system corrupts both. |
 | **R36 — SHOOTOUT earns on placement** | **2026-08-05** | Finishing position determines payout (§5.1). **A payout shape, not new machinery** — placement is already computed, replicated and consumed by league rating, so this adds a consumer to an existing signal. It is also the only outcome SHOOTOUT generates, having no timer and no respawn. |
-| **R37 — the payout ladder, keyed on POSITIONS** | **2026-08-05** | `paid = 1 if positions < 10, else ceil(0.30 × positions)`, with the four locked bands in §5.2, each summing to 100. **Keyed on finishing positions, never player count: a team mode has exactly TWO positions regardless of player count, so every team mode is winner-takes-all automatically with no special-casing.** Scaled payouts exist only in FFA. **Two invariants outrank the exact percentages** — min cash never below ~1.4× stake, and the winner's multiple grows with field size. §5.3 records that both currently hold at band tops and break at band bottoms. |
+| **R37 — the payout ladder, keyed on POSITIONS** | **2026-08-05**, **amended 2026-08-05** | **INTENT UNCHANGED:** winner-takes-all for small fields, scaled payouts above, `paid = 1 if positions < 10, else ceil(0.30 × positions)`. **Keyed on finishing positions, never player count: a team mode has exactly TWO positions regardless of player count, so every team mode is winner-takes-all automatically, with no special-casing.** Scaled payouts exist only in FFA. **AMENDED — MECHANISM ONLY:** the four banded percentage tables are replaced by a **generating rule** solved per exact field size (§5.2), because fixed percentages over a variable pot could not hold the min-cash floor — they produced 1.06× at 14 positions and **0.80× at 21**, a cash that lost money. Under the rule, **min cash is an INPUT (1.4×) and holds at every field size**; §5.3 records that the second invariant, a growing winner's multiple, is **not** satisfied and why. |
 | **R38 — staking is orthogonal to earning** | **2026-08-05** | A stake is a **closed loop** — participants escrow Volts, the pot settles per the R37 ladder minus rake. **Earning is what a match PAYS; staking is what a wager SETTLES** (§5.4). Kept separate because earning is a faucet whose risk is inflation, while staking is a transfer whose risk is an unbalanced loop — merging them makes a change to one silently a change to the other. Reinforces `ssot/league-play.md` §5 from the economy side; **no conflict**. |
 | **R39 — the earn ladder across modes** | **2026-08-05** | **Extraction pays most** (highest risk, longest commitment); **SHOOTOUT placement pays modestly** (§5.5). The design constraint: **if a duel out-earns an extraction run per minute, extraction stops being worth its risk and loot becomes decorative.** Per-minute is the comparison that matters, not per-match. The ordering is the ruling; no rates are set. |
 
