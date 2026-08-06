@@ -181,6 +181,12 @@ and both are wrong:
 tracks staked results explicitly and touches skill rating not at all. Separation is what makes it safe — the
 moment it feeds rating, it is the firewall violation wearing a different label.
 
+**Reinforced from the economy side by R38** (`ssot/economy-store.md` §5.4): a stake is a **closed loop** that
+settles between participants, kept structurally separate from **earning**, which is what a match pays. **No
+conflict — the two rules isolate the wager from different things.** This section forbids stake from reaching
+*rating*; R38 forbids it from being conflated with *earning*. A design that merged either boundary would
+breach both, which is worth knowing: the firewall has two walls, and they were derived independently.
+
 ---
 
 ## 6. THRESHOLD REWARDS

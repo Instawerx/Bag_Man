@@ -50,6 +50,22 @@ to sit through. You are in until you are out.
 **Why placement rather than kills:** under permanent death, surviving *is* the skill expression. A kill-weighted
 score would reward a player who traded early over one who won, which inverts the format's own premise.
 
+**Payout basis — placement (R36).** SHOOTOUT **earns on finishing position**. The ladder and its splits live in
+`ssot/economy-store.md` §5.2 and are not restated here. What belongs in the ruleset definition is *why the
+basis is available at all*: **placement is the only outcome this ruleset generates.** With no timer and no
+respawn, there is nothing else a match produces that a payout could key on. The same signal already feeds the
+rank input above and league rating, so paying on it adds a consumer rather than a system.
+
+> **The positions-not-players rule — a ruleset property before it is an economy one.**
+> Payout keys on **finishing positions**, never on player count. **A team mode has exactly TWO finishing
+> positions regardless of how many players are in it** — a 5v5 is ten players and two positions. The economy's
+> paid-places formula therefore resolves every team mode to winner-takes-all **automatically**, with no mode
+> flag and no branch anyone can forget. Scaled payouts exist only where there are more than two positions to
+> scale across, which means FFA formats only.
+>
+> Recorded here as well as in the economy SSOT because **the position count is a fact about the ruleset's
+> shape**, not about its payout — anything else keying on match outcome inherits the same distinction.
+
 ### 2.2 TURBO — timed, respawning, kill-ratio
 
 The high-tempo format. A fixed clock, no downtime on death, and a score that rewards sustained performance
@@ -274,9 +290,16 @@ scope. **None of these is a status claim — each is a decision the mode system 
    state how assists are weighted and what a zero-death score evaluates to (a pure ratio is undefined at zero
    deaths; a difference-based score is not). It must also state whether the score is monotonic within a match —
    i.e. whether a late death can reduce a player's standing below someone who stopped playing.
-3. **How respawn interacts with staking payout.** Under SHOOTOUT the payout maps naturally onto placement. Under
-   TURBO there is no placement — every participant is present at the end. The payout curve must be defined
-   against the ratio, including how ties resolve and whether there is a participation floor.
+3. **⚠ TURBO'S PAYOUT SHAPE — OPEN, and now the asymmetry is sharper.** SHOOTOUT's payout basis is **ruled**
+   (R36, §2.1) and its ladder is locked (`ssot/economy-store.md` §5.2). **TURBO has neither.** Its *scoring*
+   is defined — kill-ratio — but its **payout is not**, and the gap is structural rather than merely undone:
+   **TURBO has no placement ladder to key on.** Every participant is present at the end, so there are no
+   finishing positions, which means the entire positions-based apparatus SHOOTOUT uses does not transfer.
+   A TURBO payout must therefore be defined **against the ratio itself** — including how ties resolve, whether
+   there is a participation floor, and whether a losing player earns at all. **This cannot be inherited from
+   SHOOTOUT; it has to be designed.** It interacts with open question 2 (the ratio formula is undefined at zero
+   deaths, and a payout keyed on an undefined score is undefined too) and with open question 1 (a squad TURBO
+   must decide whether payout attributes individually or to the squad).
 4. **Respawn timing and its exploit surface.** "Instant" must state whether it is truly zero-delay and where the
    participant re-enters. Instant respawn at the point of death is a different game from instant respawn at a
    spawn point, and in a staked format the difference is exploitable (spawn-camping, or trading into a
