@@ -177,12 +177,14 @@ other payout basis would have to invent a second measure of how the match went.
 
 ```
 paid places = 1                      if positions < 10
-            = ceil(0.30 x positions) otherwise
+            = ceil(0.15 x positions) otherwise
 ```
+
+**Depth is 15%, top-heavy (R40).** Poker-standard. It was 30%, and the change is the subject of §5.3.
 
 > **⚠ THE STRUCTURAL POINT, AND IT IS THE WHOLE REASON THIS KEYS ON POSITIONS.**
 > **A TEAM MODE HAS EXACTLY TWO FINISHING POSITIONS REGARDLESS OF PLAYER COUNT.** A 5v5 is ten players and
-> **two** positions. So `ceil(0.3 × 2) = 1`, and **every team mode is winner-takes-all automatically** — with
+> **two** positions. So `ceil(0.15 × 2) = 1`, and **every team mode is winner-takes-all automatically** — with
 > no special-casing, no mode flag, and no branch anyone can forget. **Scaled payouts exist only in FFA
 > formats**, because only FFA formats have more than two positions to scale across.
 >
@@ -193,7 +195,7 @@ paid places = 1                      if positions < 10
 and a rake `k`:
 
 ```
-p(N) = 1  if N < 10,  else  ceil(0.30 x N)      paid places
+p(N) = 1  if N < 10,  else  ceil(0.15 x N)      paid places
 B(N) = N x (1 - k)                              budget, in STAKE UNITS
 M    = 1.4                                      min cash, FIXED, in stake units
 
@@ -223,10 +225,13 @@ source of truth; these are spot checks recomputed from it.
 |---|---|---|---|
 | 2 | 1 | 1.90× | 1.90× |
 | 9 | 1 | 8.55× | 8.55× |
-| 10 | 3 | 5.36× | **1.40×** |
-| 18 | 6 | 4.86× | **1.40×** |
-| 21 | 7 | 4.89× | **1.40×** |
-| 36 | 11 | 5.69× | **1.40×** |
+| 10 | 2 | 8.10× | **1.40×** |
+| 13 | 2 | 10.95× | **1.40×** |
+| 18 | 3 | 11.66× | **1.40×** |
+| 20 | 3 | 13.29× | **1.40×** |
+| 26 | 4 | 13.84× | **1.40×** |
+| 33 | 5 | 14.72× | **1.40×** |
+| 36 | 6 | 13.29× | **1.40×** |
 
 At `p = 1` there is no ratio to solve: the single paid place takes the whole budget, which is why small fields
 show the winner and the min cash as the same figure.
@@ -242,8 +247,9 @@ show the winner and the min cash as the same figure.
 >
 > **DESIGN CONSTRAINT, recorded so it stays true: NO QUEUE MAY SIT AT A FIELD SIZE WHERE THE PAID-PLACES
 > THRESHOLD STRADDLES IT.** Cheap to honour when queue sizes are chosen, and it keeps the cliff permanently
-> away from players. The thresholds are wherever `ceil(0.30 × N)` increments — N = 10, 11, 14, 17, 21, 24, 27,
-> 31 and 34 — so a queue sized at one of those should be moved a position either way.
+> away from players. The thresholds are wherever `ceil(0.15 × N)` increments — **N = 10, 14, 21, 27 and 34** —
+> so a queue sized at one of those should be moved a position either way. **R40's 15% depth more than halved
+> this list**, from nine thresholds to five, which makes the constraint materially easier to honour.
 
 ### 5.3 The two invariants — one now holds by construction, one does not
 
@@ -262,26 +268,39 @@ win, or field size stops meaning anything.
 > an input, so the only way to miss it would be a field so small the budget cannot cover one minimum payout,
 > which first occurs below N=2 and is therefore unreachable.
 
-> **⚠ INVARIANT 2 IS NOT SATISFIED BY THIS RULE. Recorded rather than glossed.**
-> Solving across N=10…36, the winner's multiple **falls 8 times as the field grows**, dropping at every
-> increment of `p`, then climbing until the next one:
+> **◑ INVARIANT 2 — SUBSTANTIALLY IMPROVED BY R40, BUT NOT RESOLVED. Recorded honestly rather than closed.**
 >
-> ```
-> N=10 p=3  5.36x     N=17 p=6  4.44x  <-- drop     N=27 p=9  4.93x  <-- drop
-> N=11 p=4  4.15x  <-- drop            N=20 p=6  5.72x            N=30 p=9  5.82x
-> N=13 p=4  5.34x                      N=21 p=7  4.89x  <-- drop  N=34 p=11 5.20x  <-- drop
-> N=14 p=5  4.32x  <-- drop            N=24 p=8  4.91x  <-- drop  N=36 p=11 5.69x
-> ```
+> **The trend now genuinely rises.** Both the floor and the peak of each paid-places band increase
+> monotonically, which was not true at 30% depth:
 >
-> And the **trend is flat, not rising**: N=10 pays **5.36×** and N=36 pays **5.69×** — a 6% difference across a
-> 3.6× change in field size. The unscaled N=9 winner still takes **8.55×**, more than any scaled field pays.
+> | Paid | N range | Band floor | Band peak |
+> |---|---|---|---|
+> | 1 | 2–9 | 1.90× | 8.55× |
+> | 2 | 10–13 | 8.10× | 10.95× |
+> | 3 | 14–20 | 8.46× | 13.29× |
+> | 4 | 21–26 | 10.46× | 13.84× |
+> | 5 | 27–33 | 11.25× | 14.72× |
+> | 6 | 34–36 | 12.29× | 13.29× |
 >
-> **This is structural, not a tuning miss.** With `p` fixed at ~30% of the field and the floor fixed at `M`,
-> the budget per paid place is nearly constant, so the winner's share cannot grow much — the extra budget from
-> a larger field is consumed by the extra paid places it also creates. **Satisfying invariant 2 requires
-> relaxing something else**: a shallower paid-places curve, a lower floor at large N, or a steeper decay.
-> Recorded as an open question (§15.9) rather than resolved here, because each option trades against a
-> property the operator has already ruled on.
+> **But it still sawtooths — five drops, not zero**, at exactly the paid-places thresholds:
+>
+> | Crossing | Before | After | Drop |
+> |---|---|---|---|
+> | 9 → 10 | 8.55× | 8.10× | −5.3% |
+> | 13 → 14 | 10.95× | 8.46× | **−22.8%** |
+> | 20 → 21 | 13.29× | 10.46× | **−21.3%** |
+> | 26 → 27 | 13.84× | 11.25× | −18.8% |
+> | 33 → 34 | 14.72× | 12.29× | −16.5% |
+>
+> **A smaller sawtooth is still a sawtooth, and this one is not small.** Drops of 17–23% mean a player in a
+> 14-position field wins less than one in a 13-position field, by a margin they would notice. What changed is
+> the count (8 → 5) and the direction of the trend, not the existence of the discontinuity.
+>
+> **It remains structural.** Every increment of `p` divides the same budget one more way, so the winner's share
+> must fall at each threshold — that is arithmetic, not tuning. Reducing depth raised the whole curve and made
+> the trend rise; it could not remove the steps. **Eliminating them entirely requires a continuous paid-places
+> function**, which `ceil()` is not. Kept open as §15.9 with these numbers, because the arithmetic has not
+> closed it.
 
 > **HOW THE PREVIOUS STRUCTURE FAILED, kept so the reasoning is not lost.** The superseded version used
 > **fixed percentage tables across four bands**. That produced min-cash figures of **1.06×** at 14 positions
@@ -721,12 +740,15 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
    exist, so band-bottom failures cannot occur, and min cash holds at exactly 1.40× for every field size.
    What the question found is preserved in §5.3 as the general lesson: *a percentage of a pot cannot hold a
    floor when pot size varies.*
-9. **⚠ INVARIANT 2 — the winner's multiple does not grow with field size (§5.3).** Verified across N=10…36:
-   the winner falls 8 times as the field grows, and the trend is flat (5.36× at N=10, 5.69× at N=36).
-   This is structural — with paid places fixed near 30% of the field and the floor fixed, extra budget from a
-   larger field is consumed by the extra paid places it creates. **Satisfying it requires relaxing something
-   already ruled on**: a shallower paid-places curve, a lower floor at large N, or a steeper decay. The
-   question is which of those is acceptable, or whether a flat winner's multiple is acceptable instead.
+9. **◑ INVARIANT 2 — the winner's multiple sawtooths at paid-places thresholds (§5.3). IMPROVED BY R40, STILL
+   OPEN.** R40's 15% depth fixed the *trend* — band floors and peaks now rise monotonically, where at 30% the
+   trend was flat. It did **not** remove the steps: **five drops remain**, of **17–23%** at N = 14, 21, 27 and
+   34 (plus a minor 5.3% at N = 10). A player in a 14-position field wins ~23% less than one in a 13-position
+   field. **This is arithmetic, not tuning** — every increment of `p` divides the same budget one more way.
+   Removing it entirely needs a **continuous** paid-places function, which `ceil()` is not; smoothing options
+   include interpolating the winner's share across a threshold, or accepting the steps as a queue-design
+   concern handled by §5.2's constraint. **Kept open because the arithmetic has not closed it** — the question
+   is whether a 17–23% step at five field sizes is acceptable, given no queue should sit on one anyway.
 
 ---
 
@@ -739,6 +761,7 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
 | **R36 — SHOOTOUT earns on placement** | **2026-08-05** | Finishing position determines payout (§5.1). **A payout shape, not new machinery** — placement is already computed, replicated and consumed by league rating, so this adds a consumer to an existing signal. It is also the only outcome SHOOTOUT generates, having no timer and no respawn. |
 | **R37 — the payout ladder, keyed on POSITIONS** | **2026-08-05**, **amended 2026-08-05** | **INTENT UNCHANGED:** winner-takes-all for small fields, scaled payouts above, `paid = 1 if positions < 10, else ceil(0.30 × positions)`. **Keyed on finishing positions, never player count: a team mode has exactly TWO positions regardless of player count, so every team mode is winner-takes-all automatically, with no special-casing.** Scaled payouts exist only in FFA. **AMENDED — MECHANISM ONLY:** the four banded percentage tables are replaced by a **generating rule** solved per exact field size (§5.2), because fixed percentages over a variable pot could not hold the min-cash floor — they produced 1.06× at 14 positions and **0.80× at 21**, a cash that lost money. Under the rule, **min cash is an INPUT (1.4×) and holds at every field size**; §5.3 records that the second invariant, a growing winner's multiple, is **not** satisfied and why. |
 | **R38 — staking is orthogonal to earning** | **2026-08-05** | A stake is a **closed loop** — participants escrow Volts, the pot settles per the R37 ladder minus rake. **Earning is what a match PAYS; staking is what a wager SETTLES** (§5.4). Kept separate because earning is a faucet whose risk is inflation, while staking is a transfer whose risk is an unbalanced loop — merging them makes a change to one silently a change to the other. Reinforces `ssot/league-play.md` §5 from the economy side; **no conflict**. |
+| **R40 — payout depth is 15%, not 30%** | **2026-08-05** | `p(N) = ceil(0.15 × N)` for N ≥ 10, replacing 0.30 (§5.2). **Poker-standard and top-heavy.** Forced by a proven incompatibility: **30% depth + a 1.4× floor + a scaling winner cannot all hold**, because the extra budget a larger field brings is consumed by the extra paid places it creates. **The winner's multiple is what a staked game trades on**, so depth was the constraint to give up. **THE TRADE-OFF ACCEPTED: FEWER PLAYERS CASH** — at 36 positions, 6 paid instead of 11 (16.7% of the field, down from 30.6%); at 20 positions, 3 instead of 6. **What it bought:** the winner's multiple roughly doubled (36 positions: 5.69× → 13.29×), the trend now rises monotonically by band instead of running flat, and the queue-threshold list halved from nine values to five. **What it did not buy:** the sawtooth still exists — five drops of 17–23% remain (§5.3, §15.9). |
 | **R39 — the earn ladder across modes** | **2026-08-05** | **Extraction pays most** (highest risk, longest commitment); **SHOOTOUT placement pays modestly** (§5.5). The design constraint: **if a duel out-earns an extraction run per minute, extraction stops being worth its risk and loot becomes decorative.** Per-minute is the comparison that matters, not per-match. The ordering is the ruling; no rates are set. |
 
 ---
