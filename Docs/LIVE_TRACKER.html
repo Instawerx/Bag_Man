@@ -184,19 +184,21 @@ const ENTRIES = [
  t:'L_ValleyVillage (GOLD BANKS)',
  what:'Sci-Fi Valley Village showcase converted to an arena.',
  remains:'PIE verification. L_ValleyVillage.umap sits modified in the working tree, undecided.',
+ warn:'THE ONE GENUINE AMBIGUITY among the modified maps. The working copy carries -396 asset references (-10%) against only -2% size. Too large to dismiss, too small to call destruction, and X24 applies — the delta alone cannot say which side holds the value. WHAT WOULD SETTLE IT: open in-editor and diff the actor list against HEAD extracted from LFS, or run an asset-registry dependency diff on both. Do not classify it from the numbers.',
  c:['2e373641']},
 
 {g:'MAPS', status:'OPEN', ssot:'ssot/map-build-system.md',
  t:'INFINEON running 8v8 far under the footprint baseline',
  what:'INFINEON is live at 8v8 on roughly 4,332 m² — about 271 m² per player against the ~865 m²/player dense baseline derived in the map SSOT. Roughly a third of the space the ladder calls for.',
- remains:'A decision: reduce the team size for this map, expand the play space, or accept it as a deliberately tight format. All three are design calls and belong in the map SSOT, not here.',
+ remains:'OPERATOR RULING R30: RE-CONFIG TO 2v2/3v3 to match the measured footprint. Not an expansion, not an accepted-tight format — the team size comes down to the space.',
+ warn:'AIK Block 196 also found INFINEON has ZERO AFL WIRING: stock untagged LyraPlayerStarts, no extraction zones, no spawners. It is running as a Lyra map, not an AFL one. The re-config is the smaller half of the work.',
  c:[]},
 
 {g:'MAPS', status:'ARCHIVED', ssot:'ssot/map-build-system.md',
  t:'METATRON — Flower-of-Life woven-tube map',
- what:'Abandoned 2026-08-04 as unnavigable across strata. The deterministic layout generator, four preset manifests and the rebuilt weaving tunnel system are retained on L_Arena_05.',
- remains:'Nothing. Retained for the nav-verify-early lesson only.',
- c:['d47eabc4','eafa55c6','c97f985f','7b7c3bc4']},
+ what:'Abandoned 2026-08-04 as unnavigable across strata. Its residue was DISCARDED from L_Arena_05 at 3793b36c (R27) — the generator, manifests and tunnel system are NOT retained there. L_Arena_05 is an EMPTY SLOT: a blank placeholder never built past a name (11 actors, one 20x20 m brush, one cube, zero PlayerStarts, no nav volume).',
+ remains:'Nothing. The nav-verify-early lesson is the only thing carried forward; the code and manifests remain in history at the commits below.',
+ c:['d47eabc4','eafa55c6','c97f985f','7b7c3bc4','3793b36c']},
 
 // ============================ MATCH MODES =================================
 {g:'MATCH MODES', status:'PROVEN', opRep:true, ssot:'ssot/match-modes.md',
@@ -382,7 +384,7 @@ const ENTRIES = [
 {g:'CHARACTER', status:'OPEN', ssot:'ssot/character-system.md',
  t:'Parkour IK + retarget pair — UNTRACKED, and a clean-clone hazard',
  what:'Two untracked files: Content/Characters/Heroes/IRONICS/Animations/Retargeted/IK_ParkourPack.uasset and RTG_ParkourPack_to_Manny.uasset. Skeleton target verified by reading the asset bytes 2026-08-05.',
- remains:'Decide whether to commit, and how to resolve the reference below first.',
+ remains:'REPOINT, NOT REBUILD — the retargeter already targets the tracked rig; only the source rig preview mesh is wrong. AUTHORING-TIME ONLY: zero assets reference either file, and all 11 retargeted outputs are already tracked, clean and on the tracked rig, so un-ignoring the pack is NOT required. Editor lane: repoint the source rig mesh, save, re-read from disk to confirm the pack path is gone. The tracked sibling pair IK_FreeAnimLib + RTG_FreeAnimLib_to_Manny is the precedent.',
  warn:'IK_ParkourPack references /Game/ParkourAnimations/Characters/Mannequins/Meshes/SKM_Manny — which is inside the GITIGNORED /Content/ParkourAnimations/ folder (.gitignore:172). RTG_ParkourPack_to_Manny bridges that gitignored source to the real /Game/Characters/Heroes/Mannequin/ rig. Committing these two as-is creates a DANGLING REFERENCE in a fresh clone — the same clean-clone break class as 5714b527 and 9474b410. A decoy IK_Mannequin and SK_Mannequin also sit in that gitignored pack folder; do not mistake them for the real Content/Characters/Heroes/Mannequin/Rig/IK_Mannequin.',
  c:[]},
 
@@ -437,17 +439,17 @@ const ENTRIES = [
  warn:'DO NOT MOVE OR RENAME: Docs/SKILLS_REGISTRY.md · BAG_MAN_MASTER_BUILD_v2.0.md · CLAUDE.md · Tools/skills/afl-laser-beam-system/SKILL.md. CLAUDE.md auto-loads and the skill path is resolved by an @import.',
  c:[]},
 
-{g:'CROSS-CUTTING', status:'OPEN', ssot:'(operator)',
- t:'Demo_Map.umap modified vs HEAD — undiagnosed',
- what:'Content/ShantyTown/Maps/Demo_Map.umap shows modified against HEAD: its LFS pointer differs from the f841d361 bootstrap baseline (4 lines changed — oid and size). Working-tree sha256 is a60f70af…90e564, which is the value guarded across every recent block. Operator is reviewing.',
- remains:'Operator decision. Agents must not touch, stage or investigate this file.',
- warn:'This file is the standing GUARD for recent work blocks. Its hash is reported at the start and end of each block. Do not modify it as a side effect of anything.',
+{g:'CROSS-CUTTING', status:'COMMITTED', ssot:'(operator)',
+ t:'Demo_Map — untracked and removed (superseded by L_ShantyTown)',
+ what:'Demo_Map was the vendor demo level. It was cloned and World-Partition converted into Content/Maps/L_ShantyTown at c6db6c4d, and the clone is the map the project uses. Zero referencers, confirmed twice: AIK Block 196, then a headless binary scan of 1,930 candidate assets (every .umap, playlist, experience, Content/Maps asset and all 652 external actor/object packages) returning zero hits. Untracked and deleted from disk at 2c506d22 — 63,799,771 B of working-tree savings.',
+ remains:'Nothing. NOTE: the LFS blobs REMAIN IN HISTORY — no history rewrite was done, so the repository does not shrink retroactively and a full clone still pays for them.',
+ warn:'THE STANDING GUARD IS NOW Content/Maps/L_ShantyTown.umap — 31,320 B, sha256 d39d83a785364f4bae575b3bda59e0520450f5f2683ea464b4d093bf5a90d7b0, 639 external actors, 13 external objects. Demo_Map no longer exists and cannot serve as a guard.',
  c:[]},
 
 {g:'CROSS-CUTTING', status:'OPEN', ssot:'(operator)',
- t:'13 other undecided working-tree paths',
- what:'Verified 2026-08-05. Modified: Config/DefaultEngine.ini · Content/BagMan/Maps/L_BagMan_Greybox.umap · Content/Downtown_West/Maps/Demo_Environment.umap · Content/Maps/L_Arena_04.umap · L_Arena_05.umap · L_Duel_01.umap · L_ValleyVillage.umap · Plugins/GameFeatures/AFLBagMan/Content/Experiences/B_Experience_Haywire.uasset · .../Game/B_AFL_BotController.uasset · Plugins/GameFeatures/AFLCombat/.../Test/AFLCombatCheats.cpp · Plugins/GameFeatures/ShooterCore/Content/Bot/BT/BB_Lyra_Shooter_Bot.uasset · .../Bot/EQS/EQS_MoveAgainstEnnemy.uasset. Untracked: the Parkour IK pair (own entry).',
- remains:'Operator triage: commit, revert, or leave. Six of these are maps whose in-editor state may hold unbanked dressing.',
+ t:'11 remaining undecided working-tree paths',
+ what:'Re-enumerated 2026-08-05 after blocks 198-199 resolved four. MODIFIED (9): Content/BagMan/Maps/L_BagMan_Greybox.umap · Content/Downtown_West/Maps/Demo_Environment.umap · Content/Maps/L_Arena_04.umap · Content/Maps/L_Duel_01.umap · Content/Maps/L_ValleyVillage.umap · Plugins/GameFeatures/AFLBagMan/Content/Experiences/B_Experience_Haywire.uasset · Plugins/GameFeatures/AFLBagMan/Content/Game/B_AFL_BotController.uasset · Plugins/GameFeatures/ShooterCore/Content/Bot/BT/BB_Lyra_Shooter_Bot.uasset · Plugins/GameFeatures/ShooterCore/Content/Bot/EQS/EQS_MoveAgainstEnnemy.uasset. UNTRACKED (2): the Parkour IK pair (own entry). RESOLVED since: Demo_Map (2c506d22), L_Arena_05 (3793b36c), DefaultEngine.ini (5b4463d1), AFLCombatCheats.cpp (bd942355).',
+ remains:'Operator triage: commit, revert, or leave. Five of the nine are maps whose in-editor state may hold unbanked dressing.',
  c:[]},
 
 {g:'AI + BOTS', status:'PROVEN', ssot:'ssot/ai-bots.md',
@@ -474,6 +476,46 @@ const ENTRIES = [
  what:'A uasset-only pack that would add 8 archetypes and 20 guns. It needs a UE5.7 editor to export FBX; the project is on 5.6.',
  remains:'Blocked on an engine version the project has no reason to move to yet. Re-evaluate only if the engine moves.',
  c:[]},
+
+// -------- appended 2026-08-05: blocks 193-200 outcomes + AIK Block 196 roster audit --------
+
+{g:'MAPS', status:'OPEN', ssot:'ssot/map-build-system.md',
+ t:'Bracket coverage — 2v2 and 4v4 are uncovered',
+ what:'AIK Block 196 roster audit. COVERED: 1v1 by Duel_01 (greybox exists, NO PLAYLIST so it is unreachable from the front end) · 3v3 by NANOWATT · 5v5 and 8v8 by ARCANEON. NOT COVERED: 2v2 and 4v4.',
+ remains:'4v4 IS THE WIDEST HOLE — it sits between the 3v3 and 5v5 rungs with nothing serving it. Duel_01 needs only a playlist row to close 1v1.',
+ c:[]},
+
+{g:'MAPS', status:'SCOPED', ssot:'ssot/map-build-system.md',
+ t:'2v2 and 4v4 — purpose-sized maps (R31)',
+ what:'OPERATOR RULING R31: GOLD BANKS does NOT get the district treatment. The brackets are served by PURPOSE-SIZED MAPS built for 2v2 and 4v4 instead, sized against the footprint ladder rather than subdivided out of an existing map.',
+ remains:'Design and build. The footprint ladder in the map SSOT gives the target areas; nothing is greyboxed yet.',
+ c:[]},
+
+{g:'MAPS', status:'OPEN', ssot:'ssot/map-build-system.md',
+ t:'ShantyTown pack prune — BLOCKED, list not on disk',
+ what:'AIK Block 196 identified 91 unreferenced pack files, but the list exists ONLY IN CHAT. Block 197 stopped rather than proceed: without the authoritative paths the only way to act would be to derive the list, which is exactly what the duplicate-path trap below makes fatal. Demo_Map was untracked separately at 2c506d22 because R25 needed no list; Overview.umap and Overview_BuiltData.uasset remain and belong with the 91.',
+ remains:'THE FIX IS PROCESS, NOT ANALYSIS: AIK must WRITE ITS FINDINGS TO Docs/reference/ so both lanes can read them. A finding that lives only in a chat transcript cannot be acted on by the other lane and has to be regenerated.',
+ warn:'TWO TRAPS MAKE NAME-BASED DELETION FATAL. (1) BP_Cables_01, BP_Cables_02, BP_Road_01 and BP_Water_Blockade_01 each exist in BOTH Blueprints/Misc/ AND Blueprints/Fence/ — verified on disk. The map uses the Misc/ copies. Deleting by name destroys the live ones. (2) Landscape_Layers/ DOES NOT EXIST on disk — only one landscape layer system ships, Textures/Landscape/Layers/Layer_1..5_LayerInfo, and it is the KEEP set. Any list citing Landscape_Layers/ is wrong and must be re-derived; a name-based fallback would resolve it onto the five files that break the landscape. DELETE BY FULL PATH ONLY.',
+ c:[]},
+
+{g:'CROSS-CUTTING', status:'COMMITTED', ssot:'(operator)',
+ t:'GlobalDefaultGameMode → AFLGameCore.AFLGameMode (R28)',
+ what:'One line in Config/DefaultEngine.ini: the engine-wide default game mode moves off the stock Lyra Blueprint onto AFL C++. Pre-verified before commit — git diff --numstat = "1 1", and DefaultServerTarget=LyraServer confirmed INTACT at line 36 in both HEAD and working.',
+ remains:'It is the FALLBACK only. Maps declaring their own GameMode, and maps reached through an Experience or playlist that supplies one, are UNAFFECTED. What changes is the set of maps that were silently inheriting the stock Lyra default.',
+ c:['5b4463d1']},
+
+{g:'CROSS-CUTTING', status:'COMMITTED', ssot:'ssot/character-system.md',
+ t:'afl.Cosmetic.PossessAs — path branch + GC hardening (R29)',
+ what:'Two changes. A PATH BRANCH so a leading-slash argument is taken as a full class path and loaded directly (package-only paths auto-append .<Leaf>_C), making ProMod part BPs outside the hardcoded robot folder/prefix reachable — the BRAND branch is preserved unchanged. And a TStrongObjectPtr KeepAlive so a cheat-loaded BP class cannot be garbage-collected out from under the sticky re-apply.',
+ remains:'NOT COMPILE-VERIFIED and NOT PIE-VERIFIED. Source was committed without a build in that block; the operator owns the build.',
+ warn:'This is NOT the afl.BR.DumpState cheat. An earlier assumption in this record said it was. DumpState shipped in f3f069fe inside AFLBattleRoyaleComponent.cpp:450, and the string does not appear in AFLCombatCheats.cpp at all.',
+ c:['bd942355']},
+
+{g:'CROSS-CUTTING', status:'COMMITTED', ssot:'(repo hygiene)',
+ t:'CI lint step — was red pre-existing, now green',
+ what:'afl-pr-build had been failing at the lint step on 15 unknown-skill references. Two causes, two fixes: afl-laser-beam-system ships on disk and is @import-ed by CLAUDE.md but was never registered, so it was registered (registry now 12 skills); and afl-cpp-lyra is a typo for afl-cpp-lyra-developer inside a file ruling R4 requires be kept VERBATIM, so Docs/_archive is no longer scanned. All three workflow steps now exit 0.',
+ remains:'LIVE DIVERGENCE: afl-laser-beam-system is NOT in master doc Sec. 15.1, which the registry describes itself as curating. Closing that means editing a protected, CI-exempt doc and was deliberately not done.',
+ c:['3fb86699']},
 
 ];
 
