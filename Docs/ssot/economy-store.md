@@ -159,6 +159,124 @@ adjustment is almost always **price**, not earn inflation. Inflating earn devalu
 and every price already set; adjusting a price affects only the item in question. **Earn stays locked; prices
 move.**
 
+### 5.1 SHOOTOUT earns on placement (R36)
+
+> **Finishing position determines payout.**
+
+**This is a payout SHAPE, not new machinery.** Placement is already computed, replicated and consumed by
+league rating (`ssot/league-play.md` §4). Paying on it adds a consumer to an existing signal rather than a
+system.
+
+It also aligns the two things a SHOOTOUT match already produces: `ssot/match-modes.md` §2 defines SHOOTOUT as
+last-standing with no timer and no respawn, so **placement is the only outcome the ruleset generates**. Any
+other payout basis would have to invent a second measure of how the match went.
+
+### 5.2 The payout ladder (R37)
+
+**Paid places are keyed on FINISHING POSITIONS, never on player count:**
+
+```
+paid places = 1                      if positions < 10
+            = ceil(0.30 x positions) otherwise
+```
+
+> **⚠ THE STRUCTURAL POINT, AND IT IS THE WHOLE REASON THIS KEYS ON POSITIONS.**
+> **A TEAM MODE HAS EXACTLY TWO FINISHING POSITIONS REGARDLESS OF PLAYER COUNT.** A 5v5 is ten players and
+> **two** positions. So `ceil(0.3 × 2) = 1`, and **every team mode is winner-takes-all automatically** — with
+> no special-casing, no mode flag, and no branch anyone can forget. **Scaled payouts exist only in FFA
+> formats**, because only FFA formats have more than two positions to scale across.
+>
+> Keying on player count would have required a team-mode exception, and an exception is a thing that gets
+> missed. Keying on positions makes the correct behaviour fall out of the arithmetic.
+
+**The locked splits.** Each row sums to 100.
+
+| Finishing positions | Paid | Split (%) |
+|---|---|---|
+| **2–9, and ALL team modes** | 1 | **100** |
+| **10–13** | 3 | 50 / 30 / 20 |
+| **14–20** | 6 | 32 / 22 / 16 / 12 / 10 / 8 |
+| **21–36** | 11 | 25 / 17 / 12 / 9 / 7.5 / 6.5 / 5.5 / 5 / 4.5 / 4 / 4 |
+
+**50 / 30 / 20 is the long-standing single-table standard and is adopted unchanged.** Verified: all four rows
+sum to exactly 100.
+
+**These are BANDS, and the formula describes how the band tops were derived — not a per-match computation.**
+The formula and the table agree at 9, 10, 20 and 36, and diverge inside the bands (at 13 the formula gives 4
+against a 3-place table; at 21 it gives 7 against an 11-place table). **The tables are authoritative.**
+Implementing the formula per-match would ask for a paid-place count the table cannot supply.
+
+### 5.3 The two invariants — what must hold if the percentages are ever retuned
+
+**These matter more than the exact percentages.**
+
+**1 — MIN CASH NEVER BELOW ~1.4× STAKE.** Paying 30% of a field is deeper than poker convention (10–15%), so
+the bottom of the curve thins fast. **A min cash near 1.0× means cashing feels like nothing happened** — the
+player survived most of the field and got their stake back, which reads as a loss of time rather than a win.
+
+**2 — THE WINNER'S MULTIPLE GROWS WITH FIELD SIZE.** A 36-position win must feel larger than a 10-position
+win, or field size stops meaning anything.
+
+> **⚠ RECORDED FINDING: BOTH INVARIANTS HOLD AT BAND TOPS AND BREAK AT BAND BOTTOMS.**
+> Derived against the 5% working rake (§5.5), where `pot = positions × stake × 0.95`:
+>
+> | Positions | Min-cash place | Min cash | Against the 1.4× floor |
+> |---|---|---|---|
+> | 10 | 3rd @ 20% | **1.90×** | OK |
+> | 13 | 3rd @ 20% | **2.47×** | OK |
+> | **14** | 6th @ 8% | **1.06×** | **below 1.4×** |
+> | 20 | 6th @ 8% | **1.52×** | OK |
+> | **21** | 11th @ 4% | **0.80×** | **below 1.0× — cashing LOSES money** |
+> | 36 | 11th @ 4% | **1.37×** | marginally below 1.4× |
+>
+> And the winner's multiple **is not monotonic** — it sawtooths at every band edge: 9 positions pays **8.55×**,
+> 10 positions pays **4.75×**. A player who wins a 10-position match earns *less* than one who wins a
+> 9-position match. The stated invariant (36 > 10) does hold, but **36 positions also pays exactly 8.55× —
+> identical to 9 positions.**
+>
+> **This is the arithmetic consequence of banded tables, not an error in transcription.** It is recorded rather
+> than silently corrected because R37 locks these tables and names these two invariants as the things to
+> defend — so the gap between them is the operator's to close, and 21-position 11th place returning **0.80×**
+> is the case most worth ruling on.
+
+### 5.4 Staking is orthogonal to earning (R38)
+
+> **Earning is what a match PAYS. Staking is what a wager SETTLES. They are separate in the model.**
+
+A stake is a **closed loop**: participants put up Volts, the server escrows them, and the pot settles per the
+§5.2 ladder minus rake. Nothing enters or leaves that loop except the rake.
+
+**Why the separation is worth enforcing rather than merging.** They look similar — both end with currency
+moving on match conclusion — but they answer different questions and have different failure modes. Earning is
+a **faucet**: the game creates currency for play, and its risk is inflation. Staking is a **transfer**: players
+move currency between themselves, and its risk is an unbalanced loop. Merging them makes a change to one
+silently a change to the other, and makes it impossible to answer "how much currency did the game create this
+week" — which is the question economy health depends on.
+
+**This reinforces `ssot/league-play.md` §5 from the economy side.** That section forbids stake from influencing
+*rating*; R38 forbids it from being conflated with *earning*. **No conflict** — both isolate the wager from
+something it must not contaminate.
+
+### 5.5 The earn ladder across modes (R39)
+
+> **Extraction pays most. SHOOTOUT placement pays modestly.**
+
+Extraction carries the **highest risk and the longest commitment** — a player holds value through a match and
+can lose it at the end (§11).
+
+**The design constraint, stated without inventing rates:**
+
+> **If a duel out-earns an extraction run per minute, extraction stops being worth its risk and loot becomes
+> decorative.**
+
+That is the failure to design against. Extraction's entire tension is *carrying something you can lose*, and
+that tension only exists if what you are carrying is worth more than what a safer mode pays for the same time.
+Get the ratio wrong and players rationally stop extracting — the loot system keeps running, keeps generating
+drops, and stops mattering. **Per-minute is the comparison that matters**, not per-match: a duel is short, so
+a modest duel payout can still out-earn extraction on rate.
+
+**No rates are set here.** The ordering is the ruling; the numbers are tuning.
+
 ---
 
 ## 6. THE COSMETIC AXIS SYSTEM
@@ -535,6 +653,15 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
    staking volume ever destabilises store pricing, a partial separation becomes a live option — and it should be
    entered deliberately, with the acknowledgement that it reintroduces multi-currency complexity **E4** exists
    to avoid.
+7. **⚠ THE RAKE RATE — owed its own ruling, and the §5.2 tables depend on it.** The **5%** used to derive
+   §5.3's min-cash figures is a **WORKING ASSUMPTION, NOT A RULING.** It is not merely a margin decision:
+   **§3.1 establishes rake as the only true Volt sink in a staked match**, so this number governs **economy
+   health**, not revenue. Too low and staked play mints Volts with nothing removing them; too high and the
+   pot thins until placing stops paying. **A materially different rake changes every min-cash floor in §5.3** —
+   the figures there are valid only against 5%, and the 21-position 0.80× case gets worse as rake rises.
+8. **The band-edge behaviour in §5.3.** Whether the sub-1.4× min cash at band bottoms, the sub-1.0× case at
+   21 positions, and the non-monotonic winner's multiple are accepted as banding artefacts or corrected by
+   retuning. R37 locks the tables and names the invariants; it does not say which wins where they disagree.
 
 ---
 
@@ -544,6 +671,10 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
 |---|---|---|
 | **R4 — the two loot documents merge here** | **2026-08-05** | Loot taxonomy (§10) and the loot carry mechanic (§11) are two sections of this SSOT. They previously lived in separate documents with **zero cross-citations between them** — drift by construction. The superseding decision history of the carry model is preserved by archiving that document verbatim; only decisions whose **reasoning is still load-bearing** are carried forward here. |
 | **R9 — Volts are the stake currency; one wallet** | **2026-08-05** | The staking and cosmetics economies share a single wallet (§3.1), with the three consequences recorded as design constraints: the two economies compete for the same balance and cannot be balanced independently; sinks and sources are reckoned across both, with rake the only true sink in a staked match; and server authority over the ledger is absolute, because a defect in either system corrupts both. |
+| **R36 — SHOOTOUT earns on placement** | **2026-08-05** | Finishing position determines payout (§5.1). **A payout shape, not new machinery** — placement is already computed, replicated and consumed by league rating, so this adds a consumer to an existing signal. It is also the only outcome SHOOTOUT generates, having no timer and no respawn. |
+| **R37 — the payout ladder, keyed on POSITIONS** | **2026-08-05** | `paid = 1 if positions < 10, else ceil(0.30 × positions)`, with the four locked bands in §5.2, each summing to 100. **Keyed on finishing positions, never player count: a team mode has exactly TWO positions regardless of player count, so every team mode is winner-takes-all automatically with no special-casing.** Scaled payouts exist only in FFA. **Two invariants outrank the exact percentages** — min cash never below ~1.4× stake, and the winner's multiple grows with field size. §5.3 records that both currently hold at band tops and break at band bottoms. |
+| **R38 — staking is orthogonal to earning** | **2026-08-05** | A stake is a **closed loop** — participants escrow Volts, the pot settles per the R37 ladder minus rake. **Earning is what a match PAYS; staking is what a wager SETTLES** (§5.4). Kept separate because earning is a faucet whose risk is inflation, while staking is a transfer whose risk is an unbalanced loop — merging them makes a change to one silently a change to the other. Reinforces `ssot/league-play.md` §5 from the economy side; **no conflict**. |
+| **R39 — the earn ladder across modes** | **2026-08-05** | **Extraction pays most** (highest risk, longest commitment); **SHOOTOUT placement pays modestly** (§5.5). The design constraint: **if a duel out-earns an extraction run per minute, extraction stops being worth its risk and loot becomes decorative.** Per-minute is the comparison that matters, not per-match. The ordering is the ruling; no rates are set. |
 
 ---
 
