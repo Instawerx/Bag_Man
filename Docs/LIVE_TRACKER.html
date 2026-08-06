@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IRONICS — LIVE TRACKER (Tier 3)</title>
+<style>
+  :root{
+    --bg:#05080f; --panel:#0b1120; --panel2:#0f1729; --line:#1e2a44;
+    --text:#e6edf7; --dim:#8b9ab5; --dim2:#5f6d88;
+    --proven:#00ff95; --committed:#1e5aff; --scoped:#a855f7; --open:#ffb300; --archived:#5f6d88;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;padding:28px 20px 80px}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:26px;letter-spacing:.14em;margin:0 0 4px;text-transform:uppercase}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+  .banner{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--committed);
+          border-radius:10px;padding:16px 18px;margin-bottom:22px}
+  .banner b{color:#fff}
+  .banner p{margin:0 0 8px}
+  .banner p:last-child{margin-bottom:0}
+  .law{border-left:3px solid var(--open);background:#160f00}
+  .counts{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 26px}
+  .pill{border:1px solid var(--line);border-radius:999px;padding:5px 13px;font-size:12px;
+        letter-spacing:.06em;background:var(--panel)}
+  .pill i{font-style:normal;font-weight:700;margin-right:6px}
+  h2{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);
+     margin:34px 0 4px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h2 span{color:var(--dim2);text-transform:none;letter-spacing:0;font-size:12px;float:right;font-weight:400}
+  .e{background:var(--panel);border:1px solid var(--line);border-radius:9px;
+     padding:13px 15px;margin:9px 0;border-left:3px solid var(--line)}
+  .e.PROVEN{border-left-color:var(--proven)}
+  .e.COMMITTED{border-left-color:var(--committed)}
+  .e.SCOPED{border-left-color:var(--scoped)}
+  .e.OPEN{border-left-color:var(--open)}
+  .e.ARCHIVED{border-left-color:var(--archived);opacity:.72}
+  .hd{display:flex;flex-wrap:wrap;gap:9px;align-items:baseline;margin-bottom:5px}
+  .st{font-size:10.5px;font-weight:700;letter-spacing:.11em;padding:2px 8px;border-radius:4px;
+      background:var(--panel2);border:1px solid var(--line)}
+  .st.PROVEN{color:var(--proven)} .st.COMMITTED{color:var(--committed)}
+  .st.SCOPED{color:var(--scoped)} .st.OPEN{color:var(--open)} .st.ARCHIVED{color:var(--archived)}
+  .op{font-size:10.5px;letter-spacing:.08em;padding:2px 8px;border-radius:4px;
+      color:#05080f;background:var(--open);font-weight:700}
+  .ti{font-weight:600;flex:1 1 340px;min-width:220px}
+  .bd{color:var(--dim);margin:0 0 6px}
+  .bd b{color:var(--text);font-weight:600}
+  .rm{color:#ffd98a;margin:0 0 6px}
+  .rm::before{content:"REMAINS · ";color:var(--open);font-weight:700;font-size:11px;letter-spacing:.08em}
+  .warn{color:#ff9a9a;background:#1a0d0d;border:1px solid #3d1f1f;border-radius:6px;
+        padding:8px 11px;margin:7px 0 6px}
+  .warn::before{content:"⚠ WARNING · ";color:#ff6b6b;font-weight:700;font-size:11px;letter-spacing:.08em}
+  .ft{font-size:11.5px;color:var(--dim2);display:flex;flex-wrap:wrap;gap:14px;margin-top:7px}
+  code{font-family:ui-monospace,"JetBrains Mono",Consolas,monospace;font-size:11.5px;
+       color:#9fc8ff;background:#0a1226;padding:1px 5px;border-radius:3px}
+  .ssot code{color:#c9a8ff}
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);color:var(--dim2);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>IRONICS — Live Tracker</h1>
+<div class="sub">Tier 3 · status only · rebuilt from git log 2026-08-05</div>
+
+<div class="banner">
+  <p><b>This file supersedes all five prior trackers.</b> <code>BAG_MAN_LIVE_TRACKER.html</code> ·
+  <code>Tools/BAG_MAN_LIVE_TRACKER_STEP0.html</code> ·
+  <code>Tools/BAG_MAN_LIVE_TRACKER_STEP0 Rebuild.html</code> ·
+  <code>Docs/IRONICS_TRIMODE_TRACKER.md</code> ·
+  <code>Docs/_archive_v1.1/AFL_NEON_ARENA_LIVE_TRACKER_v1.1.html</code>.
+  Per operator ruling <b>R3</b> this was <b>rebuilt from git log</b>, not merged forward — all five were stale
+  for August and merging one forward would have imported a false picture.</p>
+  <p><b>This is the only place status lives.</b> Nothing else in the repo records what is done.</p>
+</div>
+
+<div class="banner law">
+  <p><b>THE LOAD-BEARING RULE — the inverse of the SSOTs.</b> Tier 3 holds <b>status and only status</b>.
+  <b>No design decisions belong in this file.</b> A design decision that surfaces while updating the tracker
+  belongs in a Tier 2 SSOT under <code>Docs/ssot/</code>; the laws it must obey are Tier 1,
+  <code>Docs/DOCTRINE.md</code>. If you find yourself explaining <i>why</i> something is built the way it is,
+  you are writing in the wrong file.</p>
+</div>
+
+<div class="banner">
+  <p><b>State vocabulary — small and honest.</b></p>
+  <p><b class="st PROVEN">PROVEN</b> watched in PIE on a controllable pawn. <b>The only thing that counts as
+  done</b>, and the entry says what was watched. ·
+  <b class="st COMMITTED">COMMITTED</b> on disk and pushed, <b>not</b> PIE-verified. ·
+  <b class="st SCOPED">SCOPED</b> designed, not built. ·
+  <b class="st OPEN">OPEN</b> in flight or blocked. ·
+  <b class="st ARCHIVED">ARCHIVED</b> superseded, retained.</p>
+  <p><b class="op">OPERATOR-REPORTED</b> marks a claim resting on operator report rather than a git artifact.
+  <b>PIE leaves no commit</b> — that distinction has to survive, or an operator's word silently becomes
+  indistinguishable from evidence.</p>
+</div>
+
+<div class="counts" id="counts"></div>
+<div id="out"></div>
+
+<footer id="foot"></footer>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// ENTRIES — edit this array, not the markup.
+//   status : PROVEN | COMMITTED | SCOPED | OPEN | ARCHIVED
+//   opRep  : true when the claim rests on operator report, not a git artifact
+//   what   : what it is + current state
+//   remains: what is left (omit if nothing)
+//   warn   : a hazard a future session must not rediscover the hard way
+//   commits: the commit(s) behind it
+//   ssot   : the owning Tier 2 doc
+// ---------------------------------------------------------------------------
+const GROUPS = [
+  ['MAPS',            'ssot/map-build-system.md'],
+  ['MATCH MODES',     'ssot/match-modes.md'],
+  ['MATCHMAKING',     'ssot/matchmaking.md'],
+  ['ECONOMY + STORE', 'ssot/economy-store.md'],
+  ['LEAGUE PLAY',     'ssot/league-play.md'],
+  ['COMBAT + ARSENAL','ssot/combat-arsenal.md'],
+  ['CHARACTER',       'ssot/character-system.md'],
+  ['UI / FRONT END',  'ssot/ui-frontend.md'],
+  ['CROSS-CUTTING',   '(multiple)']
+];
+
+const ENTRIES = [
+
+// ============================== MAPS ======================================
+{g:'MAPS', status:'PROVEN', opRep:true, ssot:'ssot/map-build-system.md',
+ t:'ARCANEON (L_Arena_04) — AAA art pass, signed off',
+ what:'Nine-phase art pass P0–P7 plus a modular barrier/base kit. Operator PIE-tested and signed off: "AAA Good to go", walls/ramps individually manipulable, panel facing and ramp pitches corrected.',
+ remains:'World Partition conversion (own entry). Navmesh could be refined around drones and ramps — operator called it satisfactory, not blocking.',
+ warn:'Walls and ramps are INDIVIDUAL level actors carrying operator hand-tuning. Re-running the generator scripts WIPES that tuning. Do not re-run Tools/ArtPass/arcaneon_*.py against this map.',
+ c:['ce1c6b44','c2aa9192']},
+
+{g:'MAPS', status:'OPEN', ssot:'ssot/map-build-system.md',
+ t:'L_Arena_04 → World Partition conversion',
+ what:'Intended and owed. Verified on disk 2026-08-05: no Content/__ExternalActors__/Maps/L_Arena_04 entry, so the map is NOT converted.',
+ remains:'Run the conversion commandlet as done for ShantyTown (see c6db6c4d for the working invocation).',
+ warn:'Same hazard as the art pass: the conversion must preserve the individual wall/ramp actors and their operator tuning. Verify actor count and transforms after converting.',
+ c:[]},
+
+{g:'MAPS', status:'COMMITTED', ssot:'ssot/map-build-system.md',
+ t:'L_ShantyTown → World Partition',
+ what:'Converted via WorldPartitionConvertCommandlet with -FoliageTypePath and -AllowCommandletRendering. Verified on disk: 639 files under Content/__ExternalActors__/Maps/L_ShantyTown.',
+ remains:'Not PIE-verified AS a World Partition map — streaming, cell loading and HLOD behaviour unwatched.',
+ warn:'A raw file-copy of a .umap loads then FATAL-crashes on save (DOCTRINE X9). The conversion used EditorAssetLibrary.duplicate_asset for this reason.',
+ c:['c6db6c4d','333ae646']},
+
+{g:'MAPS', status:'PROVEN', opRep:true, ssot:'ssot/map-build-system.md',
+ t:'L_ShantyTown BR spawns — spawn-to-land',
+ what:'24 non-spatial ALyraPlayerStart actors. Operator watched it: "I ran it and we Spawn to land and can play!" Earlier attempts with plain APlayerStart failed because the AFL spawn manager only considers ALyraPlayerStart (DOCTRINE C6).',
+ remains:'The 24 starts are a TEST CLUSTER, not district-aligned. Real BR placement is owed and depends on the district placement entry below.',
+ c:['ff28ad98','aa3c86d0']},
+
+{g:'MAPS', status:'OPEN', ssot:'ssot/map-build-system.md',
+ t:'ShantyTown district PLACEMENT within the town core',
+ what:'The district PROGRAM is approved and committed (D1 ~3,460 m², D2 ~7,500 m², D3 ~14,000 m²; brief ## Gate marked OPERATOR-APPROVED for the program only). Where those districts sit inside the 357×302 m core is not decided.',
+ remains:'A design read against the measured core, then placement. Blocks district-aligned spawns and any zone authoring.',
+ c:['2775b896','10915381','18d5b168']},
+
+{g:'MAPS', status:'OPEN', ssot:'ssot/map-build-system.md',
+ t:'DataLayers — no assets exist, activation action unwritten',
+ what:'Verified on disk 2026-08-05: ZERO *DataLayer*.uasset anywhere outside Intermediate/Saved. The server-only activation GameFeatureAction is also unwritten.',
+ remains:'Author the DataLayer assets, then the activation action. Precedent for a custom action subclass exists in AFLGFA_WeaponSpawns.h, which subclasses the engine UGameFeatureAction directly rather than Lyra\'s WorldActionBase.',
+ c:[]},
+
+{g:'MAPS', status:'SCOPED', ssot:'ssot/map-build-system.md',
+ t:'Arena_02 — brief banked, build NOT approved',
+ what:'Design brief committed as-is and a registry row added reflecting disk reality. Gate is DRAFT. Verified on disk: the only Arena_02 artifact is Docs/maps/Arena_02_DESIGN.md — no .umap.',
+ remains:'Operator approval of the gate before any build.',
+ c:['a241cc49','a41c7d02']},
+
+{g:'MAPS', status:'COMMITTED', ssot:'ssot/map-build-system.md',
+ t:'L_Duel_01 — ProMod-only vertical domed duel greybox',
+ what:'Tier A greybox closing the 1v1 / 2v2 hole, plus an AIK wiring handoff with caveat resolution.',
+ remains:'PIE verification. L_Duel_01.umap also sits modified in the working tree, undecided.',
+ c:['e9f79f0d','447f63c8']},
+
+{g:'MAPS', status:'COMMITTED', ssot:'ssot/map-build-system.md',
+ t:'L_ValleyVillage (GOLD BANKS)',
+ what:'Sci-Fi Valley Village showcase converted to an arena.',
+ remains:'PIE verification. L_ValleyVillage.umap sits modified in the working tree, undecided.',
+ c:['2e373641']},
+
+{g:'MAPS', status:'OPEN', ssot:'ssot/map-build-system.md',
+ t:'INFINEON running 8v8 far under the footprint baseline',
+ what:'INFINEON is live at 8v8 on roughly 4,332 m² — about 271 m² per player against the ~865 m²/player dense baseline derived in the map SSOT. Roughly a third of the space the ladder calls for.',
+ remains:'A decision: reduce the team size for this map, expand the play space, or accept it as a deliberately tight format. All three are design calls and belong in the map SSOT, not here.',
+ c:[]},
+
+{g:'MAPS', status:'ARCHIVED', ssot:'ssot/map-build-system.md',
+ t:'METATRON — Flower-of-Life woven-tube map',
+ what:'Abandoned 2026-08-04 as unnavigable across strata. The deterministic layout generator, four preset manifests and the rebuilt weaving tunnel system are retained on L_Arena_05.',
+ remains:'Nothing. Retained for the nav-verify-early lesson only.',
+ c:['d47eabc4','eafa55c6','c97f985f','7b7c3bc4']},
+
+// ============================ MATCH MODES =================================
+{g:'MATCH MODES', status:'PROVEN', opRep:true, ssot:'ssot/match-modes.md',
+ t:'BR mode spike S1 — last-standing + placement',
+ what:'UAFLBattleRoyaleComponent (109 h / 412 cpp) delivering N-participant last-standing and placement, plus a solo/FFA team setup for the harness and belief-state instrumentation with an afl.BR.DumpState console command. Operator watched the full loop: spawn to land, play, match concludes.',
+ remains:'BR_36 scale unexercised; only the small harness configuration has been watched.',
+ c:['e6e0ffa0','acbb3e3a','b8e950b6','f3f069fe','9474b410']},
+
+{g:'MATCH MODES', status:'COMMITTED', opRep:true, ssot:'ssot/match-modes.md',
+ t:'BR restart degradation — State.Round.NoRespawn cleared at match end',
+ what:'Server_EndMatch now restores respawn, mirroring the round manager. Leaving the tag set made an in-session restart begin with carried-over dead participants and let bot-fill over-add. Operator reported "Build Green PIE Ran and Closed" — a clean run, not a watched assertion of the specific fix.',
+ remains:'The restart path itself has not been watched degrading-then-not-degrading across two consecutive in-session restarts.',
+ c:['c903af1c']},
+
+{g:'MATCH MODES', status:'SCOPED', ssot:'ssot/match-modes.md',
+ t:'Shrinking Zone system',
+ what:'Scoped as its own document (Docs/IRONICS_BR_ZONE_SYSTEM.md) — the one net-new BR dependency. Verified on disk: ZERO shrinking-zone code. The AFLExtractionZone matches in AFLCombat are the extraction system, a different thing.',
+ remains:'Operator approval, then build. Unapproved and unbuilt.',
+ c:['59bec4c4']},
+
+{g:'MATCH MODES', status:'OPEN', ssot:'ssot/match-modes.md',
+ t:'TURBO ruleset — no code',
+ what:'Verified on disk 2026-08-05: ZERO matches for "Turbo" across AFL source. The ruleset exists only as design in the match-modes SSOT.',
+ remains:'Everything. The SSOT specifies TURBO as a sibling component of the round manager, not a fork.',
+ c:[]},
+
+{g:'MATCH MODES', status:'COMMITTED', ssot:'ssot/match-modes.md',
+ t:'Tri-mode plumbing — Haywire rename + Pro Mod',
+ what:'Haywire rename via ObjectRedirector (not a duplicate), Pro pawn, Pro movement, Pro PawnData and B_Experience_ProMod. Canonical naming: HeroData_BagMan_Pro and HeroData_BagMan — NOT the plan\'s placeholder DA_AFL_PawnData_Hero_Pro (DOCTRINE NM6).',
+ remains:'Melee, the third mode, is CUT project-wide by ruling R1. Anything still describing this as tri-mode is stale.',
+ c:['d836148c','da60c191','e170a2d6']},
+
+{g:'MATCH MODES', status:'COMMITTED', ssot:'ssot/match-modes.md',
+ t:'Clean single-health gate (gore-free damage routing)',
+ what:'State.Mode.NoDismember forces bIsZoneRouted false in AFLDamageExecCalc, giving conventional single-body health. Tag stamped by UAFLMatchPhaseComponent when the active experience omits AFLDismember, registered via CallOrRegister_OnExperienceLoaded.',
+ remains:'Whether this gate is redundant with the structural approach, or is the only thing disabling zone routing, is an OPEN DESIGN QUESTION recorded in the character SSOT §4.1 and §13.1. It determines whether the gate can ever be removed.',
+ c:['4b89557b']},
+
+// ============================ MATCHMAKING =================================
+{g:'MATCHMAKING', status:'COMMITTED', ssot:'ssot/matchmaking.md',
+ t:'ARCANEON experiences, playlists and front-end tiles',
+ what:'Four configs on L_Arena_04 shipped hidden, then four tiles live in the front end with the gore split proven both ways. A Block-155 gap was found and fixed: ARCANEON ProMod was missing the entire Pro component set.',
+ remains:'Nothing outstanding on this map. The pattern is the template for future venue wiring.',
+ c:['24ccbac9','3bd3b26c','1cbf9b34','8c490f17','62f7fe63']},
+
+{g:'MATCHMAKING', status:'COMMITTED', ssot:'ssot/matchmaking.md',
+ t:'Match population join coverage + warmup countdown',
+ what:'Two-stage join coverage for all five population writes. Closed a five-site bug class: a GameState component writing across "everyone who exists" does it once at a phase edge, so later joiners are silently uncovered (DOCTRINE X4).',
+ remains:'Went through a revert/reapply cycle — see the experiences entry for why.',
+ c:['1eb7c76c','561d9552','9e023557']},
+
+{g:'MATCHMAKING', status:'COMMITTED', ssot:'ssot/matchmaking.md',
+ t:'ExperienceActionSets factoring — reverted then reapplied',
+ what:'Match infrastructure factored into two ExperienceActionSets, wired to Extract3v3 as canary then to ProMod. The whole set was reverted on 2026-08-02 and reapplied the same day.',
+ remains:'The revert/reapply is in history; if this area misbehaves, read the reverts (103de0fe, cc32f426, e07ffd7c, 561d9552, 9661f297) before assuming the reapply was clean.',
+ c:['267241cd','4feb51f4','81526af2','0c942d4a','14583c4a','e5d9c60d']},
+
+// ========================== ECONOMY + STORE ===============================
+{g:'ECONOMY + STORE', status:'COMMITTED', ssot:'ssot/economy-store.md',
+ t:'Cannon catalog — 147 priced SKUs across the brand lines',
+ what:'IRONICS (21 free, first GRANTED_FREE design), SIMULARENT, FANATICS2, DRAGON SOUL, RUN IT BACK, FUTURE WARRIOR, JAGUAR NEON. Five cannon-line brand colour identities declared and authored; a duplicate Cosmetic.Identity.IRONICS registry row deduped.',
+ remains:'Nothing on the catalog itself.',
+ c:['aaa65cba','67e51301','57e7cfb4','4d0064c4','bb2d27b1','59a52027','f18bd18a','45e1a231','1e7c0188','be1037ad']},
+
+{g:'ECONOMY + STORE', status:'COMMITTED', ssot:'ssot/economy-store.md',
+ t:'One equip rail — all weapon SKUs on the QuickBar',
+ what:'Migration of 49 of 53 weapon SKUs onto the QuickBar rail, then the rail closed: one equip path, no allowlist, no legacy branch.',
+ remains:'Nothing. The legacy-path warning that named offending weapons was removed when the rail closed.',
+ c:['91ac6a1a','ff309ad4','1bc0cfc4','69769b92','d24d12e1']},
+
+{g:'ECONOMY + STORE', status:'OPEN', opRep:true, ssot:'ssot/economy-store.md',
+ t:'B2 bundle purchase spine — canary only',
+ what:'The /purchase-bundle Lambda and mint-ledger are deployed and exercised on ONE canary bundle end to end: mint → deduct → atomic grant → pending → sold-out → refund. This lives in the sibling backend repo (DOCTRINE G7), so there is no commit in this repo behind it.',
+ remains:'Scale to 29 bundles and de-inert them. Not started.',
+ c:[]},
+
+{g:'ECONOMY + STORE', status:'OPEN', ssot:'ssot/economy-store.md',
+ t:'EOS / PlayFab online services — blocked',
+ what:'Carried from the prior tracker. AFLOnline plugin scaffolding and the auth foundation exist with login proven; the full EOS integration is open and C2 is BLOCKED on Epic verification.',
+ remains:'The blocker is external (Epic verification) and there is no evidence in August history that it cleared. Re-check before scheduling any work behind it.',
+ c:[]},
+
+// ============================ LEAGUE PLAY =================================
+{g:'LEAGUE PLAY', status:'SCOPED', ssot:'ssot/league-play.md',
+ t:'League, advancement, rating and standings — design only',
+ what:'Fully designed across the league SSOT and its source docs (ladder, achievements taxonomy, rating, the stake firewall). No code, no assets.',
+ remains:'Everything. Six open design questions are recorded in the SSOT §13, including the rating algorithm and whether it is per-ruleset — those must be settled before build.',
+ c:[]},
+
+// ========================== COMBAT + ARSENAL ==============================
+{g:'COMBAT + ARSENAL', status:'COMMITTED', ssot:'ssot/combat-arsenal.md',
+ t:'Arsenal tag contract — C++ half',
+ what:'Collapsed the overheat tag split repo-wide (State.Weapon.Overheated eliminated, State.Overheated is the single heat tag) and added 11 per-weapon cooldown GE classes.',
+ remains:'Nothing in C++. The BP half is the next entry.',
+ c:['ab6e0594']},
+
+{g:'COMBAT + ARSENAL', status:'PROVEN', ssot:'ssot/combat-arsenal.md',
+ t:'Arsenal tag contract — BP half: W3 and W4 only',
+ what:'Scope came from a census of all 28 GA_AFL_* abilities, not a sample — the cooldown group was 12 wide, not the 7 the logs showed. Watched in PIE on L_Arena_04: W3 zero Cooldown.Weapon.Charge cross-refusals (was 1,456 in one 8-player match); W4 the autofire overheat lockout fires and then the weapon fires again.',
+ remains:'W1 and W2 are OWED and unproven — see the next entry. They are not a formality.',
+ c:['620d05d9']},
+
+{g:'COMBAT + ARSENAL', status:'OPEN', ssot:'ssot/combat-arsenal.md',
+ t:'Arsenal W1 / W2 — warmup-refusal assertions never exercised',
+ what:'W1: BeamCutter and Beam_Shotgun must refuse to fire during the 30s countdown. NOT exercised — neither weapon was in hand during the window. This is the ORIGINALLY REPORTED regression and it remains unproven. W2: sprint must refuse during the countdown, confirming the tag collapse left the movement gate alone.',
+ remains:'A PIE run holding each of those weapons during warmup, and a sprint attempt during warmup.',
+ warn:'A third assertion is also unverified: that the gate LIFTS. A permanent block would look identical to a working fix for the first 30 seconds. Any W1/W2 run must also watch the weapon fire AFTER warmup ends.',
+ c:['620d05d9']},
+
+{g:'COMBAT + ARSENAL', status:'OPEN', ssot:'ssot/combat-arsenal.md',
+ t:'Heat economy — narrowed, not closed',
+ what:'The prior tracker recorded the heat/overheat/decay/cooling architecture as STRANDED on the retired AFLAG_Laser_Beam. That is now partly superseded: GE_AFL_SMG_Overheat was repointed to the live State.Overheated tag, so SMG and Beam_Converge have a working lockout. Whether the full 5-GE architecture (BeamTick / CoolingGate / Decay) is live is NOT established by that commit.',
+ remains:'Establish which parts of the heat architecture are reachable from a live ability. Separately, the arsenal SSOT §13.3 records an open design question: nine of fifteen weapon abilities gate on no heat tag at all, and whether that is intended or unfinished is undecided.',
+ c:['620d05d9','8e7c08cd']},
+
+{g:'COMBAT + ARSENAL', status:'COMMITTED', ssot:'ssot/combat-arsenal.md',
+ t:'Beam overheat scoped per ability instance',
+ what:'Overheat is per-ability-instance rather than per-pawn, so a cutter no longer couples with beam cannons through a shared pawn-wide heat pool.',
+ remains:'Nothing. This closes the prior tracker\'s BeamChannel_v2 shared-pool item.',
+ c:['8e7c08cd']},
+
+{g:'COMBAT + ARSENAL', status:'COMMITTED', ssot:'ssot/combat-arsenal.md',
+ t:'Bots fired exactly one shot per pawn — terminator fix',
+ what:'The single-shot terminator inferred the wrong thing from !bAutoFire. Replaced with an explicit bSingleShotActivation that defaults true and is reset above every branch.',
+ remains:'Nothing.',
+ c:['1fcf6d87']},
+
+{g:'COMBAT + ARSENAL', status:'PROVEN', opRep:true, ssot:'ssot/combat-arsenal.md',
+ t:'First-spawn fire — regression guard',
+ what:'Weapon fires on the initial PIE spawn without cycling. Fixed by a clean editor-closed AFLCombat rebuild plus fire-time stamping in the laser tree.',
+ remains:'This is a REGRESSION GUARD. Any change to equip or ASC init must re-watch first-spawn fire.',
+ c:['b152cc99']},
+
+{g:'COMBAT + ARSENAL', status:'OPEN', ssot:'ssot/combat-arsenal.md',
+ t:'ASC spawn race',
+ what:'Carried forward. The first equip of a match is mute until one weapon cycle. Both controller-side hooks were eliminated; a diagnostic was added to give the race a voice.',
+ remains:'If revisited, the recorded approach is a pawn-side component that observes and notifies the controller. Relationship to the first-spawn-fire fix above is not established — they may be the same defect seen twice.',
+ c:['4d21c6cc']},
+
+{g:'COMBAT + ARSENAL', status:'OPEN', ssot:'ssot/combat-arsenal.md',
+ t:'Beam weapon aims downward — carried, unconfirmed for August',
+ what:'The prior tracker carried this as a red follow-up: the beam weapon fires and aims downward, pre-existing and exposed rather than caused. No August commit addresses it.',
+ remains:'Confirm whether it still reproduces. An item open in July and untouched since is either still open or quietly abandoned — this one CANNOT be told apart from the git history and needs a look.',
+ c:[]},
+
+{g:'COMBAT + ARSENAL', status:'OPEN', ssot:'ssot/combat-arsenal.md',
+ t:'Rare cannot-fire-after-respawn — carried, possibly superseded',
+ what:'Prior tracker: confirmed real, un-pinned, both humans recorded 0 pulses in a round. Possibly the same defect as first-spawn fire or the ASC spawn race, both of which saw work in August.',
+ remains:'Cannot be told from git whether the August fixes closed this. Needs a deliberate reproduce attempt before it is either closed or re-opened.',
+ c:[]},
+
+{g:'COMBAT + ARSENAL', status:'OPEN', ssot:'ssot/combat-arsenal.md',
+ t:'Small carried weapon-authoring items',
+ what:'From the prior tracker, still relevant: Coralis #FF9080 collides with the DRACO character colour (re-colour one if DRACO ever gets a signature weapon) · KAGE needs a one-minute EdgeGlow-vs-Emissive check to lock #9498AC · grip re-check owed on non-rifle forms (Ripsaw drum, Homer / Warhead / Lobber launcher tubes) since the rifle grip recipe may not transfer · five recipe corrections found on ZEN should be applied to all remaining weapons or each rediscovers them.',
+ remains:'All four. Each is small; together they are the difference between a repeatable line and a per-weapon saga.',
+ c:[]},
+
+{g:'COMBAT + ARSENAL', status:'OPEN', ssot:'ssot/combat-arsenal.md',
+ t:'Three GameplayCue tags with no manager entry',
+ what:'Carried. Three cue tags have cue assets but no GameplayTagManager entry at editor startup. WARNING-ONLY — a runtime failure was never established.',
+ remains:'Either declare them (DOCTRINE T4 requires every tag be declared) or establish that they are dead and remove the assets.',
+ c:[]},
+
+// ============================= CHARACTER ==================================
+{g:'CHARACTER', status:'COMMITTED', opRep:true, ssot:'ssot/character-system.md',
+ t:'ProMod FBIK assets',
+ what:'CR_ProMod_FBIK, ABP_ProMod_FBIK_PP and IK_ProMod_FBIK banked under Content/BagMan/ProMod/; the FullBodyIK plugin is enabled in Bag_Man.uproject. Operator confirmed FBIK working 2026-07-31. FBIK is permanent doctrine (DOCTRINE A11, ruling R5).',
+ remains:'No commit records a watched FBIK PIE session — the confirmation is operator report. Foot planting on slopes and steps, and stock/Haywire characters being unchanged, are the assertions to watch if it is ever re-verified.',
+ c:['8367f0b8','3064357e','7c93176e']},
+
+{g:'CHARACTER', status:'COMMITTED', ssot:'ssot/character-system.md',
+ t:'Pro Mod character line SSOT + concept sheets banked',
+ what:'IRONICS_PROMOD_CHARACTER_SSOT.md banked as the current character-line SSOT, plus 19 IRONICS Pro Mod concept sheets — "the sheets ARE the spec".',
+ remains:'The character line itself is unbuilt. Note the correction of record: the Pro Mod character line is CURRENT, not abandoned — the earlier abandonment applied to the Rodin/Tripo new-body generation attempts, not to the line.',
+ c:['5197f35c','7d393866']},
+
+{g:'CHARACTER', status:'PROVEN', ssot:'ssot/character-system.md',
+ t:'Movement overhaul — Phases 1 to 3',
+ what:'Sprint, slide, dash as double-tap-direction, slide-and-shoot on a LowerBody montage slot, vault via Motion Warping, 4-way roll, wall-run and wall-jump, then holster on a reason-refcount SSOT with an anim-layer roundtrip. Sprint FOV signal and reachable tuning are PIE-proven. Run-and-shoot weapon raise fixed by binding IsFiring to State.Firing.',
+ remains:'The holster inversion the prior tracker carried is most likely superseded by the Phase 3 holster SSOT, but no commit says so explicitly.',
+ c:['a1fb8962','3e67d570','34a727bb','178d9c99','ab3613c6','31736f3c','b7f9dcf0','5dd8d639','3dba0e35','11974325','b74e56d2']},
+
+{g:'CHARACTER', status:'OPEN', ssot:'ssot/character-system.md',
+ t:'Parkour IK + retarget pair — UNTRACKED, and a clean-clone hazard',
+ what:'Two untracked files: Content/Characters/Heroes/IRONICS/Animations/Retargeted/IK_ParkourPack.uasset and RTG_ParkourPack_to_Manny.uasset. Skeleton target verified by reading the asset bytes 2026-08-05.',
+ remains:'Decide whether to commit, and how to resolve the reference below first.',
+ warn:'IK_ParkourPack references /Game/ParkourAnimations/Characters/Mannequins/Meshes/SKM_Manny — which is inside the GITIGNORED /Content/ParkourAnimations/ folder (.gitignore:172). RTG_ParkourPack_to_Manny bridges that gitignored source to the real /Game/Characters/Heroes/Mannequin/ rig. Committing these two as-is creates a DANGLING REFERENCE in a fresh clone — the same clean-clone break class as 5714b527 and 9474b410. A decoy IK_Mannequin and SK_Mannequin also sit in that gitignored pack folder; do not mistake them for the real Content/Characters/Heroes/Mannequin/Rig/IK_Mannequin.',
+ c:[]},
+
+{g:'CHARACTER', status:'ARCHIVED', ssot:'ssot/character-system.md',
+ t:'Unique-body pilot / new-character generation line',
+ what:'Abandoned 2026-08-01. The Rodin and Tripo new-body generation and conform attempts are shelved. Historical record only.',
+ remains:'Nothing. Do not resume. This does NOT shelve the Pro Mod character line, which is current.',
+ c:[]},
+
+{g:'CHARACTER', status:'ARCHIVED', ssot:'ssot/character-system.md',
+ t:'Armor + helmet attachment system',
+ what:'Parked 2026-07-15, superseded at the time by the unique-body pilot. Skinned armour and helmet attachments; the contracts remain valid if it is ever revived.',
+ remains:'Nothing scheduled.',
+ c:[]},
+
+// ============================ UI / FRONT END ==============================
+{g:'UI / FRONT END', status:'COMMITTED', opRep:true, ssot:'ssot/ui-frontend.md',
+ t:'Loadout + Store market chassis',
+ what:'The most recent UI work. One shared front-end market chassis with two modes: Store (purchasable, BUY) and Loadout (owned, EQUIP), rendering over the live armory scene. Loadout mode overrides the entry class at runtime rather than editing the store graph.',
+ remains:'Operator-reported as the most recent pass; no single commit isolates it in the August window read for this rebuild.',
+ c:[]},
+
+{g:'UI / FRONT END', status:'OPEN', ssot:'ssot/ui-frontend.md',
+ t:'W_Nameplate GetDynamicMaterial log spam',
+ what:'Repeated Blueprint runtime errors: "Accessed None trying to read (real) property CallFunc_GetDynamicMaterial_ReturnValue". Verified the asset exists at Content/UI/Indicators/W_Nameplate.uasset.',
+ remains:'Diagnose and fix. It is noise rather than a known functional break — but it is loud enough to bury real errors in the message log, which is how it cost time during the BR spawn work.',
+ c:[]},
+
+{g:'UI / FRONT END', status:'COMMITTED', ssot:'ssot/ui-frontend.md',
+ t:'Round-result toast read LOST on every win',
+ what:'The local team was resolved once and unguarded. Fixed, reverted with the experiences batch, then reapplied.',
+ remains:'Nothing, subject to the same revert/reapply caveat as the experiences entry.',
+ c:['231b2818','e07ffd7c','862fe6a5']},
+
+{g:'UI / FRONT END', status:'COMMITTED', ssot:'ssot/ui-frontend.md',
+ t:'Cyan → electric-blue palette sweep',
+ what:'Carried from the prior tracker as substantially complete: menu batches plus the gameplay/team HUD pass, recoloured at the MI instance level with the M_UI_Base_* masters untouched throughout. Team-read cyan was KEPT by governance under the readability law.',
+ remains:'The wash STANDARDS now live in ssot/ui-frontend.md §11. Any remaining unwashed surfaces are unenumerated here deliberately — the old queue was Tier 3 scaffolding and was not carried.',
+ c:[]},
+
+// =========================== CROSS-CUTTING ================================
+{g:'CROSS-CUTTING', status:'COMMITTED', ssot:'DOCTRINE.md + ssot/',
+ t:'Three-tier documentation structure',
+ what:'Tier 1 Docs/DOCTRINE.md — 94 laws plus 11 banked traps added as X13–X23. Tier 2 — all eight SSOTs under Docs/ssot/: map-build-system, match-modes, matchmaking, economy-store, league-play, combat-arsenal, character-system, ui-frontend. Tier 3 — this file.',
+ remains:'The move pass. See the next entry.',
+ c:['e0df3d7e','4766ea59','067e625b','05f4126f','02240799','aaba8c02','91441aaa','b2b5257e','37791038','3aa9502a','01247606','6b017f78']},
+
+{g:'CROSS-CUTTING', status:'OPEN', ssot:'DOCTRINE.md',
+ t:'Doc move pass and archival marks — NEXT',
+ what:'Superseded docs have not been moved or marked. Nothing has been archived, renamed or deleted through the entire SSOT authoring sequence — deliberately.',
+ remains:'The move pass is the next block.',
+ warn:'DO NOT MOVE OR RENAME: Docs/SKILLS_REGISTRY.md · BAG_MAN_MASTER_BUILD_v2.0.md · CLAUDE.md · Tools/skills/afl-laser-beam-system/SKILL.md. CLAUDE.md auto-loads and the skill path is resolved by an @import.',
+ c:[]},
+
+{g:'CROSS-CUTTING', status:'OPEN', ssot:'(operator)',
+ t:'Demo_Map.umap modified vs HEAD — undiagnosed',
+ what:'Content/ShantyTown/Maps/Demo_Map.umap shows modified against HEAD: its LFS pointer differs from the f841d361 bootstrap baseline (4 lines changed — oid and size). Working-tree sha256 is a60f70af…90e564, which is the value guarded across every recent block. Operator is reviewing.',
+ remains:'Operator decision. Agents must not touch, stage or investigate this file.',
+ warn:'This file is the standing GUARD for recent work blocks. Its hash is reported at the start and end of each block. Do not modify it as a side effect of anything.',
+ c:[]},
+
+{g:'CROSS-CUTTING', status:'OPEN', ssot:'(operator)',
+ t:'13 other undecided working-tree paths',
+ what:'Verified 2026-08-05. Modified: Config/DefaultEngine.ini · Content/BagMan/Maps/L_BagMan_Greybox.umap · Content/Downtown_West/Maps/Demo_Environment.umap · Content/Maps/L_Arena_04.umap · L_Arena_05.umap · L_Duel_01.umap · L_ValleyVillage.umap · Plugins/GameFeatures/AFLBagMan/Content/Experiences/B_Experience_Haywire.uasset · .../Game/B_AFL_BotController.uasset · Plugins/GameFeatures/AFLCombat/.../Test/AFLCombatCheats.cpp · Plugins/GameFeatures/ShooterCore/Content/Bot/BT/BB_Lyra_Shooter_Bot.uasset · .../Bot/EQS/EQS_MoveAgainstEnnemy.uasset. Untracked: the Parkour IK pair (own entry).',
+ remains:'Operator triage: commit, revert, or leave. Six of these are maps whose in-editor state may hold unbanked dressing.',
+ c:[]},
+
+{g:'CROSS-CUTTING', status:'PROVEN', ssot:'(no SSOT owns this)',
+ t:'AI / bot stack — AI-1, AI-2, AI-3',
+ what:'AI-1 continuous spring-damper aim tracker, wired live and made falsifiable. AI-2 combat movement: per-bot profile, sampler, afl.Bot.MoveProbe, per-bot EQS geometry proven to reach the query, RVO avoidance so bots stop grinding into each other. AI-3 sprint, dash, slide and roll behind one path-conflict pattern. Sprint measured working at 980/980. Several diagnostic honesty fixes: the reachability filter had never executed (Context was Item, not Querier), probe assertions made per-round, FAIL lines that said the opposite of the truth, and MoveProbe reporting fabricated numbers on PASS — cross-validated against MOVESNAP.',
+ remains:'The 5v5 and 8v8 bot-fills once spawned STOCK controllers so the AI stack never ran; fixed at de4d633b. Bot spawning routes through the front end rather than direct PIE.',
+ warn:'NO Tier 2 SSOT owns AI and bots. Entries here have nowhere to point. This is an ownership gap in the SSOT set, not a status item.',
+ c:['ee0ca6d7','e8b4c8cb','31866b5e','db2db8d5','e6e79f55','b6a3965c','fa3934ca','ff2da852','8dd1c523','0c59dc6d','3e5be02e','f8bd07e2','2b2ee4ad','de4d633b','f57d0564','92eec8bc','eb0d58b7','a011b5b2']},
+
+{g:'CROSS-CUTTING', status:'COMMITTED', ssot:'DOCTRINE.md',
+ t:'Lyra core patch — ALyraPlayerBotController exported',
+ what:'ALyraPlayerBotController carried no export macro, so a GameFeature C++ subclass failed at LINK. Fixed with MinimalAPI + UE_API on the Lyra class. This is the correct fallback under DOCTRINE G2, not a violation.',
+ remains:'MUST BE RE-APPLIED AFTER ANY ENGINE BUMP. Recording it is the only obligation the patch creates, and this entry is that record.',
+ warn:'An engine upgrade silently reverts this. The symptom is a LINK failure in an AFL GameFeature module, which does not obviously point at a Lyra core file.',
+ c:['a9c8fdaf']},
+
+{g:'CROSS-CUTTING', status:'COMMITTED', ssot:'(repo hygiene)',
+ t:'Clean-clone breaks and repo hygiene',
+ what:'Four of five clean-clone breaks closed; marketplace animation packs gitignored wholesale rather than half of each; the BR S1 harness banked specifically to fix dangling references in a fresh clone; Greek_island and MedaFurniturePack marketplace packs removed; PythonScriptPlugin, EditorScriptingUtilities and FullBodyIK enabled.',
+ remains:'The FIFTH clean-clone break was never named as closed. The Parkour IK pair is a live new instance of the same class.',
+ c:['5714b527','92bb58d6','9474b410','c52f5625','3064357e','3665d15b']},
+
+{g:'CROSS-CUTTING', status:'OPEN', ssot:'ssot/combat-arsenal.md',
+ t:'Modern Guns Bundle — deferred on engine version',
+ what:'A uasset-only pack that would add 8 archetypes and 20 guns. It needs a UE5.7 editor to export FBX; the project is on 5.6.',
+ remains:'Blocked on an engine version the project has no reason to move to yet. Re-evaluate only if the engine moves.',
+ c:[]},
+
+];
+
+// ---------------------------------------------------------------------------
+const STATES = ['PROVEN','COMMITTED','SCOPED','OPEN','ARCHIVED'];
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+const counts = document.getElementById('counts');
+STATES.forEach(s => {
+  const n = ENTRIES.filter(e => e.status === s).length;
+  counts.insertAdjacentHTML('beforeend',
+    `<span class="pill"><i class="st ${s}" style="border:0;background:none;padding:0">${s}</i>${n}</span>`);
+});
+counts.insertAdjacentHTML('beforeend',
+  `<span class="pill"><i>TOTAL</i>${ENTRIES.length}</span>` +
+  `<span class="pill"><i>OPERATOR-REPORTED</i>${ENTRIES.filter(e=>e.opRep).length}</span>`);
+
+const out = document.getElementById('out');
+GROUPS.forEach(([g, ssot]) => {
+  const rows = ENTRIES.filter(e => e.g === g);
+  if (!rows.length) return;
+  out.insertAdjacentHTML('beforeend',
+    `<h2>${esc(g)} <span>${rows.length} · ${esc(ssot)}</span></h2>`);
+  rows.forEach(e => {
+    let h = `<div class="e ${e.status}"><div class="hd">`;
+    h += `<span class="st ${e.status}">${e.status}</span>`;
+    if (e.opRep) h += `<span class="op">OPERATOR-REPORTED</span>`;
+    h += `<span class="ti">${esc(e.t)}</span></div>`;
+    h += `<p class="bd">${esc(e.what)}</p>`;
+    if (e.warn) h += `<div class="warn">${esc(e.warn)}</div>`;
+    if (e.remains) h += `<p class="rm">${esc(e.remains)}</p>`;
+    h += `<div class="ft"><span class="ssot">SSOT <code>${esc(e.ssot)}</code></span>`;
+    h += `<span>${e.c.length ? e.c.map(x => `<code>${esc(x)}</code>`).join(' ') : '<i>no commit — see entry</i>'}</span>`;
+    h += `</div></div>`;
+    out.insertAdjacentHTML('beforeend', h);
+  });
+});
+
+document.getElementById('foot').textContent =
+  `${ENTRIES.length} entries · rebuilt from git log per operator ruling R3 · ` +
+  `status only — design belongs in Docs/ssot/, laws in Docs/DOCTRINE.md`;
+</script>
+</body>
+</html>
