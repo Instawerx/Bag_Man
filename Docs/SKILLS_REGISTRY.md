@@ -25,6 +25,7 @@ Source of truth: master doc Sec. 15.1.
 | 9 | `lyra-skin-builder-marketplace` | Character / Cosmetics | Lyra-foundation reskinning pipeline. Mesh swap, IK retargeting to SK_Mannequin, modular character parts, in-game cosmetic marketplace, GameFeature plugins for live-ops skin drops, server-authoritative entitlement. |
 | 10 | `expert-game-designer` | Game Design / Visual Direction | Apple-Glass-inspired UI aesthetic, level/environment design direction, character/creature concept, Midjourney + NeoStack AIK prompt pipelines, design systems, palettes, typography. |
 | 11 | `unreal-engine-expert` | C++ Engineering (general UE5) | AAA-level general UE5 expertise: rendering (Lumen, Nanite, Niagara), gameplay systems, AI, networking, optimization, animation. Pairs with afl-cpp-lyra-developer for AFL-specific work. |
+| 12 | `afl-laser-beam-system` | VFX / Weapon FX | The one correct way to build laser and beam weapon FX: the marketplace Niagara library wired to the authoritative GAS pipeline through GameplayCues, never a per-tick Blueprint trace. Owns the User.Beam End / User.Color contract and the mobile material variants. |
 
 ## Scope of the CI check
 

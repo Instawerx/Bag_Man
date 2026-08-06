@@ -66,9 +66,13 @@ class Skill:
     summary: str
 
 
-# Eleven skills, in the same order as master doc Sec. 15.1. Edit this list
-# and re-run `--generate` to update Docs/SKILLS_REGISTRY.md. Do not let the
-# generated doc drift from this list by hand - the doc is a build output.
+# Twelve skills. The first eleven are in the same order as master doc
+# Sec. 15.1; `afl-laser-beam-system` is appended because it ships on disk at
+# Tools/skills/afl-laser-beam-system/ and is @import-ed by the project-root
+# CLAUDE.md, but was never added to Sec. 15.1. Registering it is what the
+# scanner needs; adding it to Sec. 15.1 is a separate edit to a protected doc.
+# Edit this list and re-run `--generate` to update Docs/SKILLS_REGISTRY.md.
+# Do not let the generated doc drift from this list by hand - it is a build output.
 SKILLS: tuple[Skill, ...] = (
     Skill(
         "afl-cpp-lyra-developer",
@@ -143,6 +147,14 @@ SKILLS: tuple[Skill, ...] = (
         "animation. Pairs with afl-cpp-lyra-developer for AFL-specific "
         "work.",
     ),
+    Skill(
+        "afl-laser-beam-system",
+        "VFX / Weapon FX",
+        "The one correct way to build laser and beam weapon FX: the "
+        "marketplace Niagara library wired to the authoritative GAS pipeline "
+        "through GameplayCues, never a per-tick Blueprint trace. Owns the "
+        "User.Beam End / User.Color contract and the mobile material variants.",
+    ),
 )
 
 
@@ -185,6 +197,16 @@ SCAN_EXTS: frozenset[str] = frozenset({".py", ".md", ".yaml", ".yml"})
 # engine's own source if it ever shows up.
 EXEMPT_DIRS: frozenset[str] = frozenset({
     "__pycache__", ".git", "Binaries", "Intermediate", "Saved", "DerivedDataCache",
+    # Docs/_archive holds SUPERSEDED documents that are retained as decision
+    # records. Operator ruling R4 requires at least one of them to be kept
+    # VERBATIM and explicitly forbids editing it. A scanner that demands an
+    # edit to an immutable file is unresolvable by construction - so the
+    # archive is not scanned. A stale skill name inside a superseded document
+    # is correct history, not a defect; the live docs are where the check has
+    # meaning. (Added when Docs/_archive/IRONICS_LOOT_CARRY_MODEL.md:302's
+    # `afl-cpp-lyra` typo - a drift from `afl-cpp-lyra-developer`, which the
+    # same file spells correctly five times - could not be fixed under R4.)
+    "_archive",
 })
 
 # Specific files that legitimately enumerate every slug (this script, the
