@@ -141,18 +141,22 @@ R22 is explicit that it is a shortcut through navigation, never through a check.
 │                                 matching 400–500 V                             │
 ├───────────────────────────────────────────────┬────────────────────────────────┤
 │  QUEUE                POP    EST. WAIT        │  ┌──────────────────────────┐  │
-│ ─────────────────────────────────────────────  │  │  S2  QUEUE DETAIL        │  │
-│  ▸ Duo · 400–500 V     88 ▮▮      ~40s        │  │                          │  │ D  list + detail
+│  ───────────────────────────────────────────  │  │  S2  QUEUE DETAIL        │  │
+│    Squad · 400–500 V  210 ▮▮▮▮    ~25s        │  │                          │  │ D  list + detail
 │    Solo · 400–500 V   142 ▮▮▮     ~15s        │  │  (see §4)                │  │
-│    Squad · 400–500 V  210 ▮▮▮▮    ~25s        │  │                          │  │
+│  ▸ Duo · 400–500 V     88 ▮▮      ~40s        │  │                          │  │
 │    Duo · 1000+ V        6 ▯       — quiet     │  └──────────────────────────┘  │
 ├───────────────────────────────────────────────┴────────────────────────────────┤
 │  venue assigned at match start        ┌──────────────────────────────────────┐ │ E  commit bar
-│                                        │  QUEUE · Duo · 450 V · ~40s          │ │
+│                                       │  QUEUE · Duo · 450 V · ~40s          │ │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Grid
+**The rows are drawn in POPULATION ORDER, descending, because §3.3 rules that ordering.** `▸` marks selection,
+not position — the selected queue here is `Duo · 400–500 V` sitting third. An earlier draft of this drawing
+listed them 88 / 142 / 210, which contradicted the rule three subsections below it. **A drawing that disagrees
+with the rule it illustrates loses, and gets corrected to match** — but it is worth recording that the
+*drawing* is what a developer copies, so a stale one is not a cosmetic defect.
 
 | Region | Desktop ≥1280 | Notes |
 |---|---|---|
@@ -187,19 +191,19 @@ Payouts, Rules. A five-slot nav holding three items reads as unfinished, and the
 space — which the payout ladder needs.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────────┐
 │ ⚡ SHOOTOUT · DUO                                    [ ✕ ]    │
 │ 400–500 V band                                                │
 │                                        [ Back ]  [  QUEUE  ]  │
-├──────────────────────────────────────────────────────────────┤
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐              │  metric row — 3 cards,
-│  │ STAKE      │  │ PRIZE POOL │  │ PLAYERS    │              │  PokerStars 1:1
-│  │ 450 V      │  │ ~15,390 V  │  │ 88 waiting │              │
-│  │ band 400–500│ │ est. 18 pos│  │ 3 paid     │              │
-│  └────────────┘  └────────────┘  └────────────┘              │
-├──────────────────────────────────────────────────────────────┤
+├───────────────────────────────────────────────────────────────┤
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐               │  metric row — 3 cards,
+│  │ STAKE      │  │ PRIZE POOL │  │ PLAYERS    │               │  PokerStars 1:1
+│  │ 450 V      │  │ ~15,390 V  │  │ 88 waiting │               │
+│  │band 400–500│  │ est. 18 pos│  │ 3 paid     │               │
+│  └────────────┘  └────────────┘  └────────────┘               │
+├───────────────────────────────────────────────────────────────┤
 │  Overview  │  Payouts  │  Rules                               │
-├──────────────────────────────────────────────────────────────┤
+├───────────────────────────────────────────────────────────────┤
 │  ⚑ venue assigned at match start                              │
 │                                                               │
 │  Last standing · no timer · no respawn                        │
@@ -209,7 +213,7 @@ space — which the payout ladder needs.
 │    1st   ~68%  ~11.66×                                        │
 │    2nd   ~24%   ~4.04×                                        │
 │    3rd    ~8%   ~1.40×  ◄ min cash                            │
-└──────────────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────────────┘
 ```
 
 **Every payout figure is prefixed `~` and labelled `est.`** The ladder is a generating rule solved per exact
@@ -269,7 +273,7 @@ be round, memorable, and spread across real usage, which is not knowable yet. **
 exactly why the limits ship with it rather than after it*.
 
 ```
-┌──────────────────────────────────────────────┐
+┌───────────────────────────────────────────────┐
 │  CONFIRM ENTRY                                │
 │                                               │
 │  SHOOTOUT · Duo · 450 V                       │
@@ -283,7 +287,7 @@ exactly why the limits ship with it rather than after it*.
 │  cap this entry: 1,248 V max                  │  ◄ the range you have
 │                                               │
 │         [ Cancel ]     [ CONFIRM ]            │
-└──────────────────────────────────────────────┘
+└───────────────────────────────────────────────┘
 ```
 
 **Both guardrails are legible before they bind** (`ui-frontend.md` §7): a cap shown at entry frames the range
@@ -298,15 +302,15 @@ boundary.
 ## 7. S7 — MatchResults + one-tap re-queue
 
 ```
-┌──────────────────────────────────────────────┐
-│  2nd  of 10                                   │
-│  +1,230 V                    balance 13,260 V │
-│                                               │
-│  ┌────────────────────────────────────────┐   │
-│  │   ⚡  BATTLE AGAIN — Duo, 450 V         │   │  ◄ the single highest-value control
-│  └────────────────────────────────────────┘   │     in the entire flow
-│         [ Change ]        [ Armory ]          │
-└──────────────────────────────────────────────┘
+┌────────────────────────────────────────────────┐
+│  2nd  of 10                                    │
+│  +1,230 V                    balance 13,260 V  │
+│                                                │
+│  ┌────────────────────────────────────────┐    │
+│  │   ⚡  BATTLE AGAIN — Duo, 450 V        │    │  ◄ the single highest-value control
+│  └────────────────────────────────────────┘    │     in the entire flow
+│         [ Change ]        [ Armory ]           │
+└────────────────────────────────────────────────┘
 ```
 
 **The remembered selection is stated in the action, never implied by it.** A bare "PLAY AGAIN" re-queues a

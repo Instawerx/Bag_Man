@@ -272,6 +272,13 @@ const ENTRIES = [
 
 // ========================== ECONOMY + STORE ===============================
 {g:'ECONOMY + STORE', status:'COMMITTED', ssot:'ssot/economy-store.md',
+ t:'Payout ladder — stale pre-R40 figures corrected in §5.2',
+ what:'§5.2 still quoted 5.36× as the winner multiple at 10 positions — a 30-percent-depth figure that survived the R40 amendment, while the §5.3 delta table four paragraphs later already carried the correct 8.10×. Corrected, with two adjoining claims in the same block: the 9→10 step was framed as a cliff when at −5.3% it is the mildest of the five thresholds, and N = 10 was credited to ceil(0.15 × N) incrementing when it is in fact the small-field clause handing off.',
+ remains:'Nothing on these three. The rake rate (§15.7) and the winner-multiple sawtooth (§15.9) are unchanged and remain open.',
+ warn:'The tables and both delta listings were correct throughout — only the prose drifted, and prose is what gets read and copied forward. Treat any multiple quoted in prose as unverified until it is re-solved from the rule.',
+ c:['5290bc49']},
+
+{g:'ECONOMY + STORE', status:'COMMITTED', ssot:'ssot/economy-store.md',
  t:'Cannon catalog — 147 priced SKUs across the brand lines',
  what:'IRONICS (21 free, first GRANTED_FREE design), SIMULARENT, FANATICS2, DRAGON SOUL, RUN IT BACK, FUTURE WARRIOR, JAGUAR NEON. Five cannon-line brand colour identities declared and authored; a duplicate Cosmetic.Identity.IRONICS registry row deduped.',
  remains:'Nothing on the catalog itself.',
@@ -415,9 +422,16 @@ const ENTRIES = [
  c:[]},
 
 // ============================ UI / FRONT END ==============================
+{g:'UI / FRONT END', status:'COMMITTED', ssot:'ssot/ui-frontend.md',
+ t:'Matchmaking lobby — screen set, UX flow and developer handoff',
+ what:'Docs/design/IRONICS_LOBBY_UX_HANDOFF.md: eight screens with stable IDs S1–S8, the flow between them, tokens, components, states, responsive rules, edge cases, motion, accessibility and interfaces — the PokerStars layout grammar carrying our content model. S1 LobbyRoot and S2 QueueDetail are additionally rendered as an interactive mockup in house tokens, with the §5.2 payout rule implemented in the page so every figure shown is solved rather than transcribed. That implementation is what surfaced the economy correction logged under ECONOMY + STORE.',
+ remains:'NO WIDGETS EXIST — this is a document plus a mockup, not an implementation. None of the nine AFLW_Lobby_* components specified in §9 has been authored, and S3–S8 are specified but not rendered.',
+ warn:'§16 is a do-not-harden list of seven open questions. The four stake preset tiers and the 5% rake are placeholders; every Volts figure in S2 moves if the rake ruling lands differently.',
+ c:['bc5693e2','5290bc49']},
+
 {g:'UI / FRONT END', status:'COMMITTED', opRep:true, ssot:'ssot/ui-frontend.md',
  t:'Loadout + Store market chassis',
- what:'The most recent UI work. One shared front-end market chassis with two modes: Store (purchasable, BUY) and Loadout (owned, EQUIP), rendering over the live armory scene. Loadout mode overrides the entry class at runtime rather than editing the store graph.',
+ what:'The most recent BUILT UI work — the lobby entry above it is a document and a mockup, not widgets. One shared front-end market chassis with two modes: Store (purchasable, BUY) and Loadout (owned, EQUIP), rendering over the live armory scene. Loadout mode overrides the entry class at runtime rather than editing the store graph.',
  remains:'Operator-reported as the most recent pass; no single commit isolates it in the August window read for this rebuild.',
  c:[]},
 
