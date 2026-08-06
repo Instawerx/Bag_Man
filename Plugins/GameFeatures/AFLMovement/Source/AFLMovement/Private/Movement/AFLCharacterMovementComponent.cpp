@@ -7,6 +7,7 @@
 #include "AbilitySystemGlobals.h"
 #include "Character/LyraPawnExtensionComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PhysicsVolume.h"   // AFL_MOVEMODE instrumentation reads bWaterVolume off the current volume
 #include "NativeGameplayTags.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCharacterMovementComponent)
@@ -84,6 +85,54 @@ void UAFLCharacterMovementComponent::EndPlay(const EEndPlayReason::Type EndPlayR
 		RestoreDashTuning();
 	}
 	Super::EndPlay(EndPlayReason);
+}
+
+namespace
+{
+	/** Readable movement-mode name. Emitted alongside the raw value so a reader never has to map the enum.
+	 *  The ordinals are NOT obvious and one of them is a trap: MOVE_Falling is 3 and MOVE_Swimming is 4, so
+	 *  anyone grepping for "-> 3" expecting swim is actually watching FALLING -- which fires on every jump
+	 *  and every step off a ledge, including the fall INTO water. That misreads as success. */
+	const TCHAR* AFLMovementModeName(EMovementMode Mode)
+	{
+		switch (Mode)
+		{
+		case MOVE_None:       return TEXT("None");
+		case MOVE_Walking:    return TEXT("Walking");
+		case MOVE_NavWalking: return TEXT("NavWalking");
+		case MOVE_Falling:    return TEXT("Falling");
+		case MOVE_Swimming:   return TEXT("Swimming");
+		case MOVE_Flying:     return TEXT("Flying");
+		case MOVE_Custom:     return TEXT("Custom");
+		default:              return TEXT("Unknown");
+		}
+	}
+}
+
+void UAFLCharacterMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode)
+{
+	// Super FIRST. This override is an observer: the engine's mode-entry handling (and the CharacterOwner
+	// notification it performs) must complete before anything is read, or the values logged describe a
+	// half-applied transition.
+	Super::OnMovementModeChanged(PreviousMovementMode, PreviousCustomMode);
+
+#if !UE_BUILD_SHIPPING
+	// Guarded to match this project's existing instrumentation convention (UAFLBattleRoyaleComponent uses
+	// the same #if for its belief-state dump). Diagnostics carry a cost in a shipping build and none of
+	// this is gameplay -- but it stays in Development and Test, which is where it is read.
+	const APhysicsVolume* Volume = GetPhysicsVolume();
+
+	UE_LOG(LogAFLMovement, Log,
+		TEXT("AFL_MOVEMODE: owner=%s %s(%d) -> %s(%d) inWater=%d volume=%s MaxSwimSpeed=%.1f Buoyancy=%.2f vel=%.1f"),
+		*GetNameSafe(GetOwner()),
+		AFLMovementModeName(PreviousMovementMode), (int32)PreviousMovementMode,
+		AFLMovementModeName(MovementMode),         (int32)MovementMode,
+		(Volume && Volume->bWaterVolume) ? 1 : 0,
+		*GetNameSafe(Volume),
+		MaxSwimSpeed,
+		Buoyancy,
+		Velocity.Size());
+#endif // !UE_BUILD_SHIPPING
 }
 
 void UAFLCharacterMovementComponent::OnUnregister()

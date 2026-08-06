@@ -50,6 +50,21 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void OnUnregister() override;
 
+	/**
+	 * INSTRUMENTATION ONLY -- logs every movement-mode transition, then defers entirely to Super.
+	 *
+	 * WHY THIS EXISTS. UE logs NOTHING on a movement-mode change, and `showdebug` draws to the screen
+	 * without writing to the log. Three PIE runs failed to settle whether swim engages -- not because the
+	 * observation was missed, but because THERE WAS NO INSTRUMENT. Asking an operator to read an overlay
+	 * again is not a measurement loop; this makes the transition a fact in the log file.
+	 *
+	 * One line answers four open questions at once: whether swim engaged, whether the water volume was
+	 * entered, whether the authored MaxSwimSpeed reached runtime, and whether the exit is clean.
+	 *
+	 * Behaviourally inert -- Super runs first and nothing else is changed.
+	 */
+	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
+
 private:
 	/** Bind/unbind the tag-change delegate on the owning pawn's ASC. */
 	void TryBindToAbilitySystem();
