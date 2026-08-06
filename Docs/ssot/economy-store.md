@@ -236,20 +236,25 @@ source of truth; these are spot checks recomputed from it.
 At `p = 1` there is no ratio to solve: the single paid place takes the whole budget, which is why small fields
 show the winner and the min cash as the same figure.
 
-> **⚠ THE 9→10 CLIFF IS INTRINSIC — and it is a QUEUE-DESIGN concern, not a player-facing one.**
-> At 9 positions the winner takes **8.55×**; at 10 they take **5.36×**. That discontinuity cannot be smoothed
+> **⚠ EVERY PAID-PLACES THRESHOLD STEPS THE WINNER DOWN — a QUEUE-DESIGN concern, not a player-facing one.**
+> At 9 positions the winner takes **8.55×**; at 10 they take **8.10×**. That discontinuity cannot be smoothed
 > away: **any jump in paid places creates one**, because the same budget is suddenly divided more ways. It is a
 > property of paying more places, not a defect in the curve.
 >
-> **It never reaches a player, because a player never meets 9 and 10 in the same queue.** Queues have fixed
-> field sizes, and bot-fill lands them full (R34, `ssot/ai-bots.md` §8.2.1) — so a given queue always resolves
-> on one side of the threshold, never both.
+> **9→10 IS THE MILDEST OF THE FIVE, AT −5.3%** — it is the one place where the small-field clause hands off to
+> the formula, a single paid place becoming two. **The four that matter are N = 14, 21, 27 and 34, where the
+> winner drops 17–23%** (§5.3, §15.9). Read 9→10 as the exception, not the representative case.
+>
+> **It never reaches a player, because a player never meets both sides of a threshold in the same queue.**
+> Queues have fixed field sizes, and bot-fill lands them full (R34, `ssot/ai-bots.md` §8.2.1) — so a given
+> queue always resolves on one side, never both.
 >
 > **DESIGN CONSTRAINT, recorded so it stays true: NO QUEUE MAY SIT AT A FIELD SIZE WHERE THE PAID-PLACES
-> THRESHOLD STRADDLES IT.** Cheap to honour when queue sizes are chosen, and it keeps the cliff permanently
-> away from players. The thresholds are wherever `ceil(0.15 × N)` increments — **N = 10, 14, 21, 27 and 34** —
-> so a queue sized at one of those should be moved a position either way. **R40's 15% depth more than halved
-> this list**, from nine thresholds to five, which makes the constraint materially easier to honour.
+> THRESHOLD STRADDLES IT.** Cheap to honour when queue sizes are chosen, and it keeps the steps permanently
+> away from players. The thresholds are wherever `p(N)` increments — **N = 10**, where the small-field clause
+> hands off, **and N = 14, 21, 27 and 34**, where `ceil(0.15 × N)` steps — so a queue sized at one of those
+> should be moved a position either way. **R40's 15% depth more than halved this list**, from nine thresholds
+> to five, which makes the constraint materially easier to honour.
 
 ### 5.3 The two invariants — one now holds by construction, one does not
 

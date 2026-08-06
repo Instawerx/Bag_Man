@@ -194,8 +194,8 @@ space — which the payout ladder needs.
 ├──────────────────────────────────────────────────────────────┤
 │  ┌────────────┐  ┌────────────┐  ┌────────────┐              │  metric row — 3 cards,
 │  │ STAKE      │  │ PRIZE POOL │  │ PLAYERS    │              │  PokerStars 1:1
-│  │ 450 V      │  │ ~ 8,550 V  │  │ 88 waiting │              │
-│  │ band 400–500│ │ est. 10 pos│  │ 3 paid     │              │
+│  │ 450 V      │  │ ~15,390 V  │  │ 88 waiting │              │
+│  │ band 400–500│ │ est. 18 pos│  │ 3 paid     │              │
 │  └────────────┘  └────────────┘  └────────────┘              │
 ├──────────────────────────────────────────────────────────────┤
 │  Overview  │  Payouts  │  Rules                               │
@@ -205,10 +205,10 @@ space — which the payout ladder needs.
 │  Last standing · no timer · no respawn                        │
 │  Warmup 30s                                                   │
 │                                                               │
-│  PAYOUTS (10 positions, 3 paid)                               │
-│    1st   ~56%   ~5.36×                                        │
-│    2nd   ~29%   ~2.74×                                        │
-│    3rd   ~15%   ~1.40×  ◄ min cash                            │
+│  PAYOUTS (18 positions, 3 paid)                               │
+│    1st   ~68%  ~11.66×                                        │
+│    2nd   ~24%   ~4.04×                                        │
+│    3rd    ~8%   ~1.40×  ◄ min cash                            │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -218,6 +218,20 @@ number here would be the same class of promise R20 §4.2 forbids on the stake ba
 
 **The min-cash row is marked.** `economy-store.md` §5.3 fixes it at 1.40× as an input, and it is the number a
 player uses to decide whether cashing is worth it.
+
+**⚠ THE EXAMPLE FIELD IS BR_36, AND THE FIELD SIZE IS NOT ARBITRARY.** `economy-store.md` §5.2 carries a design
+constraint — **no queue may sit at a field size where the paid-places threshold straddles it** — and names the
+thresholds as **N = 10, 14, 21, 27 and 34**. A 36-player field resolves to **36 solo / 18 duo / 9 squad**
+finishing positions, none of which is a threshold, and all three appear in §5.2's own spot-check table, so
+every figure above is independently checkable. **An earlier draft of this section used a 10-position field —
+one of the five — and quoted `~5.36×` for the winner, a pre-R40 30%-depth figure.** The rule gives **11.66× at
+18 positions** and **8.10× at 10**. Corrected here; the stale source figure at `economy-store.md` §5.2 was
+corrected in the same pass.
+
+**Squad is winner-takes-all, and nothing declares it.** Nine finishing positions is under ten, so `p = 1` and
+the whole budget goes to first — **R37's structural point falling out of the arithmetic rather than out of a
+mode flag.** S2 renders a single-row ladder in that case. **The Payouts tab is not empty and not disabled**;
+that state belongs to TURBO alone (§16.7).
 
 ---
 
