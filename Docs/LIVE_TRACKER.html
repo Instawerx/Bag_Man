@@ -122,6 +122,7 @@ const GROUPS = [
   ['COMBAT + ARSENAL','ssot/combat-arsenal.md'],
   ['CHARACTER',       'ssot/character-system.md'],
   ['UI / FRONT END',  'ssot/ui-frontend.md'],
+  ['AI + BOTS',       'ssot/ai-bots.md'],
   ['CROSS-CUTTING',   '(multiple)']
 ];
 
@@ -449,14 +450,13 @@ const ENTRIES = [
  remains:'Operator triage: commit, revert, or leave. Six of these are maps whose in-editor state may hold unbanked dressing.',
  c:[]},
 
-{g:'CROSS-CUTTING', status:'PROVEN', ssot:'(no SSOT owns this)',
+{g:'AI + BOTS', status:'PROVEN', ssot:'ssot/ai-bots.md',
  t:'AI / bot stack — AI-1, AI-2, AI-3',
  what:'AI-1 continuous spring-damper aim tracker, wired live and made falsifiable. AI-2 combat movement: per-bot profile, sampler, afl.Bot.MoveProbe, per-bot EQS geometry proven to reach the query, RVO avoidance so bots stop grinding into each other. AI-3 sprint, dash, slide and roll behind one path-conflict pattern. Sprint measured working at 980/980. Several diagnostic honesty fixes: the reachability filter had never executed (Context was Item, not Querier), probe assertions made per-round, FAIL lines that said the opposite of the truth, and MoveProbe reporting fabricated numbers on PASS — cross-validated against MOVESNAP.',
  remains:'The 5v5 and 8v8 bot-fills once spawned STOCK controllers so the AI stack never ran; fixed at de4d633b. Bot spawning routes through the front end rather than direct PIE.',
- warn:'NO Tier 2 SSOT owns AI and bots. Entries here have nowhere to point. This is an ownership gap in the SSOT set, not a status item.',
  c:['ee0ca6d7','e8b4c8cb','31866b5e','db2db8d5','e6e79f55','b6a3965c','fa3934ca','ff2da852','8dd1c523','0c59dc6d','3e5be02e','f8bd07e2','2b2ee4ad','de4d633b','f57d0564','92eec8bc','eb0d58b7','a011b5b2']},
 
-{g:'CROSS-CUTTING', status:'COMMITTED', ssot:'DOCTRINE.md',
+{g:'AI + BOTS', status:'COMMITTED', ssot:'ssot/ai-bots.md',
  t:'Lyra core patch — ALyraPlayerBotController exported',
  what:'ALyraPlayerBotController carried no export macro, so a GameFeature C++ subclass failed at LINK. Fixed with MinimalAPI + UE_API on the Lyra class. This is the correct fallback under DOCTRINE G2, not a violation.',
  remains:'MUST BE RE-APPLIED AFTER ANY ENGINE BUMP. Recording it is the only obligation the patch creates, and this entry is that record.',
