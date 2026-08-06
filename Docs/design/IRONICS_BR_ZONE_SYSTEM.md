@@ -4,7 +4,7 @@
 **Date:** 2026-08-05.
 **Why this doc:** the shrinking safe-zone ("Zone") is the **single genuinely net-new BR system** — everything else
 in the BR ruleset is shipped or reused ([IRONICS_BR_MODE_SPIKE.md](IRONICS_BR_MODE_SPIKE.md) §4;
-[ShantyTown_BR_DESIGN.md](maps/ShantyTown_BR_DESIGN.md) §2, §3 Layer A). This scopes it as its own work unit.
+[ShantyTown_BR_DESIGN.md](ShantyTown_BR_DESIGN.md) §2, §3 Layer A). This scopes it as its own work unit.
 **Primary users:** Staked Battle Royales & Tournaments → **server-authoritative, deterministic, replay-verifiable**.
 
 **Grounding (verified on disk 2026-08-05):** no `Zone`/`Storm`/`Ring`/`SafeZone` system exists anywhere in the
@@ -95,7 +95,7 @@ Headless-testable via a `ZoneTestRunner` mirroring `AFLMatchTestRunner`.
 4. **Does NOT fix A3/A5 match-conclusion stall** — separate unknown; flagged so the Zone isn't assumed to close it.
 
 ## 9. References
-[IRONICS_BR_MODE_SPIKE.md](IRONICS_BR_MODE_SPIKE.md) · [ShantyTown_BR_DESIGN.md](maps/ShantyTown_BR_DESIGN.md) (§2, §3A, §11) ·
+[IRONICS_BR_MODE_SPIKE.md](IRONICS_BR_MODE_SPIKE.md) · [ShantyTown_BR_DESIGN.md](ShantyTown_BR_DESIGN.md) (§2, §3A, §11) ·
 [IRONICS_MATCH_STAKING_SSOT.md](IRONICS_MATCH_STAKING_SSOT.md) · [IRONICS_LEAGUE_ADVANCEMENT_SSOT.md](IRONICS_LEAGUE_ADVANCEMENT_SSOT.md).
 Code: `UAFLBattleRoyaleComponent`, `UAFLMatchPhaseComponent`, `UAFLRoundManagerComponent`, `GE_AFL_Damage_BeamTick`,
 `FAFLCombatTelemetry` (all `Plugins/GameFeatures/AFLCombat/`).

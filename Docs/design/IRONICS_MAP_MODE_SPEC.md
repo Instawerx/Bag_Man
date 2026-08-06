@@ -213,7 +213,7 @@ Two delivery forms: a **weapon/modifier** that layers onto normal maps, and a **
 Order of operations per map: **design brief → operator approval → greybox build → telemetry playtest (§6) → balance → art pass → PIE sign-off.** A re-sent brief is not an approval; disk state is verified before build.
 
 ### Per-map design brief template
-Each brief (`Docs/maps/<MapName>_DESIGN.md`) must specify:
+Each brief (`Docs/design/<MapName>_DESIGN.md`) must specify:
 
 1. **Identity** — name, tier (A/B/C/D/special), sizes + `LyraExperience` variants it hosts, source (net-new / Arena_0x).
 2. **Footprint & density** — playable area (m across), target players-per-area, **TTFC target** for each size hosted.

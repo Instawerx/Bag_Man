@@ -1,3 +1,37 @@
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     PROVENANCE HEADER — added on archival, 2026-08-05, per operator ruling R2.
+     This is the ONLY edit made to this file. Nothing below this header has been
+     altered, reordered or removed.
+     ═══════════════════════════════════════════════════════════════════════════ -->
+
+> ## ⚠ ARCHIVED — UNRATIFIED TRANSCRIPT. NOT A SOURCE OF TRUTH.
+>
+> **What this is.** A raw, lightly-formatted transcript of a ChatGPT conversation exploring the game
+> concept. It was never reviewed, ratified or adopted as a specification. It reads authoritative because
+> of its length and confident voice — it is not.
+>
+> **Origin:** `https://chatgpt.com/share/69fd87d1-d1d8-83e8-8d34-b4c6037999bc` (recorded at line 2889 of
+> this file, in the original tail).
+>
+> **Why it was archived — operator ruling R2 (2026-08-05).** Its status as an unratified transcript made
+> it dangerous in place: agents and readers repeatedly treated it as a design authority, and several of
+> its claims were contradicted by disk. It is retained rather than deleted because it is the origin
+> record of a number of ideas that *did* survive.
+>
+> **What was salvaged, and where it went.** Its genuinely load-bearing content was reconciled into
+> **`Docs/DOCTRINE.md`** — the Tier 1 laws. Doctrine sourced from this file is cited there as
+> `CORE_GAME_CONCEPT.md` and is marked either *converged* (it agreed with a second, ratified source) or
+> *rescued — unique* (it existed only here and was judged worth keeping). **DOCTRINE Appendix B records
+> this file's provenance; Appendix A records the claims from it that disk contradicted and which were
+> therefore excluded.**
+>
+> **How to use this file.** As a historical record only. If something here is not reflected in
+> `Docs/DOCTRINE.md` or one of the eight Tier 2 SSOTs under `Docs/ssot/`, it was not adopted — treat it
+> as an idea that was considered, not a decision that was made. Do not cite this file as authority, and
+> do not re-adopt from it without an operator ruling.
+
+---
+
 ⚡ CORE GAME CONCEPT (Refined)
 
 “Neon Cyber Laser Arena: Extraction Combat”

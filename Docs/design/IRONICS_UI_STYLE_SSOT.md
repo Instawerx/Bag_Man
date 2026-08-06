@@ -13,7 +13,7 @@ beyond the type ramp + semantic mapping, which are flagged for approval):**
   sightlines) + `:1981` (Apple-Glass-inspired UI is the assigned direction).
 - Brand/title: `Docs/BAG_MAN_MASTER_BUILD_v2.0.md:139-145` (title rules) RECONCILED by operator ruling 2.
 - Vocab/economy: `Docs/IRONICS_ECONOMY_SPEC.md:14-15,36-62` + `Docs/IRONICS_PRICING_SCARCITY_SSOT.md:36-42`.
-- Readability law: `Docs/maps/Arena_01_DESIGN.md` sec10 (HUD/FX hues off the beam palette) +
+- Readability law: `Docs/design/Arena_01_DESIGN.md` sec10 (HUD/FX hues off the beam palette) +
   `Docs/IRONICS_PLAYER_FLOW.md` sec7-C4 (team-read = outline/rim + nameplate).
 - Full color registry: `Docs/AFL_COLOR_REGISTRY_MIGRATION_PLAN.md:109-131` (11-color in-game registry).
 

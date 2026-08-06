@@ -9,7 +9,7 @@
 #   - afl-skill-registry
 #
 # Runner: self-hosted Windows box with UE 5.6 installed (label `ue5`).
-# See Docs/AFL_YOLO_PLAYBOOK.md for runner provisioning notes.
+# See Docs/_archive/AFL_YOLO_PLAYBOOK.md for runner provisioning notes (YOLO concept abandoned 2026-08-05).
 #
 # Scope: editor compile only. Cooking / packaging / shipping builds land in
 # S11+ when the dedicated server pipeline goes in.

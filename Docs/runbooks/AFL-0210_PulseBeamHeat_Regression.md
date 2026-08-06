@@ -3,7 +3,7 @@
 > Sprint 2 closeout regression plan for the combined laser-weapon surface:
 > Pulse (AFL-0104/0105/0106/0107), Beam (AFL-0206/0208), and the shared
 > Heat attribute (AFL-0207). Authored from
-> `Docs/QA/AFL_TEST_PLAN_TEMPLATE.md` and structured to extend the
+> `Docs/runbooks/AFL_TEST_PLAN_TEMPLATE.md` and structured to extend the
 > AFL-0111 Pulse smoke test (`AFL-0107_PulseSmokeTest.md`) into a full
 > per-scenario matrix.
 >
@@ -25,7 +25,7 @@
 | Engine | UE 5.6 |
 | Branch under test | `yolo/afl-0210-pulse-beam-heat-regression` for the plan itself; future runs use the branch carrying the change under test. |
 | Build configuration | LyraEditor Win64 Development (PIE) |
-| Predecessor plan | `Docs/QA/AFL-0107_PulseSmokeTest.md` (AFL-0111 template applied to Pulse-only) |
+| Predecessor plan | `Docs/runbooks/AFL-0107_PulseSmokeTest.md` (AFL-0111 template applied to Pulse-only) |
 
 ## 2. Scope and intent
 

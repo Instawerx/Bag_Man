@@ -1,7 +1,7 @@
 # AFL Regression Checklist — Living Index
 
 > Top-level index of every per-ticket regression test plan under
-> `Docs/QA/`. Each entry points at a single regression matrix; the
+> `Docs/runbooks/`. Each entry points at a single regression matrix; the
 > matrix itself owns scope, setup, scenarios, matchers, pass/fail, and
 > sign-off (see `AFL_TEST_PLAN_TEMPLATE.md`).
 >

@@ -62,10 +62,10 @@ ShooterCore"` — placeholder, unwashed.)
   (netcode-blocked), Arena_05, BR_18/BR_36 (now have a WP base map — see ShantyTown below), Shrink_Yard.
 - **ShantyTown = `L_ShantyTown` (fills BR_18 / BR_36):** vendor `Demo_Map` forked to `/Game/Maps/L_ShantyTown`
   and **World-Partition-converted (commit `c6db6c4d`)**; **District Program OPERATOR-APPROVED 2026-08-05**
-  (`Docs/maps/ShantyTown_BR_DESIGN.md` §11 + Gate — one map covers the whole matrix via `District_Duel/Arena/Team`
+  (`Docs/design/ShantyTown_BR_DESIGN.md` §11 + Gate — one map covers the whole matrix via `District_Duel/Arena/Team`
   data layers). **No geometry authored yet; no front-end configs** (no playlist/experience). BR mode layer gated
   on the shrinking Zone system. District PLACEMENT within the town core still OWED.
-- **Arena_02 (Tier B, 3v3 + 4v4) — BRIEF BANKED, BUILD NOT APPROVED:** `Docs/maps/Arena_02_DESIGN.md`
+- **Arena_02 (Tier B, 3v3 + 4v4) — BRIEF BANKED, BUILD NOT APPROVED:** `Docs/design/Arena_02_DESIGN.md`
   committed as-is (`a241cc49`). **Gate = DRAFT awaiting operator approval (2026-08-02) — banking the brief
   did NOT approve the build.** On disk: **no `.umap`**, **no front-end config** (no playlist/experience), and
   its signature mechanic **MOVING LASER WALLS is UNBUILT** (disk-verified: no `LaserWall`/`FLaserWallState`/

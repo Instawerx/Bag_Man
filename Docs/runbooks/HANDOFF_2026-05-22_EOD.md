@@ -159,10 +159,10 @@ These are all small (S-estimate) code changes. Reasonable Sprint 2 cleanup befor
 | `Docs/HANDOFF_2026-05-22_EOD.md` | **This document.** |
 | `Docs/BAG_MAN_MASTER_BUILD_v2.0.md` | Master spec. Sprint structure, hard rails, architectural decisions. |
 | `Docs/AFL_YOLO_PLAYBOOK.md` | Orchestrator operating manual. |
-| `Docs/QA/AFL_REGRESSION_CHECKLIST.md` | Living index of per-task regression docs (AFL-0107 smoke + AFL-0210 matrix). |
-| `Docs/QA/AFL_TEST_PLAN_TEMPLATE.md` | QA test plan template (AFL-0111 deliverable). |
-| `Docs/QA/AFL-0107_PulseSmokeTest.md` | Sprint 1 Pulse smoke test instance. |
-| `Docs/QA/AFL-0210_PulseBeamHeat_Regression.md` | Sprint 2 full regression matrix (14 scenarios). |
+| `Docs/runbooks/AFL_REGRESSION_CHECKLIST.md` | Living index of per-task regression docs (AFL-0107 smoke + AFL-0210 matrix). |
+| `Docs/runbooks/AFL_TEST_PLAN_TEMPLATE.md` | QA test plan template (AFL-0111 deliverable). |
+| `Docs/runbooks/AFL-0107_PulseSmokeTest.md` | Sprint 1 Pulse smoke test instance. |
+| `Docs/runbooks/AFL-0210_PulseBeamHeat_Regression.md` | Sprint 2 full regression matrix (14 scenarios). |
 | `Tools/AFL_Yolo/orchestrator.py` | The orchestrator (~1400 lines). |
 | `Tools/AFL_Yolo/verify.py` | UBT mutex detection + retry + Build.bat invocation. |
 | `Tools/AFL_Yolo/kill_ubt_zombies.ps1` | Admin-elevated recovery script for Session 0 zombies. |

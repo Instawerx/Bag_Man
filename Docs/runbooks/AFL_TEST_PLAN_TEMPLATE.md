@@ -1,7 +1,7 @@
 # AFL QA Test Plan — Template
 
 > Reusable template for AFL Bag_Man manual QA test plans. Copy this file to
-> `Docs/QA/AFL-XXXX_<ShortName>.md`, then fill in every section. Delete the
+> `Docs/runbooks/AFL-XXXX_<ShortName>.md`, then fill in every section. Delete the
 > instructional block-quotes (like this one) once the plan is authored.
 >
 > Owning discipline: QA Lead. See `Docs/BAG_MAN_MASTER_BUILD_v2.0.md`

@@ -7,7 +7,7 @@
 > lines on both the listen-server host and remote clients with simulated
 > 80 ms RTT.
 >
-> Authored from `Docs/QA/AFL_TEST_PLAN_TEMPLATE.md`.
+> Authored from `Docs/runbooks/AFL_TEST_PLAN_TEMPLATE.md`.
 
 ---
 

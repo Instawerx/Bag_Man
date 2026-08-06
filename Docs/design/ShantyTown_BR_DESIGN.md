@@ -1,7 +1,7 @@
 # ShantyTown — Battle Royale Map Design & Scope (v1)
 
 **Status:** SCOPE / DESIGN. **District Program OPERATOR-APPROVED 2026-08-05** (see **Gate**); the BR mode layer remains gated (Zone system + §9). **Date:** 2026-08-05.
-**Roster slots filled:** `BR_18` / `BR_36` (design-only in [MAP_DISPLAY_NAME_REGISTRY.md](MAP_DISPLAY_NAME_REGISTRY.md)).
+**Roster slots filled:** `BR_18` / `BR_36` (design-only in [MAP_DISPLAY_NAME_REGISTRY.md](../reference/MAP_DISPLAY_NAME_REGISTRY.md)).
 **Source pack:** `Content/ShantyTown/` (Landscape environment). **Demo map:** `Content/ShantyTown/Maps/Demo_Map.umap`.
 **Primary users (the driving constraint):** **Staked Battle Royales & Tournaments** — every choice below is filtered through "real stakes are on the line, assume incentive to cheat/grief."
 

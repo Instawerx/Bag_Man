@@ -134,7 +134,7 @@ Established by `ab6e0594`. This lived **only in code and one commit message** be
 | L4 | **AIK owns in-editor asset authoring; Claude Code owns C++/Blender/backend with the editor closed; the Operator owns builds, PIE watches, socket placement and all design rulings.** Never switch lanes silently — flag the lane, why it moved, and why it structurally must. | `IRONICS_PROMOD_CHARACTER_SSOT.md:240-250` | UNVERIFIED (process) |
 | L5 | **The agent issues ZERO MCP/editor automation into a running PIE.** The operator controls PIE; the agent reads `Saved/Logs` only after PIE has stopped. | `AGENTS.md:42` | **VERIFIED-ON-DISK** — enforced this session |
 | L6 | **One block at a time. Do not stack blocks** before the prior one returns. | `IRONICS_PROMOD_CHARACTER_SSOT.md:250` | UNVERIFIED (process) |
-| L7 | **Verify which level is open before any destructive level write.** Assuming the active `.umap` once wiped a finished map. | `feedback-verify-active-level-before-writes`; `Docs/maps/AFL_MapArtPass_MasterPlan.md:10` | **VERIFIED-ON-DISK** — every level write this session asserted `world.get_name()` first |
+| L7 | **Verify which level is open before any destructive level write.** Assuming the active `.umap` once wiped a finished map. | `feedback-verify-active-level-before-writes`; `Docs/runbooks/AFL_MapArtPass_MasterPlan.md:10` | **VERIFIED-ON-DISK** — every level write this session asserted `world.get_name()` first |
 | L8 | **Disk is truth.** Enumerate what is actually present before acting on it; do not assume a skill, asset or system exists because a doc names it. | `CLAUDE.md:43` | UNVERIFIED (process) |
 
 ---
@@ -162,7 +162,7 @@ Established by `ab6e0594`. This lived **only in code and one commit message** be
 | NM2 | **Class/asset prefixes:** `AFLAG_`/`UAFLAG_` abilities · `GE_AFL_*` effects · `NS_AFL_*` Niagara · `M_AFL_*_Master` / `MI_AFL_*` materials · `DA_AFL_*` data assets · `ED_AFL_*` equipment defs · `ID_AFL_*` item defs · `SK_`/`SM_` meshes · `ABP_`/`CR_`/`IK_` rigs. | `CLAUDE.md:102`, `BAG_MAN_MASTER_BUILD_v2.0.md:228-241` | **VERIFIED-ON-DISK** |
 | NM3 | **Tag namespaces:** `State.*` state · `InputTag.*` input · `Cooldown.*` cooldowns · `GameplayCue.*` cues · `Event.*` verbs · `AFL.GamePhase.*` phases · `Data.*` SetByCaller magnitudes. | `CLAUDE.md:104`, `AFLCombatTags.ini` | **VERIFIED-ON-DISK** |
 | NM4 | **NEW bridge-produced assets use the `BagMan_` prefix, not `AFL_`.** Narrow exceptions: dismember gibs keep `SM_AFL_`, and the already-shipped `B_AFL_*` shield/weapon family keeps its names (a shipped id is never renamed). | operator ruling; supersedes `MASTER_BUILD:240` | **VERIFIED-ON-DISK** — `SM_BagMan_Extractor_*`, `B_BagMan_CyberBarrier_BR` |
-| NM5 | **A shipped ID is never renamed.** Internal codenames and player-facing tile names deliberately differ; renaming a `MapID`/DA/experience re-breaks host resolution. Read the registry, never the filename. | `Docs/maps/MAP_DISPLAY_NAME_REGISTRY.md:44-54` | **VERIFIED-ON-DISK** |
+| NM5 | **A shipped ID is never renamed.** Internal codenames and player-facing tile names deliberately differ; renaming a `MapID`/DA/experience re-breaks host resolution. Read the registry, never the filename. | `Docs/reference/MAP_DISPLAY_NAME_REGISTRY.md:44-54` | **VERIFIED-ON-DISK** |
 | NM6 | **The shipped artifact is canonical over the doc.** Where a shipped `*Tags.ini` and a spec disagree, the shipped file wins and the spec bends to it. Read the existing tag files before specifying tag names. | `BAG_MAN_MASTER_BUILD_v2.0.md:32`, `:44` | UNVERIFIED |
 
 ---

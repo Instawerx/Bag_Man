@@ -2,13 +2,13 @@
 
 **Status:** SCOPE / SPIKE PLAN ONLY (no code written). **Date:** 2026-08-05.
 **Purpose:** de-risk the Battle Royale game mode — the prerequisite SYSTEM that gates the ShantyTown BR map
-([ShantyTown_BR_DESIGN.md](maps/ShantyTown_BR_DESIGN.md)) and the roster's `BR_18` / `BR_36` slots — by proving a
+([ShantyTown_BR_DESIGN.md](ShantyTown_BR_DESIGN.md)) and the roster's `BR_18` / `BR_36` slots — by proving a
 **minimal end-to-end BR loop on the EXISTING AFL match substrate** before committing to a full build.
 **Primary users:** Staked Battle Royales & Tournaments (server-authoritative, deterministic, exploit-free throughout).
 
 **Siblings/refs:** [IRONICS_GAME_MODES_SSOT.md](IRONICS_GAME_MODES_SSOT.md) · [IRONICS_MAP_MODE_SPEC.md](IRONICS_MAP_MODE_SPEC.md) ·
 [IRONICS_MATCH_STAKING_SSOT.md](IRONICS_MATCH_STAKING_SSOT.md) · [IRONICS_LEAGUE_ADVANCEMENT_SSOT.md](IRONICS_LEAGUE_ADVANCEMENT_SSOT.md) ·
-[IRONICS_LOOT_CARRY_MODEL.md](IRONICS_LOOT_CARRY_MODEL.md) · [IRONICS_TEAM_ASSIGNMENT_SSOT.md](IRONICS_TEAM_ASSIGNMENT_SSOT.md).
+[IRONICS_LOOT_CARRY_MODEL.md](../_archive/IRONICS_LOOT_CARRY_MODEL.md) · [IRONICS_TEAM_ASSIGNMENT_SSOT.md](IRONICS_TEAM_ASSIGNMENT_SSOT.md).
 
 ---
 

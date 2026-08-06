@@ -22,7 +22,7 @@ So this task is only: (1) the **experience + playlist** layer, (2) the **World-S
 
 ## Reference pattern to mirror (verified 2026-08-03)
 
-**A config = one playlist DA + one per-map experience.** SSOT: `Docs/maps/MAP_DISPLAY_NAME_REGISTRY.md`.
+**A config = one playlist DA + one per-map experience.** SSOT: `Docs/reference/MAP_DISPLAY_NAME_REGISTRY.md`.
 
 | Ref config | Playlist DA (`/Game/BagMan/Playlists/`) | MapID | ExperienceID | max_players |
 |---|---|---|---|---|
@@ -122,4 +122,4 @@ STEP 6 — VERIFY (report back):
 - **Naming:** new assets named descriptively is fine; **never rename** existing DA/experience/MapID.
 - **ProMod-only is load-bearing, not stylistic** — Vault is the map's core mechanic and is ProMod-exclusive. A Haywire config would ship a broken map. Do not add one.
 - **Spawns/extraction/nav on L_Duel_01 are done** — this task is the experience+playlist layer + the 2 caveats.
-- Brief: `Docs/maps/Duel_01_DESIGN.md` (§2–§5 still describe the pre-redesign flat duel; the Build Record documents the as-built vertical version — reconcile at the next brief pass, not AIK's job).
+- Brief: `Docs/design/Duel_01_DESIGN.md` (§2–§5 still describe the pre-redesign flat duel; the Build Record documents the as-built vertical version — reconcile at the next brief pass, not AIK's job).

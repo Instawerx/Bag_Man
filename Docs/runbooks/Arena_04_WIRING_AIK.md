@@ -8,7 +8,7 @@
 
 ## Reference wiring (verified 2026-08-03 — the pattern to mirror)
 
-**A config = one playlist DA + one per-map experience.** (`Docs/maps/MAP_DISPLAY_NAME_REGISTRY.md` is the SSOT for display↔asset.)
+**A config = one playlist DA + one per-map experience.** (`Docs/reference/MAP_DISPLAY_NAME_REGISTRY.md` is the SSOT for display↔asset.)
 
 | Config | Playlist DA (`/Game/BagMan/Playlists/`) | MapID | ExperienceID | Tile | max_players |
 |---|---|---|---|---|---|

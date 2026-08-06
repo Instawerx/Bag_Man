@@ -93,7 +93,7 @@ Full detail in the skill above; the rules Claude Code must always honor:
   ladder, the 10-map tiered roster, the data-science iteration loop, build sequencing, and the
   Shrink system. Read it IN FULL before any map/mode design or build work.
 - **Per-map design gate (doctrine, non-negotiable):** No map enters greybox build until its
-  per-map design brief (`Docs/maps/<MapName>_DESIGN.md`, template in spec §11) exists and is
+  per-map design brief (`Docs/design/<MapName>_DESIGN.md`, template in spec §11) exists and is
   **operator-approved**. Order: brief → approval → greybox → telemetry → balance → art →
   PIE sign-off.
 
