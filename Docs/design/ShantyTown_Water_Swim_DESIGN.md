@@ -257,11 +257,17 @@ currently unshippable (§1.1).
    short crossings into an attrition mechanic. Reversing makes water a fully recoverable route and reduces the
    decision to a timing question. **Recommend pause-and-hold** — the risk should persist, or crossing carries
    no memory — but this changes how the whole system feels and is owed.
-3. **Does the rate differ by ruleset?** A water death is elimination in SHOOTOUT and a few seconds in TURBO
-   (`ssot/match-modes.md`), so an identical rate is a far larger commitment in SHOOTOUT.
+3. **Does the rate differ by ruleset?** A water death ends the **match** in BATTLE ROYALE and ends the **round**
+   in MATCH PLAY (`ssot/match-modes.md` §2, **R41**), so an identical rate is a far larger commitment under
+   BATTLE ROYALE.
    **Recommend one rate, letting the stakes differ naturally** — that keeps one mechanic players learn once,
    and matches the principle that the rulesets differ in win condition and respawn rather than in physics.
-   **Flagged as owed.** TURBO has no code, so this can be deferred without blocking.
+   **⚠ R41 MADE THIS QUESTION LIVE.** It was previously deferrable on the grounds that the second ruleset had no
+   code. **MATCH PLAY does** — it is the round manager — so both rulesets a water death can occur under are
+   real, and the recommendation above now needs a decision rather than a note. The round-reset boundary also
+   raises a question this entry never had to ask: **does accumulated water damage survive a round reset?** Under
+   question 2's recommended pause-and-hold it would, which would let a single early crossing cost a player for
+   the rest of the series.
 4. **Surface versus submerged** — one movement state or two, and what the camera does when submerged (§3).
 5. **The grace period before the first tick.** `bExecutePeriodicEffectOnApplication = false` gives one free
    period; whether that is the right grace, or whether a longer explicit one is wanted before degradation

@@ -29,7 +29,7 @@ choice, a filter row, a scannable list, a detail panel, a commit button:
 
 | PokerStars element | IRONICS equivalent | Ruling |
 |---|---|---|
-| Format tabs (Cash · Zoom · Sit & Go · Spin & Go · Tourney) | **Ruleset tabs — SHOOTOUT · TURBO** | R19, matchmaking R7 |
+| Format tabs (Cash · Zoom · Sit & Go · Spin & Go · Tourney) | **Ruleset tabs — MATCH PLAY · BATTLE ROYALE** | R19, matchmaking R7, **R41** |
 | Filter row (Game · Buy-In · Table Size · Speed · Type) | **The two axes — SIZE · STAKE** | R18 |
 | Tournament list (896 rows, one per event) | **Queue list — one row per SIZE × STAKE BAND** | R18 |
 | Right detail card ("REGISTERING", buy-in, prize pool, Register) | **Queue detail panel** | §3.3 |
@@ -40,7 +40,7 @@ choice, a filter row, a scannable list, a detail panel, a commit button:
 
 **Five places we deliberately diverge**, each with the ruling that forces it:
 
-1. **Rows are QUEUES, not events.** A row is `SHOOTOUT · Duo · 400–500 V`. It never names a map. **R18.**
+1. **Rows are QUEUES, not events.** A row is `BATTLE ROYALE · Duo · 400–500 V`. It never names a map. **R18.**
 2. **The list is short and bounded.** Queue count is bounded by design (`matchmaking.md` §4). PokerStars'
    infinite scroll is the wrong shape for a set that fits on one screen — no virtualisation needed, and the
    absence of scroll is itself information.
@@ -133,8 +133,8 @@ R22 is explicit that it is a shortcut through navigation, never through a check.
 │ [BOLT] IRONICS          ⚡ 12,480 V   ⚡ 3,150 W        ◉ 1,284 online   [◄]   │ A  header
 ├────────────────────────────────────────────────────────────────────────────────┤
 │   ┌──────────────┬──────────────┐                                              │ B  ruleset tabs
-│   │  SHOOTOUT    │    TURBO     │                                              │
-│   └══════════════┴──────────────┘                                              │
+│   │  MATCH PLAY  │ BATTLE ROYALE│                                              │
+│   └──────────────┴══════════════┘                                              │
 ├────────────────────────────────────────────────────────────────────────────────┤
 │  SIZE                          STAKE                                           │ C  axis row
 │  ○ Solo   ● Duo   ○ Squad      [100][250][500][1000]   or [  450  ]            │
@@ -161,10 +161,30 @@ with the rule it illustrates loses, and gets corrected to match** — but it is 
 | Region | Desktop ≥1280 | Notes |
 |---|---|---|
 | A header | full width, `64px` | Wallet left-of-centre, population right. Mirrors PokerStars' balance + online count. |
-| B tabs | full width, `48px` | Two tabs only. **Never a dropdown** — R19 wants them visible and comparable. |
-| C axis row | full width, `96px` | **Both axes live simultaneously.** R19: no wizard. |
+| B tabs | full width, `48px` | Two tabs only, **both live**. **Never a dropdown** — R19 wants them visible and comparable. **No disabled variant** (R41 §3.3). |
+| C axis row | full width, `96px` | **Both axes live simultaneously.** R19: no wizard. **The first axis is RULESET-SCOPED** — see §3.2.1. |
 | D list / detail | `1fr / 420px`, gap `spacing-md` | PokerStars' list-left / card-right split, unchanged. |
 | E commit bar | full width, `72px`, pinned | Always reachable. Re-queue speed depends on it. |
+
+### 3.2.1 The first axis is scoped by the ruleset — R41
+
+**Switching the ruleset tab re-scopes the axis, the queue list and the payout shape**, because all three are
+properties of the ruleset rather than of the screen.
+
+| Ruleset | First axis | Options | Positions |
+|---|---|---|---|
+| **MATCH PLAY** | `FORMAT` | 1v1 · 3v3 · 5v5 · 8v8 | **2**, always |
+| **BATTLE ROYALE** | `SQUAD SIZE` | Solo · Duo · Squad | **field ÷ squad size** |
+
+**Options are read off the live queues, never authored as a list.** An axis that offers a value with no queue
+behind it is the same defect class as a tab with no ruleset behind it — R18's rule is that *every axis the
+front end offers is an axis it must then honour*, and the cheapest way to honour it is to never offer more than
+exists.
+
+**R19 is unaffected.** Both axes stay operable at the same instant; only the option set changes. This is not a
+step in a wizard — nothing is gated behind the ruleset choice, it is re-scoped by it.
+
+---
 
 ### 3.3 Queue row anatomy
 
@@ -192,7 +212,7 @@ space — which the payout ladder needs.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│ ⚡ SHOOTOUT · DUO                                    [ ✕ ]    │
+│ ⚡ BATTLE ROYALE · DUO                               [ ✕ ]    │
 │ 400–500 V band                                                │
 │                                        [ Back ]  [  QUEUE  ]  │
 ├───────────────────────────────────────────────────────────────┤
@@ -234,8 +254,8 @@ corrected in the same pass.
 
 **Squad is winner-takes-all, and nothing declares it.** Nine finishing positions is under ten, so `p = 1` and
 the whole budget goes to first — **R37's structural point falling out of the arithmetic rather than out of a
-mode flag.** S2 renders a single-row ladder in that case. **The Payouts tab is not empty and not disabled**;
-that state belongs to TURBO alone (§16.7).
+mode flag.** S2 renders a single-row ladder in that case. **The Payouts tab is not empty and not disabled** under either
+ruleset — see §16.7, which R41 closed.
 
 ---
 
@@ -276,7 +296,7 @@ exactly why the limits ship with it rather than after it*.
 ┌───────────────────────────────────────────────┐
 │  CONFIRM ENTRY                                │
 │                                               │
-│  SHOOTOUT · Duo · 450 V                       │
+│  BATTLE ROYALE · Duo · 450 V                  │
 │  matching 400–500 V                           │
 │  venue assigned at match start                │
 │                                               │
@@ -357,7 +377,7 @@ jitter as they tick.
 
 | Component | Variants | Key props | Notes |
 |---|---|---|---|
-| `AFLW_Lobby_RulesetTab` | active · inactive · disabled | `RulesetId`, `bHasPopulation` | Disabled when a ruleset has no code (TURBO). |
+| `AFLW_Lobby_RulesetTab` | active · inactive | `RulesetId`, `bHasPopulation` | **No disabled variant.** R41 §3.3: a ruleset with no match-structure component is a proposal and is not offered at all — so a tab either works or does not exist. |
 | `AFLW_Lobby_AxisSelector` | radio (size) · tile-grid (stake) | `AxisId`, `Options[]`, `Selected` | One parameterised component, two skins. |
 | `AFLW_Lobby_QueueRow` | default · hover · selected · **cold** | `Size`, `BandLo`, `BandHi`, `Population`, `EstWaitSec`, `bCold` | **Cold is a first-class variant, not a disabled state** — §5.2. |
 | `AFLW_Lobby_DetailPanel` | — | `QueueTicketPreview` | Hosts the tab row. |
@@ -506,5 +526,8 @@ Carried from `ui-frontend.md` §14 and `economy-store.md` §15 — **do not hard
    assumption.
 6. **The winner's-multiple sawtooth** (`economy-store.md` §15.9) — S2's payout preview will show a ~17–23%
    step at N = 14, 21, 27, 34. Whether to smooth or expose it is unruled.
-7. **TURBO's payout shape** (`match-modes.md` §9.3) — TURBO has no placement ladder, so S2's Payouts tab has
-   no defined content under that ruleset. **The tab is disabled, not empty**, until it does.
+7. ~~**TURBO's payout shape**~~ — **CLOSED by R41.** TURBO is parked (`match-modes.md` §9.7) and MATCH PLAY
+   took the second ruleset slot. MATCH PLAY has **two finishing positions**, so the existing rule resolves it to
+   winner-takes-all: **defined content, not empty.** S2's Payouts tab is live under both rulesets and the
+   disabled variant is gone. *What closed this was not a decision about payouts — it was replacing a ruleset
+   that could not produce positions with one that does.*

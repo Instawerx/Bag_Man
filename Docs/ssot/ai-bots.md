@@ -454,10 +454,13 @@ it creates.
    makes it stable and free. The alternative is an authored roster of named personalities — more
    characterful and more legible to players, but it is content to maintain and it caps the variety at the
    number authored. Interacts with whether bots are ever presented as recurring characters.
-3. **Bot behaviour under TURBO's instant respawn.** **Undefined, because the ruleset does not exist yet**
-   (`ssot/match-modes.md`). Competence is currently a function of round progress; a ruleset with no rounds and
-   continuous respawn has no equivalent clock, so the competence curve has no input. This must be answered
-   when TURBO is designed, not retrofitted.
+3. **Bot competence across two position depths.** Competence is a function of match progress. **BATTLE ROYALE
+   and MATCH PLAY give it two different clocks** — a monotonically falling alive-count over N positions, versus
+   a round score climbing to a threshold over 2 — and the curve is currently written against one of them. Which
+   input each ruleset feeds, and whether one curve can serve both, is undefined.
+   *(This question replaced "bot behaviour under TURBO's instant respawn", which R41 parked with the ruleset.
+   Should TURBO ever revive, the original applies again: continuous respawn has no equivalent clock at all,
+   so the competence curve would have no input rather than a second one — `ssot/match-modes.md` §9.7.)*
 4. **Whether bots appear only in unrated queues, or also warm cold stake bands.** §6.3 forbids bots in any
    match whose result carries stake or rating, which settles the *filling* question. What is open is whether
    bots may appear in a **visible but non-settling** capacity — and what that would mean for
@@ -492,5 +495,5 @@ it creates.
   §6.3's hard line protects, and staking.
 - `ssot/league-play.md` — §2.1 there is why rating cannot absorb results against fill bots.
 - `ssot/character-system.md` — the pawn data and movement components bots drive.
-- `ssot/match-modes.md` — the phases bots are gated by, and TURBO, whose absence is §9.3.
+- `ssot/match-modes.md` — the phases bots are gated by, and the parked ruleset at §9.7.
 - `ssot/map-build-system.md` — the navigable space §7 depends on.

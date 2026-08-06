@@ -107,8 +107,8 @@ edit and a live-ops lever — **never a code change and never a player-visible r
 
 ### 4.1 Ruleset is the TOP-LEVEL choice — the queue splits (R7)
 
-**SHOOTOUT and TURBO have separate queues, and ruleset is the FIRST choice a player makes — above size and
-above stake. Two tabs, not one doubled flat list.**
+**MATCH PLAY and BATTLE ROYALE have separate queues, and ruleset is the FIRST choice a player makes — above
+size and above stake. Two tabs, not one doubled flat list.**
 
 The hierarchy matters as much as the split. A flat list of every `ruleset × bracket × league` combination is
 the same information presented as an undifferentiated wall; two tabs present it as *"which game are you here to
@@ -116,8 +116,8 @@ play, and then what size."* The player answers one question before being asked t
 
 **Why the queue splits rather than merging:**
 
-- **They are different products, not variants of one.** A player who wants TURBO and is dropped into permadeath
-  does not experience a slightly-off match — they experience the wrong game. They quit, and **on a wagered match
+- **They are different products, not variants of one.** A player who wants a bounded team series and is dropped
+  into a last-standing free-for-all does not experience a slightly-off match — they experience the wrong game. They quit, and **on a wagered match
   they eat a leaver penalty for it.** That is the worst failure available in this system, and a merged queue
   aims it squarely at the mode carrying money. No matching gain justifies it.
 - **Observed practice separates by FORMAT.** Wager and competitive platforms split on format, not on variant of
@@ -137,13 +137,13 @@ Queue count is the product of the **contest** dimensions only:
   queues  =  rulesets  ×  brackets  ×  leagues
 ```
 
-- **Rulesets** — **2** (SHOOTOUT, TURBO), split per R7 (§4.1) and expressed as the top-level tab.
+- **Rulesets** — **2** (MATCH PLAY, BATTLE ROYALE), split per R7 (§4.1) and expressed as the top-level tab.
 - **Brackets** — the party-size bands the district model serves: `1v1, 2v2` · `3v3, 4v4` · `5v5, 8v8`, plus the
   BR counts. On the order of **8**.
 - **Leagues** — **2** (HAYWIRE, PRO MOD; `ssot/match-modes.md` §4).
 
 That places the player-facing entry count **on the order of 32**, reached through a two-level choice rather
-than presented flat. **Not every cell is necessarily offered** — a ruleset suited to dense footprints need not
+than presented flat. **Not every cell is necessarily offered** — a ruleset suited to arena footprints need not
 be published at every bracket (`ssot/match-modes.md` §2.2), and an unoffered cell is a pool that never had to
 be filled.
 
@@ -314,7 +314,7 @@ The user-facing consequence is also the correct one: **you always play with your
 **Solo is expressed as one team per participant.** It is not a separate mode, a separate ruleset, or a separate
 code path — it is the team-assignment layer configured so that every participant is their own team.
 
-This is what makes **SHOOTOUT resolve to last *player* standing rather than last *team* standing**: the ruleset
+This is what makes **BATTLE ROYALE resolve to last *player* standing rather than last *team* standing**: the ruleset
 counts surviving teams, and when every participant is a team of one, the last surviving team is the last
 surviving player. The ruleset does not know or care which configuration it is running under.
 
@@ -378,8 +378,8 @@ Stated as interfaces (shapes), not implementations.
 Matchmaking (with the match) emits, per match:
 - the **match id** (§9.1);
 - the **participant set** with team assignment;
-- the **ruleset** the match ran, since rank input differs by ruleset — placement under SHOOTOUT, kill-ratio under
-  TURBO (`ssot/match-modes.md` §2);
+- the **ruleset** the match ran, since rank input differs by ruleset — placement over N positions under BATTLE
+  ROYALE, the series outcome over 2 under MATCH PLAY (`ssot/match-modes.md` §2);
 - the **result** in that ruleset's terms;
 - the **league** the match ran under;
 - **whether the match was ranked**, and **whether it was staked** — as *independent* facts.
@@ -392,7 +392,8 @@ Matchmaking (with the match) emits, per match:
 
 - the **match id** (the same key);
 - the **participants and their entries** as escrowed;
-- the **outcome ordering** the payout curve consumes — placement for SHOOTOUT, ratio standing for TURBO;
+- the **outcome ordering** the payout curve consumes — **finishing position under both rulesets**, over N for
+  BATTLE ROYALE and over 2 for MATCH PLAY, which is why one curve serves both (`ssot/match-modes.md` §3.2);
 - the **terminal state**: settled, cancelled-refund, or held-pending-review.
 
 **The third terminal state is required, not optional.** A match flagged for integrity review must be able to
@@ -442,7 +443,7 @@ rating consumed should arguably account for coordination.
 
 | Ruling | Date | Content |
 |---|---|---|
-| **R7 — SHOOTOUT and TURBO SPLIT THE QUEUE** | **2026-08-05** | Ruleset is the **top-level choice**, above size and above stake — presented as **two tabs**, not one doubled flat list. Settled on three grounds: (1) **UX** — they are different products, not variants; a player who wants TURBO and is dropped into permadeath quits and **eats a leaver penalty on a wagered match**, the worst failure available in this system; (2) **observed practice** — wager and competitive platforms separate by **format**, never merging elimination and respawn formats; (3) **fragmentation does not apply** — merging doubles the entries but not the pool, because those players were never interchangeable, so a merged queue's population is **nominal, not effective**. A genuinely cold band folds into a neighbour via the transparency mechanism (§7), which is the correct instrument for that problem. Carried as **§4.1**, with the arithmetic in **§4.2** and per-ruleset counts in **§7**. **This is settled; a reader should not reopen it.** |
+| **R7 — THE TWO RULESETS SPLIT THE QUEUE** | **2026-08-05**, **renamed 2026-08-06** | Ruleset is the **top-level choice**, above size and above stake — presented as **two tabs**, not one doubled flat list. Settled on three grounds: (1) **UX** — they are different products, not variants; a player who wants one and is dropped into the other quits and **eats a leaver penalty on a wagered match**, the worst failure available in this system; (2) **observed practice** — wager and competitive platforms separate by **format**, never merging elimination and respawn formats; (3) **fragmentation does not apply** — merging doubles the entries but not the pool, because those players were never interchangeable, so a merged queue's population is **nominal, not effective**. A genuinely cold band folds into a neighbour via the transparency mechanism (§7), which is the correct instrument for that problem. Carried as **§4.1**, with the arithmetic in **§4.2** and per-ruleset counts in **§7**. **This is settled; a reader should not reopen it.** **RENAMED BY R41** (`ssot/match-modes.md`): the pair is MATCH PLAY and BATTLE ROYALE. **The split reasoning is unchanged and if anything stronger** — the two now differ in end condition, respawn policy AND position count, where the old pair differed in the first two only. |
 
 ---
 
@@ -451,7 +452,7 @@ rating consumed should arguably account for coordination.
 - [`Docs/DOCTRINE.md`](../DOCTRINE.md) — laws cited here: **N1** server authority · **N11** client never decides
   balances/ownership · **N12** transactional transfer with escrow and rollback · **G5** inert data assets ·
   **G7** backend residency · **P8** backend proven standalone before integration.
-- `ssot/match-modes.md` — the rulesets a queue offers; solo/FFA as the configuration that makes SHOOTOUT resolve
+- `ssot/match-modes.md` — the rulesets a queue offers; solo/FFA as the configuration that makes BATTLE ROYALE resolve
   to last player standing.
 - `ssot/map-build-system.md` — what a play-space is, the district model, and the footprint ladder that decides
   which brackets a play-space can serve.

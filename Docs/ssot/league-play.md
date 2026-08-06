@@ -113,18 +113,27 @@ The two rulesets produce **structurally different results** (`ssot/match-modes.m
 
 | Ruleset | Produces | Nature |
 |---|---|---|
-| **SHOOTOUT** | **Placement** (1..N) | An *ordering* over participants |
-| **TURBO** | **Kill ratio** | A *rate*, comparable across matches |
+| **BATTLE ROYALE** | **Placement** (1..N) | An ordering over **N** participants |
+| **MATCH PLAY** | **Series outcome** (1..2) | An ordering over **2** sides |
 
-**The league system must consume both without either distorting the other.** These are not the same quantity
-in different units — one is ordinal and bounded by lobby size, the other is continuous and unbounded — so
-combining them naively is a category error, not a scaling problem.
+**The league system must consume both without either distorting the other.**
+
+> **⚠ R41 CHANGED THE SHAPE OF THIS PROBLEM, AND IT GOT EASIER.** The former pair produced placement and a
+> **kill ratio** — one ordinal and bounded by lobby size, the other continuous and unbounded — so combining
+> them naively was a **category error, not a scaling problem**. That is no longer the case: **both rulesets now
+> produce a finishing position**, differing only in how many positions there are. It is now genuinely a scaling
+> problem, and a tractable one.
+>
+> **What survives the change:** a 2-position result carries far less information per match than an N-position
+> one. Beating one opponent is one bit; placing 3rd of 36 is not. So the two still cannot be pooled without
+> weighting, and §4.1's fork stands — but it is a fork about *information content*, not about incommensurable
+> units.
 
 ### 4.1 The two options, and their trade-offs
 
 **Option A — two ladders, one per ruleset.**
 *For:* each rating measures exactly one thing and is directly interpretable; no normalisation to argue about;
-a player's SHOOTOUT standing cannot be inflated by TURBO performance or vice versa; it matches the R7 decision
+a player's BATTLE ROYALE standing cannot be inflated by MATCH PLAY performance or vice versa; it matches R7
 that the rulesets are different products with separate queues.
 *Against:* it splits the rating population the same way splitting queues splits the match population — each
 rating converges more slowly, and a player who plays both has two partial identities instead of one. It also
@@ -134,8 +143,8 @@ mean?"
 **Option B — one ladder, with per-ruleset normalisation.**
 *For:* one number, one identity, one leaderboard; the whole population feeds a single rating, so it converges
 faster and is more meaningful at the margins.
-*Against:* it requires mapping placement and kill-ratio onto a common scale, and **that mapping is a design
-liability**. If the normalisation is even slightly off, one ruleset becomes the efficient way to rate up, and
+*Against:* it requires mapping an N-position result and a 2-position result onto a common scale, and **that
+mapping is a design liability**. If the normalisation is even slightly off, one ruleset becomes the efficient way to rate up, and
 players follow the incentive rather than the format they prefer — which corrupts both the rating and the
 population split R7 was protecting. The mapping also needs re-derivation whenever either ruleset's balance
 changes.
@@ -462,7 +471,7 @@ ladder.
 | **R10 — Progression is volume-driven, and volume is NOT rating** | **2026-08-05** | Career progression is time-played driven in the poker-career shape, with named thresholds at cumulative eliminations **100 · 500 · 1,000 · 5,000 · 10,000 and continuing** — a ladder that never ends, each tier visibly further than the last (§3). **Cumulative volume and skill rating are separate axes and must never be conflated: volume rewards attendance, rating measures strength, and matchmaking consumes rating only** (§2.1). Conflation would grind players into matches they cannot win — a UX failure and, under stakes, an integrity failure. |
 | **R11 — Threshold rewards are economy grants** | **2026-08-05** | Badges, sticker packs, emblems and weapons awarded at thresholds are granted **through the economy's reward-grant interface and the single persistence seam** — never a parallel inventory path (§6.1). League decides who has earned what; economy performs the grant. |
 | **R12 — Regional brackets are leaderboards, not queues** | **2026-08-05** | Players **compete regionally while queueing globally** (§7). Region is matchmaking's profile attribute, read here for standings and prize eligibility only. Regional standings are a filtered view of one global result set and cost nothing; regional queues would partition the population, and a split pool cannot be recovered once the population has thinned. |
-| **R13 — Rank input differs by ruleset** | **2026-08-05** | SHOOTOUT produces **placement**; TURBO produces **kill ratio** (§4). League consumes both without either distorting the other. Whether this is two ladders or one with normalisation is **not decidable from design alone and is recorded as open** (§13.2); **no formula is fixed here**. Whatever is chosen must not make one ruleset the rating-efficient one. |
+| **R13 — Rank input differs by ruleset** | **2026-08-05**, **amended 2026-08-06** | **AMENDED BY R41** (`ssot/match-modes.md`): BATTLE ROYALE produces **placement over N positions**; MATCH PLAY produces **a series outcome over 2** (§4). **The original premise — placement versus kill ratio — no longer holds, and its consequence was the harder one:** two incommensurable quantities became two orderings of different depth, so the normalisation question is now a scaling problem rather than a category error. League consumes both without either distorting the other. Whether this is two ladders or one with normalisation is **not decidable from design alone and is recorded as open** (§13.2); **no formula is fixed here**. Whatever is chosen must not make one ruleset the rating-efficient one. |
 | **R14 — The stake firewall** | **2026-08-05** | **Stake size has no input to rating** (§5). A staked win and an unstaked win of the same result against the same opposition move the ladder identically. Restated as a league-side invariant because this is where the pressure to violate it originates: weighting rating by stake would make rank purchasable by arithmetic rather than by a store listing. Staked performance may be surfaced on a **separate** board that does not feed rating. |
 
 ---

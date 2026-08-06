@@ -87,12 +87,12 @@ independent; presenting them sequentially adds an ordering that does not exist i
 
 ### 3.2 Ruleset is the top-level choice, above both axes
 
-**SHOOTOUT and TURBO are two tabs above the two axes — not a doubled flat list.**
+**MATCH PLAY and BATTLE ROYALE are two tabs above the two axes — not a doubled flat list.**
 
 `ssot/matchmaking.md` **R7** settles that the rulesets split the queue and get two tabs. The UI reasoning:
 
 - **The rulesets are different products, not options within one.** They differ in win condition, respawn
-  behaviour and match length (`ssot/match-modes.md` §2). Flattening them into one list of size-and-stake
+  behaviour, match length **and position count** (`ssot/match-modes.md` §2). Flattening them into one list of size-and-stake
   combinations would present two products as variants of each other.
 - **A flat list doubles in length and halves in legibility.** Every size × every stake × two rulesets is a
   grid the player has to filter mentally. Tabs remove the ruleset dimension from the grid entirely.
@@ -103,7 +103,7 @@ independent; presenting them sequentially adds an ordering that does not exist i
 
 ```
 ┌─ PLAY ─────────────────────────────────────────────────┐
-│  [ SHOOTOUT ]  [ TURBO ]              ← ruleset tabs    │
+│  [ MATCH PLAY ]  [ BATTLE ROYALE ]    ← ruleset tabs    │
 │                                                         │
 │  SIZE                    STAKE                          │
 │  ┌──────────────────┐    ┌───────────────────────────┐  │
@@ -682,7 +682,7 @@ Three properties of the ticket:
 | Ruling | Date | Content |
 |---|---|---|
 | **R18 — The front end is a stake lobby, not a map browser** | **2026-08-05** | The player chooses **match size** and **stake amount**. **Venue is a server outcome, disclosed as "venue assigned at match start"** (§2). The front end's axes and the matchmaker's queue dimensions are the same list; any axis the UI offers it must honour, per `ssot/matchmaking.md` **D1**. |
-| **R19 — Split layout, not a stepped flow** | **2026-08-05** | Both axes are live and editable at once; no wizard (§3). Staked players re-queue constantly and change one variable, usually stake — a stepped flow makes them re-walk the whole path every time. **Ruleset (SHOOTOUT / TURBO) is the top-level choice above both axes — two tabs, not a doubled flat list** (`ssot/matchmaking.md` **R7**). |
+| **R19 — Split layout, not a stepped flow** | **2026-08-05** | Both axes are live and editable at once; no wizard (§3). Staked players re-queue constantly and change one variable, usually stake — a stepped flow makes them re-walk the whole path every time. **Ruleset (MATCH PLAY / BATTLE ROYALE) is the top-level choice above both axes — two tabs, not a doubled flat list** (`ssot/matchmaking.md` **R7**). |
 | **R20 — Stake entry: presets primary, numeric secondary, NO slider** | **2026-08-05** | Presets are the primary control; an editable numeric field is secondary. **The slider is rejected** — slow, imprecise by construction, poor on touch (**B4**), and it implies a continuum where the design has bands (§4.1). **The matching band must be visible** ("matching 400–500 V"); a player must never believe an exact figure will be returned (§4.2). |
 | **R21 — Population transparency is a UI requirement** | **2026-08-05** | Live counts and estimated wait **per size and per stake band**, on the queue surface (§5). It is the UI-side mitigation for fragmentation and it is the honest option: **an empty band must look empty rather than silently never matching**, because a queue that accepts a player and never returns is indistinguishable from a broken one. |
 | **R22 — One-tap re-queue** | **2026-08-05** | Remember the last selection; offer **"BATTLE AGAIN — <size>, <stake>"** as a single action after a match (§6). It sits at the highest-frequency moment in the product and catches peak intent without spending it on navigation. The remembered selection is **stated in the action**, and guardrails still apply — it is a shortcut through navigation, never through a check. |

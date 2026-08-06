@@ -33,10 +33,13 @@ staked (→ `ssot/matchmaking.md`), rank ladders and progression (→ `ssot/leag
 A **ruleset** answers three questions: *how does the match end*, *what happens when you die*, and *what is
 scored*. Everything else about a match is shared machinery. There are exactly two rulesets.
 
-### 2.1 SHOOTOUT — last player standing
+### 2.1 BATTLE ROYALE — last participant standing
 
-The speed format in the poker sense: simple, fast, decisive. No clock to manage, no comeback mechanic, no series
-to sit through. You are in until you are out.
+Simple, fast, decisive. No clock to manage, no comeback mechanic, no series to sit through. You are in until you
+are out.
+
+> **Named SHOOTOUT until R41 (§10).** The rename is a rename only — **every property in this section is
+> unchanged.** Anything citing `match-modes.md` §2.1 still lands on the same ruleset.
 
 | Property | Definition |
 |---|---|
@@ -50,7 +53,7 @@ to sit through. You are in until you are out.
 **Why placement rather than kills:** under permanent death, surviving *is* the skill expression. A kill-weighted
 score would reward a player who traded early over one who won, which inverts the format's own premise.
 
-**Payout basis — placement (R36).** SHOOTOUT **earns on finishing position**. The ladder and its splits live in
+**Payout basis — placement (R36).** BATTLE ROYALE **earns on finishing position**. The ladder and its splits live in
 `ssot/economy-store.md` §5.2 and are not restated here. What belongs in the ruleset definition is *why the
 basis is available at all*: **placement is the only outcome this ruleset generates.** With no timer and no
 respawn, there is nothing else a match produces that a payout could key on. The same signal already feeds the
@@ -66,27 +69,42 @@ rank input above and league rating, so paying on it adds a consumer rather than 
 > Recorded here as well as in the economy SSOT because **the position count is a fact about the ruleset's
 > shape**, not about its payout — anything else keying on match outcome inherits the same distinction.
 
-### 2.2 TURBO — timed, respawning, kill-ratio
+### 2.2 MATCH PLAY — two teams, a series of rounds
 
-The high-tempo format. A fixed clock, no downtime on death, and a score that rewards sustained performance
-rather than survival.
+Two sides, a bounded series, sides swapped at half. The competitive format: known length, a comeback path, and
+a per-round reset that makes a single mistake cost a round rather than the match.
+
+> **⚠ THIS SLOT PREVIOUSLY HELD TURBO, AND MATCH PLAY IS NOT TURBO RENAMED.** They are different rulesets with
+> no property in common — TURBO was a single timed match with instant respawn scored on kill ratio; MATCH PLAY
+> is a round series with no mid-round respawn scored on rounds won. **TURBO is parked, not renamed** (§9.7,
+> R41). A reader who treats this section as continuous with what stood here will be wrong about every row.
 
 | Property | Definition |
 |---|---|
-| **End condition** | **The clock.** **7 minutes** standard, **10 minutes** high-stakes. The match ends when time expires — nothing else ends it. |
-| **Respawn policy** | **Instant.** Death costs the death itself and the tempo of dying; it does not remove the player. |
-| **Scoring basis** | **Kill ratio.** Performance is measured from eliminations against deaths (with assists credited), not from survival. |
-| **Rank input** | The kill-ratio score at time expiry. |
-| **Series** | **None.** A TURBO match is a single timed match — **no best-of-N**. The clock is the whole structure. |
-| **Suits** | **Dense footprints** — district-scale, at or near the dense baseline of the footprint ladder (`ssot/map-build-system.md` §3). Instant respawn on a sparse or whole-map footprint spends the match walking; the format needs re-engagement to be immediate. |
+| **End condition** | A team reaches the **round-win threshold** — **7 by default, best of 13**. The series is bounded: it cannot run long. |
+| **Round win** | **Wiping the enemy team, or completing a central-extract bank.** Two routes, deliberately — a team that cannot win the fight can still win the round on the objective. |
+| **Round timer** | **Bounded per round.** On expiry the round resolves on **higher banked progress → core-holder → no-score replay**, in that order. The round timer is what removes the stall case; the match has no clock of its own. |
+| **Respawn policy** | **Between rounds, never within one.** Death costs the round, not the match. This is the middle position between permanent death and instant respawn, and it is the whole reason the format has a comeback path. |
+| **Sides** | **Swapped at half.** A map advantage held by one side is therefore held by both. |
+| **Scoring basis** | **Two finishing positions.** A team won the series or it did not; there is no third place in a two-team format. |
+| **Rank input** | The series outcome. Whether round differential also contributes is **open** (§9.2). |
+| **Suits** | **Arena footprints** — bounded, symmetric, with a contested centre the extract bank can occupy. A sparse or whole-map footprint spends each round walking. |
 
-**Why a hard clock and no series:** the two high-stakes properties of TURBO are *known duration* and *no dead
-time*. A best-of-N reintroduces both problems it exists to remove — variable length, and a player sitting out a
-round. The clock is the format.
+**Why a round series rather than a single match:** a single decisive match makes one bad engagement the whole
+result, which is punishing in a format played for stakes. A series converts variance into a signal — the better
+team wins more rounds — while the round-win threshold keeps the length bounded and known.
 
-**Why kill-ratio rather than raw kills:** raw kills reward whoever fed most aggressively into a respawn loop. A
-ratio against deaths makes a reckless trade cost something, which is what keeps a respawning format competitive
-rather than chaotic.
+**Why two routes to a round win:** an elimination-only round is decided entirely by the fight, so a team behind
+on gunplay has no line to pull on. The extract bank gives one, and it does it without a scoring pipeline of its
+own — the round is still won or lost, only the way in differs.
+
+**Why no mid-round respawn:** it is what makes a round a discrete unit. Respawning inside a round turns it into
+a small deathmatch and removes the reason a round ends at all.
+
+> **THE POSITION COUNT IS TWO, AND THAT IS A PAYOUT FACT.** MATCH PLAY is a team format, so §2.1's
+> positions-not-players rule resolves it to **winner-takes-all automatically** — `ceil(0.15 × 2) = 1` — at every
+> team size from 1v1 to 8v8, with no mode flag. **This is not a gap in the payout design; it is the payout
+> design arriving at its own answer.** Contrast BATTLE ROYALE, where N positions produce a scaled ladder.
 
 ---
 
@@ -101,7 +119,7 @@ This is the most important framing in the document, because it determines the im
 | **Participant roster** | Both rulesets operate on the same set of participants gathered at match start; both must survive late joins and mid-match possession changes identically. |
 | **Match id** | One server-authored identifier per match, replicated. It is the contract id staking and telemetry key against — independent of ruleset. |
 | **Telemetry** | Both emit the same event families (eliminations with location, traversal samples, match resolution). A dispute-replay reads the same stream either way. |
-| **Team assignment** | Solo/FFA versus squads is a *lobby* property, not a ruleset property. Either ruleset can run either way. |
+| **Team assignment** | The size axis is a *lobby* property. BATTLE ROYALE takes squad size (solo/duo/squad over N positions); MATCH PLAY takes team format (1v1 through 8v8 over 2 positions). The ruleset fixes the position COUNT, the lobby fixes the size. |
 | **Match-phase spine** | Warmup → Playing → PostGame (§5) is identical. Both freeze abilities during warmup, both conclude through the same PostGame machinery. |
 | **Death signal** | Both react to the same authoritative death event; they differ only in what they *do* with it. |
 | **Join coverage** | Both must apply match state to participants arriving after the phase edge that set it. |
@@ -110,32 +128,45 @@ This is the most important framing in the document, because it determines the im
 
 **Two things. Only two.**
 
-1. **The end condition** — alive-count threshold (SHOOTOUT) versus clock expiry (TURBO).
-2. **The respawn policy** — suppressed for the match (SHOOTOUT) versus never suppressed (TURBO).
+1. **The end condition** — alive-count threshold (BATTLE ROYALE) versus round-win threshold (MATCH PLAY).
+2. **The respawn policy** — suppressed for the match (BATTLE ROYALE) versus suppressed within a round and
+   released between rounds (MATCH PLAY).
 
-Scoring differs as a *consequence* of those two: permanent death produces an ordering (placement), a respawning
-clock produces a rate (ratio).
+Scoring differs as a *consequence* of those two: permanent death across a whole match produces an ordering of
+N participants (placement); permanent death within a round, repeated, produces a two-sided series result.
+**Both are placement — one over N positions, one over 2.** That is why a single payout rule serves both.
 
-### 3.3 Therefore: TURBO is a SIBLING, not a fork
+### 3.3 Therefore: A RULESET IS A MATCH-STRUCTURE COMPONENT
 
-**Intended shape: TURBO is authored as a sibling match-structure component alongside the existing one — not as a
-fork of it, and not as a mode flag inside it.**
+**A ruleset is authored as its own match-structure component — not as a fork of another, and not as a mode flag
+inside one.**
+
+**The naming contract**, so nothing has to be inferred from a label:
+
+| Ruleset | Match structure |
+|---|---|
+| **BATTLE ROYALE** | `UAFLBattleRoyaleComponent` |
+| **MATCH PLAY** | `UAFLRoundManagerComponent` |
+
+**A ruleset with no component behind it is not a ruleset — it is a proposal**, and the front end must not offer
+it (R41, `ssot/ui-frontend.md` §3). This is the rule that would have prevented a tab pointing at nothing.
 
 The reasons are structural, not stylistic:
 
 - **The pattern is already the architecture.** Match structure is expressed as a GameState component supplied by
   the experience's component list. Each such component owns exactly one ruleset's end condition and respawn
   policy while reusing the shared spine. A ruleset is selected by *which component the experience adds* — which
-  means adding TURBO adds a component and changes no existing one.
-- **The respawn seam already exists and is polymorphic.** The always-loaded restart-policy interface
-  (`ShouldBlockRestart()`) is consulted by the game mode before permitting a restart. SHOOTOUT answers *block*;
-  TURBO answers *never block*. That is the entire respawn divergence, expressed through a seam that exists
-  precisely so a ruleset can declare its policy **without editing the game mode**.
-- **The scoring substrate already exists and is shared.** Per-player elimination/death/assist counters are
-  already replicated player state, fed by the existing elimination-message pipeline. A kill-ratio ruleset reads
-  them; it does not need a new scoring pipeline. Placement, by contrast, is a per-match ordering that only the
-  permanent-death ruleset can produce — which is exactly why it lives in that ruleset's component and not in the
-  shared substrate.
+  means adding a ruleset adds a component and changes no existing one.
+- **The respawn seam is polymorphic.** The always-loaded restart-policy interface (`ShouldBlockRestart()`) is
+  consulted by the game mode before permitting a restart. BATTLE ROYALE answers *block, for the whole match*;
+  MATCH PLAY answers *block within a round, release between rounds*. That is the entire respawn divergence,
+  expressed through a seam that exists precisely so a ruleset can declare its policy **without editing the game
+  mode** — and it is why a third ruleset with a third answer needs no new seam either.
+- **The scoring substrate is shared.** Per-player elimination/death/assist counters are already replicated
+  player state, fed by the existing elimination-message pipeline; any ruleset may read them. **Placement, by
+  contrast, is a per-match ordering that only the ruleset's own component can produce** — over N participants
+  for BATTLE ROYALE, over 2 sides for MATCH PLAY — which is exactly why it lives in that component and not in
+  the shared substrate.
 - **A fork would duplicate the shared 80%** — roster, match id, telemetry, join coverage, phase spine — and the
   duplicate would drift. A mode flag inside one component would make every future read of that component ask
   "which ruleset am I in?" at every branch, which is how end-condition bugs get written.
@@ -151,7 +182,7 @@ existing one, and it may not fork the shared spine.*
 
 | Axis | Values | What it governs |
 |---|---|---|
-| **Ruleset** (this document) | SHOOTOUT · TURBO | How the match ends, respawn policy, what is scored |
+| **Ruleset** (this document) | MATCH PLAY · BATTLE ROYALE | How the match ends, respawn policy, what is scored |
 | **Combat rules / league** | **HAYWIRE** · **PRO MOD** | Damage model and the granted movement kit |
 
 - **HAYWIRE** — the dismemberment combat model: the zone-HP damage routing and its gib/consequence layer are
@@ -159,10 +190,10 @@ existing one, and it may not fork the shared spine.*
 - **PRO MOD** — gore-free by construction: the dismember feature is not loaded and a mode gate routes all damage
   to the conventional single-health chain. It also carries the enhanced movement kit.
 
-**The independence is the point, and it is the thing most likely to be misread.** SHOOTOUT is not "the Haywire
-mode" and TURBO is not "the Pro Mod mode." Every combination is legitimate: a Haywire SHOOTOUT, a Pro Mod
-SHOOTOUT, a Haywire TURBO, a Pro Mod TURBO. A player picking a league is choosing how combat feels; a player
-picking a ruleset is choosing how the match is won.
+**The independence is the point, and it is the thing most likely to be misread.** BATTLE ROYALE is not "the
+Haywire mode" and MATCH PLAY is not "the Pro Mod mode." Every combination is legitimate: a Haywire BATTLE
+ROYALE, a Pro Mod BATTLE ROYALE, a Haywire MATCH PLAY, a Pro Mod MATCH PLAY. A player picking a league is
+choosing how combat feels; a player picking a ruleset is choosing how the match is won.
 
 **Structurally this holds because the two axes are carried by different things.** The combat axis is carried by
 which game features the experience enables and which pawn data it uses. The ruleset axis is carried by which
@@ -192,8 +223,14 @@ Both rulesets run the same three phases.
 ### 5.1 The warmup contract
 
 - **Warmup runs ONCE, before the match begins — never per round.** It is a match-entry ritual (load in, orient,
-  see the countdown), not an inter-round pause. A per-round warmup would make TURBO's clock meaningless and would
-  turn SHOOTOUT into a series, which neither ruleset is.
+  see the countdown), not an inter-round pause. Running it per round would turn BATTLE ROYALE into a series,
+  which it is not; and it would multiply a match-entry ritual by up to thirteen in MATCH PLAY, which spends the
+  series waiting.
+- **MATCH PLAY's round reset is NOT a warmup, and the distinction is load-bearing.** A round reset is a short
+  countdown that re-spawns both teams between rounds (§2.2). It does not re-run the entry ritual and it is not
+  the phase spine's to own. **Anything that freezes abilities on the round boundary is implementing a warmup and
+  is wrong** — the freeze belongs to the match edges, not the round edges, or the arsenal tag contract below
+  fires up to thirteen times a match.
 - **Warmup freezes all weapon and movement abilities.** The freeze is achieved by the arsenal tag contract —
   every weapon and movement ability blocks on the match-state tags (**DOCTRINE T1**). Warmup is an *ability*
   block, not a locomotion block: a participant can still walk and look around, which is what makes it usable as
@@ -206,22 +243,25 @@ Both rulesets run the same three phases.
 
 ---
 
-## 6. THE ZONE — SCOPED TO SHOOTOUT
+## 6. THE ZONE — SCOPED TO BATTLE ROYALE
 
-**The zone is a SHOOTOUT mechanism. It exists to force last-standing to resolve.**
+**The zone is a BATTLE ROYALE mechanism. It exists to force last-standing to resolve.**
 
-Under permanent death and no clock, a SHOOTOUT on a large footprint has no intrinsic pressure to end: two
+Under permanent death and no clock, a BATTLE ROYALE on a large footprint has no intrinsic pressure to end: two
 surviving participants can avoid each other indefinitely. A shrinking playable area removes that possibility by
 making avoidance progressively impossible. **The zone is the end-condition's enforcement, not decoration.**
 
-**TURBO does not need a zone,** because a clock already guarantees termination. A ring under TURBO could only
-serve *pacing* — compressing play toward the end of the timer so the final minute is dense rather than diffuse.
+**MATCH PLAY does not need a zone, and the reason is precise: it already has a per-round timer** (§2.2). The
+stall case the zone exists to remove cannot occur, because a round that nobody resolves is resolved by the clock
+on banked progress. Termination is already guaranteed by a mechanism that is cheaper than a ring and produces no
+extra deaths.
 
-**What a TURBO ring would have to justify:** that pacing benefit against three real costs — (a) it competes with
-respawn, since a respawning player must always have somewhere legal to spawn, and a shrinking area shrinks that
-set; (b) it adds a second source of death to a format whose score is a kill ratio, so zone deaths would either
-pollute the ratio or need excluding, and both are design debt; (c) it adds replicated state to a format that
-otherwise needs none. **The default is no ring under TURBO.** A proposal to add one must answer all three.
+**What a MATCH PLAY ring would have to justify:** a pacing benefit against three real costs — (a) it competes
+with the round reset, since every round re-spawns both teams and a shrinking area shrinks the legal spawn set;
+(b) it adds a source of death that no side caused, in a format whose result is a *round win*, so a zone death
+would either decide a round or need excluding, and both are design debt; (c) it adds replicated state to a
+format that already replicates round state. **The default is no ring under MATCH PLAY.** A proposal to add one
+must answer all three.
 
 **Zone sizing.** The final zone is an arena fight and is sized by the footprint ladder against *expected
 surviving participants*, not lobby size — see `ssot/map-build-system.md` §3.3. Sizing the final circle off the
@@ -280,34 +320,58 @@ It also has one failure mode, and it is severe enough to be stated as a rule:
 
 ## 9. OPEN DESIGN QUESTIONS
 
-TURBO is specified above at the level a ruleset needs; these are genuine design gaps in it, recorded as design
-scope. **None of these is a status claim — each is a decision the mode system owes.**
+**None of these is a status claim — each is a decision the mode system owes.**
 
-1. **Team model.** Is TURBO solo-only, squad-only, or both? Kill-ratio scoring is individually attributed, so a
-   squad TURBO must define whether rank input is the individual's ratio, the squad's aggregate, or both. This
-   also decides whether friendly fire and assist credit cross squad boundaries.
-2. **The kill-ratio formula.** Eliminations, deaths and assists are separately tracked, so the formula must
-   state how assists are weighted and what a zero-death score evaluates to (a pure ratio is undefined at zero
-   deaths; a difference-based score is not). It must also state whether the score is monotonic within a match —
-   i.e. whether a late death can reduce a player's standing below someone who stopped playing.
-3. **⚠ TURBO'S PAYOUT SHAPE — OPEN, and now the asymmetry is sharper.** SHOOTOUT's payout basis is **ruled**
-   (R36, §2.1) and its ladder is locked (`ssot/economy-store.md` §5.2). **TURBO has neither.** Its *scoring*
-   is defined — kill-ratio — but its **payout is not**, and the gap is structural rather than merely undone:
-   **TURBO has no placement ladder to key on.** Every participant is present at the end, so there are no
-   finishing positions, which means the entire positions-based apparatus SHOOTOUT uses does not transfer.
-   A TURBO payout must therefore be defined **against the ratio itself** — including how ties resolve, whether
-   there is a participation floor, and whether a losing player earns at all. **This cannot be inherited from
-   SHOOTOUT; it has to be designed.** It interacts with open question 2 (the ratio formula is undefined at zero
-   deaths, and a payout keyed on an undefined score is undefined too) and with open question 1 (a squad TURBO
-   must decide whether payout attributes individually or to the squad).
-4. **Respawn timing and its exploit surface.** "Instant" must state whether it is truly zero-delay and where the
-   participant re-enters. Instant respawn at the point of death is a different game from instant respawn at a
-   spawn point, and in a staked format the difference is exploitable (spawn-camping, or trading into a
-   favourable re-entry).
-5. **Time-expiry tie resolution.** What settles two participants on an identical ratio when the clock expires.
-6. **High-stakes as a duration or as a distinct ruleset.** 7 versus 10 minutes is specified in §2.2 as a
-   duration parameter. If high-stakes is ever to differ in more than duration, it becomes a third ruleset rather
-   than a parameter — and that boundary should be decided deliberately, not discovered.
+1. **MATCH PLAY's size range.** §2.2 suits arena footprints, but the format axis it offers (1v1 through 8v8) is
+   not fixed here. A 1v1 and an 8v8 are the same ruleset with the same two positions; whether every size is
+   *published* is a matchmaking question (`ssot/matchmaking.md` §4), not a ruleset one.
+2. **Does round differential feed rank?** §2.2 fixes the rank input as the series outcome. Whether a 7–0 and a
+   7–6 should differ is undecided, and it is a real fork: differential rewards dominance and punishes a team
+   that closes out efficiently, while outcome-only makes a blowout worth exactly what a nailbiter is worth.
+   Interacts with `ssot/league-play.md` §4.
+3. **The extract-bank route's weight.** §2.2 gives two routes to a round win. Whether they are equal — and
+   whether a bank should ever be worth more than a wipe, or resolve a round faster — is unruled. Making them
+   unequal is a design lever; making them unequal *by accident* is a balance bug.
+4. **Half-time side swap under odd formats.** Swapping at half is clean for an even round count. What happens
+   in a series that ends before half, and whether a 1v1 swaps at all, is unstated.
+5. **BATTLE ROYALE squad payout attribution.** A squad holds one finishing position and receives one payout.
+   Whether that splits evenly, by contribution, or by some other rule is **not** decided here — it is an economy
+   question raised by a ruleset property, and `ssot/economy-store.md` §5 does not close it either.
+6. **Whether a third ruleset is wanted at all.** §3.3 makes adding one cheap. That is a reason to be deliberate
+   rather than a reason to add: two rulesets that are each fully populated beat three that split the queue
+   (`ssot/matchmaking.md` **R7**).
+
+### 9.7 PARKED — TURBO, and the design that goes with it
+
+**TURBO is parked by R41, not deleted.** It was a real design — a single timed match, instant respawn, scored on
+kill ratio — and it is preserved here so that reviving it is a decision rather than a rediscovery.
+
+**Its shape, recorded once:** end on a hard clock (7 minutes standard, 10 high-stakes) with no series; instant
+respawn; kill-ratio scoring against deaths with assists credited; dense district-scale footprints, because
+instant respawn on a sparse footprint spends the match walking. **Why a clock and no series:** known duration
+and no dead time were its two properties, and a best-of-N reintroduces both problems it existed to remove.
+**Why ratio rather than raw kills:** raw kills reward whoever fed hardest into the respawn loop.
+
+**The gaps it never closed, and they are the reason parking costs nothing:**
+
+- **Team model** — solo, squad, or both. Kill-ratio is individually attributed, so a squad TURBO must define
+  whether rank input is the individual's ratio, the squad's aggregate, or both.
+- **The ratio formula** — assist weighting, what a zero-death score evaluates to (a pure ratio is undefined
+  there), and whether the score is monotonic within a match.
+- **⚠ ITS PAYOUT SHAPE — the structural one.** BATTLE ROYALE and MATCH PLAY both produce **finishing
+  positions**, so one payout rule serves both. **TURBO produces none** — every participant is present at the
+  end — so the entire positions-based apparatus does not transfer, and a TURBO payout would have to be defined
+  against the *ratio itself*: tie resolution, participation floor, whether a losing player earns at all.
+  **This is the deepest reason it is parked rather than half-built.** A ruleset that cannot be paid cannot be
+  staked, and every mode here is played for stakes.
+- **Respawn timing and its exploit surface** — "instant" must state zero-delay or not, and where the
+  participant re-enters. In a staked format, spawn-camping and favourable-re-entry trading are exploits.
+- **Time-expiry tie resolution.**
+- **High-stakes as a duration or a distinct ruleset** — 7 versus 10 minutes was a parameter; if it were ever to
+  differ in more than duration it becomes a third ruleset, and that boundary should be decided, not discovered.
+
+**To revive it:** answer the payout question first. The rest are tractable; that one decides whether the ruleset
+can exist in a staked game at all.
 
 ---
 
@@ -315,7 +379,8 @@ scope. **None of these is a status claim — each is a decision the mode system 
 
 | Ruling | Date | Content |
 |---|---|---|
-| **R1 — MELEE IS CUT** | **2026-08-05** | The game is **dual-mode, not tri-mode**. There are two rulesets — SHOOTOUT and TURBO — and no melee/deathmatch ruleset. The instant-respawn arcade format previously specified as its own mode is **not** a third ruleset; the tempo it was reaching for is TURBO's. **This is settled; a reader should not reopen it.** The superseded melee document remains on disk pending archival and is not a source of design authority. |
+| **R41 — THE TWO RULESETS ARE MATCH PLAY AND BATTLE ROYALE; TURBO IS PARKED** | **2026-08-06** | **The ruleset axis is renamed to the two match structures that exist.** (a) **SHOOTOUT → BATTLE ROYALE** — a rename only; §2.1's properties are unchanged and every citation of §2.1 still lands on the same ruleset. The old name was borrowed from poker and described nothing about the format; the new one is the name of its own match structure. (b) **TURBO is REMOVED from the ruleset axis and PARKED at §9.7** — its design is preserved in full, including the payout gap that is the real reason it cannot ship: it produces **no finishing positions**, so the positions-keyed payout rule (R36/R37) does not transfer, and **a ruleset that cannot be paid cannot be staked.** (c) **MATCH PLAY takes the second slot and is NOT TURBO renamed** — different end condition, different respawn policy, different scoring, no property in common. It is the two-team round series (§2.2), which had **no name and no front-end tab** despite being the most-specified format in the tree. **THE DEFECT THIS FIXES IS NOT THE DEAD TAB.** One tab named a mode after something it was not; the other named a mode that did not exist; and between them **the round series had no way to be reached at all.** **Consequence, and it is a gain:** MATCH PLAY has two finishing positions, so its payout resolves to winner-takes-all by the existing rule — which **closes** the disabled-payout-tab question carried at `design/IRONICS_LOBBY_UX_HANDOFF.md` §16.7 rather than deferring it. **New rule from §3.3: a ruleset with no match-structure component behind it is a proposal, and the front end must not offer it.** |
+| **R1 — MELEE IS CUT** | **2026-08-05**, **amended 2026-08-06** | The game is **dual-mode, not tri-mode**. There are two rulesets and no melee/deathmatch ruleset. The instant-respawn arcade format previously specified as its own mode is **not** a third ruleset. **This is settled; a reader should not reopen it.** The superseded melee document remains on disk pending archival and is not a source of design authority. **AMENDED BY R41 — NAMING AND ONE CLAUSE.** The pair is now MATCH PLAY and BATTLE ROYALE, not SHOOTOUT and TURBO. R1's original wording placed melee's tempo in TURBO; **with TURBO parked, that home is gone.** The cut stands on its own merits — melee was cut for being a third ruleset, not for having somewhere else to go — but a reader should know **the instant-respawn tempo is now homeless**, and reviving it means reviving TURBO (§9.7), not reopening melee. |
 
 ---
 

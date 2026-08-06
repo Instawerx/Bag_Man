@@ -233,10 +233,24 @@ const ENTRIES = [
  remains:'Operator approval, then build. Unapproved and unbuilt.',
  c:['59bec4c4']},
 
+{g:'MATCH MODES', status:'COMMITTED', ssot:'ssot/match-modes.md',
+ t:'Ruleset axis renamed — MATCH PLAY + BATTLE ROYALE (R41)',
+ what:'The two rulesets are now named for the two match-structure components that exist. SHOOTOUT renamed to BATTLE ROYALE (rename only, properties unchanged). TURBO removed from the axis and parked at match-modes §9.7 with its full design and the payout gap that is the real reason it cannot ship. MATCH PLAY takes the second slot and is NOT TURBO renamed — it is the two-team round series (UAFLRoundManagerComponent) which previously had no name and no front-end tab. Swept across 8 documents; R1, R7, R13 and R36 amended in place rather than restated.',
+ remains:'DOCS ONLY — no asset, experience or C++ identifier was renamed. EXP_AFL_Duel01_Shootout.uasset still carries the old word in its name, and it attaches AFLBattleRoyaleComponent. Whether assets follow the doc naming is an operator call, not a consequence of R41.',
+ warn:'MATCH PLAY resolves to winner-takes-all by the existing payout rule (two finishing positions), which CLOSES the disabled-Payouts-tab question. Anything still branching on a disabled ruleset tab is stale.',
+ c:[]},
+
 {g:'MATCH MODES', status:'OPEN', ssot:'ssot/match-modes.md',
- t:'TURBO ruleset — no code',
- what:'Verified on disk 2026-08-05: ZERO matches for "Turbo" across AFL source. The ruleset exists only as design in the match-modes SSOT.',
- remains:'Everything. The SSOT specifies TURBO as a sibling component of the round manager, not a fork.',
+ t:'TURBO ruleset — parked, no code',
+ what:'Verified on disk 2026-08-05 and re-verified 2026-08-06: ZERO code matches for "Turbo" across AFL source (all 18 hits are WITH_LIBJPEGTURBO or Tripo model names) and zero assets. Parked by R41 rather than deleted; the design is preserved in full at match-modes §9.7.',
+ remains:'Answer its payout shape FIRST if it is ever revived. It produces no finishing positions, so the positions-keyed payout rule does not transfer — and a ruleset that cannot be paid cannot be staked. The other gaps are tractable; that one decides whether it can exist here at all.',
+ c:[]},
+
+{g:'MATCH MODES', status:'OPEN', ssot:'ssot/match-modes.md',
+ t:'SHOOTOUT ruleset — never existed as code either',
+ what:'Found while verifying TURBO on 2026-08-06: ZERO code matches for "Shootout" as well. EXP_AFL_Duel01_Shootout.uasset attaches AFLBattleRoyaleComponent and nothing else — the ruleset the front end called SHOOTOUT was Battle Royale under a borrowed name. R41 renamed it to match.',
+ remains:'Nothing on the naming. Recorded because the asset name still says Shootout and a reader hitting it should know which component it actually carries.',
+ warn:'A third sibling, UAFLDeathmatchRankComponent, is named in the AFLBattleRoyaleComponent header comment and is NOT on disk. That comment is stale; do not plan against it.',
  c:[]},
 
 {g:'MATCH MODES', status:'COMMITTED', ssot:'ssot/match-modes.md',

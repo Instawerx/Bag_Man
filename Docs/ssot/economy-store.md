@@ -159,7 +159,7 @@ adjustment is almost always **price**, not earn inflation. Inflating earn devalu
 and every price already set; adjusting a price affects only the item in question. **Earn stays locked; prices
 move.**
 
-### 5.1 SHOOTOUT earns on placement (R36)
+### 5.1 BATTLE ROYALE earns on placement (R36)
 
 > **Finishing position determines payout.**
 
@@ -167,7 +167,7 @@ move.**
 league rating (`ssot/league-play.md` §4). Paying on it adds a consumer to an existing signal rather than a
 system.
 
-It also aligns the two things a SHOOTOUT match already produces: `ssot/match-modes.md` §2 defines SHOOTOUT as
+It also aligns the two things a BATTLE ROYALE match already produces: `ssot/match-modes.md` §2 defines it as
 last-standing with no timer and no respawn, so **placement is the only outcome the ruleset generates**. Any
 other payout basis would have to invent a second measure of how the match went.
 
@@ -341,7 +341,7 @@ something it must not contaminate.
 
 ### 5.5 The earn ladder across modes (R39)
 
-> **Extraction pays most. SHOOTOUT placement pays modestly.**
+> **Extraction pays most. Placement pays modestly.**
 
 Extraction carries the **highest risk and the longest commitment** — a player holds value through a match and
 can lose it at the end (§11).
@@ -350,6 +350,13 @@ can lose it at the end (§11).
 
 > **If a duel out-earns an extraction run per minute, extraction stops being worth its risk and loot becomes
 > decorative.**
+
+> **⚠ R41 EXPOSED AN AMBIGUITY IN THIS LADDER — flagged, not resolved.** `ssot/match-modes.md` §2.2 records
+> that completing a central-extract bank is **one of MATCH PLAY's two round-win routes**, not only a mode of
+> its own. So "extraction" names two things in this document: a **round-win route inside a ruleset**, and the
+> **hold-value-through-a-match loop** §11 describes. **The ladder above means the second.** Whether banking a
+> round-win should earn at all, and how that relates to the run, is **not ruled here** — it is a new question
+> R41 surfaced rather than one it answered.
 
 That is the failure to design against. Extraction's entire tension is *carrying something you can lose*, and
 that tension only exists if what you are carrying is worth more than what a safer mode pays for the same time.
@@ -763,11 +770,11 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
 |---|---|---|
 | **R4 — the two loot documents merge here** | **2026-08-05** | Loot taxonomy (§10) and the loot carry mechanic (§11) are two sections of this SSOT. They previously lived in separate documents with **zero cross-citations between them** — drift by construction. The superseding decision history of the carry model is preserved by archiving that document verbatim; only decisions whose **reasoning is still load-bearing** are carried forward here. |
 | **R9 — Volts are the stake currency; one wallet** | **2026-08-05** | The staking and cosmetics economies share a single wallet (§3.1), with the three consequences recorded as design constraints: the two economies compete for the same balance and cannot be balanced independently; sinks and sources are reckoned across both, with rake the only true sink in a staked match; and server authority over the ledger is absolute, because a defect in either system corrupts both. |
-| **R36 — SHOOTOUT earns on placement** | **2026-08-05** | Finishing position determines payout (§5.1). **A payout shape, not new machinery** — placement is already computed, replicated and consumed by league rating, so this adds a consumer to an existing signal. It is also the only outcome SHOOTOUT generates, having no timer and no respawn. |
+| **R36 — BATTLE ROYALE earns on placement** | **2026-08-05**, **renamed 2026-08-06** | Finishing position determines payout (§5.1). **A payout shape, not new machinery** — placement is already computed, replicated and consumed by league rating, so this adds a consumer to an existing signal. It is also the only outcome the ruleset generates, having no timer and no respawn. **RENAMED BY R41** — SHOOTOUT is BATTLE ROYALE; the payout basis is unchanged. |
 | **R37 — the payout ladder, keyed on POSITIONS** | **2026-08-05**, **amended 2026-08-05** | **INTENT UNCHANGED:** winner-takes-all for small fields, scaled payouts above, `paid = 1 if positions < 10, else ceil(0.30 × positions)`. **Keyed on finishing positions, never player count: a team mode has exactly TWO positions regardless of player count, so every team mode is winner-takes-all automatically, with no special-casing.** Scaled payouts exist only in FFA. **AMENDED — MECHANISM ONLY:** the four banded percentage tables are replaced by a **generating rule** solved per exact field size (§5.2), because fixed percentages over a variable pot could not hold the min-cash floor — they produced 1.06× at 14 positions and **0.80× at 21**, a cash that lost money. Under the rule, **min cash is an INPUT (1.4×) and holds at every field size**; §5.3 records that the second invariant, a growing winner's multiple, is **not** satisfied and why. |
 | **R38 — staking is orthogonal to earning** | **2026-08-05** | A stake is a **closed loop** — participants escrow Volts, the pot settles per the R37 ladder minus rake. **Earning is what a match PAYS; staking is what a wager SETTLES** (§5.4). Kept separate because earning is a faucet whose risk is inflation, while staking is a transfer whose risk is an unbalanced loop — merging them makes a change to one silently a change to the other. Reinforces `ssot/league-play.md` §5 from the economy side; **no conflict**. |
 | **R40 — payout depth is 15%, not 30%** | **2026-08-05** | `p(N) = ceil(0.15 × N)` for N ≥ 10, replacing 0.30 (§5.2). **Poker-standard and top-heavy.** Forced by a proven incompatibility: **30% depth + a 1.4× floor + a scaling winner cannot all hold**, because the extra budget a larger field brings is consumed by the extra paid places it creates. **The winner's multiple is what a staked game trades on**, so depth was the constraint to give up. **THE TRADE-OFF ACCEPTED: FEWER PLAYERS CASH** — at 36 positions, 6 paid instead of 11 (16.7% of the field, down from 30.6%); at 20 positions, 3 instead of 6. **What it bought:** the winner's multiple roughly doubled (36 positions: 5.69× → 13.29×), the trend now rises monotonically by band instead of running flat, and the queue-threshold list halved from nine values to five. **What it did not buy:** the sawtooth still exists — five drops of 17–23% remain (§5.3, §15.9). |
-| **R39 — the earn ladder across modes** | **2026-08-05** | **Extraction pays most** (highest risk, longest commitment); **SHOOTOUT placement pays modestly** (§5.5). The design constraint: **if a duel out-earns an extraction run per minute, extraction stops being worth its risk and loot becomes decorative.** Per-minute is the comparison that matters, not per-match. The ordering is the ruling; no rates are set. |
+| **R39 — the earn ladder across modes** | **2026-08-05**, **noted 2026-08-06** | **Extraction pays most** (highest risk, longest commitment); **placement pays modestly** (§5.5). The design constraint: **if a duel out-earns an extraction run per minute, extraction stops being worth its risk and loot becomes decorative.** Per-minute is the comparison that matters, not per-match. The ordering is the ruling; no rates are set. |
 
 ---
 
