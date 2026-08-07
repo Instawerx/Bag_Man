@@ -6,6 +6,7 @@
 #include "AFLOnlineSubsystem.h"          // the signed server transport (server-only key)
 #include "Teams/AFLReconcileIdComponent.h"   // the per-player reconcile key the matchmaker roster matched on
 #include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/Guid.h"
@@ -54,6 +55,48 @@ FAFLMatchReporter::FMatchEconomics FAFLMatchReporter::ReadEconomics(const UObjec
 	}
 	const FString& Options = GameMode->OptionsString;
 
+	// --- PREFERRED SOURCE: the matchmaker payload. ---
+	//
+	// `economics` is emitted by the match-allocator, which lifts it off the TICKET ATTRIBUTES and has already
+	// verified that every member of the match agreed on it. That verification is the reason this outranks the
+	// launch line: the ticket is what actually matched the players, whereas the launch line is whatever the
+	// process was started with. A staked match must be worth what the players queued for, not what the
+	// command line says.
+	const FString MatchmakerData = UGameplayStatics::ParseOption(Options, TEXT("MatchmakerData"));
+	if (!MatchmakerData.IsEmpty())
+	{
+		TSharedPtr<FJsonObject> Root;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(MatchmakerData);
+		const TSharedPtr<FJsonObject>* EconObj = nullptr;
+		if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid()
+			&& Root->TryGetObjectField(TEXT("economics"), EconObj) && EconObj)
+		{
+			FString TierStr, LeagueStr, CurrencyStr;
+			double StakeNum = 0.0;
+			(*EconObj)->TryGetStringField(TEXT("tier"), TierStr);
+			(*EconObj)->TryGetStringField(TEXT("league"), LeagueStr);
+			(*EconObj)->TryGetStringField(TEXT("currency"), CurrencyStr);
+			(*EconObj)->TryGetNumberField(TEXT("stake"), StakeNum);
+
+			if (TierStr.Equals(TEXT("WattsPlay"), ESearchCase::IgnoreCase))      { Econ.Tier = EAFLPlayTier::WattsPlay; }
+			else if (TierStr.Equals(TEXT("VoltsPlay"), ESearchCase::IgnoreCase)) { Econ.Tier = EAFLPlayTier::VoltsPlay; }
+			else                                                                  { Econ.Tier = EAFLPlayTier::LeaguePlay; }
+			Econ.League = LeagueStr.Equals(TEXT("Haywire"), ESearchCase::IgnoreCase) ? EAFLLeague::Haywire : EAFLLeague::ProMod;
+			Econ.StakePerPosition = FMath::Max(0, FMath::RoundToInt(StakeNum));
+			Econ.CurrencyCode = CurrencyStr.Equals(TEXT("WA"), ESearchCase::IgnoreCase) ? TEXT("WA") : TEXT("VO");
+
+			UE_LOG(LogAFLGameCore, Log, TEXT("AFL_MATCHREPORT: economics from MATCHMAKER -- tier=%s league=%s stake=%d %s"),
+				*TierStr, *LeagueStr, Econ.StakePerPosition, *Econ.CurrencyCode);
+			return Econ;
+		}
+
+		// A roster with no economics block is an OLDER allocator, not a corrupt payload -- fall through to
+		// the launch line rather than forcing the match unstaked, so a mixed-version deploy still works.
+		UE_LOG(LogAFLGameCore, Warning,
+			TEXT("AFL_MATCHREPORT: MatchmakerData carries no 'economics' block (pre-stake allocator?) -- falling back to launch options."));
+	}
+
+	// --- FALLBACK: launch options. Correct for local/dedicated runs with no matchmaker in front. ---
 	const FString TierOpt = UGameplayStatics::ParseOption(Options, TEXT("Tier"));
 	if (TierOpt.Equals(TEXT("WattsPlay"), ESearchCase::IgnoreCase))      { Econ.Tier = EAFLPlayTier::WattsPlay; }
 	else if (TierOpt.Equals(TEXT("VoltsPlay"), ESearchCase::IgnoreCase)) { Econ.Tier = EAFLPlayTier::VoltsPlay; }
