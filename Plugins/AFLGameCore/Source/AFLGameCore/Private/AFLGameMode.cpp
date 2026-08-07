@@ -8,7 +8,7 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
-#include "Kismet/GameplayStatics.h"           // ParseOption -- the ?PlayFabId= connect-option read
+#include "Kismet/GameplayStatics.h"           // ParseOption -- the ?PlayFabId= and ?District= connect-option reads
 #include "Teams/AFLReconcileIdComponent.h"    // the T2 identity-join stash
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLGameMode)

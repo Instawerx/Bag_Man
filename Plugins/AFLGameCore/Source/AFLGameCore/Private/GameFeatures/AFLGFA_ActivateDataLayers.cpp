@@ -22,6 +22,22 @@
 
 #define LOCTEXT_NAMESPACE "AFLDistricts"
 
+TMap<TWeakObjectPtr<const UWorld>, TWeakObjectPtr<const UDataLayerAsset>>
+	UAFLGFA_ActivateDataLayers::ActiveDistrictByWorld;
+
+const UDataLayerAsset* UAFLGFA_ActivateDataLayers::GetActiveDistrictForWorld(const UWorld* World)
+{
+	if (World == nullptr)
+	{
+		return nullptr;
+	}
+	if (const TWeakObjectPtr<const UDataLayerAsset>* Found = ActiveDistrictByWorld.Find(World))
+	{
+		return Found->Get();
+	}
+	return nullptr;
+}
+
 const TCHAR* UAFLGFA_ActivateDataLayers::StateName(EDataLayerRuntimeState State)
 {
 	switch (State)
@@ -211,6 +227,21 @@ void UAFLGFA_ActivateDataLayers::ApplyStateToWorld(TWeakObjectPtr<UWorld> WeakWo
 		const bool bAccepted = Manager->SetDataLayerRuntimeState(Asset, InState);
 		const EDataLayerRuntimeState After = Manager->GetDataLayerInstanceEffectiveRuntimeState(Instance);
 
+		// Publish (or retract) the active district for this world. Recorded on ACCEPTANCE, not on effective
+		// state: the spawn gate exists precisely because "accepted" precedes "streamed in", and it needs to
+		// know what to wait FOR while that gap is open.
+		if (bAccepted)
+		{
+			if (InState == EDataLayerRuntimeState::Activated)
+			{
+				ActiveDistrictByWorld.Add(World, Asset);
+			}
+			else
+			{
+				ActiveDistrictByWorld.Remove(World);
+			}
+		}
+
 		// Requested / accepted / effective are logged SEPARATELY and deliberately. "Accepted but nothing
 		// streamed" and "refused outright" are different bugs, and a single combined line hides which one
 		// you have. Effective state is also asynchronous -- it commonly still reads the old value on this
@@ -256,7 +287,67 @@ TArray<const UDataLayerAsset*> UAFLGFA_ActivateDataLayers::ResolveLayersForWorld
 	{
 		// Resolve by NAME against THIS world's manager. The action holds no district list, so it cannot go
 		// stale against a map, and the same experience can drive any district.
-		const UDataLayerInstance* Instance = Manager->GetDataLayerInstanceFromName(FName(*DistrictName));
+		//
+		// ⚠ THE NAME WE MATCH IS THE **ASSET SHORT NAME** ("District_Duel"), NOT THE INSTANCE NAME.
+		// This was originally written as GetDataLayerInstanceFromName and was DEAD ON ARRIVAL: for an
+		// asset-based layer the instance's own FName is a fresh GUID --
+		//   UDataLayerInstanceWithAsset::MakeName -> FName(Format("DataLayer_{0}", FGuid::NewGuid()))
+		//   (DataLayerInstanceWithAsset.cpp:51-54)
+		// -- and AWorldDataLayers::GetDataLayerInstance compares ONLY against GetDataLayerFName()
+		// (WorldDataLayers.cpp:1013-1022). So every ?District= lookup returned nullptr, in every world.
+		// GetDataLayerShortName() is the engine accessor that returns the asset's name
+		// (DataLayerInstanceWithAsset.h:49), which is the thing a playlist DA can reasonably carry.
+		// One pass, matching EITHER the short name ("District_Duel") or a full asset path
+		// ("/Game/Maps/DataLayers/L_ShantyTown/District_Duel[.District_Duel]"). Short name is the intended
+		// form; the path is accepted so a pasted reference is not a mystery failure.
+		//
+		// Both accessors are public on UDataLayerInstance (DataLayerInstance.h:130,133). The manager's own
+		// GetDataLayerInstanceFromAssetName would be the obvious call and is PRIVATE (DataLayerManager.h:144)
+		// -- hence doing the comparison here rather than delegating.
+		const UDataLayerInstance* Instance = nullptr;
+		int32 NameMatches = 0;
+		Manager->ForEachDataLayerInstance([&DistrictName, &Instance, &NameMatches](UDataLayerInstance* It)
+		{
+			if (It == nullptr)
+			{
+				return true;
+			}
+			const FString Full = It->GetDataLayerFullName();
+			FString FullNoObject = Full;
+			int32 Dot = INDEX_NONE;
+			if (Full.FindChar(TEXT('.'), Dot))
+			{
+				FullNoObject = Full.Left(Dot);
+			}
+
+			if (It->GetDataLayerShortName().Equals(DistrictName, ESearchCase::IgnoreCase)
+				|| Full.Equals(DistrictName, ESearchCase::IgnoreCase)
+				|| FullNoObject.Equals(DistrictName, ESearchCase::IgnoreCase))
+			{
+				++NameMatches;
+				if (Instance == nullptr) { Instance = It; }
+			}
+			return true;
+		});
+
+		// Ambiguity is a map-authoring error, not a runtime one, but it must not resolve arbitrarily: two
+		// assets in different folders can share a leaf name. Take none rather than a coin flip.
+		if (NameMatches > 1)
+		{
+			UE_LOG(LogAFLGameCore, Error,
+				TEXT("AFL_DISTRICT[%s]: ?%s=%s is AMBIGUOUS in world '%s' -- %d data layers match that name. "
+				     "Refusing to guess. Rename the assets or pass a full asset path."),
+				Phase, *DistrictOptionName, *DistrictName, *GetNameSafe(World), NameMatches);
+			return Out;
+		}
+
+		// Last: a literal instance name. Only non-asset (private/deprecated) instances have a usable one,
+		// but matching it costs nothing and keeps legacy maps working.
+		if (Instance == nullptr)
+		{
+			Instance = Manager->GetDataLayerInstanceFromName(FName(*DistrictName));
+		}
+
 		const UDataLayerAsset* Asset = Instance ? Instance->GetAsset() : nullptr;
 
 		if (Asset != nullptr)
@@ -271,10 +362,13 @@ TArray<const UDataLayerAsset*> UAFLGFA_ActivateDataLayers::ResolveLayersForWorld
 		// THE OPTION WAS GIVEN AND DID NOT RESOLVE. This is the dangerous case: falling back silently would
 		// stream the WRONG district (or none) while the log looked ordinary, and the queue promised a size.
 		// Refuse the fallback and say exactly what was asked for and what the map actually has.
+		// SHORT names, deliberately: this list exists to tell a reader what to put in ExtraArgs, and it is
+		// matched by the resolver above. GetDataLayerFName() here would print a column of
+		// "DataLayer_<guid>" -- true, useless, and the reason the original lookup bug was invisible.
 		FString Available;
 		Manager->ForEachDataLayerInstance([&Available](UDataLayerInstance* It)
 		{
-			if (It) { Available += (Available.IsEmpty() ? TEXT("") : TEXT(", ")); Available += It->GetDataLayerFName().ToString(); }
+			if (It) { Available += (Available.IsEmpty() ? TEXT("") : TEXT(", ")); Available += It->GetDataLayerShortName(); }
 			return true;
 		});
 		UE_LOG(LogAFLGameCore, Error,
@@ -288,9 +382,16 @@ TArray<const UDataLayerAsset*> UAFLGFA_ActivateDataLayers::ResolveLayersForWorld
 	// --- 2. FALLBACK: the authored list. A hand-opened map, PIE, or a pre-R60 config. ---
 	if (DataLayers.IsEmpty())
 	{
-		UE_LOG(LogAFLGameCore, Warning,
-			TEXT("AFL_DISTRICT[%s]: no ?%s= option and no fallback layers -- nothing to activate in world '%s'. "
-			     "A matchmade session should carry the option via the playlist DA's ExtraArgs."),
+		// Log, NOT Warning. This action lives on the AFLCore GameFeatureData, so it runs in EVERY world --
+		// ARCANEON, NANOWATT, Duel_01 and the front end included -- and only district maps carry the option.
+		// "No district here" is therefore the ordinary case for most maps, and a warning on the ordinary
+		// case is how a log becomes unreadable and a real warning becomes invisible.
+		//
+		// The failure that DOES matter -- an option given that does not resolve -- is an Error above, and
+		// deliberately refuses the fallback.
+		UE_LOG(LogAFLGameCore, Log,
+			TEXT("AFL_DISTRICT[%s]: no ?%s= option and no fallback layers -- nothing to activate in world '%s' "
+			     "(expected on a map without districts)."),
 			Phase, *DistrictOptionName, *GetNameSafe(World));
 		return Out;
 	}

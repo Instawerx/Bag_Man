@@ -105,6 +105,23 @@ public:
 	EDataLayerRuntimeState TargetState = EDataLayerRuntimeState::Activated;
 
 	/**
+	 * THE DISTRICT THIS ACTION ACTIVATED IN A GIVEN WORLD, or null.
+	 *
+	 * Published because two other systems must agree with this action about which district is live, and
+	 * neither can re-derive it safely:
+	 *   - AAFLGameMode's spawn gate, which holds the first spawn until the district has streamed in.
+	 *   - UAFLPlayerSpawningManagerComponent, which must pick a start INSIDE the district.
+	 *
+	 * Re-parsing `?District=` in each of them was the first design and is wrong: it only sees the URL path,
+	 * so a district that arrived through the FALLBACK list (a hand-opened map or a direct PIE session --
+	 * exactly the workflow this is meant to support) would be invisible to both. Recording what was actually
+	 * activated makes the URL path and the fallback path indistinguishable downstream, which is the point.
+	 *
+	 * Same-module callers only -- no export needed, and none is offered.
+	 */
+	static const UDataLayerAsset* GetActiveDistrictForWorld(const UWorld* World);
+
+	/**
 	 * Restore RestoreState on deactivation.
 	 *
 	 * In the COMMON path this is a no-op: ending an experience means travel, the world tears down, and the
@@ -131,9 +148,15 @@ private:
 	/**
 	 * Resolve which layers this WORLD should drive: the `?District=` option if present, else the fallback.
 	 *
-	 * Resolution is by NAME against the world's own UDataLayerManager, so the action holds no district list
-	 * and cannot go stale against a map. Deliberately deterministic — the deactivate path re-resolves rather
-	 * than caching, and gets the same answer for the same world.
+	 * Resolution is by the data layer asset's SHORT NAME ("District_Duel") against the world's own
+	 * UDataLayerManager, so the action holds no district list and cannot go stale against a map.
+	 *
+	 * ⚠ NOT the instance name. UDataLayerInstanceWithAsset names its instances "DataLayer_<fresh GUID>"
+	 * (DataLayerInstanceWithAsset.cpp:51-54), so GetDataLayerInstanceFromName can never match anything a
+	 * human would author — the first version of this resolver used it and returned nullptr in every world.
+	 *
+	 * Deliberately deterministic — the deactivate path re-resolves rather than caching, and gets the same
+	 * answer for the same world.
 	 */
 	TArray<const UDataLayerAsset*> ResolveLayersForWorld(UWorld* World, class UDataLayerManager* Manager, const TCHAR* Phase) const;
 
@@ -144,4 +167,11 @@ private:
 
 	/** Worlds this context applied to, so deactivation restores exactly those and no others. */
 	TMap<FGameFeatureStateChangeContext, TArray<TWeakObjectPtr<UWorld>>> AppliedWorlds;
+
+	/**
+	 * Backing store for GetActiveDistrictForWorld. Keyed by world because PIE runs several at once (the log
+	 * routinely shows "2 existing world context(s) matched"), and the editor world must never answer for the
+	 * game world. Weak on both sides so a torn-down PIE world leaves nothing behind.
+	 */
+	static TMap<TWeakObjectPtr<const UWorld>, TWeakObjectPtr<const UDataLayerAsset>> ActiveDistrictByWorld;
 };

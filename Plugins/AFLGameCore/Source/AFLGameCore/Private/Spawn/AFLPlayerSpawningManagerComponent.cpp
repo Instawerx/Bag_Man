@@ -4,6 +4,8 @@
 
 #include "AFLGameCore.h"                       // LogAFLGameCore
 #include "AFLRoundRestartPolicy.h"             // IAFLRoundRestartPolicy (the core round-side seam)
+#include "GameFeatures/AFLGFA_ActivateDataLayers.h"    // GetActiveDistrictForWorld -- the district seam
+#include "WorldPartition/DataLayer/DataLayerAsset.h"   // UDataLayerAsset (ContainsDataLayer arg)
 #include "GameModes/LyraGameState.h"           // ALyraGameState (GetGameStateChecked)
 #include "Player/LyraPlayerStart.h"            // ALyraPlayerStart + ELyraPlayerStartLocationOccupancy
 #include "Teams/LyraTeamSubsystem.h"           // team lookup (FindTeamFromObject)
@@ -26,6 +28,41 @@
 // (S cluster @ Y<0 -> Side.0, N cluster @ Y>0 -> Side.1). Native-defined here so the tags exist for the map to set.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_AFL_Spawn_Side_0, "AFL.Spawn.Side.0");
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_AFL_Spawn_Side_1, "AFL.Spawn.Side.1");
+
+namespace
+{
+	/**
+	 * District data layer -> the spawn tag its PlayerStarts carry.
+	 *
+	 * An EXPLICIT map, not a string transform. Deriving "AFL.Spawn.District.Duel" from "District_Duel" by
+	 * chopping a prefix would silently produce a plausible-but-wrong tag the day a district is renamed, and
+	 * a wrong tag here means spawning outside the play space -- the exact failure this whole change exists
+	 * to remove. An unmapped district is loud (see the caller) rather than approximately handled.
+	 *
+	 * RequestGameplayTag rather than UE_DEFINE_GAMEPLAY_TAG_STATIC because these tags are CONFIG-defined in
+	 * AFLCoreTags.ini (they are authored on actors by designers, alongside AFL.Spawner.Weapon.* and
+	 * AFL.GamePhase.*). Defining them natively as well would double-register them.
+	 */
+	FGameplayTag DistrictSpawnTagFor(const UDataLayerAsset* District)
+	{
+		if (District == nullptr)
+		{
+			return FGameplayTag();
+		}
+
+		static const TMap<FName, FName> DistrictToTag = {
+			{ FName(TEXT("District_Duel")),  FName(TEXT("AFL.Spawn.District.Duel"))  },
+			{ FName(TEXT("District_Arena")), FName(TEXT("AFL.Spawn.District.Arena")) },
+			{ FName(TEXT("District_Team")),  FName(TEXT("AFL.Spawn.District.Team"))  },
+		};
+
+		if (const FName* TagName = DistrictToTag.Find(District->GetFName()))
+		{
+			return FGameplayTag::RequestGameplayTag(*TagName, /*ErrorIfNotFound=*/false);
+		}
+		return FGameplayTag();
+	}
+}
 
 int32 UAFLPlayerSpawningManagerComponent::QueryTeamSideIndex(int32 TeamId) const
 {
@@ -194,6 +231,63 @@ AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Pla
 		return nullptr;
 	}
 
+	// (-1) DISTRICT filter -- restrict to starts INSIDE the active district, before anything else runs.
+	//
+	// THE BUG THIS CLOSES (measured 2026-08-07, L_ShantyTown 2v2 via the front-end tile): District_Duel
+	// activated correctly and its four starts streamed in, and players STILL spawned on the island. The
+	// reason is that step (2) below picks the start FURTHEST FROM AN ENEMY over every start in the world --
+	// and L_ShantyTown also carries 24 always-loaded island-wide BR starts (ff28ad98) which are, by
+	// construction, the furthest ones there are. So the selector did exactly what it was told and reliably
+	// chose the wrong half of the map: a 2v2 spread ~150 m apart with nobody in sight.
+	//
+	// A district is a PLAY SPACE, so it must bound the candidate set before any heuristic sees it -- no
+	// distance or LOS rule can be tuned around a candidate that should never have been offered.
+	//
+	// Matched by TAG, never by data layer membership. The starts are authored outside the district's runtime
+	// data layer precisely so they are ALWAYS loaded: a fence is streamed geometry, a spawn point is match
+	// configuration. That separation is what makes this filter total rather than best-effort -- there is no
+	// window in which the district is active but its starts do not exist, so no timeout, retry or fallback
+	// is needed anywhere. See AFLCoreTags.ini for the full rationale.
+	//
+	// The active district comes from the ACTION, so a district supplied by the fallback list (hand-opened
+	// map, direct PIE) filters identically to one supplied by the matchmaker URL. No district (every other
+	// map) -> one null check and the behaviour below is unchanged.
+	TArray<ALyraPlayerStart*> DistrictStarts;
+	if (const UDataLayerAsset* District = UAFLGFA_ActivateDataLayers::GetActiveDistrictForWorld(World))
+	{
+		const FGameplayTag DistrictTag = DistrictSpawnTagFor(District);
+		if (DistrictTag.IsValid())
+		{
+			for (ALyraPlayerStart* Start : PlayerStarts)
+			{
+				if (Start && Start->GetGameplayTags().HasTag(DistrictTag))
+				{
+					DistrictStarts.Add(Start);
+				}
+			}
+		}
+
+		// Both branches below are AUTHORING errors, not race conditions, and they are Errors rather than
+		// Warnings for that reason: with the starts always loaded, the only way to get here is a district
+		// with no mapped tag, or a map whose starts were never tagged.
+		if (!DistrictTag.IsValid())
+		{
+			UE_LOG(LogAFLGameCore, Error,
+				TEXT("AFLSpawn: district '%s' has no AFL.Spawn.District.* tag mapped -- add it to "
+				     "DistrictSpawnTagFor and AFLCoreTags.ini. Falling back to every start on the map."),
+				*District->GetName());
+		}
+		else if (DistrictStarts.Num() == 0)
+		{
+			UE_LOG(LogAFLGameCore, Error,
+				TEXT("AFLSpawn: district '%s' is active but NOT ONE of the map's %d PlayerStart(s) carries "
+				     "%s -- the map's starts are untagged. Falling back to every start on the map, which "
+				     "will spawn players outside the district."),
+				*District->GetName(), PlayerStarts.Num(), *DistrictTag.ToString());
+		}
+	}
+	const TArray<ALyraPlayerStart*>& DistrictScoped = (DistrictStarts.Num() > 0) ? DistrictStarts : PlayerStarts;
+
 	// (0) FIXED-MIRROR SIDE filter (T1.4b) -- restrict to the team's CURRENT side, folding in the round's
 	//     half-time swap (read layering-safe via the core IAFLRoundRestartPolicy seam). INDEX_NONE -> no side
 	//     constraint (4a behavior); a side with no tagged starts -> keep all (graceful, e.g. an untagged map).
@@ -202,7 +296,7 @@ AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Pla
 	if (SideIndex == 0 || SideIndex == 1)
 	{
 		const FGameplayTag SideTag = (SideIndex == 0) ? TAG_AFL_Spawn_Side_0 : TAG_AFL_Spawn_Side_1;
-		for (ALyraPlayerStart* Start : PlayerStarts)
+		for (ALyraPlayerStart* Start : DistrictScoped)
 		{
 			if (Start && Start->GetGameplayTags().HasTag(SideTag))
 			{
@@ -210,7 +304,7 @@ AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Pla
 			}
 		}
 	}
-	const TArray<ALyraPlayerStart*>& SideScoped = (SideStarts.Num() > 0) ? SideStarts : PlayerStarts;
+	const TArray<ALyraPlayerStart*>& SideScoped = (SideStarts.Num() > 0) ? SideStarts : DistrictScoped;
 
 	// (1) No-enemy-LOS pre-filter over the side-scoped set -- drop starts an enemy can currently see.
 	TArray<ALyraPlayerStart*> SafeStarts;
@@ -309,10 +403,41 @@ AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Pla
 		}
 	}
 
-	ALyraPlayerStart* const Chosen = BestPlayerStart ? BestPlayerStart : FallbackPlayerStart;
+	ALyraPlayerStart* Chosen = BestPlayerStart ? BestPlayerStart : FallbackPlayerStart;
+
+	// (3) NO ENEMY PAWN EXISTED TO MEASURE AGAINST -- take the filtered set instead of giving up.
+	//
+	// The pass above is driven ENTIRELY by enemy pawns (`PS->GetPawn()`), so at the first spawn of a match --
+	// before any opponent has a body -- its loop body never runs and Chosen stays null. Returning null there
+	// hands the decision back to ULyraPlayerSpawningManagerComponent::ChoosePlayerStart, which draws from
+	// EVERY cached start and silently discards the district / side / LOS / anti-camp filtering computed above.
+	//
+	// MEASURED CONSEQUENCE (2026-08-07, L_ShantyTown 2v2): the human is normally the first to spawn, so the
+	// human -- and only the human -- was placed outside the district on every single run, while every bot
+	// (spawning later, with an enemy pawn present) was placed correctly inside it. The district filter looked
+	// broken from the player's seat while being provably correct in the log.
+	//
+	// "Nothing to be far from" is not "no valid spawn". Every other stage in this function already degrades
+	// this way -- bAllExposed, bAllHot, and the side fallback all choose a worse candidate over none. This is
+	// the one stage that did not, and the only one whose failure silently un-does all the others.
+	bool bNoEnemyFallback = false;
+	if (Chosen == nullptr)
+	{
+		for (ALyraPlayerStart* Start : FinalCandidates)
+		{
+			// Occupancy still applies, so sequential spawns at match start spread across the set rather than
+			// stacking on one point.
+			if (Start && Start->GetLocationOccupancy(Player) < ELyraPlayerStartLocationOccupancy::Full)
+			{
+				Chosen = Start;
+				bNoEnemyFallback = true;
+				break;
+			}
+		}
+	}
 
 	UE_LOG(LogAFLGameCore, Log,
-		TEXT("AFLSpawn: team=%d side=%d -> '%s' (dist=%.0f) | side-scoped %d, LOS-safe %d/%d rejected=[%s]%s | anti-camp: %d hot-rejected, %d cool, %d hotpts%s"),
+		TEXT("AFLSpawn: team=%d side=%d -> '%s' (dist=%.0f) | side-scoped %d, LOS-safe %d/%d rejected=[%s]%s | anti-camp: %d hot-rejected, %d cool, %d hotpts%s%s"),
 		PlayerTeamId, SideIndex,
 		Chosen ? *Chosen->GetName() : TEXT("<none>"),
 		BestPlayerStart ? MaxDistance : FallbackMaxDistance,
@@ -320,7 +445,8 @@ AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Pla
 		*FString::Join(RejectedNames, TEXT(",")),
 		bAllExposed ? TEXT(" [FALLBACK all-exposed]") : TEXT(""),
 		HotRejected, CoolStarts.Num(), RecentHotPoints.Num(),
-		bAllHot ? TEXT(" [FALLBACK all-hot]") : TEXT(""));
+		bAllHot ? TEXT(" [FALLBACK all-hot]") : TEXT(""),
+		bNoEnemyFallback ? TEXT(" [no-enemy: took filtered set]") : TEXT(""));
 
 	return Chosen;
 }
