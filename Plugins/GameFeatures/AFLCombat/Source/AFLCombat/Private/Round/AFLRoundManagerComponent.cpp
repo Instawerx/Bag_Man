@@ -276,6 +276,15 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: match START (teams %d v %d; first to %d; half-swap after round %d)."),
 		ParticipatingTeams[0], ParticipatingTeams[1], RoundsToWin, HalfTimeAfterRound);
 
+	// TAKE THE STAKE. This is the earliest point where MatchId exists and the roster is settled, and it must
+	// happen BEFORE the match is played: /settle-match verifies its claimed entries against the escrow rows
+	// and refuses a pot that was never funded, so a match that skips this cannot pay out at all.
+	//
+	// A no-op in LEAGUE PLAY (no buy-in) and in any session without the economy env vars -- so an ordinary
+	// PIE run is unaffected. Escrow is all-or-nothing: it validates every team before debiting anyone, so a
+	// misconfigured staked match charges nobody rather than charging half the lobby.
+	FAFLMatchReporter::EscrowTeamSeries(this, MatchId, FAFLMatchReporter::ReadEconomics(this));
+
 	// Suppress the ShooterCore auto-respawn for the whole match: the cloned GA_AFL_AutoRespawn skips its
 	// respawn node while State.Round.NoRespawn is on the owning ASC, so the round FSM is the LONE respawn
 	// authority (the round-start force-respawn -- no BP-latent death-respawn competing). Human + bot.

@@ -29,6 +29,32 @@ class AFLGAMECORE_API FAFLMatchReporter
 {
 public:
 	/**
+	 * The match economics, read from the server's LAUNCH OPTIONS. Server-side by construction: a client
+	 * cannot set these, which is what keeps N11 intact -- the client asserts nothing about what a match was
+	 * worth.
+	 *
+	 *   ?Tier=LeaguePlay|WattsPlay|VoltsPlay   default LeaguePlay (unstaked, unrated)
+	 *   ?League=Haywire|ProMod                 default ProMod
+	 *   ?Stake=<int>                           what ONE finishing position stakes
+	 *   ?StakeCurrency=VO|WA                   default VO
+	 *
+	 * ⚠ INTERIM SOURCE, AND DELIBERATELY NARROW. The right home for stake and currency is the matchmaker
+	 * payload -- `GameSessionData` today carries only matchId and members, so there is nowhere else for the
+	 * server to learn them. When the queue registry lands and the allocator carries stake, this reads from
+	 * MatchmakerData instead and nothing else in this file changes.
+	 */
+	struct FMatchEconomics
+	{
+		EAFLPlayTier Tier = EAFLPlayTier::LeaguePlay;
+		EAFLLeague League = EAFLLeague::ProMod;
+		int32 StakePerPosition = 0;
+		FString CurrencyCode = TEXT("VO");
+
+		bool IsStaked() const { return Tier != EAFLPlayTier::LeaguePlay; }
+	};
+	static FMatchEconomics ReadEconomics(const UObject* WorldContext);
+
+	/**
 	 * Build the POST /settle-match body. Returns false if the result cannot be settled, with OutError saying
 	 * why -- an unstaked result has nothing to settle, and that is a legitimate answer, not a failure.
 	 *
@@ -56,35 +82,29 @@ public:
 	static void ReportMatchEnd(const UObject* WorldContext, const FAFLMatchResult& Result,
 		int32 StakeAmountPerPosition, const FString& CurrencyCode);
 
-	/** Escrow every participant at match start. No-op (logged) for an unstaked match. */
+	/** Escrow a fixed amount from each named player. The low-level form; prefer EscrowTeamSeries. */
 	static void EscrowAll(const UObject* WorldContext, const FGuid& MatchId,
 		const TArray<FString>& ReconcileIds, const FString& CurrencyCode, int32 AmountPerPlayer);
 
 	/**
-	 * The match economics, read from the server's LAUNCH OPTIONS. Server-side by construction: a client
-	 * cannot set these, which is what keeps N11 intact -- the client asserts nothing about what a match was
-	 * worth.
+	 * Escrow a TWO-TEAM series at match start, per team.
 	 *
-	 *   ?Tier=LeaguePlay|WattsPlay|VoltsPlay   default LeaguePlay (unstaked, unrated)
-	 *   ?League=Haywire|ProMod                 default ProMod
-	 *   ?Stake=<int>                           what ONE finishing position stakes
-	 *   ?StakeCurrency=VO|WA                   default VO
+	 * ⚠ NOT A FLAT PER-PLAYER AMOUNT, and the difference is load-bearing. The backend requires every
+	 * finishing POSITION to have staked the same total, because the payout curve is denominated in stake
+	 * units and a unit is what one position staked. A team IS a position here, so each team's members split
+	 * that team's one unit: `StakePerPosition / (humans on that team)`. A flat per-player figure would make
+	 * a 5v4 stake 5 units against 4 and the whole settlement would be rejected -- correctly, but confusingly.
 	 *
-	 * ⚠ INTERIM SOURCE, AND DELIBERATELY NARROW. The right home for stake and currency is the matchmaker
-	 * payload -- `GameSessionData` today carries only matchId and members, so there is nowhere else for the
-	 * server to learn them. When the queue registry lands and the allocator carries stake, this reads from
-	 * MatchmakerData instead and nothing else in this file changes.
+	 * Refuses (loudly, escrowing NOTHING) rather than escrow a match that cannot later settle:
+	 *   - a team whose size does not divide the stake evenly -- position totals would differ;
+	 *   - a team with no human players -- nothing to fund its unit with;
+	 *   - any bot in a staked match (R85 bars them), which would otherwise silently short the pot.
+	 *
+	 * ALL-OR-NOTHING BY DESIGN: everything is validated before the first debit, because a half-escrowed match
+	 * charges some players for a match that settlement will then refuse.
 	 */
-	struct FMatchEconomics
-	{
-		EAFLPlayTier Tier = EAFLPlayTier::LeaguePlay;
-		EAFLLeague League = EAFLLeague::ProMod;
-		int32 StakePerPosition = 0;
-		FString CurrencyCode = TEXT("VO");
+	static void EscrowTeamSeries(const UObject* WorldContext, const FGuid& MatchId, const FMatchEconomics& Economics);
 
-		bool IsStaked() const { return Tier != EAFLPlayTier::LeaguePlay; }
-	};
-	static FMatchEconomics ReadEconomics(const UObject* WorldContext);
 
 	/**
 	 * Build the result for a TWO-TEAM series (MATCH PLAY) from live player state.

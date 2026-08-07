@@ -313,6 +313,132 @@ void FAFLMatchReporter::EscrowAll(const UObject* WorldContext, const FGuid& Matc
 	}
 }
 
+void FAFLMatchReporter::EscrowTeamSeries(const UObject* WorldContext, const FGuid& MatchId, const FMatchEconomics& Economics)
+{
+	const FString Wire = MatchIdToWire(MatchId);
+
+	if (!Economics.IsStaked())
+	{
+		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_MATCHREPORT: LEAGUE PLAY match %s -- no buy-in, nothing to escrow (R85)."), *Wire);
+		return;
+	}
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(WorldContext);
+	if (!Online || !Online->IsMatchReportingConfigured())
+	{
+		// Expected in a plain PIE session: the env vars are absent by design. One line, not one per player.
+		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_MATCHREPORT: economy not wired -- match %s not escrowed."), *Wire);
+		return;
+	}
+
+	const UWorld* World = WorldContext ? WorldContext->GetWorld() : nullptr;
+	const AGameStateBase* GS = World ? World->GetGameState() : nullptr;
+	if (!GS)
+	{
+		UE_LOG(LogAFLGameCore, Error, TEXT("AFL_MATCHREPORT: no game state -- match %s NOT escrowed."), *Wire);
+		return;
+	}
+
+	// --- gather, grouped by team. NOTHING is debited until every check below passes. ---
+	TMap<int32, TArray<FString>> HumansByTeam;
+	int32 BotCount = 0;
+
+	for (APlayerState* PS : GS->PlayerArray)
+	{
+		if (!PS) { continue; }
+		if (PS->IsABot()) { ++BotCount; continue; }
+
+		FString ReconcileId;
+		if (const UAFLReconcileIdComponent* IdComp = PS->FindComponentByClass<UAFLReconcileIdComponent>())
+		{
+			ReconcileId = IdComp->GetReconcileId();
+		}
+		if (ReconcileId.IsEmpty())
+		{
+			UE_LOG(LogAFLGameCore, Error,
+				TEXT("AFL_MATCHREPORT: player '%s' has no reconcile id -- match %s NOT escrowed (nobody debited)."),
+				*PS->GetPlayerName(), *Wire);
+			return;
+		}
+
+		int32 TeamId = INDEX_NONE;
+		if (const IGenericTeamAgentInterface* Agent = Cast<IGenericTeamAgentInterface>(PS))
+		{
+			const FGenericTeamId Assigned = Agent->GetGenericTeamId();
+			if (Assigned != FGenericTeamId::NoTeam) { TeamId = Assigned.GetId(); }
+		}
+		if (TeamId == INDEX_NONE)
+		{
+			UE_LOG(LogAFLGameCore, Error,
+				TEXT("AFL_MATCHREPORT: player '%s' has no team -- match %s NOT escrowed (nobody debited)."),
+				*PS->GetPlayerName(), *Wire);
+			return;
+		}
+		HumansByTeam.FindOrAdd(TeamId).Add(MoveTemp(ReconcileId));
+	}
+
+	// R85: the staked tiers permit no bots. One here means the pot would be short by a whole share, so the
+	// match cannot settle -- refuse before charging anyone rather than discover it at payout.
+	if (BotCount > 0)
+	{
+		UE_LOG(LogAFLGameCore, Error,
+			TEXT("AFL_MATCHREPORT: %d bot(s) in STAKED match %s -- bots are barred from staked play (R85). NOT escrowed (nobody debited)."),
+			BotCount, *Wire);
+		return;
+	}
+	if (HumansByTeam.Num() < 2)
+	{
+		UE_LOG(LogAFLGameCore, Error,
+			TEXT("AFL_MATCHREPORT: staked match %s has %d team(s) with players -- need 2. NOT escrowed (nobody debited)."),
+			*Wire, HumansByTeam.Num());
+		return;
+	}
+
+	// Per-team share. Validate EVERY team before debiting ANY player.
+	TMap<int32, int32> ShareByTeam;
+	for (const TPair<int32, TArray<FString>>& Team : HumansByTeam)
+	{
+		const int32 Size = Team.Value.Num();
+		if (Size == 0 || Economics.StakePerPosition % Size != 0)
+		{
+			UE_LOG(LogAFLGameCore, Error,
+				TEXT("AFL_MATCHREPORT: stake %d does not divide evenly across team %d's %d player(s) -- position totals would differ. Match %s NOT escrowed (nobody debited)."),
+				Economics.StakePerPosition, Team.Key, Size, *Wire);
+			return;
+		}
+		ShareByTeam.Add(Team.Key, Economics.StakePerPosition / Size);
+	}
+
+	// --- every check passed: debit. ---
+	int32 Posted = 0;
+	for (const TPair<int32, TArray<FString>>& Team : HumansByTeam)
+	{
+		const int32 Share = ShareByTeam[Team.Key];
+		for (const FString& Id : Team.Value)
+		{
+			const FString Body = BuildEscrowBody(MatchId, Id, Economics.CurrencyCode, Share);
+			Online->PostServerEscrow(Body, [Wire, Id, Share](bool bOk, const FString& Response)
+			{
+				if (bOk)
+				{
+					UE_LOG(LogAFLGameCore, Log, TEXT("AFL_MATCHREPORT: escrowed %d from %s for match %s"), Share, *Id, *Wire);
+				}
+				else
+				{
+					// This player is NOT funded. Settlement will refuse the whole match on the count/amount
+					// check -- loud and safe, rather than quietly paying a pot that is short.
+					UE_LOG(LogAFLGameCore, Error,
+						TEXT("AFL_MATCHREPORT: ESCROW FAILED for %s in match %s -- settlement will refuse this match: %s"),
+						*Id, *Wire, *Response.Left(300));
+				}
+			});
+			++Posted;
+		}
+	}
+	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_MATCHREPORT: match %s -- %d escrow request(s) posted (%d %s per position across %d teams)."),
+		*Wire, Posted, Economics.StakePerPosition, *Economics.CurrencyCode, HumansByTeam.Num());
+}
+
 void FAFLMatchReporter::ReportMatchEnd(const UObject* WorldContext, const FAFLMatchResult& Result,
 	int32 StakeAmountPerPosition, const FString& CurrencyCode)
 {
