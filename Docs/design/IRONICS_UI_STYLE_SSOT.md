@@ -192,11 +192,36 @@ Each maps to an EXISTING widget to extend (sec ref) or is a NEW primitive. All i
 | `UIButton.Glass` | glass button, 12px radius, House-Cyan hover glow | NEW (front-end) |
 | `UIChip.Value` | integer Watts/Volts chip, mono, value-accent | EXTEND CarriedValue; front-end wallet |
 | `UIBadge.Rarity` | rarity label on the SEPARATE color axis (sec2.3) | NEW (store/inventory) |
+| `UIDisplay.NeonTube` | **DERIVED - see below.** Glass-neon-tube display type: hollow tube letterforms, lit filament core, layered bloom. **DISPLAY ONLY, >=64px** | NEW (front-end headings) |
 
 **Arc-Violet accent variant (sec2.1 blend rule) - applies to EVERY token:** the focus / hover / active
 STATE of any glass token adds an Arc-Violet edge-glow (`UIPanel.Glass` focus = House-Cyan border + Arc-Violet
 outer rim; `UIButton.Glass` hover = cyan fill-glow + Arc-Violet rim). The accent is a STATE layer
 (focus/hover/selected), NEVER the resting fill. This keeps the electric-arc read consistent across HUD + front-end.
+
+**`UIDisplay.NeonTube` - DERIVED 2026-08-07, flagged for approval (OPEN ITEM 5).** The house display
+treatment for front-end headings, from the operator's IRONICS neon-sign reference. A tube is not a glow: it
+is built from THREE STACKED LAYERS per glyph, and skipping the unlit wall is what makes cheap neon look flat.
+
+| Layer | Construction | Reads as |
+|---|---|---|
+| 1 (back) | ~7px stroke, `rgba(150,190,255,.085)`, 0.4px blur | the UNLIT glass tube wall - physical body |
+| 2 (mid) | ~2.5px stroke, `rgba(200,225,255,.30)` | cool reflection down the tube |
+| 3 (front) | ~1.15px near-white stroke + the bloom stack | the LIT filament inside the glass |
+
+**THE BLOOM STACK IS THE sec2.1 BLEND RULE RENDERED AS LIGHT** - white core, electric mid, Arc-Violet
+outermost. Violet never touches the core, which is the same law the flat chrome obeys:
+`0 0 3-8px white` -> `0 0 17-34px #1E5AFF` -> `0 0 62px #1E5AFF @72%` -> `0 0 96-150px #A855F7 @80%->42%`.
+
+- **SIZE-GATED, HARD (sec2.1):** display only, **>=64px**. Never on controls, labels, counts or body copy -
+  bloom at UI size is exactly what makes neon interfaces unreadable. Everything that is not a heading stays
+  flat white on glass.
+- **Hum:** two shallow opacity dips over ~5.2s on `steps(1)`. A real tube is never perfectly steady; deeper
+  than this and it reads as a BROKEN sign rather than a live one.
+- **UMG:** ship as an **SDF text material** (bloom stack as layered outlines) or an authored texture for
+  fixed strings. **Do NOT stack three UMG TextBlocks** - they drift at different DPI.
+- Stroke widths are tuned to a condensed grotesque; a different shipping face (OPEN ITEM 1) requires
+  re-tuning them.
 
 **Pipeline for every surface (expert-game-designer):** SVG/HTML mock -> design spec (grid/spacing/
 tokens/motion) -> AIK/UMG authoring -> CommonUI/LyraHUDLayout wire (C++ base owns bindings, WBP child
@@ -212,3 +237,8 @@ owns layout - the proven AFL split). No surface bypasses this SSOT.
    (UI texture + 3D hero) in production. **Arc-Violet #A855F7 secondary locked (sec2.1, sec2.4, sec6).**
 4. **sRGB vs linear** - linear (store spec) is canonical; confirm the gamma-converted hex set above for
    design tools, or supply a measured hex set.
+5. **`UIDisplay.NeonTube` (sec6)** - DERIVED 2026-08-07 from the operator's neon-sign reference; the
+   three-layer construction, bloom radii and hum are proposed, not blessed. Two sub-decisions ride on it:
+   **(a)** SDF material vs authored texture - a full-screen bloom stack is not free on console, so this
+   needs a call from whoever owns UMG performance; **(b)** whether the treatment is reserved for the
+   two R98 door headings or extends to every front-end heading.

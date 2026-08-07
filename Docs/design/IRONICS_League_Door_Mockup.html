@@ -1,0 +1,394 @@
+<title>IRONICS — League Play Door</title>
+
+<style>
+  :root{
+    --house-electric:#1E5AFF; --house-violet:#A855F7;
+    --house-black:#05080F; --house-white:#FFFFFF; --house-neonblue:#00ADFF;
+    --glass-1:rgba(255,255,255,.12); --glass-2:rgba(255,255,255,.08); --glass-3:rgba(255,255,255,.05);
+    --glass-border:rgba(255,255,255,.20); --glass-shadow:0 8px 32px rgba(0,0,0,.30); --blur:28px;
+    --text-1:#fff; --text-2:rgba(255,255,255,.70); --text-3:rgba(255,255,255,.45);
+    --r-panel:20px; --r-button:12px; --r-input:8px;
+    --ease-out:cubic-bezier(.16,1,.3,1); --ease-io:cubic-bezier(.65,0,.35,1);
+    --display:"Bahnschrift","DIN Alternate","Oswald","Segoe UI Semibold",system-ui,sans-serif;
+    --ui:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;
+    --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--house-black);color:var(--text-1);font-family:var(--ui);
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+  /* ── WALL + WORLD ───────────────────────────────────────────────────────
+     The reference is a neon sign on a dark textured wall. Concrete comes from
+     layered noise; it must stay DIM — §3 world grounding, glass reads bright
+     against dark, never the reverse. */
+  .wall{position:fixed;inset:0;z-index:0;background:
+      radial-gradient(120% 80% at 50% 8%, rgba(30,90,255,.13), transparent 58%),
+      radial-gradient(90% 60% at 50% 4%, rgba(168,85,247,.09), transparent 55%),
+      linear-gradient(180deg,#0a0e18 0%,#05080F 55%,#03050a 100%);}
+  .wall::before{content:"";position:absolute;inset:0;opacity:.30;mix-blend-mode:overlay;
+    background-image:
+      repeating-linear-gradient(90deg,rgba(255,255,255,.05) 0 1px,transparent 1px 132px),
+      repeating-linear-gradient(0deg,rgba(255,255,255,.045) 0 1px,transparent 1px 96px);}
+  .wall::after{content:"";position:absolute;inset:0;opacity:.5;
+    background:radial-gradient(140% 100% at 50% 40%,transparent 35%,rgba(0,0,0,.85) 100%)}
+  .grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.16;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='.55'/></svg>")}
+
+  .stage{position:relative;z-index:2;min-height:100vh;display:flex;flex-direction:column;
+    padding:clamp(18px,2.6vw,38px) clamp(20px,4vw,64px) clamp(20px,3vw,40px);
+    gap:clamp(14px,2vh,26px)}
+
+  /* ── TOP BAR ───────────────────────────────────────────────────────────── */
+  .top{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  .back{display:flex;align-items:center;gap:10px;padding:9px 16px;border-radius:var(--r-button);
+    background:var(--glass-2);border:1px solid var(--glass-border);color:var(--text-2);
+    font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;
+    backdrop-filter:blur(var(--blur));transition:.22s}
+  .back:hover{color:var(--text-1);border-color:var(--house-violet);
+    box-shadow:0 0 20px rgba(168,85,247,.28)}
+  .wallet{display:flex;gap:9px}
+  .chip{display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:var(--r-button);
+    background:var(--glass-2);border:1px solid var(--glass-border);backdrop-filter:blur(var(--blur));
+    font-size:13.5px}
+  .chip .amt{font-family:var(--mono);font-weight:700;font-variant-numeric:tabular-nums}
+  .chip .lbl{color:var(--text-3);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase}
+  .mark{width:14px;height:14px;flex:none}
+
+  /* ══ NEON TUBE DISPLAY TYPE ═══════════════════════════════════════════════
+     Authentic glass-tube construction, three stacked layers:
+       1. ::before — thick DIM stroke  = the unlit glass tube wall
+       2. base     — mid stroke, cool  = the tube's inner reflection
+       3. ::after  — thin WHITE stroke = the lit filament, carrying the bloom
+     Bloom is layered white → electric → ARC-VIOLET outermost, which is the
+     §2.1 blend rule rendered as light: electric CORE, violet RIM.
+     SIZE-GATED (§10.1): this treatment is display-only, >=64px. Body copy and
+     controls stay flat white — bloom at UI size destroys legibility. */
+  .neonwrap{position:relative;text-align:center;padding:clamp(6px,1.4vh,16px) 0 clamp(2px,1vh,10px)}
+  .neon{position:relative;display:inline-block;font-family:var(--display);font-weight:700;
+    font-size:clamp(46px,9.2vw,132px);line-height:.92;letter-spacing:.085em;text-transform:uppercase;
+    color:transparent;-webkit-text-stroke:2.5px rgba(200,225,255,.30);
+    filter:drop-shadow(0 0 42px rgba(30,90,255,.42));}
+  .neon::before,.neon::after{content:attr(data-t);position:absolute;left:0;top:0;width:100%;
+    pointer-events:none}
+  /* 1 — unlit tube wall: thick, dim, cool. Gives the letterform physical body. */
+  .neon::before{-webkit-text-stroke:7px rgba(150,190,255,.085);color:transparent;
+    filter:blur(.4px)}
+  /* 3 — lit filament + the bloom stack */
+  .neon::after{-webkit-text-stroke:1.15px rgba(255,255,255,.97);color:transparent;
+    text-shadow:
+      0 0 3px  rgba(255,255,255,.98),
+      0 0 8px  rgba(210,230,255,.92),
+      0 0 17px var(--house-electric),
+      0 0 34px var(--house-electric),
+      0 0 62px rgba(30,90,255,.72),
+      0 0 96px rgba(168,85,247,.80),   /* ARC-VIOLET RIM — the outer bloom */
+      0 0 150px rgba(168,85,247,.42);
+    animation:hum 5.2s steps(1) infinite}
+  /* Neon hum — a real tube is not perfectly steady. Two frames only, and shallow;
+     any more reads as a broken sign rather than a live one. */
+  @keyframes hum{0%,88%,100%{opacity:1}90%{opacity:.90}92%{opacity:1}94%{opacity:.95}}
+
+  /* mounting hardware — the reference has visible brackets; sells "physical object" */
+  .mounts{display:flex;justify-content:center;gap:clamp(40px,9vw,130px);margin-top:-6px;opacity:.5}
+  .mounts i{display:block;width:2px;height:clamp(10px,1.6vh,18px);
+    background:linear-gradient(180deg,rgba(160,190,255,.55),transparent)}
+
+  .subline{text-align:center;color:var(--text-2);font-size:clamp(12.5px,1.05vw,15px);
+    letter-spacing:.02em;margin-top:6px}
+  .subline b{color:var(--house-white);font-weight:600}
+  .freepill{display:inline-flex;align-items:center;gap:7px;margin-bottom:9px;padding:6px 14px;
+    border-radius:99px;background:var(--glass-3);border:1px solid var(--glass-border);
+    font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--text-2)}
+
+  /* ── CONTROL DECK ──────────────────────────────────────────────────────── */
+  .deck{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:clamp(14px,1.6vw,22px);
+    align-items:start;min-height:0}
+  @media (max-width:1080px){.deck{grid-template-columns:1fr}}
+
+  .panel{background:var(--glass-1);border:1px solid var(--glass-border);border-radius:var(--r-panel);
+    backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));
+    box-shadow:var(--glass-shadow);padding:clamp(16px,1.7vw,24px)}
+  .axis+.axis{margin-top:20px}
+  .axis-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:11px}
+  .axis-h h3{margin:0;font-family:var(--display);font-size:12px;letter-spacing:.24em;
+    text-transform:uppercase;color:var(--text-2);font-weight:600}
+  .axis-h .hint{font-size:11px;color:var(--text-3)}
+
+  /* segmented controls — Electric leads the ACTIVE state, always */
+  .seg{display:flex;gap:8px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:120px;padding:13px 14px;border-radius:var(--r-button);
+    background:var(--glass-3);border:1px solid var(--glass-border);color:var(--text-2);
+    font-family:var(--ui);font-size:13px;letter-spacing:.1em;text-transform:uppercase;
+    cursor:pointer;transition:.22s;display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+  .seg button .b{font-weight:600;letter-spacing:.14em}
+  .seg button .s{font-size:10.5px;color:var(--text-3);letter-spacing:.02em;text-transform:none}
+  .seg button:hover{color:var(--text-1);border-color:var(--house-violet);
+    box-shadow:0 0 18px rgba(168,85,247,.22)}
+  .seg button[aria-pressed="true"]{background:rgba(30,90,255,.20);border-color:var(--house-electric);
+    color:var(--text-1);box-shadow:0 0 26px rgba(30,90,255,.30) inset,0 0 20px rgba(30,90,255,.22)}
+  .seg button[aria-pressed="true"] .s{color:rgba(255,255,255,.62)}
+
+  /* ── SIZE GRID + POPULATION (§5 — per band, never aggregate only) ──────── */
+  .sizes{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:9px}
+  .size{padding:13px 14px;border-radius:var(--r-button);background:var(--glass-3);
+    border:1px solid var(--glass-border);cursor:pointer;transition:.22s;text-align:left;
+    color:var(--text-2);font-family:var(--ui)}
+  .size:hover{border-color:var(--house-violet);color:var(--text-1)}
+  .size[aria-pressed="true"]{background:rgba(30,90,255,.20);border-color:var(--house-electric);
+    color:var(--text-1);box-shadow:0 0 20px rgba(30,90,255,.22)}
+  .size .n{font-family:var(--display);font-size:19px;letter-spacing:.09em}
+  .size .pop{display:flex;align-items:center;gap:6px;font-size:11px;margin-top:6px;color:var(--text-3)}
+  .dot{width:6px;height:6px;border-radius:50%;flex:none}
+  .live .dot{background:var(--house-electric);box-shadow:0 0 8px var(--house-electric);
+    animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .warm .dot{background:var(--house-neonblue);opacity:.75}
+  /* A COLD band must NEVER look like a busy one (§5.2). Hollow ring, no glow, no pulse. */
+  .cold .dot{background:transparent;border:1px solid var(--text-3)}
+  .size.cold{opacity:.62}
+  .size.cold .pop{color:var(--text-3);font-style:italic}
+
+  /* ── RIGHT RAIL ────────────────────────────────────────────────────────── */
+  .rail{display:flex;flex-direction:column;gap:14px}
+  .reward h3{margin:0 0 12px;font-family:var(--display);font-size:12px;letter-spacing:.24em;
+    text-transform:uppercase;color:var(--text-2)}
+  .rewrow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--glass-3)}
+  .rewrow:last-of-type{border-bottom:none}
+  .rewicon{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;
+    background:rgba(30,90,255,.16);border:1px solid rgba(30,90,255,.35)}
+  .rewrow .t{font-size:13.5px;color:var(--text-1)}
+  .rewrow .d{font-size:11px;color:var(--text-3);margin-top:2px}
+  .note{font-size:11.5px;color:var(--text-3);line-height:1.55;margin-top:4px}
+
+  .summary{display:flex;flex-direction:column;gap:9px;margin-bottom:14px}
+  .srow{display:flex;justify-content:space-between;gap:12px;font-size:12.5px}
+  .srow .k{color:var(--text-3);letter-spacing:.1em;text-transform:uppercase;font-size:10.5px}
+  .srow .v{color:var(--text-1);font-weight:600;letter-spacing:.04em}
+
+  .queue{width:100%;padding:17px 20px;border-radius:var(--r-button);border:1px solid var(--house-electric);
+    background:linear-gradient(180deg,rgba(30,90,255,.34),rgba(30,90,255,.20));
+    color:#fff;font-family:var(--display);font-size:16px;letter-spacing:.22em;text-transform:uppercase;
+    cursor:pointer;transition:.24s;
+    box-shadow:0 0 30px rgba(30,90,255,.34),inset 0 1px 0 rgba(255,255,255,.22)}
+  .queue:hover{box-shadow:0 0 50px rgba(30,90,255,.55),0 0 26px rgba(168,85,247,.35),
+    inset 0 1px 0 rgba(255,255,255,.3);transform:translateY(-2px)}
+  .queue:active{transform:translateY(0)}
+  .wait{text-align:center;font-size:11px;color:var(--text-3);margin-top:9px;letter-spacing:.06em}
+
+  /* ── SPEC ──────────────────────────────────────────────────────────────── */
+  .spec{position:relative;z-index:2;max-width:1120px;margin:0 auto;
+    padding:clamp(40px,6vw,86px) clamp(20px,4vw,40px) 92px}
+  .spec h2{font-family:var(--display);letter-spacing:.16em;text-transform:uppercase;
+    font-size:clamp(17px,2vw,24px);margin:50px 0 6px;padding-top:24px;border-top:1px solid var(--glass-3)}
+  .spec h2:first-of-type{margin-top:0;border-top:none;padding-top:0}
+  .spec p,.spec li{color:var(--text-2);line-height:1.68}
+  .spec p{max-width:74ch}
+  .spec ul{max-width:74ch}
+  .lede{font-size:16px;color:var(--text-1)}
+  .tablewrap{overflow-x:auto;margin:16px 0;border:1px solid var(--glass-3);border-radius:var(--r-button)}
+  table{border-collapse:collapse;width:100%;min-width:580px;font-size:13.5px}
+  th,td{text-align:left;padding:11px 15px;border-bottom:1px solid var(--glass-3);vertical-align:top}
+  th{background:var(--glass-3);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--text-2);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  code{font-family:var(--mono);font-size:.9em;background:var(--glass-3);padding:1px 6px;
+    border-radius:5px;color:var(--house-neonblue)}
+  .law{border-left:2px solid var(--house-violet);background:rgba(168,85,247,.07);
+    padding:15px 20px;border-radius:0 var(--r-button) var(--r-button) 0;margin:18px 0}
+  .law b{color:#fff}
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation-duration:.01ms!important;animation-iteration-count:1!important;
+      transition-duration:.01ms!important}
+  }
+</style>
+
+<div class="wall"></div>
+<div class="grain"></div>
+
+<div class="stage">
+  <div class="top">
+    <div class="back">← Home</div>
+    <div class="wallet">
+      <div class="chip"><svg class="mark" viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" fill="#1E5AFF"/></svg>
+        <span class="amt">12,480</span><span class="lbl">Watts</span></div>
+      <div class="chip"><svg class="mark" viewBox="0 0 24 24"><path d="M12 2 3 12l9 10 9-10-9-10Z" fill="none" stroke="#1E5AFF" stroke-width="2.2"/></svg>
+        <span class="amt">340</span><span class="lbl">Volts</span></div>
+    </div>
+  </div>
+
+  <div class="neonwrap">
+    <div class="freepill">Free to play · no buy-in</div><br>
+    <span class="neon" data-t="LEAGUE PLAY">LEAGUE PLAY</span>
+    <div class="mounts"><i></i><i></i><i></i><i></i></div>
+    <p class="subline">Play for <b>loot</b> and <b>Watts</b>. Bots fill any empty seat, so a match always starts.</p>
+  </div>
+
+  <div class="deck">
+    <div class="panel">
+
+      <div class="axis">
+        <div class="axis-h"><h3>Ruleset</h3><span class="hint">Two different games, not two options</span></div>
+        <div class="seg" data-axis="ruleset">
+          <button aria-pressed="true"><span class="b">Match Play</span><span class="s">Best-of rounds · extraction</span></button>
+          <button aria-pressed="false"><span class="b">Battle Royale</span><span class="s">Last standing · shrinking zone</span></button>
+        </div>
+      </div>
+
+      <div class="axis">
+        <div class="axis-h"><h3>League</h3><span class="hint">Only League Play offers both</span></div>
+        <div class="seg" data-axis="league">
+          <button aria-pressed="true"><span class="b">Haywire</span><span class="s">Full chaos · dismemberment</span></button>
+          <button aria-pressed="false"><span class="b">Pro Mod</span><span class="s">Clean · competition rules</span></button>
+        </div>
+      </div>
+
+      <div class="axis">
+        <div class="axis-h"><h3>Venue class</h3><span class="hint">The venue itself is assigned at match start</span></div>
+        <div class="seg" data-axis="venue">
+          <button aria-pressed="true"><span class="b">Arena</span><span class="s">Contained · round-based</span></button>
+          <button aria-pressed="false"><span class="b">Map</span><span class="s">District-scale · open</span></button>
+        </div>
+      </div>
+
+      <div class="axis">
+        <div class="axis-h"><h3>Size</h3><span class="hint">Live counts — quiet bands are shown, not hidden</span></div>
+        <div class="sizes" data-axis="size">
+          <button class="size live" aria-pressed="false"><div class="n">1v1</div>
+            <div class="pop"><span class="dot"></span>212 waiting · ~20s</div></button>
+          <button class="size live" aria-pressed="false"><div class="n">2v2</div>
+            <div class="pop"><span class="dot"></span>486 waiting · ~15s</div></button>
+          <button class="size live" aria-pressed="true"><div class="n">3v3</div>
+            <div class="pop"><span class="dot"></span>1,204 waiting · ~10s</div></button>
+          <button class="size warm" aria-pressed="false"><div class="n">4v4</div>
+            <div class="pop"><span class="dot"></span>97 waiting · ~55s</div></button>
+          <button class="size live" aria-pressed="false"><div class="n">5v5</div>
+            <div class="pop"><span class="dot"></span>640 waiting · ~18s</div></button>
+          <button class="size cold" aria-pressed="false"><div class="n">8v8</div>
+            <div class="pop"><span class="dot"></span>Quiet · no estimate</div></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="rail">
+      <div class="panel reward">
+        <h3>What you play for</h3>
+        <div class="rewrow">
+          <span class="rewicon"><svg width="17" height="17" viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" fill="#1E5AFF"/></svg></span>
+          <div><div class="t">Watts</div><div class="d">Yours to keep — spend in the store, or bring to Staked Play</div></div>
+        </div>
+        <div class="rewrow">
+          <span class="rewicon"><svg width="17" height="17" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="2" fill="none" stroke="#1E5AFF" stroke-width="2"/><path d="M4 11h16" stroke="#1E5AFF" stroke-width="2"/></svg></span>
+          <div><div class="t">Loot</div><div class="d">Cosmetic drops — the arsenal is never bought</div></div>
+        </div>
+        <p class="note">League Play is unrated. Nothing here touches your staked record, and no result costs you a balance.</p>
+      </div>
+
+      <div class="panel">
+        <div class="summary">
+          <div class="srow"><span class="k">Ruleset</span><span class="v" id="s-ruleset">Match Play</span></div>
+          <div class="srow"><span class="k">League</span><span class="v" id="s-league">Haywire</span></div>
+          <div class="srow"><span class="k">Venue</span><span class="v" id="s-venue">Arena · assigned</span></div>
+          <div class="srow"><span class="k">Size</span><span class="v" id="s-size">3v3</span></div>
+        </div>
+        <button class="queue">Find match</button>
+        <div class="wait">~10s at this size · bots fill remaining seats</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="spec">
+  <h2>Handoff — League Play door</h2>
+  <p class="lede">The free door behind R98's home-screen split. Four axes, <b>no stake control anywhere</b>,
+  and per-band population because §5 makes transparency a requirement rather than a nicety.</p>
+
+  <div class="law"><b>The neon treatment is display-only, and that is the legibility rule doing its job.</b>
+  §10.1 size-gates the accent — <i>"a rim on a 16-pixel mark is noise rather than identity."</i> The tube
+  construction, bloom and hum apply to the <code>LEAGUE PLAY</code> headline and nothing else. Every control,
+  label and count is flat white on glass. Bloom at UI size is what makes neon interfaces unreadable, so the
+  reference look lives exactly where it costs nothing and reads as identity.</div>
+
+  <h2>How the tube is built</h2>
+  <p>Three stacked layers per glyph, which is what separates a real tube from a text-shadow glow:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Layer</th><th>Construction</th><th>Reads as</th></tr>
+    <tr><td><code>::before</code></td><td>7px stroke, <code>rgba(150,190,255,.085)</code>, 0.4px blur</td><td>Unlit glass tube wall — gives the letterform physical body</td></tr>
+    <tr><td>base</td><td>2.5px stroke, <code>rgba(200,225,255,.30)</code></td><td>Cool reflection along the tube</td></tr>
+    <tr><td><code>::after</code></td><td>1.15px stroke, near-white + the bloom stack</td><td>The lit filament inside the glass</td></tr>
+  </table></div>
+  <p><b>The bloom stack IS the blend rule rendered as light</b> — white core → electric mid → arc-violet
+  outermost:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Radius</th><th>Colour</th><th>Role</th></tr>
+    <tr><td>3–8px</td><td>white → <code>#D2E6FF</code></td><td>Filament core, carries crispness</td></tr>
+    <tr><td>17–34px</td><td><code>#1E5AFF</code></td><td>Electric — the LEAD, does the identity work</td></tr>
+    <tr><td>62px</td><td><code>#1E5AFF</code> @ 72%</td><td>Falloff into the wall</td></tr>
+    <tr><td>96–150px</td><td><code>#A855F7</code> @ 80% → 42%</td><td><b>Arc-Violet RIM</b> — accent on the outer edge only, never the core</td></tr>
+  </table></div>
+  <p><b>Hum:</b> two shallow dips over 5.2s on <code>steps(1)</code>. A real tube is never perfectly steady —
+  but any deeper and it reads as a broken sign rather than a live one.</p>
+  <p><b>UMG note:</b> this is a material, not a font effect. Ship it as an SDF text material with the bloom
+  stack as layered outlines, or as an authored texture for the fixed headline. Do <b>not</b> attempt the
+  three-layer stack with stacked UMG TextBlocks — they will drift at different DPI.</p>
+
+  <h2>Axes rendered — and the one that is absent</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Axis</th><th>Values</th><th>Note</th></tr>
+    <tr><td>Ruleset</td><td>Match Play · Battle Royale</td><td>Two products, not options (§3.2)</td></tr>
+    <tr><td>League</td><td>Haywire · Pro Mod</td><td><b>Only League Play offers both</b> — staked is Pro Mod only (R86)</td></tr>
+    <tr><td>Venue class</td><td>Arena · Map</td><td>R97. The <i>venue</i> stays a server outcome — class is the choice</td></tr>
+    <tr><td>Size</td><td>1v1 … 8v8</td><td>Carries the population readout</td></tr>
+    <tr><td><b>Stake</b></td><td><b>— absent —</b></td><td><b>There is no stake to pick.</b> No hidden control, no zero-value field</td></tr>
+  </table></div>
+
+  <h2>Population — §5 is a requirement</h2>
+  <ul>
+    <li><b>Per band, never aggregate only.</b> <i>"A healthy total conceals a dead band, and the dead band is exactly the one a player needs warning about."</i></li>
+    <li><b>A cold band never looks like a busy one.</b> Live = filled dot, Electric, pulsing. Warm = filled, tertiary blue, no pulse. <b>Cold = hollow ring, no glow, tile at 62% opacity, italic label.</b></li>
+    <li><b>Estimates degrade honestly.</b> A band with no data reads <i>"Quiet · no estimate"</i> — never an optimistic number.</li>
+    <li>This is the cheapest fragmentation mitigation available and is <b>purely a rendering decision</b> — it needs no matchmaking change.</li>
+  </ul>
+
+  <h2>States, motion, focus</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Element</th><th>State</th><th>Treatment</th></tr>
+    <tr><td>Segment / size</td><td>Selected</td><td>Electric fill @20%, border → Electric, inner + outer Electric glow</td></tr>
+    <tr><td>Segment / size</td><td>Hover / Focus</td><td>Border → Arc-Violet, 18px violet glow @22%, text → full white</td></tr>
+    <tr><td>Size tile</td><td>Cold</td><td>62% opacity, hollow dot, italic — distinct at a glance, still selectable</td></tr>
+    <tr><td>Find match</td><td>Hover</td><td>Lift 2px, Electric bloom 30→50px, violet 26px joins at the rim</td></tr>
+    <tr><td>Headline</td><td>Idle</td><td>Neon hum, 5.2s, two shallow dips</td></tr>
+  </table></div>
+  <p><b>Focus order:</b> Back → Ruleset → League → Venue class → Size grid (row-major) → Find match → wallet.
+  <b>B / Esc returns to the home screen</b> — unlike the home screen, this surface has something behind it.
+  Hover and focus stay visually identical.</p>
+
+  <h2>Edge cases</h2>
+  <ul>
+    <li><b>All bands cold:</b> the grid still renders every size with honest counts; Find match stays enabled. A player waiting deliberately is a different experience from the same wait imposed silently.</li>
+    <li><b>Population unavailable:</b> dots go neutral and counts read <i>"—"</i>. Never fabricate a number on a surface whose whole job is honesty about population.</li>
+    <li><b>Battle Royale selected:</b> the size axis re-labels to BR brackets; MatchPlay sizes do not carry over.</li>
+    <li><b>Bots (R87):</b> "bots fill remaining seats" is stated up front, not discovered mid-match. Bots are a League Play feature and must never appear on the staked side.</li>
+  </ul>
+
+  <h2>Owed</h2>
+  <ul>
+    <li><b>Type ramp still unapproved</b> (IRONICS_UI_STYLE_SSOT §4). The tube geometry is tuned to a condensed grotesque; a different shipping face will need the stroke widths re-tuned.</li>
+    <li><b>Neon as material vs texture</b> — needs a call from whoever owns UMG performance, since a full-screen bloom stack is not free on console.</li>
+    <li><b>BR bracket set</b> for the size axis under Battle Royale is not specified here.</li>
+  </ul>
+</div>
+
+<script>
+  document.querySelectorAll('.seg,.sizes').forEach(g=>{
+    g.addEventListener('click',e=>{
+      const b=e.target.closest('button'); if(!b)return;
+      g.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed','false'));
+      b.setAttribute('aria-pressed','true');
+      const axis=g.dataset.axis;
+      const label=b.querySelector('.b')?b.querySelector('.b').textContent:b.querySelector('.n').textContent;
+      const t={ruleset:'s-ruleset',league:'s-league',venue:'s-venue',size:'s-size'}[axis];
+      if(t)document.getElementById(t).textContent = axis==='venue' ? label+' · assigned' : label;
+    });
+  });
+</script>
