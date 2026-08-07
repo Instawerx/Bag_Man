@@ -99,6 +99,11 @@ the last number a player sees before committing, and §5.2 applies hardest there
 - **Bands exist here and do not exist on the league door.** `stakeRungs('LeaguePlay')` returns `[]`, so a
   league cell carries an empty `bands` array — which is *not* the same as bands that are empty, and the two
   must not render alike.
+- **EVERY BAND CARRIES ITS OWN MEASURED WAIT.** `/allocate` banks a separate sample ring per rung, so a band
+  never inherits the cell's speed. Without it, the busy 250 rung would lend its number to a dead 25,000 —
+  the exact laundering §5.2 names, performed by the field meant to prevent it. **Live today:** Watts / Arena
+  / 3v3 is `live` at ~38s while its 25,000 rung reads `stalled`. The **Find match** estimate quotes the
+  BAND's figure, not the cell's, because the band is the queue the money is going into.
 - **A staked queue divides further than a league one.** Staked play is **rated** (R85/R87), so beyond the
   stake band the pool splits again by skill. Two players at the same rung still may not pair. The practical
   effect, visible in the seeded set: **staked cells stand deeper and match slower than league cells at the
@@ -152,13 +157,14 @@ match → wallet. **B / Esc returns to the home screen.** Hover and focus are vi
 3. **Type ramp** — OPEN ITEM 1, still unapproved.
 4. **BR squad variant.** R92 provides for squads holding positions; whether staked BR ships solo-only or
    both is unspecified. R99's floor applies to **squads** if squads are used.
-5. **⚠ RULING OWED — `classify()` reads occupancy, not health.** See league spec §3.4. Inherited by this
-   door, and worse here: a rated, stake-banded queue divides the pool twice more.
-6. **⚠ RULING OWED — no queue on this door has a map yet beyond 3v3 / 5v5 / 8v8 Arena Match Play.** The
-   endpoint publishes **12 of 72** registry cells. Every Battle Royale bracket and the entire Map venue
-   class render **Not open yet**, which is accurate — R63 gates publication on a map pool, and neither
-   ShantyTown (design-only) nor L_Expanse (wash in progress) has shipped. Nothing to fix in the UI; the
-   content decides when these open.
+5. ~~`classify()` reads occupancy, not health~~ — **RULED AND SHIPPED.** See league spec §3.4. Health is
+   the measured wait; samples are timestamped, expire at 10 minutes, and are banked per band.
+6. **BATTLE ROYALE HAS NO MAP AND READS "Not open yet".** The endpoint now publishes **36 of 72** registry
+   cells: ShantyTown opened the whole Match Play ladder at MAP class (1v1–8v8, both leagues, which also
+   closes the Duel hole — Arena class has no 1v1/2v2 venue at all), alongside NANOWATT 3v3 and ARCANEON
+   5v5/8v8 at ARENA class. **BR is deliberately not published:** no BR playlist exists on disk and the mode
+   is gated on the shrinking Zone system, which is net-new. Accurate rather than broken — R63 gates
+   publication on a map pool, and the content decides when these open.
 
 ---
 

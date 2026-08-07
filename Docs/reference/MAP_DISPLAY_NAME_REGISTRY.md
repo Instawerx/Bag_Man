@@ -71,8 +71,13 @@ ShooterCore"` — placeholder, unwashed.)
 - **ShantyTown = `L_ShantyTown` (fills BR_18 / BR_36):** vendor `Demo_Map` forked to `/Game/Maps/L_ShantyTown`
   and **World-Partition-converted (commit `c6db6c4d`)**; **District Program OPERATOR-APPROVED 2026-08-05**
   (`Docs/design/ShantyTown_BR_DESIGN.md` §11 + Gate — one map covers the whole matrix via `District_Duel/Arena/Team`
-  data layers). **No geometry authored yet; no front-end configs** (no playlist/experience). BR mode layer gated
-  on the shrinking Zone system. District PLACEMENT within the town core still OWED.
+  data layers). **FRONT-END CONFIGS NOW EXIST — disk-verified 2026-08-07:** 12 playlists
+  `DA_AFL_ShantyTown_<bracket>_<GE>` for **1v1 · 2v2 · 3v3 · 4v4 · 5v5 · 8v8 × Haywire + ProMod**, each pointing
+  at `/Game/Maps/L_ShantyTown`, a real `B_AFLExperience_*`, and a `District` ExtraArg (Duel → 1v1/2v2, Arena →
+  3v3/4v4, Team → 5v5/8v8). The dual-GE bar is met for every bracket, so **all 24 Map-class Match Play cells
+  are PUBLISHED** in `config/queue-registry.json` — which also closes the Duel hole, since Arena class has no
+  1v1/2v2 venue at all. **BATTLE ROYALE IS STILL UNPUBLISHED:** no BR playlist exists and the mode remains
+  gated on the shrinking Zone system. District PLACEMENT within the town core still OWED.
 - **Arena_02 (Tier B, 3v3 + 4v4) — BRIEF BANKED, BUILD NOT APPROVED:** `Docs/design/Arena_02_DESIGN.md`
   committed as-is (`a241cc49`). **Gate = DRAFT awaiting operator approval (2026-08-02) — banking the brief
   did NOT approve the build.** On disk: **no `.umap`**, **no front-end config** (no playlist/experience), and
@@ -82,8 +87,9 @@ ShooterCore"` — placeholder, unwashed.)
   same 3v3/4v4 bracket without one. Brief specifies a single level, explicitly **NOT** World Partition.
 - **The picker now shows 6 tiles**, all AFL, no stock leakage: NANOWATT 3V3 SPEED · INFINEON 8V8 SIEGE ·
   ARCANEON ×4.
-- **Bracket coverage:** Arena = 1 venue (NANOWATT). Team = 2 (ARCANEON + INFINEON). **Duel = NOTHING** — 1v1 and
-  2v2 have no map at all, which is the largest hole in the matrix.
+- **Bracket coverage:** Arena class = NANOWATT (3v3) + ARCANEON (5v5, 8v8). **Duel — the hole is CLOSED at MAP
+  class:** ShantyTown's `District_Duel` backs 1v1 and 2v2. No ARENA-class duel venue exists yet, and under R97
+  that is a real gap rather than a solved one — a duel in a district is not a duel in a purpose-built arena.
 
 ## INFINEON remaining wash-work (for its config to be real 8v8) — CODENAMES STAY
 1. The experience `B_AFLExperience_Arena01_Extract4v4` team-size config (bot-fill Target + team setup) must be 8v8

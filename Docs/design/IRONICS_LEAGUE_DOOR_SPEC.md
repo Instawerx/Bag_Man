@@ -70,27 +70,31 @@ cell's count and its wait come from **one run** and cannot contradict each other
 > population every ten seconds, so 1,204 people standing would mean roughly 120 matches per second in one
 > bracket. Hand-written pairs drift into impossibility precisely because nothing forces them to agree.
 
-### 3.2 THE FIVE READINGS
+### 3.2 THE SIX READINGS
 
 Every example below is an **actual reading** from the seeded endpoint, not an illustration.
 
 | Reading | Dot | Tile | Label | Means |
 |---|---|---|---|---|
-| **Live** | filled, Electric, **pulsing** (2.4s) | full opacity | `26 waiting · ~38s` | enough standing to fill a field |
-| **Warm** | filled, tertiary blue, **no pulse** | full opacity | `5 waiting · ~20s` | fewer standing than one match needs |
-| **No match yet** | as its state | as its state | `9 waiting · no match formed here yet` | people are queued; nothing has **ever** matched here |
+| **Live** | filled, Electric, **pulsing** (2.4s) | full opacity | `5 waiting · ~20s` | matches forming inside a minute |
+| **Warm** | filled, tertiary blue, **no pulse** | full opacity | `12 waiting · ~2m` | matches forming, but you will wait |
+| **Stalled** | **hollow, double ring** | full opacity | *`9 waiting · no recent match`* | people are here and **nothing has matched recently** |
 | **Cold** | **hollow ring**, no glow, no pulse | **62% opacity** | *`Quiet · no estimate`* | the queue exists and is empty |
+| **Count unavailable** | **dashed ring** | full opacity | *`Count unavailable`* | published, but we could not read it |
 | **Not open** | hollow ring, 50% | **42% opacity, dashed border, not selectable** | *`Not open yet`* | **no map backs this queue** (R63) |
 
-Plus **`Count unavailable`** (dashed ring) when the endpoint published the cell but could not count it.
-
-**Three absences, three readings, and they must never collapse into each other:**
+**Four absences, four readings, and they must never collapse into each other:**
 
 | | What it is a fact about |
 |---|---|
 | **Not open** | the **content**. No map ships for this cell, so it is not a queue yet. |
-| **Cold** | the **queue**. It exists, anyone may enter, nobody has. |
+| **Cold** | the **queue's population**. It exists, anyone may enter, nobody has. |
+| **Stalled** | the **queue's behaviour**. People are in it and it has produced nothing. |
 | **Count unavailable** | **us**. The queue exists and we failed to read it. |
+
+**Stalled is the one that had no way to be said before**, and it is the difference between "you will wait a
+while" and "nobody here has got a game at all". A tile at full opacity with a hollow double ring reads as
+*occupied but unproven*, which is exactly the claim.
 
 **An unopened bracket is still drawn.** It is disabled rather than hidden, because the whole designed ladder
 is information: a player — and a reader of this spec — should be able to see what the game intends to offer
@@ -109,35 +113,50 @@ and which of it has actually shipped. Hiding it would be honest but mute.
 This is *"the cheapest fragmentation mitigation available"* and **purely a rendering decision** — it needs
 no matchmaking change (§5.1).
 
-### 3.4 ⚠ FLAGGED FOR RULING — `classify()` READS OCCUPANCY, NOT HEALTH
+### 3.4 HEALTH IS THE MEASURED WAIT, NOT THE STANDING COUNT — **RULED AND SHIPPED**
 
-Seeding the database surfaced a defect in §5's classification policy that argument alone had not.
+Seeding the database surfaced a defect in the original §5 policy that argument alone had not, and the
+operator's ruling was to fix it: *"the honest signal is the observed wait, already in the response."*
 
-`classify(waiting, slots)` calls a cell **live** when `waiting >= slots` and **warm** ("can't fill one
-match") below that. But a matchmaker that pairs greedily removes `floor(waiting / slots)` full fields every
-pass, so **the residue after any pass is always strictly less than `slots`, by construction.** Observing
-`waiting >= slots` therefore means you looked *between* passes — it measures where in the matchmaking cycle
-the read landed, not whether the queue is healthy.
+`classify()` used to call a cell **live** when `waiting >= slots` and **warm** ("can't fill one match")
+below. But a matchmaker that pairs greedily removes `floor(waiting / slots)` full fields every pass, so
+**the residue after any pass is strictly less than `slots`, by construction.** Observing `waiting >= slots`
+therefore meant the read landed *between* passes — it measured where in the matchmaking cycle you looked,
+not whether the queue was healthy. All three of these read **`warm`**:
 
-The consequence is not theoretical. In the seeded set, all three of these read **`warm`**:
+| Cell | Reading | Actually | Now reads |
+|---|---|---|---|
+| `LeaguePlay_Haywire_MatchPlay_Arena_3v3` | `5 waiting · ~20s` | the busiest queue in the game | **live** |
+| `LeaguePlay_Haywire_MatchPlay_Arena_8v8` | `12 waiting · ~39s` | healthy, slower | **live** |
+| `LeaguePlay_ProMod_MatchPlay_Arena_8v8` | `9 waiting`, nothing matched | **dead** | **stalled** |
 
-| Cell | Reading | Actually |
-|---|---|---|
-| `LeaguePlay_Haywire_MatchPlay_Arena_3v3` | `5 waiting · ~20s` | the busiest queue in the game |
-| `LeaguePlay_Haywire_MatchPlay_Arena_8v8` | `12 waiting · ~39s` | healthy, slower |
-| `LeaguePlay_ProMod_MatchPlay_Arena_8v8` | `9 waiting · no match formed here yet` | **dead — nothing has ever matched here** |
+It bit League Play hardest, which is the majority side (R98) and the only unrated tier — an unrated queue
+pairs any `slots` players, so it drains most completely and could essentially never show `live`.
 
-It bites League Play hardest, which is the majority side (R98) and the only unrated tier — an unrated queue
-pairs any `slots` players, so it drains most completely and can essentially never show `live`.
+**The rule now:**
 
-**The honest signal is the observed wait, not the standing count.** A queue with two people in it and a
-10-second median is thriving; one with nine and no match on record is dead. Both facts are already in the
-response — `estimatedWaitSeconds` is measured, per cell, by the `/allocate` hook.
+```
+unknown   the count could not be read
+cold      nobody is here                     <- the one thing the count alone can prove
+stalled   people here, nothing matched recently
+live      measured median wait <= 60s
+warm      measured median wait  > 60s
+```
 
-**Recommended:** classify on the wait where one exists, and fall back to the count only where it does not.
-Left as a ruling rather than applied, because §5's thresholds are policy and this changes what every
-population dot in the game means.
+Three supporting changes make that rule honest rather than merely different:
 
+1. **Samples carry a timestamp.** "The median of the last 20 matches here was 20 seconds" is not the claim
+   "you will wait about 20 seconds" — the gap between them is time. A queue that died an hour ago would
+   otherwise keep advertising the speed it had when it was alive.
+2. **Observations expire at 10 minutes.** Comfortably longer than the 120s ticket give-up, so any queue that
+   is actually cycling stays inside it. Past that, "we do not know" replaces a stale number.
+3. **Waits are banked per stake band, not only per cell** (`/allocate`). A cell median pools every rung, so
+   a busy 250 and a dead 25,000 shared one number — lending the cheap rung's speed to the dead one, which is
+   the exact laundering §5.2 names, performed by the field meant to prevent it. **Live example:** Watts /
+   Arena / 3v3 is `live` at ~38s while its **25,000 rung reads `stalled`** on its own measurement.
+
+`LIVE_WAIT_SECONDS = 60` is the line, and it is a claim about the player rather than the matchmaker: under a
+minute, queueing feels like pressing a button; over it, it is a decision to go and do something else.
 ---
 
 ## 4. LAYOUT
@@ -215,9 +234,6 @@ different languages.
 ---
 
 ## 8. OWED
-
-0. **⚠ RULING OWED — `classify()` reads occupancy, not health.** §3.4 above. It changes what every
-   population dot in the game means, so it is not applied unilaterally.
 
 1. **Type ramp unapproved** (style SSOT OPEN ITEM 1). The tube stroke widths are tuned to a condensed
    grotesque — a different shipping face requires re-tuning them.
