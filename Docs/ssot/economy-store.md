@@ -246,8 +246,16 @@ show the winner and the min cash as the same figure.
 > winner drops 17–23%** (§5.3, §15.9). Read 9→10 as the exception, not the representative case.
 >
 > **It never reaches a player, because a player never meets both sides of a threshold in the same queue.**
-> Queues have fixed field sizes, and bot-fill lands them full (R34, `ssot/ai-bots.md` §8.2.1) — so a given
-> queue always resolves on one side, never both.
+> Queues have fixed field sizes, so a given queue always resolves on one side, never both.
+>
+> > **⚠ CORRECTED 2026-08-06.** This paragraph previously justified itself with *"bot-fill lands them full
+> > (R34, `ssot/ai-bots.md` §8.2.1)"*. **That citation was wrong twice.** §8.2.1 says nothing of the kind — R34
+> > is about capability gaps on new features — and **`ai-bots.md` §6.3 forbids bot-fill outright in any match
+> > whose result carries stake or rating**, which is precisely the set of matches this ladder governs.
+> > `ssot/ai-bots.md` **R57** now closes the door completely: bots never enter a population count. **The
+> > mitigation never needed bots** — the fixed-field-size property and the design constraint below carry it
+> > alone. Recorded rather than silently deleted, because a mitigation resting on a prohibited mechanism is the
+> > kind of error that gets re-introduced by someone reading only this section.
 >
 > **DESIGN CONSTRAINT, recorded so it stays true: NO QUEUE MAY SIT AT A FIELD SIZE WHERE THE PAID-PLACES
 > THRESHOLD STRADDLES IT.** Cheap to honour when queue sizes are chosen, and it keeps the steps permanently
@@ -742,12 +750,17 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
    staking volume ever destabilises store pricing, a partial separation becomes a live option — and it should be
    entered deliberately, with the acknowledgement that it reintroduces multi-currency complexity **E4** exists
    to avoid.
-7. **⚠ THE RAKE RATE — owed its own ruling, and the §5.2 tables depend on it.** The **5%** used to derive
-   §5.3's min-cash figures is a **WORKING ASSUMPTION, NOT A RULING.** It is not merely a margin decision:
-   **§3.1 establishes rake as the only true Volt sink in a staked match**, so this number governs **economy
-   health**, not revenue. Too low and staked play mints Volts with nothing removing them; too high and the
-   pot thins until placing stops paying. **A materially different rake changes every min-cash floor in §5.3** —
-   the figures there are valid only against 5%, and the 21-position 0.80× case gets worse as rake rises.
+7. ~~**⚠ THE RAKE RATE**~~ — **CLOSED by R51: FLAT 5%.** The working assumption is now the ruling. It was
+   taken deliberately rather than optimised: **rake is the only true Volt sink in a staked match** (§3.1b), so
+   it carries an economy-health job alongside the revenue one, and a single predictable number is worth more
+   than a tuned curve before any volume exists. **Tiering is a revenue-optimisation move and it needs the stake
+   distribution first — you cannot tune a curve you have never observed.** Revisit with data. ⚠ **If it is ever
+   tiered, industry practice is REGRESSIVE** (lower % at higher stakes); the legacy
+   `design/IRONICS_MATCH_STAKING_SSOT.md` R1 specifies a **progressive** 5%/10%, which is backwards and is
+   **superseded by R51**. And whatever rate is chosen, **§5.3's 1.40× min-cash floor must be re-verified**,
+   because the generating rule solves against `B(N) = N × (1 − k)`.
+
+
 8. ~~**The band-edge behaviour.**~~ **RETIRED** — the generating rule (§5.2) resolves it. Bands no longer
    exist, so band-bottom failures cannot occur, and min cash holds at exactly 1.40× for every field size.
    What the question found is preserved in §5.3 as the general lesson: *a percentage of a pot cannot hold a
@@ -768,6 +781,10 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R51 — THE RAKE IS FLAT 5%** | **2026-08-06** | `k = 0.05`, uniform at every stake and field size. Promotes §5.2's working assumption to a ruling, so **every derived figure in this document stands unchanged**. Chosen for predictability, not yield: **rake is the only true Volt sink** (§3.1b), so it is an economy-health lever before it is a revenue one, and a curve cannot be tuned against a stake distribution that does not exist yet. **Revisit with volume data; if tiered then, tier REGRESSIVELY** — the legacy `design/IRONICS_MATCH_STAKING_SSOT.md` R1's progressive 5%/10% is backwards and is **superseded**. **⚠ Any change re-opens §5.3's min-cash verification at every tier.** **Closes §15.7.** |
+| **R52 — STAKE TIERS ARE 100 · 500 · 2,500 · 10,000 V** | **2026-08-06** | Four rungs, ~5× geometric — the lower four of the legacy ladder (Trickle · Ante · Live · Main). **The higher tiers are withheld deliberately, not forgotten:** `matchmaking.md` §7 requires an empty band to *look* empty, so a 50,000 or 250,000 V tier with no population would advertise its own failure on the front page of the lobby. Add them when the top rung is genuinely hot. Presets are primary, numeric entry secondary (R20), and the server bands whatever is entered (**R42**). |
+| **R53 — A SQUAD'S PAYOUT SPLITS EVENLY** | **2026-08-06** | A squad holds **one** finishing position and receives **one** payout, divided equally among its members. Contribution-weighting was rejected on two grounds: it creates competition **inside** the squad, which removes the reason to queue as one, and **once money is attached it becomes a griefing surface** where a teammate can profit from your death. A leader-distributes model is worse — it invents a trust relationship the game does not otherwise need, with strangers. **A useful property falls out:** because entry and payout both scale with team size, the multiple reads identically per-player and per-position, so the UI can show `× stake` with no footnote. |
+| **R54 — THE STORE SELLS ON BOTH SURFACES** | **2026-08-06** | Full checkout **in-game AND on the web portal**; neither is a shop window. **⚠ THIS IS THE EXPENSIVE OPTION AND WAS TAKEN KNOWINGLY.** It does **not** reduce in-game UI scope — the complete in-game checkout is built, *plus* the web store. **Two consequences are now standing obligations:** (a) **catalog, pricing and mint state must be served from one source to both surfaces or they will drift**, and drift in a limited-mint economy is an E-invariant breach, not a cosmetic bug; (b) **console platform holders have specific rules about steering players to external purchases — this needs a cert read before the web path ships**, not after. |
 | **R4 — the two loot documents merge here** | **2026-08-05** | Loot taxonomy (§10) and the loot carry mechanic (§11) are two sections of this SSOT. They previously lived in separate documents with **zero cross-citations between them** — drift by construction. The superseding decision history of the carry model is preserved by archiving that document verbatim; only decisions whose **reasoning is still load-bearing** are carried forward here. |
 | **R9 — Volts are the stake currency; one wallet** | **2026-08-05** | The staking and cosmetics economies share a single wallet (§3.1), with the three consequences recorded as design constraints: the two economies compete for the same balance and cannot be balanced independently; sinks and sources are reckoned across both, with rake the only true sink in a staked match; and server authority over the ledger is absolute, because a defect in either system corrupts both. |
 | **R36 — BATTLE ROYALE earns on placement** | **2026-08-05**, **renamed 2026-08-06** | Finishing position determines payout (§5.1). **A payout shape, not new machinery** — placement is already computed, replicated and consumed by league rating, so this adds a consumer to an existing signal. It is also the only outcome the ruleset generates, having no timer and no respawn. **RENAMED BY R41** — SHOOTOUT is BATTLE ROYALE; the payout basis is unchanged. |

@@ -445,22 +445,24 @@ ladder.
 
 ## 13. OPEN DESIGN QUESTIONS
 
-1. **The rating algorithm, and whether it is per-ruleset.** Which rating model, and whether a player holds one
-   rating or one per ruleset. Interacts directly with §13.2 and with `ssot/matchmaking.md` §11.1.
-2. **§4's one-ladder-versus-two.** Not decidable from design alone — it depends on cross-ruleset play rates and
-   convergence at real population size (§4.2). Whatever is chosen must not create a rating-efficient ruleset.
-3. **Decay policy.** Whether inactivity erodes standing at all, and if so whether it is confined to top
-   positions (§9.3).
-4. **Season length.** Long enough for a rating to converge and a prize series to feel achievable; short enough
-   that recalibration is meaningful and a bad season is not a long sentence. The number is undecided, and it is
-   the same number as the prize cadence (§8).
-5. **Crossing two thresholds in one match.** Whether both grants fire, whether they queue and present
-   separately for legibility, or whether only the higher is awarded. The grant path is idempotent (§6.1), so
-   this is a *presentation and pacing* decision rather than a correctness one — but a player who crosses two
-   tiers and sees one notification will reasonably believe they were shortchanged.
-6. **Whether party play is rated differently from solo.** A coordinated party performs above the sum of its
-   members, so identical rating treatment mis-measures both. This interacts with `ssot/matchmaking.md` §11.4
-   (party-versus-solo fairness) and should be decided with it rather than separately.
+1. ~~**The rating algorithm, and whether it is per-ruleset.**~~ — **CLOSED by R47 and R48.**
+2. ~~**§4's one-ladder-versus-two.**~~ — **CLOSED by R47: two ladders.** §4.2 called this *"not decidable from
+   design alone"* on the grounds that it depends on cross-ruleset play rates and convergence at real population.
+   **That objection was answered by R41, not by data:** the former pair produced placement versus a kill *ratio*
+   — incommensurable units — so the one-ladder option required a normalisation nobody could validate. Both
+   rulesets now produce a finishing position, so the choice is between two clean ladders and one ladder needing
+   a defensible depth-weighting. **Two was taken because it cannot produce the failure §4.1 names** — a
+   rating-efficient ruleset — while one always can.
+3. ~~**Decay policy.**~~ — **CLOSED by R50.**
+4. ~~**Season length.**~~ — **CLOSED by R50.** Note this section's own constraint held: it is *the same number
+   as the prize cadence* (§8), so R50's ~10 weeks sets both.
+5. **Crossing two thresholds in one match.** **STILL OPEN.** Whether both grants fire, whether they queue and
+   present separately for legibility, or whether only the higher is awarded. The grant path is idempotent
+   (§6.1), so this is a *presentation and pacing* decision rather than a correctness one — but a player who
+   crosses two tiers and sees one notification will reasonably believe they were shortchanged.
+6. ~~**Whether party play is rated differently from solo.**~~ — **CLOSED by R48, jointly with
+   `matchmaking.md` R45**, exactly as this item required (*"should be decided with it rather than
+   separately"*). The rating **does** account for coordination; R45's no-segregation ruling depends on it.
 
 ---
 
@@ -468,6 +470,10 @@ ladder.
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R47 — TWO LADDERS, ONE PER RULESET** | **2026-08-06** | A player holds a **separate rating for MATCH PLAY and for BATTLE ROYALE** (§4.1 Option A). **R7 already split the queues on the grounds the two are different products; the rating follows the same logic.** The decisive property is asymmetric: two ladders **cannot** produce the failure §4.1 names — a rating-efficient ruleset that players chase instead of the format they prefer — whereas one ladder with normalisation always can, and the mapping would need re-derivation on every balance change. **Accepted cost:** a player who plays both holds two identities and each ladder converges on half the data. **Closes §13.1 and §13.2.** |
+| **R48 — RATING IS OPENSKILL (WENG-LIN), ONE ENGINE IN TWO CONFIGURATIONS** | **2026-08-06** | **Plackett-Luce** for BATTLE ROYALE — literally the model for *"rank N participants by finishing position"*, which is exactly what that ruleset emits — and the **two-team** configuration for MATCH PLAY. One implementation, no second system, and **no patent exposure**: TrueSkill proved the Bayesian approach at AAA scale but is Microsoft-patented; OpenSkill is the same mathematics under an open licence. Elo cannot express N-way placement at all and Glicko-2 is pairwise, so both would need a bolt-on for BR — which is where rating bugs live. **⚠ THE RATING MUST ACCOUNT FOR PARTY COORDINATION** (`matchmaking.md` **R45**): R45's no-segregation ruling *depends* on this, so a rating that ignores party status makes R45 a lie. **Closes §13.1 and §13.6.** |
+| **R49 — ROUND DIFFERENTIAL IS RECORDED, NOT CONSUMED** | **2026-08-06** | MATCH PLAY rank input is the **series outcome only**; a 7–0 and a 7–6 move rating identically. The differential is **stored on the result** so this can be switched on later as a config change rather than a re-derivation. **The reason to hold is incentive, not arithmetic:** differential rewards running up the score, and at the margin of a *staked* match that is a reason to keep shooting an already-beaten opponent. **Precedent exists for the other side** — CS2 Premier does consume round differential — so this is a judgement call under our own conditions, not a settled principle. Revisit if convergence at real population proves too slow. **Closes `match-modes.md` §9.2.** |
+| **R50 — SEASONS ARE ~10 WEEKS; DECAY AFTER 21 DAYS, FLOORED** | **2026-08-06** | Season length **~10 weeks**, which §13.4 requires also be the prize cadence (§8). Inactivity decay begins after **21 days** and is **floored at the bottom of the player's tier**. **The floor is the load-bearing part:** decay without one dumps a returning player below their real skill, which is the classic failure — Overwatch removed decay outright after exactly that backlash. Decay exists to stop abandoned high ratings distorting matchmaking for players still there; it does not exist to punish absence, and the floor is what keeps those two apart. **Closes §13.3 and §13.4.** |
 | **R10 — Progression is volume-driven, and volume is NOT rating** | **2026-08-05** | Career progression is time-played driven in the poker-career shape, with named thresholds at cumulative eliminations **100 · 500 · 1,000 · 5,000 · 10,000 and continuing** — a ladder that never ends, each tier visibly further than the last (§3). **Cumulative volume and skill rating are separate axes and must never be conflated: volume rewards attendance, rating measures strength, and matchmaking consumes rating only** (§2.1). Conflation would grind players into matches they cannot win — a UX failure and, under stakes, an integrity failure. |
 | **R11 — Threshold rewards are economy grants** | **2026-08-05** | Badges, sticker packs, emblems and weapons awarded at thresholds are granted **through the economy's reward-grant interface and the single persistence seam** — never a parallel inventory path (§6.1). League decides who has earned what; economy performs the grant. |
 | **R12 — Regional brackets are leaderboards, not queues** | **2026-08-05** | Players **compete regionally while queueing globally** (§7). Region is matchmaking's profile attribute, read here for standings and prize eligibility only. Regional standings are a filtered view of one global result set and cost nothing; regional queues would partition the population, and a split pool cannot be recovered once the population has thinned. |

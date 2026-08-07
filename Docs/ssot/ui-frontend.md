@@ -534,6 +534,31 @@ largest possible blast radius for the smallest possible gain.
 
 ## 12. ARCHITECTURE
 
+### 12.0 The front end is CommonUI/UMG — no web-tech UI layer (R58)
+
+**The in-game front end is built on CommonUI and UMG. It does not embed an HTML/CSS/JS UI runtime.** A
+Coherent Gameface conversion was scoped and declined; the reasoning is recorded in R58 because *"use web tech
+for the UI"* is a proposal that recurs, and the answer here is specific to this game rather than general.
+
+**Two reasons, and the second is the one that generalises least and matters most:**
+
+1. **Our design language is built from the properties a CSS-in-engine runtime tells you not to use.** The
+   house neon edging is `box-shadow` and `text-shadow`; the glass panels are `backdrop-filter`; the metric,
+   queue and ladder layouts are CSS grid. Gameface's own guidance is to replace all three with pre-baked
+   textures, an engine screen-space blur, and flex/absolute — **which is a description of how UMG already
+   works**, where glows are 9-slice images or materials, blur is the native `Background Blur` widget, and grid
+   is `UniformGridPanel`. The "reuse the web mockup" saving does not survive contact with §10's style system.
+2. **⚠ A SCRIPTED UI LAYER IS AN ATTACK SURFACE ON A WAGERING CLIENT.** An HTML UI runs untrusted JavaScript
+   in-process with the ability to call into native code, which is why every such architecture ships a
+   validation gateway, a payload fuzzer and an illegal-transition state machine. **CommonUI has no scripting
+   layer, so that boundary does not exist and none of that hardening is needed.** In a game that settles
+   stakes, removing a boundary beats defending one.
+
+**This governs the GAME client only.** Browser-side surfaces — portal, store, dashboards, broadcast overlays —
+are web properties and are unaffected. **The two stacks share exactly one thing: the design tokens in §10**,
+emitted from a single source to CSS custom properties and to a UE data asset. Nothing else is shared, and
+nothing else needs to be.
+
 ### 12.1 Activatable widgets on named layers
 
 Full-screen surfaces are **activatable widgets pushed onto a named layer stack** — menu surfaces onto the
@@ -681,6 +706,7 @@ Three properties of the ticket:
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R58 — THE GAME FRONT END IS COMMONUI/UMG; NO WEB-TECH UI RUNTIME** | **2026-08-06** | No Gameface, no RmlUi, no CEF, no embedded HTML UI in the game client (§12.0). **Declined on two grounds.** (a) **The reuse argument does not hold:** §10's style system is delivered through `box-shadow`, `text-shadow`, `backdrop-filter` and CSS grid — the exact properties an in-engine CSS runtime tells you to avoid — and its prescribed replacements (baked glow textures, engine blur, flex/absolute) *are* the UMG idiom, so the design is more native to UMG than to the web runtime. (b) **A scripted UI layer is an attack surface on a client that settles wagers** — untrusted JS in-process calling native code, which is why such architectures ship validation gateways and fuzzers. **CommonUI has no scripting layer, so the boundary does not exist.** Also avoids a commercial dependency and the console focus/input bring-up. **Scope: the GAME client only.** Browser-side properties are unaffected; the two stacks share **only** the §10 design tokens, emitted from one source to CSS and to a UE data asset. |
 | **R18 — The front end is a stake lobby, not a map browser** | **2026-08-05** | The player chooses **match size** and **stake amount**. **Venue is a server outcome, disclosed as "venue assigned at match start"** (§2). The front end's axes and the matchmaker's queue dimensions are the same list; any axis the UI offers it must honour, per `ssot/matchmaking.md` **D1**. |
 | **R19 — Split layout, not a stepped flow** | **2026-08-05** | Both axes are live and editable at once; no wizard (§3). Staked players re-queue constantly and change one variable, usually stake — a stepped flow makes them re-walk the whole path every time. **Ruleset (MATCH PLAY / BATTLE ROYALE) is the top-level choice above both axes — two tabs, not a doubled flat list** (`ssot/matchmaking.md` **R7**). |
 | **R20 — Stake entry: presets primary, numeric secondary, NO slider** | **2026-08-05** | Presets are the primary control; an editable numeric field is secondary. **The slider is rejected** — slow, imprecise by construction, poor on touch (**B4**), and it implies a continuum where the design has bands (§4.1). **The matching band must be visible** ("matching 400–500 V"); a player must never believe an exact figure will be returned (§4.2). |

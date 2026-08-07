@@ -87,7 +87,7 @@ a per-round reset that makes a single mistake cost a round rather than the match
 | **Respawn policy** | **Between rounds, never within one.** Death costs the round, not the match. This is the middle position between permanent death and instant respawn, and it is the whole reason the format has a comeback path. |
 | **Sides** | **Swapped at half.** A map advantage held by one side is therefore held by both. |
 | **Scoring basis** | **Two finishing positions.** A team won the series or it did not; there is no third place in a two-team format. |
-| **Rank input** | The series outcome. Whether round differential also contributes is **open** (§9.2). |
+| **Rank input** | **The series outcome only** (R49, `ssot/league-play.md`). Round differential is **recorded but not consumed**, so it can be switched on later as config. |
 | **Suits** | **Arena footprints** — bounded, symmetric, with a contested centre the extract bank can occupy. A sparse or whole-map footprint spends each round walking. |
 
 **Why a round series rather than a single match:** a single decisive match makes one bad engagement the whole
@@ -325,15 +325,16 @@ It also has one failure mode, and it is severe enough to be stated as a rule:
 1. **MATCH PLAY's size range.** §2.2 suits arena footprints, but the format axis it offers (1v1 through 8v8) is
    not fixed here. A 1v1 and an 8v8 are the same ruleset with the same two positions; whether every size is
    *published* is a matchmaking question (`ssot/matchmaking.md` §4), not a ruleset one.
-2. **Does round differential feed rank?** §2.2 fixes the rank input as the series outcome. Whether a 7–0 and a
-   7–6 should differ is undecided, and it is a real fork: differential rewards dominance and punishes a team
-   that closes out efficiently, while outcome-only makes a blowout worth exactly what a nailbiter is worth.
-   Interacts with `ssot/league-play.md` §4.
-3. **The extract-bank route's weight.** §2.2 gives two routes to a round win. Whether they are equal — and
-   whether a bank should ever be worth more than a wipe, or resolve a round faster — is unruled. Making them
-   unequal is a design lever; making them unequal *by accident* is a balance bug.
-4. **Half-time side swap under odd formats.** Swapping at half is clean for an even round count. What happens
-   in a series that ends before half, and whether a 1v1 swaps at all, is unstated.
+2. ~~**Does round differential feed rank?**~~ — **CLOSED by R49** (`ssot/league-play.md`): **outcome only, but
+   the differential is RECORDED** so it can be switched on later as config rather than a re-derivation. The fork
+   this item named was real and the tie-breaker was incentive, not arithmetic — differential is a reason to keep
+   shooting a beaten opponent, and this game is played for money.
+3. ~~**The extract-bank route's weight.**~~ — **CLOSED by R55: equal.** One round either way, no score bonus
+   and no speed bonus. This item's own warning stands as the reason — making them unequal *by accident* is a
+   balance bug, and making them unequal on purpose collapses whichever route loses into a fallback.
+4. ~~**Half-time side swap under odd formats.**~~ — **CLOSED by R56, which found the question DISSOLVES.**
+   First-to-7 cannot resolve before round 7, and the swap is after round 6, so **the swap always happens before
+   the series can end.** There is no odd-format case to rule on.
 5. **BATTLE ROYALE squad payout attribution.** A squad holds one finishing position and receives one payout.
    Whether that splits evenly, by contribution, or by some other rule is **not** decided here — it is an economy
    question raised by a ruleset property, and `ssot/economy-store.md` §5 does not close it either.
@@ -379,6 +380,8 @@ can exist in a staked game at all.
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R55 — THE TWO ROUND-WIN ROUTES ARE EQUAL** | **2026-08-06** | Wiping the enemy team and completing the central-extract bank are each worth **exactly one round**, with **no score bonus and no speed bonus** (§2.2). §2.2's stated intent is *two genuinely viable routes*, and weighting either one collapses the other into a fallback — a bank worth more makes the fight something to avoid, which in a shooter is an identity change rather than a balance tweak. **Precedent is exact and long-running:** CS2 and Valorant both treat the objective and the elimination as the same single round win, and both have stayed balanced on that basis for over a decade. **Closes §9.3.** |
+| **R56 — THE HALF-TIME SWAP QUESTION DISSOLVES** | **2026-08-06** | §9.4 asked what happens to the side swap in a series that ends before half. **It cannot happen.** MATCH PLAY is first-to-**7** of a best-of-13, so the earliest possible resolution is **round 7**, and the swap is after **round 6** — **the swap always occurs before the series can end**, at every published size from 1v1 to 8v8. No rule is needed and none is written. Recorded as a ruling rather than a deletion so the question is not re-opened by someone who notices the gap and assumes it was overlooked. **Closes §9.4.** |
 | **R41 — THE TWO RULESETS ARE MATCH PLAY AND BATTLE ROYALE; TURBO IS PARKED** | **2026-08-06** | **The ruleset axis is renamed to the two match structures that exist.** (a) **SHOOTOUT → BATTLE ROYALE** — a rename only; §2.1's properties are unchanged and every citation of §2.1 still lands on the same ruleset. The old name was borrowed from poker and described nothing about the format; the new one is the name of its own match structure. (b) **TURBO is REMOVED from the ruleset axis and PARKED at §9.7** — its design is preserved in full, including the payout gap that is the real reason it cannot ship: it produces **no finishing positions**, so the positions-keyed payout rule (R36/R37) does not transfer, and **a ruleset that cannot be paid cannot be staked.** (c) **MATCH PLAY takes the second slot and is NOT TURBO renamed** — different end condition, different respawn policy, different scoring, no property in common. It is the two-team round series (§2.2), which had **no name and no front-end tab** despite being the most-specified format in the tree. **THE DEFECT THIS FIXES IS NOT THE DEAD TAB.** One tab named a mode after something it was not; the other named a mode that did not exist; and between them **the round series had no way to be reached at all.** **Consequence, and it is a gain:** MATCH PLAY has two finishing positions, so its payout resolves to winner-takes-all by the existing rule — which **closes** the disabled-payout-tab question carried at `design/IRONICS_LOBBY_UX_HANDOFF.md` §16.7 rather than deferring it. **New rule from §3.3: a ruleset with no match-structure component behind it is a proposal, and the front end must not offer it.** |
 | **R1 — MELEE IS CUT** | **2026-08-05**, **amended 2026-08-06** | The game is **dual-mode, not tri-mode**. There are two rulesets and no melee/deathmatch ruleset. The instant-respawn arcade format previously specified as its own mode is **not** a third ruleset. **This is settled; a reader should not reopen it.** The superseded melee document remains on disk pending archival and is not a source of design authority. **AMENDED BY R41 — NAMING AND ONE CLAUSE.** The pair is now MATCH PLAY and BATTLE ROYALE, not SHOOTOUT and TURBO. R1's original wording placed melee's tempo in TURBO; **with TURBO parked, that home is gone.** The cut stands on its own merits — melee was cut for being a third ruleset, not for having somewhere else to go — but a reader should know **the instant-respawn tempo is now homeless**, and reviving it means reviving TURBO (§9.7), not reopening melee. |
 
