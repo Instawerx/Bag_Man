@@ -30,6 +30,7 @@ choice, a filter row, a scannable list, a detail panel, a commit button:
 | PokerStars element | IRONICS equivalent | Ruling |
 |---|---|---|
 | Format tabs (Cash · Zoom · Sit & Go · Spin & Go · Tourney) | **Ruleset tabs — MATCH PLAY · BATTLE ROYALE** | R19, matchmaking R7, **R41** |
+| **Play Money / Real Money** — the top-level tier switch | **WATTS PLAY · VOLTS PLAY**, above the ruleset tabs | **R76 · R84** |
 | Filter row (Game · Buy-In · Table Size · Speed · Type) | **The two axes — SIZE · STAKE** | R18 |
 | Tournament list (896 rows, one per event) | **Queue list — one row per SIZE × STAKE BAND** | R18 |
 | Right detail card ("REGISTERING", buy-in, prize pool, Register) | **Queue detail panel** | §3.3 |
@@ -175,6 +176,21 @@ properties of the ruleset rather than of the screen.
 |---|---|---|---|
 | **MATCH PLAY** | `FORMAT` | 1v1 · 3v3 · 5v5 · 8v8 | **2**, always |
 | **BATTLE ROYALE** | `SQUAD SIZE` | Solo · Duo · Squad | **field ÷ squad size** |
+
+> **⚠ TWO DIMENSIONS ARE MISSING FROM EVERY SCREEN IN THIS DOCUMENT, AND S1 CANNOT BE AUTHORED UNTIL THEY LAND.**
+>
+> **1 — STAKE CURRENCY (R76/R84), net-new.** WATTS PLAY / VOLTS PLAY sits **above** the ruleset tabs. It is the
+> first choice, it scopes everything below it, and the stake presets differ between tiers (R80) — so §5's S3
+> StakeEntry is currency-dependent too.
+>
+> **2 — LEAGUE (HAYWIRE / PRO MOD), pre-existing.** `ssot/matchmaking.md` §4.2 counts league as a **×2 queue
+> multiplier** and §2.2 lists it among what the player controls — **and this document does not mention it once.**
+> The handoff has always been specified against three of the four queue dimensions.
+>
+> **Together these take the concrete queue set to 28 cells.** A screen that cannot express a dimension the
+> matchmaker splits on either picks one silently — which `ssot/ui-frontend.md` §2.1 calls *a broken promise* —
+> or forces the queue set to drop a dimension it has already committed to. **The S1 layout in §3.1 is therefore
+> incomplete, not merely dated**, and redrawing it is a design task rather than an edit to this file.
 
 **Options are read off the live queues, never authored as a list.** An axis that offers a value with no queue
 behind it is the same defect class as a tab with no ruleset behind it — R18's rule is that *every axis the
@@ -505,8 +521,12 @@ detail panel → commit bar.
 **OWES — the queue ticket** (§13.2), and nothing else:
 
 ```
-ruleset · size · stake · party identity
+currency · ruleset · size · stake · party identity
 ```
+
+**`currency` is new (R76/R84)** — WATTS or VOLTS. It leads the ticket because it is the first choice the player
+makes and it scopes every field after it, including the stake presets, which are **different ladders** in the
+two tiers (R80).
 
 > **NO VENUE ON THE TICKET.** A ticket carrying a venue re-introduces the map-browser model through the
 > interface even if the UI never showed a picker. **It is a request, not a reservation**, and every value —

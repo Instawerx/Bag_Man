@@ -151,9 +151,13 @@ changes.
 
 ### 4.2 This is not decidable from design alone
 
-Choosing between them depends on **how many players play both rulesets** and **how quickly a rating converges
-at the real population size** — neither of which is knowable in advance. **It is recorded as an open question
-(§13.2), and no formula is invented here.**
+Choosing between them depended on **how many players play both rulesets** and **how quickly a rating converges
+at the real population size** — neither knowable in advance. **⚠ CLOSED by R64: two ladders.** The deadlock did
+not break on data, it broke on **R41** — while the pair produced placement versus a kill *ratio* the options
+were incommensurable, and once both rulesets emitted a finishing position the choice became a tractable one
+about *depth*. Two was taken because it **cannot** produce the rating-efficient ruleset §4.1 names, where one
+ladder always can. **R76 does not disturb this: the ladders are per-RULESET, not per-currency** — WATTS PLAY
+and VOLTS PLAY share a ruleset's ladder (R82).
 
 What *is* fixed regardless of the choice:
 - **The result interface carries the ruleset** (`ssot/matchmaking.md` §10.1), so either model is servable
@@ -250,7 +254,7 @@ for two purposes only: **regional standings** and **prize eligibility** (`ssot/e
   cannot fragment the population — the same matches feed the global board and every regional one
   simultaneously.
 - A regional queue would **partition the players themselves**, and every partition multiplies with the ones
-  already there (ruleset × bracket × league). Queue time is the failure mode matchmaking is designed to avoid,
+  already there (currency × ruleset × bracket × league — R76). Queue time is the failure mode matchmaking is designed to avoid,
   and region is the axis most tempting to split on because it *sounds* like it improves the experience.
 - **The player-facing benefit of regional competition is almost entirely the standings.** Players want to
   place among peers they can compare themselves to. That is a presentation property, and it is fully served by
@@ -322,9 +326,11 @@ often does not return again.
 more retentive behaviour. The cost is that inactive players occupy high positions and the top of the ladder
 becomes partly historical rather than current.
 
-**The design lean, stated but not settled:** apply the friendlier default broadly, and if decay is needed at
-all, confine it to the **top leaderboard positions** — the only place where occupancy by absent players
-materially misrepresents the competition. Recorded as an open question (§13.3).
+**⚠ SETTLED by R67, and it went further than the lean above.** Decay begins after **21 days** of inactivity and
+is **floored at the bottom of the player's tier** — applied broadly rather than confined to top positions,
+because the floor makes broad application safe. The lean's instinct was right about the risk and wrong about
+the remedy: what makes decay punitive is not *who* it touches but *how far it drops them*, and a floor answers
+that directly. Overwatch removed decay outright after exactly that backlash.
 
 ---
 
@@ -380,7 +386,8 @@ mitigations are structural properties of the design, not detectors bolted on aft
   authoritative result the rest of the system reads (§12), never self-reported, never assembled client-side
   (**N11**).
 - **Progression accrues only in real matches.** Contexts that are not real competition — offline, bot-filled,
-  or otherwise unrated — do not feed the career ladder. This removes the entire category of farming that does
+  or otherwise unrated — do not feed the career ladder. **R77 keeps this clause harmless: BOTH staked tiers are
+  rated**, so WATTS PLAY is not caught by it — a cheaper buy-in is not an unrated context. This removes the entire category of farming that does
   not require a second human.
 - **Ratio-shaped rewards resist farming better than count-shaped ones.** A rate cannot be inflated by volume
   alone, because the denominator grows too. Where a reward can be expressed as a rate without distorting its
@@ -470,6 +477,7 @@ ladder.
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R82 — PROGRESSION RIDES UNDERNEATH BOTH STAKED TIERS** | **2026-08-06** | Career volume, loot and achievements accrue in **WATTS PLAY and VOLTS PLAY alike**. They are **not one side of the split** — the currency tiers differ in what a match *costs and pays*, never in what it *counts toward*. **The two OpenSkill ladders stay per-RULESET, not per-currency** (R64/R65): currency does not multiply the ladder count, so a player has two ratings, not four. **§11.2 needed no rewrite because R77 made both tiers rated** — its exclusion of *"offline, bot-filled, or otherwise unrated"* contexts does not catch WATTS PLAY, since a cheaper buy-in is not an unrated context. **The point of the whole split:** a Watts player earns the same career, the same achievements and the same rank as a Volts player. Only the denomination of the wager differs. |
 | **R64 — TWO LADDERS, ONE PER RULESET** | **2026-08-06** | A player holds a **separate rating for MATCH PLAY and for BATTLE ROYALE** (§4.1 Option A). **R7 already split the queues on the grounds the two are different products; the rating follows the same logic.** The decisive property is asymmetric: two ladders **cannot** produce the failure §4.1 names — a rating-efficient ruleset that players chase instead of the format they prefer — whereas one ladder with normalisation always can, and the mapping would need re-derivation on every balance change. **Accepted cost:** a player who plays both holds two identities and each ladder converges on half the data. **Closes §13.1 and §13.2.** |
 | **R65 — RATING IS OPENSKILL (WENG-LIN), ONE ENGINE IN TWO CONFIGURATIONS** | **2026-08-06** | **Plackett-Luce** for BATTLE ROYALE — literally the model for *"rank N participants by finishing position"*, which is exactly what that ruleset emits — and the **two-team** configuration for MATCH PLAY. One implementation, no second system, and **no patent exposure**: TrueSkill proved the Bayesian approach at AAA scale but is Microsoft-patented; OpenSkill is the same mathematics under an open licence. Elo cannot express N-way placement at all and Glicko-2 is pairwise, so both would need a bolt-on for BR — which is where rating bugs live. **⚠ THE RATING MUST ACCOUNT FOR PARTY COORDINATION** (`matchmaking.md` **R62**): R62's no-segregation ruling *depends* on this, so a rating that ignores party status makes R62 a lie. **Closes §13.1 and §13.6.** |
 | **R66 — ROUND DIFFERENTIAL IS RECORDED, NOT CONSUMED** | **2026-08-06** | MATCH PLAY rank input is the **series outcome only**; a 7–0 and a 7–6 move rating identically. The differential is **stored on the result** so this can be switched on later as a config change rather than a re-derivation. **The reason to hold is incentive, not arithmetic:** differential rewards running up the score, and at the margin of a *staked* match that is a reason to keep shooting an already-beaten opponent. **Precedent exists for the other side** — CS2 Premier does consume round differential — so this is a judgement call under our own conditions, not a settled principle. Revisit if convergence at real population proves too slow. **Closes `match-modes.md` §9.2.** |
@@ -477,7 +485,7 @@ ladder.
 | **R10 — Progression is volume-driven, and volume is NOT rating** | **2026-08-05** | Career progression is time-played driven in the poker-career shape, with named thresholds at cumulative eliminations **100 · 500 · 1,000 · 5,000 · 10,000 and continuing** — a ladder that never ends, each tier visibly further than the last (§3). **Cumulative volume and skill rating are separate axes and must never be conflated: volume rewards attendance, rating measures strength, and matchmaking consumes rating only** (§2.1). Conflation would grind players into matches they cannot win — a UX failure and, under stakes, an integrity failure. |
 | **R11 — Threshold rewards are economy grants** | **2026-08-05** | Badges, sticker packs, emblems and weapons awarded at thresholds are granted **through the economy's reward-grant interface and the single persistence seam** — never a parallel inventory path (§6.1). League decides who has earned what; economy performs the grant. |
 | **R12 — Regional brackets are leaderboards, not queues** | **2026-08-05** | Players **compete regionally while queueing globally** (§7). Region is matchmaking's profile attribute, read here for standings and prize eligibility only. Regional standings are a filtered view of one global result set and cost nothing; regional queues would partition the population, and a split pool cannot be recovered once the population has thinned. |
-| **R13 — Rank input differs by ruleset** | **2026-08-05**, **amended 2026-08-06** | **AMENDED BY R41** (`ssot/match-modes.md`): BATTLE ROYALE produces **placement over N positions**; MATCH PLAY produces **a series outcome over 2** (§4). **The original premise — placement versus kill ratio — no longer holds, and its consequence was the harder one:** two incommensurable quantities became two orderings of different depth, so the normalisation question is now a scaling problem rather than a category error. League consumes both without either distorting the other. Whether this is two ladders or one with normalisation is **not decidable from design alone and is recorded as open** (§13.2); **no formula is fixed here**. Whatever is chosen must not make one ruleset the rating-efficient one. |
+| **R13 — Rank input differs by ruleset** | **2026-08-05**, **amended 2026-08-06** | **AMENDED BY R41** (`ssot/match-modes.md`): BATTLE ROYALE produces **placement over N positions**; MATCH PLAY produces **a series outcome over 2** (§4). **The original premise — placement versus kill ratio — no longer holds, and its consequence was the harder one:** two incommensurable quantities became two orderings of different depth, so the normalisation question is now a scaling problem rather than a category error. League consumes both without either distorting the other. ~~Whether this is two ladders or one with normalisation is not decidable from design alone~~ — **SUPERSEDED BY R64: two ladders, one per ruleset**, on OpenSkill per R65. The constraint this row set still governs and was the deciding argument: **whatever is chosen must not make one ruleset the rating-efficient one.** |
 | **R14 — The stake firewall** | **2026-08-05** | **Stake size has no input to rating** (§5). A staked win and an unstaked win of the same result against the same opposition move the ladder identically. Restated as a league-side invariant because this is where the pressure to violate it originates: weighting rating by stake would make rank purchasable by arithmetic rather than by a store listing. Staked performance may be surfaced on a **separate** board that does not feed rating. |
 
 ---

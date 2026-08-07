@@ -47,25 +47,51 @@ These are locked. Breaking any of them is a compliance re-review, not a design c
 
 | Currency | Type | Source | Spends on |
 |---|---|---|---|
-| **Watts** | Soft, earned | Gameplay (§5) | Accessible-tier cosmetics; discounts on higher tiers; lower stake tiers |
-| **Volts** | Hard, premium | Real-money purchase (gated) | Premium and prestige cosmetics; the pass; **stakes** |
+| **Watts** | Soft, **earned** | Gameplay (§5) — **and nothing else** | Accessible-tier cosmetics; discounts on higher tiers; **WATTS PLAY stakes** (§3.1) |
+| **Volts** | Hard, premium | **Real-money purchase ONLY** (R81) — no earn path exists | Premium and prestige cosmetics; the pass; **VOLTS PLAY stakes** (§3.1) |
 
-### 3.1 Volts are the stake currency, and there is only one wallet
+### 3.1 BOTH currencies stake, in SEALED pools — and there is still only one wallet
 
-**The staking economy and the cosmetics economy meet in the same wallet.** A player does not hold "stake Volts"
-and "shop Volts" — they hold Volts. Three consequences follow, and all three are design constraints rather than
-implementation details:
+> **WATTS PLAY and VOLTS PLAY are the two staked tiers** (R78). They are the play-money / real-money split every
+> card room and every brokerage runs, in our currencies. **A Watts player is a full participant**, not a
+> spectator waiting to convert.
 
-**(a) The two economies compete for the same balance.** A Volt committed to a stake is a Volt not spent in the
-store, and vice versa. This is intended — it is what makes a stake feel like a real decision — but it means
-**neither system can be balanced in isolation.** A store price change alters staking behaviour; a stake-tier
-change alters store conversion. Any tuning pass that touches one must state its expected effect on the other.
+**The pools are SEALED.** Two players staking different currencies cannot settle one pot, so the pools never
+meet — and **nothing converts between them**: Volts are purchase-only and there is no Watts→Volts path (R81).
+That seal is what makes the rest of this section safe, and it is the property to protect. **Every proposal to
+"let players grind into Volts" is a proposal to merge the two economies**, because any Watts advantage would
+become a Volts stake.
 
-**(b) Sinks and sources must be reckoned across both.** Staking between players is a **transfer**, not a sink:
-it moves currency sideways and removes none. The only true sink in a staked match is the **rake**. Store
-purchases are the primary sink. **Earned Watts are the primary source.** If staking volume grows while store
-conversion does not, currency accumulates — the rake is the pressure valve, and its rate is an economy-health
-lever, not merely revenue.
+> **⚠ THIS SUPERSEDES R9's HEADLINE.** This section previously read *"Volts are the stake currency, and there is
+> only one wallet."* **The first clause is now false; the second is unchanged.** Note the document already
+> disagreed with itself: §3's Watts row has always said *"lower stake tiers"*, which was the only sentence in
+> the SSOT putting Watts into stakes. That cell was either a fossil or a seed. It is now normative.
+
+**The wallet is still one wallet.** A player holds Watts and Volts, not "stake Watts" and "shop Watts". Three
+consequences follow, and all three are design constraints rather than implementation details:
+
+**(a) Each currency's two economies compete for the same balance.** A Volt committed to a stake is a Volt not
+spent in the store, and vice versa — and the same is now true of Watts. This is intended: it is what makes a
+stake a real decision rather than a free roll. **Neither system can be balanced in isolation**, and after R78
+that is a 2×2 rather than a 1×1 — a Watts price change alters Watts staking, and a Watts stake-tier change
+alters Watts store conversion. Any tuning pass that touches one must state its expected effect on the other
+**three**.
+
+**(b) Sinks and sources must be reckoned per currency.** Staking is a **transfer**, not a sink: it moves
+currency sideways and removes none. **The rake is the only true sink in a staked match, in EITHER pool**, which
+is why R79 rakes both at 5%. Store purchases are the primary sink. **Earned Watts are the primary source.**
+
+> **⚠ THE HAZARD R78 CREATES, RECORDED SO IT IS NOT REDISCOVERED.** Watts are the faucet. Making the faucet
+> currency also a transfer medium means that **without a Watts rake, the primary source would gain a
+> circulation loop with ZERO drain.** R79 exists precisely to close that, and an un-raked Watts pool must never
+> be reintroduced as a player-friendliness measure — it is the one change that would make the Watts economy
+> unbalanceable.
+
+> **⚠ R38's ENFORCEMENT WAS FREE AND NO LONGER IS.** Until R78, faucet-versus-transfer was enforced *by currency
+> type*: Watts earned, Volts staked, and the boundary needed no bookkeeping. **Watts are now both.** R38's
+> stated purpose — being able to answer *"how much currency did the game create this week"* — now requires
+> **explicit faucet/transfer tagging on the ledger**, because the currency type no longer answers it. This is a
+> real obligation created by this ruling, not a pre-existing one.
 
 **(c) Server authority over the ledger is absolute** (**N1**, **N11**). One wallet means a defect in *either*
 system corrupts *both*: a stake settlement that credits twice inflates the same balance that buys grails, and a
@@ -78,6 +104,31 @@ not a shortcut; it is a second place for the ledger to be wrong.
 Any direct transfer capability is a **separate, gated subsystem**, and it inherits **N12** in full:
 transactional locking, rollback, anti-duplication, escrow/confirm, and a per-SKU tradeable flag. A transfer path
 is not a feature of the wallet; it is its own subsystem with its own failure surface.
+
+### 3.3 The two staked tiers, and why the Watts ladder is cheaper
+
+| Tier | Stake currency | Entry | Rake |
+|---|---|---|---|
+| **WATTS PLAY** | Watts | **Earned through play** (§5). Effectively free to anyone who plays. | 5% (R79) |
+| **VOLTS PLAY** | Volts | **Purchased. There is no earn path and no conversion** (R81). | 5% (R68) |
+
+**THE WATTS LADDER SITS BELOW PEG-EQUIVALENCE (R80).** Its rungs are *not* 10× the Volts rungs. A Watts stake
+is deliberately cheaper in real terms than the Volts stake beside it.
+
+**This does not touch E1, and the distinction matters.** The peg (`10 Watts = 1 Volt`) is a **store-pricing
+conversion** — it says what an item costs in either currency. A **stake tier** is a chosen entry amount, not a
+conversion, so setting the Watts rungs low changes no exchange rate and creates no inconsistency. Every card
+room with both tables does exactly this: play-money buy-ins are not the real-money buy-ins at an exchange rate,
+they are their own ladder.
+
+**It is safe ONLY because the pools are sealed.** With no Watts→Volts path (R81), a cheap Watts stake cannot be
+arbitraged into an expensive Volts one — there is no trade to make. **If a conversion path were ever
+introduced, R80 would become an exploit rather than a courtesy**, because the cheaper ladder would be a
+discount on the dearer one. That is the dependency to remember: R80 rests on R81, not on its own merits.
+
+**The rungs themselves are TUNING and are not set here.** They are calibrated against the real earn rate (§5)
+so the entry rung is reachable in a session or two — the same discipline as R39, where the ordering is the
+ruling and no rates are fixed. What *is* ruled: four rungs, geometric, below peg-equivalence.
 
 ---
 
@@ -583,6 +634,18 @@ This is a design rule with an economic consequence: because the enemy-collect gr
 an anti-fraud surface. Feeding parts to a colluding opponent manufactures currency, and the integrity layer
 that guards it belongs to the economy (it is the currency being debased), not to staking alone.
 
+> **⚠ R78 ESCALATED THIS FROM AN ECONOMY PROBLEM TO A STAKING ONE (R83).** When Watts bought only cosmetics,
+> manufactured Watts inflated a shop balance. **Watts now fund a wager.** The same collusion loop that was a
+> debasement is now a way to arrive at a staked table with currency that was not earned — which is a different
+> class of harm, because the counterparty is another player rather than the pricing curve.
+>
+> **Consequence, stated as a gate rather than a wish: the integrity layer guarding this surface is a
+> PREREQUISITE for shipping WATTS PLAY, not a follow-on.** This ruling does not design the detection — that is
+> deliberately not specified here, for the reason `ssot/league-play.md` §11 gives about publishing heuristics.
+> It moves the work from *"economy's problem, eventually"* to *"blocks a tier from shipping"*, so it cannot be
+> discovered after launch. Note the loop is **Watts-only**: Volts are purchase-only (R81), so there is no
+> manufacturing path into the VOLTS PLAY pool at all.
+
 **Value ordering is deliberate**: the head is worth many times a limb, and arms outrank legs. The ordering
 makes the drop sequence meaningful — the cheap parts go first under fire, and the prize clings longest.
 
@@ -746,12 +809,19 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
 5. **The free-entry route's shape.** §13.2 requires one. Its form — an earned entry, a periodic grant, a
    no-purchase request path — is undecided, and the decision must be made against *practical comparability*
    rather than nominal existence.
-6. **Whether the two economies ever need a firewall.** §3.1 states they deliberately share one wallet. If
-   staking volume ever destabilises store pricing, a partial separation becomes a live option — and it should be
-   entered deliberately, with the acknowledgement that it reintroduces multi-currency complexity **E4** exists
-   to avoid.
+6. ~~**Whether the two economies ever need a firewall.**~~ — **ANSWERED by R78, and not in the direction this
+   item anticipated.** It expected a possible *store-versus-staking* firewall inside one currency. What landed
+   instead is a **currency-versus-currency** seal: WATTS PLAY and VOLTS PLAY are separate pools with no
+   conversion between them (R81), while store and staking continue to share a wallet **within** each currency.
+   The standard this item set was met — the move was *"entered deliberately"* — and its warning about
+   reintroducing multi-currency complexity is answered by **E4's actual text**, which forbids *per-team and
+   per-region* currencies and has always blessed Watts + Volts as one system. **Two staked pools are not two
+   currency systems.** What the item was right about: the complexity is real, and §3.1's faucet/transfer tagging
+   obligation is where it lands.
 7. ~~**⚠ THE RAKE RATE**~~ — **CLOSED by R68: FLAT 5%.** The working assumption is now the ruling. It was
-   taken deliberately rather than optimised: **rake is the only true Volt sink in a staked match** (§3.1b), so
+   taken deliberately rather than optimised: **the rake is the only true sink in a staked match** — in EITHER
+   pool, which is why R79 rakes both (the phrase here read *"the only true Volt sink"* until R78 made Watts a
+   staked currency too) — so
    it carries an economy-health job alongside the revenue one, and a single predictable number is worth more
    than a tuned curve before any volume exists. **Tiering is a revenue-optimisation move and it needs the stake
    distribution first — you cannot tune a curve you have never observed.** Revisit with data. ⚠ **If it is ever
@@ -781,12 +851,17 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
 
 | Ruling | Date | Content |
 |---|---|---|
-| **R68 — THE RAKE IS FLAT 5%** | **2026-08-06** | `k = 0.05`, uniform at every stake and field size. Promotes §5.2's working assumption to a ruling, so **every derived figure in this document stands unchanged**. Chosen for predictability, not yield: **rake is the only true Volt sink** (§3.1b), so it is an economy-health lever before it is a revenue one, and a curve cannot be tuned against a stake distribution that does not exist yet. **Revisit with volume data; if tiered then, tier REGRESSIVELY** — the legacy `design/IRONICS_MATCH_STAKING_SSOT.md` R1's progressive 5%/10% is backwards and is **superseded**. **⚠ Any change re-opens §5.3's min-cash verification at every tier.** **Closes §15.7.** |
+| **R78 — BOTH CURRENCIES STAKE, IN SEALED POOLS** | **2026-08-06** | **WATTS PLAY and VOLTS PLAY are the two staked tiers** (§3.1) — the play-money / real-money split, in our currencies, so a Watts player is a full participant rather than a spectator waiting to convert. **AMENDS R9:** Volts are no longer *the* stake currency, they are one of two. **The one-wallet property survives untouched** — §3.1(c) argues for one write *path*, not one balance *field*, and separate pools if anything **contain** the cross-contamination it warns about. The pools never meet: two players staking different currencies cannot settle one pot. **The document already disagreed with itself here** — §3's Watts row has always read *"lower stake tiers"*, the only sentence in the SSOT putting Watts into stakes; that cell is now normative rather than a fossil. **Answers §15.6**, though not in the direction it anticipated: the firewall that landed is currency-versus-currency, not store-versus-staking. |
+| **R79 — THE RAKE IS 5% ON BOTH POOLS** | **2026-08-06** | Extends **R68**'s `k = 0.05` to WATTS PLAY unchanged. **Not a revenue decision — a drain.** Watts are `the primary source` (§3.1b), and staking is a **transfer**, so an un-raked Watts pool would give the faucet currency a circulation loop with **zero sink**. That is the one change that would make the Watts economy unbalanceable, and it must not be reintroduced as a player-friendliness measure. **Because `k` is unchanged, §5.3's 1.40× min-cash verification carries over exactly** rather than re-opening at a second rate — which is the practical reason for matching R68 rather than tuning a second number. |
+| **R80 — THE WATTS LADDER SITS BELOW PEG-EQUIVALENCE** | **2026-08-06** | The Watts rungs are **not** 10× the Volts rungs; a Watts stake is deliberately cheaper in real terms (§3.3). **E1 is untouched** — the peg is a *store-pricing conversion*, a stake tier is a *chosen entry amount*, and setting one low changes no exchange rate. **⚠ THIS RULING RESTS ON R81, NOT ON ITS OWN MERITS:** it is safe only because the pools are sealed. Introduce any Watts→Volts conversion and the cheap ladder becomes a **discount on the dear one**, i.e. an arbitrage. The four rungs are geometric and their values are **tuning against the real earn rate, not set here** — same discipline as R39. |
+| **R81 — VOLTS ARE PURCHASE-ONLY; NO CONVERSION** | **2026-08-06** | No earn drip, no achievement payout, **no Watts→Volts path**. Stated plainly rather than left implicit: Volts already had exactly one source and no earn path, so VOLTS PLAY is **pay-to-enter by construction** — which is the real-money table in every card room and is not a defect. **THIS IS THE SEALING RULING.** It keeps the faucet entirely on the Watts side where §3.1(b)'s accounting lives, and it is what makes R80 safe and R83's manufacturing loop **Watts-only**. **E2 is untouched**: money goes in, nothing comes out — which is exactly what makes this a structure applied to tokens rather than real-money wagering. **Every future proposal to "let players grind into Volts" is a proposal to merge the two economies** and must be read as one. |
+| **R83 — MANUFACTURED WATTS ARE A STAKING INTEGRITY CONCERN** | **2026-08-06** | §10.4's collusion surface — *"feeding parts to a colluding opponent manufactures currency"* — **changed class under R78**. Manufactured Watts once inflated a shop balance; they can now fund a wager, where the harm lands on another player rather than on the pricing curve. **The integrity layer guarding it is a PREREQUISITE for shipping WATTS PLAY, not a follow-on.** This does not design the detection (deliberately — see `ssot/league-play.md` §11 on publishing heuristics); it moves the work from *"economy's problem, eventually"* to *"blocks a tier from shipping"*. The loop is **Watts-only**: R81 leaves no manufacturing path into VOLTS PLAY. |
+| **R68 — THE RAKE IS FLAT 5%** | **2026-08-06** | `k = 0.05`, uniform at every stake and field size. Promotes §5.2's working assumption to a ruling, so **every derived figure in this document stands unchanged**. Chosen for predictability, not yield: **the rake is the only true sink in a staked match** (§3.1b), so it is an economy-health lever before it is a revenue one, and a curve cannot be tuned against a stake distribution that does not exist yet. **Revisit with volume data; if tiered then, tier REGRESSIVELY** — the legacy `design/IRONICS_MATCH_STAKING_SSOT.md` R1's progressive 5%/10% is backwards and is **superseded**. **⚠ Any change re-opens §5.3's min-cash verification at every tier.** **Closes §15.7.** **EXTENDED BY R79** — the same `k = 0.05` applies to the WATTS PLAY pool; because `k` is unchanged, §5.3's verification carries over rather than re-opening. |
 | **R69 — STAKE TIERS ARE 100 · 500 · 2,500 · 10,000 V** | **2026-08-06** | Four rungs, ~5× geometric — the lower four of the legacy ladder (Trickle · Ante · Live · Main). **The higher tiers are withheld deliberately, not forgotten:** `matchmaking.md` §7 requires an empty band to *look* empty, so a 50,000 or 250,000 V tier with no population would advertise its own failure on the front page of the lobby. Add them when the top rung is genuinely hot. Presets are primary, numeric entry secondary (R20), and the server bands whatever is entered (**R59**). |
 | **R70 — A SQUAD'S PAYOUT SPLITS EVENLY** | **2026-08-06** | A squad holds **one** finishing position and receives **one** payout, divided equally among its members. Contribution-weighting was rejected on two grounds: it creates competition **inside** the squad, which removes the reason to queue as one, and **once money is attached it becomes a griefing surface** where a teammate can profit from your death. A leader-distributes model is worse — it invents a trust relationship the game does not otherwise need, with strangers. **A useful property falls out:** because entry and payout both scale with team size, the multiple reads identically per-player and per-position, so the UI can show `× stake` with no footnote. |
 | **R71 — THE STORE SELLS ON BOTH SURFACES** | **2026-08-06** | Full checkout **in-game AND on the web portal**; neither is a shop window. **⚠ THIS IS THE EXPENSIVE OPTION AND WAS TAKEN KNOWINGLY.** It does **not** reduce in-game UI scope — the complete in-game checkout is built, *plus* the web store. **Two consequences are now standing obligations:** (a) **catalog, pricing and mint state must be served from one source to both surfaces or they will drift**, and drift in a limited-mint economy is an E-invariant breach, not a cosmetic bug; (b) **console platform holders have specific rules about steering players to external purchases — this needs a cert read before the web path ships**, not after. |
 | **R4 — the two loot documents merge here** | **2026-08-05** | Loot taxonomy (§10) and the loot carry mechanic (§11) are two sections of this SSOT. They previously lived in separate documents with **zero cross-citations between them** — drift by construction. The superseding decision history of the carry model is preserved by archiving that document verbatim; only decisions whose **reasoning is still load-bearing** are carried forward here. |
-| **R9 — Volts are the stake currency; one wallet** | **2026-08-05** | The staking and cosmetics economies share a single wallet (§3.1), with the three consequences recorded as design constraints: the two economies compete for the same balance and cannot be balanced independently; sinks and sources are reckoned across both, with rake the only true sink in a staked match; and server authority over the ledger is absolute, because a defect in either system corrupts both. |
+| **R9 — one wallet** ⚠ *first clause superseded by R78* | **2026-08-05** | The staking and cosmetics economies share a single wallet (§3.1), with the three consequences recorded as design constraints: the two economies compete for the same balance and cannot be balanced independently; sinks and sources are reckoned across both, with rake the only true sink in a staked match; and server authority over the ledger is absolute, because a defect in either system corrupts both. |
 | **R36 — BATTLE ROYALE earns on placement** | **2026-08-05**, **renamed 2026-08-06** | Finishing position determines payout (§5.1). **A payout shape, not new machinery** — placement is already computed, replicated and consumed by league rating, so this adds a consumer to an existing signal. It is also the only outcome the ruleset generates, having no timer and no respawn. **RENAMED BY R41** — SHOOTOUT is BATTLE ROYALE; the payout basis is unchanged. |
 | **R37 — the payout ladder, keyed on POSITIONS** | **2026-08-05**, **amended 2026-08-05** | **INTENT UNCHANGED:** winner-takes-all for small fields, scaled payouts above, `paid = 1 if positions < 10, else ceil(0.30 × positions)`. **Keyed on finishing positions, never player count: a team mode has exactly TWO positions regardless of player count, so every team mode is winner-takes-all automatically, with no special-casing.** Scaled payouts exist only in FFA. **AMENDED — MECHANISM ONLY:** the four banded percentage tables are replaced by a **generating rule** solved per exact field size (§5.2), because fixed percentages over a variable pot could not hold the min-cash floor — they produced 1.06× at 14 positions and **0.80× at 21**, a cash that lost money. Under the rule, **min cash is an INPUT (1.4×) and holds at every field size**; §5.3 records that the second invariant, a growing winner's multiple, is **not** satisfied and why. |
 | **R38 — staking is orthogonal to earning** | **2026-08-05** | A stake is a **closed loop** — participants escrow Volts, the pot settles per the R37 ladder minus rake. **Earning is what a match PAYS; staking is what a wager SETTLES** (§5.4). Kept separate because earning is a faucet whose risk is inflation, while staking is a transfer whose risk is an unbalanced loop — merging them makes a change to one silently a change to the other. Reinforces `ssot/league-play.md` §5 from the economy side; **no conflict**. |

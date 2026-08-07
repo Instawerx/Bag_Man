@@ -85,9 +85,19 @@ loop: play a match, come back, adjust, go again. Against that loop:
 **The general rule:** *step a flow only when the steps are genuinely sequential.* Size and stake are
 independent; presenting them sequentially adds an ordering that does not exist in the decision.
 
-### 3.2 Ruleset is the top-level choice, above both axes
+### 3.2 Currency is the FIRST choice; ruleset is the second
 
-**MATCH PLAY and BATTLE ROYALE are two tabs above the two axes — not a doubled flat list.**
+> **WATTS PLAY / VOLTS PLAY sits ABOVE the ruleset tabs (R76).** It is the first thing a player picks, because
+> it is the question with the largest consequence: *what am I playing for.* Everything below it — ruleset,
+> size, stake — is scoped by that answer, including the stake presets, which are different ladders in the two
+> tiers (R80).
+>
+> **The precedent is exact and the players already know it.** Every card room and every brokerage puts the
+> play-money / real-money choice at the top and never mixes the two lists. Putting it lower would let a player
+> configure an entire entry and discover the denomination last, which is the one thing that must never surprise
+> them about money.
+
+**MATCH PLAY and BATTLE ROYALE are two tabs below the currency choice — not a doubled flat list.**
 
 `ssot/matchmaking.md` **R7** settles that the rulesets split the queue and get two tabs. The UI reasoning:
 
@@ -98,6 +108,29 @@ independent; presenting them sequentially adds an ordering that does not exist i
   grid the player has to filter mentally. Tabs remove the ruleset dimension from the grid entirely.
 - **A tab is also the honest place for population reporting** (§5): a ruleset's population is a property of
   the ruleset, and a tab is where a player can see one is quiet before committing attention to it.
+
+### 3.2.1 ⚠ THE LOBBY DOES NOT RENDER EVERY QUEUE DIMENSION, AND THAT IS A DEFECT
+
+**§2.1 rules that *"the front end's axes and the matchmaker's queue dimensions are the same list."* That is
+currently FALSE, and R76 makes the gap wider before it makes it narrower.**
+
+| Queue dimension | Rendered in the lobby? |
+|---|---|
+| Ruleset (MATCH PLAY · BATTLE ROYALE) | Yes — tabs (§3.2) |
+| Bracket / size | Yes — the size axis (§3) |
+| Stake amount | Yes — presets + numeric (§4) |
+| **Stake currency** (R76) | **Added by this ruling** (§3.2) |
+| **League (HAYWIRE · PRO MOD)** | **NO — and it never has been.** |
+
+**The league gap is pre-existing, not created here.** `ssot/matchmaking.md` §4.2 counts leagues as a **×2
+multiplier** on the queue set and §2.2 lists league among the things *"the player does control"* — but §3.3's
+shape below has no league control, and `design/IRONICS_LOBBY_UX_HANDOFF.md` contains **zero** occurrences of
+HAYWIRE or PRO MOD. The lobby has been specified against three of four dimensions.
+
+**Why this must be closed before S1 is authored, not after:** a screen that cannot express a dimension the
+matchmaker splits on will either silently pick one for the player — which §2.1 calls *"a broken promise"* — or
+force the queue set to collapse a dimension it has already committed to. **Both are worse than a fourth
+control.** The fix is a design task, not a doc edit, and it is owed.
 
 ### 3.3 The resulting shape
 
@@ -658,6 +691,7 @@ number it shows is a number it was given.
 
 **The front end's single output is a queue ticket.** It carries:
 
+- the **stake currency** — WATTS or VOLTS (§3.2, R76),
 - the **ruleset** (§3.2),
 - the **match size**,
 - the **stake amount** the player entered,
@@ -706,6 +740,7 @@ Three properties of the ticket:
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R84 — CURRENCY IS THE FIRST CHOICE IN THE LOBBY** | **2026-08-06** | WATTS PLAY / VOLTS PLAY sits **above** the ruleset tabs (§3.2) and rides the ticket (§13.2), because it is the question with the largest consequence and it scopes everything below it — including the stake presets, which are **different ladders** in the two tiers (R80). Precedent is exact: every card room puts the play-money / real-money choice at the top and never mixes the lists. Placing it lower would let a player configure an entire entry and meet the denomination last, which is the one thing that must never surprise them about money. **Also records a PRE-EXISTING defect (§3.2.1): the lobby has never rendered the LEAGUE dimension** (HAYWIRE / PRO MOD) that `ssot/matchmaking.md` §4.2 counts as a ×2 queue multiplier — so §2.1's *"the front end's axes and the matchmaker's queue dimensions are the same list"* is currently false, and R76 widens the gap before closing it. **Owed before S1 is authored.** |
 | **R75 — THE GAME FRONT END IS COMMONUI/UMG; NO WEB-TECH UI RUNTIME** | **2026-08-06** | No Gameface, no RmlUi, no CEF, no embedded HTML UI in the game client (§12.0). **Declined on two grounds.** (a) **The reuse argument does not hold:** §10's style system is delivered through `box-shadow`, `text-shadow`, `backdrop-filter` and CSS grid — the exact properties an in-engine CSS runtime tells you to avoid — and its prescribed replacements (baked glow textures, engine blur, flex/absolute) *are* the UMG idiom, so the design is more native to UMG than to the web runtime. (b) **A scripted UI layer is an attack surface on a client that settles wagers** — untrusted JS in-process calling native code, which is why such architectures ship validation gateways and fuzzers. **CommonUI has no scripting layer, so the boundary does not exist.** Also avoids a commercial dependency and the console focus/input bring-up. **Scope: the GAME client only.** Browser-side properties are unaffected; the two stacks share **only** the §10 design tokens, emitted from one source to CSS and to a UE data asset. |
 | **R18 — The front end is a stake lobby, not a map browser** | **2026-08-05** | The player chooses **match size** and **stake amount**. **Venue is a server outcome, disclosed as "venue assigned at match start"** (§2). The front end's axes and the matchmaker's queue dimensions are the same list; any axis the UI offers it must honour, per `ssot/matchmaking.md` **D1**. |
 | **R19 — Split layout, not a stepped flow** | **2026-08-05** | Both axes are live and editable at once; no wizard (§3). Staked players re-queue constantly and change one variable, usually stake — a stepped flow makes them re-walk the whole path every time. **Ruleset (MATCH PLAY / BATTLE ROYALE) is the top-level choice above both axes — two tabs, not a doubled flat list** (`ssot/matchmaking.md` **R7**). |

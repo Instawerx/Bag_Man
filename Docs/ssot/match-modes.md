@@ -180,6 +180,14 @@ existing one, and it may not fork the shared spine.*
 
 **A match is `(ruleset × league)`. The two axes are independent and neither constrains the other.**
 
+> **A THIRD AXIS EXISTS AND IS NOT THIS DOCUMENT'S.** Since **R76**, a match also runs in a **stake currency** —
+> WATTS PLAY or VOLTS PLAY (`ssot/matchmaking.md` §4.2, `ssot/economy-store.md` §3.1). It is deliberately not a
+> row in the table below, because **it changes nothing about how a match ends, how respawn works, or what is
+> scored** — which is the whole definition of a ruleset (§2). It is orthogonal to both axes here in exactly the
+> way they are orthogonal to each other: every combination is legitimate, and the full queue formula is
+> `currency × ruleset × bracket × league`. Recorded so a reader of this section does not conclude the match
+> identity is complete at two axes.
+
 | Axis | Values | What it governs |
 |---|---|---|
 | **Ruleset** (this document) | MATCH PLAY · BATTLE ROYALE | How the match ends, respawn policy, what is scored |

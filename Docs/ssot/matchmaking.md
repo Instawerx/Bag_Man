@@ -110,7 +110,7 @@ edit and a live-ops lever — **never a code change and never a player-visible r
 **MATCH PLAY and BATTLE ROYALE have separate queues, and ruleset is the FIRST choice a player makes — above
 size and above stake. Two tabs, not one doubled flat list.**
 
-The hierarchy matters as much as the split. A flat list of every `ruleset × bracket × league` combination is
+The hierarchy matters as much as the split. A flat list of every `currency × ruleset × bracket × league` combination is
 the same information presented as an undifferentiated wall; two tabs present it as *"which game are you here to
 play, and then what size."* The player answers one question before being asked the next.
 
@@ -134,29 +134,43 @@ play, and then what size."* The player answers one question before being asked t
 Queue count is the product of the **contest** dimensions only:
 
 ```
-  queues  =  rulesets  ×  brackets  ×  leagues
+  queues  =  currencies  ×  rulesets  ×  brackets  ×  leagues
 ```
 
+- **Currencies** — **2** (WATTS PLAY, VOLTS PLAY; R76, `ssot/economy-store.md` §3.1).
 - **Rulesets** — **2** (MATCH PLAY, BATTLE ROYALE), split per R7 (§4.1) and expressed as the top-level tab.
 - **Brackets** — the party-size bands the district model serves: `1v1, 2v2` · `3v3, 4v4` · `5v5, 8v8`, plus the
   BR counts. On the order of **8**.
 - **Leagues** — **2** (HAYWIRE, PRO MOD; `ssot/match-modes.md` §4).
 
-That places the player-facing entry count **on the order of 32**, reached through a two-level choice rather
-than presented flat. **Not every cell is necessarily offered** — a ruleset suited to arena footprints need not
-be published at every bracket (`ssot/match-modes.md` §2.2), and an unoffered cell is a pool that never had to
-be filled.
+That places the player-facing entry count **on the order of 64**, reached through a layered choice rather than
+presented flat. **Not every cell is necessarily offered** — a ruleset suited to arena footprints need not be
+published at every bracket (`ssot/match-modes.md` §2.2), and an unoffered cell is a pool that never had to be
+filled. After R63 the concretely publishable set is **28**, not 64.
 
 A **ranked flag** rides the queue rather than doubling it wherever ranked and unranked can share a pool; where
 they cannot, it becomes another multiplier and should be recognised as such rather than added quietly.
+
+> **CURRENCY IS THE CASE THAT SENTENCE DESCRIBES, AND R76 IS THE RECOGNITION IT DEMANDS.** Watts and Volts
+> players **cannot** share a pool — two participants staking different currencies cannot settle one pot — so
+> currency is not a flag that rides the queue, it is a multiplier. It is recorded here as one rather than
+> arriving quietly, which is exactly what this paragraph asks of any fourth dimension.
 
 ### 4.3 The invariant
 
 > **Content growth must never increase the queue count.**
 
 Maps, districts, play-spaces and size variants are **pool rows** (§3). The only things that may add a queue are
-a new bracket, a new league, or a new ruleset — all of which are *design* decisions made deliberately, and all
-of which are rare. **If the queue count is rising because content shipped, the layer separation has failed.**
+a new bracket, a new league, a new ruleset, or **a new stake currency** (R76) — all of which are *design*
+decisions made deliberately, and all of which are rare. **If the queue count is rising because content shipped,
+the layer separation has failed.**
+
+> **THE FOURTH ADDER WAS ADMITTED DELIBERATELY, AND THE TEST IT PASSED IS WORTH RECORDING.** A dimension earns
+> a place on this list only if the pools it creates **genuinely cannot merge**. Brackets cannot merge because a
+> 5v5 is not an 8v8; rulesets cannot merge because the match ends differently; leagues cannot merge because the
+> damage model differs. **Currency cannot merge because a pot cannot settle in two denominations.** Region, by
+> contrast, failed this test (§6) and stayed off the queue — the difference is not importance, it is whether a
+> shared pool would produce a match that cannot resolve.
 
 ---
 
@@ -165,6 +179,17 @@ of which are rare. **If the queue count is rising because content shipped, the l
 **Stake is a free-entry amount carried on the ticket. It is not a queue.** A stake-tier queue set would multiply
 the queue count by the tier count and fragment the pool along a second axis — the precise failure §3 and §4
 exist to prevent.
+
+> **⚠ THE AMOUNT AND THE CURRENCY ARE DIFFERENT THINGS, AND ONLY ONE OF THEM IS A QUEUE DIMENSION.**
+>
+> | | Is it a queue dimension? | Why |
+> |---|---|---|
+> | **Stake AMOUNT** (450, 2,500 …) | **No — a ticket parameter.** Unchanged by R76. | Amounts within a currency **can** settle together; the server bands them (§5.2) and widens the band over wait (R60). Making each tier a queue is the fragmentation this section forbids. |
+> | **Stake CURRENCY** (Watts / Volts) | **YES — a queue dimension (R76).** | Amounts in *different* currencies **cannot** settle together at all. There is no band wide enough to merge them, because the pot itself could not resolve. |
+>
+> The heading above still holds in full: it forbids **tiering** the queue by amount, and R76 does not do that.
+> A reader who takes the heading as also forbidding the currency split has read a statement about *amounts* as
+> a statement about *denominations*.
 
 ### 5.1 Entry UX
 
@@ -469,6 +494,8 @@ than an independent choice.
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R76 — STAKE CURRENCY IS A QUEUE DIMENSION: WATTS PLAY AND VOLTS PLAY** | **2026-08-06** | The two staked tiers are **separate pools**, and the queue formula becomes `currencies × rulesets × brackets × leagues` (§4.2). **The reason is settlement, not preference:** two participants staking different currencies cannot settle one pot, so no band is wide enough to merge them. §4.2 already anticipated this exact case — a flag *"rides the queue… where they cannot [share a pool], it becomes another multiplier and should be recognised as such rather than added quietly"* — and **this ruling is that recognition, made loudly.** §4.3's adder list is amended to admit currency as the fourth permitted adder, and §5 now separates the stake **AMOUNT** (a ticket parameter, unchanged) from the stake **CURRENCY** (a queue dimension). **Cost accepted:** nominal queue count doubles to ~64, concretely 28 after R63. |
+| **R77 — EVERY MATCH HAS A BUY-IN, AND BOTH TIERS ARE RATED** | **2026-08-06** | There is no free tab: **the play-money table still costs play money.** Both WATTS PLAY and VOLTS PLAY are staked and both are rated, so the two OpenSkill ladders (R64/R65) stay **per-ruleset, not per-currency** — currency does not multiply the ladder count. **`ranked` and `staked` REMAIN INDEPENDENT BOOLEANS** on the result (§10.1, `ssot/league-play.md` §12.1); this ruling deliberately does **not** collapse them into a mode enum, because the R14 stake firewall's premise — *a staked win and an unstaked win of the same result move the ladder identically* — depends on both being expressible. **⚠ CONSEQUENCE, STATED PLAINLY: no bots in either tier.** `ssot/ai-bots.md` §6.3 bars them on the **rating** clause alone, and its test is result-scoped — *"does this match's outcome move a balance or a rating?"* Making a tier cheaper does not make it fillable. |
 | **R59 — THE CLIENT NEVER SNAPS A STAKE** | **2026-08-06** | Free numeric entry stays (R20); the entered integer travels on the ticket **unrounded** and the **server** resolves it to a band (§5.3). A client-side snap would have the client choosing which pool the player enters — **the same class of claim as asserting a balance, and forbidden by the same law (N11)** — and it buys nothing, because the server must re-resolve regardless. The band readout (§5.2) is what keeps this invisible: the player sees the outcome before committing. **Closes nothing that was open; hardens what §5.3 already implied.** |
 | **R60 — BAND WIDENING IS STEPPED AND ASYMMETRIC** | **2026-08-06** | One band step every **15s**, capped at **2 steps DOWN / 1 step UP**, hard stop at **60s** then offer the fold (§11.2). **Asymmetric because §11.2 identified the reason itself:** being matched *down* costs a player nothing they did not offer, while being matched *up* **spends money they did not intend to stake**. In an unstaked game this is a preference; here it is exposure. **Stepped rather than continuous** because §5.2 requires the band be *disclosed*, and a step is legible in a UI where a continuously drifting band is not. **Closes §11.2.** |
 | **R61 — COLD BANDS FOLD AUTOMATICALLY, WITH AN OPERATOR OVERRIDE** | **2026-08-06** | A band folds into its neighbour when it holds fewer than **2× field size over a rolling 5 minutes**; an operator may pin or force a fold at any time (§11.3). Automation is in the spirit of §7, which already rules folding a **config-level lever needing no code change and no client update** — so a band going cold at 3am should not wait for a human. **The override answers §11.3's own objection** (manual folding never surprises a player mid-session) and is what a launch window needs, when population is thin for reasons the threshold cannot know. **Closes §11.3.** |
