@@ -192,13 +192,13 @@ The server validates the entered amount against the player's balance and the tie
 accepted. **A client never asserts what it can afford** (**N11**) — a balance is a server fact, and a stake
 accepted on a client's word is a stake that can be fabricated.
 
-> **THE CLIENT NEVER SNAPS EITHER (R42).** The player types any integer and it travels on the ticket
+> **THE CLIENT NEVER SNAPS EITHER (R59).** The player types any integer and it travels on the ticket
 > **unrounded**; the **server** resolves it to a band. A client-side snap would have the client choosing which
 > pool the player enters — the same class of claim as asserting a balance, and forbidden by the same law. It
 > also buys nothing, because the server must re-resolve regardless. The band readout (§5.2) is what makes this
 > invisible to the player: they see the outcome before they commit.
 
-**The tier table is `100 · 500 · 2,500 · 10,000 V` (R51, `ssot/economy-store.md`).** Four rungs, ~5× geometric.
+**The tier table is `100 · 500 · 2,500 · 10,000 V` (R68, `ssot/economy-store.md`).** Four rungs, ~5× geometric.
 Higher tiers are deliberately unshipped until the top rung is populated — an unfillable tier would advertise its
 own emptiness under §7, which is the one thing that section exists to prevent.
 
@@ -419,11 +419,11 @@ sort a queue* is this document's.
 
 ## 11. OPEN DESIGN QUESTIONS
 
-**⚑ ALL FOUR QUESTIONS THIS SECTION CARRIED ARE NOW CLOSED (R42–R46, 2026-08-06).** The reasoning is preserved
+**⚑ ALL FOUR QUESTIONS THIS SECTION CARRIED ARE NOW CLOSED (R59–R63, 2026-08-06).** The reasoning is preserved
 below because each ruling was taken *against* the alternative recorded here, and a reader who cannot see what
 was rejected cannot tell whether the ruling still holds when conditions change.
 
-### 11.1 ~~Skill input — and whether it is per-ruleset~~ — **CLOSED by R47/R48** (`ssot/league-play.md`)
+### 11.1 ~~Skill input — and whether it is per-ruleset~~ — **CLOSED by R64/R65** (`ssot/league-play.md`)
 
 *The question was:* one rating or one per ruleset. Placement skill and kill-ratio skill are not obviously the
 same competence; a single rating pools better, separate ratings are fairer but split the rating population.
@@ -432,7 +432,7 @@ same competence; a single rating pools better, separate ratings are fairer but s
 removed kill-ratio entirely**, so both rulesets now produce a finishing position and the comparison is between
 orderings of different *depth*, not different *kind*. §4.1 of `league-play.md` carries the full reasoning.
 
-### 11.2 ~~The band-widening curve~~ — **CLOSED by R43**
+### 11.2 ~~The band-widening curve~~ — **CLOSED by R60**
 
 *The question was:* how fast, to what ceiling, and symmetric or not. This section already flagged the answer:
 *"being matched **up** exposes them beyond their intent."*
@@ -442,7 +442,7 @@ at 60s, then offer the fold. Asymmetry is the direct answer to the exposure this
 game, being matched up spends the player's money, not just their time. **Stepped rather than continuous** because
 §5.2 requires the band be *disclosed*, and a step is legible in a UI where a moving curve is not.
 
-### 11.3 ~~Minimum viable population per band before it folds~~ — **CLOSED by R44**
+### 11.3 ~~Minimum viable population per band before it folds~~ — **CLOSED by R61**
 
 *The question was:* the threshold, and automatic versus operator. *"Automatic folding reacts faster; manual
 folding never surprises a player mid-session."*
@@ -452,7 +452,7 @@ rolling **5 minutes**. Automation is in the spirit of §7, which already rules f
 needing no code change; the override answers this section's own concern, and is what a launch window needs when
 the data is thin and atypical.
 
-### 11.4 ~~Party-versus-solo matching fairness~~ — **CLOSED by R45**
+### 11.4 ~~Party-versus-solo matching fairness~~ — **CLOSED by R62**
 
 *The question was:* segregation, free mixing, or compensation. This section correctly noted the interaction with
 §8.1's party-size ranges and with the rating.
@@ -460,7 +460,7 @@ the data is thin and atypical.
 **Resolved: no segregation; compensate through the rating.** Party seats stay capped at one team's worth (§8.3).
 Segregation is what a dense ladder can afford and we cannot — it halves an already thin pool, and §7 would then
 have to show two sets of bands as empty instead of one. **The interaction this section predicted is now
-load-bearing:** the rating consumed *does* account for coordination, which makes R45 a dependency of R48 rather
+load-bearing:** the rating consumed *does* account for coordination, which makes R62 a dependency of R65 rather
 than an independent choice.
 
 ---
@@ -469,11 +469,11 @@ than an independent choice.
 
 | Ruling | Date | Content |
 |---|---|---|
-| **R42 — THE CLIENT NEVER SNAPS A STAKE** | **2026-08-06** | Free numeric entry stays (R20); the entered integer travels on the ticket **unrounded** and the **server** resolves it to a band (§5.3). A client-side snap would have the client choosing which pool the player enters — **the same class of claim as asserting a balance, and forbidden by the same law (N11)** — and it buys nothing, because the server must re-resolve regardless. The band readout (§5.2) is what keeps this invisible: the player sees the outcome before committing. **Closes nothing that was open; hardens what §5.3 already implied.** |
-| **R43 — BAND WIDENING IS STEPPED AND ASYMMETRIC** | **2026-08-06** | One band step every **15s**, capped at **2 steps DOWN / 1 step UP**, hard stop at **60s** then offer the fold (§11.2). **Asymmetric because §11.2 identified the reason itself:** being matched *down* costs a player nothing they did not offer, while being matched *up* **spends money they did not intend to stake**. In an unstaked game this is a preference; here it is exposure. **Stepped rather than continuous** because §5.2 requires the band be *disclosed*, and a step is legible in a UI where a continuously drifting band is not. **Closes §11.2.** |
-| **R44 — COLD BANDS FOLD AUTOMATICALLY, WITH AN OPERATOR OVERRIDE** | **2026-08-06** | A band folds into its neighbour when it holds fewer than **2× field size over a rolling 5 minutes**; an operator may pin or force a fold at any time (§11.3). Automation is in the spirit of §7, which already rules folding a **config-level lever needing no code change and no client update** — so a band going cold at 3am should not wait for a human. **The override answers §11.3's own objection** (manual folding never surprises a player mid-session) and is what a launch window needs, when population is thin for reasons the threshold cannot know. **Closes §11.3.** |
-| **R45 — PARTIES ARE NOT SEGREGATED; THE RATING COMPENSATES** | **2026-08-06** | Parties and solo players share a pool. Party seats stay capped at one team's worth (§8.3), and the rating consumed **accounts for coordination** (§11.4). Segregation is what a dense ladder can afford and we cannot — it halves an already thin pool, and §7 would then have to show two sets of bands as empty instead of one. **⚠ THE INTERACTION §11.4 PREDICTED IS NOW LOAD-BEARING:** the coordination adjustment makes this ruling a **dependency of R48's rating model**, not an independent choice — a rating that ignores party status makes this ruling a lie. **Closes §11.4.** |
-| **R46 — PUBLISH ONLY BRACKETS THAT HAVE A MAP** | **2026-08-06** | MATCH PLAY publishes **1v1 · 3v3 · 5v5 · 8v8**. 2v2 and 4v4 stay **unoffered** until the R31 purpose-sized maps exist. §4 explicitly permits this — *an unoffered cell is a pool that never had to be filled* — and the alternative is worse than an absence: running a bracket on a footprint built for another size is the defect already recorded against INFINEON at 8v8. **This is a publishing rule, not a ruleset rule:** `match-modes.md` §9.1 keeps the size range open, and this ruling decides only what the front end offers today. |
+| **R59 — THE CLIENT NEVER SNAPS A STAKE** | **2026-08-06** | Free numeric entry stays (R20); the entered integer travels on the ticket **unrounded** and the **server** resolves it to a band (§5.3). A client-side snap would have the client choosing which pool the player enters — **the same class of claim as asserting a balance, and forbidden by the same law (N11)** — and it buys nothing, because the server must re-resolve regardless. The band readout (§5.2) is what keeps this invisible: the player sees the outcome before committing. **Closes nothing that was open; hardens what §5.3 already implied.** |
+| **R60 — BAND WIDENING IS STEPPED AND ASYMMETRIC** | **2026-08-06** | One band step every **15s**, capped at **2 steps DOWN / 1 step UP**, hard stop at **60s** then offer the fold (§11.2). **Asymmetric because §11.2 identified the reason itself:** being matched *down* costs a player nothing they did not offer, while being matched *up* **spends money they did not intend to stake**. In an unstaked game this is a preference; here it is exposure. **Stepped rather than continuous** because §5.2 requires the band be *disclosed*, and a step is legible in a UI where a continuously drifting band is not. **Closes §11.2.** |
+| **R61 — COLD BANDS FOLD AUTOMATICALLY, WITH AN OPERATOR OVERRIDE** | **2026-08-06** | A band folds into its neighbour when it holds fewer than **2× field size over a rolling 5 minutes**; an operator may pin or force a fold at any time (§11.3). Automation is in the spirit of §7, which already rules folding a **config-level lever needing no code change and no client update** — so a band going cold at 3am should not wait for a human. **The override answers §11.3's own objection** (manual folding never surprises a player mid-session) and is what a launch window needs, when population is thin for reasons the threshold cannot know. **Closes §11.3.** |
+| **R62 — PARTIES ARE NOT SEGREGATED; THE RATING COMPENSATES** | **2026-08-06** | Parties and solo players share a pool. Party seats stay capped at one team's worth (§8.3), and the rating consumed **accounts for coordination** (§11.4). Segregation is what a dense ladder can afford and we cannot — it halves an already thin pool, and §7 would then have to show two sets of bands as empty instead of one. **⚠ THE INTERACTION §11.4 PREDICTED IS NOW LOAD-BEARING:** the coordination adjustment makes this ruling a **dependency of R65's rating model**, not an independent choice — a rating that ignores party status makes this ruling a lie. **Closes §11.4.** |
+| **R63 — PUBLISH ONLY BRACKETS THAT HAVE A MAP** | **2026-08-06** | MATCH PLAY publishes **1v1 · 3v3 · 5v5 · 8v8**. 2v2 and 4v4 stay **unoffered** until the R31 purpose-sized maps exist. §4 explicitly permits this — *an unoffered cell is a pool that never had to be filled* — and the alternative is worse than an absence: running a bracket on a footprint built for another size is the defect already recorded against INFINEON at 8v8. **This is a publishing rule, not a ruleset rule:** `match-modes.md` §9.1 keeps the size range open, and this ruling decides only what the front end offers today. |
 | **R7 — THE TWO RULESETS SPLIT THE QUEUE** | **2026-08-05**, **renamed 2026-08-06** | Ruleset is the **top-level choice**, above size and above stake — presented as **two tabs**, not one doubled flat list. Settled on three grounds: (1) **UX** — they are different products, not variants; a player who wants one and is dropped into the other quits and **eats a leaver penalty on a wagered match**, the worst failure available in this system; (2) **observed practice** — wager and competitive platforms separate by **format**, never merging elimination and respawn formats; (3) **fragmentation does not apply** — merging doubles the entries but not the pool, because those players were never interchangeable, so a merged queue's population is **nominal, not effective**. A genuinely cold band folds into a neighbour via the transparency mechanism (§7), which is the correct instrument for that problem. Carried as **§4.1**, with the arithmetic in **§4.2** and per-ruleset counts in **§7**. **This is settled; a reader should not reopen it.** **RENAMED BY R41** (`ssot/match-modes.md`): the pair is MATCH PLAY and BATTLE ROYALE. **The split reasoning is unchanged and if anything stronger** — the two now differ in end condition, respawn policy AND position count, where the old pair differed in the first two only. |
 
 ---

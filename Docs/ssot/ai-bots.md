@@ -461,9 +461,9 @@ it creates.
    *(This question replaced "bot behaviour under TURBO's instant respawn", which R41 parked with the ruleset.
    Should TURBO ever revive, the original applies again: continuous respawn has no equivalent clock at all,
    so the competence curve would have no input rather than a second one — `ssot/match-modes.md` §9.7.)*
-4. ~~**Whether bots appear only in unrated queues, or also warm cold stake bands.**~~ — **CLOSED by R57: they
+4. ~~**Whether bots appear only in unrated queues, or also warm cold stake bands.**~~ — **CLOSED by R74: they
    never enter a population count.** This item had already reasoned its way to the answer — *"a population count
-   must never include a participant whose presence would be forbidden in a settling match"* — and R57 simply
+   must never include a participant whose presence would be forbidden in a settling match"* — and R74 simply
    adopts it as law. The pointer it carried was also stale: population transparency is `ssot/matchmaking.md`
    **§7**, not §6.
 5. **Squad-level coordination versus independent agents.** Bots currently reason individually. Coordination
@@ -477,7 +477,7 @@ it creates.
 
 | Ruling | Date | Content |
 |---|---|---|
-| **R57 — A BOT IS NEVER COUNTED IN A POPULATION FIGURE** | **2026-08-06** | No population count, wait estimate or band-health figure shown to a player may include a bot — in any queue, rated or not, staked or not. This extends §6.3 from *filling* to *display*: §6.3 already forbids bots in any match whose result carries stake or rating, and R57 closes the remaining gap where a bot could still make a band **look** populated. **The reasoning is §9.4's own:** a count that includes a participant who cannot settle is a count a player cannot act on, and `ssot/matchmaking.md` §7 exists precisely so an empty band **looks** empty rather than silently never matching. A warmer-looking lobby is not worth the one property that section protects. **⚠ This also removes a mitigation the economy SSOT was leaning on** — `economy-store.md` §5.2 previously justified its paid-places threshold argument with *"bot-fill lands them full"*, citing §8.2.1, which says no such thing. That citation is corrected there; the surviving mitigation is the queue-sizing constraint, which never needed bots. **Closes §9.4.** |
+| **R74 — A BOT IS NEVER COUNTED IN A POPULATION FIGURE** | **2026-08-06** | No population count, wait estimate or band-health figure shown to a player may include a bot — in any queue, rated or not, staked or not. This extends §6.3 from *filling* to *display*: §6.3 already forbids bots in any match whose result carries stake or rating, and R74 closes the remaining gap where a bot could still make a band **look** populated. **The reasoning is §9.4's own:** a count that includes a participant who cannot settle is a count a player cannot act on, and `ssot/matchmaking.md` §7 exists precisely so an empty band **looks** empty rather than silently never matching. A warmer-looking lobby is not worth the one property that section protects. **⚠ This also removes a mitigation the economy SSOT was leaning on** — `economy-store.md` §5.2 previously justified its paid-places threshold argument with *"bot-fill lands them full"*, citing §8.2.1, which says no such thing. That citation is corrected there; the surviving mitigation is the queue-sizing constraint, which never needed bots. **Closes §9.4.** |
 | **R24 — AI and bots get their own SSOT** | **2026-08-05** | AI is **not** assigned to an existing SSOT. It touches matchmaking (bot-fill), combat-arsenal (bots fire the same abilities under **A9**) and character-system (they drive the same movement components), but is owned by none of them. **A system with its own design laws needs its own home** — distributing it would place its foundational law (bot-fire parity, §2) inside a document about something else. |
 
 ---
