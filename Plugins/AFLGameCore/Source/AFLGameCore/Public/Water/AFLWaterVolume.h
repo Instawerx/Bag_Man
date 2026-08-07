@@ -68,8 +68,16 @@ public:
 	 *
 	 * Structural on purpose. The alternative -- defaulting it off and trusting nobody flips it -- is exactly
 	 * the "correct by placement" posture that produced the C6 spawn failure on this map.
+	 *
+	 * EDITOR-ONLY, and that costs the guarantee NOTHING. AActor declares this virtual inside #if WITH_EDITOR,
+	 * so an override without the same guard does not compile in Shipping (C3668: overrides nothing). It only
+	 * ever had editor meaning anyway: it gates the World Partition toggle and the SetIsSpatiallyLoaded check.
+	 * By the time a cooked build runs, the streaming decision is already BAKED -- there is no flag left to
+	 * change and nothing to defend against at runtime.
 	 */
+#if WITH_EDITOR
 	virtual bool CanChangeIsSpatiallyLoadedFlag() const override;
+#endif
 	//~End
 
 	// ---- PHASE 4 READ SURFACE. Declared here so the degradation component has ONE source for these values. ----

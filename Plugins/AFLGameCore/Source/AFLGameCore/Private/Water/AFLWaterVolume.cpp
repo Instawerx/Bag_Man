@@ -16,7 +16,18 @@ AAFLWaterVolume::AAFLWaterVolume(const FObjectInitializer& ObjectInitializer)
 	// ALWAYS LOADED. Written directly rather than through SetIsSpatiallyLoaded, because that setter
 	// check()s CanChangeIsSpatiallyLoadedFlag() -- which this class deliberately returns false from (below).
 	// Going through the setter would assert on our own lock.
+	//
+	// WITH_EDITORONLY_DATA, not WITH_EDITOR: AActor declares bIsSpatiallyLoaded under that macro, and the two
+	// are NOT interchangeable (a cooked-editor-data target has the member without being an editor build), so
+	// the guard has to match the engine's exactly or it breaks somewhere less obvious than Shipping.
+	//
+	// Nothing is lost by guarding it. This value exists to be read AT COOK TIME by World Partition, which
+	// bakes the streaming decision into the built level; a cooked runtime has no flag to set and no streaming
+	// choice left to make. The always-loaded guarantee is therefore carried by the cooked data, not by this
+	// line -- this line is what tells the cooker.
+#if WITH_EDITORONLY_DATA
 	bIsSpatiallyLoaded = false;
+#endif
 
 	// A water volume has no per-frame work of its own. Phase 4's component ticks against the pawn, not here.
 	PrimaryActorTick.bCanEverTick = false;
@@ -27,6 +38,7 @@ AAFLWaterVolume::AAFLWaterVolume(const FObjectInitializer& ObjectInitializer)
 	SetReplicateMovement(false);   // it never moves; do not spend bandwidth saying so
 }
 
+#if WITH_EDITOR
 bool AAFLWaterVolume::CanChangeIsSpatiallyLoadedFlag() const
 {
 	// FALSE, PERMANENTLY.
@@ -44,3 +56,4 @@ bool AAFLWaterVolume::CanChangeIsSpatiallyLoadedFlag() const
 	// not a flag flipped on this one.
 	return false;
 }
+#endif // WITH_EDITOR
