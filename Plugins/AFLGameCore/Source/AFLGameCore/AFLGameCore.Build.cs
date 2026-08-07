@@ -25,6 +25,13 @@ public class AFLGameCore : ModuleRules
 				"GameFeatures",   // UGameFeatureAction base + the FGameFeature*Context structs, for
 				                  // UAFLGFA_ActivateDataLayers (district streaming). Declared directly (IWYU),
 				                  // matching AFLCombat.Build.cs which needs it for UAFLGFA_WeaponSpawns.
+				"CommonLoadingScreen",   // ILoadingProcessInterface -- UAFLDistrictReadinessComponent holds the
+				                         // loading screen while a district's cells stream in. Lyra's own
+				                         // ULyraExperienceManagerComponent implements the same contract.
+				"ModularGameplay",   // UGameStateComponent base (ModularGameplay engine plugin -- NOT the
+				                     // similarly-named ModularGameplayActors below, which supplies the modular
+				                     // ACTORS). Declared directly (IWYU) as LyraGame and ModularGameplayActors
+				                     // both do; it does not arrive transitively through them.
 				"LyraGame",   // ALyraGameMode + ULyraTeamCreationComponent bases (the always-loaded project module)
 				"ModularGameplayActors",   // AModularAIController base of ALyraPlayerBotController (AAFLBotController's grandparent)
 				// The signed server transport for the match-lifecycle posts (escrow/settle/rating).

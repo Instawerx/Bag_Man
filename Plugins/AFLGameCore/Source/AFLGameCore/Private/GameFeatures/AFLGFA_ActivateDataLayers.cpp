@@ -195,7 +195,8 @@ void UAFLGFA_ActivateDataLayers::ApplyStateToWorld(TWeakObjectPtr<UWorld> WeakWo
 		return;
 	}
 
-	for (const UDataLayerAsset* Asset : ResolveLayersForWorld(World, Manager, Phase))
+	bool bFromFallback = false;
+	for (const UDataLayerAsset* Asset : ResolveLayersForWorld(World, Manager, Phase, bFromFallback))
 	{
 		if (Asset == nullptr)
 		{
@@ -216,10 +217,25 @@ void UAFLGFA_ActivateDataLayers::ApplyStateToWorld(TWeakObjectPtr<UWorld> WeakWo
 		const UDataLayerInstance* Instance = Manager->GetDataLayerInstanceFromAsset(Asset);
 		if (Instance == nullptr)
 		{
-			UE_LOG(LogAFLGameCore, Error,
-				TEXT("AFL_DISTRICT[%s]: '%s' has no DataLayerInstance in world '%s' -- the asset exists but "
-				     "THIS MAP does not reference it. SetDataLayerRuntimeState would return false "
-				     "(DataLayerManager.cpp:295)."), Phase, *Asset->GetName(), *GetNameSafe(World));
+			// SAME CONDITION, TWO MEANINGS -- see the note on ResolveLayersForWorld. From the URL this is a
+			// broken promise (the matchmaker sent a district this map does not have) and must be an Error.
+			// From the FALLBACK it is the ordinary case: a project-wide dev default cannot apply to every
+			// map, and logging it as an Error on ARCANEON and Duel_01 would make the fallback unusable and
+			// teach people to ignore a message that elsewhere means something real.
+			if (bFromFallback)
+			{
+				UE_LOG(LogAFLGameCore, Log,
+					TEXT("AFL_DISTRICT[%s]: fallback layer '%s' is not referenced by world '%s' -- skipping "
+					     "(expected: the fallback is project-wide, districts are per-map)."),
+					Phase, *Asset->GetName(), *GetNameSafe(World));
+			}
+			else
+			{
+				UE_LOG(LogAFLGameCore, Error,
+					TEXT("AFL_DISTRICT[%s]: '%s' has no DataLayerInstance in world '%s' -- the asset exists but "
+					     "THIS MAP does not reference it. SetDataLayerRuntimeState would return false "
+					     "(DataLayerManager.cpp:295)."), Phase, *Asset->GetName(), *GetNameSafe(World));
+			}
 			continue;
 		}
 
@@ -262,9 +278,10 @@ void UAFLGFA_ActivateDataLayers::ApplyStateToWorld(TWeakObjectPtr<UWorld> WeakWo
 }
 
 TArray<const UDataLayerAsset*> UAFLGFA_ActivateDataLayers::ResolveLayersForWorld(
-	UWorld* World, UDataLayerManager* Manager, const TCHAR* Phase) const
+	UWorld* World, UDataLayerManager* Manager, const TCHAR* Phase, bool& bOutFromFallback) const
 {
 	TArray<const UDataLayerAsset*> Out;
+	bOutFromFallback = false;
 
 	// --- 1. THE PLAY-SPACE'S OWN ANSWER: the ?District= URL option (R60). ---
 	//
@@ -380,6 +397,7 @@ TArray<const UDataLayerAsset*> UAFLGFA_ActivateDataLayers::ResolveLayersForWorld
 	}
 
 	// --- 2. FALLBACK: the authored list. A hand-opened map, PIE, or a pre-R60 config. ---
+	bOutFromFallback = true;
 	if (DataLayers.IsEmpty())
 	{
 		// Log, NOT Warning. This action lives on the AFLCore GameFeatureData, so it runs in EVERY world --

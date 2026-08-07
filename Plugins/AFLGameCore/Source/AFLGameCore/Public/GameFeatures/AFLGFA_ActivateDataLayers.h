@@ -157,8 +157,15 @@ private:
 	 *
 	 * Deliberately deterministic — the deactivate path re-resolves rather than caching, and gets the same
 	 * answer for the same world.
+	 *
+	 * bOutFromFallback distinguishes the two sources, because the SAME downstream condition means opposite
+	 * things depending on which one it was: a layer THIS MAP does not have is a real error when the URL named
+	 * it (the matchmaker promised a district that is not there), and entirely expected when it came from the
+	 * fallback (a project-wide dev default cannot apply to every map). Without the flag the honest choice is
+	 * an Error on both, which trains people to ignore it.
 	 */
-	TArray<const UDataLayerAsset*> ResolveLayersForWorld(UWorld* World, class UDataLayerManager* Manager, const TCHAR* Phase) const;
+	TArray<const UDataLayerAsset*> ResolveLayersForWorld(UWorld* World, class UDataLayerManager* Manager,
+		const TCHAR* Phase, bool& bOutFromFallback) const;
 
 	static const TCHAR* StateName(EDataLayerRuntimeState State);
 
