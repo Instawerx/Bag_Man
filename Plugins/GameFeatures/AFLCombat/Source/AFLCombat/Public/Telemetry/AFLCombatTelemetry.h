@@ -103,4 +103,26 @@ public:
 	 *  traversal-density heatmap source. ADDITIVE: no prior traversal emit existed.
 	 *  Emits: AFL_TELEMETRY: afl_traverse pawn=<P> team=<T> x=<X> y=<Y> z=<Z> */
 	static void EmitTraverse(const AActor* Pawn, int32 TeamId, const FVector& Location);
+
+	/**
+	 * BR shrinking zone -- the DISPUTE RECORD (IRONICS_BR_ZONE_SYSTEM.md §4).
+	 *
+	 * Emitted ONCE, at match start, before the first circle moves. A staked battle royale that is contested
+	 * afterwards is settled by rebuilding the plan from the same MatchId and comparing -- so what has to be
+	 * on record is the SEED, not a running commentary. The per-phase geometry is logged alongside it by the
+	 * component; this is the machine-readable anchor.
+	 *
+	 * Emits:
+	 *   AFL_TELEMETRY: afl_zone_plan match=<MatchId> seed=<Seed> phases=<N>
+	 */
+	static void EmitZonePlan(const FString& MatchId, int32 Seed, int32 PhaseCount);
+
+	/**
+	 * One zone phase became current. Carries the circle so a replay can be checked phase by phase without
+	 * re-deriving it.
+	 *
+	 * Emits:
+	 *   AFL_TELEMETRY: afl_zone_phase phase=<I> x=<X> y=<Y> r=<R> dps=<DPS>
+	 */
+	static void EmitZonePhase(int32 PhaseIndex, const FVector2D& Centre, float Radius, float DamagePerSecond);
 };

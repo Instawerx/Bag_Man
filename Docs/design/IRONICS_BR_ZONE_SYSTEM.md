@@ -1,6 +1,7 @@
 # IRONICS — BR SHRINKING ZONE SYSTEM (scope)
 
-**Status:** SCOPE / DESIGN ONLY — **not approved for build** (gated on operator approval + the open decisions §7).
+**Status:** **S1 SHIPPED (C++ half)** — operator-approved 2026-08-07 and built. Determinism (Z2) PROVED headlessly.
+Editor-side assets (the DoT effect, a config instance, viz, HUD) remain — see §10.
 **Date:** 2026-08-05.
 **Why this doc:** the shrinking safe-zone ("Zone") is the **single genuinely net-new BR system** — everything else
 in the BR ruleset is shipped or reused ([IRONICS_BR_MODE_SPIKE.md](IRONICS_BR_MODE_SPIKE.md) §4;
@@ -102,7 +103,94 @@ Code: `UAFLBattleRoyaleComponent`, `UAFLMatchPhaseComponent`, `UAFLRoundManagerC
 
 ---
 
+## 10. S1 AS BUILT (2026-08-07)
+
+### What shipped
+| Piece | Where |
+|---|---|
+| `FAFLZonePlan` / `FAFLZoneRules` / `FAFLZonePhasePlan` — the pure plan | `AFLCombat/Public/Zone/AFLZonePlan.h` |
+| `UAFLZoneComponent` — the server driver | `AFLCombat/Public/Zone/AFLZoneComponent.h` |
+| `UAFLZoneConfig` — the designer surface | `AFLCombat/Public/Zone/AFLZoneConfig.h` |
+| `State.Zone.Outside` | `AFLCombat/Config/Tags/AFLCombatTags.ini` |
+| `EmitZonePlan` / `EmitZonePhase` | `AFLCombat/Public/Telemetry/AFLCombatTelemetry.h` |
+| 9 determinism/fairness tests | `AFLCombatTests/Private/Spec/AFLZonePlanSpec.cpp` |
+
+### ⚠ ONE ARCHITECTURE CHANGE FROM §3.1 — the whole plan is built UP FRONT
+
+§3.1 said *"seeded center per phase from `MatchId` RNG"*. Drawing lazily makes determinism a property of
+**call order**: reproducible only while nothing else ever touches that stream and every phase draws the same
+values in the same sequence. Both are invisible invariants, and a later edit breaks them silently — which is
+precisely how a staking dispute becomes unanswerable, because the log looks fine and the replay does not match.
+
+The plan is therefore computed **once**, as a pure function of `(seed, rules)`, before the first circle moves:
+
+- determinism is **structural** rather than disciplined — one draw sequence, in one function
+- it is unit-testable with **no world, no actors, no net** — so **Z2 is proved headlessly in CI**, not inferred
+  from one run of one match on one machine
+- the full sequence is known at match start, so **telegraphing is a lookup, not a prediction**, and a
+  tournament observer can be handed the whole thing up front
+
+### The §7 decisions, as taken
+
+All six are answered as **defaults on `UAFLZoneConfig`**, so every one remains a data edit rather than a
+rebuild. Where a decision is load-bearing rather than taste, the reasoning is in the code:
+
+| # | Taken as | Why |
+|---|---|---|
+| 1 Phase count / curves | 6 shrinks; geometric radii; linear damage + shrink-time ramp | Geometric because **area** goes as r²: a linear radius schedule removes far too much map in the first step. One config asset per field size answers BR_9 vs BR_36 with no code change. |
+| 2 Centre selection | Uniform-in-disc within `parentR − childR`, `CentreDriftFraction` to bias | **Containment is not optional** — see below. Uniform-in-disc (√ on the radial roll) rather than uniform-in-radius, because the latter clusters circles near the parent centre, and a predictable centre is a competitive edge in a mode that settles wagers. |
+| 3 Final zone | Fixed footprint (`FinalRadius`, default 3000cm) | A point makes the ending a coin flip no skill survives — the one outcome a **wagered** match cannot ship. |
+| 4 Shape | Circle | Deterministic, replicates as centre+radius, cheap containment test. Polygon buys nothing here. |
+| 5 HUD lane | Deferred — the data feed is replicated and ready | `CurrentCentre/Radius`, `TargetCentre/Radius`, `TimeToNextEvent`, `ZoneState`, plus `OnZoneStateChanged`. |
+| 6 Damage model | Ramping DPS, applied as an **instant** GE per period | See below — instant beats periodic-duration on every teardown path. |
+
+**CONTAINMENT IS A FAIRNESS REQUIREMENT.** Every circle is fully inside its parent, by construction. If a
+child could poke outside, a player standing safely in the current zone could be outside the next one having
+done nothing and having had no way to avoid it. In a staked match that is indefensible. Asserted across 400
+seeds, not one — this is exactly the property that holds for the seed you tested and fails for the seed a
+player got.
+
+**THE DoT IS INSTANT, NOT PERIODIC-DURATION** (a divergence from §3.2). An instant effect re-applied each
+period has no removal problem at all: nothing persists between ticks, so re-entry, death, disconnect and
+re-possession need zero teardown. The duration version needs correct cleanup on all four and is wrong on any
+one of them. **Z3 ("DoT clears on re-entry") is therefore true by construction rather than by cleanup.**
+
+**NO MATCHID, NO ZONE.** The plan is seeded from `UAFLBattleRoyaleComponent::MatchId`; the component polls
+for it rather than binding `AFL.GamePhase.Playing`, because the BR component observes that same transition to
+author the id and two components racing one event is a coin flip over whether the seed exists yet. Waiting is
+correct: a zone seeded from anything else is a zone a dispute cannot replay.
+
+### A real bug the determinism test caught
+
+The first `SeedFromGuid` folded the four GUID words with **XOR**, which is commutative — so `{1,2,3,4}` and
+`{4,3,2,1}` seeded identically and **two distinct staked matches would have shared a circle sequence**. A
+fairness bug before a replay bug, and unrelated ids would have passed happily. Replaced with a byte-wise
+FNV-1a fold; `Z2_DifferentSeedDiverges` now compares **permutations** specifically, plus 512 ids → 512 seeds.
+
+### Verification
+
+`AFL.Zone.Plan.*` — **9/9 pass**, headless, no PIE:
+Z2 same-seed-identical · Z2 different-seed-diverges · Z2 seed-uses-whole-guid · every-circle-contained (400
+seeds) · radii-only-shrink · final-circle-fightable · pressure-ramps · first-hold-longest · hostile-config-degrades.
+
+```bash
+UnrealEditor-Cmd.exe Bag_Man.uproject -ExecCmds="Automation RunTests AFL.Zone.Plan;Quit" -unattended -nullrhi
+```
+
+### Still owed (needs the editor OPEN — DOCTRINE B1 barred it this pass)
+1. **`GE_AFL_Zone_DoT`** — instant damage GE, SetByCaller `Data.Damage`, mirroring `GE_AFL_Damage_BeamTick`.
+   Until it is assigned the zone shrinks and telegraphs correctly but deals no damage, and says so at BeginPlay.
+2. **`DA_AFL_ZoneConfig_ShantyTown_BR`** — a config instance with ShantyTown's **real** `PlayableCentre`
+   (defaults centre on world origin, which the component warns about loudly).
+3. **BR experience wiring** — the `AddComponents` row adding `UAFLZoneComponent` to the BR experience only.
+4. **S3 viz actor + S4 PIE-with-bots (Z1/Z3/Z4/Z5)** — Z2 is already closed above.
+5. **BR playlists** — no `DA_AFL_ShantyTown_BR_*` exists, which is why `queue-registry.json` still leaves
+   every BR cell unpublished and both doors read *"Not open yet"*.
+
+---
+
 ## Gate
-Per spec §11: **this scope → operator approval → S1 spike → determinism proof (Z2) → curves/tuning → PIE sign-off.**
-A re-sent scope is not approval; disk state is verified before build. **NOT YET APPROVED** — awaiting operator sign-off
-and the §7 decisions. This is the net-new dependency gating the BR mode layer (ShantyTown §2, §3A).
+Per spec §11: this scope → **operator approval ✅ 2026-08-07** → **S1 spike ✅** → **determinism proof (Z2) ✅** →
+curves/tuning → PIE sign-off. Disk state was re-verified before build (no Zone code existed; the BR/round/phase
+substrate did). This was the net-new dependency gating the BR mode layer (ShantyTown §2, §3A) — **the C++ half
+is no longer the blocker; the editor-side assets in §10 are.**

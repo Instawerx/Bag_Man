@@ -115,3 +115,19 @@ void FAFLCombatTelemetry::EmitTraverse(const AActor* Pawn, int32 TeamId, const F
 		TeamId,
 		Location.X, Location.Y, Location.Z);
 }
+
+void FAFLCombatTelemetry::EmitZonePlan(const FString& MatchId, int32 Seed, int32 PhaseCount)
+{
+	// The seed IS the record. Same MatchId + same config => same plan, so this one line plus the committed
+	// UAFLZoneConfig is enough to reconstruct every circle of a disputed match exactly.
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_TELEMETRY: afl_zone_plan match=%s seed=%d phases=%d"),
+		*MatchId, Seed, PhaseCount);
+}
+
+void FAFLCombatTelemetry::EmitZonePhase(int32 PhaseIndex, const FVector2D& Centre, float Radius, float DamagePerSecond)
+{
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_TELEMETRY: afl_zone_phase phase=%d x=%.0f y=%.0f r=%.0f dps=%.1f"),
+		PhaseIndex, Centre.X, Centre.Y, Radius, DamagePerSecond);
+}
