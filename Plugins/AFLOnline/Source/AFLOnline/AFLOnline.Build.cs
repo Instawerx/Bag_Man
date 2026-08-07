@@ -24,6 +24,19 @@ public class AFLOnline : ModuleRules
 			{
 				// FJsonObject / FJsonSerializer -- PlayFab REST request/response bodies.
 				"Json",
+
+				// D17 SHIPPING LOGIN (EOS Default). The shipping PlayFab login is
+				// LoginWithOpenIdConnect against an Epic Account Services ID token, so this module needs
+				// the EOS SDK directly:
+				//   EOSShared -> IEOSSDKManager, the ONLY public way to reach the live EOS_HPlatform
+				//                (OnlineSubsystemEOS's own FUserManagerEOS is Private and unexported, and
+				//                 its GetAuthToken returns the ACCESS token -- the wrong artifact here).
+				//   EOSSDK    -> eos_auth.h + EOS_Auth_CopyIdToken, and it PUBLICLY defines WITH_EOS_SDK=1,
+				//                which is what gates every EOS block in the .cpp. On a platform where the
+				//                SDK is unavailable the define is absent, those blocks compile out, and the
+				//                shipping path fails CLOSED with a diagnostic rather than silently.
+				"EOSShared",
+				"EOSSDK",
 			}
 		);
 

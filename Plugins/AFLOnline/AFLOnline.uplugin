@@ -16,5 +16,11 @@
 			"LoadingPhase": "Default"
 		}
 	],
-	"Plugins": []
+	"Plugins": [
+		{
+			"Name": "EOSShared",
+			"Enabled": true,
+			"Comment": "D17 shipping login. AFLOnline links the EOSShared MODULE (IEOSSDKManager) to copy the Epic Account Services ID token that Client/LoginWithOpenIdConnect exchanges; UBT warns when a module dependency's owning plugin is not declared. EOSSDK needs no entry -- it is an engine ThirdParty module, not a plugin. OnlineSubsystemEOS is what actually INITIALISES the EOS platform and is enabled project-wide in Bag_Man.uproject; without it there are no active platforms and StartLoginWithEOS fails closed with a diagnostic."
+		}
+	]
 }

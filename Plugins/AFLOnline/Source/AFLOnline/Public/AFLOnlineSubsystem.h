@@ -21,10 +21,20 @@ DECLARE_MULTICAST_DELEGATE(FAFLOnLoggedIn);
  * no Secrets Manager (that apparatus enters A1.2 for earn + custom-validated purchases). The transport
  * (PostClientApi) is generic so A1.2 reuses it.
  *
- * DEV-ONLY LOGIN GATE (see EnsureLogin): LoginWithCustomID is compiled ONLY in non-shipping builds -- a
- * fixed CustomID in a shipped game would be an account-spoof bypass. Shipping login is platform-only
- * (LoginWithSteam / LoginWithOpenIdConnect via CommonUser+OSS), wired in the A1.1-shipped follow-on; both
- * paths yield the identical PlayFabId contract, so the persistence layer never changes.
+ * TWO LOGIN PATHS, AND THE SPLIT IS A SECURITY BOUNDARY (see EnsureLogin):
+ *
+ *   DEV      LoginWithCustomID  -- compiled ONLY in non-shipping builds. A fixed CustomID in a shipped game
+ *                                 is an account-spoof bypass: anyone who knows the id becomes that account.
+ *   SHIPPING LoginWithOpenIdConnect -- D17, "EOS Default". An Epic Account Services ID token (a JWT the
+ *                                 client cannot forge) is exchanged at PlayFab against an OIDC connection
+ *                                 configured for Epic. **PlayFab has no LoginWithEpic**; OIDC is the route.
+ *
+ * Both paths land in the SAME HandleLoginResponse and yield the identical PlayFabId/SessionTicket contract,
+ * so nothing downstream -- persistence, wallet, the ?PlayFabId= reconcile key -- knows or cares which ran.
+ *
+ * The shipping path is compiled into EVERY configuration, not just Shipping: a login path that only exists
+ * in the config you cannot attach a debugger to is a path nobody can test. `afl.Online.ForceEosLogin 1`
+ * exercises it from a dev build. What is NOT compiled into shipping is CustomID, which is the actual hazard.
  *
  * WITHIN LYRA: a UGameInstanceSubsystem in the always-loaded (Default-phase) AFLOnline plugin -- login is
  * resident before the wallet/loadout BeginPlay consume the PlayFabId. Resolved via a static Get (the
@@ -125,9 +135,36 @@ private:
 	FString BaseUrl() const;             // https://<TitleId>.playfabapi.com
 	FString ResolveDevCustomId() const;  // dev id (cvar afl.Online.DevCustomId)
 
+	/** PlayFab OpenID Connect connection id (Game Manager -> Add-ons -> OpenID Connect), naming the connection
+	 *  configured against Epic Account Services. NON-SECRET (an identifier, not a credential) -- set via
+	 *  cvar afl.Online.EosOidcConnectionId, which DefaultEngine.ini [ConsoleVariables] populates. Empty is a
+	 *  hard failure, never a fallback: logging in against the wrong connection is worse than not logging in. */
+	FString ResolveEosOidcConnectionId() const;
+
+	/**
+	 * Copy the local Epic account's ID TOKEN (a JWT) out of the live EOS platform.
+	 *
+	 * **The ID token, NOT the access token.** The EOS SDK is explicit that identity verification against a
+	 * third party must use EOS_Auth_CopyIdToken; EOS_Auth_CopyUserAuthToken yields an ACCESS token, which is
+	 * what OnlineSubsystemEOS's IOnlineIdentity::GetAuthToken returns and is the wrong artifact for PlayFab's
+	 * LoginWithOpenIdConnect. Going to the SDK directly is therefore deliberate, not a shortcut around the OSS.
+	 *
+	 * Returns false with a human-readable OutFailReason on every failure path (no SDK, no platform, nobody
+	 * signed in, token expired), because a shipping login failure must be diagnosable from the log alone.
+	 */
+	bool TryGetEosIdToken(FString& OutIdToken, FString& OutFailReason) const;
+
 	void StartLoginWithCustomID();
+	/** SHIPPING login: EOS ID token -> PlayFab Client/LoginWithOpenIdConnect. Compiled in ALL configurations
+	 *  on purpose -- a path that only exists in shipping is a path nobody can test (cvar afl.Online.ForceEosLogin
+	 *  exercises it from a dev build). Resolves through the SAME HandleLoginResponse as the dev path, so the
+	 *  PlayFabId/SessionTicket contract downstream is byte-identical whichever way the player signed in. */
+	void StartLoginWithEOS();
 	void HandleLoginResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedOk);
 	void ResolveLogin(bool bSuccess);
+
+	/** Which login produced the current attempt -- for logging only, so the success line names the real path. */
+	FString LoginMethod;
 
 	/** Parse a PlayFab {code,status,data} envelope; OutData = the "data" object. */
 	static bool ParseEnvelope(const FString& Body, TSharedPtr<FJsonObject>& OutData, int32& OutCode);

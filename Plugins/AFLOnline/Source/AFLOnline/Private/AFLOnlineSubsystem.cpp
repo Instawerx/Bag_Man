@@ -17,6 +17,19 @@
 #include "Misc/Guid.h"                           // FGuid (canary matchId/nonce)
 #include "GameFramework/CheatManagerDefines.h"   // UE_WITH_CHEAT_MANAGER (canary guard)
 
+// D17 shipping login (EOS Default). WITH_EOS_SDK is defined PUBLICLY by the EOSSDK module (declared in
+// AFLOnline.Build.cs); on a platform without the SDK it is absent, every block below compiles out, and
+// TryGetEosIdToken fails closed with a diagnostic instead of the module failing to build.
+#if WITH_EOS_SDK
+#include "IEOSSDKManager.h"
+THIRD_PARTY_INCLUDES_START
+#include "eos_sdk.h"          // EOS_Platform_GetAuthInterface
+#include "eos_common.h"       // EOS_EResult_ToString, EOS_EpicAccountId_IsValid
+#include "eos_auth.h"         // EOS_Auth_CopyIdToken + the logged-in-account accessors
+#include "eos_auth_types.h"
+THIRD_PARTY_INCLUDES_END
+#endif
+
 // A1.3b earn request signer: OpenSSL HMAC-SHA256. AFLONLINE_USE_OPENSSL + the OpenSSL ThirdParty dep are declared
 // in AFLOnline.Build.cs (mirroring PlatformCryptoContext); the module-private macro gates the include so a platform
 // without OpenSSL still compiles (the signer then returns empty and PostServerEarn refuses to sign).
@@ -54,6 +67,23 @@ static TAutoConsoleVariable<FString> CVarOnlineDevCustomId(
 	TEXT("afl.Online.DevCustomId"),
 	GDefaultDevCustom,
 	TEXT("DEV-ONLY PlayFab LoginWithCustomID id (non-shipping). Point at the seeded test account (e.g. AFL_DEV_TEST_01)."),
+	ECVF_Default);
+
+// D17: PlayFab OpenID Connect connection id for Epic Account Services. NON-SECRET -- it names a connection,
+// it is not a credential (the secret half lives in PlayFab Game Manager). Empty by default and deliberately
+// NOT guessed: set it in Config/DefaultEngine.ini under [ConsoleVariables].
+static TAutoConsoleVariable<FString> CVarOnlineEosOidcConnectionId(
+	TEXT("afl.Online.EosOidcConnectionId"),
+	TEXT(""),
+	TEXT("PlayFab OpenID Connect connection id for Epic Account Services (non-secret). Set in DefaultEngine.ini [ConsoleVariables]. Empty = shipping login refuses to run."),
+	ECVF_Default);
+
+// Exercise the SHIPPING login path from a non-shipping build. Without this the EOS path would only ever run
+// in the one configuration that is hardest to debug, which is how a login ships broken.
+static TAutoConsoleVariable<bool> CVarOnlineForceEosLogin(
+	TEXT("afl.Online.ForceEosLogin"),
+	false,
+	TEXT("Non-shipping only: use the SHIPPING EOS/OIDC login instead of the dev CustomID login."),
 	ECVF_Default);
 
 UAFLOnlineSubsystem* UAFLOnlineSubsystem::Get(const UObject* WorldContext)
@@ -112,15 +142,171 @@ void UAFLOnlineSubsystem::EnsureLogin()
 	}
 
 #if UE_BUILD_SHIPPING
-	// SHIPPING GATE (non-negotiable): CustomID is a DEV path only. A fixed CustomID in a shipped build is an
-	// account-spoof hole (anyone could auth as that account). Shipping login is platform-only
-	// (LoginWithSteam / LoginWithOpenIdConnect via CommonUser+OSS GetAuthToken), wired in the A1.1-shipped
-	// follow-on. Until then a shipping build has NO PlayFab login -- deliberate; CustomID must NEVER ship.
-	UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] Shipping build: platform login not yet wired; CustomID is dev-only and disabled."));
-	ResolveLogin(false);
+	// SHIPPING GATE (non-negotiable): CustomID is a DEV path only and is not even compiled in here. A fixed
+	// CustomID in a shipped build is an account-spoof hole -- anyone who learns the id becomes that account.
+	// D17 ("EOS Default") makes this a real login rather than a refusal: an Epic Account Services ID token,
+	// which the client cannot forge, exchanged at PlayFab via OpenID Connect.
+	StartLoginWithEOS();
 #else
-	StartLoginWithCustomID();
+	// Dev defaults to CustomID (no Epic sign-in required to iterate), but the shipping path is one cvar away
+	// so it can actually be tested: afl.Online.ForceEosLogin 1.
+	if (CVarOnlineForceEosLogin.GetValueOnGameThread())
+	{
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] afl.Online.ForceEosLogin=1 -- using the SHIPPING EOS/OIDC login path."));
+		StartLoginWithEOS();
+	}
+	else
+	{
+		StartLoginWithCustomID();
+	}
 #endif
+}
+
+FString UAFLOnlineSubsystem::ResolveEosOidcConnectionId() const
+{
+	return CVarOnlineEosOidcConnectionId.GetValueOnGameThread();
+}
+
+bool UAFLOnlineSubsystem::TryGetEosIdToken(FString& OutIdToken, FString& OutFailReason) const
+{
+	// Both cleared up front: the loop below uses OutFailReason.IsEmpty() to distinguish "nothing was signed
+	// in anywhere" from "a platform tried and failed", so a caller's stale string must not survive into that.
+	OutIdToken.Reset();
+	OutFailReason.Reset();
+
+#if !WITH_EOS_SDK
+	OutFailReason = TEXT("built without the EOS SDK (WITH_EOS_SDK undefined on this platform)");
+	return false;
+#else
+	IEOSSDKManager* SDKManager = IEOSSDKManager::Get();
+	if (!SDKManager)
+	{
+		OutFailReason = TEXT("IEOSSDKManager unavailable (is the OnlineSubsystemEOS plugin enabled?)");
+		return false;
+	}
+
+	// GetActivePlatforms is the only PUBLIC route to a live EOS_HPlatform. There is normally exactly one; we
+	// scan because a target can legitimately hold more (e.g. an EOSPlus arrangement) and only one will have a
+	// signed-in Epic account.
+	const TArray<IEOSPlatformHandlePtr> Platforms = SDKManager->GetActivePlatforms();
+	if (Platforms.Num() == 0)
+	{
+		OutFailReason = TEXT("no active EOS platform (EOS did not initialise -- check the credential block in Config/Custom/EOS/DefaultEngine.ini)");
+		return false;
+	}
+
+	for (const IEOSPlatformHandlePtr& PlatformPtr : Platforms)
+	{
+		if (!PlatformPtr.IsValid())
+		{
+			continue;
+		}
+
+		const EOS_HPlatform Platform = static_cast<EOS_HPlatform>(*PlatformPtr);
+		const EOS_HAuth AuthHandle = EOS_Platform_GetAuthInterface(Platform);
+		if (!AuthHandle || EOS_Auth_GetLoggedInAccountsCount(AuthHandle) <= 0)
+		{
+			continue;
+		}
+
+		const EOS_EpicAccountId AccountId = EOS_Auth_GetLoggedInAccountByIndex(AuthHandle, 0);
+		if (EOS_EpicAccountId_IsValid(AccountId) == EOS_FALSE)
+		{
+			continue;
+		}
+
+		EOS_Auth_CopyIdTokenOptions Options = {};
+		Options.ApiVersion = EOS_AUTH_COPYIDTOKEN_API_LATEST;
+		Options.AccountId  = AccountId;
+
+		EOS_Auth_IdToken* IdToken = nullptr;
+		const EOS_EResult CopyResult = EOS_Auth_CopyIdToken(AuthHandle, &Options, &IdToken);
+
+		if (CopyResult == EOS_EResult::EOS_Success && IdToken && IdToken->JsonWebToken)
+		{
+			OutIdToken = UTF8_TO_TCHAR(IdToken->JsonWebToken);
+			// Release on EVERY path out of here -- the SDK allocated it and this is the only owner.
+			EOS_Auth_IdToken_Release(IdToken);
+
+			if (!OutIdToken.IsEmpty())
+			{
+				return true;
+			}
+			OutFailReason = TEXT("EOS returned an empty ID token");
+			continue;   // an empty token from one platform is not a verdict on the others
+		}
+
+		if (IdToken)
+		{
+			EOS_Auth_IdToken_Release(IdToken);
+		}
+
+		// Record and KEEP SCANNING. Returning here would contradict the reason this is a loop: a platform
+		// that holds a signed-in account but cannot mint a token (expired, mid-refresh) must not veto a
+		// sibling platform that can. The last reason survives for the log if no platform succeeds.
+		OutFailReason = FString::Printf(TEXT("EOS_Auth_CopyIdToken failed: %s"),
+			ANSI_TO_TCHAR(EOS_EResult_ToString(CopyResult)));
+	}
+
+	if (OutFailReason.IsEmpty())
+	{
+		OutFailReason = TEXT("no Epic account is signed in on any active EOS platform");
+	}
+	return false;
+#endif // WITH_EOS_SDK
+}
+
+void UAFLOnlineSubsystem::StartLoginWithEOS()
+{
+	LoginMethod = TEXT("LoginWithOpenIdConnect(EOS)");
+
+	// FAIL CLOSED, LOUDLY, IN THIS ORDER. Both of these are configuration faults, and the whole point of
+	// naming them separately is that the log line tells the operator which one to go fix.
+	const FString ConnectionId = ResolveEosOidcConnectionId();
+	if (ConnectionId.IsEmpty())
+	{
+		UE_LOG(LogAFLOnline, Error,
+			TEXT("[AFLOnline] EOS login refused: afl.Online.EosOidcConnectionId is unset. Set it in Config/DefaultEngine.ini ")
+			TEXT("[ConsoleVariables] to the PlayFab OpenID Connect connection configured for Epic Account Services. ")
+			TEXT("Refusing rather than guessing -- authenticating against the wrong connection is worse than not authenticating."));
+		ResolveLogin(false);
+		return;
+	}
+
+	FString IdToken, FailReason;
+	if (!TryGetEosIdToken(IdToken, FailReason))
+	{
+		UE_LOG(LogAFLOnline, Error, TEXT("[AFLOnline] EOS login refused: could not obtain an Epic ID token -- %s"), *FailReason);
+		ResolveLogin(false);
+		return;
+	}
+
+	LoginState = EAFLLoginState::InFlight;
+
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("TitleId"), GetTitleId());
+	Body->SetStringField(TEXT("ConnectionId"), ConnectionId);
+	Body->SetStringField(TEXT("IdToken"), IdToken);
+	Body->SetBoolField(TEXT("CreateAccount"), true);
+
+	FString BodyStr;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&BodyStr);
+	FJsonSerializer::Serialize(Body, Writer);
+
+	const FString Url = BaseUrl() / TEXT("Client/LoginWithOpenIdConnect");
+
+	const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
+	Req->SetURL(Url);
+	Req->SetVerb(TEXT("POST"));
+	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Req->SetContentAsString(BodyStr);
+	Req->OnProcessRequestComplete().BindUObject(this, &UAFLOnlineSubsystem::HandleLoginResponse);
+
+	// The ID TOKEN IS A BEARER CREDENTIAL -- never log it, not even truncated. Length only, which is enough to
+	// tell "we got a token" from "we got an empty string" without putting a usable secret in a log file.
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] LoginWithOpenIdConnect -> %s (connectionId=%s, idToken=%d chars)"),
+		*Url, *ConnectionId, IdToken.Len());
+	Req->ProcessRequest();
 }
 
 void UAFLOnlineSubsystem::StartLoginWithCustomID()
@@ -129,7 +315,8 @@ void UAFLOnlineSubsystem::StartLoginWithCustomID()
 	// Never reachable in shipping (EnsureLogin gates it out); guard anyway so the dev path can't be linked in.
 	ResolveLogin(false);
 #else
-	LoginState = EAFLLoginState::InFlight;
+	LoginState  = EAFLLoginState::InFlight;
+	LoginMethod = TEXT("LoginWithCustomID(dev)");
 
 	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
 	Body->SetStringField(TEXT("TitleId"), GetTitleId());
@@ -193,7 +380,8 @@ void UAFLOnlineSubsystem::HandleLoginResponse(FHttpRequestPtr Request, FHttpResp
 		return;
 	}
 
-	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] LoginWithCustomID OK PlayFabId=%s (entityToken=%s)"),
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] %s OK PlayFabId=%s (entityToken=%s)"),
+		LoginMethod.IsEmpty() ? TEXT("Login") : *LoginMethod,
 		*PlayFabId, EntityToken.IsEmpty() ? TEXT("none") : TEXT("held"));
 	ResolveLogin(true);
 }
