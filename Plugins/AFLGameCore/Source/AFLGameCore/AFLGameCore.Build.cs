@@ -24,6 +24,10 @@ public class AFLGameCore : ModuleRules
 				"GameplayMessageRuntime",   // UGameplayMessageSubsystem -- Lyra.Elimination.Message anti-camp feed (T1.4b-ii)
 				"LyraGame",   // ALyraGameMode + ULyraTeamCreationComponent bases (the always-loaded project module)
 				"ModularGameplayActors",   // AModularAIController base of ALyraPlayerBotController (AAFLBotController's grandparent)
+				// The signed server transport for the match-lifecycle posts (escrow/settle/rating).
+				// AFLOnline is always-loaded (Default phase) like this module and depends on nothing here,
+				// so the direction is one-way: game core USES the transport, the transport knows no game.
+				"AFLOnline",
 			}
 		);
 	}

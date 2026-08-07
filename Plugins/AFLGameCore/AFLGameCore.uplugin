@@ -15,5 +15,12 @@
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}
+	],
+	"Plugins": [
+		{
+			"Name": "AFLOnline",
+			"Enabled": true,
+			"Comment": "Match-lifecycle reporting: FAFLMatchReporter posts escrow/settle/rating through UAFLOnlineSubsystem's signed server transport. Declared because UBT warns on a module dependency whose owning plugin is not listed."
+		}
 	]
 }

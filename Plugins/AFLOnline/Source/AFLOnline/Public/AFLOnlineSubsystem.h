@@ -102,6 +102,27 @@ public:
 	 *  differs. Server-only. OnComplete(bOk = HTTP 200, RespBody = the raw {playFabId} or the error body). */
 	void PostServerResolve(const FString& ResolveJsonBody, TFunction<void(bool, const FString&)> OnComplete);
 
+	/**
+	 * The three MATCH-LIFECYCLE endpoints. All three are the SAME signer, the SAME HMAC key and the SAME
+	 * server-only gate as PostServerEarn -- one game-server caller, one inbound key. Only the URL differs,
+	 * which is why these are three lines rather than three implementations.
+	 *
+	 *   Escrow  POST /escrow-entry   at match START, one call per participant. DEBITS the stake.
+	 *   Settle  POST /settle-match   at match END. Pays the curve against the escrow rows.
+	 *   Rating  POST /update-rating  at match END. Moves the ladder. **Carries NO stake field** -- the
+	 *                                endpoint rejects one outright, because a rating that reads stake size
+	 *                                would make rank buyable (matchmaking.md §10.1).
+	 *
+	 * All are idempotent server-side on their own keys, so a retry is safe and a duplicate is a no-op.
+	 */
+	void PostServerEscrow(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
+	void PostServerSettle(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
+	void PostServerRating(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
+
+	/** True when the server signer is configured (key + all three match URLs present). Lets a caller log a
+	 *  single clear "economy not wired" line instead of three identical per-endpoint skips. */
+	bool IsMatchReportingConfigured() const;
+
 private:
 	enum class EAFLLoginState : uint8 { NotStarted, InFlight, LoggedIn, Failed };
 	EAFLLoginState LoginState = EAFLLoginState::NotStarted;
@@ -122,6 +143,11 @@ private:
 	FString EarnUrl;
 	/** A1.4 /resolve-identity endpoint URL (env AFL_RESOLVE_URL), read once under the SAME gate as EarnUrl. */
 	FString ResolveUrl;
+	/** The match-lifecycle endpoints (env AFL_ESCROW_URL / AFL_SETTLE_URL / AFL_RATING_URL), read once under
+	 *  the SAME gate as EarnUrl -- so they never exist in a cooked client process. */
+	FString EscrowUrl;
+	FString SettleUrl;
+	FString RatingUrl;
 
 	/** Shared signed-POST transport for the server-authoritative endpoints (A1.3b earn + A1.4 resolve): sign the
 	 *  EXACT Body with EarnHmacKey, POST it to Url with X-Signature, plain-HTTP-200 completion. Server-only

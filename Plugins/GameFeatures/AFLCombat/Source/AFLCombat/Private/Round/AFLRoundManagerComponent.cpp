@@ -2,6 +2,8 @@
 
 #include "Round/AFLRoundManagerComponent.h"
 
+#include "Match/AFLMatchReporter.h"   // report the result to settlement + rating at match end
+
 #include "AFLCombat.h"
 #include "AbilitySystem/Phases/LyraGamePhaseSubsystem.h"   // Task 2: observe AFL.GamePhase.Playing -> ServerStartMatch (the proven-sibling phase-observer path)
 #include "AbilitySystemComponent.h"
@@ -505,6 +507,33 @@ void UAFLRoundManagerComponent::Server_EndMatch(int32 WinningTeamId)
 		else
 		{
 			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_ROUND: MATCH END but no UAFLMatchPhaseComponent resident -- conclusion (freeze/PostGame/Watts) SKIPPED."));
+		}
+	}
+
+	// ECONOMY + LADDER. The match is over and the outcome is final, so this is the one place the result can
+	// be reported: settlement pays the §5.2 curve against the escrow rows, rating moves the OpenSkill ladder.
+	//
+	// AFTER ConcludeMatch on purpose. Reporting is fire-and-forget HTTP whose completion may land many frames
+	// later; making the players wait on a backend round-trip to see the match end would trade a guaranteed
+	// UX cost for no correctness gain -- both endpoints are idempotent, so a late or retried report is safe.
+	//
+	// Everything below is a no-op off the server: the HMAC key exists only on a dedicated server or in the
+	// editor, so a cooked client silently reports nothing (N11 -- the client asserts no outcome).
+	{
+		const FAFLMatchReporter::FMatchEconomics Econ = FAFLMatchReporter::ReadEconomics(this);
+
+		FAFLMatchResult Result;
+		FString BuildError;
+		if (FAFLMatchReporter::BuildTeamSeriesResult(this, MatchId, WinningTeamId, Econ, Result, BuildError))
+		{
+			FAFLMatchReporter::ReportMatchEnd(this, Result, Econ.StakePerPosition, Econ.CurrencyCode);
+		}
+		else
+		{
+			// Loud, and it does NOT block conclusion. A match that cannot be reported has still been played;
+			// swallowing the reason is what would make it unrecoverable.
+			UE_LOG(LogAFLCombat, Error, TEXT("AFL_ROUND: match %s NOT reported -- %s"),
+				*GetMatchId(), *BuildError);
 		}
 	}
 }

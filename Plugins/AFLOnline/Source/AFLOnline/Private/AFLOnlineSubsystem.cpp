@@ -120,11 +120,17 @@ void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		EarnHmacKey = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_EARN_HMAC_KEY"));
 		EarnUrl     = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_EARN_URL"));
 		ResolveUrl  = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_RESOLVE_URL"));   // A1.4 (reuses the earn HMAC key)
-		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer (%s): key=%s earnUrl=%s resolveUrl=%s"),
+		EscrowUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_ESCROW_URL"));   // match lifecycle, same key
+		SettleUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_SETTLE_URL"));
+		RatingUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_RATING_URL"));
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer (%s): key=%s earnUrl=%s resolveUrl=%s escrowUrl=%s settleUrl=%s ratingUrl=%s"),
 			IsRunningDedicatedServer() ? TEXT("dedicated server") : TEXT("editor"),
 			EarnHmacKey.IsEmpty() ? TEXT("MISSING") : TEXT("held"),
 			EarnUrl.IsEmpty() ? TEXT("MISSING") : *EarnUrl,
-			ResolveUrl.IsEmpty() ? TEXT("MISSING") : *ResolveUrl);
+			ResolveUrl.IsEmpty() ? TEXT("MISSING") : *ResolveUrl,
+			EscrowUrl.IsEmpty() ? TEXT("MISSING") : *EscrowUrl,
+			SettleUrl.IsEmpty() ? TEXT("MISSING") : *SettleUrl,
+			RatingUrl.IsEmpty() ? TEXT("MISSING") : *RatingUrl);
 	}
 }
 
@@ -565,6 +571,26 @@ void UAFLOnlineSubsystem::PostServerEarn(const FString& EarnJsonBody, TFunction<
 void UAFLOnlineSubsystem::PostServerResolve(const FString& ResolveJsonBody, TFunction<void(bool, const FString&)> OnComplete)
 {
 	PostServerSigned(ResolveUrl, ResolveJsonBody, MoveTemp(OnComplete));
+}
+
+// The three match-lifecycle posts. Thin by design: same signer, same key, same server gate -- only the URL
+// differs, so anything more than a URL here would be a second implementation of a solved problem.
+void UAFLOnlineSubsystem::PostServerEscrow(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
+{
+	PostServerSigned(EscrowUrl, JsonBody, MoveTemp(OnComplete));
+}
+void UAFLOnlineSubsystem::PostServerSettle(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
+{
+	PostServerSigned(SettleUrl, JsonBody, MoveTemp(OnComplete));
+}
+void UAFLOnlineSubsystem::PostServerRating(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
+{
+	PostServerSigned(RatingUrl, JsonBody, MoveTemp(OnComplete));
+}
+
+bool UAFLOnlineSubsystem::IsMatchReportingConfigured() const
+{
+	return !EarnHmacKey.IsEmpty() && !EscrowUrl.IsEmpty() && !SettleUrl.IsEmpty() && !RatingUrl.IsEmpty();
 }
 
 bool UAFLOnlineSubsystem::ParseEnvelope(const FString& Body, TSharedPtr<FJsonObject>& OutData, int32& OutCode)
