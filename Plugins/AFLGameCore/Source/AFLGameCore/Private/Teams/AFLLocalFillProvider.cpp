@@ -133,3 +133,12 @@ void UAFLLocalFillProvider::RequestAssignments(const TArray<APlayerController*>&
 
 	OnReady.ExecuteIfBound(Out);
 }
+
+FGenericTeamId UAFLLocalFillProvider::ChooseTeamForJoiningPlayer(const UObject* WorldContext,
+	const APlayerState* /*JoiningPlayer*/) const
+{
+	// The participant is intentionally unused. Balance reads the LIVE POPULATION, never the arriver's identity:
+	// bots arrive with an uninitialised PlayerId, and keying on it piles every bot onto one team (the v1 2v3
+	// trap this provider exists to avoid). Delegating keeps ONE balance rule rather than two that can drift.
+	return ChooseBalancedTeam(WorldContext);
+}

@@ -51,6 +51,21 @@ public:
 	virtual void RequestAssignments(const TArray<APlayerController*>& Players,
 		const FOnAFLTeamAssignmentsReady& OnReady) override;
 	virtual bool IsAuthoritative() const override { return true; }
+
+	/**
+	 * Per-join: the team THE ROSTER ALREADY GAVE this participant, looked up by reconcile key. Never a balance
+	 * decision -- an authoritative match's sides were settled before anyone connected, and re-balancing a late
+	 * arrival would silently contradict the roster the stake settles against.
+	 *
+	 * Returns NoTeam for a bot (an authoritative match is human-only -- `ai-bots.md` §6.3 / R74), for a
+	 * participant with no reconcile key, and for a key the roster does not name. **NoTeam is the correct answer,
+	 * not a failure**: in a staked match a fabricated side is worse than a visible gap.
+	 */
+	virtual FGenericTeamId ChooseTeamForJoiningPlayer(const UObject* WorldContext,
+		const APlayerState* JoiningPlayer) const override;
+
+	/** The roster's member count -- what an authoritative match expects to seat. INDEX_NONE if no roster. */
+	virtual int32 GetExpectedHumanCount(const UObject* WorldContext) const override;
 	//~End of IAFLTeamAssignmentProvider
 
 	/** Inject the matchmaker roster JSON (unit tests now; S12 swaps the source to onStartGameSession). */
@@ -71,6 +86,12 @@ private:
 
 	/** The reconcile key a controller carries (UAFLReconcileIdComponent on its PlayerState, set at InitNewPlayer). */
 	static FString GetReconcileId(const APlayerController* PC);
+
+	/** The same key read straight off a PlayerState -- the per-join path has no controller in hand. */
+	static FString GetReconcileIdFromState(const APlayerState* PS);
+
+	/** How many members the roster names. INDEX_NONE when the JSON is absent or unparseable. */
+	static int32 CountRosterMembers(const FString& GameSessionDataJson);
 
 	/** Injected roster JSON (SetGameSessionData). Empty -> fall back to the launch option. */
 	FString InjectedGameSessionData;

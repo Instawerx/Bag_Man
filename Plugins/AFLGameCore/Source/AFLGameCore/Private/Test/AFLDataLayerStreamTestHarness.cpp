@@ -19,7 +19,7 @@
 namespace
 {
 	/** Only one run at a time; a second start while live would interleave phases and poison the log. */
-	TWeakObjectPtr<UAFLDataLayerStreamTestHarness> GLiveRun;
+	TWeakObjectPtr<UAFLDataLayerStreamTestHarness> GLiveDataLayerStreamRun;
 
 	/** Streaming is asynchronous and its duration varies with cell size, disk and platform. A fixed
 	 *  sleep is a guess that passes on a fast machine and fails on a slow one, so we POLL World
@@ -41,7 +41,7 @@ const TCHAR* UAFLDataLayerStreamTestHarness::StateName(EDataLayerRuntimeState St
 
 void UAFLDataLayerStreamTestHarness::RunInWorld(UWorld* World, const FString& LayerAssetPath)
 {
-	if (GLiveRun.IsValid())
+	if (GLiveDataLayerStreamRun.IsValid())
 	{
 		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_TEST ABORT -- a StreamTest run is already live. Stop PIE and retry."));
 		return;
@@ -52,7 +52,7 @@ void UAFLDataLayerStreamTestHarness::RunInWorld(UWorld* World, const FString& La
 	{
 		return;   // StartRun logs its own reason
 	}
-	GLiveRun = Harness;
+	GLiveDataLayerStreamRun = Harness;
 }
 
 bool UAFLDataLayerStreamTestHarness::StartRun(UWorld* World, const FString& LayerAssetPath)
@@ -119,7 +119,7 @@ void UAFLDataLayerStreamTestHarness::FinishRun()
 	bRunning = false;
 	Phase    = EPhase::Done;
 	UE_LOG(LogAFLGameCore, Display, TEXT("AFL_TEST COMPLETE"));
-	GLiveRun = nullptr;
+	GLiveDataLayerStreamRun = nullptr;
 	RemoveFromRoot();
 }
 

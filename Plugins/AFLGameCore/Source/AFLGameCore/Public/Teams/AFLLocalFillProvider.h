@@ -29,11 +29,22 @@ public:
 	virtual void RequestAssignments(const TArray<APlayerController*>& Players,
 		const FOnAFLTeamAssignmentsReady& OnReady) override;
 	virtual bool IsAuthoritative() const override { return false; }
+
+	/**
+	 * Per-join: the live least-populated team. **The joining player is deliberately ignored** -- balance is a
+	 * property of the CURRENT POPULATION, not of who is arriving. That is precisely what makes it bot-safe:
+	 * bots arrive with an uninitialised PlayerId, and keying on it is the v1 2v3 pile-up trap.
+	 */
+	virtual FGenericTeamId ChooseTeamForJoiningPlayer(const UObject* WorldContext,
+		const APlayerState* JoiningPlayer) const override;
 	//~End of IAFLTeamAssignmentProvider
 
 	/**
 	 * The single balance rule: the live least-populated team (deterministic tie-break = lowest team id).
 	 * Live-count based -> bot-safe (no PlayerId). Used per-join for late humans AND bots.
+	 *
+	 * Kept as its own public method rather than folded into ChooseTeamForJoiningPlayer: it is the named rule
+	 * the Team SSOT refers to, it takes no participant, and it is directly testable.
 	 */
 	FGenericTeamId ChooseBalancedTeam(const UObject* WorldContext) const;
 

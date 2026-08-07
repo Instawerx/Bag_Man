@@ -20,7 +20,7 @@
 
 namespace
 {
-	TWeakObjectPtr<UAFLBoundaryHeightTestHarness> GLiveRun;
+	TWeakObjectPtr<UAFLBoundaryHeightTestHarness> GLiveBoundaryHeightRun;
 
 	const TCHAR* kRigLayer = TEXT("/Game/Maps/DataLayers/L_ShantyTown/Scaffold_HeightRig.Scaffold_HeightRig");
 
@@ -64,7 +64,7 @@ const TCHAR* UAFLBoundaryHeightTestHarness::ResultName(EResult R)
 
 void UAFLBoundaryHeightTestHarness::RunInWorld(UWorld* World)
 {
-	if (GLiveRun.IsValid())
+	if (GLiveBoundaryHeightRun.IsValid())
 	{
 		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_TEST ABORT -- a HeightTest run is already live. Stop PIE and retry."));
 		return;
@@ -72,7 +72,7 @@ void UAFLBoundaryHeightTestHarness::RunInWorld(UWorld* World)
 	UAFLBoundaryHeightTestHarness* H = NewObject<UAFLBoundaryHeightTestHarness>();
 	if (H->StartRun(World))
 	{
-		GLiveRun = H;
+		GLiveBoundaryHeightRun = H;
 	}
 }
 
@@ -129,7 +129,7 @@ void UAFLBoundaryHeightTestHarness::FinishRun()
 	bRunning = false;
 	Stage    = EStage::Done;
 	UE_LOG(LogAFLGameCore, Display, TEXT("AFL_TEST COMPLETE"));
-	GLiveRun = nullptr;
+	GLiveBoundaryHeightRun = nullptr;
 	RemoveFromRoot();
 }
 

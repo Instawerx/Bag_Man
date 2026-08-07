@@ -144,3 +144,87 @@ void UAFLMatchmakerDataProvider::RequestAssignments(const TArray<APlayerControll
 
 	OnReady.ExecuteIfBound(Assignments);
 }
+
+FString UAFLMatchmakerDataProvider::GetReconcileIdFromState(const APlayerState* PS)
+{
+	if (!PS)
+	{
+		return FString();
+	}
+	if (const UAFLReconcileIdComponent* IdComp = PS->FindComponentByClass<UAFLReconcileIdComponent>())
+	{
+		return IdComp->GetReconcileId();
+	}
+	return FString();
+}
+
+int32 UAFLMatchmakerDataProvider::CountRosterMembers(const FString& GameSessionDataJson)
+{
+	if (GameSessionDataJson.IsEmpty())
+	{
+		return INDEX_NONE;   // no roster is NOT a roster of zero -- the distinction is the whole point
+	}
+
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(GameSessionDataJson);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		return INDEX_NONE;
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* Members = nullptr;
+	if (!Root->TryGetArrayField(TEXT("members"), Members) || !Members)
+	{
+		return INDEX_NONE;
+	}
+	return Members->Num();
+}
+
+FGenericTeamId UAFLMatchmakerDataProvider::ChooseTeamForJoiningPlayer(const UObject* WorldContext,
+	const APlayerState* JoiningPlayer) const
+{
+	if (!JoiningPlayer)
+	{
+		return FGenericTeamId::NoTeam;
+	}
+
+	// A bot has no roster entry, and in an authoritative match it should not exist at all: `ai-bots.md` §6.3
+	// forbids bot-fill in any match whose result carries stake or rating, and R74 keeps them out of population
+	// entirely. Answering NoTeam rather than balancing means a bot that reaches here is VISIBLE as unassigned
+	// instead of being quietly seated into a staked side.
+	if (JoiningPlayer->IsABot())
+	{
+		UE_LOG(LogAFLGameCore, Warning,
+			TEXT("AFLTeams: Matchmaker per-join -- BOT '%s' reached an AUTHORITATIVE match. Left unassigned; "
+			     "bots do not belong in a staked or rated roster (ai-bots R74)."),
+			*JoiningPlayer->GetPlayerName());
+		return FGenericTeamId::NoTeam;
+	}
+
+	const FString ReconcileId = GetReconcileIdFromState(JoiningPlayer);
+	if (ReconcileId.IsEmpty())
+	{
+		// No key means ?PlayFabId= never arrived -- the connect-option append is still owed (Phase 3).
+		UE_LOG(LogAFLGameCore, Warning,
+			TEXT("AFLTeams: Matchmaker per-join -- '%s' carries NO reconcile key -> NoTeam. The ?PlayFabId= "
+			     "connect option is not being appended."),
+			*JoiningPlayer->GetPlayerName());
+		return FGenericTeamId::NoTeam;
+	}
+
+	const TArray<FAFLTeamAssignment> Resolved =
+		ResolveAssignments(ResolveGameSessionData(WorldContext), TArray<FString>{ ReconcileId });
+
+	const FGenericTeamId TeamId = Resolved.Num() > 0 ? Resolved[0].TeamId : FGenericTeamId::NoTeam;
+
+	UE_LOG(LogAFLGameCore, Log,
+		TEXT("AFLTeams: Matchmaker per-join -- '%s' (key '%s') -> team %d"),
+		*JoiningPlayer->GetPlayerName(), *ReconcileId, static_cast<int32>(TeamId.GetId()));
+
+	return TeamId;
+}
+
+int32 UAFLMatchmakerDataProvider::GetExpectedHumanCount(const UObject* WorldContext) const
+{
+	return CountRosterMembers(ResolveGameSessionData(WorldContext));
+}

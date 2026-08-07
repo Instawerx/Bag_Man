@@ -3,10 +3,10 @@
 #pragma once
 
 #include "Teams/LyraTeamCreationComponent.h"
+#include "Teams/AFLTeamAssignmentTypes.h"   // IAFLTeamAssignmentProvider (the seam this component holds)
 
 #include "AFLTeamCreationComponent.generated.h"
 
-class UAFLLocalFillProvider;
 class ALyraPlayerState;
 class AGameModeBase;
 class AController;
@@ -50,15 +50,33 @@ protected:
 	//~End of ULyraTeamCreationComponent interface
 
 private:
-	/** Late-join hook (humans AND bots) -> per-join balance via ServerChooseTeamForPlayer. */
+	/** Late-join hook (humans AND bots) -> per-join resolution via ServerChooseTeamForPlayer. */
 	void HandlePlayerInitialized(AGameModeBase* GameMode, AController* NewPlayer);
 
-	/** Lazily create the active provider (LocalFill in T1). */
-	UAFLLocalFillProvider* GetProvider();
+	/**
+	 * Lazily construct and cache the active provider, SELECTED ONCE per match.
+	 *
+	 * SELECTION SIGNAL: the presence of `?MatchmakerData=` on the game mode's OptionsString -- the same
+	 * OptionsString `UAFLBotFillComponent` reads `NumBots` from, and the same source
+	 * `UAFLMatchmakerDataProvider::ResolveGameSessionData` already falls back to. Present -> the AUTHORITATIVE
+	 * matchmaker provider; absent -> LocalFill.
+	 *
+	 * **Chosen because it is the honest signal**: a roster is what makes a match matchmaker-authoritative, so
+	 * its arrival is the condition itself rather than a proxy for it. A dedicated-server check would claim
+	 * authority a server without a roster cannot exercise, and a cvar would let the two disagree.
+	 */
+	IAFLTeamAssignmentProvider* GetProvider();
 #endif
 
 private:
-	/** The active team-assignment provider (LocalFill in T1; a MatchmakerDataProvider swaps in at T2). */
+	/**
+	 * The active team-assignment provider, held as the INTERFACE.
+	 *
+	 * ⚠ THIS FIELD WAS `TObjectPtr<UAFLLocalFillProvider>` -- concrete -- until the Phase-0 unlock, which is why
+	 * `UAFLMatchmakerDataProvider` was **structurally unassignable**: written, unit-tested, and reachable by
+	 * nothing. `IsAssignmentAuthoritative()` could therefore only ever return false, which in turn made
+	 * `UAFLBotFillComponent`'s authoritative gate a dead branch. **One type was holding three systems shut.**
+	 */
 	UPROPERTY(Transient)
-	TObjectPtr<UAFLLocalFillProvider> Provider;
+	TScriptInterface<IAFLTeamAssignmentProvider> Provider;
 };
