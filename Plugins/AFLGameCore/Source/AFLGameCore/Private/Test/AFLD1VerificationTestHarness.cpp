@@ -33,6 +33,28 @@ namespace
 
 	const TCHAR* kDistrictLayer = TEXT("/Game/Maps/DataLayers/L_ShantyTown/District_Duel.District_Duel");
 
+	/**
+	 * D1 SPAWN membership is a TAG; D1 STRUCTURE (panels, bound volumes) is data layer membership.
+	 *
+	 * These two used to be the same test, and that was the defect: spawn points authored inside the runtime
+	 * data layer did not exist until it finished streaming, so spawn selection raced streaming (fixed in
+	 * 2b9afdb4). A fence is streamed geometry; a spawn point is match configuration and must be knowable the
+	 * instant the match is decided. CollectDistrictActors therefore still asks ContainsDataLayer -- correctly,
+	 * the panels really are in the layer -- while anything about STARTS asks for this tag instead.
+	 *
+	 * Config-defined in AFLCoreTags.ini, so requested by name rather than UE_DEFINE_GAMEPLAY_TAG_STATIC.
+	 */
+	bool IsD1Start(const ALyraPlayerStart* Start)
+	{
+		if (Start == nullptr)
+		{
+			return false;
+		}
+		static const FGameplayTag TagD1 =
+			FGameplayTag::RequestGameplayTag(TEXT("AFL.Spawn.District.Duel"), /*ErrorIfNotFound=*/false);
+		return TagD1.IsValid() && const_cast<ALyraPlayerStart*>(Start)->GetGameplayTags().HasTag(TagD1);
+	}
+
 	// R55 flipped exactly these three on the bound volumes, BLOCK -> IGNORE. Names from
 	// Config/DefaultEngine.ini [/Script/Engine.CollisionProfile]:
 	//   ECC_GameTraceChannel2 = Lyra_TraceChannel_Weapon
@@ -682,6 +704,165 @@ void UAFLD1VerificationTestHarness::RunS2_Spawn()
 		S2StartsTotal, S2StartsLyra, S2StartsInside, S2StartsTotal - S2StartsInside, *ChosenName);
 }
 
+int32 UAFLD1VerificationTestHarness::CountStarts(int32& OutD1Starts) const
+{
+	OutD1Starts = 0;
+	int32 Total = 0;
+	UWorld* W = WorldPtr.Get();
+	if (!W) { return 0; }
+
+	for (TActorIterator<ALyraPlayerStart> It(W); It; ++It)
+	{
+		ALyraPlayerStart* S = *It;
+		if (!S) { continue; }
+		++Total;
+		// D1 membership by TAG. Not the data layer -- starts deliberately live outside it (see IsD1Start),
+		// and not the label, which is editor-only and would never match at runtime.
+		if (IsD1Start(S))
+		{
+			++OutD1Starts;
+		}
+	}
+	return Total;
+}
+
+// ---------------------------------------------------------------------------------------------
+// S3 + S4 -- district ACTIVE. Does a spawn land inside D1, and do the side tags oppose?
+// ---------------------------------------------------------------------------------------------
+void UAFLD1VerificationTestHarness::RunS3S4_SideSpawn()
+{
+	UWorld* W = WorldPtr.Get();
+	if (!W || !bEnclosureValid) { return; }
+
+	const FVector Centre = (EnclosureMin + EnclosureMax) * 0.5f;
+	static const FGameplayTag TagSide0 = FGameplayTag::RequestGameplayTag(TEXT("AFL.Spawn.Side.0"));
+	static const FGameplayTag TagSide1 = FGameplayTag::RequestGameplayTag(TEXT("AFL.Spawn.Side.1"));
+
+	int32 Total = CountStarts(S3D1Starts);
+	S4Side0Count = S4Side1Count = 0;
+	double Sum0 = 0.0, Sum1 = 0.0;
+
+	for (TActorIterator<ALyraPlayerStart> It(W); It; ++It)
+	{
+		ALyraPlayerStart* S = *It;
+		if (!IsD1Start(S)) { continue; }
+
+		const FGameplayTagContainer& Tags = S->GetGameplayTags();
+		const FVector L = S->GetActorLocation();
+		float HowFar = 0.0f;
+		const bool bInside = !IsOutsideEnclosure(L, HowFar);
+		const TCHAR* Side = Tags.HasTag(TagSide0) ? TEXT("0") : (Tags.HasTag(TagSide1) ? TEXT("1") : TEXT("<none>"));
+
+		if (Tags.HasTag(TagSide0)) { ++S4Side0Count; Sum0 += L.X; }
+		if (Tags.HasTag(TagSide1)) { ++S4Side1Count; Sum1 += L.X; }
+
+		UE_LOG(LogAFLGameCore, Display,
+			TEXT("AFL_TEST[S3]   D1 start %-42s side=%-6s loc=(%.0f,%.0f,%.0f) insideD1=%s distFromCentre=%.0f uu"),
+			*S->GetName(), Side, L.X, L.Y, L.Z, bInside ? TEXT("YES") : TEXT("NO"),
+			FVector::Dist2D(L, Centre));
+	}
+
+	S4Side0MeanX = (S4Side0Count > 0) ? (float)(Sum0 / S4Side0Count) : 0.0f;
+	S4Side1MeanX = (S4Side1Count > 0) ? (float)(Sum1 / S4Side1Count) : 0.0f;
+
+	// S4: opposing means the two side groups sit on OPPOSITE sides of the district centre. Both
+	// clusters on one bank is a duel where one team spawns on top of the other.
+	bS4Opposing = (S4Side0Count > 0) && (S4Side1Count > 0)
+		&& (((S4Side0MeanX - Centre.X) * (S4Side1MeanX - Centre.X)) < 0.0f);
+
+	UE_LOG(LogAFLGameCore, Display,
+		TEXT("AFL_TEST[S4] SIDES side0=%d (meanX=%.0f) side1=%d (meanX=%.0f) centreX=%.0f -- opposingBanks=%s %s"),
+		S4Side0Count, S4Side0MeanX, S4Side1Count, S4Side1MeanX, Centre.X,
+		bS4Opposing ? TEXT("yes") : TEXT("NO"), bS4Opposing ? TEXT("PASS") : TEXT("FAIL"));
+
+	// S3: ask the REAL selector.
+	AGameModeBase* GM = W->GetAuthGameMode();
+	APlayerController* PC = UGameplayStatics::GetPlayerController(W, 0);
+	if (GM && PC)
+	{
+		if (AActor* Chosen = GM->ChoosePlayerStart(PC))
+		{
+			float HowFar = 0.0f;
+			bS3ChosenInsideD1 = !IsOutsideEnclosure(Chosen->GetActorLocation(), HowFar);
+			S3ChosenDist = FVector::Dist2D(Chosen->GetActorLocation(), Centre);
+			bS3Ran = true;
+			UE_LOG(LogAFLGameCore, Display,
+				TEXT("AFL_TEST[S3] ACTIVE totalLyraStarts=%d d1Starts=%d | CHOSEN=%s insideD1=%s distFromCentre=%.0f uu %s"),
+				Total, S3D1Starts, *Chosen->GetName(),
+				bS3ChosenInsideD1 ? TEXT("YES") : TEXT("NO"), S3ChosenDist,
+				bS3ChosenInsideD1 ? TEXT("PASS") : TEXT("FAIL"));
+		}
+	}
+	if (!bS3Ran)
+	{
+		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_TEST[S3] could not query the selector (gameMode/PC missing)."));
+	}
+
+	// The side filter only engages when a side index exists. Without one it no-ops and EVERY start --
+	// including the 27 unscoped BR starts -- stays a candidate, so a pass here would be luck.
+	UE_LOG(LogAFLGameCore, Display,
+		TEXT("AFL_TEST[S3] NOTE the side filter needs a side index from IAFLRoundRestartPolicy. If this mode ")
+		TEXT("provides none, SideScoped falls back to ALL starts and a correct pick is chance, not scoping. ")
+		TEXT("S5 is what actually proves the mechanism."));
+}
+
+// ---------------------------------------------------------------------------------------------
+// S5 -- THE ONE THAT PROVES THE DESIGN. District unloaded: is the FENCE gone and are the STARTS still there?
+//       (It used to assert the starts vanished. That was the abandoned approach -- see the header note.)
+// ---------------------------------------------------------------------------------------------
+void UAFLD1VerificationTestHarness::RunS5_Verify()
+{
+	S5TotalStarts = CountStarts(S5D1StartsVisible);
+	CollectDistrictActors();
+	S5StructureVisible = PanelActors.Num() + BoundActors.Num();
+	bS5Ran = true;
+
+	// Structure must be GONE (the layer scopes streamed geometry) and the starts must REMAIN, unchanged
+	// from when the district was active (they are match configuration, not streamed content).
+	const bool bStructureScoped = (S5StructureVisible == 0);
+	const bool bStartsPersisted = (S3D1Starts > 0) && (S5D1StartsVisible == S3D1Starts);
+	bS5Pass = bStructureScoped && bStartsPersisted;
+
+	UE_LOG(LogAFLGameCore, Display,
+		TEXT("AFL_TEST[S5] UNLOADED structureVisible=%d (expected 0) d1StartsVisible=%d (expected %d, unchanged) ")
+		TEXT("totalLyraStarts=%d effectiveState=%s %s"),
+		S5StructureVisible, S5D1StartsVisible, S3D1Starts,
+		S5TotalStarts, StateName(EffectiveState()),
+		bS5Pass ? TEXT("PASS") : TEXT("FAIL"));
+
+	if (bS5Pass)
+	{
+		return;
+	}
+
+	if (S3D1Starts <= 0)
+	{
+		UE_LOG(LogAFLGameCore, Error,
+			TEXT("AFL_TEST[S5] INCONCLUSIVE -- no D1 starts were counted even while the district was ACTIVE. ")
+			TEXT("Either the map's starts carry no AFL.Spawn.District.Duel tag, or the tag is unregistered ")
+			TEXT("(it is config-defined in AFLCoreTags.ini). Nothing downstream of this proves anything."));
+		return;
+	}
+
+	if (!bStructureScoped)
+	{
+		UE_LOG(LogAFLGameCore, Error,
+			TEXT("AFL_TEST[S5] THE DATA LAYER IS NOT SCOPING GEOMETRY -- %d district actor(s) are still present ")
+			TEXT("with the district unloaded. The fence is supposed to be streamed content; if it survives an ")
+			TEXT("unload, districts cannot be swapped and the enclosure means nothing."), S5StructureVisible);
+	}
+
+	if (!bStartsPersisted)
+	{
+		UE_LOG(LogAFLGameCore, Error,
+			TEXT("AFL_TEST[S5] REGRESSION -- d1 starts went from %d to %d when the district unloaded. They are ")
+			TEXT("supposed to be ALWAYS loaded (2b9afdb4): a start that disappears with its layer puts spawn ")
+			TEXT("selection back in a race with streaming, which is the defect that made a 2v2 spawn ~150m ")
+			TEXT("apart across the island. Check that the starts are still OUTSIDE the runtime data layer and ")
+			TEXT("still carry AFL.Spawn.District.Duel."), S3D1Starts, S5D1StartsVisible);
+	}
+}
+
 // ---------------------------------------------------------------------------------------------
 // D3 -- the seal.
 // ---------------------------------------------------------------------------------------------
@@ -1312,6 +1493,49 @@ void UAFLD1VerificationTestHarness::Tick(float DeltaTime)
 
 	case EPhase::S2_Spawn:
 		RunS2_Spawn();
+		EnterPhase(EPhase::S3_SideSpawn);
+		break;
+
+	case EPhase::S3_SideSpawn:
+		RunS3S4_SideSpawn();
+		EnterPhase(EPhase::S5_UnloadReq);
+		break;
+
+	case EPhase::S5_UnloadReq:
+	{
+		const bool bAccepted = SetDistrictState(EDataLayerRuntimeState::Unloaded);
+		UE_LOG(LogAFLGameCore, Display,
+			TEXT("AFL_TEST[S5] UNLOAD requested -- accepted=%s effectiveState=%s"),
+			bAccepted ? TEXT("true") : TEXT("FALSE"), StateName(EffectiveState()));
+		EnterPhase(EPhase::S5_Settle);
+		break;
+	}
+
+	case EPhase::S5_Settle:
+	{
+		// Poll for the STRUCTURE to actually GO, not the starts. The starts are match configuration and
+		// never leave (see the S5 note in the header); waiting on them would burn the full timeout every
+		// run and then report a false failure.
+		CollectDistrictActors();
+		{
+			const int32 StructureNow = PanelActors.Num() + BoundActors.Num();
+			if (StructureNow == 0 || PhaseElapsed >= kPresenceTimeout)
+			{
+				EnterPhase(EPhase::S5_Verify);
+			}
+			else if (PhaseElapsed - LastPollLogAt >= kPollLogInterval)
+			{
+				LastPollLogAt = PhaseElapsed;
+				UE_LOG(LogAFLGameCore, Display,
+					TEXT("AFL_TEST[S5] waiting %.1fs -- districtStructureVisible=%d effectiveState=%s"),
+					PhaseElapsed, StructureNow, StateName(EffectiveState()));
+			}
+		}
+		break;
+	}
+
+	case EPhase::S5_Verify:
+		RunS5_Verify();
 		EnterPhase(EPhase::Verdict);
 		break;
 
@@ -1328,13 +1552,35 @@ void UAFLD1VerificationTestHarness::Tick(float DeltaTime)
 		if (!bD4Pass) { Broke += TEXT("D4(R55 -- rounds blocked or panels unmarked) "); }
 		if (!bD5Pass) { Broke += TEXT("D5(panels block or are standable) "); }
 		if (!bD6Pass) { Broke += TEXT("D6(rendering, or no longer blocking) "); }
+		if (bS5Ran && !bS5Pass) { Broke += TEXT("S5(LAYER SCOPING BROKEN -- streamed-out starts still candidates) "); }
+		if (bS3Ran && !bS3ChosenInsideD1) { Broke += TEXT("S3(spawn resolved OUTSIDE D1) "); }
+		if (S4Side0Count + S4Side1Count > 0 && !bS4Opposing) { Broke += TEXT("S4(sides not on opposing banks) "); }
 
-		if (Broke.IsEmpty())
+		// D3 PASSES ON "NO ESCAPES", WHICH IS ALSO WHAT THIN COVERAGE LOOKS LIKE. A run where two thirds
+		// of the trials never engaged and nothing came within 20 m of the cap has not established that
+		// the boundary holds -- it has established that the walls stop a double jump. Reporting that as
+		// a clean PASS next to a COVERAGE line saying "the cap was NEVER TESTED" is the exact false
+		// green this harness exists to prevent, so it is graded INCOMPLETE instead. (B241)
+		const bool bCapTested = bEnclosureValid && (BestPeakZ > EnclosureMax.Z - 500.0f);
+		const bool bCoverageThin = (SealInconclusive * 2 > Trials.Num()) || !bCapTested;
+
+		if (Broke.IsEmpty() && !bCoverageThin)
 		{
 			UE_LOG(LogAFLGameCore, Display,
 				TEXT("AFL_TEST VERDICT PASS -- D1=%d/%d D2=%d/%d seal contained=%d escaped=0 inconclusive=%d ")
 				TEXT("R55 channelsCrossed=3/3 panelMarks=yes D5 clean D6 clean."),
 				D1BoundCount, D1PanelCount, D2BoundCount, D2PanelCount, SealContained, SealInconclusive);
+		}
+		else if (Broke.IsEmpty())
+		{
+			UE_LOG(LogAFLGameCore, Warning,
+				TEXT("AFL_TEST VERDICT INCOMPLETE -- every assertion that RAN passed (D1 D2 D4 D5 D6), but D3 did ")
+				TEXT("not cover its own question: contained=%d escaped=0 inconclusive=%d of %d, capTested=%s ")
+				TEXT("(bestPeak %.1f m below the cap). This grades THIS HARNESS's coverage, not the boundary: the ")
+				TEXT("seal itself was verified by operator PIE test (B241) -- no escape, blocked invisibly. Do not ")
+				TEXT("read this line as the seal being in doubt, and do not read a future PASS as replacing that test."),
+				SealContained, SealInconclusive, Trials.Num(), bCapTested ? TEXT("yes") : TEXT("NO"),
+				bEnclosureValid ? (EnclosureMax.Z - BestPeakZ) / 100.0f : 0.0f);
 		}
 		else
 		{

@@ -94,6 +94,10 @@ private:
 		Perf_Place,
 		Perf_Sample,
 		S2_Spawn,
+		S3_SideSpawn,    // district ACTIVE: does a spawn resolve inside D1, and do the sides oppose?
+		S5_UnloadReq,    // district UNLOADED: are the D1 starts invisible to the selector?
+		S5_Settle,
+		S5_Verify,
 		Verdict,
 		Done
 	};
@@ -152,6 +156,18 @@ private:
 	void RunD4_Projectile();
 	void RunD5_PanelPawn();
 	void RunS2_Spawn();
+
+	/** S3 + S4 -- with District_Duel active, does a spawn land inside D1, and do the two side tags
+	 *  resolve to OPPOSING banks rather than the same one? */
+	void RunS3S4_SideSpawn();
+
+	/** S5 -- the assertion that proves the DESIGN. With the district unloaded, a D1 start must be
+	 *  invisible to ULyraPlayerSpawningManagerComponent's TActorIterator. If a streamed-out start is
+	 *  still a candidate, layer-scoping does not work and the whole approach needs rethinking. */
+	void RunS5_Verify();
+
+	/** Counts ALyraPlayerStart actors in the world, splitting D1 (District_Duel members) from the rest. */
+	int32 CountStarts(int32& OutD1Starts) const;
 
 	// ---- seal trial loop ----
 	void BuildSealTrials();
@@ -245,4 +261,34 @@ private:
 	int32 S2StartsInside = 0;
 	bool  bS2ChosenInside = false;
 	bool  bS2Ran = false;
+
+	// ---- S3 / S4 / S5 (district spawns) ----
+	int32 S3D1Starts       = -1;      // D1 starts visible while the district is ACTIVE
+	int32 S3SideIndex      = -1;      // side index the selector actually queried (-1 = none -> filter no-ops)
+	bool  bS3ChosenInsideD1 = false;
+	float S3ChosenDist     = -1.0f;   // chosen start's distance from the district centre
+	bool  bS3Ran           = false;
+
+	int32 S4Side0Count = 0;
+	int32 S4Side1Count = 0;
+	float S4Side0MeanX = 0.0f;
+	float S4Side1MeanX = 0.0f;
+	bool  bS4Opposing  = false;
+
+	// S5 ASSERTS THE OPPOSITE OF WHAT IT ORIGINALLY DID, deliberately.
+	//
+	// It was written to prove that data layer membership SCOPED SPAWNS -- unload the district, the D1 starts
+	// vanish from the iterator. That approach was abandoned in 2b9afdb4: starts inside the runtime layer did
+	// not exist until it finished streaming, so spawn selection raced streaming. Spawn points are now match
+	// configuration (always loaded, AFL.Spawn.District.* tag) and only the FENCE is streamed content.
+	//
+	// So the invariant flipped. Unloading a district must now take the STRUCTURE and leave the STARTS:
+	//   structure gone  -> the data layer still scopes streamed geometry
+	//   starts present  -> spawn selection can never race streaming again
+	// A run where the starts vanished would now be a REGRESSION, not a pass.
+	int32 S5D1StartsVisible  = -1;    // MUST equal S3D1Starts -- starts are unaffected by layer state
+	int32 S5StructureVisible = -1;    // MUST be 0 -- panels + bound volumes are streamed content
+	int32 S5TotalStarts      = -1;
+	bool  bS5Pass            = false;
+	bool  bS5Ran             = false;
 };
