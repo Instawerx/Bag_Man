@@ -11,14 +11,21 @@ The card name = that DA's **`TileTitle`**; the subtitle = **`TileSubTitle`**. Th
 So: to rename a config, edit its playlist DA; to know what a display name *is*, read the DA's `MapID`+`ExperienceID`.
 
 ## The table (verified via bridge 2026-07-17)
-| Display (TileTitle / TileSubTitle) | Playlist DA | ExperienceID | MapID (.umap) | Mode/size | State |
-|---|---|---|---|---|---|
-| **NANOWATT** / 3V3 SPEED | `DA_AFL_Arena01_Extract3v3` | `B_AFLExperience_Arena01_Extract3v3` | **`/Game/Maps/L_Arena_01`** (OURS) | Arena 3v3 Extract | ✅ **BUILT** (greybox PIE-proven, T1; brief `Docs/maps/Arena_01_DESIGN.md`) |
-| **INFINEON** / 8V8 SIEGE | `DA_AFL_Arena01_Extract4v4` | `B_AFLExperience_Arena01_Extract4v4` | **`/ShooterMaps/Maps/L_Expanse`** (LYRA STOCK) | 8v8 (Tier C) | ⚠ **WASH IN PROGRESS** on a stock map — NOT a 4v4, NOT Arena_01 |
-| **ARCANEON** / 5V5 HAYWIRE | `DA_AFL_Arena04_5v5_Haywire` | `B_AFLExperience_Arena04_5v5_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | ✅ **LIVE** — playlist + experience built, PIE-watched |
-| **ARCANEON** / 5V5 PROMOD | `DA_AFL_Arena04_5v5_ProMod` | `B_AFLExperience_Arena04_5v5_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | ✅ **LIVE** — playlist + experience built, PIE-watched |
-| **ARCANEON** / 8V8 HAYWIRE | `DA_AFL_Arena04_8v8_Haywire` | `B_AFLExperience_Arena04_8v8_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | ✅ **LIVE** — playlist + experience built, PIE-watched |
-| **ARCANEON** / 8V8 PROMOD | `DA_AFL_Arena04_8v8_ProMod` | `B_AFLExperience_Arena04_8v8_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | ✅ **LIVE** — playlist + experience built, PIE-watched |
+**VENUE CLASS is now a registry field (R97, `ssot/map-build-system.md` §2.1).** ARENA = purpose-built,
+symmetric, one contained space. MAP = district-scale. It is a **queue dimension**, so a level filed under the
+wrong class is offered in a queue it cannot serve — and the symptom is players getting the style they did not
+choose. **Authored here, never inferred from a level name** (that is the same failure mode as NANOWATT/INFINEON
+below; it has already happened once to this field, when the backend queue registry was first seeded by reading
+class off `L_Duel_01` / `L_Arena_04` / `L_Expanse`).
+
+| Display (TileTitle / TileSubTitle) | Playlist DA | ExperienceID | MapID (.umap) | Mode/size | **Venue class** | State |
+|---|---|---|---|---|---|---|
+| **NANOWATT** / 3V3 SPEED | `DA_AFL_Arena01_Extract3v3` | `B_AFLExperience_Arena01_Extract3v3` | **`/Game/Maps/L_Arena_01`** (OURS) | Arena 3v3 Extract | ARENA | ✅ **BUILT** (greybox PIE-proven, T1; brief `Docs/maps/Arena_01_DESIGN.md`) |
+| **INFINEON** / 8V8 SIEGE | `DA_AFL_Arena01_Extract4v4` | `B_AFLExperience_Arena01_Extract4v4` | **`/ShooterMaps/Maps/L_Expanse`** (LYRA STOCK) | 8v8 (Tier C) | **MAP** | ⚠ **WASH IN PROGRESS** on a stock map — NOT a 4v4, NOT Arena_01 |
+| **ARCANEON** / 5V5 HAYWIRE | `DA_AFL_Arena04_5v5_Haywire` | `B_AFLExperience_Arena04_5v5_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | ARENA | ✅ **LIVE** — playlist + experience built, PIE-watched |
+| **ARCANEON** / 5V5 PROMOD | `DA_AFL_Arena04_5v5_ProMod` | `B_AFLExperience_Arena04_5v5_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | ARENA | ✅ **LIVE** — playlist + experience built, PIE-watched |
+| **ARCANEON** / 8V8 HAYWIRE | `DA_AFL_Arena04_8v8_Haywire` | `B_AFLExperience_Arena04_8v8_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | ARENA | ✅ **LIVE** — playlist + experience built, PIE-watched |
+| **ARCANEON** / 8V8 PROMOD | `DA_AFL_Arena04_8v8_ProMod` | `B_AFLExperience_Arena04_8v8_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 8v8 (Tier C), 16 seats | ARENA | ✅ **LIVE** — playlist + experience built, PIE-watched |
 
 ### ARCANEON — LIVE (`bShowInFrontEnd = True`, 2026-08-03)
 All four configs PIE-watched before the flag was flipped. `L_Arena_04` is committed (62f7fe63) and the whole

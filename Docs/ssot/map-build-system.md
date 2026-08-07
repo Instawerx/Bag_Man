@@ -50,6 +50,51 @@ Three families that are genuinely different loops, not one loop scaled.
 variants where density holds. **Non-adjacent brackets never share a level** — the density delta is too large for
 both to play well.
 
+### 2.1 VENUE CLASS — a property of the LEVEL, never of the bracket (R97)
+
+**Every level is exactly one of two classes, and the class is authored, not derived.**
+
+| Class | Character | Symmetry | Typical tiers | Streaming |
+|---|---|---|---|---|
+| **ARENA** | Contained, round-based, extract-or-eliminate. One contiguous play-space the whole match happens inside. | **Mirror / rotational, mandatory** — competitive integrity first | A, B, and C where authored as one space | Usually none required (§6) |
+| **MAP** | District-scale. Rotations between areas, POIs, and a larger sense of place. | Asymmetric permitted — fairness comes from spawn/route/loot distribution rather than geometry | C, D | District model (§4), World Partition + data layers (§5) |
+
+> **⚠ CLASS AND BRACKET ARE ORTHOGONAL, WHICH IS THE WHOLE OF R97.** A 5v5 ARENA and a 5v5 MAP are two
+> DIFFERENT LEVELS serving the same bracket in different classes — not one level described two ways. The
+> footprint ladder (§3) still sizes both by bracket; the class says what *kind* of space that footprint is.
+> **`ssot/matchmaking.md` R97 makes this a queue dimension**, so a player who chose one will never be handed
+> the other.
+
+**How a new level classifies itself — apply in order, and the first answer is the answer:**
+
+1. **Is mirror or rotational symmetry MANDATORY for it to be fair?** → **ARENA**. That requirement is what
+   an Arena is; a district cannot satisfy it and should not try.
+2. **Is the whole match contained in one play-space, with no streaming between areas?** → **ARENA**.
+3. **Is it authored as a district (§4) — adjacent brackets, data-layer activation, multiple POIs?** → **MAP**.
+4. **Is it a BR footprint (tier D)?** → **MAP**, always. A collapsing zone over a POI graph is the definition.
+
+**THE WORKED EXAMPLE, AND IT IS THE CLEAREST CASE FOR R97.** `L_ShantyTown` is a **MAP**, and it fills the
+**entire bracket ladder from one venue** by sizing to the party via fenced data-layer districts
+(`ssot/../design/ShantyTown_BR_DESIGN.md` §11):
+
+| District | Footprint | Brackets |
+|---|---|---|
+| `District_Duel` | ~59 × 59 m | 1v1, 2v2 |
+| `District_Arena` | ~87 × 87 m | 3v3, 4v4 |
+| `District_Team` | ~118 × 118 m | 5v5, 8v8 |
+| *(whole map)* | 357 × 302 m core · 617 × 607 m landscape | BR_18 · BR_36 |
+
+> **Districts are FENCED REGIONS INSIDE the map, not carved out of it** — BR still uses the whole thing. And
+> note `District_Arena` is named for the **mode-ladder family** (§2), not for the venue class: a fenced
+> district inside a district-scale world is still a MAP. **A 5v5 in `District_Team` and a 5v5 in ARCANEON are
+> the same bracket in two genuinely different styles** — which is exactly why R97 makes the class a queue
+> dimension rather than letting the server pick between them.
+
+> **A LEVEL THAT ANSWERS "EITHER" IS A LEVEL WITHOUT AN IDENTITY, and the fix is design work rather than a
+> registry entry.** Pick one and author to it. If a *third* class ever seems necessary because a level fits
+> neither, that is `ssot/matchmaking.md` §4.3's invariant failing — the answer is a pool row or a bracket,
+> never a third class, because a third class multiplies the queue set again.
+
 ---
 
 ## 3. THE FOOTPRINT LADDER — THE SIZING LAW
@@ -327,6 +372,7 @@ Three names identify a playable configuration, and they are deliberately differe
 | **Display name** | What the player reads on the "HOST A GAME" tile — title + subtitle | `TileTitle` / `TileSubTitle` FText on the playlist data asset |
 | **Disk asset** | The level | `MapID` → the `.umap` |
 | **Config** | The ruleset/bracket binding | `ExperienceID` → the `LyraExperienceDefinition` |
+| **Venue class** | **ARENA or MAP** (§2.1, R97) — which queue the level can be drawn into at all | The registry row. **Authored, never inferred.** |
 
 **The internal-codename ↔ external-name split is by design.** A playlist asset's *filename* is an internal
 codename and may not describe what it hosts; the **`MapID` + `TileTitle` are the truth**. Renaming a shipped DA,
@@ -334,8 +380,17 @@ Experience or `MapID` breaks host resolution (**NM5** — a shipped id is never 
 carries the player-facing name and only it may change.
 
 **The registry is the single reconciliation point.** One document maps display name ↔ playlist DA ↔ Experience ↔
-`MapID` ↔ bracket. **Read the registry; never re-derive a map's identity from a filename** — that is exactly how
-two configurations get transposed. Any lane naming a map or config cites the registry.
+`MapID` ↔ bracket ↔ **venue class**. **Read the registry; never re-derive a map's identity from a filename** —
+that is exactly how two configurations get transposed. Any lane naming a map or config cites the registry.
+
+> **⚠ THE VENUE CLASS IS THE FIELD MOST LIKELY TO BE GUESSED, AND IT HAS ALREADY HAPPENED ONCE.** When R97
+> was first wired, the backend queue registry was seeded by reading class off the level NAMES — `L_Duel_01`
+> and `L_Arena_04` were taken as ARENA, `L_Expanse` as MAP — which is precisely the re-derivation the
+> paragraph above forbids. It produced the right answer by luck, on three levels whose names happened to be
+> honest. **The class must be carried in the registry row and read from there**, because a level called
+> `L_Arena_Something` that is authored as a district would otherwise be filed into a queue it cannot serve,
+> and the symptom would be players getting the style they did not choose — the exact failure R97 exists to
+> prevent.
 
 *(The registry's per-map build-state — which maps exist and what state they are in — is Tier 3 and lives in the
 tracker. The registry at Tier 2 owns only the mapping.)*
