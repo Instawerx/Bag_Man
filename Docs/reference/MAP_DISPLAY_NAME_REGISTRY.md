@@ -20,7 +20,8 @@ class off `L_Duel_01` / `L_Arena_04` / `L_Expanse`).
 
 | Display (TileTitle / TileSubTitle) | Playlist DA | ExperienceID | MapID (.umap) | Mode/size | **Venue class** | State |
 |---|---|---|---|---|---|---|
-| **NANOWATT** / 3V3 SPEED | `DA_AFL_Arena01_Extract3v3` | `B_AFLExperience_Arena01_Extract3v3` | **`/Game/Maps/L_Arena_01`** (OURS) | Arena 3v3 Extract | ARENA | ✅ **BUILT** (greybox PIE-proven, T1; brief `Docs/maps/Arena_01_DESIGN.md`) |
+| **NANOWATT** / 3V3 SPEED *(= the HAYWIRE variant)* | `DA_AFL_Arena01_Extract3v3` | `B_AFLExperience_Arena01_Extract3v3` | **`/Game/Maps/L_Arena_01`** (OURS) | Arena 3v3 Extract | ARENA | ✅ **BUILT** (greybox PIE-proven, T1; brief `Docs/maps/Arena_01_DESIGN.md`) |
+| **NANOWATT** / 3V3 PROMOD | `DA_AFL_Arena01_3v3_ProMod` | `B_AFLExperience_Arena01_3v3_ProMod` | **`/Game/Maps/L_Arena_01`** (OURS) | 3v3 (Tier A/B), 6 seats | ARENA | ✅ **LIVE** — authored 2026-08-07 to close the dual-GE gap; duplicated from Extract3v3 so it carries the same 3v3 team setup, then **AFLDismember removed + `HeroData_BagMan_Pro`** — identical in shape to the ARCANEON ProMod pair |
 | **INFINEON** / 8V8 SIEGE | `DA_AFL_Arena01_Extract4v4` | `B_AFLExperience_Arena01_Extract4v4` | **`/ShooterMaps/Maps/L_Expanse`** (LYRA STOCK) | 8v8 (Tier C) | **MAP** | ⚠ **WASH IN PROGRESS** on a stock map — NOT a 4v4, NOT Arena_01 |
 | **ARCANEON** / 5V5 HAYWIRE | `DA_AFL_Arena04_5v5_Haywire` | `B_AFLExperience_Arena04_5v5_Haywire` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | ARENA | ✅ **LIVE** — playlist + experience built, PIE-watched |
 | **ARCANEON** / 5V5 PROMOD | `DA_AFL_Arena04_5v5_ProMod` | `B_AFLExperience_Arena04_5v5_ProMod` | **`/Game/Maps/L_Arena_04`** (OURS) | 5v5 (Tier C), 10 seats | ARENA | ✅ **LIVE** — playlist + experience built, PIE-watched |
