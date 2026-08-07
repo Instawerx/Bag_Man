@@ -93,9 +93,16 @@ independent; presenting them sequentially adds an ordering that does not exist i
 > R88), and **the league control appears in LEAGUE PLAY and nowhere else**, because staked play is PRO MOD only
 > (R86).
 >
-> **This is what closes §3.2.1's four-dimension problem.** The lobby never shows four controls at once: pick
-> LEAGUE PLAY and you get league + ruleset + size, with no stake; pick a staked tier and you get ruleset + size
-> + stake, with no league. **Three controls either way**, and nothing is set silently elsewhere.
+> **This is what closed §3.2.1's four-dimension problem.** Picking LEAGUE PLAY gave league + ruleset + size
+> with no stake; picking a staked tier gave ruleset + size + stake with no league. **Three controls either
+> way**, and nothing set silently elsewhere.
+>
+> **⚠ R97 ADDS A FOURTH: VENUE CLASS (ARENA / MAP).** Recorded here rather than absorbed quietly, because
+> §3.2.1 exists precisely to stop a dimension arriving unrendered. The count is now **four in every tier** —
+> LEAGUE PLAY: league + class + ruleset + size; staked: class + ruleset + size + stake. **§11's rule is what
+> makes this survivable**: when space runs out the queue LIST gives up height, never the axis row. The
+> four-control worst case §14.3 was written against is now the real case, so that constraint is load-bearing
+> rather than precautionary.
 >
 > **The precedent is exact and the players already know it.** Every card room and every brokerage puts the
 > play-money / real-money choice at the top and never mixes the two lists. Putting it lower would let a player

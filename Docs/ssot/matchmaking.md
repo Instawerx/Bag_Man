@@ -55,9 +55,16 @@ client can influence a condition the wager settles on, that influence is worth m
 
 ### 2.2 What the player does control
 
-**Tier** (LEAGUE PLAY · WATTS PLAY · VOLTS PLAY) · bracket (how many a side) · ruleset · stake amount ·
-party — and **league (how combat feels) only inside LEAGUE PLAY**, where both are offered (R86). Everything they choose
-is a property of the *contest*. Nothing they choose is a property of the *terrain*.
+**Tier** (LEAGUE PLAY · WATTS PLAY · VOLTS PLAY) · bracket (how many a side) · ruleset · **venue class
+(ARENA / MAP)** · stake amount · party — and **league (how combat feels) only inside LEAGUE PLAY**, where both
+are offered (R86). Everything they choose is a property of the *contest*. Nothing they choose is a property of
+the *terrain*.
+
+> **VENUE CLASS PASSES THAT TEST; THE MAP STILL DOES NOT (R97).** The class is *how the contest is shaped* —
+> contained and round-based, or district-scale. The MAP remains a server outcome inside the chosen class, so
+> **R18 is intact**: this is still a stake lobby, not a map browser. The player says "an Arena fight"; the
+> server still says which Arena. Anyone reading this as permission to let players pick maps has read a
+> statement about the *shape of the contest* as a statement about *terrain*.
 
 ---
 
@@ -135,7 +142,7 @@ play, and then what size."* The player answers one question before being asked t
 Queue count is the product of the **contest** dimensions only:
 
 ```
-  queues  =  (tier × league) pairs  ×  rulesets  ×  brackets
+  queues  =  (tier × league) pairs  ×  rulesets  ×  VENUE CLASSES  ×  brackets
 ```
 
 **There are exactly FOUR (tier × league) pairs**, because league is **tier-scoped** (R86) rather than a free
@@ -148,6 +155,11 @@ multiplier:
 | **VOLTS PLAY** | Volts | **PRO MOD only** | Yes | No |
 
 - **Rulesets** — **2** (MATCH PLAY, BATTLE ROYALE), split per R7 (§4.1) and expressed as tabs.
+- **Venue classes** — **2** (ARENA, MAP), admitted by **R97**. **These are two styles of play, not two
+  scenery sets**, which is the only reason a terrain-shaped word appears on a list of contest properties at
+  all. An ARENA is the round-based, contained, extraction-shaped contest; a MAP is the district-scale one. A
+  player who queued for one and was handed the other did not get a bigger version of their match — they got a
+  different game, and §4.3's admission test is exactly that pools which cannot merge earn a dimension.
 - **Brackets** — the party-size bands the district model serves: `1v1, 2v2` · `3v3, 4v4` · `5v5, 8v8`, plus the
   BR counts. On the order of **8**.
 
@@ -176,8 +188,13 @@ they cannot, it becomes another multiplier and should be recognised as such rath
 > **Content growth must never increase the queue count.**
 
 Maps, districts, play-spaces and size variants are **pool rows** (§3). The only things that may add a queue are
-a new bracket, a new **(tier × league) pair** (R76, R86), or a new ruleset — all of which are *design*
-decisions made deliberately, and all of which are rare. **If the queue count is rising because content shipped,
+a new bracket, a new **(tier × league) pair** (R76, R86), a new **venue class** (R97), or a new ruleset — all
+of which are *design* decisions made deliberately, and all of which are rare.
+
+> **⚠ VENUE CLASS IS THE ONE ADDER THAT LOOKS LIKE TERRAIN, AND THE DISTINCTION IS THE WHOLE RULING.** Adding
+> a MAP to a class is still a pool row and still free. Adding a *class* is a design decision about how the
+> game is played. If someone later argues that a third class is needed because a new map does not fit the two,
+> **that is the invariant failing** — the answer is a pool row, or a bracket, not a class. **If the queue count is rising because content shipped,
 the layer separation has failed.**
 
 > **THE FOURTH ADDER WAS ADMITTED DELIBERATELY, AND THE TEST IT PASSED IS WORTH RECORDING.** A dimension earns
@@ -509,6 +526,7 @@ than an independent choice.
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R97 — VENUE CLASS (ARENA / MAP) IS A QUEUE DIMENSION** | **2026-08-07** | **ARENA and MAP are two styles of play, and both are player-chosen at queue time (§2.2, §4.2).** A player who queued for one and got the other did not get a bigger version of their match — they got a different game, which is precisely §4.3's admission test: a dimension earns its place when the pools it creates **cannot merge**. Currency passed that test under R76; region failed it under §6; this passes it. **R18 IS INTACT** — the MAP remains a server outcome *within* the chosen class, so this is still a stake lobby and not a map browser: the player says “an Arena fight”, the server still says which Arena. **REJECTED: “whoever stakes chooses”.** In a staked match BOTH parties stake and a queue has no creator, so it would have meant *whoever queued first* — handing that player the style they are stronger at while the opponent must accept it. That is a bought edge in a wagering game, and the symmetric form (both choose, only matching choices meet) costs nothing more because it is exactly what `bracket` already is. **COST, RECORDED HONESTLY:** the concrete cell count doubles, each pool is thinner, and the lobby gains a FOURTH control — see `ssot/ui-frontend.md` §3.2. |
 | **R85 — THREE TIERS: LEAGUE PLAY · WATTS PLAY · VOLTS PLAY** | **2026-08-06** | **AMENDS R77's universal buy-in.** A third, **unstaked** tier sits beside the two staked ones: LEAGUE PLAY has **no entry cost, no rating, and permits bots**; WATTS PLAY and VOLTS PLAY are staked, rated and bot-free. **Why a free tier earns its place after R77 rejected one:** R77 was decided when the only axis was currency, and a zero-cost *currency* tier was incoherent. As the home for HAYWIRE (R86) this is not a third denomination — it is a different *product*. **The population argument is decisive:** `ssot/ai-bots.md` §6.3 bars bots wherever stake **or** rating is present, so before R85 **no queue in the game could be filled at all**. LEAGUE PLAY is the only tier that can always start, which makes it the on-ramp every other tier depends on. |
 | **R86 — STAKED PLAY IS PRO MOD ONLY; HAYWIRE IS LEAGUE PLAY'S** | **2026-08-06** | Both staked tiers offer **PRO MOD alone**; HAYWIRE runs in LEAGUE PLAY alongside PRO MOD. **You wager on the precise model, not the chaotic one** — PRO MOD is gore-free by construction and carries the enhanced movement kit, which is the competitive surface; HAYWIRE's dismemberment layer is spectacle and progression. **League stops being a free ×2 multiplier** and becomes tier-scoped: four (tier × league) pairs, not six. **LEAGUE PLAY carries BOTH models deliberately** — a PRO MOD player needs somewhere to warm up, learn a venue and grind progression without risking a balance, and excluding them would force competitive players into HAYWIRE to progress, which is backwards. HAYWIRE has one home; PRO MOD has three. |
 | **R76 — STAKE CURRENCY IS A QUEUE DIMENSION: WATTS PLAY AND VOLTS PLAY** | **2026-08-06** | The two staked tiers are **separate pools**, and the queue formula becomes `currencies × rulesets × brackets × leagues` (§4.2). **The reason is settlement, not preference:** two participants staking different currencies cannot settle one pot, so no band is wide enough to merge them. §4.2 already anticipated this exact case — a flag *"rides the queue… where they cannot [share a pool], it becomes another multiplier and should be recognised as such rather than added quietly"* — and **this ruling is that recognition, made loudly.** §4.3's adder list is amended to admit currency as the fourth permitted adder, and §5 now separates the stake **AMOUNT** (a ticket parameter, unchanged) from the stake **CURRENCY** (a queue dimension). **Cost accepted:** nominal queue count doubles to ~64, concretely 28 after R63. |
