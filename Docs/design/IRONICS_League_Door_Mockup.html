@@ -252,21 +252,8 @@
       </div>
 
       <div class="axis">
-        <div class="axis-h"><h3>Size</h3><span class="hint">Live counts — quiet bands are shown, not hidden</span></div>
-        <div class="sizes" data-axis="size">
-          <button class="size live" aria-pressed="false"><div class="n">1v1</div>
-            <div class="pop"><span class="dot"></span>212 waiting · ~20s</div></button>
-          <button class="size live" aria-pressed="false"><div class="n">2v2</div>
-            <div class="pop"><span class="dot"></span>486 waiting · ~15s</div></button>
-          <button class="size live" aria-pressed="true"><div class="n">3v3</div>
-            <div class="pop"><span class="dot"></span>1,204 waiting · ~10s</div></button>
-          <button class="size warm" aria-pressed="false"><div class="n">4v4</div>
-            <div class="pop"><span class="dot"></span>97 waiting · ~55s</div></button>
-          <button class="size live" aria-pressed="false"><div class="n">5v5</div>
-            <div class="pop"><span class="dot"></span>640 waiting · ~18s</div></button>
-          <button class="size cold" aria-pressed="false"><div class="n">8v8</div>
-            <div class="pop"><span class="dot"></span>Quiet · no estimate</div></button>
-        </div>
+        <div class="axis-h"><h3 id="size-h">Size</h3><span class="hint" id="size-hint">Live counts — quiet bands are shown, not hidden</span></div>
+        <div class="sizes" data-axis="size" id="sizes"></div>
       </div>
     </div>
 
@@ -380,6 +367,45 @@
 </div>
 
 <script>
+  // R99 — BATTLE ROYALE FIELD LAW. BR positions ARE the field size.
+  // NOTE: paid-place counts belong to STAKED play. League Play has no pot, so the
+  // league card shows field size and population only -- quoting "3 paid" here would
+  // describe a settlement that never happens on this door.
+  const BRACKETS={
+    MatchPlay:[
+      {id:'1v1',pop:212, w:'~20s',   s:'live'},
+      {id:'2v2',pop:486, w:'~15s',   s:'live'},
+      {id:'3v3',pop:1204,w:'~10s',   s:'live'},
+      {id:'4v4',pop:97,  w:'~55s',   s:'warm'},
+      {id:'5v5',pop:640, w:'~18s',   s:'live'},
+      {id:'8v8',pop:0,   w:null,     s:'cold'}],
+    BattleRoyale:[
+      {id:'BR_9', n:9,  pop:704,w:'~15s', s:'live'},
+      {id:'BR_20',n:20, pop:431,w:'~30s', s:'live'},
+      {id:'BR_36',n:36, pop:188,w:'~1m',  s:'warm'}]
+  };
+  let ruleset='MatchPlay';
+  const $=id=>document.getElementById(id);
+  const fmt=n=>n.toLocaleString('en-US');
+
+  function paintSizes(){
+    const br = ruleset==='BattleRoyale';
+    $('size-h').textContent = br ? 'Field' : 'Size';
+    $('size-hint').textContent = br
+      ? 'One versus everyone — bots fill the field, so it always starts'
+      : 'Live counts — quiet bands are shown, not hidden';
+    $('sizes').style.gridTemplateColumns = br
+      ? 'repeat(auto-fit,minmax(180px,1fr))' : 'repeat(auto-fit,minmax(126px,1fr))';
+    $('sizes').innerHTML = BRACKETS[ruleset].map((b,i)=>{
+      const cold=b.s==='cold';
+      return `<button class="size ${b.s}" aria-pressed="${i===(br?0:2)}" data-id="${b.id}">
+        <div class="n">${br?b.id.replace('BR_',''):b.id}</div>
+        ${br?`<div class="pop" style="margin-top:3px;color:rgba(255,255,255,.62)">${b.n} players</div>`:''}
+        <div class="pop"><span class="dot"></span>${cold?'Quiet · no estimate':fmt(b.pop)+' waiting · '+b.w}</div>
+      </button>`;
+    }).join('');
+  }
+
   document.querySelectorAll('.seg,.sizes').forEach(g=>{
     g.addEventListener('click',e=>{
       const b=e.target.closest('button'); if(!b)return;
@@ -387,8 +413,16 @@
       b.setAttribute('aria-pressed','true');
       const axis=g.dataset.axis;
       const label=b.querySelector('.b')?b.querySelector('.b').textContent:b.querySelector('.n').textContent;
-      const t={ruleset:'s-ruleset',league:'s-league',venue:'s-venue',size:'s-size'}[axis];
+      if(axis==='ruleset'){
+        ruleset = label==='Battle Royale' ? 'BattleRoyale' : 'MatchPlay';
+        $('s-ruleset').textContent=label; paintSizes();
+        $('s-size').textContent = BRACKETS[ruleset][ruleset==='BattleRoyale'?0:2].id.replace('_',' ');
+        return;
+      }
+      if(axis==='size'){ $('s-size').textContent = b.dataset.id.replace('_',' '); return; }
+      const t={league:'s-league',venue:'s-venue'}[axis];
       if(t)document.getElementById(t).textContent = axis==='venue' ? label+' · assigned' : label;
     });
   });
+  paintSizes();
 </script>

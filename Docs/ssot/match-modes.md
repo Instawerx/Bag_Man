@@ -50,6 +50,70 @@ are out.
 | **Rank input** | Placement (1..N). A player's contribution to rank is *how long they survived*, not how much they killed. |
 | **Suits** | Any footprint, including sparse and whole-map. Elimination is permanent, so the population falls monotonically and the fight concentrates on its own — a large footprint self-corrects. Pairs with the zone (§6). |
 
+#### 2.1.1 FIELD SIZE — THE LAW (R99)
+
+> **BATTLE ROYALE IS ONE VERSUS EVERYONE.** **Minimum 9 positions. Maximum 36.** The shipped ladder is
+> **`BR_9` · `BR_20` · `BR_36`** — **three rungs, and each one sits at the TOP of a paid-count tier.**
+
+| Rung | Positions | Paid | Structure |
+|---|---|---|---|
+| **`BR_9`** | 9 | **1** | **Winner-take-all.** All or nothing — no min-cash floor exists below N = 10 |
+| **`BR_20`** | 20 | 3 | Podium. Min cash **1.40×** (R37) |
+| **`BR_36`** | 36 | 6 | Full field. Winner's multiple **13.29×** (R40) |
+
+**POSITIONS, NEVER PLAYER COUNT** — the same keying as R37. In solo BR a position is a player; in squad BR a
+position is a **squad** (R92), so the minimum is 20 *squads*. `BR`'s position count **is** its field size,
+which is why the registry carries `positions == slots` for these brackets and `positions: 2` for every team
+bracket.
+
+**FIELD SIZE IS NOT A FREE PARAMETER — IT SETS THE PODIUM.** The payout rule
+(`ssot/economy-store.md` §5.2) is `p(N) = 1 if N < 10, else ceil(0.15 × N)`:
+
+| N | Paid | What the player is actually offered |
+|---|---|---|
+| 8 | 1 | Winner-take-all — but one buy-in short of the tier's top |
+| **9** | **1** | **Top of the winner-take-all tier.** Largest pot that still pays one place |
+| 10–13 | 2 | A podium of two |
+| 14 | 3 | **On a threshold** — the multiple has just dropped |
+| **20** | **3** | **Top of its tier: the same three paid places as 14, with six more buy-ins in the pot** |
+
+**WHY THE MINIMUM IS 9, AND WHY WINNER-TAKE-ALL IS NOT A DEFECT.** **R37 designs for exactly this** —
+*"winner-takes-all for small fields, scaled payouts above"* — and §5.2 states the behaviour deliberately:
+*"at N < 10 the single paid place takes the whole [pot]."* **Every MATCH PLAY bracket is winner-take-all
+too**, at any team size, because a team mode has two positions. So a small all-or-nothing BR is not an edge
+the design tolerates; **it is the case the payout rule was written to cover.**
+
+**It also earns its place on product grounds** (operator, 2026-08-07): a substantial share of players prefer
+the small winner-take-all format, and **it is the fastest-filling bracket there is** — which makes it a
+fragmentation *mitigation* in a young population, since it fills when 20 and 36 cannot.
+
+**9 rather than 8** is this section's own rule applied: both are winner-take-all, but 9 carries one more
+buy-in into the same single prize. It is also the classic full-ring SNG size.
+
+**WHY THE MAXIMUM IS 36.** `p(36) = 6`, it is R40's own worked example (*"at 36 positions, 6 paid… the
+winner's multiple 13.29×"*), and it matches the measured ShantyTown BR envelope — 617 × 607 m full landscape
+(`design/ShantyTown_BR_DESIGN.md`). **A larger field is a deliberate ruling, not an assumption**: past 36 the
+binding constraint stops being the map and becomes *population*, because a staked field must fill with
+humans (no bots — `ssot/ai-bots.md` §6.3).
+
+> **⚠ NEVER SIZE A BRACKET AT N = 10, 14, 21, 27 OR 34.** Those are the exact values where `p(N)` increments
+> (`economy-store.md` §5.2), and §5.3 records the winner's multiple dropping **17–23%** across each step. A
+> bracket parked on a threshold has just bought an extra paid place with the winner's multiple and gets
+> **the worst return available for its field size**. Sizes should sit at the *top* of a paid-count tier —
+> 20 (3 paid), 26 (4), 33 (5), 36 (6) — never at its foot.
+
+**WHY THREE RUNGS AND NOT SIX.** `ssot/matchmaking.md` §4.3 makes a bracket the expensive adder — each one
+is **8 new queue cells** (4 tier×league pairs × 2 venue classes) — and §5.1's argument is that fewer, fuller
+pools beat more, thinner ones. **9, 20 and 36 are three genuinely different products**: all-or-nothing, a
+podium, and a full field. **24 and 32 are filler** that would split existing pools to buy a difference a
+player cannot feel, and each sits below the top of its tier anyway. A fourth rung must earn itself on
+population, not symmetry.
+
+**THE HONEST-CARD OBLIGATION.** `BR_9` has **no min-cash floor** — the 1.40× guarantee in R37 exists only at
+N ≥ 10. The front end must therefore label it **winner-take-all** on the card itself, next to the field size,
+so the structure is chosen knowingly rather than discovered at settlement (`ssot/ui-frontend.md` §4.2's
+principle applied to field shape rather than stake band).
+
 **Why placement rather than kills:** under permanent death, surviving *is* the skill expression. A kill-weighted
 score would reward a player who traded early over one who won, which inverts the format's own premise.
 
@@ -416,6 +480,7 @@ can exist in a staked game at all.
 | Ruling | Date | Content |
 |---|---|---|
 | **R92 — A SQUAD'S BATTLE ROYALE PAYOUT SPLITS EVENLY ACROSS THE ROSTER** | **2026-08-06** | A squad holds one finishing position and receives one payout; it divides **equally among the players who started the match on that squad** — not among survivors, and **not by contribution** (§9.5). Contribution-weighting loses on integrity, not taste: it sets teammates competing for credit inside a match they must cooperate in, it is an unauditable home for collusion, and it makes a settlement figure non-deterministic at the moment it must be paid. **Roster-not-survivors is the load-bearing half** — a survivors-only split pays the living more when a teammate dies, pricing a teammate's death as a benefit in a staked match. **`ssot/economy-store.md` §5.2 is untouched:** `N` counts SQUADS, positions are held by squads, and the split occurs strictly after the position payout is determined. |
+| **R99 — BATTLE ROYALE FIELD LAW: MIN 9, MAX 36, THREE RUNGS** | **2026-08-07** | **BATTLE ROYALE IS ONE VERSUS EVERYONE** (last participant standing, §2.1). **Minimum 20 positions, maximum 36; the shipped ladder is `BR_20` and `BR_36`** (§2.1.1). **Keyed on POSITIONS, never player count** (R37): solo = players, squad = SQUADS (R92), so the floor is 20 *squads* in squad BR. **THE LADDER IS `BR_9` · `BR_20` · `BR_36`**, each at the TOP of a paid-count tier: 9 → 1 paid (winner-take-all), 20 → 3, 36 → 6. **WINNER-TAKE-ALL IS NOT A DEFECT — R37 DESIGNS FOR IT** (*"winner-takes-all for small fields, scaled payouts above"*), §5.2 states the N<10 behaviour deliberately, and **every MATCH PLAY bracket is winner-take-all too** because a team mode has two positions. **`BR_9` also earns its place on product grounds (operator):** a substantial share of players prefer the small all-or-nothing format, and it is **the fastest-filling bracket there is** — a fragmentation *mitigation* in a young population, filling when 20 and 36 cannot. **9 rather than 8** is this ruling's own rule applied: both are winner-take-all, but 9 carries one more buy-in into the same single prize. **HONEST-CARD OBLIGATION: `BR_9` has NO min-cash floor** (R37's 1.40× exists only at N ≥ 10), so the front end must label it **winner-take-all** on the card itself. **THE MAXIMUM IS 36** because `p(36) = 6`, it is R40's worked example (13.29× winner multiple), and it matches the measured ShantyTown envelope; **past 36 the binding constraint stops being the map and becomes POPULATION**, since a staked field must fill with humans (no bots, `ai-bots.md` §6.3). **NEVER SIZE A BRACKET AT N = 10, 14, 21, 27 OR 34** — the exact values where `p(N)` increments, each carrying a **17–23% drop in the winner's multiple** (§5.3). Sit at the TOP of a tier (20 · 26 · 33 · 36), never its foot. **THREE RUNGS, NOT SIX:** `matchmaking.md` §4.3 makes a bracket the expensive adder — **8 queue cells each** — and §5.1 says fewer, fuller pools beat more, thinner ones; 24 and 32 would split existing pools to buy a difference a player cannot feel, and each sits below the top of its tier anyway. **CONSEQUENCE: `BR_18` → `BR_20`** in the queue registry (same 3 paid places, a strictly larger pot). |
 | **R93 — NO THIRD RULESET; THE BAR FOR ONE IS SET** | **2026-08-06** | The ruleset axis stays **MATCH PLAY and BATTLE ROYALE** (R41). Two fully-populated rulesets beat three that split the queue (`ssot/matchmaking.md` **R7**), and **R85/R86 raise the cost**: the ruleset axis now multiplies against the tier axis, so a third is no longer one division of the queue but several. **A candidate must (a) produce FINISHING POSITIONS**, so the payout apparatus transfers unchanged — the exact test that parks TURBO (§9.7), which produces none, *and a ruleset that cannot be paid cannot be staked*; **(b) bring population rather than move it**; and **(c) clear the bar in LEAGUE PLAY first**, where an unrated tier can carry a thin population without a settlement failure. §3.3 staying cheap is what makes waiting free — the ease of adding one is an argument for deferring, never for proceeding. |
 | **R72 — THE TWO ROUND-WIN ROUTES ARE EQUAL** | **2026-08-06** | Wiping the enemy team and completing the central-extract bank are each worth **exactly one round**, with **no score bonus and no speed bonus** (§2.2). §2.2's stated intent is *two genuinely viable routes*, and weighting either one collapses the other into a fallback — a bank worth more makes the fight something to avoid, which in a shooter is an identity change rather than a balance tweak. **Precedent is exact and long-running:** CS2 and Valorant both treat the objective and the elimination as the same single round win, and both have stayed balanced on that basis for over a decade. **Closes §9.3.** |
 | **R73 — THE HALF-TIME SWAP QUESTION DISSOLVES** | **2026-08-06** | §9.4 asked what happens to the side swap in a series that ends before half. **It cannot happen.** MATCH PLAY is first-to-**7** of a best-of-13, so the earliest possible resolution is **round 7**, and the swap is after **round 6** — **the swap always occurs before the series can end**, at every published size from 1v1 to 8v8. No rule is needed and none is written. Recorded as a ruling rather than a deletion so the question is not re-opened by someone who notices the gap and assumes it was overlooked. **Closes §9.4.** |

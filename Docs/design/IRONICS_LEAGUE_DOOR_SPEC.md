@@ -21,7 +21,7 @@ This is the majority path and the community on-ramp.
 | Ruleset | MATCH PLAY · BATTLE ROYALE | Two products, not options (`ui-frontend` §3.2) |
 | League | HAYWIRE · PRO MOD | **Only LEAGUE PLAY offers both** — staked is Pro Mod only (R86) |
 | Venue class | ARENA · MAP | R97. The *venue itself* stays a server outcome; the **class** is the choice |
-| Size | 1v1 … 8v8 | Carries the population readout (§3 below) |
+| Size / **Field** | 1v1 … 8v8 (Match Play) · **`BR_9` `BR_20` `BR_36`** (Battle Royale, **R99**) | Carries the population readout (§3 below). Under BR the axis re-labels to **FIELD** — BR is one-vs-everyone and its position count IS the field size, so team brackets never appear there. **Paid-place counts are NOT shown on this door**: league has no pot, and quoting "3 paid" would describe a settlement that never happens here |
 | ~~Stake~~ | **— absent —** | **There is no stake to pick.** Not hidden, not zeroed, not disabled |
 
 > **The absent control is the point of R98.** A league player never encounters a buy-in. Any future
@@ -129,7 +129,7 @@ different languages.
 - **All bands cold:** every size still renders with honest counts, and **Find match stays enabled**. Waiting
   deliberately is a different experience from waiting silently.
 - **Population unavailable:** dots go neutral, counts read `—`. **Never fabricate a number here.**
-- **Battle Royale selected:** the size axis re-labels to BR brackets. MatchPlay sizes do not carry over.
+- **Battle Royale selected:** the axis re-labels to **FIELD** and renders `BR_9` · `BR_20` · `BR_36` (R99). MatchPlay team brackets never carry over — they are a different position model (2 positions regardless of team size).
 - **Bots (R87):** *"bots fill remaining seats"* is stated up front, not discovered mid-match. Bots are a
   **LEAGUE PLAY feature** and must never appear on the staked side (`ai-bots` §6.3).
 - **Long localised axis labels:** segment buttons wrap to two lines before truncating; the size grid reflows
@@ -144,7 +144,7 @@ different languages.
    grotesque — a different shipping face requires re-tuning them.
 2. **`UIDisplay.NeonTube` approval** (style SSOT OPEN ITEM 5), including the SDF-material-vs-texture call
    and whether the treatment extends beyond the two R98 door headings.
-3. **BR bracket set** for the size axis under Battle Royale is not specified here.
+3. ~~BR bracket set under Battle Royale~~ — **CLOSED by R99** (`ssot/match-modes.md` §2.1.1): `BR_9` · `BR_20` · `BR_36`.
 4. **Live population source.** No population/queue-health endpoint exists yet — the backend has 13 lambdas
    and none of them serves this. §5 is a requirement, so this is a build dependency, not a nicety.
 

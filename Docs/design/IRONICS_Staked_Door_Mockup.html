@@ -1,0 +1,516 @@
+<title>IRONICS — Staked Play Door</title>
+
+<style>
+  :root{
+    --house-electric:#1E5AFF; --house-violet:#A855F7;
+    --house-black:#05080F; --house-white:#FFFFFF; --house-neonblue:#00ADFF;
+    --glass-1:rgba(255,255,255,.12); --glass-2:rgba(255,255,255,.08); --glass-3:rgba(255,255,255,.05);
+    --glass-border:rgba(255,255,255,.20); --glass-shadow:0 8px 32px rgba(0,0,0,.30); --blur:28px;
+    --text-1:#fff; --text-2:rgba(255,255,255,.70); --text-3:rgba(255,255,255,.45);
+    --r-panel:20px; --r-button:12px; --r-input:8px;
+    --ease-out:cubic-bezier(.16,1,.3,1); --ease-io:cubic-bezier(.65,0,.35,1);
+    --display:"Bahnschrift","DIN Alternate","Oswald","Segoe UI Semibold",system-ui,sans-serif;
+    --ui:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;
+    --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--house-black);color:var(--text-1);font-family:var(--ui);
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+  .wall{position:fixed;inset:0;z-index:0;background:
+      radial-gradient(120% 80% at 50% 8%, rgba(30,90,255,.13), transparent 58%),
+      radial-gradient(90% 60% at 50% 4%, rgba(168,85,247,.09), transparent 55%),
+      linear-gradient(180deg,#0a0e18 0%,#05080F 55%,#03050a 100%);}
+  .wall::before{content:"";position:absolute;inset:0;opacity:.30;mix-blend-mode:overlay;
+    background-image:
+      repeating-linear-gradient(90deg,rgba(255,255,255,.05) 0 1px,transparent 1px 132px),
+      repeating-linear-gradient(0deg,rgba(255,255,255,.045) 0 1px,transparent 1px 96px);}
+  .wall::after{content:"";position:absolute;inset:0;opacity:.5;
+    background:radial-gradient(140% 100% at 50% 40%,transparent 35%,rgba(0,0,0,.85) 100%)}
+  .grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.16;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='.55'/></svg>")}
+
+  .stage{position:relative;z-index:2;min-height:100vh;display:flex;flex-direction:column;
+    padding:clamp(18px,2.6vw,38px) clamp(20px,4vw,64px) clamp(20px,3vw,40px);gap:clamp(12px,1.8vh,22px)}
+
+  .top{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  .back{display:flex;align-items:center;gap:10px;padding:9px 16px;border-radius:var(--r-button);
+    background:var(--glass-2);border:1px solid var(--glass-border);color:var(--text-2);
+    font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer;
+    backdrop-filter:blur(var(--blur));transition:.22s}
+  .back:hover{color:var(--text-1);border-color:var(--house-violet);box-shadow:0 0 20px rgba(168,85,247,.28)}
+  .wallet{display:flex;gap:9px}
+  .chip{display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:var(--r-button);
+    background:var(--glass-2);border:1px solid var(--glass-border);backdrop-filter:blur(var(--blur));
+    font-size:13.5px;transition:.24s}
+  .chip.active{border-color:var(--house-electric);background:rgba(30,90,255,.16);
+    box-shadow:0 0 20px rgba(30,90,255,.25)}
+  .chip .amt{font-family:var(--mono);font-weight:700;font-variant-numeric:tabular-nums}
+  .chip .lbl{color:var(--text-3);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase}
+  .mark{width:14px;height:14px;flex:none}
+
+  /* ══ UIDisplay.NeonTube — style SSOT §6. DISPLAY ONLY, >=64px ═══════════ */
+  .neonwrap{text-align:center;padding:clamp(4px,1vh,12px) 0 clamp(2px,.8vh,8px)}
+  .neon{position:relative;display:inline-block;font-family:var(--display);font-weight:700;
+    font-size:clamp(44px,8.6vw,120px);line-height:.92;letter-spacing:.085em;text-transform:uppercase;
+    color:transparent;-webkit-text-stroke:2.5px rgba(200,225,255,.30);
+    filter:drop-shadow(0 0 42px rgba(30,90,255,.42))}
+  .neon::before,.neon::after{content:attr(data-t);position:absolute;left:0;top:0;width:100%;pointer-events:none}
+  .neon::before{-webkit-text-stroke:7px rgba(150,190,255,.085);color:transparent;filter:blur(.4px)}
+  .neon::after{-webkit-text-stroke:1.15px rgba(255,255,255,.97);color:transparent;
+    text-shadow:0 0 3px rgba(255,255,255,.98),0 0 8px rgba(210,230,255,.92),
+      0 0 17px var(--house-electric),0 0 34px var(--house-electric),0 0 62px rgba(30,90,255,.72),
+      0 0 96px rgba(168,85,247,.80),0 0 150px rgba(168,85,247,.42);
+    animation:hum 5.2s steps(1) infinite}
+  @keyframes hum{0%,88%,100%{opacity:1}90%{opacity:.90}92%{opacity:1}94%{opacity:.95}}
+  .mounts{display:flex;justify-content:center;gap:clamp(40px,9vw,120px);margin-top:-6px;opacity:.5}
+  .mounts i{display:block;width:2px;height:clamp(9px,1.4vh,16px);
+    background:linear-gradient(180deg,rgba(160,190,255,.55),transparent)}
+  .pill{display:inline-flex;align-items:center;gap:7px;margin-bottom:8px;padding:6px 14px;border-radius:99px;
+    background:var(--glass-3);border:1px solid var(--glass-border);font-size:10px;letter-spacing:.26em;
+    text-transform:uppercase;color:var(--text-2)}
+  .subline{text-align:center;color:var(--text-2);font-size:clamp(12.5px,1.05vw,15px);margin-top:6px}
+  .subline b{color:var(--house-white);font-weight:600}
+
+  .deck{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:clamp(14px,1.6vw,20px);
+    align-items:start;min-height:0}
+  @media (max-width:1120px){.deck{grid-template-columns:1fr}}
+  .panel{background:var(--glass-1);border:1px solid var(--glass-border);border-radius:var(--r-panel);
+    backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));
+    box-shadow:var(--glass-shadow);padding:clamp(15px,1.6vw,22px)}
+  .axis+.axis{margin-top:18px}
+  .axis-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+  .axis-h h3{margin:0;font-family:var(--display);font-size:12px;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--text-2);font-weight:600}
+  .axis-h .hint{font-size:11px;color:var(--text-3)}
+
+  .seg{display:flex;gap:8px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:118px;padding:12px 14px;border-radius:var(--r-button);
+    background:var(--glass-3);border:1px solid var(--glass-border);color:var(--text-2);
+    font-family:var(--ui);font-size:13px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
+    transition:.22s;display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+  .seg button .b{font-weight:600;letter-spacing:.14em}
+  .seg button .s{font-size:10.5px;color:var(--text-3);letter-spacing:.02em;text-transform:none}
+  .seg button:hover{color:var(--text-1);border-color:var(--house-violet);box-shadow:0 0 18px rgba(168,85,247,.22)}
+  .seg button[aria-pressed="true"]{background:rgba(30,90,255,.20);border-color:var(--house-electric);
+    color:var(--text-1);box-shadow:0 0 26px rgba(30,90,255,.30) inset,0 0 20px rgba(30,90,255,.22)}
+  .seg button[aria-pressed="true"] .s{color:rgba(255,255,255,.62)}
+
+  .sizes{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+  .size{padding:12px 13px;border-radius:var(--r-button);background:var(--glass-3);
+    border:1px solid var(--glass-border);cursor:pointer;transition:.22s;text-align:left;color:var(--text-2);
+    font-family:var(--ui)}
+  .size:hover{border-color:var(--house-violet);color:var(--text-1)}
+  .size[aria-pressed="true"]{background:rgba(30,90,255,.20);border-color:var(--house-electric);
+    color:var(--text-1);box-shadow:0 0 20px rgba(30,90,255,.22)}
+  .size .n{font-family:var(--display);font-size:18px;letter-spacing:.09em}
+  .size .pop{display:flex;align-items:center;gap:6px;font-size:11px;margin-top:5px;color:var(--text-3)}
+  .dot{width:6px;height:6px;border-radius:50%;flex:none}
+  .live .dot{background:var(--house-electric);box-shadow:0 0 8px var(--house-electric);
+    animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .warm .dot{background:var(--house-neonblue);opacity:.75}
+  .cold .dot{background:transparent;border:1px solid var(--text-3)}
+  .size.cold{opacity:.62}.size.cold .pop{color:var(--text-3);font-style:italic}
+
+  /* ══ STAKE — the axis that exists ONLY on this door ═════════════════════ */
+  .stake{border:1px solid rgba(30,90,255,.35);background:rgba(30,90,255,.07);
+    border-radius:var(--r-panel);padding:clamp(15px,1.6vw,20px);margin-top:18px}
+  .presets{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .preset{padding:14px 10px;border-radius:var(--r-button);background:var(--glass-3);
+    border:1px solid var(--glass-border);cursor:pointer;transition:.22s;text-align:center;color:var(--text-2)}
+  .preset:hover{border-color:var(--house-violet);color:var(--text-1)}
+  .preset[aria-pressed="true"]{background:rgba(30,90,255,.24);border-color:var(--house-electric);
+    color:var(--text-1);box-shadow:0 0 22px rgba(30,90,255,.28)}
+  .preset .v{font-family:var(--mono);font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+  .preset .p{display:flex;align-items:center;justify-content:center;gap:5px;font-size:10.5px;margin-top:5px;
+    color:var(--text-3)}
+  .preset.cold{opacity:.62}.preset.cold .p{font-style:italic}
+
+  .numrow{display:flex;align-items:center;gap:12px;margin-top:13px;flex-wrap:wrap}
+  .numrow label{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3)}
+  .numin{display:flex;align-items:center;gap:8px;padding:9px 13px;border-radius:var(--r-input);
+    background:var(--glass-3);border:1px solid var(--glass-border);transition:.22s}
+  .numin:focus-within{border-color:var(--house-electric);box-shadow:0 0 20px rgba(30,90,255,.25)}
+  .numin input{width:104px;background:transparent;border:none;outline:none;color:var(--text-1);
+    font-family:var(--mono);font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+  .numin .cur{font-size:11px;letter-spacing:.16em;color:var(--text-3)}
+
+  /* §4.2 — the band sits WITH the value, never in a tooltip, and updates live */
+  .band{margin-top:12px;padding:12px 14px;border-radius:var(--r-input);background:var(--glass-3);
+    border:1px solid var(--glass-border);display:flex;align-items:center;justify-content:space-between;
+    gap:14px;flex-wrap:wrap}
+  .band .txt{font-size:13px;color:var(--text-2)}
+  .band .txt b{color:var(--house-white);font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .bandbar{flex:1;min-width:170px;height:6px;border-radius:99px;background:rgba(255,255,255,.09);
+    position:relative;overflow:hidden}
+  .bandbar .fill{position:absolute;top:0;bottom:0;background:linear-gradient(90deg,
+      rgba(30,90,255,.35),var(--house-electric),rgba(30,90,255,.35));
+    box-shadow:0 0 14px rgba(30,90,255,.6);transition:left .3s var(--ease-out),width .3s var(--ease-out)}
+  .bandbar .you{position:absolute;top:-3px;width:2px;height:12px;background:#fff;
+    box-shadow:0 0 8px #fff;transition:left .3s var(--ease-out)}
+  .warnrow{margin-top:10px;font-size:11.5px;color:var(--text-3);line-height:1.5}
+  .warnrow.bad{color:#FFB3B3}
+
+  .rail{display:flex;flex-direction:column;gap:13px}
+  .rail h3{margin:0 0 11px;font-family:var(--display);font-size:12px;letter-spacing:.24em;
+    text-transform:uppercase;color:var(--text-2)}
+  .srow{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:7px 0;
+    border-bottom:1px solid var(--glass-3)}
+  .srow:last-of-type{border-bottom:none}
+  .srow .k{color:var(--text-3);letter-spacing:.1em;text-transform:uppercase;font-size:10.5px}
+  .srow .v{color:var(--text-1);font-weight:600;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+  .rake{font-size:11px;color:var(--text-3);line-height:1.55;margin-top:10px}
+  .queue{width:100%;margin-top:13px;padding:17px 20px;border-radius:var(--r-button);
+    border:1px solid var(--house-electric);
+    background:linear-gradient(180deg,rgba(30,90,255,.34),rgba(30,90,255,.20));color:#fff;
+    font-family:var(--display);font-size:16px;letter-spacing:.2em;text-transform:uppercase;cursor:pointer;
+    transition:.24s;box-shadow:0 0 30px rgba(30,90,255,.34),inset 0 1px 0 rgba(255,255,255,.22)}
+  .queue:hover{box-shadow:0 0 50px rgba(30,90,255,.55),0 0 26px rgba(168,85,247,.35),
+    inset 0 1px 0 rgba(255,255,255,.3);transform:translateY(-2px)}
+  .queue[disabled]{opacity:.4;cursor:not-allowed;transform:none;
+    box-shadow:none;border-color:var(--glass-border);background:var(--glass-3)}
+  .wait{text-align:center;font-size:11px;color:var(--text-3);margin-top:9px}
+  .norm{font-size:11.5px;color:var(--text-3);line-height:1.6}
+  .norm b{color:var(--text-2)}
+
+  .spec{position:relative;z-index:2;max-width:1120px;margin:0 auto;
+    padding:clamp(40px,6vw,86px) clamp(20px,4vw,40px) 92px}
+  .spec h2{font-family:var(--display);letter-spacing:.16em;text-transform:uppercase;
+    font-size:clamp(17px,2vw,24px);margin:50px 0 6px;padding-top:24px;border-top:1px solid var(--glass-3)}
+  .spec h2:first-of-type{margin-top:0;border-top:none;padding-top:0}
+  .spec p,.spec li{color:var(--text-2);line-height:1.68}
+  .spec p,.spec ul{max-width:74ch}
+  .lede{font-size:16px;color:var(--text-1)}
+  .tablewrap{overflow-x:auto;margin:16px 0;border:1px solid var(--glass-3);border-radius:var(--r-button)}
+  table{border-collapse:collapse;width:100%;min-width:580px;font-size:13.5px}
+  th,td{text-align:left;padding:11px 15px;border-bottom:1px solid var(--glass-3);vertical-align:top}
+  th{background:var(--glass-3);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--text-2);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  code{font-family:var(--mono);font-size:.9em;background:var(--glass-3);padding:1px 6px;border-radius:5px;
+    color:var(--house-neonblue)}
+  .law{border-left:2px solid var(--house-violet);background:rgba(168,85,247,.07);padding:15px 20px;
+    border-radius:0 var(--r-button) var(--r-button) 0;margin:18px 0}
+  .law b{color:#fff}
+  @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;
+    animation-iteration-count:1!important;transition-duration:.01ms!important}}
+</style>
+
+<div class="wall"></div><div class="grain"></div>
+
+<div class="stage">
+  <div class="top">
+    <div class="back">← Home</div>
+    <div class="wallet">
+      <div class="chip active" id="chip-w"><svg class="mark" viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" fill="#1E5AFF"/></svg>
+        <span class="amt">12,480</span><span class="lbl">Watts</span></div>
+      <div class="chip" id="chip-v"><svg class="mark" viewBox="0 0 24 24"><path d="M12 2 3 12l9 10 9-10-9-10Z" fill="none" stroke="#1E5AFF" stroke-width="2.2"/></svg>
+        <span class="amt">340</span><span class="lbl">Volts</span></div>
+    </div>
+  </div>
+
+  <div class="neonwrap">
+    <div class="pill">Pro Mod · rated · no bots</div><br>
+    <span class="neon" data-t="STAKED PLAY">STAKED PLAY</span>
+    <div class="mounts"><i></i><i></i><i></i><i></i></div>
+    <p class="subline">Every result goes on your record. <b>Both sides stake the same amount</b> — the house takes 5%.</p>
+  </div>
+
+  <div class="deck">
+    <div class="panel">
+
+      <div class="axis">
+        <div class="axis-h"><h3>Denomination</h3><span class="hint">Sealed pools — no conversion between them</span></div>
+        <div class="seg" data-axis="denom">
+          <button aria-pressed="true" data-cur="W"><span class="b">Watts</span><span class="s">Earned in League — bring your own</span></button>
+          <button aria-pressed="false" data-cur="V"><span class="b">Volts</span><span class="s">Purchased · the serious ladder</span></button>
+        </div>
+      </div>
+
+      <div class="axis">
+        <div class="axis-h"><h3>Ruleset</h3><span class="hint">Two different games, not two options</span></div>
+        <div class="seg" data-axis="ruleset">
+          <button aria-pressed="true"><span class="b">Match Play</span><span class="s">Best-of rounds · extraction</span></button>
+          <button aria-pressed="false"><span class="b">Battle Royale</span><span class="s">Last standing · shrinking zone</span></button>
+        </div>
+      </div>
+
+      <div class="axis">
+        <div class="axis-h"><h3>Venue class</h3><span class="hint">The venue itself is assigned at match start</span></div>
+        <div class="seg" data-axis="venue">
+          <button aria-pressed="true"><span class="b">Arena</span><span class="s">Contained · round-based</span></button>
+          <button aria-pressed="false"><span class="b">Map</span><span class="s">District-scale · open</span></button>
+        </div>
+      </div>
+
+      <div class="axis">
+        <div class="axis-h"><h3 id="size-h">Size</h3><span class="hint" id="size-hint">Live counts — quiet bands are shown, not hidden</span></div>
+        <div class="sizes" data-axis="size" id="sizes"></div>
+      </div>
+
+      <!-- ── THE STAKE AXIS ── presets primary, numeric secondary, NO slider (§4) ── -->
+      <div class="stake">
+        <div class="axis-h"><h3>Stake</h3><span class="hint" id="ladder-hint">Watts ladder · your balance 12,480 W</span></div>
+        <div class="presets" id="presets"></div>
+
+        <div class="numrow">
+          <label for="amt">Or enter</label>
+          <div class="numin">
+            <input id="amt" type="text" inputmode="numeric" value="1,000" aria-label="Stake amount">
+            <span class="cur" id="cur">W</span>
+          </div>
+        </div>
+
+        <div class="band">
+          <span class="txt">Matching <b id="bandtxt">800 – 1,200 W</b></span>
+          <span class="bandbar"><span class="fill" id="bfill"></span><span class="you" id="byou"></span></span>
+        </div>
+        <div class="warnrow" id="warn">The server snaps your amount to the nearest rung and matches you across a band — an exact figure is never returned.</div>
+      </div>
+    </div>
+
+    <div class="rail">
+      <div class="panel">
+        <h3>Your entry</h3>
+        <div class="srow"><span class="k">Ruleset</span><span class="v" id="s-ruleset">Match Play</span></div>
+        <div class="srow"><span class="k">League</span><span class="v">Pro Mod</span></div>
+        <div class="srow"><span class="k">Venue</span><span class="v" id="s-venue">Arena · assigned</span></div>
+        <div class="srow"><span class="k">Size</span><span class="v" id="s-size">2v2</span></div>
+        <div class="srow"><span class="k">Buy-in</span><span class="v" id="s-stake">1,000 W</span></div>
+        <div class="srow"><span class="k">Balance after</span><span class="v" id="s-after">11,480 W</span></div>
+        <p class="rake">A flat <b>5% rake</b> applies to the pot. Your stake is held in escrow at match start
+          and settled on the reported result — never before.</p>
+        <button class="queue" id="q">Find match</button>
+        <div class="wait" id="qwait">~25s at this size and band</div>
+      </div>
+
+      <div class="panel">
+        <h3>House rules</h3>
+        <p class="norm"><b>Pro Mod only.</b> Staked play never runs Haywire — the ruleset is fixed, so combat
+          is identical for both sides.<br><br>
+          <b>No bots.</b> Every opponent is a human being.<br><br>
+          <b>One seat per account.</b> Both sides post the same stake before the match starts.<br><br>
+          <b>No cash-out.</b> Watts and Volts stay inside IRONICS.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="spec">
+  <h2>Handoff — Staked Play door</h2>
+  <p class="lede">The buy-in door behind R98's split. Same four axes as the League door, <b>plus the stake
+  axis that exists nowhere else</b> — and minus the league control, because staked play is Pro Mod only.</p>
+
+  <div class="law"><b>Chrome is identical to the League door, deliberately.</b> §10.2 makes chrome the app's
+  own furniture, the same for every player; identity is registry-resolved. The two doors differ by
+  <b>content and density</b> — this one carries a denomination axis, a stake block and a house-rules panel —
+  never by palette. Colour-separating the staked surface would make chrome carry meaning that belongs to
+  identity, which is the failure §10.2 calls invisible on any single screen.</div>
+
+  <h2>Axes — what changes from the League door</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Axis</th><th>League door</th><th>Staked door</th></tr>
+    <tr><td>Denomination</td><td>— absent —</td><td><b>WATTS · VOLTS</b> — sealed pools, no conversion (R81)</td></tr>
+    <tr><td>League</td><td>Haywire · Pro Mod</td><td><b>— absent —</b> Pro Mod only (R86); shown as a fixed fact, not a control</td></tr>
+    <tr><td>Ruleset</td><td>Match Play · BR</td><td>same</td></tr>
+    <tr><td>Venue class</td><td>Arena · Map</td><td>same (R97)</td></tr>
+    <tr><td>Size</td><td>1v1 … 8v8</td><td>same, with its own population</td></tr>
+    <tr><td><b>Stake</b></td><td>— absent —</td><td><b>presets + numeric + live band</b> (§4)</td></tr>
+    <tr><td>Bots</td><td>fill empty seats (R87)</td><td><b>never</b> — stated in house rules</td></tr>
+  </table></div>
+
+  <h2>Stake entry — §4, and why there is no slider</h2>
+  <p><b>Presets primary, numeric secondary, no slider.</b> §4.1 rejects the slider on four grounds: it is
+  imprecise by construction (players land on 447 meaning 450), it is worst on the axis it appears to
+  optimise, it is poor on touch, and <b>it implies a continuum where the design has discrete tiers</b>.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Ladder</th><th>Rungs</th><th>Ruling</th></tr>
+    <tr><td>Watts</td><td>250 · 1,000 · 5,000 · 25,000</td><td>R88 — sits <b>below</b> peg-equivalence (R80), deliberately cheaper</td></tr>
+    <tr><td>Volts</td><td>100 · 500 · 2,500 · 10,000</td><td>R69 / R88</td></tr>
+  </table></div>
+
+  <h2>The band — §4.2, not optional</h2>
+  <p><b>The failure it prevents:</b> a player enters 450, is matched against 500, and concludes the system
+  cheated them. Nothing went wrong — banding <i>is</i> the design — but the interface let them form a belief
+  it was never going to honour. <b>An interface that accepts an exact number without qualifying it has made a
+  promise on the matcher's behalf.</b></p>
+  <ul>
+    <li><b>The band updates live</b> as the value changes, so the player sees the band <i>before</i> committing and can see the boundary they are near.</li>
+    <li><b>The band is stated in the same place as the value</b> — never a tooltip or help text. <i>"A qualification the player has to go looking for is a qualification that was not made."</i></li>
+    <li><b>Snapping is the server's</b> (R59). The UI displays the band; it never re-implements the rule. Tie between rungs goes <b>down</b> — a player is never quietly pushed up a tier.</li>
+    <li>Band width is ±20% of the snapped rung and <b>widens with wait time</b>, capped, with the centre never moving (R60).</li>
+  </ul>
+
+  <h2>Population — per size AND per stake band</h2>
+  <p>§5 requires counts <i>"per size and per stake band"</i>. The staked door renders both: size tiles carry
+  their own counts, and each stake preset carries the population of that band. A rung nobody is playing shows
+  as cold — hollow dot, 62% opacity, italic — and stays selectable.</p>
+
+  <h2>Balance, escrow and the guard</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Condition</th><th>Treatment</th></tr>
+    <tr><td>Sufficient balance</td><td>Find match enabled; "balance after" previews the deduction</td></tr>
+    <tr><td><b>Insufficient balance</b></td><td>Find match <b>disabled</b>, reason inline, and a route to the store. The client check is <b>courtesy only</b> — the server returns 402 and is the real gate</td></tr>
+    <tr><td>Balance unknown (fetch pending)</td><td>Amounts show a skeleton, never <code>0</code>; Find match disabled until known. A wrong balance is worse than no balance on a wagering surface</td></tr>
+    <tr><td>Volts = 0</td><td>Denomination stays selectable — switching to Watts is the intended path, not an error state</td></tr>
+  </table></div>
+  <p><b>Escrow is at match start, not at queue time.</b> The rail says so explicitly: a player who queues and
+  cancels must never have been charged.</p>
+
+  <h2>States, focus, edge cases</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Element</th><th>State</th><th>Treatment</th></tr>
+    <tr><td>Denomination / preset / size</td><td>Selected</td><td>Electric fill @20–24%, border → Electric, Electric glow</td></tr>
+    <tr><td>Any control</td><td>Hover / Focus</td><td>Border → Arc-Violet, 18px violet glow @22%</td></tr>
+    <tr><td>Numeric input</td><td>Focus</td><td>Border → Electric, 20px Electric glow. <b>Numerals are tabular, always</b></td></tr>
+    <tr><td>Band bar</td><td>Value change</td><td>Fill and marker ease 300ms — the band must be seen to move, not snap</td></tr>
+    <tr><td>Find match</td><td>Disabled</td><td>40% opacity, no glow, reason stated inline above it</td></tr>
+  </table></div>
+  <p><b>Focus order:</b> Back → Denomination → Ruleset → Venue class → Size → Stake presets → numeric →
+  Find match → wallet. <b>B / Esc returns to the home screen.</b></p>
+  <ul>
+    <li><b>Switching denomination re-bases everything:</b> ladder, currency suffix, balance reference and the band all change together. The entered amount does <b>not</b> carry across — 1,000 W and 1,000 V are not the same bet, and carrying the number would imply they are.</li>
+    <li><b>Amount below the lowest rung:</b> snaps up to it, and the band display says so before commit.</li>
+    <li><b>Amount above the highest rung:</b> clamps to the top rung; the field does not accept a value the ladder cannot express.</li>
+    <li><b>Non-integer / non-positive input:</b> rejected at the field. The server rejects too (E1) — this is convenience, not the guard.</li>
+  </ul>
+
+  <h2>Owed</h2>
+  <ul>
+    <li><b>Population endpoint does not exist</b> — 13 backend lambdas, none serves queue health. Same build dependency as the League door, doubled here because §5 wants per-band as well as per-size.</li>
+    <li><b>`UIDisplay.NeonTube`</b> — style SSOT OPEN ITEM 5, still derived.</li>
+    <li><b>Type ramp</b> — OPEN ITEM 1, still unapproved.</li>
+    <li><b>BR bracket set</b> under Battle Royale is unspecified, as on the League door.</li>
+  </ul>
+</div>
+
+<script>
+  // R99 — BATTLE ROYALE FIELD LAW. BR positions ARE the field size; MATCH PLAY is
+// always 2 positions regardless of team size, which is why team brackets are winner-takes-all.
+const BRACKETS={
+  MatchPlay:[
+    {id:'1v1',n:2,  pop:88, w:'~35s', s:'live'},
+    {id:'2v2',n:4,  pop:214,w:'~25s', s:'live'},
+    {id:'3v3',n:6,  pop:396,w:'~20s', s:'live'},
+    {id:'4v4',n:8,  pop:41, w:'~1m50s',s:'warm'},
+    {id:'5v5',n:10, pop:63, w:'~1m10s',s:'warm'},
+    {id:'8v8',n:16, pop:0,  w:null,   s:'cold'}],
+  BattleRoyale:[
+    {id:'BR_9', n:9, pop:288,w:'~25s',  s:'live'},
+    {id:'BR_20',n:20,pop:154,w:'~50s',  s:'live'},
+    {id:'BR_36',n:36,pop:62, w:'~2m30s',s:'warm'}]
+};
+let ruleset='MatchPlay';
+const paid=n=>n<10?1:Math.ceil(0.15*n);           // economy §5.2
+const LADDER={W:[250,1000,5000,25000],V:[100,500,2500,10000]};
+  const BAL={W:12480,V:340};
+  const POP={W:[{n:311,w:'~30s',s:'live'},{n:642,w:'~20s',s:'live'},{n:118,w:'~1m',s:'warm'},{n:0,w:null,s:'cold'}],
+             V:[{n:203,w:'~35s',s:'live'},{n:377,w:'~25s',s:'live'},{n:94,w:'~1m15s',s:'warm'},{n:0,w:null,s:'cold'}]};
+  let cur='W', amt=1000;
+
+  const fmt=n=>n.toLocaleString('en-US');
+  const $=id=>document.getElementById(id);
+
+  // Mirrors the server rule (R59/R60): snap to NEAREST rung, ties go DOWN; band = ±20%.
+  // Display only — the server is the authority and re-derives this.
+  function snap(v){
+    const L=LADDER[cur]; let best=L[0],bd=Infinity;
+    for(const r of L){const d=Math.abs(v-r); if(d<bd-1e-9){bd=d;best=r;}}
+    return best;
+  }
+
+  function paintPresets(){
+    $('presets').innerHTML=LADDER[cur].map((r,i)=>{
+      const p=POP[cur][i], cold=p.s==='cold';
+      return `<button class="preset ${p.s}" aria-pressed="${r===snap(amt)}" data-v="${r}">
+        <div class="v">${fmt(r)}</div>
+        <div class="p"><span class="dot"></span>${cold?'Quiet':fmt(p.n)+' · '+p.w}</div></button>`;
+    }).join('');
+  }
+
+  function render(){
+    const c=snap(amt), lo=Math.round(c*0.8), hi=Math.round(c*1.2), suf=cur;
+    $('bandtxt').textContent=`${fmt(lo)} – ${fmt(hi)} ${suf}`;
+    // band bar spans the full ladder range, log-ish so low rungs stay visible
+    const L=LADDER[cur], min=L[0]*0.6, max=L[L.length-1]*1.3;
+    const pos=v=>Math.max(0,Math.min(100,(Math.log(v)-Math.log(min))/(Math.log(max)-Math.log(min))*100));
+    $('bfill').style.left=pos(lo)+'%'; $('bfill').style.width=Math.max(2,pos(hi)-pos(lo))+'%';
+    $('byou').style.left=pos(Math.max(min,amt))+'%';
+
+    $('cur').textContent=suf;
+    $('ladder-hint').textContent=`${cur==='W'?'Watts':'Volts'} ladder · your balance ${fmt(BAL[cur])} ${suf}`;
+    $('s-stake').textContent=`${fmt(c)} ${suf}`;
+    const after=BAL[cur]-c;
+    $('s-after').textContent=`${fmt(Math.max(0,after))} ${suf}`;
+    const short=after<0;
+    $('q').disabled=short;
+    $('warn').className='warnrow'+(short?' bad':'');
+    $('warn').textContent = short
+      ? `Not enough ${cur==='W'?'Watts':'Volts'} for this rung — you need ${fmt(c-BAL[cur])} more. Pick a lower rung, switch denomination, or top up.`
+      : 'The server snaps your amount to the nearest rung and matches you across a band — an exact figure is never returned.';
+    $('qwait').textContent = short ? 'Balance too low for this stake' : '~25s at this size and band';
+    document.querySelectorAll('#presets .preset').forEach(b=>
+      b.setAttribute('aria-pressed', String(+b.dataset.v===c)));
+    $('chip-w').classList.toggle('active',cur==='W');
+    $('chip-v').classList.toggle('active',cur==='V');
+  }
+
+  document.querySelectorAll('.seg,.sizes').forEach(g=>g.addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    g.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+    const ax=g.dataset.axis;
+    const lab=b.querySelector('.b')?b.querySelector('.b').textContent:b.querySelector('.n').textContent;
+    if(ax==='ruleset'){
+      ruleset = lab==='Battle Royale' ? 'BattleRoyale' : 'MatchPlay';
+      $('s-ruleset').textContent=lab; paintSizes(); return;
+    }
+    if(ax==='denom'){
+      cur=b.dataset.cur;
+      // The amount does NOT carry across — 1,000 W and 1,000 V are not the same bet.
+      amt=LADDER[cur][1];
+      $('amt').value=fmt(amt); paintPresets(); render(); return;
+    }
+    if(ax==='size'){ $('s-size').textContent = b.dataset.id.replace('_',' '); return; }
+    const t={venue:'s-venue'}[ax];
+    if(t)$(t).textContent = lab+' · assigned';
+  }));
+
+  $('presets').addEventListener('click',e=>{
+    const b=e.target.closest('.preset'); if(!b)return;
+    amt=+b.dataset.v; $('amt').value=fmt(amt); render();
+  });
+
+  $('amt').addEventListener('input',e=>{
+    const raw=e.target.value.replace(/[^\d]/g,'');
+    amt=raw?Math.min(+raw,LADDER[cur][LADDER[cur].length-1]):0;
+    render();
+  });
+  $('amt').addEventListener('blur',()=>{ $('amt').value=fmt(snap(amt)); amt=snap(amt); render(); });
+
+  function paintSizes(){
+    const br = ruleset==='BattleRoyale';
+    $('size-h').textContent = br ? 'Field' : 'Size';
+    $('size-hint').textContent = br
+      ? 'One versus everyone — the field IS the position count'
+      : 'Live counts — quiet bands are shown, not hidden';
+    $('sizes').style.gridTemplateColumns = br
+      ? 'repeat(auto-fit,minmax(190px,1fr))' : 'repeat(auto-fit,minmax(120px,1fr))';
+    $('sizes').innerHTML = BRACKETS[ruleset].map((b,i)=>{
+      const cold=b.s==='cold';
+      // R99 honest-card obligation: BR_9 has NO min-cash floor (R37's 1.40x starts at N>=10),
+      // so the structure is named on the card rather than discovered at settlement.
+      const wta = paid(b.n)===1;
+      const sub = br ? `${b.n} players · ${wta?'WINNER TAKE ALL':paid(b.n)+' paid'}` : '';
+      return `<button class="size ${b.s}" aria-pressed="${i===(br?0:1)}" data-id="${b.id}" data-n="${b.n}">
+        <div class="n">${br?b.id.replace('BR_',''):b.id}</div>
+        ${br?`<div class="pop" style="margin-top:3px;color:${wta?'#fff':'rgba(255,255,255,.62)'};${wta?'letter-spacing:.08em;font-weight:600':''}">${sub}</div>`:''}
+        <div class="pop"><span class="dot"></span>${cold?'Quiet · no estimate':b.pop+' waiting · '+b.w}</div>
+      </button>`;
+    }).join('');
+    const sel=$('sizes').querySelector('[aria-pressed="true"]');
+    $('s-size').textContent = br ? sel.dataset.id.replace('_',' ') : sel.dataset.id;
+  }
+  paintSizes(); paintPresets(); render();
+</script>
