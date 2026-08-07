@@ -147,6 +147,16 @@
   .cold .dot{background:transparent;border:1px solid var(--text-3)}
   .size.cold{opacity:.62}
   .size.cold .pop{color:var(--text-3);font-style:italic}
+  /* NOT OPEN is not QUIET. No map backs this queue yet, so it is shown and disabled rather than
+     offered — a reader should see the whole designed ladder and which of it has actually shipped. */
+  .size.unopened{opacity:.42;cursor:not-allowed;border-style:dashed}
+  .size.unopened .pop{color:var(--text-3);font-style:italic;letter-spacing:.04em}
+  .unopened .dot{background:transparent;border:1px solid var(--text-3);opacity:.5}
+  /* UNKNOWN is not COLD. Cold is a fact about the queue; unknown is a fact about us. A dashed ring says
+     "we could not find out" without borrowing the empty-band styling and implying nobody is there. */
+  .unknown .dot{background:transparent;border:1px dashed var(--text-3)}
+  .size.unknown{border-style:dashed}
+  .size.unknown .pop{color:var(--text-3);font-style:italic}
 
   /* ── RIGHT RAIL ────────────────────────────────────────────────────────── */
   .rail{display:flex;flex-direction:column;gap:14px}
@@ -278,7 +288,7 @@
           <div class="srow"><span class="k">Venue</span><span class="v" id="s-venue">Arena · assigned</span></div>
           <div class="srow"><span class="k">Size</span><span class="v" id="s-size">3v3</span></div>
         </div>
-        <button class="queue">Find match</button>
+        <button class="queue" id="go">Find match</button>
         <div class="wait">~10s at this size · bots fill remaining seats</div>
       </div>
     </div>
@@ -367,26 +377,88 @@
 </div>
 
 <script>
+
+  // ══ POPULATION — read from GET /population ═══════════════════════════════════════════════════════════
+  //
+  // ⚠ NOTHING ON THIS SCREEN IS INVENTED. Every count, wait and state below is read off the response; the
+  // server classifies and the client renders. §5's thresholds are a policy decision, and a threshold two
+  // surfaces disagree about is a threshold that means nothing.
+  //
+  // The dev database is SEEDED (Bag_Man_Backend `npm run seed:population`) rather than left empty, because a
+  // mockup drawn against an empty table cannot show what a busy queue, a thin one and a dead one look like
+  // side by side. The seed is a simulated arrival process, so its counts and its waits come from one run and
+  // cannot contradict each other.
+  //
+  // The fetch below is the real one and works anywhere the endpoint is reachable. Inside the artifact sandbox
+  // it cannot be — external hosts are blocked — so the fallback is a CAPTURE of an actual response, taken at
+  // the timestamp below, and the banner says which one you are looking at.
+  const POPULATION_URL = 'https://1xm466mdc5.execute-api.us-east-1.amazonaws.com/population';
+  const CAPTURED_AT = '2026-08-07T22:40:12.308Z';
+  const CAPTURE = {"cells":[{"queueId":"LeaguePlay_Haywire_MatchPlay_Arena_3v3","bracket":"3v3","slots":6,"playersMatching":5,"estimatedWaitSeconds":20,"state":"warm","bands":[]},{"queueId":"LeaguePlay_Haywire_MatchPlay_Arena_5v5","bracket":"5v5","slots":10,"playersMatching":5,"estimatedWaitSeconds":27,"state":"warm","bands":[]},{"queueId":"LeaguePlay_Haywire_MatchPlay_Arena_8v8","bracket":"8v8","slots":16,"playersMatching":12,"estimatedWaitSeconds":39,"state":"warm","bands":[]},{"queueId":"LeaguePlay_ProMod_MatchPlay_Arena_3v3","bracket":"3v3","slots":6,"playersMatching":2,"estimatedWaitSeconds":24,"state":"warm","bands":[]},{"queueId":"LeaguePlay_ProMod_MatchPlay_Arena_5v5","bracket":"5v5","slots":10,"playersMatching":4,"estimatedWaitSeconds":38,"state":"warm","bands":[]},{"queueId":"LeaguePlay_ProMod_MatchPlay_Arena_8v8","bracket":"8v8","slots":16,"playersMatching":9,"estimatedWaitSeconds":null,"state":"warm","bands":[]},{"queueId":"WattsPlay_ProMod_MatchPlay_Arena_3v3","bracket":"3v3","slots":6,"playersMatching":26,"estimatedWaitSeconds":38,"state":"live","bands":[{"centre":250,"waiting":17,"state":"live"},{"centre":1000,"waiting":7,"state":"live"},{"centre":5000,"waiting":1,"state":"warm"},{"centre":25000,"waiting":1,"state":"warm"}]},{"queueId":"WattsPlay_ProMod_MatchPlay_Arena_5v5","bracket":"5v5","slots":10,"playersMatching":22,"estimatedWaitSeconds":null,"state":"live","bands":[{"centre":250,"waiting":10,"state":"live"},{"centre":1000,"waiting":8,"state":"warm"},{"centre":5000,"waiting":3,"state":"warm"},{"centre":25000,"waiting":1,"state":"warm"}]},{"queueId":"WattsPlay_ProMod_MatchPlay_Arena_8v8","bracket":"8v8","slots":16,"playersMatching":4,"estimatedWaitSeconds":null,"state":"warm","bands":[{"centre":250,"waiting":1,"state":"warm"},{"centre":1000,"waiting":3,"state":"warm"},{"centre":5000,"waiting":0,"state":"cold"},{"centre":25000,"waiting":0,"state":"cold"}]},{"queueId":"VoltsPlay_ProMod_MatchPlay_Arena_3v3","bracket":"3v3","slots":6,"playersMatching":12,"estimatedWaitSeconds":null,"state":"live","bands":[{"centre":100,"waiting":6,"state":"live"},{"centre":500,"waiting":4,"state":"warm"},{"centre":2500,"waiting":1,"state":"warm"},{"centre":10000,"waiting":1,"state":"warm"}]},{"queueId":"VoltsPlay_ProMod_MatchPlay_Arena_5v5","bracket":"5v5","slots":10,"playersMatching":5,"estimatedWaitSeconds":null,"state":"warm","bands":[{"centre":100,"waiting":3,"state":"warm"},{"centre":500,"waiting":1,"state":"warm"},{"centre":2500,"waiting":1,"state":"warm"},{"centre":10000,"waiting":0,"state":"cold"}]},{"queueId":"VoltsPlay_ProMod_MatchPlay_Arena_8v8","bracket":"8v8","slots":16,"playersMatching":1,"estimatedWaitSeconds":null,"state":"warm","bands":[{"centre":100,"waiting":1,"state":"warm"},{"centre":500,"waiting":0,"state":"cold"},{"centre":2500,"waiting":0,"state":"cold"},{"centre":10000,"waiting":0,"state":"cold"}]}],"summary":{"publishedCells":12,"reporting":12,"unknownCells":0,"generatedAt":"2026-08-07T22:40:12.308Z","countBasis":"players currently queued \u2014 rows are written on ticket creation and removed when /allocate places their match","waitBasis":"median of the last 20 OBSERVED ticket-to-match times per cell; null until a match has formed there"}};
+
+  async function loadPopulation() {
+    try {
+      const r = await fetch(POPULATION_URL, { cache: 'no-store' });
+      if (!r.ok) throw new Error('http ' + r.status);
+      return { live: true, data: await r.json() };
+    } catch (err) {
+      return { live: false, data: CAPTURE, reason: String(err && err.message || err) };
+    }
+  }
+
+  /** Find a cell by the axis selection. queueId = tier_league_ruleset_venue_bracket. */
+  function cellFor(pop, tier, league, ruleset, venue, bracket) {
+    const id = [tier, league, ruleset, venue, bracket].join('_');
+    return (pop.cells || []).find((c) => c.queueId === id) || null;
+  }
+
+  /** One population line, rendered from the SERVER's state. Three absences, three readings. */
+  function popLine(cell) {
+    if (!cell) return { cls: 'unopened', text: 'Not open yet', open: false };
+    if (cell.state === 'unknown') return { cls: 'unknown', text: 'Count unavailable', open: true };
+    if (cell.state === 'cold') return { cls: 'cold', text: 'Quiet · no estimate', open: true };
+    const n = cell.playersMatching.toLocaleString('en-US');
+    const w = cell.estimatedWaitSeconds === null ? 'no match formed here yet'
+            : '~' + (cell.estimatedWaitSeconds >= 60
+                ? Math.round(cell.estimatedWaitSeconds / 60) + 'm'
+                : cell.estimatedWaitSeconds + 's');
+    return { cls: cell.state, text: n + ' waiting · ' + w, open: true };
+  }
   // R99 — BATTLE ROYALE FIELD LAW. BR positions ARE the field size.
   // NOTE: paid-place counts belong to STAKED play. League Play has no pot, so the
   // league card shows field size and population only -- quoting "3 paid" here would
   // describe a settlement that never happens on this door.
   const BRACKETS={
-    MatchPlay:[
-      {id:'1v1',pop:212, w:'~20s',   s:'live'},
-      {id:'2v2',pop:486, w:'~15s',   s:'live'},
-      {id:'3v3',pop:1204,w:'~10s',   s:'live'},
-      {id:'4v4',pop:97,  w:'~55s',   s:'warm'},
-      {id:'5v5',pop:640, w:'~18s',   s:'live'},
-      {id:'8v8',pop:0,   w:null,     s:'cold'}],
-    BattleRoyale:[
-      {id:'BR_9', n:9,  pop:704,w:'~15s', s:'live'},
-      {id:'BR_20',n:20, pop:431,w:'~30s', s:'live'},
-      {id:'BR_36',n:36, pop:188,w:'~1m',  s:'warm'}]
+    MatchPlay:[{id:'1v1'},{id:'2v2'},{id:'3v3'},{id:'4v4'},{id:'5v5'},{id:'8v8'}],
+    BattleRoyale:[{id:'BR_9',n:9},{id:'BR_20',n:20},{id:'BR_36',n:36}]
   };
   let ruleset='MatchPlay';
+  let league='Haywire';
+  let venue='Arena';
+  let POP = { live:false, data:CAPTURE };
+  // Selection survives a repaint — population arriving late must not move what the player picked.
+  const sizeSel = { MatchPlay:'3v3', BattleRoyale:'BR_9' };
   const $=id=>document.getElementById(id);
   const fmt=n=>n.toLocaleString('en-US');
+  /** This door is LeaguePlay, always. The league axis is a QUEUE DIMENSION here (R86) and the only
+   *  door where it is a choice at all. */
+  const cellAt=(rs,br)=>cellFor(POP.data,'LeaguePlay',league,rs,venue,br);
+
+  /** Every designed bracket, each tagged with whether a queue actually stands behind it. R63: publication is
+   *  gated on a map pool, so a bracket with no map is NOT OPEN -- a different thing from empty and a
+   *  different thing from unmeasured. The tile says so instead of disappearing, because a reader of this
+   *  screen should be able to see the whole ladder and which of it has shipped. */
+  function offered(rs){
+    return BRACKETS[rs].map((b) => ({ ...b, cell: cellAt(rs, b.id) }));
+  }
+  /** Keep the selection on a bracket a player can actually enter. */
+  function ensureSel(rs){
+    const open = offered(rs).filter((b) => b.cell !== null);
+    if (!open.length) return null;
+    if (!open.some((b) => b.id === sizeSel[rs])) sizeSel[rs] = open[0].id;
+    return sizeSel[rs];
+  }
+
 
   function paintSizes(){
     const br = ruleset==='BattleRoyale';
@@ -396,14 +468,19 @@
       : 'Live counts — quiet bands are shown, not hidden';
     $('sizes').style.gridTemplateColumns = br
       ? 'repeat(auto-fit,minmax(180px,1fr))' : 'repeat(auto-fit,minmax(126px,1fr))';
-    $('sizes').innerHTML = BRACKETS[ruleset].map((b,i)=>{
-      const cold=b.s==='cold';
-      return `<button class="size ${b.s}" aria-pressed="${i===(br?0:2)}" data-id="${b.id}">
+    const sel = ensureSel(ruleset);
+    $('sizes').innerHTML = offered(ruleset).map((b)=>{
+      // The SERVER classified this cell; the tile only renders it. §5's thresholds are a policy decision,
+      // and a threshold two surfaces disagree about is a threshold that means nothing.
+      const line = popLine(b.cell);
+      return `<button class="size ${line.cls}" aria-pressed="${b.id===sel}" ${line.open?'':'disabled aria-disabled="true"'} data-id="${b.id}">
         <div class="n">${br?b.id.replace('BR_',''):b.id}</div>
         ${br?`<div class="pop" style="margin-top:3px;color:rgba(255,255,255,.62)">${b.n} players</div>`:''}
-        <div class="pop"><span class="dot"></span>${cold?'Quiet · no estimate':fmt(b.pop)+' waiting · '+b.w}</div>
+        <div class="pop"><span class="dot"></span>${line.text}</div>
       </button>`;
     }).join('');
+    $('s-size').textContent = sel === null ? 'none open yet' : sel.replace('_',' ');
+    $('go').disabled = sel === null;
   }
 
   document.querySelectorAll('.seg,.sizes').forEach(g=>{
@@ -415,14 +492,34 @@
       const label=b.querySelector('.b')?b.querySelector('.b').textContent:b.querySelector('.n').textContent;
       if(axis==='ruleset'){
         ruleset = label==='Battle Royale' ? 'BattleRoyale' : 'MatchPlay';
-        $('s-ruleset').textContent=label; paintSizes();
-        $('s-size').textContent = BRACKETS[ruleset][ruleset==='BattleRoyale'?0:2].id.replace('_',' ');
-        return;
+        $('s-ruleset').textContent=label; paintSizes(); return;
       }
-      if(axis==='size'){ $('s-size').textContent = b.dataset.id.replace('_',' '); return; }
-      const t={league:'s-league',venue:'s-venue'}[axis];
-      if(t)document.getElementById(t).textContent = axis==='venue' ? label+' · assigned' : label;
+      if(axis==='size'){ sizeSel[ruleset]=b.dataset.id; $('s-size').textContent=b.dataset.id.replace('_',' '); return; }
+      // League and venue are BOTH queue dimensions (matchmaking §4.2) — Haywire 3v3 Arena and Pro Mod 3v3
+      // Map are different pools with different populations, so the counts must follow the selection.
+      // The BUTTON says "Pro Mod"; the QUEUE says `ProMod`. Mapping the label to the id is not cosmetic —
+      // without it every Pro Mod lookup silently misses and the whole league reads as unopened.
+      if(axis==='league'){
+        league = label==='Pro Mod' ? 'ProMod' : 'Haywire';
+        $('s-league').textContent=label; paintSizes(); return;
+      }
+      if(axis==='venue'){ venue = label; $('s-venue').textContent=label+' · assigned'; paintSizes(); return; }
     });
   });
   paintSizes();
+
+  // Attempt the REAL endpoint. It cannot succeed inside the artifact sandbox (external hosts are blocked),
+  // so the banner names the source and timestamps it — a capture is a real reading that has aged, and the
+  // reader is entitled to know which of the two they are looking at.
+  loadPopulation().then(function (res) {
+    POP = res.live ? res : { live:false, data: CAPTURE };
+    var el = document.createElement('div');
+    el.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:9;padding:8px 13px;border-radius:10px;'
+      + 'background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(28px);'
+      + 'font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.7)';
+    el.textContent = res.live ? 'population: LIVE — GET /population'
+      : 'population: captured from GET /population at ' + CAPTURED_AT + ' — live fetch blocked here';
+    document.body.appendChild(el);
+    paintSizes();
+  });
 </script>

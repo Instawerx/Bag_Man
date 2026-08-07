@@ -51,13 +51,52 @@ information a player has to parse quickly.
 
 Counts and estimated waits render **per size band**, on the band tile itself.
 
-| Band state | Dot | Tile | Label |
-|---|---|---|---|
-| **Live** | filled, Electric, **pulsing** (2.4s) | full opacity | `1,204 waiting · ~10s` |
-| **Warm** | filled, tertiary blue, **no pulse** | full opacity | `97 waiting · ~55s` |
-| **Cold** | **hollow ring**, no glow, no pulse | **62% opacity** | *`Quiet · no estimate`* (italic) |
+### 3.1 WHERE THE NUMBERS COME FROM
 
-**Three properties, all load-bearing:**
+**`GET /population`, and nothing else. The server classifies; the door renders.**
+
+The response carries a `state` per cell and per stake band. The door **never re-derives it** — §5's
+thresholds are a policy decision, and a threshold two surfaces disagree about is a threshold that means
+nothing. A door that computed its own `cold` would eventually disagree with the queue it is describing.
+
+**The dev database is seeded, not empty** (`Bag_Man_Backend` → `npm run seed:population`). A mockup drawn
+against an empty table cannot show a busy queue, a thin one and a dead one side by side, and the alternative
+— hand-written numbers on the one surface whose entire job is honesty about population — is the exact
+failure §5 exists to prevent. The seeder simulates an arrival process rather than listing figures, so a
+cell's count and its wait come from **one run** and cannot contradict each other.
+
+> ⚠ **Why that matters, concretely.** An earlier draft of this table carried `1,204 waiting · ~10s`. Those
+> two numbers cannot both be true: at a 10-second median wait a 3v3 queue turns over its entire standing
+> population every ten seconds, so 1,204 people standing would mean roughly 120 matches per second in one
+> bracket. Hand-written pairs drift into impossibility precisely because nothing forces them to agree.
+
+### 3.2 THE FIVE READINGS
+
+Every example below is an **actual reading** from the seeded endpoint, not an illustration.
+
+| Reading | Dot | Tile | Label | Means |
+|---|---|---|---|---|
+| **Live** | filled, Electric, **pulsing** (2.4s) | full opacity | `26 waiting · ~38s` | enough standing to fill a field |
+| **Warm** | filled, tertiary blue, **no pulse** | full opacity | `5 waiting · ~20s` | fewer standing than one match needs |
+| **No match yet** | as its state | as its state | `9 waiting · no match formed here yet` | people are queued; nothing has **ever** matched here |
+| **Cold** | **hollow ring**, no glow, no pulse | **62% opacity** | *`Quiet · no estimate`* | the queue exists and is empty |
+| **Not open** | hollow ring, 50% | **42% opacity, dashed border, not selectable** | *`Not open yet`* | **no map backs this queue** (R63) |
+
+Plus **`Count unavailable`** (dashed ring) when the endpoint published the cell but could not count it.
+
+**Three absences, three readings, and they must never collapse into each other:**
+
+| | What it is a fact about |
+|---|---|
+| **Not open** | the **content**. No map ships for this cell, so it is not a queue yet. |
+| **Cold** | the **queue**. It exists, anyone may enter, nobody has. |
+| **Count unavailable** | **us**. The queue exists and we failed to read it. |
+
+**An unopened bracket is still drawn.** It is disabled rather than hidden, because the whole designed ladder
+is information: a player — and a reader of this spec — should be able to see what the game intends to offer
+and which of it has actually shipped. Hiding it would be honest but mute.
+
+### 3.3 THE PROPERTIES THAT ARE LOAD-BEARING
 
 - **Per band, never aggregate only.** §5.2: *"A healthy total conceals a dead band, and the dead band is
   exactly the one a player needs warning about."*
@@ -69,6 +108,35 @@ Counts and estimated waits render **per size band**, on the band tile itself.
 
 This is *"the cheapest fragmentation mitigation available"* and **purely a rendering decision** — it needs
 no matchmaking change (§5.1).
+
+### 3.4 ⚠ FLAGGED FOR RULING — `classify()` READS OCCUPANCY, NOT HEALTH
+
+Seeding the database surfaced a defect in §5's classification policy that argument alone had not.
+
+`classify(waiting, slots)` calls a cell **live** when `waiting >= slots` and **warm** ("can't fill one
+match") below that. But a matchmaker that pairs greedily removes `floor(waiting / slots)` full fields every
+pass, so **the residue after any pass is always strictly less than `slots`, by construction.** Observing
+`waiting >= slots` therefore means you looked *between* passes — it measures where in the matchmaking cycle
+the read landed, not whether the queue is healthy.
+
+The consequence is not theoretical. In the seeded set, all three of these read **`warm`**:
+
+| Cell | Reading | Actually |
+|---|---|---|
+| `LeaguePlay_Haywire_MatchPlay_Arena_3v3` | `5 waiting · ~20s` | the busiest queue in the game |
+| `LeaguePlay_Haywire_MatchPlay_Arena_8v8` | `12 waiting · ~39s` | healthy, slower |
+| `LeaguePlay_ProMod_MatchPlay_Arena_8v8` | `9 waiting · no match formed here yet` | **dead — nothing has ever matched here** |
+
+It bites League Play hardest, which is the majority side (R98) and the only unrated tier — an unrated queue
+pairs any `slots` players, so it drains most completely and can essentially never show `live`.
+
+**The honest signal is the observed wait, not the standing count.** A queue with two people in it and a
+10-second median is thriving; one with nine and no match on record is dead. Both facts are already in the
+response — `estimatedWaitSeconds` is measured, per cell, by the `/allocate` hook.
+
+**Recommended:** classify on the wait where one exists, and fall back to the count only where it does not.
+Left as a ruling rather than applied, because §5's thresholds are policy and this changes what every
+population dot in the game means.
 
 ---
 
@@ -128,7 +196,15 @@ different languages.
 
 - **All bands cold:** every size still renders with honest counts, and **Find match stays enabled**. Waiting
   deliberately is a different experience from waiting silently.
-- **Population unavailable:** dots go neutral, counts read `—`. **Never fabricate a number here.**
+- **Population unavailable:** dots go neutral (dashed ring), counts read `Count unavailable`. **Never
+  fabricate a number here**, and never render it as `0` — "we could not find out" and "nobody is there" are
+  opposite claims.
+- **Nothing in the ruleset is open:** distinct from all-cold. Every bracket renders **Not open yet**,
+  disabled, and **Find match is disabled** — there is no queue to enter, so an enabled button would be an
+  offer the game cannot honour. This is the live state of **Battle Royale on both doors today**.
+- **Selection lands on a bracket that closes:** the selection moves to the first bracket that is still open,
+  and to `none open yet` if there is none. Population arriving after first paint must never silently move
+  what the player picked.
 - **Battle Royale selected:** the axis re-labels to **FIELD** and renders `BR_9` · `BR_20` · `BR_36` (R99). MatchPlay team brackets never carry over — they are a different position model (2 positions regardless of team size).
 - **Bots (R87):** *"bots fill remaining seats"* is stated up front, not discovered mid-match. Bots are a
   **LEAGUE PLAY feature** and must never appear on the staked side (`ai-bots` §6.3).
@@ -139,6 +215,9 @@ different languages.
 ---
 
 ## 8. OWED
+
+0. **⚠ RULING OWED — `classify()` reads occupancy, not health.** §3.4 above. It changes what every
+   population dot in the game means, so it is not applied unilaterally.
 
 1. **Type ramp unapproved** (style SSOT OPEN ITEM 1). The tube stroke widths are tuned to a condensed
    grotesque — a different shipping face requires re-tuning them.

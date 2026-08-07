@@ -85,6 +85,29 @@ to **field shape** rather than stake band: the structure is chosen knowingly, ne
 **each stake preset carries the population of that band**. A rung nobody is playing shows cold — hollow dot,
 62% opacity, italic — and **stays selectable**.
 
+**Both halves read the SAME cell of the SAME response.** The size grid and the stake ladder are two views of
+one queue, so they are looked up once and rendered twice; they cannot disagree about how busy the queue the
+player is about to put a balance into actually is. The **Find match** estimate reads that cell too — it is
+the last number a player sees before committing, and §5.2 applies hardest there.
+
+**The four-state model, the three kinds of absence, and the source of the numbers are specified once in
+[`IRONICS_LEAGUE_DOOR_SPEC.md`](IRONICS_LEAGUE_DOOR_SPEC.md) §3 and apply identically here.** Including
+§3.4's flagged defect in `classify()`, which this door inherits.
+
+### 5.1 WHAT IS DIFFERENT ON THIS DOOR
+
+- **Bands exist here and do not exist on the league door.** `stakeRungs('LeaguePlay')` returns `[]`, so a
+  league cell carries an empty `bands` array — which is *not* the same as bands that are empty, and the two
+  must not render alike.
+- **A staked queue divides further than a league one.** Staked play is **rated** (R85/R87), so beyond the
+  stake band the pool splits again by skill. Two players at the same rung still may not pair. The practical
+  effect, visible in the seeded set: **staked cells stand deeper and match slower than league cells at the
+  same popularity**, and the thinnest combinations — top rung, largest field, Volts — may show people
+  waiting with no match ever recorded.
+- **That is a real product warning, not a rendering artifact.** A rung × rating × field combination can be
+  arithmetically unable to fill inside the 120s give-up. It is surfaced rather than smoothed, which is the
+  whole point of §5.
+
 ---
 
 ## 6. BALANCE, ESCROW, AND THE GUARD
@@ -123,12 +146,19 @@ match → wallet. **B / Esc returns to the home screen.** Hover and focus are vi
 
 ## 8. OWED
 
-1. **Population endpoint does not exist** — 13 backend lambdas, none serves queue health. Doubled here,
-   because §5 wants per-band as well as per-size.
+1. ~~Population endpoint does not exist~~ — **DONE.** `GET /population` is deployed and serves per-cell
+   **and** per-band counts and measured waits. Both doors read it live.
 2. **`UIDisplay.NeonTube`** — style SSOT OPEN ITEM 5, still derived.
 3. **Type ramp** — OPEN ITEM 1, still unapproved.
 4. **BR squad variant.** R92 provides for squads holding positions; whether staked BR ships solo-only or
    both is unspecified. R99's floor applies to **squads** if squads are used.
+5. **⚠ RULING OWED — `classify()` reads occupancy, not health.** See league spec §3.4. Inherited by this
+   door, and worse here: a rated, stake-banded queue divides the pool twice more.
+6. **⚠ RULING OWED — no queue on this door has a map yet beyond 3v3 / 5v5 / 8v8 Arena Match Play.** The
+   endpoint publishes **12 of 72** registry cells. Every Battle Royale bracket and the entire Map venue
+   class render **Not open yet**, which is accurate — R63 gates publication on a map pool, and neither
+   ShantyTown (design-only) nor L_Expanse (wash in progress) has shipped. Nothing to fix in the UI; the
+   content decides when these open.
 
 ---
 
