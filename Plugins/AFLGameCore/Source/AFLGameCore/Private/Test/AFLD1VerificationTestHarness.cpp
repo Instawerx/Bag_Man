@@ -20,6 +20,7 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerStart.h"
 #include "HAL/IConsoleManager.h"
+#include "TimerManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Player/LyraPlayerStart.h"
 #include "WorldPartition/DataLayer/DataLayerAsset.h"
@@ -30,6 +31,11 @@
 namespace
 {
 	TWeakObjectPtr<UAFLD1VerificationTestHarness> GLiveD1VerifyRun;
+
+	// Entry-point wait for a player character -- see RunInWorld.
+	FTimerHandle GPawnWaitTimer;
+	double       GPawnWaitDeadline = 0.0;
+	const double kPawnWaitTimeout  = 30.0;
 
 	const TCHAR* kDistrictLayer = TEXT("/Game/Maps/DataLayers/L_ShantyTown/District_Duel.District_Duel");
 
@@ -170,6 +176,46 @@ void UAFLD1VerificationTestHarness::RunInWorld(UWorld* World, const FVector& InS
 		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_TEST ABORT -- a D1.Verify run is already live. Stop PIE and retry."));
 		return;
 	}
+	// WAIT FOR THE PAWN rather than abort on its absence.
+	//
+	// Driven from PIE by hand there is always a player character by the time the command is typed. Driven
+	// from -ExecCmds there is never one: that fires at frame 0, before the world has spawned anybody, so the
+	// harness aborted instantly and could not be run headlessly at all. That is a START-UP ORDERING fact,
+	// not a misconfiguration -- so it is waited on here, at the entry point, while StartRun's own check
+	// stays strict for every other caller.
+	//
+	// Bounded, and the bound is a real failure: past it there genuinely is no pawn and the run is refused.
+	if (World && World->IsGameWorld() && UGameplayStatics::GetPlayerCharacter(World, 0) == nullptr)
+	{
+		if (GPawnWaitDeadline <= 0.0)
+		{
+			GPawnWaitDeadline = World->GetTimeSeconds() + kPawnWaitTimeout;
+			UE_LOG(LogAFLGameCore, Display,
+				TEXT("AFL_TEST -- no player character yet; waiting up to %.0fs for one (expected when driven "
+				     "from -ExecCmds, which fires at frame 0)."), kPawnWaitTimeout);
+		}
+		else if (World->GetTimeSeconds() >= GPawnWaitDeadline)
+		{
+			GPawnWaitDeadline = 0.0;
+			UE_LOG(LogAFLGameCore, Error,
+				TEXT("AFL_TEST ABORT -- no player character after %.0fs."), kPawnWaitTimeout);
+			return;
+		}
+
+		const FVector Seed = InSeedLocation;
+		TWeakObjectPtr<UWorld> WeakWorld(World);
+		World->GetTimerManager().SetTimer(GPawnWaitTimer, FTimerDelegate::CreateLambda(
+			[WeakWorld, Seed]()
+			{
+				if (UWorld* W = WeakWorld.Get())
+				{
+					UAFLD1VerificationTestHarness::RunInWorld(W, Seed);
+				}
+			}), 0.5f, /*bLoop=*/false);
+		return;
+	}
+	GPawnWaitDeadline = 0.0;
+
 	UAFLD1VerificationTestHarness* H = NewObject<UAFLD1VerificationTestHarness>();
 	if (H->StartRun(World, InSeedLocation))
 	{
