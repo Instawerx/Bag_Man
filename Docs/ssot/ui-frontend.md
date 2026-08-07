@@ -26,9 +26,15 @@ save contains (→ `ssot/character-system.md`), or the state of any surface (→
 
 ## 2. THE FRONT END IS A STAKE LOBBY, NOT A MAP BROWSER
 
-> **The player chooses two things: MATCH SIZE and STAKE AMOUNT. Venue is a server outcome.**
+> **⚠ THIS SECTION DESCRIBES THE STAKED QUEUE SURFACE ONLY — SCOPED BY R98 (§3.2).**
+> **The home screen splits LEAGUE PLAY from STAKED PLAY before any lobby is shown.** A LEAGUE PLAY player
+> never reaches a stake control, because there is no stake to pick: league matches are played for **loot and
+> Watts**. "Stake lobby" names ONE surface, not the front end.
 
-This is the doc's organising decision, and every layout choice below follows from it.
+> **On the STAKED path the player chooses MATCH SIZE and STAKE AMOUNT. Venue is a server outcome.**
+
+This is the organising decision **for that surface**, and every layout choice below follows from it. The
+LEAGUE PLAY surface is a different product with a different purpose and does not inherit it.
 
 ### 2.1 Why these two axes and not others
 
@@ -85,7 +91,33 @@ loop: play a match, come back, adjust, go again. Against that loop:
 **The general rule:** *step a flow only when the steps are genuinely sequential.* Size and stake are
 independent; presenting them sequentially adds an ordering that does not exist in the decision.
 
-### 3.2 TIER is the FIRST choice; ruleset is the second
+### 3.2 THE SPLIT IS THE HOME SCREEN — LEAGUE PLAY | STAKED PLAY (R98)
+
+> **THE FIRST DECISION IS MADE BEFORE ANY LOBBY EXISTS.** The home screen offers exactly two doors:
+> **LEAGUE PLAY** and **STAKED PLAY**. They are two products for two purposes, and they do not share a
+> surface, a control set, or a mental model. Inside STAKED PLAY the player then picks the denomination
+> (Watts or Volts); inside LEAGUE PLAY that question is never asked because it does not exist there.
+>
+> **A LEAGUE PLAY PLAYER NEVER PICKS A STAKE AMOUNT.** League matches are played for **loot and Watts**.
+> That is not a smaller version of staking — it is the opposite direction of the same economy: **LEAGUE PLAY
+> is where Watts are earned, STAKED PLAY is where Watts are risked.** A surface that asks a league player
+> for a buy-in has misread which half of the loop they are in.
+>
+> **Most players are on the free side, and the split is what protects them.** Not everyone stakes; the league
+> population is the community and the growth path. Routing them through a lobby built around a wager — even
+> one where the stake control is hidden — builds the wrong product for the majority of the player base.
+>
+> **What this supersedes.** R84 read "TIER is the first choice **in the lobby**", which put all three tiers in
+> one shared surface and produced the control-count problem §3.2.1 kept re-opening. There is no shared lobby
+> to order controls within: **the tiers were never siblings.** LEAGUE PLAY is one door; WATTS and VOLTS are
+> two denominations behind the other.
+>
+> **Unchanged: the queue math.** `ssot/matchmaking.md` §4.2's **(tier × league) pairs** are exactly as they
+> were, and the registry's published cells do not move. This ruling is **navigation and surface architecture**,
+> not queue structure — nothing about it re-cuts a single queue.
+
+**The material below is retained and now scoped to the STAKED path**, where the Watts/Volts denomination
+choice still sits above the ruleset tabs for the reason originally given.
 
 > **LEAGUE PLAY / WATTS PLAY / VOLTS PLAY sits ABOVE the ruleset tabs (R76, R85).** It is the first thing a
 > player picks, because it is the question with the largest consequence: *what am I playing for.* Everything
@@ -767,7 +799,8 @@ Three properties of the ticket:
 
 | Ruling | Date | Content |
 |---|---|---|
-| **R84 — TIER IS THE FIRST CHOICE IN THE LOBBY** ⚠ *widened by R85/R86* | **2026-08-06**, **amended 2026-08-06** | **LEAGUE PLAY / WATTS PLAY / VOLTS PLAY** sits **above** the ruleset tabs (§3.2) and rides the ticket (§13.2), because it is the question with the largest consequence and it scopes everything below it — including the stake presets, which are **different ladders** in the two staked tiers (R80, R88). Precedent is exact: every card room puts the play-money / real-money choice at the top and never mixes the lists. Placing it lower would let a player configure an entire entry and meet the denomination last, which is the one thing that must never surprise them about money. **AMENDED:** originally worded as a two-way CURRENCY choice; **R85** makes it a three-way TIER choice by adding unstaked LEAGUE PLAY. **The §3.2.1 defect this row recorded is now RESOLVED** — **R86** scopes league to LEAGUE PLAY, so the lobby renders every dimension that exists in the tier the player has chosen, and never shows more than three controls. |
+| **R98 — THE HOME SCREEN SPLITS LEAGUE PLAY FROM STAKED PLAY** ⚠ *supersedes R84's placement* | **2026-08-07** | **The first decision is made BEFORE any lobby exists: the home screen offers two doors, LEAGUE PLAY and STAKED PLAY** (§2, §3.2). They are two products for two purposes and share no surface, control set or mental model. The denomination choice (Watts / Volts) lives *inside* the staked door; it is never asked on the league side. **A LEAGUE PLAY PLAYER NEVER PICKS A STAKE AMOUNT — league matches are played for LOOT AND WATTS.** That is the other direction of the same loop: **league play is where Watts are EARNED, staked play is where Watts are RISKED**, so a surface that asks a league player for a buy-in has misread which half of the economy they are standing in. **Most players are on the free side**, and the split is what stops the majority of the population being routed through a wagering surface. **SUPERSEDES R84's PLACEMENT:** "tier is the first choice *in the lobby*" put three tiers in one shared surface and generated the control-count problem §3.2.1 kept re-opening — **the tiers were never siblings.** **NOT NEGOTIABLE (operator, 2026-08-07).** **UNCHANGED:** `ssot/matchmaking.md` §4.2's (tier × league) pairs and every published registry cell — this is navigation and surface architecture, not queue structure. |
+| **R84 — TIER IS THE FIRST CHOICE IN THE LOBBY** ⚠ *placement superseded by R98* | **2026-08-06**, **amended 2026-08-06** | **LEAGUE PLAY / WATTS PLAY / VOLTS PLAY** sits **above** the ruleset tabs (§3.2) and rides the ticket (§13.2), because it is the question with the largest consequence and it scopes everything below it — including the stake presets, which are **different ladders** in the two staked tiers (R80, R88). Precedent is exact: every card room puts the play-money / real-money choice at the top and never mixes the lists. Placing it lower would let a player configure an entire entry and meet the denomination last, which is the one thing that must never surprise them about money. **AMENDED:** originally worded as a two-way CURRENCY choice; **R85** makes it a three-way TIER choice by adding unstaked LEAGUE PLAY. **The §3.2.1 defect this row recorded is now RESOLVED** — **R86** scopes league to LEAGUE PLAY, so the lobby renders every dimension that exists in the tier the player has chosen, and never shows more than three controls. |
 | **R75 — THE GAME FRONT END IS COMMONUI/UMG; NO WEB-TECH UI RUNTIME** | **2026-08-06** | No Gameface, no RmlUi, no CEF, no embedded HTML UI in the game client (§12.0). **Declined on two grounds.** (a) **The reuse argument does not hold:** §10's style system is delivered through `box-shadow`, `text-shadow`, `backdrop-filter` and CSS grid — the exact properties an in-engine CSS runtime tells you to avoid — and its prescribed replacements (baked glow textures, engine blur, flex/absolute) *are* the UMG idiom, so the design is more native to UMG than to the web runtime. (b) **A scripted UI layer is an attack surface on a client that settles wagers** — untrusted JS in-process calling native code, which is why such architectures ship validation gateways and fuzzers. **CommonUI has no scripting layer, so the boundary does not exist.** Also avoids a commercial dependency and the console focus/input bring-up. **Scope: the GAME client only.** Browser-side properties are unaffected; the two stacks share **only** the §10 design tokens, emitted from one source to CSS and to a UE data asset. |
 | **R18 — The front end is a stake lobby, not a map browser** | **2026-08-05** | The player chooses **match size** and **stake amount**. **Venue is a server outcome, disclosed as "venue assigned at match start"** (§2). The front end's axes and the matchmaker's queue dimensions are the same list; any axis the UI offers it must honour, per `ssot/matchmaking.md` **D1**. |
 | **R19 — Split layout, not a stepped flow** | **2026-08-05** | Both axes are live and editable at once; no wizard (§3). Staked players re-queue constantly and change one variable, usually stake — a stepped flow makes them re-walk the whole path every time. **Ruleset (MATCH PLAY / BATTLE ROYALE) is the top-level choice above both axes — two tabs, not a doubled flat list** (`ssot/matchmaking.md` **R7**). |

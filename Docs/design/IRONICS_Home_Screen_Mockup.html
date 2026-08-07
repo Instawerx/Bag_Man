@@ -1,0 +1,472 @@
+<title>IRONICS — Home Screen Split (R98)</title>
+
+<style>
+  :root{
+    /* ── LOCKED HOUSE TOKENS — IRONICS_UI_STYLE_SSOT.md §2.1 ─────────────── */
+    --house-electric:#1E5AFF;      /* PRIMARY / LEAD  — fill, active, selected */
+    --house-violet:#A855F7;        /* ACCENT — rim, edge-glow, focus, hover ONLY */
+    --house-black:#05080F;         /* DEPTH — panel backing, the dark neon reads against */
+    --house-white:#FFFFFF;         /* TEXT */
+    --house-neonblue:#00ADFF;      /* tertiary — inactive states */
+
+    /* ── GLASS (Apple-Glass, §3) ─────────────────────────────────────────── */
+    --glass-1:rgba(255,255,255,.12);
+    --glass-2:rgba(255,255,255,.08);
+    --glass-3:rgba(255,255,255,.05);
+    --glass-border:rgba(255,255,255,.20);
+    --glass-shadow:0 8px 32px rgba(0,0,0,.30);
+    --blur:28px;
+
+    --text-1:rgba(255,255,255,1);
+    --text-2:rgba(255,255,255,.70);
+    --text-3:rgba(255,255,255,.45);
+
+    --r-panel:20px;   /* §3 geometry: panel 16–24 */
+    --r-button:12px;
+    --r-input:8px;
+
+    --ease-out:cubic-bezier(.16,1,.3,1);
+    --ease-io:cubic-bezier(.65,0,.35,1);
+
+    --display:"Bahnschrift","DIN Alternate","Oswald","Segoe UI Semibold",system-ui,sans-serif;
+    --ui:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;
+    --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--house-black); color:var(--text-1);
+    font-family:var(--ui); -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+
+  /* ── THE WORLD BEHIND THE GLASS ───────────────────────────────────────────
+     §3 world grounding: emissive-driven, LOW-AMBIENT, neon at sightlines.
+     Deliberately dim — the glass must read bright against it, never the reverse. */
+  .world{position:fixed;inset:0;z-index:0;overflow:hidden;background:
+    radial-gradient(120% 90% at 50% 108%, rgba(30,90,255,.20), transparent 60%),
+    radial-gradient(80% 60% at 12% 0%, rgba(168,85,247,.10), transparent 55%),
+    var(--house-black);}
+  .world canvas{position:absolute;inset:0;width:100%;height:100%;opacity:.55}
+  .scanline{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.30;
+    background:repeating-linear-gradient(180deg,transparent 0 3px,rgba(0,0,0,.55) 3px 4px)}
+  .vignette{position:fixed;inset:0;z-index:1;pointer-events:none;
+    background:radial-gradient(130% 100% at 50% 45%,transparent 40%,rgba(0,0,0,.80) 100%)}
+
+  .stage{position:relative;z-index:2;min-height:100vh;display:flex;flex-direction:column;
+    padding:clamp(20px,3.2vw,48px) clamp(20px,4vw,72px);gap:clamp(18px,2.6vh,34px)}
+
+  /* ── TOP BAR ───────────────────────────────────────────────────────────── */
+  .top{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
+
+  .lockup{display:flex;align-items:center;gap:14px}
+  .wordmark{font-family:var(--display);font-size:clamp(26px,3vw,40px);font-weight:700;
+    letter-spacing:.30em;line-height:1;display:flex;align-items:center;gap:.06em;
+    text-transform:uppercase}
+  /* BLEND RULE, size-gated: this lockup is >=64px tall in shipping terms → RIM ON */
+  .wordmark .glyph{color:var(--house-white);
+    text-shadow:0 0 18px rgba(30,90,255,.75), 0 0 42px rgba(168,85,247,.45)}
+  .boltmark{width:.72em;height:1.02em;display:block;filter:drop-shadow(0 0 10px rgba(30,90,255,.9))}
+
+  .wallet{display:flex;gap:10px;align-items:center}
+  .chip{display:flex;align-items:center;gap:9px;padding:9px 15px;border-radius:var(--r-button);
+    background:var(--glass-2);border:1px solid var(--glass-border);
+    backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));
+    font-variant-numeric:tabular-nums;font-size:14px;letter-spacing:.04em}
+  .chip .amt{font-weight:700;font-family:var(--mono)}
+  .chip .lbl{color:var(--text-3);font-size:11px;letter-spacing:.16em;text-transform:uppercase}
+  /* Currency marks are CHROME (furniture), not identity — house tokens only, §10.2 */
+  .mark{width:15px;height:15px;flex:none}
+  .chip.add{cursor:pointer;color:var(--text-2)}
+  .chip.add:hover{border-color:var(--house-violet);color:var(--text-1)}
+
+  /* ── HEADLINE ──────────────────────────────────────────────────────────── */
+  .headline{text-align:center;margin-top:clamp(4px,1.5vh,18px)}
+  .kicker{font-size:11px;letter-spacing:.42em;text-transform:uppercase;color:var(--text-3)}
+  .headline h1{font-family:var(--display);font-weight:700;margin:.35em 0 0;
+    font-size:clamp(22px,2.6vw,34px);letter-spacing:.14em;text-transform:uppercase;
+    text-wrap:balance}
+
+  /* ── THE TWO DOORS — the split IS the composition ──────────────────────── */
+  .doors{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:clamp(16px,2vw,30px);
+    align-items:stretch;min-height:min(60vh,520px)}
+
+  .door{position:relative;border-radius:var(--r-panel);padding:clamp(22px,2.4vw,38px);
+    background:var(--glass-1);border:1px solid var(--glass-border);
+    backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));
+    box-shadow:var(--glass-shadow);
+    display:flex;flex-direction:column;justify-content:space-between;gap:22px;
+    cursor:pointer;overflow:hidden;isolation:isolate;
+    transition:transform .42s var(--ease-out),border-color .28s,box-shadow .42s,background .28s;
+    /* idle breathe — "panels breathe in/out", §3 motion is meaning */
+    animation:breathe 7.5s var(--ease-io) infinite}
+  .door:nth-child(2){animation-delay:-3.75s}
+  @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+
+  /* Primary-tinted glass: "background glass → Primary × ~0.12", §2.3 */
+  .door::before{content:"";position:absolute;inset:0;z-index:-1;
+    background:linear-gradient(165deg,rgba(30,90,255,.14),transparent 62%);
+    transition:opacity .32s;opacity:.85}
+  /* ARC-VIOLET RIM — accent lives on the EDGE only, never the fill (§2.1 LAW) */
+  .door::after{content:"";position:absolute;inset:-1px;border-radius:inherit;z-index:-1;
+    padding:1px;background:linear-gradient(150deg,var(--house-violet),transparent 45%,var(--house-electric));
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;mask-composite:exclude;
+    opacity:0;transition:opacity .3s}
+
+  .door:hover,.door:focus-visible,.door.is-focus{
+    transform:translateY(-12px) scale(1.012);
+    border-color:var(--house-electric);           /* Glass.Border → Electric when active */
+    box-shadow:0 18px 60px rgba(0,0,0,.5), 0 0 0 1px rgba(30,90,255,.35),
+               0 0 46px rgba(30,90,255,.28);
+    animation-play-state:paused;outline:none}
+  .door:hover::after,.door:focus-visible::after,.door.is-focus::after{opacity:1}
+  .door:active{transform:translateY(-6px) scale(.996)}
+
+  .door.is-disabled{opacity:.42;cursor:not-allowed;filter:grayscale(.65);
+    animation-play-state:paused;transform:none}
+  .door.is-disabled:hover{transform:none;border-color:var(--glass-border);box-shadow:var(--glass-shadow)}
+
+  .door-top{display:flex;flex-direction:column;gap:14px}
+  .badge{align-self:flex-start;font-size:10px;letter-spacing:.24em;text-transform:uppercase;
+    padding:6px 12px;border-radius:99px;background:var(--glass-3);
+    border:1px solid var(--glass-border);color:var(--text-2)}
+  .door h2{font-family:var(--display);font-size:clamp(30px,4.2vw,62px);margin:0;line-height:.94;
+    letter-spacing:.055em;text-transform:uppercase;font-weight:700}
+  .door .sub{color:var(--text-2);font-size:clamp(13px,1.05vw,15px);line-height:1.55;max-width:34ch}
+
+  .facts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+  .facts li{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-2)}
+  .facts .tick{width:5px;height:5px;border-radius:50%;background:var(--house-electric);flex:none;
+    box-shadow:0 0 8px var(--house-electric)}
+  .facts .off{background:transparent;border:1px solid var(--text-3);box-shadow:none}
+
+  .door-cta{display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding-top:18px;border-top:1px solid var(--glass-3)}
+  .earn{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3)}
+  .earn b{color:var(--house-white);font-weight:600}
+  .go{display:flex;align-items:center;gap:10px;font-family:var(--display);font-size:14px;
+    letter-spacing:.2em;text-transform:uppercase;color:var(--house-white)}
+  .go .arrow{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+    background:var(--house-electric);box-shadow:0 0 18px rgba(30,90,255,.7);
+    transition:transform .3s var(--ease-out)}
+  .door:hover .go .arrow{transform:translateX(5px)}
+
+  /* denominations — revealed inside the staked door, never on the league side */
+  .denoms{display:flex;gap:10px;margin-top:2px}
+  .denom{flex:1;padding:11px 13px;border-radius:var(--r-input);background:var(--glass-3);
+    border:1px solid var(--glass-border);display:flex;flex-direction:column;gap:3px}
+  .denom .n{font-family:var(--display);font-size:15px;letter-spacing:.12em}
+  .denom .d{font-size:10.5px;color:var(--text-3);letter-spacing:.05em}
+
+  /* ── FOOTER NAV ────────────────────────────────────────────────────────── */
+  .foot{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .navbtn{padding:11px 20px;border-radius:var(--r-button);background:var(--glass-2);
+    border:1px solid var(--glass-border);color:var(--text-2);font-size:12px;
+    letter-spacing:.16em;text-transform:uppercase;cursor:pointer;
+    backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));
+    transition:.24s}
+  .navbtn:hover{color:var(--text-1);border-color:var(--house-violet);
+    box-shadow:0 0 22px rgba(168,85,247,.28)}
+
+  /* ── ENTRY CHOREOGRAPHY ────────────────────────────────────────────────── */
+  .anim .top{animation:fadeDown .7s var(--ease-out) both .15s}
+  .anim .headline{animation:fadeDown .7s var(--ease-out) both .3s}
+  .anim .door:nth-child(1){animation:riseIn .9s var(--ease-out) both .45s,breathe 7.5s var(--ease-io) infinite 1.4s}
+  .anim .door:nth-child(2){animation:riseIn .9s var(--ease-out) both .6s,breathe 7.5s var(--ease-io) infinite -2.35s}
+  .anim .foot{animation:fadeDown .7s var(--ease-out) both .85s}
+  @keyframes fadeDown{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}
+  @keyframes riseIn{from{opacity:0;transform:translateY(56px) scale(.97)}to{opacity:1;transform:none}}
+
+  /* door-select: chosen expands, sibling recedes — "transitions reveal depth" */
+  .doors.selecting .door{pointer-events:none}
+  .doors.selecting .door.chosen{transform:scale(1.045);border-color:var(--house-electric);
+    box-shadow:0 0 90px rgba(30,90,255,.5);z-index:3}
+  .doors.selecting .door:not(.chosen){opacity:.12;transform:scale(.94);filter:blur(3px)}
+
+  /* ── SPEC BELOW THE FOLD ───────────────────────────────────────────────── */
+  .spec{position:relative;z-index:2;max-width:1180px;margin:0 auto;
+    padding:clamp(40px,6vw,88px) clamp(20px,4vw,40px) 96px}
+  .spec h2{font-family:var(--display);letter-spacing:.16em;text-transform:uppercase;
+    font-size:clamp(18px,2vw,25px);margin:56px 0 6px;padding-top:26px;
+    border-top:1px solid var(--glass-3)}
+  .spec h2:first-of-type{margin-top:0;border-top:none;padding-top:0}
+  .spec p{color:var(--text-2);line-height:1.68;max-width:74ch}
+  .spec .lede{font-size:16.5px;color:var(--text-1)}
+  .tablewrap{overflow-x:auto;margin:18px 0;border:1px solid var(--glass-3);
+    border-radius:var(--r-button)}
+  table{border-collapse:collapse;width:100%;min-width:600px;font-size:13.5px}
+  th,td{text-align:left;padding:11px 15px;border-bottom:1px solid var(--glass-3);
+    vertical-align:top}
+  th{background:var(--glass-3);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--text-2);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  td code,p code,li code{font-family:var(--mono);font-size:.9em;background:var(--glass-3);
+    padding:1px 6px;border-radius:5px;color:var(--house-neonblue)}
+  .swatch{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:7px;
+    vertical-align:-1px;border:1px solid rgba(255,255,255,.25)}
+  .law{border-left:2px solid var(--house-violet);background:rgba(168,85,247,.07);
+    padding:15px 20px;border-radius:0 var(--r-button) var(--r-button) 0;margin:20px 0}
+  .law b{color:var(--house-white)}
+  .spec ul{color:var(--text-2);line-height:1.7;max-width:74ch}
+
+  .controls{position:fixed;right:16px;bottom:16px;z-index:9;display:flex;gap:8px;
+    background:var(--glass-2);border:1px solid var(--glass-border);padding:8px;
+    border-radius:var(--r-button);backdrop-filter:blur(var(--blur))}
+  .controls button{font:inherit;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    background:transparent;border:1px solid var(--glass-border);color:var(--text-2);
+    padding:7px 12px;border-radius:8px;cursor:pointer}
+  .controls button:hover{color:var(--text-1);border-color:var(--house-electric)}
+
+  @media (max-width:860px){
+    .doors{grid-template-columns:1fr}
+    .door h2{font-size:clamp(28px,9vw,44px)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation-duration:.01ms!important;animation-iteration-count:1!important;
+      transition-duration:.01ms!important}
+  }
+</style>
+
+<div class="world"><canvas id="fx"></canvas></div>
+<div class="scanline"></div>
+<div class="vignette"></div>
+
+<div class="stage anim" id="stage">
+
+  <div class="top">
+    <div class="lockup">
+      <div class="wordmark">
+        <span class="glyph">
+          <svg class="boltmark" viewBox="0 0 24 34" aria-hidden="true">
+            <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#A855F7"/><stop offset=".5" stop-color="#1E5AFF"/>
+              <stop offset="1" stop-color="#1E5AFF"/></linearGradient></defs>
+            <path d="M14.5 0 2 19h7.5L8 34 22 13h-8L14.5 0Z" fill="url(#bg)"
+                  stroke="#fff" stroke-width=".8" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="glyph">RONICS</span>
+      </div>
+    </div>
+
+    <div class="wallet">
+      <div class="chip" title="Watts — earned through play">
+        <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" fill="#1E5AFF"/></svg>
+        <span class="amt">12,480</span><span class="lbl">Watts</span>
+      </div>
+      <div class="chip" title="Volts — purchased">
+        <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2 3 12l9 10 9-10-9-10Z" fill="none" stroke="#1E5AFF" stroke-width="2.2"/></svg>
+        <span class="amt">340</span><span class="lbl">Volts</span>
+      </div>
+      <div class="chip add" title="Get Volts">+</div>
+    </div>
+  </div>
+
+  <div class="headline">
+    <div class="kicker">Choose how you play</div>
+    <h1>Two ways into the arena</h1>
+  </div>
+
+  <div class="doors" id="doors">
+
+    <!-- ── DOOR 1 — LEAGUE PLAY ─────────────────────────────────────────── -->
+    <div class="door" tabindex="0" data-door="league" role="button" aria-label="League Play — free, play for loot and Watts">
+      <div class="door-top">
+        <span class="badge">Free to play</span>
+        <h2>League<br>Play</h2>
+        <p class="sub">Ranked ladders, open combat, and the whole community. Play for
+           <b>loot and Watts</b> — no buy-in, ever.</p>
+        <ul class="facts">
+          <li><span class="tick"></span> Haywire <b>and</b> Pro Mod</li>
+          <li><span class="tick"></span> Fills with bots — you always get a match</li>
+          <li><span class="tick off"></span> Unrated · no buy-in</li>
+        </ul>
+      </div>
+      <div class="door-cta">
+        <div class="earn">Earn <b>Watts</b> + <b>Loot</b></div>
+        <div class="go">Enter <span class="arrow">
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2 6h7M6 3l3 3-3 3" stroke="#fff" stroke-width="1.7" fill="none"
+                  stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DOOR 2 — STAKED PLAY ─────────────────────────────────────────── -->
+    <div class="door" tabindex="0" data-door="staked" role="button" aria-label="Staked Play — buy in with Watts or Volts">
+      <div class="door-top">
+        <span class="badge">Buy-in</span>
+        <h2>Staked<br>Play</h2>
+        <p class="sub">Rated competition for a stake. Pro Mod only, no bots, every result on
+           your record.</p>
+        <div class="denoms">
+          <div class="denom"><span class="n">WATTS</span><span class="d">Earned in League — bring your own</span></div>
+          <div class="denom"><span class="n">VOLTS</span><span class="d">Purchased · the serious ladder</span></div>
+        </div>
+      </div>
+      <div class="door-cta">
+        <div class="earn">Pro Mod · <b>Rated</b></div>
+        <div class="go">Enter <span class="arrow">
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2 6h7M6 3l3 3-3 3" stroke="#fff" stroke-width="1.7" fill="none"
+                  stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="navbtn">Loadout</div>
+    <div class="navbtn">Store</div>
+    <div class="navbtn">Venues</div>
+    <div class="navbtn">Career</div>
+    <div class="navbtn">Settings</div>
+  </div>
+</div>
+
+<div class="controls">
+  <button id="replay">Replay entry</button>
+  <button id="focusdemo">Gamepad focus</button>
+  <button id="disdemo">Disabled state</button>
+</div>
+
+<div class="spec">
+  <h2>Handoff Spec — IRONICS Home Screen (R98)</h2>
+  <p class="lede">The first decision in the game, made <b>before any lobby exists</b>. Two doors, two
+  products, two purposes. A LEAGUE PLAY player never sees a stake amount, because there isn't one to pick.</p>
+
+  <div class="law"><b>Why the doors are not colour-coded.</b> §10.2 states chrome is the app's own
+  furniture and is identical for every player; identity is resolved by tag through the registry. Giving
+  STAKED its own hue would make chrome carry meaning that belongs to identity — the most drift-prone
+  mistake in the system. The doors differ by <b>density, motion rate and content</b>, never by palette.</div>
+
+  <h2>Design tokens</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Token</th><th>Value</th><th>Role — and where it may not go</th></tr>
+    <tr><td><code>UI.House.Electric</code></td><td><span class="swatch" style="background:#1E5AFF"></span>#1E5AFF · linear (0.013,0.102,1.00)</td><td><b>LEAD.</b> Glass fill/tint, active + selected, <code>Glass.Border</code> override, CTA disc</td></tr>
+    <tr><td><code>UI.House.Violet</code></td><td><span class="swatch" style="background:#A855F7"></span>#A855F7 · linear (0.40,0.09,0.93)</td><td><b>ACCENT.</b> Rim, edge-glow, focus, hover. <b>Never</b> core, fill or readable text</td></tr>
+    <tr><td><code>UI.House.Black</code></td><td><span class="swatch" style="background:#05080F"></span>#05080F</td><td><b>DEPTH.</b> Ground the neon reads against</td></tr>
+    <tr><td><code>UI.House.White</code></td><td><span class="swatch" style="background:#fff"></span>#FFFFFF</td><td><b>TEXT</b> + specular highlights on glass edges</td></tr>
+    <tr><td><code>Glass.Bg.Primary / Secondary / Tertiary</code></td><td>rgba(255,255,255, .12 / .08 / .05)</td><td>Door fill / chips + nav / dividers</td></tr>
+    <tr><td><code>Glass.Border</code></td><td>rgba(255,255,255,.20) → <b>Electric when active</b></td><td>Every panel edge</td></tr>
+    <tr><td><code>Glass.Blur</code></td><td>28px (band 20–40)</td><td>UMG <code>BackgroundBlur</code></td></tr>
+    <tr><td>Radius</td><td>panel 20px · button 12px · input 8px</td><td>§3 geometry band 16–24 panel</td></tr>
+  </table></div>
+
+  <h2>The blend rule, size-gated</h2>
+  <p>Electric core + arc-violet rim. The rim is <b>ON at ≥64px</b> (wordmark lockup, door panels) and the
+  mark goes <b>core-dominant at ≤32px</b> (wallet currency marks, nav glyphs, HUD watermark) — a rim on a
+  16px mark is noise, not identity. In this screen: doors and lockup carry the violet rim; the wallet marks
+  and arrow glyphs are pure Electric with no rim.</p>
+
+  <h2>States</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Element</th><th>State</th><th>Treatment</th></tr>
+    <tr><td>Door</td><td>Default</td><td>Glass.Bg.Primary, Glass.Border, idle breathe ±5px / 7.5s, doors counter-phased</td></tr>
+    <tr><td>Door</td><td>Hover / Focus</td><td>Lift −12px, scale 1.012, border → Electric, violet rim fades in 300ms, outer glow 46px @28%, breathe pauses</td></tr>
+    <tr><td>Door</td><td>Pressed</td><td>Settle to −6px, scale .996, 120ms</td></tr>
+    <tr><td>Door</td><td>Selected</td><td>Chosen scales 1.045 + 90px Electric bloom; sibling → 12% opacity, scale .94, 3px blur</td></tr>
+    <tr><td>Door</td><td>Disabled</td><td>42% opacity, 65% grayscale, motion stopped, no hover response</td></tr>
+    <tr><td>Wallet chip</td><td>Default / Hover</td><td>Glass.Bg.Secondary; “+” chip borders violet on hover</td></tr>
+    <tr><td>Nav button</td><td>Hover</td><td>Text → full white, border → violet, 22px violet glow @28%</td></tr>
+  </table></div>
+
+  <h2>Motion</h2>
+  <p><b>Motion is meaning.</b> Nothing moves decoratively: the entry sequence establishes hierarchy, the
+  breathe says <i>live</i>, the select transition reveals depth by pushing the road not taken behind the
+  chosen one.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Element</th><th>Trigger</th><th>Motion</th><th>Duration</th><th>Easing</th></tr>
+    <tr><td>Top bar</td><td>Screen enter</td><td>Fade + 14px down</td><td>700ms @150ms</td><td>ease-out(.16,1,.3,1)</td></tr>
+    <tr><td>Headline</td><td>Screen enter</td><td>Fade + 14px down</td><td>700ms @300ms</td><td>ease-out</td></tr>
+    <tr><td>Door 1 / 2</td><td>Screen enter</td><td>Rise 56px, scale .97 → 1</td><td>900ms @450 / 600ms</td><td>ease-out</td></tr>
+    <tr><td>Doors</td><td>Idle</td><td>Breathe ±5px, counter-phased</td><td>7.5s loop</td><td>ease-in-out</td></tr>
+    <tr><td>Door</td><td>Select</td><td>Chosen blooms; sibling recedes + blurs</td><td>620ms</td><td>ease-out</td></tr>
+    <tr><td>CTA arrow</td><td>Hover</td><td>Translate +5px</td><td>300ms</td><td>ease-out</td></tr>
+  </table></div>
+
+  <h2>Focus and input (CommonUI)</h2>
+  <ul>
+    <li><b>Initial focus:</b> LEAGUE PLAY — the free door, and the majority path. Never default to the buy-in.</li>
+    <li><b>Focus order:</b> League → Staked → Loadout → Store → Venues → Career → Settings → wallet “+”.</li>
+    <li><b>D-pad ←/→</b> moves between doors; <b>↓</b> drops to the footer nav; <b>↑</b> returns to the doors.</li>
+    <li><b>A / Enter</b> commits; <b>B / Esc</b> is inert here — the home screen is the root, with nothing behind it.</li>
+    <li>Hover and focus are <b>visually identical</b> so a controller player and a mouse player see the same affordance.</li>
+    <li>Focus never rests on a non-actionable element; the wallet chips are readouts, not stops (the “+” is).</li>
+  </ul>
+
+  <h2>Content rules and edge cases</h2>
+  <ul>
+    <li><b>Naming is law:</b> every player-facing string reads IRONICS. <b>BAG MAN and AFL never appear.</b></li>
+    <li><b>Wallet:</b> tabular numerals, thousands separators, abbreviate ≥1,000,000 as <code>1.2M</code>. Zero balance still renders — never hide the chip.</li>
+    <li><b>Volts = 0:</b> the chip stays and the “+” gains emphasis. The staked door is <b>not</b> disabled — Watts entry remains open, which is the entire point of the earned ladder.</li>
+    <li><b>Wallet unavailable</b> (profile fetch pending): chips show a shimmer skeleton, never <code>0</code> — a wrong balance is worse than no balance on a surface that leads to a wager.</li>
+    <li><b>Staked unavailable</b> (region gate / age gate / service down): staked door takes the disabled state with a one-line reason beneath the title. League stays live.</li>
+    <li><b>Long localised titles:</b> door headings wrap to two lines by design; the type ramp steps down one stop before it truncates.</li>
+    <li><b>21:9 / 32:9:</b> doors hold a max-width and the gap grows; they never stretch past a 1.6 aspect or the split stops reading as two equal choices.</li>
+    <li><b>TV safe area:</b> all content inside 5% title-safe; the footer nav is the first thing to lose padding.</li>
+  </ul>
+
+  <h2>Owed before build</h2>
+  <ul>
+    <li><b>Type ramp is unapproved.</b> §4 of the style SSOT flags it as derived with no spec behind it. This mockup uses a system stack; the shipping display face is an open decision, not something to inherit from here.</li>
+    <li><b>Semantic colours are flagged for approval</b> (§2.5) — none are used on this screen, deliberately.</li>
+    <li><b>Bolt lockup:</b> final 2D UI texture and the 3D hero emblem integrate as produced; the inline mark here is a stand-in at the correct rim treatment.</li>
+  </ul>
+</div>
+
+<script>
+  // Ambient world — sparse drifting motes at low luminance. It must never compete
+  // with the glass; §3 world grounding says low-ambient, neon at sightlines only.
+  (function(){
+    const c=document.getElementById('fx'),x=c.getContext('2d');
+    let w,h,parts,raf;
+    const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+    function size(){w=c.width=innerWidth*devicePixelRatio;h=c.height=innerHeight*devicePixelRatio;}
+    function make(){parts=Array.from({length:reduce?18:54},()=>({
+      x:Math.random()*w,y:Math.random()*h,r:(Math.random()*1.7+.4)*devicePixelRatio,
+      s:(Math.random()*.22+.05)*devicePixelRatio,a:Math.random()*.5+.12,
+      c:Math.random()>.72?'168,85,247':'30,90,255'}));}
+    function tick(){
+      x.clearRect(0,0,w,h);
+      for(const p of parts){
+        p.y-=p.s; if(p.y<-6){p.y=h+6;p.x=Math.random()*w;}
+        x.beginPath();x.arc(p.x,p.y,p.r,0,6.283);
+        x.fillStyle='rgba('+p.c+','+p.a+')';x.fill();
+      }
+      raf=requestAnimationFrame(tick);
+    }
+    size();make();if(!reduce)tick();else tick(),cancelAnimationFrame(raf),tick();
+    addEventListener('resize',()=>{size();make();});
+  })();
+
+  const stage=document.getElementById('stage'), doors=document.getElementById('doors');
+
+  document.getElementById('replay').onclick=()=>{
+    doors.classList.remove('selecting');
+    doors.querySelectorAll('.door').forEach(d=>d.classList.remove('chosen','is-disabled','is-focus'));
+    stage.classList.remove('anim'); void stage.offsetWidth; stage.classList.add('anim');
+  };
+  document.getElementById('focusdemo').onclick=()=>{
+    const ds=[...doors.querySelectorAll('.door')];
+    const i=ds.findIndex(d=>d.classList.contains('is-focus'));
+    ds.forEach(d=>d.classList.remove('is-focus'));
+    ds[(i+1)%ds.length].classList.add('is-focus');
+  };
+  document.getElementById('disdemo').onclick=()=>{
+    doors.querySelector('[data-door="staked"]').classList.toggle('is-disabled');
+  };
+
+  doors.querySelectorAll('.door').forEach(d=>{
+    const pick=()=>{
+      if(d.classList.contains('is-disabled'))return;
+      doors.classList.add('selecting'); d.classList.add('chosen');
+      setTimeout(()=>{doors.classList.remove('selecting');d.classList.remove('chosen');},1500);
+    };
+    d.addEventListener('click',pick);
+    d.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});
+  });
+</script>
