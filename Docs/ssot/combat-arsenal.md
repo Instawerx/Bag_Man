@@ -625,23 +625,31 @@ draws around rating, drawn here around the shot itself.
 
 ## 12. OPEN DESIGN QUESTIONS
 
-1. **Weapon-pack composition and the free initial set.** How weapons are grouped into purchasable packs, and
-   which set a player starts with. Interacts with `ssot/economy-store.md` (pricing ladders) and with **C2** —
-   a starting set whose members feel alike wastes the one impression that is guaranteed.
-2. **Which weapons qualify as map-only beyond the named three.** §10.2 gives the test; applying it requires an
-   arsenal to apply it *to*. Deciding early risks locking a classification made without siblings to compare
-   against.
-3. **Overheat: universal mechanic or per-family.** The arsenal's heat gating is not uniform — on the order of
-   nine of fifteen weapon abilities gate on no heat tag at all. **This document does not assert which of the
-   two readings is correct**: it is either a deliberate design in which heat is the identity of one family
-   (and its absence elsewhere is correct), or an unfinished rollout. The two are indistinguishable from the
-   data and lead to opposite work. Note that under §2.2 the *safe* failure is the one present here — no gate,
-   rather than an inert one.
-4. **Cooldown durations: inherited or authored per weapon.** Durations currently inherit rather than being
-   authored per weapon. Inheritance is correct if cooldown is a *family* property and per-weapon feel comes
-   from cadence and damage; it is wrong if cooldown is part of a weapon's identity. **T3** is unaffected either
-   way — it constrains the **tag**, never the duration, and a shared duration with distinct tags is fully
-   conformant.
+1. ~~**Weapon-pack composition and the free initial set.**~~ — **CLOSED by R94: THERE ARE NO PURCHASABLE
+   WEAPON PACKS.** Every combat-affecting weapon is free or earned through play; the arsenal monetises
+   **cosmetically only**. The question dissolves rather than resolves — with no paid packs there is no pack
+   composition to decide, and the *free initial set* becomes **one weapon per archetype**, so every playstyle
+   is representable from the first match. **C2 still binds that set**, and is easier to satisfy now that it
+   spans archetypes by construction rather than by curation.
+2. ~~**Which weapons qualify as map-only beyond the named three.**~~ — **CLOSED: §10.2's test IS the ruling,
+   applied per weapon at authoring time — the roster is deliberately not enumerated here.** A weapon is
+   map-only when its balance depends on a property of the venue rather than of the arsenal. This item's own
+   caution is the reason: a classification made without siblings to compare against is a guess. Listing today's
+   answers in this SSOT would also create content-growth coupling — the list would need editing every time a
+   weapon or a map shipped. **The test travels; the roster does not belong in a design document.**
+3. ~~**Overheat: universal mechanic or per-family.**~~ — **CLOSED: PER-FAMILY — heat is a family identity,
+   and its absence elsewhere is correct.** Of the two readings this item held open, the deliberate-design one
+   is adopted. A universal overheat flattens what the arsenal exists to express: weapons stop differing in
+   *how* they are managed and differ only in numbers, which is the **C2** failure. A family either has heat or
+   does not, and a weapon inherits its family's answer. **Universal would also be a silent nerf to every one of
+   the nine abilities that was never designed around it** — a balance pass disguised as a systems decision.
+   The §2.2 note stands: the current no-gate state is the safe failure, so this closes without a migration.
+4. ~~**Cooldown durations: inherited or authored per weapon.**~~ — **CLOSED: AUTHORED per weapon, with the
+   family value as the DEFAULT.** Inheritance is a convenience, not a design — the moment one weapon needs a
+   different number, an inherited-only model forces either a new family or a special case, and both are worse
+   than a field. **The default keeps authoring cheap; the override keeps balance possible.** As this item
+   notes, **T3** is unaffected either way, so nothing constrains the choice but feel. The rule to hold: a
+   weapon that never overrides should read as *inheriting*, not as having copied the number.
 
 ---
 
@@ -649,6 +657,7 @@ draws around rating, drawn here around the shot itself.
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R94 — THE ARSENAL MONETISES COSMETICALLY ONLY** | **2026-08-06** | **Every combat-affecting weapon is free or earned through play. There are no purchasable weapon packs** (§12.1). **The reason is integrity, not generosity:** **R86** makes staked play PRO MOD only, so a weapon bought with money would be a purchasable combat advantage inside matches that settle a balance — the one thing a product that holds player funds cannot ship, and a class of complaint no amount of tuning answers. **Weapon COSMETICS are untouched and stay sellable**: `ssot/economy-store.md` §6.2 already holds that *a weapon skin is not a property of a weapon* but a separate ownable axis, so **function leaves the store while appearance stays in it**, with no change to the cosmetic model. The **free initial set is one weapon per archetype** (§12.1), which satisfies **C2** by construction. |
 | **R15 — Map weapons are restricted** | **2026-08-05** | **Rockets and specials (EMP, Shield) are map pickups, not loadout weapons** (§10). A weapon that must be contested for is a map-control mechanic; the same weapon in a loadout is a stat. As a pickup it creates a place, a timing and a fight; as a loadout item it creates none of those and becomes a baseline that compresses the rest of the arsenal (**C2**). Qualification test in §10.2; membership beyond the named three is an open question. |
 
 ---

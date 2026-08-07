@@ -180,7 +180,15 @@ existing one, and it may not fork the shared spine.*
 
 **A match is `(ruleset × league)`. The two axes are independent and neither constrains the other.**
 
-> **A THIRD AXIS EXISTS AND IS NOT THIS DOCUMENT'S.** Since **R76**, a match also runs in a **stake currency** —
+> **⚠ LEAGUE IS NO LONGER AVAILABLE EVERYWHERE (R86).** The matrix below is still complete *within LEAGUE
+> PLAY*, but **the two STAKED tiers offer PRO MOD only** — you wager on the precise, gore-free,
+> enhanced-movement model, and HAYWIRE is where you play for progression. So a Haywire BATTLE ROYALE and a
+> Haywire MATCH PLAY both exist, and neither can be staked. **This does not break the orthogonality argued
+> below** — the axes remain independent *given a tier*; what changed is which tiers publish which league,
+> which is a matchmaking question (`ssot/matchmaking.md` §4.2), not a ruleset one.
+>
+> **A THIRD AXIS EXISTS AND IS NOT THIS DOCUMENT'S.** Since **R76/R85**, a match also runs in a **tier** —
+> LEAGUE PLAY, WATTS PLAY or VOLTS PLAY —
 > WATTS PLAY or VOLTS PLAY (`ssot/matchmaking.md` §4.2, `ssot/economy-store.md` §3.1). It is deliberately not a
 > row in the table below, because **it changes nothing about how a match ends, how respawn works, or what is
 > scored** — which is the whole definition of a ruleset (§2). It is orthogonal to both axes here in exactly the
@@ -330,9 +338,13 @@ It also has one failure mode, and it is severe enough to be stated as a rule:
 
 **None of these is a status claim — each is a decision the mode system owes.**
 
-1. **MATCH PLAY's size range.** §2.2 suits arena footprints, but the format axis it offers (1v1 through 8v8) is
-   not fixed here. A 1v1 and an 8v8 are the same ruleset with the same two positions; whether every size is
-   *published* is a matchmaking question (`ssot/matchmaking.md` §4), not a ruleset one.
+1. ~~**MATCH PLAY's size range.**~~ — **CLOSED, and the item answered itself: the RULESET fixes no range;
+   PUBLICATION is a matchmaking decision.** MATCH PLAY supports 1v1 through 8v8 by construction — they are the
+   same ruleset with the same two positions, so no size needs ruleset work to exist. **Which sizes are
+   published is governed by two existing rules, not by this document:** a bracket is offered only where a map
+   backs it, and a published bracket that cannot hold a population folds under **R61**. That is the whole
+   answer. Fixing a range here would be this SSOT deciding a queue question, which is exactly the coupling
+   §3.3 warns against — and it would have to be re-edited every time a map shipped.
 2. ~~**Does round differential feed rank?**~~ — **CLOSED by R66** (`ssot/league-play.md`): **outcome only, but
    the differential is RECORDED** so it can be switched on later as config rather than a re-derivation. The fork
    this item named was real and the tie-breaker was incentive, not arithmetic — differential is a reason to keep
@@ -343,12 +355,27 @@ It also has one failure mode, and it is severe enough to be stated as a rule:
 4. ~~**Half-time side swap under odd formats.**~~ — **CLOSED by R73, which found the question DISSOLVES.**
    First-to-7 cannot resolve before round 7, and the swap is after round 6, so **the swap always happens before
    the series can end.** There is no odd-format case to rule on.
-5. **BATTLE ROYALE squad payout attribution.** A squad holds one finishing position and receives one payout.
-   Whether that splits evenly, by contribution, or by some other rule is **not** decided here — it is an economy
-   question raised by a ruleset property, and `ssot/economy-store.md` §5 does not close it either.
-6. **Whether a third ruleset is wanted at all.** §3.3 makes adding one cheap. That is a reason to be deliberate
-   rather than a reason to add: two rulesets that are each fully populated beat three that split the queue
-   (`ssot/matchmaking.md` **R7**).
+5. ~~**BATTLE ROYALE squad payout attribution.**~~ — **CLOSED by R92: EVEN SPLIT, across the ROSTER.** The
+   squad's one payout divides equally among the players who *started* the match on that squad — not among the
+   survivors, and not by contribution. **Contribution-weighting is the option that had to lose**, on integrity
+   grounds rather than taste: it makes teammates compete with each other for credit inside a match they are
+   supposed to be cooperating in, it is the natural home for a collusion argument nobody can audit, and it
+   makes a settlement figure non-deterministic at the moment it must be paid. **Splitting across the roster
+   rather than the survivors is the load-bearing half** — a survivors-only split pays the living more when a
+   teammate dies, which prices a teammate's death as a benefit in a staked match. **§5.2's generating rule is
+   untouched**: `N` is the number of SQUADS, positions are held by squads, and the split happens strictly
+   after the position payout is determined.
+6. ~~**Whether a third ruleset is wanted at all.**~~ — **CLOSED by R93: NO — not now — and the bar for ever
+   adding one is set here rather than left to be argued case by case.** Two fully-populated rulesets beat three
+   that split the queue (`ssot/matchmaking.md` **R7**), and **R85/R86 raise that cost since this item was
+   written**: the ruleset axis now multiplies against the tier axis, so a third ruleset is no longer one
+   division of the queue but several. **The bar, stated once:** a candidate must **(a)** produce **finishing
+   positions**, so the payout apparatus transfers unchanged — this is precisely what parks TURBO (§9.7), which
+   produces none and therefore cannot be paid, and *a ruleset that cannot be paid cannot be staked*; **(b)**
+   bring population rather than move it, which means it answers a demand the two rulesets genuinely cannot; and
+   **(c)** clear the bar in **LEAGUE PLAY first**, where an unrated tier can carry a thin population without a
+   settlement failure. **§3.3 staying cheap is what makes waiting free** — the ease of adding one is an
+   argument for deferring, never for proceeding.
 
 ### 9.7 PARKED — TURBO, and the design that goes with it
 
@@ -388,6 +415,8 @@ can exist in a staked game at all.
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R92 — A SQUAD'S BATTLE ROYALE PAYOUT SPLITS EVENLY ACROSS THE ROSTER** | **2026-08-06** | A squad holds one finishing position and receives one payout; it divides **equally among the players who started the match on that squad** — not among survivors, and **not by contribution** (§9.5). Contribution-weighting loses on integrity, not taste: it sets teammates competing for credit inside a match they must cooperate in, it is an unauditable home for collusion, and it makes a settlement figure non-deterministic at the moment it must be paid. **Roster-not-survivors is the load-bearing half** — a survivors-only split pays the living more when a teammate dies, pricing a teammate's death as a benefit in a staked match. **`ssot/economy-store.md` §5.2 is untouched:** `N` counts SQUADS, positions are held by squads, and the split occurs strictly after the position payout is determined. |
+| **R93 — NO THIRD RULESET; THE BAR FOR ONE IS SET** | **2026-08-06** | The ruleset axis stays **MATCH PLAY and BATTLE ROYALE** (R41). Two fully-populated rulesets beat three that split the queue (`ssot/matchmaking.md` **R7**), and **R85/R86 raise the cost**: the ruleset axis now multiplies against the tier axis, so a third is no longer one division of the queue but several. **A candidate must (a) produce FINISHING POSITIONS**, so the payout apparatus transfers unchanged — the exact test that parks TURBO (§9.7), which produces none, *and a ruleset that cannot be paid cannot be staked*; **(b) bring population rather than move it**; and **(c) clear the bar in LEAGUE PLAY first**, where an unrated tier can carry a thin population without a settlement failure. §3.3 staying cheap is what makes waiting free — the ease of adding one is an argument for deferring, never for proceeding. |
 | **R72 — THE TWO ROUND-WIN ROUTES ARE EQUAL** | **2026-08-06** | Wiping the enemy team and completing the central-extract bank are each worth **exactly one round**, with **no score bonus and no speed bonus** (§2.2). §2.2's stated intent is *two genuinely viable routes*, and weighting either one collapses the other into a fallback — a bank worth more makes the fight something to avoid, which in a shooter is an identity change rather than a balance tweak. **Precedent is exact and long-running:** CS2 and Valorant both treat the objective and the elimination as the same single round win, and both have stayed balanced on that basis for over a decade. **Closes §9.3.** |
 | **R73 — THE HALF-TIME SWAP QUESTION DISSOLVES** | **2026-08-06** | §9.4 asked what happens to the side swap in a series that ends before half. **It cannot happen.** MATCH PLAY is first-to-**7** of a best-of-13, so the earliest possible resolution is **round 7**, and the swap is after **round 6** — **the swap always occurs before the series can end**, at every published size from 1v1 to 8v8. No rule is needed and none is written. Recorded as a ruling rather than a deletion so the question is not re-opened by someone who notices the gap and assumes it was overlooked. **Closes §9.4.** |
 | **R41 — THE TWO RULESETS ARE MATCH PLAY AND BATTLE ROYALE; TURBO IS PARKED** | **2026-08-06** | **The ruleset axis is renamed to the two match structures that exist.** (a) **SHOOTOUT → BATTLE ROYALE** — a rename only; §2.1's properties are unchanged and every citation of §2.1 still lands on the same ruleset. The old name was borrowed from poker and described nothing about the format; the new one is the name of its own match structure. (b) **TURBO is REMOVED from the ruleset axis and PARKED at §9.7** — its design is preserved in full, including the payout gap that is the real reason it cannot ship: it produces **no finishing positions**, so the positions-keyed payout rule (R36/R37) does not transfer, and **a ruleset that cannot be paid cannot be staked.** (c) **MATCH PLAY takes the second slot and is NOT TURBO renamed** — different end condition, different respawn policy, different scoring, no property in common. It is the two-team round series (§2.2), which had **no name and no front-end tab** despite being the most-specified format in the tree. **THE DEFECT THIS FIXES IS NOT THE DEAD TAB.** One tab named a mode after something it was not; the other named a mode that did not exist; and between them **the round series had no way to be reached at all.** **Consequence, and it is a gain:** MATCH PLAY has two finishing positions, so its payout resolves to winner-takes-all by the existing rule — which **closes** the disabled-payout-tab question carried at `design/IRONICS_LOBBY_UX_HANDOFF.md` §16.7 rather than deferring it. **New rule from §3.3: a ruleset with no match-structure component behind it is a proposal, and the front end must not offer it.** |

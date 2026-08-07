@@ -55,7 +55,8 @@ client can influence a condition the wager settles on, that influence is worth m
 
 ### 2.2 What the player does control
 
-Bracket (how many a side) · league (how combat feels) · ruleset · stake amount · party. Everything they choose
+**Tier** (LEAGUE PLAY · WATTS PLAY · VOLTS PLAY) · bracket (how many a side) · ruleset · stake amount ·
+party — and **league (how combat feels) only inside LEAGUE PLAY**, where both are offered (R86). Everything they choose
 is a property of the *contest*. Nothing they choose is a property of the *terrain*.
 
 ---
@@ -134,17 +135,31 @@ play, and then what size."* The player answers one question before being asked t
 Queue count is the product of the **contest** dimensions only:
 
 ```
-  queues  =  currencies  ×  rulesets  ×  brackets  ×  leagues
+  queues  =  (tier × league) pairs  ×  rulesets  ×  brackets
 ```
 
-- **Currencies** — **2** (WATTS PLAY, VOLTS PLAY; R76, `ssot/economy-store.md` §3.1).
-- **Rulesets** — **2** (MATCH PLAY, BATTLE ROYALE), split per R7 (§4.1) and expressed as the top-level tab.
+**There are exactly FOUR (tier × league) pairs**, because league is **tier-scoped** (R86) rather than a free
+multiplier:
+
+| Tier | Buy-in | Leagues offered | Rated | Bots |
+|---|---|---|---|---|
+| **LEAGUE PLAY** | **none** | **HAYWIRE + PRO MOD** | No | **Permitted** |
+| **WATTS PLAY** | Watts | **PRO MOD only** | Yes | No |
+| **VOLTS PLAY** | Volts | **PRO MOD only** | Yes | No |
+
+- **Rulesets** — **2** (MATCH PLAY, BATTLE ROYALE), split per R7 (§4.1) and expressed as tabs.
 - **Brackets** — the party-size bands the district model serves: `1v1, 2v2` · `3v3, 4v4` · `5v5, 8v8`, plus the
   BR counts. On the order of **8**.
-- **Leagues** — **2** (HAYWIRE, PRO MOD; `ssot/match-modes.md` §4).
 
 That places the player-facing entry count **on the order of 64**, reached through a layered choice rather than
-presented flat. **Not every cell is necessarily offered** — a ruleset suited to arena footprints need not be
+presented flat.
+
+> **LEAGUE IS NO LONGER A FREE MULTIPLIER, AND THAT IS THE POINT (R86).** It was `× 2` across everything; it is
+> now two pairs in one tier and one pair in each of the others. **Staked play is PRO MOD only** — you wager on
+> the precise, gore-free, enhanced-movement model, and HAYWIRE is where you play for progression. The queue
+> count is unchanged at 28 concrete cells, but **half of them are now bot-fillable**, because LEAGUE PLAY
+> carries neither stake nor rating and `ssot/ai-bots.md` §6.3 therefore permits fill there. **That is the real
+> gain: the on-ramp always starts.** **Not every cell is necessarily offered** — a ruleset suited to arena footprints need not be
 published at every bracket (`ssot/match-modes.md` §2.2), and an unoffered cell is a pool that never had to be
 filled. After R63 the concretely publishable set is **28**, not 64.
 
@@ -161,7 +176,7 @@ they cannot, it becomes another multiplier and should be recognised as such rath
 > **Content growth must never increase the queue count.**
 
 Maps, districts, play-spaces and size variants are **pool rows** (§3). The only things that may add a queue are
-a new bracket, a new league, a new ruleset, or **a new stake currency** (R76) — all of which are *design*
+a new bracket, a new **(tier × league) pair** (R76, R86), or a new ruleset — all of which are *design*
 decisions made deliberately, and all of which are rare. **If the queue count is rising because content shipped,
 the layer separation has failed.**
 
@@ -494,8 +509,10 @@ than an independent choice.
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R85 — THREE TIERS: LEAGUE PLAY · WATTS PLAY · VOLTS PLAY** | **2026-08-06** | **AMENDS R77's universal buy-in.** A third, **unstaked** tier sits beside the two staked ones: LEAGUE PLAY has **no entry cost, no rating, and permits bots**; WATTS PLAY and VOLTS PLAY are staked, rated and bot-free. **Why a free tier earns its place after R77 rejected one:** R77 was decided when the only axis was currency, and a zero-cost *currency* tier was incoherent. As the home for HAYWIRE (R86) this is not a third denomination — it is a different *product*. **The population argument is decisive:** `ssot/ai-bots.md` §6.3 bars bots wherever stake **or** rating is present, so before R85 **no queue in the game could be filled at all**. LEAGUE PLAY is the only tier that can always start, which makes it the on-ramp every other tier depends on. |
+| **R86 — STAKED PLAY IS PRO MOD ONLY; HAYWIRE IS LEAGUE PLAY'S** | **2026-08-06** | Both staked tiers offer **PRO MOD alone**; HAYWIRE runs in LEAGUE PLAY alongside PRO MOD. **You wager on the precise model, not the chaotic one** — PRO MOD is gore-free by construction and carries the enhanced movement kit, which is the competitive surface; HAYWIRE's dismemberment layer is spectacle and progression. **League stops being a free ×2 multiplier** and becomes tier-scoped: four (tier × league) pairs, not six. **LEAGUE PLAY carries BOTH models deliberately** — a PRO MOD player needs somewhere to warm up, learn a venue and grind progression without risking a balance, and excluding them would force competitive players into HAYWIRE to progress, which is backwards. HAYWIRE has one home; PRO MOD has three. |
 | **R76 — STAKE CURRENCY IS A QUEUE DIMENSION: WATTS PLAY AND VOLTS PLAY** | **2026-08-06** | The two staked tiers are **separate pools**, and the queue formula becomes `currencies × rulesets × brackets × leagues` (§4.2). **The reason is settlement, not preference:** two participants staking different currencies cannot settle one pot, so no band is wide enough to merge them. §4.2 already anticipated this exact case — a flag *"rides the queue… where they cannot [share a pool], it becomes another multiplier and should be recognised as such rather than added quietly"* — and **this ruling is that recognition, made loudly.** §4.3's adder list is amended to admit currency as the fourth permitted adder, and §5 now separates the stake **AMOUNT** (a ticket parameter, unchanged) from the stake **CURRENCY** (a queue dimension). **Cost accepted:** nominal queue count doubles to ~64, concretely 28 after R63. |
-| **R77 — EVERY MATCH HAS A BUY-IN, AND BOTH TIERS ARE RATED** | **2026-08-06** | There is no free tab: **the play-money table still costs play money.** Both WATTS PLAY and VOLTS PLAY are staked and both are rated, so the two OpenSkill ladders (R64/R65) stay **per-ruleset, not per-currency** — currency does not multiply the ladder count. **`ranked` and `staked` REMAIN INDEPENDENT BOOLEANS** on the result (§10.1, `ssot/league-play.md` §12.1); this ruling deliberately does **not** collapse them into a mode enum, because the R14 stake firewall's premise — *a staked win and an unstaked win of the same result move the ladder identically* — depends on both being expressible. **⚠ CONSEQUENCE, STATED PLAINLY: no bots in either tier.** `ssot/ai-bots.md` §6.3 bars them on the **rating** clause alone, and its test is result-scoped — *"does this match's outcome move a balance or a rating?"* Making a tier cheaper does not make it fillable. |
+| **R77 — THE STAKED TIERS ARE RATED** ⚠ *amended by R85* | **2026-08-06**, **amended 2026-08-06** | ~~Every match has a buy-in~~ — **SUPERSEDED BY R85**, which adds an unstaked LEAGUE PLAY tier. What stands: **both STAKED tiers are rated.** Both WATTS PLAY and VOLTS PLAY are staked and both are rated, so the two OpenSkill ladders (R64/R65) stay **per-ruleset, not per-currency** — currency does not multiply the ladder count. **`ranked` and `staked` REMAIN INDEPENDENT BOOLEANS** on the result (§10.1, `ssot/league-play.md` §12.1); this ruling deliberately does **not** collapse them into a mode enum, because the R14 stake firewall's premise — *a staked win and an unstaked win of the same result move the ladder identically* — depends on both being expressible. **⚠ CONSEQUENCE, STATED PLAINLY: no bots in either tier.** `ssot/ai-bots.md` §6.3 bars them on the **rating** clause alone, and its test is result-scoped — *"does this match's outcome move a balance or a rating?"* Making a tier cheaper does not make it fillable. |
 | **R59 — THE CLIENT NEVER SNAPS A STAKE** | **2026-08-06** | Free numeric entry stays (R20); the entered integer travels on the ticket **unrounded** and the **server** resolves it to a band (§5.3). A client-side snap would have the client choosing which pool the player enters — **the same class of claim as asserting a balance, and forbidden by the same law (N11)** — and it buys nothing, because the server must re-resolve regardless. The band readout (§5.2) is what keeps this invisible: the player sees the outcome before committing. **Closes nothing that was open; hardens what §5.3 already implied.** |
 | **R60 — BAND WIDENING IS STEPPED AND ASYMMETRIC** | **2026-08-06** | One band step every **15s**, capped at **2 steps DOWN / 1 step UP**, hard stop at **60s** then offer the fold (§11.2). **Asymmetric because §11.2 identified the reason itself:** being matched *down* costs a player nothing they did not offer, while being matched *up* **spends money they did not intend to stake**. In an unstaked game this is a preference; here it is exposure. **Stepped rather than continuous** because §5.2 requires the band be *disclosed*, and a step is legible in a UI where a continuously drifting band is not. **Closes §11.2.** |
 | **R61 — COLD BANDS FOLD AUTOMATICALLY, WITH AN OPERATOR OVERRIDE** | **2026-08-06** | A band folds into its neighbour when it holds fewer than **2× field size over a rolling 5 minutes**; an operator may pin or force a fold at any time (§11.3). Automation is in the spirit of §7, which already rules folding a **config-level lever needing no code change and no client update** — so a band going cold at 3am should not wait for a human. **The override answers §11.3's own objection** (manual folding never surprises a player mid-session) and is what a launch window needs, when population is thin for reasons the threshold cannot know. **Closes §11.3.** |

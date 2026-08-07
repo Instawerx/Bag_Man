@@ -608,26 +608,40 @@ or skeleton carrying operator-placed sockets), **X11** (bone names differ; verif
 
 ## 13. OPEN DESIGN QUESTIONS
 
-1. **The L2 dismember-gate reading** (§4.1). Whether gore-free is achieved structurally — making the mode gate
-   redundant and removable — or whether the gate is the only thing disabling zone-based damage routing and is
-   therefore load-bearing. **It determines whether that gate can ever be removed**, and the failure mode of
-   guessing wrongly is a damage defect that does not look like a mode defect.
-2. **Slot pricing.** The free allocation is two and additional slots are an upsell (R16); what a slot costs,
-   and whether the four slot axes price alike, is undecided. Interacts with the pricing ladders in
-   `ssot/economy-store.md`.
-3. **Whether emblems and stickers share a selection surface.** They are distinct axes (§12.1) but behave
-   similarly — both are placed marks resolved from owned items. One surface is simpler to learn; two keep the
-   axes legible as separate purchases. Interacts with the loadout surface, not only the creator.
-4. **How a saved character behaves when a referenced cosmetic is revoked or expires.** The reference rule
-   (§8.2) makes this reachable by construction: a save can point at something the player no longer owns.
-   Options span silently substituting a default, showing the character as incomplete, or blocking the save
-   from being equipped — with very different implications for a player who lent, traded or lost an item.
-   **Whatever is chosen must not delete the reference**, or re-acquiring the item will not restore the
-   character.
-5. **Preset head coverage versus the two-line fork.** L6 fixes heads as a preset roster; §5 forks
-   geometry-bound axes per line. How much head coverage each line carries — and whether a head authored for
-   one line has any meaning on the other — is undecided, and it sizes a large share of the character-art
-   workload.
+1. ~~**The L2 dismember-gate reading** (§4.1).~~ — **CLOSED: STRUCTURAL, not a runtime branch.** Gore-free is
+   achieved by **not loading the feature**, exactly as §4 already describes PRO MOD. This is the same doctrine
+   `ssot/match-modes.md` §3.3 states for rulesets — *"a mode flag inside one component would make every future
+   read ask which mode am I in, which is how bugs get written."* A structural gate also makes the guarantee
+   **auditable**: a build either contains the dismember feature or it does not, which a runtime branch can
+   never demonstrate. **R86 raises the stakes** — PRO MOD is now the only staked league, so its gore-free
+   property is a compliance surface, not a preference.
+2. ~~**Slot pricing.**~~ — **CLOSED by R95: FLAT, and UNIFORM across all four axes.** One price, the same on
+   character, sticker, emblem and weapon slots, anchored on the cheap-first impulse rung
+   (`ssot/economy-store.md` §4.1). Two slots stay free (**R16**). **Uniform pricing is defensible here for a
+   specific reason, not by default: a slot confers no competitive advantage**, so hoarding costs nobody
+   anything — which removes the usual argument for an escalating curve and leaves that curve doing nothing but
+   penalising the most engaged creators. One number is also the only version a player can hold in their head
+   while deciding.
+3. ~~**Whether emblems and stickers share a selection surface.**~~ — **CLOSED: ONE surface, TWO tabs.** They
+   remain distinct axes (§12.1) and must never share an id space, but a player looking for *something to put on
+   my thing* should find both in one place. Two tabs keep the axes legible as separate purchases while removing
+   the navigation guess. **The rule that matters is the id space, not the pixels** — separate axes behind a
+   shared browser is normal; a shared axis behind separate browsers is the failure.
+4. ~~**How a saved character behaves when a referenced cosmetic is revoked or expires.**~~ — **CLOSED: FALL
+   BACK to the base item; never block the loadout.** The save **keeps the reference** — as this item requires,
+   and as §8.2 already implies — so the item returns automatically if entitlement does; only the *rendered*
+   result substitutes the free base for anything not currently owned. R16's *"any base neon is always
+   available as a default"* guarantees such a base exists. **A player must never be unable to play because of
+   an entitlement change**: that turns a billing event into a lockout, which is the worst possible way to learn
+   about one. The substitution is **shown plainly on the character screen, never silently**.
+5. ~~**Preset head coverage versus the two-line fork.**~~ — **CLOSED by R96: EQUAL COVERAGE on both lines.**
+   Every preset head is authored for both. To this item's second question — whether a head authored for one
+   line means anything on the other — the answer is that it **must**, so parity is authored rather than
+   hoped for. L6 keeps heads a preset roster and §5's geometry fork still governs *how* each head is authored
+   per line; what is now fixed is *how many*. **Recorded plainly: this is the most expensive of the options
+   considered**, roughly doubling head-art workload against a shared or minimum-viable roster. It is chosen
+   for the player-facing promise — neither line is the neglected one — and the cost is accepted, not
+   overlooked.
 
 ---
 
@@ -635,6 +649,8 @@ or skeleton carrying operator-placed sockets), **X11** (bone names differ; verif
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R95 — EXTRA CREATOR SLOTS PRICE FLAT AND UNIFORM** | **2026-08-06** | Additional slots cost **the same on all four axes** — character · sticker · emblem · weapon — at a single price anchored on the cheap-first impulse rung (`ssot/economy-store.md` §4.1). **Two slots remain free (R16).** Uniform rather than escalating or per-axis **because a slot confers no competitive advantage**: hoarding harms nobody, which removes the reason an escalating curve exists and leaves it penalising the most engaged creators for no gain. A single price is also the only form a player can hold in their head at the point of decision (§13.2). |
+| **R96 — HEAD COVERAGE IS EQUAL ON BOTH LINES** | **2026-08-06** | Every preset head is authored for **both** lines (§13.5). Settles the companion question too: a head authored for one line **must** mean something on the other, so parity is authored rather than hoped for. **L6** still fixes heads as a preset roster and **§5**'s geometry fork still governs how each head is authored per line — this ruling fixes *how many*, not *how*. **The cost is recorded, not hidden:** this is the most expensive option considered and roughly doubles head-art workload against a shared or minimum-viable roster. It is chosen for the player-facing promise that neither line is the neglected one. |
 | **R16 — Creator slot economy** | **2026-08-05** | **Two character saves are free; additional slots are an upsell**, as a counted entitlement on the one registry and persistence seam (§8.1). **Supersedes L9's one-free allocation**; the counted-entitlement shape is unchanged. Slot axes are **character · sticker · emblem · weapon**, and slots attach to the account, not to a character. **Any base neon is always available as a default**, so a player who owns nothing still gets a deliberate-looking character. **Stickers remain swappable at loadout from the owned catalog**: a saved character stores a **reference** to an owned item, **never a baked copy** — a baked copy means a player who buys a sticker cannot use it on an existing save (§8.2). |
 | **R17 — The two-line fork** | **2026-08-05** | **Palette DATA is shared; entitlement SKUs are forked** (§5). Share what is data, fork what is art: a colour value is a number authored once, while a suit look and a robot finish are separate authored assets. Forking the data would multiply authoring per line and let the same colour drift; sharing the SKUs would grant art that was never authored and make every colour a compounding obligation. Geometry-bound axes are forked by construction; weapons are shared, because a weapon is not a character mod. |
 

@@ -385,9 +385,20 @@ mitigations are structural properties of the design, not detectors bolted on aft
 - **The counted event must be server-authoritative and match-scoped** (**N1**). It is derived from the same
   authoritative result the rest of the system reads (§12), never self-reported, never assembled client-side
   (**N11**).
-- **Progression accrues only in real matches.** Contexts that are not real competition — offline, bot-filled,
-  or otherwise unrated — do not feed the career ladder. **R77 keeps this clause harmless: BOTH staked tiers are
-  rated**, so WATTS PLAY is not caught by it — a cheaper buy-in is not an unrated context. This removes the entire category of farming that does
+- **Progression accrues from HUMAN OPPONENTS ONLY** (R87). An elimination of a bot never feeds the career
+  ladder, in any tier, ever.
+
+> **⚠ REWRITTEN BY R87, AND THE OLD WORDING WAS IMPRECISE IN A WAY THAT MATTERED.** This clause used to read
+> *"progression accrues only in real matches — offline, bot-filled, **or otherwise unrated** — do not feed the
+> career ladder."* Under R85 that would have been a **catastrophe by accident**: LEAGUE PLAY is deliberately
+> unrated, so the literal clause would have stopped progression in the one tier built to feed it.
+>
+> **The fix is to name the actual risk.** What the clause was ever guarding against is **farming against
+> bots** — an opponent who cannot resist. It was never guarding against *the absence of a rating*, which is a
+> matchmaking property with no bearing on whether a kill was earned. Keyed on the opponent instead of the
+> queue, the rule is **more accurate AND more permissive**: a human elimination in unrated LEAGUE PLAY counts,
+> a bot elimination anywhere does not, and the exploit surface closes tighter than the old wording managed.
+> This removes the entire category of farming that does
   not require a second human.
 - **Ratio-shaped rewards resist farming better than count-shaped ones.** A rate cannot be inflated by volume
   alone, because the denominator grows too. Where a reward can be expressed as a rate without distorting its
@@ -463,10 +474,12 @@ ladder.
 3. ~~**Decay policy.**~~ — **CLOSED by R67.**
 4. ~~**Season length.**~~ — **CLOSED by R67.** Note this section's own constraint held: it is *the same number
    as the prize cadence* (§8), so R67's ~10 weeks sets both.
-5. **Crossing two thresholds in one match.** **STILL OPEN.** Whether both grants fire, whether they queue and
-   present separately for legibility, or whether only the higher is awarded. The grant path is idempotent
-   (§6.1), so this is a *presentation and pacing* decision rather than a correctness one — but a player who
-   crosses two tiers and sees one notification will reasonably believe they were shortchanged.
+5. ~~**Crossing two thresholds in one match.**~~ — **CLOSED: BOTH grants fire, presented SEQUENTIALLY.** The
+   grant path is already idempotent (§6.1), so correctness was never at risk — this was pacing, and the item
+   named the real failure itself: *"a player who crosses two tiers and sees one notification will reasonably
+   believe they were shortchanged."* **Never merge two earned things into one notification.** They present one
+   after the other with a short stagger, so each reads as its own event. Awarding only the higher is the one
+   option that is actually wrong: it silently deletes something the player earned.
 6. ~~**Whether party play is rated differently from solo.**~~ — **CLOSED by R65, jointly with
    `matchmaking.md` R62**, exactly as this item required (*"should be decided with it rather than
    separately"*). The rating **does** account for coordination; R62's no-segregation ruling depends on it.
@@ -477,6 +490,7 @@ ladder.
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R87 — LEAGUE PLAY IS UNRATED AND BOT-FILLABLE; PROGRESSION KEYS ON HUMAN OPPONENTS** | **2026-08-06** | LEAGUE PLAY (R85) carries **no stake and no rating**, so `ssot/ai-bots.md` §6.3 permits bot-fill there — it is the only tier that can always start, and before R85 **no queue in the game could be filled at all**. **§11.2 is rewritten as a consequence, and the old wording was a latent trap:** it excluded *"offline, bot-filled, or otherwise unrated"* contexts from the career ladder, which read literally would have **stopped progression in the very tier designed to feed it**. The rule now keys on the **opponent, not the queue** — a human elimination counts wherever it happens, a bot elimination counts nowhere. **This is more accurate and more permissive at once:** the risk was always farming against something that cannot resist, never the absence of a rating, which is a matchmaking property that says nothing about whether a kill was earned. |
 | **R82 — PROGRESSION RIDES UNDERNEATH BOTH STAKED TIERS** | **2026-08-06** | Career volume, loot and achievements accrue in **WATTS PLAY and VOLTS PLAY alike**. They are **not one side of the split** — the currency tiers differ in what a match *costs and pays*, never in what it *counts toward*. **The two OpenSkill ladders stay per-RULESET, not per-currency** (R64/R65): currency does not multiply the ladder count, so a player has two ratings, not four. **§11.2 needed no rewrite because R77 made both tiers rated** — its exclusion of *"offline, bot-filled, or otherwise unrated"* contexts does not catch WATTS PLAY, since a cheaper buy-in is not an unrated context. **The point of the whole split:** a Watts player earns the same career, the same achievements and the same rank as a Volts player. Only the denomination of the wager differs. |
 | **R64 — TWO LADDERS, ONE PER RULESET** | **2026-08-06** | A player holds a **separate rating for MATCH PLAY and for BATTLE ROYALE** (§4.1 Option A). **R7 already split the queues on the grounds the two are different products; the rating follows the same logic.** The decisive property is asymmetric: two ladders **cannot** produce the failure §4.1 names — a rating-efficient ruleset that players chase instead of the format they prefer — whereas one ladder with normalisation always can, and the mapping would need re-derivation on every balance change. **Accepted cost:** a player who plays both holds two identities and each ladder converges on half the data. **Closes §13.1 and §13.2.** |
 | **R65 — RATING IS OPENSKILL (WENG-LIN), ONE ENGINE IN TWO CONFIGURATIONS** | **2026-08-06** | **Plackett-Luce** for BATTLE ROYALE — literally the model for *"rank N participants by finishing position"*, which is exactly what that ruleset emits — and the **two-team** configuration for MATCH PLAY. One implementation, no second system, and **no patent exposure**: TrueSkill proved the Bayesian approach at AAA scale but is Microsoft-patented; OpenSkill is the same mathematics under an open licence. Elo cannot express N-way placement at all and Glicko-2 is pairwise, so both would need a bolt-on for BR — which is where rating bugs live. **⚠ THE RATING MUST ACCOUNT FOR PARTY COORDINATION** (`matchmaking.md` **R62**): R62's no-segregation ruling *depends* on this, so a rating that ignores party status makes R62 a lie. **Closes §13.1 and §13.6.** |

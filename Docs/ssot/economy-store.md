@@ -107,10 +107,16 @@ is not a feature of the wallet; it is its own subsystem with its own failure sur
 
 ### 3.3 The two staked tiers, and why the Watts ladder is cheaper
 
-| Tier | Stake currency | Entry | Rake |
-|---|---|---|---|
-| **WATTS PLAY** | Watts | **Earned through play** (§5). Effectively free to anyone who plays. | 5% (R79) |
-| **VOLTS PLAY** | Volts | **Purchased. There is no earn path and no conversion** (R81). | 5% (R68) |
+| Tier | Stake currency | Entry | Rake | Leagues |
+|---|---|---|---|---|
+| **LEAGUE PLAY** | — | **No buy-in** (R85). Unrated; bots permitted. | — | HAYWIRE + PRO MOD |
+| **WATTS PLAY** | Watts | **Earned through play** (§5). Effectively free to anyone who plays. | 5% (R79) | PRO MOD only (R86) |
+| **VOLTS PLAY** | Volts | **Purchased. There is no earn path and no conversion** (R81). | 5% (R68) | PRO MOD only (R86) |
+
+**THE WATTS RUNGS ARE `250 · 1,000 · 5,000 · 25,000 W` (R88).** Peg-equivalence to the Volts ladder would be
+`1,000 · 5,000 · 25,000 · 100,000 W`, so these sit at **a quarter of it** — comfortably inside R80's rule.
+Against the earn structure (§5), the entry rung is **a small fraction of a single match**, which is the point:
+a player can stake on their first session without accumulating anything first.
 
 **THE WATTS LADDER SITS BELOW PEG-EQUIVALENCE (R80).** Its rungs are *not* 10× the Volts rungs. A Watts stake
 is deliberately cheaper in real terms than the Volts stake beside it.
@@ -462,6 +468,14 @@ The same logic governs every axis: a weapon skin is not a property of a weapon, 
 finish. Each is separately ownable, separately priced, separately tradeable, and separately selected. **A new
 cosmetic category is a new axis — never a field on an existing one.**
 
+> **⚠ Where the store's boundary now falls on weapons (R94, `ssot/combat-arsenal.md`).** The independence
+> above is exactly what lets **weapon FUNCTION leave the store while weapon APPEARANCE stays in it**. Every
+> combat-affecting weapon is free or earned through play — because **R86** makes staked play PRO MOD only, and
+> a purchasable combat advantage inside matches that settle a balance is the one thing this product cannot
+> sell. **Weapon skins are unaffected**, precisely because §6.2 already holds that a skin is a separate
+> ownable axis rather than a property of the weapon. **The rule to carry: the store may sell how a weapon
+> looks, never what it does.**
+
 ### 6.3 Metadata is not the address
 
 Rarity, content tier, collection/family, and colour-family are **descriptive metadata on the catalog entry**,
@@ -794,21 +808,42 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
 
 ## 15. OPEN DESIGN QUESTIONS
 
-1. **Sink/source balance for Volts under staking.** Staking transfers rather than sinks; only the rake removes
-   currency (§3.1b). Undecided: whether the rake alone is sufficient pressure at scale, and what signal
-   indicates it is not — total float, velocity, or the ratio of staked to spent Volts.
-2. **The pricing-ladder rationale, revisited against real behaviour.** The band boundaries are anchored to a
-   cheap-first conversion argument (§4.1). Undecided: how the ladder responds if the impulse rung converts far
-   better or far worse than expected, and whether bands move or content re-tiers between them.
-3. **How randomised-reward odds are surfaced.** §13.2 requires published odds; *where and when* they appear is
-   undecided — at the point of entry, in a persistent info surface, or both — as is how they are expressed so
-   they are genuinely understood rather than merely disclosed.
-4. **Whether prize-series inventory is finite or generated.** A finite donated pool has a hard end and a
-   scarcity story; a generated pool sustains indefinitely but is closer to a manufactured reward. This choice
-   also determines whether "sold out" is a state the prize system needs at all.
-5. **The free-entry route's shape.** §13.2 requires one. Its form — an earned entry, a periodic grant, a
-   no-purchase request path — is undecided, and the decision must be made against *practical comparability*
-   rather than nominal existence.
+1. ~~**Sink/source balance for Volts under staking.**~~ — **CLOSED: the SIGNAL is ruled, the threshold is
+   tuning.** The question asked *what signal indicates the rake is insufficient*. Three instruments, in
+   priority order: **(a) total float per currency**, **(b) the staked-to-spent ratio**, **(c) float velocity**.
+   The actionable condition is **float growing faster than store conversion across a full season** — a
+   season-length window because staking volume is spiky and any shorter window reports noise as a trend. Naming
+   the instrument is the design decision; the trigger value cannot be set before there is a distribution to set
+   it against, and inventing one now would be a number nobody could defend. **After R78 all three are measured
+   PER CURRENCY**, and the Watts series is the one to watch — it is the faucet.
+2. ~~**The pricing-ladder rationale, revisited against real behaviour.**~~ — **CLOSED: the response was
+   already ruled; only the trigger was missing.** §5 fixes the mechanism — ***"earn stays locked; prices
+   move"*** — so the answer to a mis-converting ladder is never earn inflation, which devalues every balance
+   already held. What was open is *when*. The trigger is **impulse-rung conversion**: if the lowest paid rung
+   is not the most-purchased rung by unit count, the ladder is mis-anchored at the bottom, and the bottom is
+   where the conversion event lives. **Bands move; content does not re-tier** — re-tiering breaks the address
+   discipline **NM5** protects.
+3. ~~**How randomised-reward odds are surfaced.**~~ — **CLOSED on disclosure best practice, which is also
+   the regulatory floor.** Odds appear **on the same screen as the action, before it is taken, as plain
+   numbers** — not in a help page, not behind a link, not as a rarity word. Two properties make it real rather
+   than nominal: the figures are **per-item**, not per-tier bucket, and they are shown **at the point of
+   commitment** rather than at first launch — a disclosure a player saw once and cannot re-find is a disclosure
+   that did not happen. This is what *genuinely understood rather than merely disclosed* means in practice.
+   Multiple territories now require published odds; meeting the strictest of them everywhere is cheaper than
+   maintaining a per-region surface, and it is what a player deserves anyway.
+4. ~~**Whether prize-series inventory is finite or generated.**~~ — **CLOSED by R90: HYBRID.** A small
+   **finite headline set**, with a hard end and a real scarcity story, over a **generated long tail** that
+   sustains indefinitely. To this item's own third question: **"sold out" therefore exists for some rows and
+   not others**, and the UI must show which is which — a generated prize presented as scarce is exactly the
+   dishonesty §4.2's never-reissue policy exists to prevent. The headline set inherits never-reissue in full;
+   the tail never claims a count.
+5. ~~**The free-entry route's shape.**~~ — **CLOSED by R89: EARNED THROUGH PLAY.** Entries accrue from
+   playing, at a rate that makes the free path **practically comparable** to the paid one — which is the exact
+   standard this item set, and the reason the alternatives lost. A periodic grant is a pure faucet with no play
+   requirement; a request path is the most conventional legally but is a manual process, and the option most
+   likely to be *nominally* available while not being *practically* comparable. **Earned entry is automatic,
+   needs no review, and cannot be gamed further than the earn structure already can** — and it reinforces the
+   whole tier design, where play is already the way in.
 6. ~~**Whether the two economies ever need a firewall.**~~ — **ANSWERED by R78, and not in the direction this
    item anticipated.** It expected a possible *store-versus-staking* firewall inside one currency. What landed
    instead is a **currency-versus-currency** seal: WATTS PLAY and VOLTS PLAY are separate pools with no
@@ -835,15 +870,14 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
    exist, so band-bottom failures cannot occur, and min cash holds at exactly 1.40× for every field size.
    What the question found is preserved in §5.3 as the general lesson: *a percentage of a pot cannot hold a
    floor when pot size varies.*
-9. **◑ INVARIANT 2 — the winner's multiple sawtooths at paid-places thresholds (§5.3). IMPROVED BY R40, STILL
-   OPEN.** R40's 15% depth fixed the *trend* — band floors and peaks now rise monotonically, where at 30% the
-   trend was flat. It did **not** remove the steps: **five drops remain**, of **17–23%** at N = 14, 21, 27 and
-   34 (plus a minor 5.3% at N = 10). A player in a 14-position field wins ~23% less than one in a 13-position
-   field. **This is arithmetic, not tuning** — every increment of `p` divides the same budget one more way.
-   Removing it entirely needs a **continuous** paid-places function, which `ceil()` is not; smoothing options
-   include interpolating the winner's share across a threshold, or accepting the steps as a queue-design
-   concern handled by §5.2's constraint. **Kept open because the arithmetic has not closed it** — the question
-   is whether a 17–23% step at five field sizes is acceptable, given no queue should sit on one anyway.
+9. ~~**◑ INVARIANT 2 — the winner's multiple sawtooths at paid-places thresholds.**~~ — **CLOSED by R91: it is
+   real in the abstract and UNREACHABLE IN PLAY.** §5.3 is right that removing it needs a *continuous*
+   paid-places function and that `ceil()` is not one — so the sawtooth cannot be designed away. **But §5.2
+   already carries the mitigation, and it is complete:** queue field sizes are FIXED, and *"no queue may sit at
+   a field size where the paid-places threshold straddles it"* (N = 10, 14, 21, 27, 34). A player therefore
+   never meets both sides of a step, because a given queue always resolves on one side of it. **The remaining
+   17–23% drops are a property of the curve, not an experience anyone has.** Reopen only if variable-size
+   queues are ever introduced — at which point the mitigation genuinely lapses and this becomes live again.
 
 ---
 
@@ -851,6 +885,10 @@ other's boundary, and the grant crosses it exactly once, through the seam (§9).
 
 | Ruling | Date | Content |
 |---|---|---|
+| **R89 — THE FREE-ENTRY ROUTE IS EARNED THROUGH PLAY** | **2026-08-06** | §13.2 requires a no-purchase route; it accrues **from playing**, at a rate that makes the free path **practically comparable** to the paid one — the standard §15.5 set. Beat a periodic grant (a pure faucet with no play requirement) and a request path (conventional, but manual, and the option most likely to be nominally available while not practically comparable). **Automatic, no review burden, no new exploit surface beyond the earn structure's own** — and it reinforces the tier design, where play is already the way in. |
+| **R90 — PRIZE INVENTORY IS HYBRID: FINITE HEADLINE, GENERATED TAIL** | **2026-08-06** | A small **finite** prestige set with a hard end, over a **generated** common pool that sustains indefinitely — so the series has both a reason to chase and a reason to keep playing once the headline is gone. **"Sold out" exists for some rows and not others, and the UI must distinguish them:** a generated prize presented as scarce is exactly the dishonesty §4.2's never-reissue policy exists to prevent. The headline set inherits never-reissue in full; the tail never claims a count. |
+| **R91 — THE SAWTOOTH IS CLOSED: UNREACHABLE UNDER FIXED QUEUE SIZES** | **2026-08-06** | §5.3's winner's-multiple sawtooth (17–23% drops at N = 14, 21, 27, 34) **cannot be designed away** — removing it needs a continuous paid-places function and `ceil()` is not one, exactly as §5.3 says. **It does not need to be.** §5.2's design constraint — *no queue may sit at a field size where the threshold straddles it* — combined with **fixed queue field sizes** means a player never meets both sides of a step. **The drops are a property of the curve, not an experience anyone has.** Recorded as closed rather than carried indefinitely, with one reopening condition: **variable-size queues**, which would make the mitigation lapse. |
+| **R88 — THE WATTS RUNGS ARE 250 · 1,000 · 5,000 · 25,000 W** | **2026-08-06** | A **quarter** of peg-equivalence (which would be 1,000 · 5,000 · 25,000 · 100,000 W), satisfying R80. Chosen against the earn rate rather than against the Volts ladder: **the entry rung is a small fraction of one match**, so a new player can stake in their first session with nothing saved up — which is the accessibility R78 exists to deliver, made real rather than nominal. **Accepted cost:** the top Watts rung is reachable in a handful of matches, so the WATTS PLAY ceiling is deliberately low. That is correct — the ceiling is what VOLTS PLAY is for, and a play-money tier with a punishing top rung would be neither play money nor accessible. |
 | **R78 — BOTH CURRENCIES STAKE, IN SEALED POOLS** | **2026-08-06** | **WATTS PLAY and VOLTS PLAY are the two staked tiers** (§3.1) — the play-money / real-money split, in our currencies, so a Watts player is a full participant rather than a spectator waiting to convert. **AMENDS R9:** Volts are no longer *the* stake currency, they are one of two. **The one-wallet property survives untouched** — §3.1(c) argues for one write *path*, not one balance *field*, and separate pools if anything **contain** the cross-contamination it warns about. The pools never meet: two players staking different currencies cannot settle one pot. **The document already disagreed with itself here** — §3's Watts row has always read *"lower stake tiers"*, the only sentence in the SSOT putting Watts into stakes; that cell is now normative rather than a fossil. **Answers §15.6**, though not in the direction it anticipated: the firewall that landed is currency-versus-currency, not store-versus-staking. |
 | **R79 — THE RAKE IS 5% ON BOTH POOLS** | **2026-08-06** | Extends **R68**'s `k = 0.05` to WATTS PLAY unchanged. **Not a revenue decision — a drain.** Watts are `the primary source` (§3.1b), and staking is a **transfer**, so an un-raked Watts pool would give the faucet currency a circulation loop with **zero sink**. That is the one change that would make the Watts economy unbalanceable, and it must not be reintroduced as a player-friendliness measure. **Because `k` is unchanged, §5.3's 1.40× min-cash verification carries over exactly** rather than re-opening at a second rate — which is the practical reason for matching R68 rather than tuning a second number. |
 | **R80 — THE WATTS LADDER SITS BELOW PEG-EQUIVALENCE** | **2026-08-06** | The Watts rungs are **not** 10× the Volts rungs; a Watts stake is deliberately cheaper in real terms (§3.3). **E1 is untouched** — the peg is a *store-pricing conversion*, a stake tier is a *chosen entry amount*, and setting one low changes no exchange rate. **⚠ THIS RULING RESTS ON R81, NOT ON ITS OWN MERITS:** it is safe only because the pools are sealed. Introduce any Watts→Volts conversion and the cheap ladder becomes a **discount on the dear one**, i.e. an arbitrage. The four rungs are geometric and their values are **tuning against the real earn rate, not set here** — same discipline as R39. |

@@ -447,29 +447,32 @@ it creates.
 
 ## 9. OPEN DESIGN QUESTIONS
 
-1. **Difficulty tier definitions.** How many player-facing tiers exist, what each is called, and where each
-   sits on the competence curve. §4 fixes what may and may not scale; it does not fix the granularity or the
-   labels.
-2. **Whether personality variance is authored or seeded.** Currently derived from a bot's identity, which
-   makes it stable and free. The alternative is an authored roster of named personalities — more
-   characterful and more legible to players, but it is content to maintain and it caps the variety at the
-   number authored. Interacts with whether bots are ever presented as recurring characters.
-3. **Bot competence across two position depths.** Competence is a function of match progress. **BATTLE ROYALE
-   and MATCH PLAY give it two different clocks** — a monotonically falling alive-count over N positions, versus
-   a round score climbing to a threshold over 2 — and the curve is currently written against one of them. Which
-   input each ruleset feeds, and whether one curve can serve both, is undefined.
-   *(This question replaced "bot behaviour under TURBO's instant respawn", which R41 parked with the ruleset.
-   Should TURBO ever revive, the original applies again: continuous respawn has no equivalent clock at all,
-   so the competence curve would have no input rather than a second one — `ssot/match-modes.md` §9.7.)*
+1. ~~**Difficulty tier definitions.**~~ — **CLOSED: THREE tiers, and R85 is why the question shrank.** Bots
+   now exist only in LEAGUE PLAY (§6.3 bars them wherever stake or rating is present), so they serve
+   **practice and population**, never competition. Three is the well-evidenced ceiling for tiers a player can
+   actually distinguish — beyond that, adjacent tiers feel identical and the choice becomes noise. They are
+   named for **intent, not for numbers** (learning / competent / punishing), because a percentage in a
+   difficulty label invites a player to read it as a stat.
+2. ~~**Whether personality variance is authored or seeded.**~~ — **CLOSED: SEEDED from identity.** It is
+   free, stable across sessions (the same bot behaves the same way twice, which is what makes it feel like a
+   character at all), and it **does not cap variety at the number someone had time to author**. An authored
+   roster is the better answer only if bots are ever presented as recurring named characters — which R85 makes
+   unlikely, since they now live only in the practice tier. Revisit if that changes.
+3. ~~**Bot competence across two position depths.**~~ — **CLOSED: normalise progress to [0,1].** The curve
+   keys on **fraction of the match elapsed**, not on a raw count — BATTLE ROYALE derives it from
+   `1 - (alive / starting alive)`, MATCH PLAY from `rounds won / rounds to win`. **One curve, two adapters.**
+   Keying on raw counts is what forced the question: an alive-count falls and a round-score climbs, so no single
+   raw number could serve both. A normalised fraction is monotonic in both and needs no per-ruleset tuning.
 4. ~~**Whether bots appear only in unrated queues, or also warm cold stake bands.**~~ — **CLOSED by R74: they
    never enter a population count.** This item had already reasoned its way to the answer — *"a population count
    must never include a participant whose presence would be forbidden in a settling match"* — and R74 simply
    adopts it as law. The pointer it carried was also stale: population transparency is `ssot/matchmaking.md`
    **§7**, not §6.
-5. **Squad-level coordination versus independent agents.** Bots currently reason individually. Coordination
-   (focus fire, covering angles, staggered pushes) would read as far more competent — but it directly opposes
-   §3.5: shared decisions are what make a squad read as one entity. If coordination is added, the variance
-   that keeps them individual has to be preserved *through* it, and how is not obvious.
+5. ~~**Squad-level coordination versus independent agents.**~~ — **CLOSED: independent agents with a SHARED
+   TARGET PRIORITY.** Each bot reasons alone but reads one team-level target list, which produces the
+   *appearance* of focus-fire — the single most legible coordination cue — for a fraction of the cost of real
+   joint planning. **Full coordination is not warranted for practice-only bots (R85)**, and a squad that
+   genuinely out-manoeuvres a learning player is the opposite of what the tier is for.
 
 ---
 

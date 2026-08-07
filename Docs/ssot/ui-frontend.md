@@ -85,19 +85,24 @@ loop: play a match, come back, adjust, go again. Against that loop:
 **The general rule:** *step a flow only when the steps are genuinely sequential.* Size and stake are
 independent; presenting them sequentially adds an ordering that does not exist in the decision.
 
-### 3.2 Currency is the FIRST choice; ruleset is the second
+### 3.2 TIER is the FIRST choice; ruleset is the second
 
-> **WATTS PLAY / VOLTS PLAY sits ABOVE the ruleset tabs (R76).** It is the first thing a player picks, because
-> it is the question with the largest consequence: *what am I playing for.* Everything below it — ruleset,
-> size, stake — is scoped by that answer, including the stake presets, which are different ladders in the two
-> tiers (R80).
+> **LEAGUE PLAY / WATTS PLAY / VOLTS PLAY sits ABOVE the ruleset tabs (R76, R85).** It is the first thing a
+> player picks, because it is the question with the largest consequence: *what am I playing for.* Everything
+> below it is scoped by that answer — the stake presets are different ladders in the two staked tiers (R80,
+> R88), and **the league control appears in LEAGUE PLAY and nowhere else**, because staked play is PRO MOD only
+> (R86).
+>
+> **This is what closes §3.2.1's four-dimension problem.** The lobby never shows four controls at once: pick
+> LEAGUE PLAY and you get league + ruleset + size, with no stake; pick a staked tier and you get ruleset + size
+> + stake, with no league. **Three controls either way**, and nothing is set silently elsewhere.
 >
 > **The precedent is exact and the players already know it.** Every card room and every brokerage puts the
 > play-money / real-money choice at the top and never mixes the two lists. Putting it lower would let a player
 > configure an entire entry and discover the denomination last, which is the one thing that must never surprise
 > them about money.
 
-**MATCH PLAY and BATTLE ROYALE are two tabs below the currency choice — not a doubled flat list.**
+**MATCH PLAY and BATTLE ROYALE are two tabs below the tier choice — not a doubled flat list.**
 
 `ssot/matchmaking.md` **R7** settles that the rulesets split the queue and get two tabs. The UI reasoning:
 
@@ -109,7 +114,7 @@ independent; presenting them sequentially adds an ordering that does not exist i
 - **A tab is also the honest place for population reporting** (§5): a ruleset's population is a property of
   the ruleset, and a tab is where a player can see one is quiet before committing attention to it.
 
-### 3.2.1 ⚠ THE LOBBY DOES NOT RENDER EVERY QUEUE DIMENSION, AND THAT IS A DEFECT
+### 3.2.1 ~~THE LOBBY DOES NOT RENDER EVERY QUEUE DIMENSION~~ — RESOLVED BY R85/R86
 
 **§2.1 rules that *"the front end's axes and the matchmaker's queue dimensions are the same list."* That is
 currently FALSE, and R76 makes the gap wider before it makes it narrower.**
@@ -119,18 +124,26 @@ currently FALSE, and R76 makes the gap wider before it makes it narrower.**
 | Ruleset (MATCH PLAY · BATTLE ROYALE) | Yes — tabs (§3.2) |
 | Bracket / size | Yes — the size axis (§3) |
 | Stake amount | Yes — presets + numeric (§4) |
-| **Stake currency** (R76) | **Added by this ruling** (§3.2) |
-| **League (HAYWIRE · PRO MOD)** | **NO — and it never has been.** |
+| **Tier / stake currency** (R76, R85) | **Yes — the first control** (§3.2) |
+| **League (HAYWIRE · PRO MOD)** | **Yes, as of R86 — but only inside LEAGUE PLAY**, the only tier offering both (§3.2) |
 
 **The league gap is pre-existing, not created here.** `ssot/matchmaking.md` §4.2 counts leagues as a **×2
 multiplier** on the queue set and §2.2 lists league among the things *"the player does control"* — but §3.3's
 shape below has no league control, and `design/IRONICS_LOBBY_UX_HANDOFF.md` contains **zero** occurrences of
 HAYWIRE or PRO MOD. The lobby has been specified against three of four dimensions.
 
-**Why this must be closed before S1 is authored, not after:** a screen that cannot express a dimension the
+**Why this had to be closed before S1 was authored, not after:** a screen that cannot express a dimension the
 matchmaker splits on will either silently pick one for the player — which §2.1 calls *"a broken promise"* — or
 force the queue set to collapse a dimension it has already committed to. **Both are worse than a fourth
-control.** The fix is a design task, not a doc edit, and it is owed.
+control.**
+
+> **⚠ RESOLVED, AND BY REMOVING THE PROBLEM RATHER THAN RENDERING IT.** This section recorded a real defect:
+> the lobby had never shown the league dimension that `ssot/matchmaking.md` §4.2 counted as a ×2 multiplier, so
+> §2.1's *"the front end's axes and the matchmaker's queue dimensions are the same list"* was false. **R86 made
+> league tier-scoped**, so it now appears exactly where it exists and nowhere it does not — §2.1 holds again,
+> and no tier ever shows more than three controls. Kept rather than deleted because the defect stood for a long
+> time, and its shape — *a queue dimension no screen rendered* — is the failure to watch for whenever a
+> dimension is added.
 
 ### 3.3 The resulting shape
 
@@ -714,25 +727,32 @@ Three properties of the ticket:
 
 ## 14. OPEN DESIGN QUESTIONS
 
-1. **Preset tier values.** Which stake amounts are presets. They teach the ladder (§4.1), so they should be
-   round, memorable and spread across the range players actually use — none of which is knowable before there
-   is usage. Interacts with the pricing ladders in `ssot/economy-store.md`.
-2. **Whether the numeric field accepts arbitrary precision or snaps.** Free entry is honest about being a free
-   field but lets a player enter a value the band renders meaningless; snapping to a step makes the banding
-   visible in the control itself but is a second, quieter rejection of a player's exact input. Interacts
-   directly with §4.2 — whichever is chosen, the band display is what keeps it honest.
-3. **Mobile layout under the split model.** §3 puts both axes on screen at once, which is a wider layout than
-   a phone gives. Stacking them vertically preserves capability but may push the queue action below the fold —
-   and the action being immediately reachable is most of what §6 buys. **The constraint is that capability must
-   not be reduced** (§12.2), not that the arrangement must match.
-4. **Where pick/ban lives if PROMOD tournaments adopt it.** Pick/ban is a *venue* interaction, which the lobby
-   deliberately does not have (§2). If tournaments adopt it, it is a tournament-context surface rather than a
-   lobby feature — but whether it sits in the showcase (§8), a bracket surface, or a pre-match room is
-   undecided, and it must not leak a venue choice back into the general queue.
-5. **How a cold band is presented before it folds.** §5.2 requires an empty band to look empty. What happens
-   between "quiet" and "folded into a neighbouring band" is undecided: warning the player, showing the band it
-   would merge into, or offering a widen-my-band affordance. **A band that folds silently after the player
-   committed a stake to it is the outcome to avoid**, whichever presentation is chosen.
+1. ~~**Preset tier values.**~~ — **CLOSED by R69 and R88.** VOLTS PLAY: `100 · 500 · 2,500 · 10,000 V`.
+   WATTS PLAY: `250 · 1,000 · 5,000 · 25,000 W`. LEAGUE PLAY has no stake control at all (R85). The presets do
+   teach the ladder, as this item argued — which is why each tier shows **its own** four rungs and never a
+   converted figure from the other.
+2. ~~**Whether the numeric field accepts arbitrary precision or snaps.**~~ — **CLOSED by R59: free entry,
+   and the SERVER snaps.** The client never rounds, because rounding is deciding which pool the player enters
+   — the same class of claim as asserting a balance, which **N11** forbids. The band readout already discloses
+   the outcome (§4.2), so honesty costs nothing here.
+3. ~~**Mobile layout under the split model.**~~ — **CLOSED: the AXES stay, the LIST scrolls.** The binding
+   constraint is §12.2's — capability must not be reduced — and collapsing the axis row behind a disclosure
+   would silently convert §3's split layout into the stepped flow §3 forbids. So when space runs out, **the
+   queue list gives up height, never the axes.** R85 makes this materially easier than when the question was
+   written: no tier shows more than three controls, so the row that has to survive is shorter than the
+   four-control worst case ever feared.
+4. ~~**Where pick/ban lives if PRO MOD tournaments adopt it.**~~ — **CLOSED: NOT IN THE LOBBY, and that is
+   R18, not a preference.** Pick/ban is a *venue* interaction and the lobby is a stake lobby — a venue control
+   there re-introduces the map browser through a side door, whichever way it is labelled. If tournaments adopt
+   it, it lives in the **pre-match room of the tournament surface**, between seating and match start, where
+   both parties are already committed and known to each other. **The lobby's promise is that venue is a server
+   outcome**; a bracket format that needs otherwise needs its own screen, not an exception in this one.
+5. ~~**How a cold band is presented before it folds.**~~ — **CLOSED by R61, plus one presentation rule.**
+   R61 sets the fold threshold and makes it automatic with an operator override. Before it folds, the band
+   **shows its real count and reads as cold** — §5.2's requirement that an empty band look empty applies to a
+   thin one too. **What it must NOT do is hide, grey out, or silently redirect**: a queue that accepts a player
+   and never returns is indistinguishable from a broken one, and that is the failure §5 exists to prevent.
+   **The fold is announced, never performed silently** — which is exactly the outcome this item named.
 
 ---
 
@@ -740,7 +760,7 @@ Three properties of the ticket:
 
 | Ruling | Date | Content |
 |---|---|---|
-| **R84 — CURRENCY IS THE FIRST CHOICE IN THE LOBBY** | **2026-08-06** | WATTS PLAY / VOLTS PLAY sits **above** the ruleset tabs (§3.2) and rides the ticket (§13.2), because it is the question with the largest consequence and it scopes everything below it — including the stake presets, which are **different ladders** in the two tiers (R80). Precedent is exact: every card room puts the play-money / real-money choice at the top and never mixes the lists. Placing it lower would let a player configure an entire entry and meet the denomination last, which is the one thing that must never surprise them about money. **Also records a PRE-EXISTING defect (§3.2.1): the lobby has never rendered the LEAGUE dimension** (HAYWIRE / PRO MOD) that `ssot/matchmaking.md` §4.2 counts as a ×2 queue multiplier — so §2.1's *"the front end's axes and the matchmaker's queue dimensions are the same list"* is currently false, and R76 widens the gap before closing it. **Owed before S1 is authored.** |
+| **R84 — TIER IS THE FIRST CHOICE IN THE LOBBY** ⚠ *widened by R85/R86* | **2026-08-06**, **amended 2026-08-06** | **LEAGUE PLAY / WATTS PLAY / VOLTS PLAY** sits **above** the ruleset tabs (§3.2) and rides the ticket (§13.2), because it is the question with the largest consequence and it scopes everything below it — including the stake presets, which are **different ladders** in the two staked tiers (R80, R88). Precedent is exact: every card room puts the play-money / real-money choice at the top and never mixes the lists. Placing it lower would let a player configure an entire entry and meet the denomination last, which is the one thing that must never surprise them about money. **AMENDED:** originally worded as a two-way CURRENCY choice; **R85** makes it a three-way TIER choice by adding unstaked LEAGUE PLAY. **The §3.2.1 defect this row recorded is now RESOLVED** — **R86** scopes league to LEAGUE PLAY, so the lobby renders every dimension that exists in the tier the player has chosen, and never shows more than three controls. |
 | **R75 — THE GAME FRONT END IS COMMONUI/UMG; NO WEB-TECH UI RUNTIME** | **2026-08-06** | No Gameface, no RmlUi, no CEF, no embedded HTML UI in the game client (§12.0). **Declined on two grounds.** (a) **The reuse argument does not hold:** §10's style system is delivered through `box-shadow`, `text-shadow`, `backdrop-filter` and CSS grid — the exact properties an in-engine CSS runtime tells you to avoid — and its prescribed replacements (baked glow textures, engine blur, flex/absolute) *are* the UMG idiom, so the design is more native to UMG than to the web runtime. (b) **A scripted UI layer is an attack surface on a client that settles wagers** — untrusted JS in-process calling native code, which is why such architectures ship validation gateways and fuzzers. **CommonUI has no scripting layer, so the boundary does not exist.** Also avoids a commercial dependency and the console focus/input bring-up. **Scope: the GAME client only.** Browser-side properties are unaffected; the two stacks share **only** the §10 design tokens, emitted from one source to CSS and to a UE data asset. |
 | **R18 — The front end is a stake lobby, not a map browser** | **2026-08-05** | The player chooses **match size** and **stake amount**. **Venue is a server outcome, disclosed as "venue assigned at match start"** (§2). The front end's axes and the matchmaker's queue dimensions are the same list; any axis the UI offers it must honour, per `ssot/matchmaking.md` **D1**. |
 | **R19 — Split layout, not a stepped flow** | **2026-08-05** | Both axes are live and editable at once; no wizard (§3). Staked players re-queue constantly and change one variable, usually stake — a stepped flow makes them re-walk the whole path every time. **Ruleset (MATCH PLAY / BATTLE ROYALE) is the top-level choice above both axes — two tabs, not a doubled flat list** (`ssot/matchmaking.md` **R7**). |
