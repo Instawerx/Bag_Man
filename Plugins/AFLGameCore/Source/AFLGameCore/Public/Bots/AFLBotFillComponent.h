@@ -29,6 +29,22 @@ class AGameModeBase;
  *   leave (FGameModeEvents::OnGameModeLogoutEvent)      -> total < Target -> SpawnOneBot (down to the floor)
  * removing from the fuller team so the balanced split holds. Converges to Target regardless of connect order.
  *
+ * FIELD SIZE IS DECLARED BY THE PLAYLIST (`?FieldSize=N`), NOT BY THE TEAM COUNT. For a SOLO battle royale
+ * TeamSize is 1, so the structural target `TeamSize * NumTeams` collapses to "however many teams the team-setup
+ * asset happens to author" -- and one `B_AFL_TeamSetup_Solo` (36 teams) is shared by every BR bracket. That made
+ * BR9 and BR20 fill to 36, measured in PIE: 35 bots in a nine-player match. The bracket is a property of the
+ * PLAYLIST, so the playlist declares it, via `ULyraUserFacingExperienceDefinition::ExtraArgs` -> URL option.
+ *
+ * Why the URL and not a team-setup asset per bracket: a per-bracket team setup needs a per-bracket Teams action
+ * set to reference it, and `FGameFeatureComponentEntry` is not BlueprintType -- the `AddComponents` row cannot be
+ * scripted (BR_ZONE_SYSTEM §"three that must close"), so that route costs three hand-clicked rows and three more
+ * assets to express one integer. The URL is also the seam a dedicated-server matchmaker already speaks: it hands
+ * the server a map URL, exactly where `Experience` and `NumBots` already live.
+ *
+ * Absent the option, `ComputeTargetTotal()` returns the structural product unchanged -- every non-BR mode keeps
+ * its existing behaviour byte for byte. A declared size is CLAMPED to the structural capacity and warns if it
+ * exceeds it, because seating more players than there are team slots silently breaks the solo invariant.
+ *
  * SEAM-GATED FOR T2 (the Option-A structure; SSOT §0.2/§3): the converge hooks bind ONLY when the active
  * assignment provider is NON-authoritative (UAFLTeamCreationComponent::IsAssignmentAuthoritative()==false --
  * LocalFill / offline / PIE). A T2 MatchmakerDataProvider (authoritative) seats all humans pre-start, so this
@@ -55,7 +71,9 @@ private:
 	/** Live team count (ULyraTeamSubsystem::GetTeamIDs). */
 	int32 GetNumTeams() const;
 
-	/** Total seats for the mode: max(0, TeamSize) * GetNumTeams(). */
+	/** Total seats for the mode. The playlist's `?FieldSize=N` wins when present (clamped to the structural
+	 *  capacity); otherwise the structural product max(0, TeamSize) * GetNumTeams(). Single source for BOTH the
+	 *  one-shot fill and the converge pass -- they computed it separately before, which is how they could drift. */
 	int32 ComputeTargetTotal() const;
 
 	/** Real humans currently in PlayerArray (bots + spectators excluded). */

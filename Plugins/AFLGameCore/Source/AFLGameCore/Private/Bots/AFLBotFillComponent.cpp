@@ -34,7 +34,35 @@ int32 UAFLBotFillComponent::GetNumTeams() const
 
 int32 UAFLBotFillComponent::ComputeTargetTotal() const
 {
-	return FMath::Max(0, TeamSize) * GetNumTeams();
+	// Structural capacity: how many seats the authored team set can actually hold.
+	const int32 Structural = FMath::Max(0, TeamSize) * GetNumTeams();
+
+	// The playlist's declared bracket wins. GetAuthGameMode() rather than GetGameMode<>() so this stays const --
+	// the converge pass calls it from a const context and MUST agree with the one-shot fill.
+	const UWorld* World = GetWorld();
+	const AGameModeBase* GameMode = World ? World->GetAuthGameMode() : nullptr;
+	if (!GameMode)
+	{
+		return Structural;
+	}
+
+	const int32 Declared = UGameplayStatics::GetIntOption(GameMode->OptionsString, TEXT("FieldSize"), 0);
+	if (Declared <= 0)
+	{
+		return Structural;   // no declaration -- every pre-existing mode keeps its exact behaviour
+	}
+
+	if (Declared > Structural)
+	{
+		// Seating more players than there are team slots doubles players up, which silently breaks solo BR.
+		// Clamp, but say so loudly: this is an authoring error in the playlist or the team set, not a tuning knob.
+		UE_LOG(LogAFLGameCore, Warning,
+			TEXT("AFLBots: playlist declares FieldSize=%d but the team set only seats %d (TeamSize=%d x %d teams) -- clamping."),
+			Declared, Structural, TeamSize, GetNumTeams());
+		return Structural;
+	}
+
+	return Declared;
 }
 
 int32 UAFLBotFillComponent::CountHumans() const
@@ -68,9 +96,9 @@ void UAFLBotFillComponent::ServerCreateBots_Implementation()
 	// Reset the name pool exactly as stock does before spawning.
 	RemainingBotNames = RandomBotNames;
 
-	const int32 NumTeams = GetNumTeams();                     // team creation ran HighPriority, before this LowPriority pass
-	const int32 HumanCount = CountHumans();                   // humans PRESENT at experience-load -- converges below
-	const int32 Target = FMath::Max(0, TeamSize) * NumTeams;  // e.g. 3 * 2 = 6 for 3v3
+	const int32 NumTeams = GetNumTeams();       // team creation ran HighPriority, before this LowPriority pass
+	const int32 HumanCount = CountHumans();     // humans PRESENT at experience-load -- converges below
+	const int32 Target = ComputeTargetTotal();  // playlist FieldSize, else TeamSize * NumTeams (3 * 2 = 6 for 3v3)
 	int32 EffectiveBotCount = FMath::Max(0, Target - HumanCount);
 
 	// Keep parity with stock's URL override so QA can still force an exact count.
