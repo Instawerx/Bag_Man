@@ -237,14 +237,41 @@ Built on top of them, 12 assets:
 `config/queue-registry.json` still leaves every BR cell unpublished and both doors read *"Not open yet"*.
 That is correct: the experiences exist, but a match run today would not be a battle royale.
 
-1. **THE ZONE IS NOT ATTACHED.** `UAFLZoneComponent` needs an `AddComponents` row on `LAS_AFL_BR_S1`
-   (component = `UAFLZoneComponent`, actor = `AGameStateBase`, server-only, config = the matching
-   `DA_AFL_ZoneConfig_ShantyTown_*`). **This could not be scripted** — `UGameFeatureAction_AddComponents`
-   and `FGameFeatureComponentEntry` are not `BlueprintType` and are exposed to neither the Python nor the
-   Lua bridge, verified both ways. It is a Details-panel edit, or a C++ `UAFLGFA_AddZone` on the next
-   editor-closed pass (the project already has that pattern: `AFLGFA_WeaponSpawns`,
-   `AFLGFA_ActivateDataLayers`). **Without it there is no ring at all**, and a BR with no ring may simply
-   never conclude — which is also the open A3/A5 stall.
+1. **THE ZONE IS NOT ATTACHED — ONE MANUAL ROW PER BRACKET REMAINS.** Everything around it is built and
+   wired; the `AddComponents` row itself **cannot be scripted**. `UGameFeatureAction_AddComponents` and
+   `FGameFeatureComponentEntry` are not `BlueprintType`, so they are invisible to the Python bridge, to the
+   Lua bridge's `get`/`set`/`array_add` (dot-notation and ImportText both), and even to a hand-constructed
+   action object via `unreal.new_object` — the object is created, `ComponentList` still cannot be touched.
+   All three routes verified.
+
+   **What IS built and committed:**
+
+   | | |
+   |---|---|
+   | `B_AFLZone_ShantyTown_{BR9,BR20,BR36}` | BP subclasses of `UAFLZoneComponent` with `Config` already set to the matching `DA_AFL_ZoneConfig_ShantyTown_*`. Same pattern as `B_AFLBotFill_BR_S1`, and necessary because `AddComponents` instantiates a CLASS with its CDO defaults — it cannot set per-instance properties. |
+   | `LAS_AFL_BR_Zone_{BR9,BR20,BR36}` | Action sets, **deliberately EMPTY**, already added to the `ActionSets` of both experiences of their bracket. |
+
+   **The remaining step — 3 assets, one row each:** open `LAS_AFL_BR_Zone_<BRACKET>`, add one
+   `GameFeatureAction_AddComponents`, and add a single component entry:
+
+   - **Actor Class** = `LyraGameState`
+   - **Component Class** = `B_AFLZone_ShantyTown_<BRACKET>`
+   - **Client Component** = ✅ and **Server Component** = ✅
+
+   ⚠ **Client Component must be TICKED.** The zone looks server-only and its class comment says so, but it
+   REPLICATES `CurrentCentre` / `CurrentRadius` / `TimeToNextEvent` to drive the HUD, and a component that
+   does not exist on the client cannot replicate to it. `BeginPlay` already disables tick on non-authority,
+   so the client instance costs nothing and only renders.
+
+   ⚠ **The zone sets ship EMPTY on purpose.** They were duplicated from `LAS_AFL_Teams_BR_S1`, which meant
+   they arrived carrying its `B_AFLBotFill_BR_S1` row — wiring that in would have **double-added bot fill**
+   to every BR experience. A wrong row is worse than a missing one, so the actions array was cleared: the
+   sets are inert, and adding them to the experiences changed nothing until the row above is authored.
+
+   **Without the row there is no ring at all**, and a BR with no ring may simply never conclude — which is
+   also the open A3/A5 stall. The alternative to doing it by hand is a C++ `UAFLGFA_AddZone` on the next
+   editor-closed pass; the project already has that pattern twice (`AFLGFA_WeaponSpawns`,
+   `AFLGFA_ActivateDataLayers`), and it would make this diffable instead of clicked.
 2. **BOT FILL IS 3, FOR EVERY FIELD SIZE.** `B_AFLBotFill_BR_S1` has `NumBotsToCreate = 3`. Three bots in a
    BR_36 is not a battle royale. Needs one bot-fill BP per field size (a plain CDO edit — that part IS
    scriptable) plus a Teams action set per size to reference it (blocked by the same `AddComponents` wall).
