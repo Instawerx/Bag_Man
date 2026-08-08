@@ -3,6 +3,7 @@
 #include "AFLOnlineSubsystem.h"
 
 #include "Engine/GameInstance.h"
+#include "Engine/Engine.h"                       // FWorldContext (PIEInstance -- per-PIE-client dev identity)
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 #include "HttpModule.h"
@@ -103,7 +104,37 @@ UAFLOnlineSubsystem* UAFLOnlineSubsystem::Get(const UObject* WorldContext)
 
 FString UAFLOnlineSubsystem::GetTitleId() const { return CVarOnlineTitleId.GetValueOnGameThread(); }
 FString UAFLOnlineSubsystem::BaseUrl() const { return FString::Printf(TEXT("https://%s.playfabapi.com"), *GetTitleId()); }
-FString UAFLOnlineSubsystem::ResolveDevCustomId() const { return CVarOnlineDevCustomId.GetValueOnGameThread(); }
+FString UAFLOnlineSubsystem::ResolveDevCustomId() const
+{
+	const FString Base = CVarOnlineDevCustomId.GetValueOnGameThread();
+
+#if WITH_EDITOR
+	// PIE runs every client inside ONE process, and this cvar is process-global -- so without a per-instance
+	// suffix EVERY PIE client logs in as the SAME PlayFabId. That is invisible in ordinary play and fatal to a
+	// staked match: escrow is keyed (matchId, playFabId), so two participants collapse onto a single escrow row
+	// and settlement then correctly refuses the whole match on its count check. It would read as a transport
+	// bug when it is really an identity one.
+	//
+	// A 2-client PIE is the cheapest thing that can stand in for two real players, and MATCH PLAY needs exactly
+	// that: FAFLMatchResult::Validate demands exactly two finishing positions (so a solo staked match is
+	// impossible) and bars bots from anything staked or rated (so it cannot be filled out with AI either).
+	//
+	// PIE instance 0 keeps the bare id, so the already-seeded primary account is still the one it logs into and
+	// only the additional clients need funding.
+	if (const UGameInstance* GI = GetGameInstance())
+	{
+		if (const FWorldContext* WorldContext = GI->GetWorldContext())
+		{
+			if (WorldContext->PIEInstance > 0)
+			{
+				return FString::Printf(TEXT("%s_P%d"), *Base, WorldContext->PIEInstance + 1);
+			}
+		}
+	}
+#endif
+
+	return Base;
+}
 
 void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
