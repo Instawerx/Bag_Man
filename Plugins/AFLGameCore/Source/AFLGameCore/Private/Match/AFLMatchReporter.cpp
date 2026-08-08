@@ -16,29 +16,15 @@
 #include "GameFramework/PlayerState.h"
 #include "GenericTeamAgentInterface.h"      // IGenericTeamAgentInterface -> the assigned team
 #include "Kismet/GameplayStatics.h"         // ParseOption
-#include "HAL/IConsoleManager.h"            // the dev options stand-in below
 
-#if !UE_BUILD_SHIPPING
-// DEV-ONLY stand-in for the launch-line options that an in-process PIE cannot supply.
+// NOTE (2026-08-08): a dev cvar `afl.Match.DevOptions` briefly lived here as a stand-in for the launch-line
+// options an in-process PIE cannot supply. It was REMOVED deliberately. It fabricated the stake -- the exact
+// thing a staked-match test is supposed to prove -- so a green PIE run demonstrated only that the fake agreed
+// with itself. Worse, it was a third source of truth in a currency-integrity path.
 //
-// The fallback in ReadEconomics reads GameMode->OptionsString, which is correct for a dedicated server or a
-// -game launch. PIE is neither: it runs the listen server IN-PROCESS, and BOTH editor fields that look like
-// they would inject URL options are separate-process only --
-//   ULevelEditorPlaySettings::AdditionalServerGameOptions  -> read only in PlayLevelNewProcess.cpp
-//   UEditorEngine::InEditorGameURLOptions                  -> only via BuildPlayWorldURL, same file
-// Neither is consulted when RunUnderOneProcess is true, so an in-process PIE match can never be staked from
-// a setting. Verified against 5.6 engine source; both were tried and silently did nothing.
-//
-// Consulted ONLY when the real options carry no Tier, so it can never override a matchmaker payload or a
-// genuine launch line -- and #if guards it out of shipping entirely.
-static TAutoConsoleVariable<FString> CVarAFLDevMatchOptions(
-	TEXT("afl.Match.DevOptions"),
-	TEXT(""),
-	TEXT("DEV-ONLY (non-shipping): stand-in launch-line options for an in-process PIE, e.g. "
-	     "\"?Tier=VoltsPlay?League=ProMod?Stake=10?StakeCurrency=VO\". UE URL options separate with '?', NOT '&'. "
-	     "Applied ONLY when the real options string carries no Tier."),
-	ECVF_Default);
-#endif
+// The economy round-trip is verified on a DEDICATED SERVER fed real allocator MatchmakerData, with clients
+// carrying a real ?PlayFabId=. If you are here because a PIE match logs "LEAGUE PLAY ... nothing to escrow":
+// that is correct behaviour, not a bug. PIE cannot stake a match, by design.
 
 namespace
 {
@@ -76,23 +62,7 @@ FAFLMatchReporter::FMatchEconomics FAFLMatchReporter::ReadEconomics(const UObjec
 		// which is the safe direction: a misread never invents a stake.
 		return Econ;
 	}
-	FString Options = GameMode->OptionsString;
-
-#if !UE_BUILD_SHIPPING
-	// See CVarAFLDevMatchOptions: PIE cannot supply a launch line, so without this an in-process PIE match is
-	// always LEAGUE PLAY and the whole escrow -> settle -> rating chain is unreachable from the editor.
-	if (UGameplayStatics::ParseOption(Options, TEXT("Tier")).IsEmpty())
-	{
-		const FString DevOptions = CVarAFLDevMatchOptions.GetValueOnGameThread();
-		if (!DevOptions.IsEmpty())
-		{
-			Options += DevOptions;
-			UE_LOG(LogAFLGameCore, Warning,
-				TEXT("AFL_MATCHREPORT: afl.Match.DevOptions applied (no Tier in the real options) -- '%s'. DEV ONLY."),
-				*DevOptions);
-		}
-	}
-#endif
+	const FString& Options = GameMode->OptionsString;
 
 	// --- PREFERRED SOURCE: the matchmaker payload. ---
 	//
