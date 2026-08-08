@@ -84,6 +84,44 @@ comment records that the no-colour-coding rule is a *ruling*, not a preference, 
 glow) and the `1fr 1fr` slot fill that makes the doors equal weight. Those are UMG designer work, alongside
 the art pass the type ramp still owes.
 
+## 2.2 `W_IRONICS_Home` — A STRUCTURAL SCAFFOLD, **NOT A LAID-OUT SCREEN**
+
+`Content/UI/Menu/W_IRONICS_Home.uasset`, reparented to `UAFLW_HomeScreen`. **31 widgets, correctly named
+and correctly nested**, both doors binding as real `CommonButtonBase` controls (`W_LyraButton`), with the
+§3 copy and the §4 token colours already applied.
+
+⚠ **IT HAS NO LAYOUT, AND CANNOT BE GIVEN ONE BY SCRIPT.** Proven in PIE 2026-08-08: the screen loads and
+takes CommonUI input focus, but every element collapses to natural size in the top-left corner and the text
+overlaps itself illegibly. Nothing is wrong with the hierarchy — **not one slot property has been set**,
+because the editor bridge cannot reach them.
+
+**What the bridge CAN and CANNOT do to a WidgetBlueprint** (each established by experiment, so nobody
+re-derives it):
+
+| | |
+|---|---|
+| ✅ create, parent, remove, rename widgets | `add_widget` / `rename_widget` / `remove_widget` |
+| ✅ set direct widget properties | **PascalCase only** — `Text`, `ColorAndOpacity`, `BrushColor`, `RenderOpacity` |
+| ❌ **slot properties** | alignment, padding, fill/size — **0 changes** in every form tried. This is the whole gap. |
+| ❌ **enum properties** | `Visibility` rejected as string, `ESlateVisibility::` string, and int alike |
+| ❌ widget animations | no API at all — §6 motion is designer work by necessity |
+
+**Three traps that cost real time here:**
+
+1. **`add_widget` IGNORES its `name` argument.** Widgets get `<Class>_<N>`; a BP class gets
+   `<Asset>_C_<N>`. Rename in a second step. The `<N>` counters **reset per asset**.
+2. **`compile()` reports SUCCESS even when `BindWidget` bindings FAIL.** UMG logs those as compiler
+   *warnings*, not errors. The only reliable check is grepping the editor log for
+   `required widget binding`. A build shipped with both doors unbound and the bridge called it success.
+3. **A successful rename does NOT prove parenting.** If a parent lookup fails the widget is still created,
+   still gets its auto-name, and still renames cleanly — so "31/31 renames" says nothing about structure.
+   The decisive test is `remove_widget(parent)` and checking whether the child still resolves.
+
+**The remaining work is a UMG designer pass**, and it was always going to be: set the `1fr 1fr` door fill,
+alignments and padding per §3, mark the door content stacks hit-test-invisible so clicks reach the buttons
+beneath, then §6's motion. **Front-end wiring is deliberately REVERTED** — `MainScreenClass` points back at
+`W_IRONICS_FrontEnd` — and should only be repointed once the screen is legible.
+
 ---
 
 ## 3. LAYOUT
