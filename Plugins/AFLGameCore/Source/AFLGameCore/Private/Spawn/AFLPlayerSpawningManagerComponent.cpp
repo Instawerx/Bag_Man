@@ -286,7 +286,39 @@ AActor* UAFLPlayerSpawningManagerComponent::OnChoosePlayerStart(AController* Pla
 				*District->GetName(), PlayerStarts.Num(), *DistrictTag.ToString());
 		}
 	}
-	const TArray<ALyraPlayerStart*>& DistrictScoped = (DistrictStarts.Num() > 0) ? DistrictStarts : PlayerStarts;
+	// NO DISTRICT ACTIVE -> THE OPEN-MAP SET. Battle royale streams no district (it plays the whole map), so
+	// the branch above never fires and this used to fall through to EVERY start on the map -- including the
+	// district starts, which on ShantyTown sit in a 191x90m patch. A 36-player BR opening inside that patch
+	// is a knife fight, not a drop.
+	//
+	// The rule is ABSENCE of a district tag, not presence of a BR tag, and that is deliberate:
+	//   - it needs no new tag, so no ini edit and no editor restart to register one;
+	//   - it needs no per-actor authoring, so the map's existing BR_Spawn_* starts work untouched;
+	//   - AFLGameCore stays free of any reference to the BR component, which lives in AFLCombat and is not
+	//     reachable from here (the same layering that forced IAFLRoundRestartPolicy and IAFLMatchTierSource).
+	// A district start is by definition FOR a district; anything else on the map is the open-map set.
+	TArray<ALyraPlayerStart*> OpenMapStarts;
+	if (DistrictStarts.Num() == 0 && !UAFLGFA_ActivateDataLayers::GetActiveDistrictForWorld(World))
+	{
+		static const FGameplayTag DistrictRoot = FGameplayTag::RequestGameplayTag(FName(TEXT("AFL.Spawn.District")), /*ErrorIfNotFound=*/false);
+		if (DistrictRoot.IsValid())
+		{
+			for (ALyraPlayerStart* Start : PlayerStarts)
+			{
+				if (Start && !Start->GetGameplayTags().HasTag(DistrictRoot))
+				{
+					OpenMapStarts.Add(Start);
+				}
+			}
+			UE_LOG(LogAFLGameCore, Log,
+				TEXT("AFLSpawn: no district active -- open-map set is %d of %d start(s) (the rest belong to districts)."),
+				OpenMapStarts.Num(), PlayerStarts.Num());
+		}
+	}
+
+	const TArray<ALyraPlayerStart*>& DistrictScoped =
+		(DistrictStarts.Num() > 0) ? DistrictStarts :
+		(OpenMapStarts.Num()  > 0) ? OpenMapStarts  : PlayerStarts;
 
 	// (0) FIXED-MIRROR SIDE filter (T1.4b) -- restrict to the team's CURRENT side, folding in the round's
 	//     half-time swap (read layering-safe via the core IAFLRoundRestartPolicy seam). INDEX_NONE -> no side
