@@ -93,16 +93,71 @@ Last commit at handoff: `d20ca894`.
 > Unstaked only because `AdditionalServerGameOptions` is still empty. That one field is what stands between
 > this line and a live escrow.
 >
-> ### ✅ THE STAKED RUN IS FULLY STAGED — ONLY "PLAY IT" REMAINS
+> ### STAKED RUN — STAGED AND RUNNING, ONE BLOCKER LEFT (`ReconcileId`)
 >
-> All configuration below is DONE and live in the editor. Nothing is left but playing the match.
+> **The match lifecycle now completes UNATTENDED.** With `afl.Round.DevRoundsToWin=1` a single round win ends
+> the series, and a round resolves on elimination without anyone playing:
+> ```
+> AFL_ROUND: round 1 RESOLVED -- winner team 2, reason Elimination. Score 0-1.
+> AFL_ROUND: MATCH END -- team 2 wins 0-1 -> concluding.
+> ```
+> So the economy round-trip does NOT require a hand-played best-of-13. It requires the blocker below.
+>
+> **⛔ BLOCKER: PIE players have no `ReconcileId`, so nobody can be debited, paid or rated.**
+> ```
+> AFL_MATCHREPORT: player '...' has no reconcile id -- match ... NOT escrowed (nobody debited).
+> AFL_ROUND: match ... NOT reported -- human player '...' has no reconcile id
+> ```
+> This is DOCUMENTED BEHAVIOUR, not a bug. `UAFLReconcileIdComponent` holds the PlayFab entity id "a
+> connecting client carries in its `?PlayFabId=` connect option", set at `AAFLGameMode::InitNewPlayer`, and is
+> explicitly *"Absent for LocalFill / offline / PIE joins (no `?PlayFabId=`)"*. `Validate` §4 independently
+> requires every human to carry one. **This is the same PIE-has-no-PlayFabId gap called out in the cheat-sheet
+> critique in §3** — it is now the live blocker, not a hypothetical.
+>
+> Two ways forward, needs a call:
+> 1. **Dev cvar in `InitNewPlayer`** (cheap, matches the two cvars already proven): when the reconcile id is
+>    empty and the world is PIE, assign from a configured id list in join order. Production `?PlayFabId=` path
+>    untouched, `#if !UE_BUILD_SHIPPING`. Risk: a third dev affordance, and it sits on the identity boundary.
+> 2. **Make PIE clients actually send `?PlayFabId=`** — truer to production, but the in-process PIE client
+>    connect URL is not exposed by any editor setting (see the trap box below; both URL fields are
+>    separate-process only).
+>
+> ⚠ **`bOverrideBotCount` set on the CDO does NOT survive an editor restart** — it reverted to `False` and a
+> run spawned 2 bots alongside the 2 humans ("suppression APPLIED on 4 player ASC(s)"). Even with reconcile
+> fixed, that fails the bot bar. It is now set to `True` in the **ini**, which IS read at startup. Same lesson
+> as `RoundsToWin`: for these, prefer the ini or a cvar over a CDO edit.
+>
+> Configuration below is live in the editor.
 >
 > | Setting | Value | Why |
 > |---|---|---|
-> | `AdditionalServerGameOptions` | `?Tier=VoltsPlay&League=ProMod&Stake=10&StakeCurrency=VO` | `IsStaked()` keys off **Tier**, not amount. R86: Pro Mod only. |
+> | `InEditorGameURLOptions` | `?Tier=VoltsPlay?League=ProMod?Stake=10?StakeCurrency=VO` | **This is the field that works.** `IsStaked()` keys off **Tier**, not amount. R86: Pro Mod only. |
 > | `PlayNumberOfClients` | `2` | Two humans; MATCH PLAY needs exactly 2 finishing positions. |
 > | `bOverrideBotCount` | `True` (count `0`) | Any bot in a staked/rated result fails `Validate` before a single POST. |
 > | `ExperienceOverride` | `B_AFLExperience_2v2_ProMod` | **Keep it** — Pro Mod, two teams. Correct once bots are off. |
+> | `afl.Round.DevRoundsToWin` | `1` | Dev-only cvar; one round win resolves the series. |
+>
+> ### ⚠ TWO TRAPS THAT COST A PIE RUN — BOTH VERIFIED AGAINST ENGINE SOURCE
+>
+> **1. `AdditionalServerGameOptions` DOES NOT WORK under `RunUnderOneProcess=True`.** The engine reads it in
+> exactly one place — `PlayLevelNewProcess.cpp:94`, the *separate-process* path. The in-process PIE path never
+> calls `GetAdditionalServerGameOptions` at all. Setting it looks right, persists to the ini, and is silently
+> ignored. The field that actually reaches an in-process listen server is
+> `UEditorEngine::InEditorGameURLOptions` (`PlayLevel.cpp:1432`, `URL += InEditorGameURLOptions`), a `config`
+> UPROPERTY, so it lives in `EditorPerProjectUserSettings.ini` under `[/Script/UnrealEd.EditorEngine]` and is
+> read at editor startup — **it needs an editor restart, not just a set.**
+>
+> **2. UE URL options are separated by `?`, NOT `&`.** Engine doc on the field: *"in the format
+> `?bIsLanMatch=1?listen`"*. With `&`, `ParseOption(Options,"Tier")` returns
+> `VoltsPlay&League=ProMod&Stake=10&StakeCurrency=VO`, which matches no tier and falls through to LEAGUE PLAY.
+> The tell is exactly the line a wired-but-unstaked match prints:
+> `AFL_MATCHREPORT: LEAGUE PLAY match ... -- no buy-in, nothing to escrow (R85)`.
+>
+> **Bonus trap: an edited CDO does not reach this GameFeature's components.** `RoundsToWin` was set to 1 on
+> `/Script/AFLCombat.Default__AFLRoundManagerComponent` and read back as 1, yet the next match still ran
+> `first to 7` / `half-swap after round 6`. The component is added by the `LAS_AFL_ExtractionMatch` action set
+> (not by the experience's own inline Actions, which only add pawn movement components). Override the LIVE
+> instance instead — which is what `afl.Round.DevRoundsToWin` does, at `ServerStartMatch`.
 >
 > **Both accounts funded** (Volts), via `Tools/Fund-DevAccount.ps1`:
 > `DF7C3188377BB66D` → 200100 (already held 200k) · `40419031BCC83EA5` → 100.

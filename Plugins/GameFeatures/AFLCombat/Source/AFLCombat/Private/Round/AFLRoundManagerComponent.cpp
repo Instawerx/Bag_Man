@@ -26,6 +26,23 @@
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLRoundManagerComponent)
 
+#if !UE_BUILD_SHIPPING
+// DEV-ONLY series shortener. A full first-to-7 series is a long manual sit, and verifying the economy
+// round-trip (escrow -> settle -> rating) only needs a series to REACH a result -- the number of rounds it
+// took is irrelevant to that. 0 = leave the configured value alone.
+//
+// Applied to the live component at ServerStartMatch rather than via the CDO on purpose: this component is
+// added by the LAS_AFL_ExtractionMatch action set, and an edited CDO was observed NOT to reach the spawned
+// instance (a match still ran "first to 7" with the CDO reading 1). Overriding the instance is the only
+// form that reliably takes.
+static TAutoConsoleVariable<int32> CVarAFLDevRoundsToWin(
+	TEXT("afl.Round.DevRoundsToWin"),
+	0,
+	TEXT("DEV-ONLY (non-shipping): override RoundsToWin for the next match START. 0 = use the configured value. "
+	     "Set to 1 so a single round win resolves the series -- the fast path for an economy round-trip test."),
+	ECVF_Default);
+#endif
+
 // The EXISTING extraction-complete message (UAFLAG_Extract broadcasts it server-side) + the channel
 // state tag (the extract ability's ActivationOwnedTag). We only READ these -- no carry/extract edits.
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Extraction_Complete_Round, "Event.Extraction.Complete");
@@ -273,6 +290,18 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	Team1Score = 0;
 	bSidesSwapped = false;
 	OnRep_Score();   // listen-host local HUD
+#if !UE_BUILD_SHIPPING
+	// Read once per match, here, so the log line below always reports the value the match will ACTUALLY use.
+	if (const int32 DevRoundsToWin = CVarAFLDevRoundsToWin.GetValueOnGameThread(); DevRoundsToWin > 0)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_ROUND: afl.Round.DevRoundsToWin=%d -- overriding RoundsToWin (was %d). DEV ONLY."),
+			DevRoundsToWin, RoundsToWin);
+		RoundsToWin = DevRoundsToWin;
+		// Keep half-time out of range of a shortened series; a swap mid-way through a 1-round match is noise.
+		HalfTimeAfterRound = FMath::Max(HalfTimeAfterRound, RoundsToWin * 2);
+	}
+#endif
+
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: match START (teams %d v %d; first to %d; half-swap after round %d)."),
 		ParticipatingTeams[0], ParticipatingTeams[1], RoundsToWin, HalfTimeAfterRound);
 
