@@ -334,6 +334,25 @@ void UAFLDamageExecCalc::Execute_Implementation(
 				OutExecutionOutput.AddOutputModifier(FGameplayModifierEvaluatedData(
 					ZoneAttr, EGameplayModOp::Additive, -Absorbed));
 
+				// ══ LIMB BLEED-THROUGH ═══════════════════════════════════════════════════════════════
+				//
+				// MEASURED IN PIE (2026-08-07, 36-player BR): a limb whose zone HP EXCEEDED the incoming
+				// damage consumed 100% of the hit, because `Absorbed == EffectiveDamage` makes the
+				// subtraction below land on exactly zero. Limb HP is 36-54 -- two to four rifle hits PER
+				// LIMB -- so with fire spread across zones almost nothing ever reached health:
+				//
+				//     46 of 161 damage events fully absorbed, every one with zone HP still > 0
+				//     0 severs in the entire match (nobody concentrated enough fire to deplete a limb)
+				//     30 of 35 eliminations were the shrinking zone; 5 were pawn-on-pawn
+				//
+				// A battle royale decided by weather rather than by shooting. So a limb now absorbs a
+				// FRACTION and the remainder always reaches the body. The dismemberment model is intact
+				// -- limbs still soak, still deplete, still sever -- but a landed shot is never free.
+				//
+				// HEAD IS UNAFFECTED: the locked survivable-decap model (below) requires the head to
+				// consume the whole hit, and that is a design ruling, not a tuning knob.
+				const float LimbAbsorbFraction = 0.65f;
+
 				const bool bDepletes = (EffectiveDamage >= ZoneHP - KINDA_SMALL_NUMBER);
 
 				// S4-INC3 PHASE B-1 -- LOCKED HEAD MODEL: decapitation is a SURVIVABLE state change
@@ -348,7 +367,10 @@ void UAFLDamageExecCalc::Execute_Implementation(
 				}
 				else
 				{
-					EffectiveDamage -= Absorbed;   // limb overflow continues to the body
+					// Only the absorbed FRACTION is withheld, so a limb hit always lands something on the
+					// body. Overflow past a depleted limb is unaffected -- `Absorbed` is capped at ZoneHP,
+					// so once the limb is gone this reduces to the old behaviour exactly.
+					EffectiveDamage -= Absorbed * LimbAbsorbFraction;
 				}
 
 				if (bDepletes)
@@ -423,11 +445,21 @@ void UAFLDamageExecCalc::Execute_Implementation(
 		// means the trace missed a damageable actor -- never "damage was silently eaten".
 		{
 			UAbilitySystemComponent* DbgASC = ExecutionParams.GetTargetAbilitySystemComponent();
+			// REPORT THE CAUSE, DO NOT ASSERT ONE. This line used to state flatly that the zone was
+			// "already-severed" -- a claim it never checked. In a 36-player PIE it printed that 46 times
+			// while EVERY zone still had HP (12-54) and not one limb had been severed all match, which sent
+			// the investigation into dismemberment for something that was really full-absorption tuning.
+			// A diagnostic that guesses is worse than one that says it does not know.
+			const TCHAR* Cause =
+				(LoggedZoneHP < 0.0f)               ? TEXT("not zone-routed / no zone resolved") :
+				(LoggedZoneHP <= KINDA_SMALL_NUMBER) ? TEXT("dead zone (HP<=0): severed limb or missing head") :
+				(LoggedZone == static_cast<int32>(EAFLBodyZone::Head)) ? TEXT("head consumed the hit (survivable-decap model)") :
+				                                       TEXT("living zone absorbed all of it -- CHECK LimbAbsorbFraction");
 			UE_LOG(LogAFLCombat, Log,
 				TEXT("AFL_DMG: outcome=ZONE_CONSUMED zone=%d bone=%s zoneHP=%.1f target=%s -- whole hit absorbed, "
-				     "no health damage (zone HP <= 0 reads as an already-severed dead zone)."),
+				     "no health damage. cause=%s"),
 				LoggedZone, *LoggedZoneBone.ToString(), LoggedZoneHP,
-				*GetNameSafe(DbgASC ? DbgASC->GetAvatarActor_Direct() : nullptr));
+				*GetNameSafe(DbgASC ? DbgASC->GetAvatarActor_Direct() : nullptr), Cause);
 		}
 		return;
 	}
