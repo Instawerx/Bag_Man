@@ -330,13 +330,23 @@ loaded (centre `(870,7425)`, the measured town core — not world origin) and th
     ~01.38.57 last-standing resolves -> respawn RESTORED on 144 ASCs
     01.39.07  zone advances to phase 2 ...
     01.40.27  ... phase 4 Final. Still lethal.
-    01.42.35+ still killing. Pawn index reaches C_9728.
+    01.42.35+ still killing, ~4 minutes after the contest ended.
 
 The zone ran from MatchId to `EndPlay` with **nothing tying it to the contest it belongs to**. The BR
 component restores respawn at last-standing — correct for post-game — so players respawned into a
-still-shrinking lethal ring, died, respawned, died, unbounded. **~9,700 pawns.** This is almost certainly
-what exhausted memory and crashed the editor in the *previous* session, which had been written off as a
-machine memory issue; the OOM was a symptom, not the cause.
+still-shrinking lethal ring, died, respawned, died, with nothing to stop it. **60 of the session's 76
+deaths happened after the match had already been won.**
+
+> ⚠ **A CORRECTION, recorded because the wrong version was committed first.** This was initially written up
+> as the cause of the previous session's editor OOM, and the operator's own "machine memory" diagnosis was
+> contradicted. **That was wrong.** The zone never started in the session that crashed — it had no BR
+> component, logged `no UAFLBattleRoyaleComponent`, and stayed idle; that log contains **zero**
+> `AFL_ZONE_PLAN` lines. The crash was unrelated, and the original diagnosis was right.
+>
+> The mistake came from reading `B_Hero_BagMan_C_9728` as a pawn *count*. It is a global UObject name
+> counter that persists across every PIE session in an editor's lifetime. The actual figure is **77 unique
+> pawns**, not ~9,700 — an overstatement of roughly 100×, on which a false causal claim was then built.
+> The loop was real and worth fixing; its magnitude and its consequence were not what was claimed.
 
 Fixed: `ServerStopZone()`, latched, called the moment `IsMatchActive()` goes false. Sets `Idle` (which
 `IsInsideZone` already treats as "nowhere is outside", so one state change closes the damage path and hides
