@@ -97,3 +97,21 @@ the every-map hub rule, satisfied at the one knob, menu intact.
 ### First cut = the GameDefaultMap repoint + registration, PIE-verified full-loop
 boot → armory + menu → HOST → match → **return → armory + menu**. Then the cosmetic pawn cleanup + (later) the
 LOADOUT button. `L_LyraFrontEnd` becomes the unused stock front-end (kept on disk).
+
+> **✅ STEPS 1 AND 2 ARE APPLIED (verified on disk 2026-08-08).** `DefaultEngine.ini:71` already reads
+> `GameDefaultMap=/Game/BagMan/Armory/L_IRONICS_Armory`, and the armory is registered in **both** places
+> step 2 requires — the Map `SpecificAssets` list (`DefaultGame.ini:66`) and `MapsToCook`
+> (`DefaultGame.ini:205`). Steps 3, 5 and 6 were no-change by design. **Still open from this cut:** step 4,
+> the three stray `Character_Default` mannequins (cosmetic).
+
+### What the front end does NOT have yet — the R98 split is unbuilt
+
+`W_IRONICS_FrontEnd` still presents the **HOST / STORE / SETTINGS / REPLAYS** button set. The R98 first
+decision — **LEAGUE PLAY vs STAKED PLAY** — exists as `IRONICS_HOME_SCREEN_SPEC.md` plus both door specs and
+their mockups, and as **no widget at all**: a content search for `W_IRONICS_*` returns only `FrontEnd` and
+`Startup`. Nothing in-engine reads either door spec.
+
+Two of the three §9 blockers are still operator-owed and both bear on the *visual* build, not the structure:
+the **type ramp is unapproved** (a stand-in system stack must not be inherited into a shipping face) and the
+**§2 colour-coding decision** needs a yes or an overrule. The door **structure** — two doors, routing, focus
+order, the never-show-a-stake-to-a-league-player rule — is fully specified and blocked by neither.

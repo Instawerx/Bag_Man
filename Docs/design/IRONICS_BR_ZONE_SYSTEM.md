@@ -237,6 +237,12 @@ Built on top of them, 12 assets:
 `config/queue-registry.json` still leaves every BR cell unpublished and both doors read *"Not open yet"*.
 That is correct: the experiences exist, but a match run today would not be a battle royale.
 
+> **STATUS 2026-08-08 — all three are now closed.** Item 1 (the `AddComponents` row) was authored by hand by
+> the operator; item 3 (spawn distribution) shipped as 38 `BR_Spawn_*` starts plus the open-map spawn scope;
+> item 2 (field size) is closed below — **with its original diagnosis corrected, because it was wrong.**
+> Publication additionally waits on the combat close, which the limb bleed-through pass (`e25f6dda`) moved
+> from 14% to **58% of eliminations decided by fighting rather than by the ring.**
+
 1. **THE ZONE IS NOT ATTACHED — ONE MANUAL ROW PER BRACKET REMAINS.** Everything around it is built and
    wired; the `AddComponents` row itself **cannot be scripted**. `UGameFeatureAction_AddComponents` and
    `FGameFeatureComponentEntry` are not `BlueprintType`, so they are invisible to the Python bridge, to the
@@ -272,9 +278,41 @@ That is correct: the experiences exist, but a match run today would not be a bat
    also the open A3/A5 stall. The alternative to doing it by hand is a C++ `UAFLGFA_AddZone` on the next
    editor-closed pass; the project already has that pattern twice (`AFLGFA_WeaponSpawns`,
    `AFLGFA_ActivateDataLayers`), and it would make this diffable instead of clicked.
-2. **BOT FILL IS 3, FOR EVERY FIELD SIZE.** `B_AFLBotFill_BR_S1` has `NumBotsToCreate = 3`. Three bots in a
-   BR_36 is not a battle royale. Needs one bot-fill BP per field size (a plain CDO edit — that part IS
-   scriptable) plus a Teams action set per size to reference it (blocked by the same `AddComponents` wall).
+2. ~~**BOT FILL IS 3, FOR EVERY FIELD SIZE.**~~ **CLOSED 2026-08-08 — and the diagnosis above was wrong.**
+
+   **What this section claimed:** that `B_AFLBotFill_BR_S1`'s `NumBotsToCreate = 3` meant three bots in a
+   BR_36, fixable with one bot-fill BP per field size.
+
+   **What is actually true:** `NumBotsToCreate` on those Blueprints is **vestigial and reads nothing.**
+   `UAFLBotFillComponent` overrides `ServerCreateBots_Implementation` and replaces the count decision
+   entirely with `Target = TeamSize * NumTeams`. For a solo BR `TeamSize = 1`, so the field size collapsed
+   to **however many teams the team-setup asset happened to author** — and one `B_AFL_TeamSetup_Solo`
+   (**36 teams**) is shared by all three brackets.
+
+   The bug therefore ran in the *opposite direction* to what was written here: not three bots in a BR_36,
+   but **thirty-five bots in a BR_9**. Measured, not inferred — the 2026-08-07 BR9 PIE logged
+   `total=36` and 35 distinct `B_AFL_BotController_C_*`. Reading the CDO would have "confirmed" the wrong
+   story; only the log and the override's source together give the real one.
+
+   **The fix — `?FieldSize=N`, declared by the playlist.** `UAFLBotFillComponent::ComputeTargetTotal()` now
+   honours a `FieldSize` URL option, clamped to the structural capacity (`TeamSize * NumTeams`) with a loud
+   warning if a playlist over-declares. Absent the option it returns the structural product unchanged, so
+   **every non-BR mode keeps its exact prior behaviour**. `ServerCreateBots_Implementation` now calls that
+   one function instead of recomputing the target inline — they could previously disagree, which was a
+   latent second defect in the converge path.
+
+   The six `DA_AFL_ShantyTown_BR*` playlists carry `ExtraArgs["FieldSize"] = 9 / 20 / 36`. Their
+   `MaxPlayerCount` was **already** correct per bracket, which is the independent confirmation that the
+   bracket numbers are right and only the fill was wrong.
+
+   **Why the URL and not three more assets:** a per-bracket team setup needs a per-bracket Teams action set
+   to reference it, and that is the same un-scriptable `AddComponents` row as item 1 — three hand-clicked
+   rows and three new assets to express one integer. The URL is also the seam a dedicated-server matchmaker
+   already speaks; `Experience` and `NumBots` live there today.
+
+   ⚠ **Direct-PIE with an experience override does not set URL options**, so a bare PIE still fills to the
+   structural 36. The bracket is correct through the front end, which is the shipping path and the only one
+   that carries a playlist.
 3. **THERE IS NO BR SPAWN DISTRIBUTION.** The only `LyraPlayerStart`s on the map are the district set — 60
    of them inside a 191 × 90 m patch centred (3132, 794). BR9/BR20's opening circle is the **town core**, so
    spawns must be spread inside it; BR36's covers the landscape. Thirty-six players spawning in a 191 × 90 m

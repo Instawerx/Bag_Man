@@ -240,8 +240,11 @@ different languages.
 2. **`UIDisplay.NeonTube` approval** (style SSOT OPEN ITEM 5), including the SDF-material-vs-texture call
    and whether the treatment extends beyond the two R98 door headings.
 3. ~~BR bracket set under Battle Royale~~ — **CLOSED by R99** (`ssot/match-modes.md` §2.1.1): `BR_9` · `BR_20` · `BR_36`.
-4. **Live population source.** No population/queue-health endpoint exists yet — the backend has 13 lambdas
-   and none of them serves this. §5 is a requirement, so this is a build dependency, not a nicety.
+4. ~~**Live population source.**~~ **CLOSED — `GET /population` is built and serving.** This item contradicted
+   §3.1 of its own document, which already documents the endpoint, the seeded dev database
+   (`npm run seed:population`), and the six readings taken from it. The classifier ships in
+   `lambda/population/classify.ts` on the ruled policy — **health is the measured wait, not the standing
+   count** (§3.4) — with per-band waits banked by the allocator so a band classifies on its own signal.
 
 ---
 

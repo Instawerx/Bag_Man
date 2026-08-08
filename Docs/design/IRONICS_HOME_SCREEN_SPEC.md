@@ -29,10 +29,11 @@ through a wagering surface — see R98's reasoning in the register.
 
 ---
 
-## 2. THE ONE DERIVED DECISION — FLAGGED FOR APPROVAL
+## 2. THE DOORS ARE NOT COLOUR-CODED — **RULED (R100, 2026-08-08)**
 
-> **⚠ DERIVED, NOT RULED: the two doors are NOT colour-coded. They differ by density, motion rate and
-> content — never by palette.**
+> **✅ RULED, NOT DERIVED: the two doors are NOT colour-coded. They differ by density, motion rate and
+> content — never by palette.** Operator ruling **R100** (`ssot/ui-frontend.md` §15) confirmed the derived
+> position. Electric leads fill on both doors; Arc-Violet stays a rim/focus accent on both.
 
 **Why it was decided this way.** `ssot/ui-frontend.md` §10.2 states that **CHROME is the app's own furniture
 and is identical for every player**, while **IDENTITY is what a player picked or a brand owns and is resolved
@@ -182,7 +183,11 @@ select transition becomes an instant state change. The screen must remain fully 
 1. **The type ramp is unapproved.** `IRONICS_UI_STYLE_SSOT.md` §4 flags it as *derived, no type spec
    existed*. The mockup uses a system stack as a stand-in — **do not inherit a shipping display face from
    it.**
-2. **§2 colour-coding decision** (this doc, §2) needs a yes or an overrule.
+2. ~~**§2 colour-coding decision** needs a yes or an overrule.~~ **CLOSED by R100 (2026-08-08)** — the
+   derived position was confirmed: no colour separation. **This was the last DESIGN blocker.** Items 1 and 3
+   are ART dependencies (type ramp, bolt lockup), and neither gates the door structure, the routing, the
+   focus order, or the never-show-a-stake-to-a-league-player rule. **The home screen is buildable now**,
+   against a swappable stand-in face.
 3. **Bolt lockup:** the final 2D UI texture and the 3D hero emblem integrate as produced
    (`IRONICS_UI_STYLE_SSOT.md` §1, `Docs/IRONICS_BOLT_Assets.html`). The inline mark in the mockup is a
    stand-in at the correct rim treatment.
