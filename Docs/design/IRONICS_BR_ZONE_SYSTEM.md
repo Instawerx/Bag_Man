@@ -177,15 +177,51 @@ seeds) · radii-only-shrink · final-circle-fightable · pressure-ramps · first
 UnrealEditor-Cmd.exe Bag_Man.uproject -ExecCmds="Automation RunTests AFL.Zone.Plan;Quit" -unattended -nullrhi
 ```
 
-### Still owed (needs the editor OPEN — DOCTRINE B1 barred it this pass)
-1. **`GE_AFL_Zone_DoT`** — instant damage GE, SetByCaller `Data.Damage`, mirroring `GE_AFL_Damage_BeamTick`.
-   Until it is assigned the zone shrinks and telegraphs correctly but deals no damage, and says so at BeginPlay.
-2. **`DA_AFL_ZoneConfig_ShantyTown_BR`** — a config instance with ShantyTown's **real** `PlayableCentre`
-   (defaults centre on world origin, which the component warns about loudly).
-3. **BR experience wiring** — the `AddComponents` row adding `UAFLZoneComponent` to the BR experience only.
-4. **S3 viz actor + S4 PIE-with-bots (Z1/Z3/Z4/Z5)** — Z2 is already closed above.
-5. **BR playlists** — no `DA_AFL_ShantyTown_BR_*` exists, which is why `queue-registry.json` still leaves
-   every BR cell unpublished and both doors read *"Not open yet"*.
+### S2 assets — BUILT 2026-08-07 (editor open)
+
+| Asset | What it is |
+|---|---|
+| `/AFLCombat/Effects/GE_AFL_Zone_DoT` | **INSTANT**, 0 executions, one modifier: `LyraHealthSet.Damage += SetByCaller(Data.Damage)` |
+| `/AFLCombat/Zone/DA_AFL_ZoneConfig_ShantyTown_BR9` | town core · 4 shrinks · final 20m · 3→35 dps |
+| `/AFLCombat/Zone/DA_AFL_ZoneConfig_ShantyTown_BR20` | town core · 6 shrinks · final 25m · 2→30 dps |
+| `/AFLCombat/Zone/DA_AFL_ZoneConfig_ShantyTown_BR36` | full landscape · 8 shrinks · final 30m · drift 0.55 |
+
+**The DoT targets `Damage`, NOT `Health`, and NOT the weapon pipeline.** `Damage` is Lyra's *meta* attribute:
+`ULyraHealthSet::PostGameplayEffectExecute` converts it into health loss and drives `ULyraHealthComponent`'s
+death. Writing `Health` directly would drain a player to zero without ever killing them. And the sibling
+`GE_AFL_Damage_Instant` runs `UAFLDamageExecCalc` — headshot / weakpoint / distance multipliers and zone-HP
+routing — which is a weapon pipeline with nothing to say about weather, so the zone GE deliberately carries
+**zero executions**.
+
+### ⚠ THE GEOMETRY WAS RE-MEASURED — the doc's Phase 0 figures are stale for this map
+
+`ShantyTown_BR_DESIGN.md` §0 measured **`Demo_Map`** before the fork to `/Game/Maps/L_ShantyTown` and the
+World Partition conversion. Measured live off L_ShantyTown's **WP actor descriptors** (755 descs, nothing
+loaded — a loaded-actor sample reads only the streamed-in cells and would have been wrong):
+
+| | Demo_Map (§0, 2026-08-05) | **L_ShantyTown (measured 2026-08-07)** |
+|---|---|---|
+| Landscape | 617 × 607 m | **605 × 605 m**, centre **(11118, 16033)**, half-diagonal 428 m |
+| Town core | 357 × 302 m, centre ≈ (1774, 11958) | **262 × 228 m**, centre **(870, 7425)**, half-diagonal 174 m |
+
+The landscape carried over; **the town core did not** — different content, different centre. The configs use
+the live figures. BR9/BR20 open on a 175 m circle that wraps the core exactly; BR36 opens at 428 m, which
+circumscribes the whole landscape so nobody can start outside the first circle.
+
+**⚠ CONSEQUENCE FOR BR SPAWNS (owed, P2).** BR9/BR20's opening circle is the **town core only** — the outer
+landscape starts outside it. The BR drop/spawn distribution does not exist yet (`ShantyTown_BR_DESIGN.md` §0:
+*"only 2 (demo)"*), and when it is authored **every BR9/BR20 spawn must sit inside the core**, or those
+players begin the match taking zone damage through no fault of their own.
+
+### Still owed
+1. **A BR EXPERIENCE DOES NOT EXIST** — disk-verified: no `B_AFLExperience_*BR*`, no `DA_AFL_ShantyTown_BR_*`.
+   This now blocks everything below, and it is the reason `queue-registry.json` leaves every BR cell
+   unpublished and both doors read *"Not open yet"*. It is BR **mode** wiring (team setup, bot fill, spawn
+   distribution), not zone work.
+2. **The `AddComponents` row** adding `UAFLZoneComponent` + its config to that experience — BR only, never
+   the district experiences.
+3. **S3 viz actor + S4 PIE-with-bots (Z1/Z3/Z4/Z5).** Z2 is closed; the rest need a match to run in.
+4. **BR spawn distribution inside the opening circle** — see the warning above.
 
 ---
 
