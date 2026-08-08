@@ -374,7 +374,41 @@ means every one of 144 players is their own team, so it churns at spawn and elim
 it is independent of the respawn loop: **18 at 01.36, 7 at 01.37, 85 at 01.38, and ZERO from 01.39 onward**,
 which is precisely when the loop was running. Not fixed — a widget defect BR exposes rather than causes.
 
+### PIE RUN 2026-08-07 — FIRST FULL BATTLE ROYALE, AND THE ZONE-STOP FIX PROVEN
+
+Run start-to-stop from the bridge (start PIE, zero calls while live, stop, then read — the discipline the
+operator corrected me on). 36 participants, bots mobile for the first time thanks to the navmesh.
+
+**THE MATCH RESOLVED — 35 eliminations, 36 down to 1**, placements booked. Every previous run either
+stalled or was cut short.
+
+**Z-assertions now closed in a live match:**
+
+| | |
+|---|---|
+| **Z1** init + telegraph | `AFL_ZONE_PLAN … seed=303370882 phases=5`, phase 0 published with its successor |
+| **Z2** determinism | closed headlessly (9/9); each match draws its own seed, as designed |
+| **Z3** DoT outside | 30 of 35 eliminations were the ring |
+| **Z4** shrink drives survivors together | match resolved during phase 2 |
+| **Z5** server-authoritative | all state server-side; clients render replicated values only |
+
+**THE STOP FIX, MEASURED:**
+
+    03:07:23.324  AFL_BR: respawn RESTORED on 36 player ASC(s)
+    03:07:23.652  AFL_ZONE: stopped at phase 2 -- match resolved. Ring is inert.
+    -> 328 ms, inside the 0.25s tick. ZERO deaths after. Last death 03:07:23.325, i.e. the
+       final elimination itself.
+
+Before the fix the ring kept killing for ~4 minutes past the win, with 60 of 76 deaths landing after the
+match had already been decided.
+
 ### Still owed
+- **COMBAT BARELY KILLS: 30 of 35 eliminations were the zone, only 5 pawn-on-pawn** (up from 1 the run
+  before, so the navmesh helped). Bots move and shoot — 115 landed hits — but **46 of 161 damage events
+  returned `ZONE_CONSUMED`**, Haywire's body-zone model absorbing the hit with *"no health damage"*. A BR
+  decided by weather rather than by fighting is a tuning problem in `UAFLDamageExecCalc`, not in the ring.
+- **`ConstructTiledNavMesh: Failed to create navmesh of size 0`** seen once; the editor build reported
+  `RebuildAll` in 0.78s, fast for 500x500m. Worth confirming tile coverage.
 - **A PIE run that actually reaches the ring.** Everything above was fixed after the run, so Z1 / Z3 / Z4 /
   Z5 remain unproven. Z2 is closed headlessly.
 - **S3 viz actor + minimap ring.**
