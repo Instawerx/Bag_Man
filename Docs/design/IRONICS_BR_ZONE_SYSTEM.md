@@ -313,6 +313,30 @@ That is correct: the experiences exist, but a match run today would not be a bat
    ⚠ **Direct-PIE with an experience override does not set URL options**, so a bare PIE still fills to the
    structural 36. The bracket is correct through the front end, which is the shipping path and the only one
    that carries a playlist.
+
+   **PROVEN THROUGH THE REAL PATH — front-end PIE, 2026-08-08.** Not a compile check and not a bare PIE:
+   booted `L_IRONICS_Armory`, clicked HOST, picked the ShantyTown BR9 tile, and let it load.
+
+       LogLyraExperience: Identified experience ...ShantyTown_BR9_Haywire (Source: OptionsString)
+       LogAFLGameCore:    AFLBots: human-aware fill -- TeamSize=1 NumTeams=36 Humans=1 -> 8 bot(s) (target 9)
+
+   **`Source: OptionsString`** is the load-bearing half of that evidence — it proves the experience arrived
+   via the session URL rather than the DeveloperSettings override, so the `FieldSize` beside it travelled the
+   same way. **8 distinct `B_AFL_BotController_C_*`** spawned: 8 bots + 1 human = the declared 9, down from
+   36. No clamp warning (9 ≤ the 36-seat structural capacity) and zero `LogAFL*` errors or warnings.
+
+   ⚠ **The test is only honest because of two setup steps**, both reverted afterwards: `ShowInFrontEnd` was
+   temporarily true on `DA_AFL_ShantyTown_BR9_Haywire` (BR is unpublished, so it is not in the picker), and a
+   stale `ExperienceOverride` pointing at `B_AFLExperience_2v2_ProMod` was cleared — left in place it would
+   have won over the playlist and produced a green result that meant nothing. All six playlists are back to
+   `ShowInFrontEnd=False` and byte-identical to their commit.
+
+   **NumTeams is still 36 and that is correct.** Field size and team count are now independent: 9 participants
+   occupy 9 of the 36 authored teams and the rest go unused. Nothing needs a per-bracket team set.
+
+   *Not covered by this run:* the zone logged `armed -- waiting for a MatchId` and never seeded, because the
+   session was stopped ~41s in, before warmup elapsed. Expected, not a defect — the ring's full arc is proven
+   separately (second PIE run, above).
 3. **THERE IS NO BR SPAWN DISTRIBUTION.** The only `LyraPlayerStart`s on the map are the district set — 60
    of them inside a 191 × 90 m patch centred (3132, 794). BR9/BR20's opening circle is the **town core**, so
    spawns must be spread inside it; BR36's covers the landscape. Thirty-six players spawning in a 191 × 90 m
