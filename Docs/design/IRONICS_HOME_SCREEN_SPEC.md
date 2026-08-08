@@ -47,6 +47,45 @@ this spec depends on it.
 
 ---
 
+## 2.1 THE C++ CHASSIS — `UAFLW_HomeScreen` (built 2026-08-08)
+
+`AFLCombat/Public/UI/AFLW_HomeScreen.h` + `Private/UI/AFLW_HomeScreen.cpp`, an abstract
+`UCommonActivatableWidget` the shipping WBP reparents to — the same chassis pattern as
+`UAFLW_FrontEndMarket`. **The reason it is C++ and not a widget graph** is R98's sharpest clause:
+
+> A LEAGUE PLAY PLAYER NEVER PICKS A STAKE AMOUNT — because there isn't one to pick.
+
+A graph can be rewired by anyone; a static predicate can be held by a test. `IsStakeLegalForDoor` is that
+predicate, and `AFLCombatTests/.../AFLHomeScreenSpec.cpp` holds it with three tests under **`AFL.Home.*`** —
+no world, no widget tree, no PIE, so the rule is checked in CI before an editor is opened. The suite asserts
+BOTH directions: league refuses every non-zero stake (swept, not spot-checked, so an off-by-one bound cannot
+pass), *and* staked still accepts one — a too-strict predicate would satisfy the first assertion while making
+staked play unenterable.
+
+| Member | What it is for |
+|---|---|
+| `LeagueDoor` / `StakedDoor` | `BindWidget` — **required**. A home screen missing a door is not this screen, so it fails at compile rather than rendering a one-door surface that looks deliberate. |
+| `bStakedPlayAvailable` | Defaults **false** — the honest state: the staked lobby is unbuilt and every staked queue is unpublished. Drives §5's Disabled treatment. |
+| `StakedUnavailableReason` | Defaults to *"Not open yet"* so a WBP that forgets to set it still says something true. |
+| `OnDoorChosen` + `BP_OnDoorChosen` | The class **resolves** the choice; the WBP **navigates**. §9.4 ends this spec at the split, so inventing destinations in C++ would bake in a guess the spec has not made. |
+| `IsDoorAvailable` | League is **always** open. Gating the free half would strand the majority behind a door built for the minority. |
+| `SetWalletReadout` | Chrome on both sides — a *balance* is not a *stake*, and league is exactly where Watts accumulate. Live source is `UAFLWalletComponent`; **the bind is owed**, and is left a setter rather than guessed. |
+
+Two behaviours worth stating because they look like defects until you know why. `ChooseDoor` re-checks
+availability **even though the disabled door is visually inert** — `SetIsInteractionEnabled` is presentation,
+and a gamepad or accessibility path can still deliver the click, so the product rule is enforced where it is
+authoritative. And the disabled staked door stays **visible and focusable**: a player must be able to see that
+staked play exists and read why it is shut, or the split silently becomes a one-door screen.
+
+**Nothing in the class sets colour.** Per R100 the palette belongs to the WBP and the style system; the class
+comment records that the no-colour-coding rule is a *ruling*, not a preference, so a later edit knows.
+
+**NOT in the class, and not scriptable:** all of §6's motion (the counter-phased breathe, the lift, the
+glow) and the `1fr 1fr` slot fill that makes the doors equal weight. Those are UMG designer work, alongside
+the art pass the type ramp still owes.
+
+---
+
 ## 3. LAYOUT
 
 **The split IS the composition.** Two equal doors side by side — equal weight is the statement that neither

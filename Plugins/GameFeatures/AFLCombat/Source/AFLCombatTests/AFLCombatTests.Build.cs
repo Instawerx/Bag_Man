@@ -28,6 +28,11 @@ public class AFLCombatTests : ModuleRules
 			{
 				"Slate",
 				"SlateCore",
+				// AFLW_HomeScreen.h derives from UCommonActivatableWidget, so including it to reach the
+				// static R98 stake predicate pulls the CommonUI/UMG headers in with it. The test itself
+				// constructs no widget -- it exercises a pure static -- but the include still needs these.
+				"UMG",
+				"CommonUI",
 			}
 		);
 	}
