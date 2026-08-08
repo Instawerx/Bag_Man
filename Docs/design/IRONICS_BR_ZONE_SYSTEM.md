@@ -306,6 +306,64 @@ weak, because that module supplies dozens of classes. All six experiences now ve
 *(The editor crashed later in that session on `Ran out of memory allocating 1312 bytes ... paging file is
 too small`, at 38.3 GiB virtual — four minutes after the zone had gone idle. Machine memory, unrelated.)*
 
+### Second PIE run, 2026-08-07 — THE RING WORKS, and it found three more defects
+
+**The zone ran its full arc, and every number matched the plan exactly:**
+
+| phase | radius | ratio | interval | expected (hold + shrink) | dps |
+|---|---|---|---|---|---|
+| 0 | 17500 | — | — | — | 3.0 |
+| 1 | 10175 | 0.5814 | 65s | 35 + 30 = **65** | 13.7 |
+| 2 | 5916 | 0.5815 | 47s | 22 + 25 = **47** | 24.3 |
+| 3 | 3440 | 0.5815 | 42s | 22 + 20 = **42** | 35.0 |
+| 4 | 2000 | 0.5814 | 38s | 22 + 15 = **37** | 35.0 (Final) |
+
+Constant geometric ratio, timings exact to the tick, final radius hit precisely, damage ramp linear.
+**Containment held on all four transitions** (centre distance + child radius ≤ parent radius), live, on the
+seed a real match happened to draw — the property the 400-seed headless test asserts. Zero warnings: config
+loaded (centre `(870,7425)`, the measured town core — not world origin) and the BR component was found.
+
+#### ⛔ DEFECT 1 — THE ZONE DID NOT STOP WHEN THE MATCH ENDED. **Mine.**
+
+    01.37.15  match starts, respawn BLOCKED on 144 ASCs
+    01.38.20  first shrink completes -> elimination cascade
+    ~01.38.57 last-standing resolves -> respawn RESTORED on 144 ASCs
+    01.39.07  zone advances to phase 2 ...
+    01.40.27  ... phase 4 Final. Still lethal.
+    01.42.35+ still killing. Pawn index reaches C_9728.
+
+The zone ran from MatchId to `EndPlay` with **nothing tying it to the contest it belongs to**. The BR
+component restores respawn at last-standing — correct for post-game — so players respawned into a
+still-shrinking lethal ring, died, respawned, died, unbounded. **~9,700 pawns.** This is almost certainly
+what exhausted memory and crashed the editor in the *previous* session, which had been written off as a
+machine memory issue; the OOM was a symptom, not the cause.
+
+Fixed: `ServerStopZone()`, latched, called the moment `IsMatchActive()` goes false. Sets `Idle` (which
+`IsInsideZone` already treats as "nowhere is outside", so one state change closes the damage path and hides
+the ring) and clears the outside tags.
+
+**Why nothing caught it:** the bug is invisible in the plan, in the 9 headless tests, and in the first
+minute of the run. It only appears *after* the win condition resolves — the exact moment nobody is
+watching the zone.
+
+#### DEFECT 2 — 144 BOTS IN A 9-PLAYER BATTLE ROYALE. Pre-existing.
+
+    AFLBots: human-aware fill -- TeamSize=4 NumTeams=36 Humans=1 -> 143 bot(s) (target 144)
+
+`B_AFLBotFill_BR_S1` had **`TeamSize = 4`** on a SOLO mode, so the human-aware fill targeted
+`NumTeams × TeamSize` = 144 and ignored `NumBotsToCreate = 3` entirely. Solo means one participant per team
+by definition. **Fixed to 1** → target 36. The 144 was also a large share of the memory pressure.
+
+⚠ Still bracket-blind: `B_AFL_TeamSetup_Solo` authors a fixed **36** teams, shared by all three brackets,
+so BR_9 and BR_20 also get 36. Per-bracket team setups need per-bracket `AddComponents` rows.
+
+#### DEFECT 3 — 110 `W_Nameplate` BLUEPRINT ERRORS. Pre-existing, not zone-related.
+
+`SetTeamVisuals` reads `GetDynamicMaterial` unguarded and gets None. Fires on `OnTeamChanged` — and solo BR
+means every one of 144 players is their own team, so it churns at spawn and elimination. The timing proves
+it is independent of the respawn loop: **18 at 01.36, 7 at 01.37, 85 at 01.38, and ZERO from 01.39 onward**,
+which is precisely when the loop was running. Not fixed — a widget defect BR exposes rather than causes.
+
 ### Still owed
 - **A PIE run that actually reaches the ring.** Everything above was fixed after the run, so Z1 / Z3 / Z4 /
   Z5 remain unproven. Z2 is closed headlessly.

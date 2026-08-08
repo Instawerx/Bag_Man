@@ -219,6 +219,11 @@ void UAFLZoneComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		return;
 	}
 
+	if (bStopped)
+	{
+		return;
+	}
+
 	if (!bStarted)
 	{
 		// Poll for the seed. Cheap (4 Hz, one cached pointer deref) and it removes the ordering race with
@@ -243,6 +248,23 @@ void UAFLZoneComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		return;
 	}
 
+	// ══ THE MATCH IS THE ZONE'S LIFETIME ═══════════════════════════════════════════════════════════════
+	//
+	// Found in PIE, and it is the whole reason this check exists: the zone used to run from MatchId until
+	// EndPlay, with nothing tying it to the match it belongs to. At last-standing the BR component restores
+	// respawn -- correct, post-game players should be able to spawn and move around -- and the ring was
+	// still shrinking and still lethal. So every player respawned into it, died, respawned, died. It never
+	// converged: one PIE session reached pawn index ~9,700 and exhausted the editor's memory.
+	//
+	// The bug was invisible in the plan, in the tests, and in the first sixty seconds of the run. It only
+	// appears AFTER the win condition resolves, which is exactly the moment nobody is watching the zone.
+	UAFLBattleRoyaleComponent* BR = ResolveBattleRoyale();
+	if (!BR || !BR->IsMatchActive())
+	{
+		ServerStopZone(BR ? TEXT("match resolved") : TEXT("BR component gone"));
+		return;
+	}
+
 	AdvancePlan(DeltaTime);
 
 	DamageAccum += DeltaTime;
@@ -252,6 +274,36 @@ void UAFLZoneComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		ApplyOutsideDamage(DamageAccum);
 		DamageAccum = 0.f;
 	}
+}
+
+void UAFLZoneComponent::ServerStopZone(const TCHAR* Reason)
+{
+	if (bStopped)
+	{
+		return;
+	}
+	bStopped = true;
+
+	// Idle means "nowhere is outside" (see IsInsideZone), so the damage path is closed by the same flag the
+	// HUD reads to hide the ring -- one state change, not two that could disagree.
+	ZoneState = EAFLSafeZoneState::Idle;
+	TimeToNextEvent = 0.f;
+
+	// Clear the outside tag from anyone still carrying it. The damage is instant-per-period and leaves
+	// nothing behind, but this tag is stateful and would otherwise strand a vignette on a post-game screen.
+	for (const TWeakObjectPtr<APawn>& Weak : TaggedOutside)
+	{
+		if (APawn* Pawn = Weak.Get())
+		{
+			SetOutsideTag(Pawn, false);
+		}
+	}
+	TaggedOutside.Reset();
+
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ZONE: stopped at phase %d -- %s. Ring is inert; no further damage."),
+		PhaseIndex, Reason);
+
+	OnRep_ZoneState();
 }
 
 void UAFLZoneComponent::AdvancePlan(float DeltaTime)

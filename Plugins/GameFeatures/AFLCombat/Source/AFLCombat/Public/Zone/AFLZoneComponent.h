@@ -108,6 +108,16 @@ public:
 	 *  `afl.Zone.Start` cheat and the headless runner call it directly. */
 	void ServerStartZone(const FGuid& MatchId);
 
+	/**
+	 * Make the ring inert, permanently, for this match. Authority; idempotent.
+	 *
+	 * THE MATCH IS THE ZONE'S LIFETIME. Without this the zone ran from MatchId to EndPlay with nothing
+	 * tying it to the contest it belongs to — and since the BR component RESTORES respawn at last-standing,
+	 * a still-shrinking ring turned the post-game into an unbounded die-respawn-die loop that exhausted
+	 * the editor's memory at ~9,700 pawns. Found in PIE; invisible until after the win condition resolves.
+	 */
+	void ServerStopZone(const TCHAR* Reason);
+
 	/** Dev-only full-state dump, mirroring UAFLBattleRoyaleComponent::LogBeliefState — so a zone that looks
 	 *  wrong in PIE is a READ rather than an inference. Pure logging; changes nothing. */
 	void LogBeliefState(const FString& Context) const;
@@ -148,6 +158,8 @@ private:
 	float DamageAccum = 0.f;
 
 	bool bStarted = false;
+	/** Latched by ServerStopZone. One-way for the match — a resolved contest never re-arms its ring. */
+	bool bStopped = false;
 	/** Logged once when the MatchId poll first fails, so a stuck zone says why exactly once. */
 	bool bLoggedWaitingForMatchId = false;
 
