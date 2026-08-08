@@ -280,8 +280,37 @@ That is correct: the experiences exist, but a match run today would not be a bat
    spawns must be spread inside it; BR36's covers the landscape. Thirty-six players spawning in a 191 × 90 m
    patch is a drop-zone brawl, not a BR opening.
 
-### Still owed after that
-- **S3 viz actor + S4 PIE-with-bots (Z1 / Z3 / Z4 / Z5).** Z2 is closed; the rest need a match to run in.
+### First PIE run, 2026-08-07 — the zone instantiated, and caught two wiring defects
+
+The BR experience loaded (`Identified experience ...ShantyTown_BR9_Haywire (Source: DeveloperSettings)`)
+and `UAFLZoneComponent` came up, which proves the operator's `AddComponents` row works. It then refused to
+start, correctly, and its two warnings were both real:
+
+1. **`no UAFLZoneConfig assigned`** — a scripted CDO edit on a Blueprint does **not** recompile its
+   generated class. `B_AFLZone_ShantyTown_BR9` had `Config` set and read back set, but the running editor
+   was still instantiating the stale class, so the row produced a component with the parent's null default.
+   An editor restart "fixed" it, which is the tell. **Fixed by compiling all three BPs.**
+2. **`no UAFLBattleRoyaleComponent on the GameState`** — the component the whole mode is built on was never
+   added. `LAS_AFL_BR_S1` supplies the SOLO team setup but **not** the BR component; that lives on
+   `EXP_AFL_BR_S1_Test`'s **own** `GameFeatureAction_AddComponents`. The six BR experiences had been
+   duplicated from `B_AFLExperience_Arena04_8v8_Haywire`, so they inherited the ARENA row instead.
+   **Fixed by rebuilding all six from `EXP_AFL_BR_S1_Test`** — which also hands them the holster row for
+   free, and needed no Details-panel work at all.
+
+**The check that catches both, and the one that failed:** asset-registry `get_dependencies`, compared
+against the correct sibling. A missing `/Script/<Module>` means a component row is absent. The earlier
+inference — "`LAS_AFL_BR_S1` depends on `/Script/AFLCombat`, so it must add the BR component" — was too
+weak, because that module supplies dozens of classes. All six experiences now verify
+`AFLCombat=True, zone=True`.
+
+*(The editor crashed later in that session on `Ran out of memory allocating 1312 bytes ... paging file is
+too small`, at 38.3 GiB virtual — four minutes after the zone had gone idle. Machine memory, unrelated.)*
+
+### Still owed
+- **A PIE run that actually reaches the ring.** Everything above was fixed after the run, so Z1 / Z3 / Z4 /
+  Z5 remain unproven. Z2 is closed headlessly.
+- **S3 viz actor + minimap ring.**
+- Bot fill (3 for every field size) and the BR spawn distribution — unchanged, see above.
 
 ---
 
