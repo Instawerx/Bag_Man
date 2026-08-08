@@ -76,8 +76,12 @@ ShooterCore"` — placeholder, unwashed.)
   at `/Game/Maps/L_ShantyTown`, a real `B_AFLExperience_*`, and a `District` ExtraArg (Duel → 1v1/2v2, Arena →
   3v3/4v4, Team → 5v5/8v8). The dual-GE bar is met for every bracket, so **all 24 Map-class Match Play cells
   are PUBLISHED** in `config/queue-registry.json` — which also closes the Duel hole, since Arena class has no
-  1v1/2v2 venue at all. **BATTLE ROYALE IS STILL UNPUBLISHED:** no BR playlist exists and the mode remains
-  gated on the shrinking Zone system. District PLACEMENT within the town core still OWED.
+  1v1/2v2 venue at all. **BATTLE ROYALE: assets exist, still UNPUBLISHED.** 6 experiences
+  `B_AFLExperience_ShantyTown_{BR9,BR20,BR36}_{Haywire,ProMod}` + 6 playlists `DA_AFL_ShantyTown_BR*` were
+  authored 2026-08-07 (solo team setup via `LAS_AFL_BR_S1`, **no District extra-arg** — BR plays the whole
+  map). They are deliberately NOT in `mapPools`: the Zone component is not attached to the experience yet,
+  bot fill is 3 for every field size, and no BR spawn distribution exists. See
+  [IRONICS_BR_ZONE_SYSTEM.md](../design/IRONICS_BR_ZONE_SYSTEM.md) §10. District PLACEMENT within the town core still OWED.
 - **Arena_02 (Tier B, 3v3 + 4v4) — BRIEF BANKED, BUILD NOT APPROVED:** `Docs/design/Arena_02_DESIGN.md`
   committed as-is (`a241cc49`). **Gate = DRAFT awaiting operator approval (2026-08-02) — banking the brief
   did NOT approve the build.** On disk: **no `.umap`**, **no front-end config** (no playlist/experience), and

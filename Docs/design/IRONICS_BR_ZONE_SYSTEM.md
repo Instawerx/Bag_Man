@@ -213,15 +213,48 @@ landscape starts outside it. The BR drop/spawn distribution does not exist yet (
 *"only 2 (demo)"*), and when it is authored **every BR9/BR20 spawn must sit inside the core**, or those
 players begin the match taking zone damage through no fault of their own.
 
-### Still owed
-1. **A BR EXPERIENCE DOES NOT EXIST** — disk-verified: no `B_AFLExperience_*BR*`, no `DA_AFL_ShantyTown_BR_*`.
-   This now blocks everything below, and it is the reason `queue-registry.json` leaves every BR cell
-   unpublished and both doors read *"Not open yet"*. It is BR **mode** wiring (team setup, bot fill, spawn
-   distribution), not zone work.
-2. **The `AddComponents` row** adding `UAFLZoneComponent` + its config to that experience — BR only, never
-   the district experiences.
-3. **S3 viz actor + S4 PIE-with-bots (Z1/Z3/Z4/Z5).** Z2 is closed; the rest need a match to run in.
-4. **BR spawn distribution inside the opening circle** — see the warning above.
+### S3 — BR EXPERIENCES + PLAYLISTS BUILT 2026-08-07
+
+The BR match wiring already existed from the spike and was simply never composed into an experience:
+
+- **`LAS_AFL_BR_S1`** — the extraction action set with **`B_AFL_TeamSetup_Solo`** in place of
+  `B_AFL_TeamSetup_TwoTeams`. This is what makes BR solo: every `APlayerState` is its own participant.
+- **`LAS_AFL_Teams_BR_S1`** — carries **`B_AFLBotFill_BR_S1`**.
+
+Built on top of them, 12 assets:
+
+| | |
+|---|---|
+| `B_AFLExperience_ShantyTown_{BR9,BR20,BR36}_{Haywire,ProMod}` | Haywire = 5 game features (incl. `AFLDismember`) + `HeroData_BagMan`; ProMod = 4 + `HeroData_BagMan_Pro` |
+| `DA_AFL_ShantyTown_{BR9,BR20,BR36}_{Haywire,ProMod}` | `L_ShantyTown`, `MaxPlayerCount` 9/20/36 |
+
+**⚠ NO `District` EXTRA-ARG, deliberately.** Every Match Play ShantyTown playlist streams a district
+(`District_Duel/Arena/Team`); the BR playlists set **none**. The districts are fenced arenas with no ring
+(§1) — streaming one into a battle royale would fence 36 players into a duel yard.
+
+### ⛔ BR IS NOT PUBLISHED, AND MUST NOT BE UNTIL THESE THREE CLOSE
+
+`config/queue-registry.json` still leaves every BR cell unpublished and both doors read *"Not open yet"*.
+That is correct: the experiences exist, but a match run today would not be a battle royale.
+
+1. **THE ZONE IS NOT ATTACHED.** `UAFLZoneComponent` needs an `AddComponents` row on `LAS_AFL_BR_S1`
+   (component = `UAFLZoneComponent`, actor = `AGameStateBase`, server-only, config = the matching
+   `DA_AFL_ZoneConfig_ShantyTown_*`). **This could not be scripted** — `UGameFeatureAction_AddComponents`
+   and `FGameFeatureComponentEntry` are not `BlueprintType` and are exposed to neither the Python nor the
+   Lua bridge, verified both ways. It is a Details-panel edit, or a C++ `UAFLGFA_AddZone` on the next
+   editor-closed pass (the project already has that pattern: `AFLGFA_WeaponSpawns`,
+   `AFLGFA_ActivateDataLayers`). **Without it there is no ring at all**, and a BR with no ring may simply
+   never conclude — which is also the open A3/A5 stall.
+2. **BOT FILL IS 3, FOR EVERY FIELD SIZE.** `B_AFLBotFill_BR_S1` has `NumBotsToCreate = 3`. Three bots in a
+   BR_36 is not a battle royale. Needs one bot-fill BP per field size (a plain CDO edit — that part IS
+   scriptable) plus a Teams action set per size to reference it (blocked by the same `AddComponents` wall).
+3. **THERE IS NO BR SPAWN DISTRIBUTION.** The only `LyraPlayerStart`s on the map are the district set — 60
+   of them inside a 191 × 90 m patch centred (3132, 794). BR9/BR20's opening circle is the **town core**, so
+   spawns must be spread inside it; BR36's covers the landscape. Thirty-six players spawning in a 191 × 90 m
+   patch is a drop-zone brawl, not a BR opening.
+
+### Still owed after that
+- **S3 viz actor + S4 PIE-with-bots (Z1 / Z3 / Z4 / Z5).** Z2 is closed; the rest need a match to run in.
 
 ---
 
