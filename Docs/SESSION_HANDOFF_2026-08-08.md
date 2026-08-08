@@ -93,20 +93,42 @@ Last commit at handoff: `d20ca894`.
 > Unstaked only because `AdditionalServerGameOptions` is still empty. That one field is what stands between
 > this line and a live escrow.
 >
-> ### WHAT IS LEFT FOR #20 — three things, in order
+> ### ✅ THE STAKED RUN IS FULLY STAGED — ONLY "PLAY IT" REMAINS
 >
-> 1. **Editor Preferences → Level Editor → Play → Additional Server Game Options** (set in the UI; applies to
->    the next PIE with no restart — editing the ini instead needs a relaunch, and a running editor overwrites
->    it on exit):
->    ```
->    ?Tier=VoltsPlay&League=ProMod&Stake=10&StakeCurrency=VO
->    ```
-> 2. **Force bots to zero** — `bOverrideBotCount=True` with `OverrideNumPlayerBotsToSpawn=0`. Any bot in a
->    staked/rated result fails `Validate` before a single POST. `PlayNumberOfClients` is already set to 2.
-> 3. **Fund both accounts** above with Volts, or `escrow-entry` 4xxs per player and settlement refuses the
->    match. `afl.Online.EarnCanary` does this — it **mutates real balances** on title `1A2077`.
+> All configuration below is DONE and live in the editor. Nothing is left but playing the match.
 >
-> Then play the 2-client match to a series result and watch for escrow → settle → rating, each 2xx.
+> | Setting | Value | Why |
+> |---|---|---|
+> | `AdditionalServerGameOptions` | `?Tier=VoltsPlay&League=ProMod&Stake=10&StakeCurrency=VO` | `IsStaked()` keys off **Tier**, not amount. R86: Pro Mod only. |
+> | `PlayNumberOfClients` | `2` | Two humans; MATCH PLAY needs exactly 2 finishing positions. |
+> | `bOverrideBotCount` | `True` (count `0`) | Any bot in a staked/rated result fails `Validate` before a single POST. |
+> | `ExperienceOverride` | `B_AFLExperience_2v2_ProMod` | **Keep it** — Pro Mod, two teams. Correct once bots are off. |
+>
+> **Both accounts funded** (Volts), via `Tools/Fund-DevAccount.ps1`:
+> `DF7C3188377BB66D` → 200100 (already held 200k) · `40419031BCC83EA5` → 100.
+>
+> ⚠ **These play settings live in `Saved/Config/.../EditorPerProjectUserSettings.ini`, which is gitignored
+> and which the editor REWRITES ON EXIT from its in-memory values.** They were set on the live CDOs, so they
+> persist through a normal editor close — but they are not version-controlled and a config reset loses them.
+> Re-read this table if a later PIE reports `LEAGUE PLAY ... nothing to escrow`.
+>
+> **Note the PascalCase quirk:** `LevelEditorPlaySettings` / `LyraDeveloperSettings` properties are reachable
+> from Python ONLY by their PascalCase names (`AdditionalServerGameOptions`, `PlayNumberOfClients`,
+> `bOverrideBotCount`). The snake_case forms all return "failed to find property" — the same trap already
+> recorded for `configure_widget` in §4.
+>
+> Now play the 2-client match to a series result and watch for escrow → settle → rating, each 2xx.
+>
+> ### FUNDING: USE THE SCRIPT, NOT THE CANARY
+>
+> `afl.Online.EarnCanary` needs a live game world, so it only runs during PIE — and this project's standing
+> rule is zero tooling calls into a running PIE. It also hardcodes `WA` and amount 5.
+> `Tools/Fund-DevAccount.ps1` hits the same `/earn` Lambda directly, needs no editor, and grants either
+> currency (`CURRENCY_CODES` is `{WA, VO}` — only the canary is WA-only). Same secret discipline as the
+> launcher: the key is streamed from Secrets Manager, never written down, never logged.
+>
+> Its 200 response is also the **third** independent proof the UE-side HMAC scheme is correct — and the
+> first on a *mutating* call.
 >
 > **Keep `ExperienceOverride=B_AFLExperience_2v2_ProMod`.** Earlier advice in this doc said to clear it; that
 > was written before the bot bar was understood. With bots forced to 0 it is exactly right: Pro Mod (R86
