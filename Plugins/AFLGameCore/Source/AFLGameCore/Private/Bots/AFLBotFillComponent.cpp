@@ -3,7 +3,8 @@
 #include "Bots/AFLBotFillComponent.h"
 
 #include "AFLGameCore.h"                       // LogAFLGameCore
-#include "Teams/AFLTeamCreationComponent.h"    // IsAssignmentAuthoritative (the seam gate)
+#include "Teams/AFLTeamCreationComponent.h"    // IsAssignmentAuthoritative (the bind-time seam gate)
+#include "Teams/AFLMatchmakerDataProvider.h"   // S12: IsRosterExternallyOwned -- the fire-time gate on both fills
 #include "AIController.h"                       // AAIController (bot controllers)
 #include "Teams/LyraTeamSubsystem.h"           // live team count + FindTeamFromObject
 #include "GameModes/LyraGameMode.h"            // ALyraGameMode::OnGameModePlayerInitialized
@@ -107,6 +108,25 @@ void UAFLBotFillComponent::ServerCreateBots_Implementation()
 		EffectiveBotCount = UGameplayStatics::GetIntOption(GameMode->OptionsString, TEXT("NumBots"), EffectiveBotCount);
 	}
 
+	// S12 GATE, same rule as converge below: an externally-owned roster gets NO bots, and this pass is where
+	// production would otherwise create them. It runs at experience load with Humans=0 -- every rostered player
+	// is still connecting -- so `Target - Humans` is the FULL field. The acceptance run only escaped that
+	// because it was launched with ?NumBots=0 by hand; a real placement carries no such option, so this pass
+	// would have spawned a full field of bots into a staked match and, with converge now standing down, they
+	// would have stayed. Gating only converge would have left production strictly worse than before.
+	//
+	// Deliberately placed AFTER the ?NumBots= override so it also overrides it: bots are barred outright from a
+	// staked or rated roster (R74/R85), so this is not a count to be tuned. The provider already refuses them a
+	// team (255) and escrow already refuses the match; this stops them being created in the first place, which
+	// is the only one of the three that keeps the match playable.
+	if (EffectiveBotCount > 0 && UAFLMatchmakerDataProvider::IsRosterExternallyOwned(this))
+	{
+		UE_LOG(LogAFLGameCore, Log,
+			TEXT("AFLBots: fill STANDS DOWN -- %d bot(s) suppressed; the roster is externally owned and its "
+			     "players are still connecting."), EffectiveBotCount);
+		EffectiveBotCount = 0;
+	}
+
 	UE_LOG(LogAFLGameCore, Log,
 		TEXT("AFLBots: human-aware fill -- TeamSize=%d NumTeams=%d Humans=%d -> %d bot(s) (target %d)"),
 		TeamSize, NumTeams, HumanCount, EffectiveBotCount, Target);
@@ -151,8 +171,21 @@ void UAFLBotFillComponent::ServerCreateBots_Implementation()
 void UAFLBotFillComponent::HandlePlayerJoined(AGameModeBase* /*GameMode*/, AController* NewPlayer)
 {
 	// Bots fire this hook too -- react to HUMANS only (else our own SpawnOneBot would recurse). Humans possess
-	// an APlayerController; bots an AAIController. Team-creation's handler (bound HighPriority, before ours) has
-	// already assigned the joining human's team, so the live counts in ReconcileBotFill reflect the join.
+	// an APlayerController; bots an AAIController.
+	//
+	// ⚠ THIS RUNS BEFORE TEAM-CREATION'S HANDLER, not after. An earlier version of this comment claimed the
+	// opposite -- that team-creation, "bound HighPriority, before ours", had already assigned the joining
+	// human's team. Both handlers bind to OnGameModePlayerInitialized with a plain AddUObject and there is no
+	// priority on that delegate; team-creation merely binds FIRST, and UE's native multicast Broadcast() walks
+	// its invocation list in REVERSE registration order, so binding first means firing last.
+	//
+	// The 2026-08-09 acceptance log shows it directly: converge logged its result before the joining human's
+	// team assignment, and the provider was not selected until the FIRST BOT WE SPAWNED joined and asked for it.
+	//
+	// The old comment's conclusion still happened to hold -- CountHumans() counts PlayerArray membership and a
+	// joining human's PlayerState is present by now, regardless of team -- but the stated reason was wrong, and
+	// the guard in ReconcileBotFill exists because reasoning like it produced a full field of bots in a staked
+	// match. Do not reintroduce an assumption that team assignment has already happened here.
 	if (!NewPlayer || !NewPlayer->IsA(APlayerController::StaticClass()))
 	{
 		return;
@@ -187,6 +220,44 @@ void UAFLBotFillComponent::ReconcileBotFill()
 	{
 		return;
 	}
+
+	// S12 GATE: never fill seats on a roster this server does not own.
+	//
+	// The bind gate in the fill pass reads authority ONCE, at experience load. Under GameLift the payload has
+	// not landed then, so the provider is the provisional LocalFill, it reads non-authoritative, and the hooks
+	// bind permanently. They then fire on a match whose sides were settled before anyone connected.
+	//
+	// MEASURED, acceptance run 2026-08-09 (all inside one 7 s hitch frame, [452]):
+	//     11.07.37  one-shot fill -- Humans=0 -> 0 bot(s)      <- correct, ?NumBots=0 honoured
+	//     11.08.31  onStartGameSession -- 263 bytes            <- roster arrives, 54 s later
+	//     11.09.05  converge fires on human 1's join, Provider still NULL, Desired = 4-1 = 3
+	//     11.08.58  bot 'Hubert' joins -- and HIS join is what first calls GetProvider()
+	//     11.09.05  bots 'Eliza','Tinplate' join; converge logs "3 bot(s)"
+	//     11.09.05  human 2 joins -> converge trims to 2
+	//     11.12.43  escrow REFUSES: 2 bot(s) in a staked match (R85). Nobody debited.
+	//
+	// Two things this proves, both of which the obvious fix would have missed. First, converge runs BEFORE any
+	// provider object exists, so UAFLTeamCreationComponent::IsAssignmentAuthoritative() -- which reports
+	// `Provider && Provider->IsAuthoritative()` and deliberately does not construct one -- returns false here
+	// and would have made this guard a no-op. Second, the bots were not a side effect of the roster arriving;
+	// converge would have spawned them anyway, and the first bot's own join is what selected the provider.
+	//
+	// So ask who OWNS the roster, not who has already built a provider for it. IsRosterExternallyOwned answers
+	// true both when the payload has arrived and while it is still in flight -- a seat that is about to be
+	// claimed is not an empty seat.
+	//
+	// NOTE the asymmetry this leaves deliberately: the one-shot fill honours ?NumBots= and converge never has
+	// (it targets ComputeTargetTotal() - CountHumans() outright), which is why ?NumBots=0 suppressed the fill
+	// and bots still appeared. The guard makes that moot for externally-owned rosters. A local match that
+	// wants a hard bot cap still cannot get one from converge; that is a separate gap, not this bug.
+	if (UAFLMatchmakerDataProvider::IsRosterExternallyOwned(this))
+	{
+		UE_LOG(LogAFLGameCore, Log,
+			TEXT("AFLBots: converge STANDS DOWN -- the roster is externally owned, so players who are absent "
+			     "are rostered-but-still-connecting, not seats to fill."));
+		return;
+	}
+
 	bReconciling = true;
 
 	const int32 DesiredBots = FMath::Max(0, ComputeTargetTotal() - CountHumans());

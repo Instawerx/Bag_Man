@@ -140,6 +140,29 @@ FString UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(const UOb
 	return FString();
 }
 
+bool UAFLMatchmakerDataProvider::IsRosterExternallyOwned(const UObject* WorldContext)
+{
+	// Already delivered (either source) -- an external authority set these sides before anyone connected.
+	if (!ResolveAuthoritativeMatchmakerData(WorldContext).IsEmpty())
+	{
+		return true;
+	}
+
+	// Still IN FLIGHT. The SDK being ready means this process was placed by GameLift, so a roster IS coming;
+	// an empty payload right now is "not yet", not "never". Callers that fill empty seats must treat the two
+	// the same way, because a seat that is about to be claimed is not an empty seat.
+	if (const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(WorldContext))
+	{
+		if (GameLift->IsSdkReady() && !GameLift->HasGameSessionData())
+		{
+			return true;
+		}
+	}
+
+	// No GameLift and no launch option -- offline / PIE / listen server. The roster is genuinely local.
+	return false;
+}
+
 void UAFLMatchmakerDataProvider::RequestAssignments(const TArray<APlayerController*>& Players,
 	const FOnAFLTeamAssignmentsReady& OnReady)
 {

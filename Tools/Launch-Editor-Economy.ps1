@@ -61,7 +61,15 @@ param(
     # Bots are REFUSED a team in an authoritative match (R74) but still spawn, and the spawn manager then
     # ensures on PlayerTeamId != INDEX_NONE. Suppress them at the source. UAFLBotFillComponent reads NumBots
     # from the same OptionsString, so this is a URL option, not the editor's bOverrideBotCount setting.
-    [int]    $NumBots = 0,
+    #
+    # PASS -1 TO OMIT THE OPTION ENTIRELY -- and prefer that for any run meant to prove production behaviour.
+    # A real GameLift placement carries no ?NumBots=, so pinning it here HIDES the path that matters: the
+    # one-shot fill runs at experience load with Humans=0 and would otherwise spawn a FULL FIELD of bots. The
+    # 2026-08-09 acceptance run passed 0 and consequently never exercised that path; it only caught the
+    # converge path, and a fix aimed solely at converge would have shipped a full field of bots to production.
+    # Bot suppression on an externally-owned roster is now the SERVER's job (IsRosterExternallyOwned), which
+    # is the thing under test -- so the harness must stop doing that job for it.
+    [int]    $NumBots = -1,
 
     # Warmup must outlast CLIENT BOOT. Default 30s expired 41s before two cooked clients finished loading,
     # so ServerStartMatch escrowed an EMPTY match: "0 team(s) with players -- need 2". Passed via -dpcvars
@@ -223,8 +231,12 @@ if ($Server) {
     # would be ambiguous -- the provider prefers GameLift, but you could not prove from the outside that the
     # roster had not simply come from the command line. Leaving it out makes onStartGameSession the ONLY
     # possible source, so a reconciled roster is proof the hop worked.
-    $url = if ($GameLift) { "$Map`?Experience=$Experience`?NumBots=$NumBots" }
-           else           { "$Map`?Experience=$Experience`?NumBots=$NumBots`?MatchmakerData=$mm" }
+    # -1 means "say nothing about bots", which is what a real placement looks like. Anything >= 0 pins the
+    # count explicitly for local/QA work.
+    $botOpt = if ($NumBots -ge 0) { "`?NumBots=$NumBots" } else { '' }
+
+    $url = if ($GameLift) { "$Map`?Experience=$Experience$botOpt" }
+           else           { "$Map`?Experience=$Experience$botOpt`?MatchmakerData=$mm" }
 
     Write-Host ''
     Write-Host 'Server launch:' -ForegroundColor Cyan

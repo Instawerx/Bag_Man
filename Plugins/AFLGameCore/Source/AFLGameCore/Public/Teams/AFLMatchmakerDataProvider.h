@@ -98,6 +98,27 @@ public:
 	 */
 	static FString ResolveAuthoritativeMatchmakerData(const UObject* WorldContext);
 
+	/**
+	 * "Does an external authority own this match's roster?" -- true if the payload has ARRIVED, and ALSO true
+	 * while GameLift is live and it is still IN FLIGHT. Callers that would otherwise invent roster members
+	 * (bot fill) must ask this and stand down for both answers.
+	 *
+	 * The in-flight half is the part that is easy to get wrong, and it cost a full acceptance run. Deciding
+	 * "no authority here" from an empty payload is only sound if the payload can no longer arrive. Under
+	 * GameLift it can: the roster lands asynchronously, measured 54 s after experience load.
+	 *
+	 * ⚠ DO NOT substitute UAFLTeamCreationComponent::IsAssignmentAuthoritative() for this. That reports
+	 * whether a provider OBJECT has been constructed and says it is authoritative -- deliberately without
+	 * constructing one -- so it answers false during the entire window before the first GetProvider() call.
+	 * Bot fill runs inside exactly that window: measured, converge fired from the first human's join while
+	 * Provider was still null, spawned three bots, and it was the FIRST BOT'S OWN join that then constructed
+	 * the authoritative provider. Asking the object is asking who happened to arrive first; asking this is
+	 * asking who owns the roster. Only the second question has a stable answer.
+	 *
+	 * Static for the same reason as the resolver above: the callers run before any provider exists.
+	 */
+	static bool IsRosterExternallyOwned(const UObject* WorldContext);
+
 private:
 	/** Injected test data wins; otherwise defers to ResolveAuthoritativeMatchmakerData. */
 	FString ResolveGameSessionData(const UObject* WorldContext) const;

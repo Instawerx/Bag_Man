@@ -105,7 +105,7 @@ came out LocalFill and unstaked. Three places read the payload:
 All three now call one static resolver, `UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData`.
 Codebase swept: the only remaining `ParseOption(...MatchmakerData)` is that resolver's own fallback.
 
-### ✅ PROVIDER TIMING FIXED — 2026-08-09. 🔴 ONE NEW BUG: BOT-FILL TIMING.
+### ✅ PROVIDER TIMING FIXED — 2026-08-09. ✅ BOT-FILL ROSTER OWNERSHIP FIXED — awaiting re-run.
 
 The deferral works. `GetProvider()` now refuses to CACHE while the SDK is ready and no payload has arrived,
 serving a provisional LocalFill instead and re-selecting on the next call:
@@ -120,29 +120,65 @@ serving a provisional LocalFill instead and re-selecting on the next call:
 Three of four acceptance checks now pass: provider, teams, economics. The single-assigner rule is intact —
 `Provider` is still written exactly once, just no longer prematurely.
 
-#### 🔴 THE NEW BUG: bot-fill reconciles in the gap before clients connect
+#### ✅ THE NEW BUG, FOUND AND FIXED: bot-fill invents members of a roster it does not own
+
+⚠️ **The first write-up of this bug in this document was wrong about the mechanism.** It is preserved as a
+correction because the wrong version suggested a fix that would have been a silent no-op. Reading the log by
+timestamp alone produced a plausible story; reading it against the code produced a different one.
+
+The full ordering, all inside a single ~7 s hitch frame (`[452]`):
 
 ```
-11:08:58.590  provider becomes AUTHORITATIVE (payload arrived)
-11:08:58.590  BOT 'Hubert' joins                      <-- same instant
-11:09:05.294  first HUMAN joins                       <-- 7 seconds later
+11.07.37  one-shot fill -- Humans=0 -> 0 bot(s)      <-- correct, but only because ?NumBots=0 was passed BY HAND
+11.08.31  onStartGameSession -- 263 bytes received   <-- roster arrives, 54 s after experience load
+11.09.05  converge fires on human 1's join           <-- Provider still NULL. Desired = 4 - 1 = 3
+11.08.58  bot 'Hubert' joins  ... and HIS join is what first calls GetProvider()
+11.09.05  bots 'Eliza','Tinplate' join; converge logs "3 bot(s)"
+11.09.05  human 2 joins -> converge trims to 2
+11.12.43  escrow REFUSES: 2 bot(s) in a staked match (R85). Nobody debited.
 ```
 
-`UAFLBotFillComponent::ReconcileBotFill` (`AFLBotFillComponent.cpp:203`) runs the moment the provider turns
-authoritative. Under GameLift that instant falls **after** map load but **before** clients finish connecting,
-so it sees an expected roster of 2 and zero humans present and fills the gap with bots. `?NumBots=0` does not
-prevent it — this is convergence-to-roster, not the static bot count.
+What the original write-up got wrong, and why it matters:
 
-This window does not exist in the launch-option flow, where the provider is authoritative from map load —
-which is why #20 saw zero bots with the same `?NumBots=0`.
+- **Claimed:** converge runs "the moment the provider turns authoritative." **Actually:** converge ran *before
+  any provider existed at all*, and the first bot it spawned is what caused the provider to be selected. The
+  provider turning authoritative was a *consequence* of the bug, not its trigger.
+- **Therefore the obvious fix — gate converge on `IsAssignmentAuthoritative()` — would have done nothing.**
+  That method reports `Provider && Provider->IsAuthoritative()` and deliberately does not construct a provider,
+  so it returns `false` for the entire window converge actually runs in.
+- **Claimed:** the bots were a symptom of the timing gap. **Actually:** converge would have spawned them
+  regardless of when the payload landed.
 
-The bots are correctly refused a team (`R74`, team 255) but remain participants, so escrow refuses:
-*"2 bot(s) in STAKED match -- bots are barred from staked play (R85)"*.
+**Root cause.** Bot fill answers "how many seats are empty?" by counting who is *present*. On a roster owned by
+an external authority, an absent player is a rostered player who is still connecting — not an empty seat.
 
-**Fix direction:** bot-fill must converge on a roster that can still be *filled by humans who have not
-arrived yet*. Options: delay reconcile until the expected humans connect or a join deadline expires; or make
-reconcile subtract "roster members not yet connected" from the shortfall rather than treating them as absent.
-The second is closer to the intent — a rostered player who is still loading is not a missing player.
+**Fix.** One predicate, `UAFLMatchmakerDataProvider::IsRosterExternallyOwned()`, true both when the payload has
+**arrived** and while it is still **in flight**, applied to *both* fill paths:
+
+| path | when it runs | what it would have done in production |
+|---|---|---|
+| one-shot fill | experience load, `Humans=0` | `Target - 0` = **a full field of bots** |
+| converge | each human join | top back up to `Target - CountHumans()` |
+
+The one-shot path is the more dangerous of the two and the acceptance run **did not expose it** — it was
+masked by the hand-passed `?NumBots=0`, which a real placement never carries. Gating only converge would have
+left production strictly *worse*: a full field of bots spawned at load, with converge no longer trimming them.
+
+Two further corrections landed with the fix:
+
+- The gate sits **after** the `?NumBots=` override so it also overrides it. Bots are barred outright from a
+  staked or rated roster (R74/R85); this is not a count to be tuned.
+- A comment at `HandlePlayerJoined` asserted team-creation's handler "bound HighPriority, before ours" had
+  already assigned the joining human's team. **There is no priority on `OnGameModePlayerInitialized`.** Both
+  bind with a plain `AddUObject`, and UE's native multicast `Broadcast()` walks its invocation list in *reverse*
+  registration order — so team-creation binding first means it fires **last**. Its conclusion held by luck
+  (`CountHumans()` counts `PlayerArray` membership, not team assignment); its stated reason was inverted.
+
+**Known scope limit, deliberately not solved here:** the gate suppresses bots on *any* externally-owned roster,
+which is broader than R74's "staked or rated". This is not a regression — `UAFLMatchmakerDataProvider` already
+assigns every bot team 255, so bots in a matchmaker match are unusable today either way. But a casual Watts
+Play match that legitimately wants bot backfill will need the provider to learn to seat bots *before* this gate
+can be narrowed by tier.
 
 #### 🟢 THE SAFETY PROPERTY HELD THROUGH ALL THREE FAILURES
 
