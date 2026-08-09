@@ -45,6 +45,19 @@
 [CmdletBinding()]
 param(
     [switch] $DryRun,
+
+    # Launch the DEDICATED SERVER instead of the editor. The server reads the same six env vars through the
+    # same IsRunningDedicatedServer() || GIsEditor gate, so the secret handling below is shared rather than
+    # duplicated into a second script.
+    [switch] $Server,
+
+    # Server only. Map to open, and the file holding allocator-captured GameSessionData, which is passed as
+    # ?MatchmakerData= -- the source UAFLMatchmakerDataProvider::ResolveGameSessionData reads today.
+    [string] $Map = 'L_Arena_04',
+    [string] $Experience = 'B_AFLExperience_2v2_ProMod',
+    [string] $MatchmakerDataFile = 'D:\BagMan\captured-matchmakerdata.json',
+    [int]    $Port = 7777,
+
     [string] $Stack    = 'BagManTentpoleStack',
     [string] $SecretId = 'bagman/earn/hmac',
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -81,8 +94,9 @@ if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
 }
 
 # An editor that is already up captured the OLD environment at ITS launch. Relaunching is the only
-# way to pick up these values, so refuse to add a second instance silently.
-$running = Get-Process -Name 'UnrealEditor' -ErrorAction SilentlyContinue
+# way to pick up these values, so refuse to add a second instance silently. (Server runs are short-lived
+# and intentionally repeatable, so this guard is editor-only.)
+$running = if ($Server) { $null } else { Get-Process -Name 'UnrealEditor' -ErrorAction SilentlyContinue }
 if ($running -and -not $DryRun) {
     Write-Host ''
     Write-Warning ("UnrealEditor is ALREADY RUNNING (pid $($running.Id -join ', ')).")
@@ -155,9 +169,59 @@ Write-Host ''
 Write-Host '  All four gating values present -- IsMatchReportingConfigured() will return true.' -ForegroundColor Green
 
 # --- 4. Launch ---------------------------------------------------------------------------------
-if ($DryRun) {
+if ($DryRun -and -not $Server) {
     Write-Host ''
     Write-Host '  -DryRun: not launching. Re-run without -DryRun to boot the editor.' -ForegroundColor Yellow
+    exit 0
+}
+
+if ($Server) {
+    $serverExe = 'C:\Dev\Bag_Man\Binaries\Win64\LyraServer.exe'
+    if (-not (Test-Path $serverExe)) {
+        throw "LyraServer.exe not found. It can ONLY be built from the D: source engine -- the C: launcher answers 'Server targets are not currently supported from this engine distribution'."
+    }
+    if (-not (Test-Path $MatchmakerDataFile)) {
+        throw "No captured payload at $MatchmakerDataFile. Run Tools\Invoke-Allocator.ps1 first -- the payload must be PRODUCED BY THE ALLOCATOR, not hand-written."
+    }
+    # Read as raw bytes -> exact string. This is the allocator's verbatim output and must not be reformatted.
+    $mm = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($MatchmakerDataFile)).Trim()
+
+    # UE URL options separate with '?', NOT '&'. The JSON below contains no '?', so it survives ParseOption
+    # intact -- but it does contain quotes, so the whole URL is passed as ONE argument.
+    $url = "$Map`?Experience=$Experience`?MatchmakerData=$mm"
+
+    Write-Host ''
+    Write-Host 'Server launch:' -ForegroundColor Cyan
+    Write-Host "  exe        : $serverExe"
+    Write-Host "  map        : $Map"
+    Write-Host "  experience : $Experience"
+    Write-Host "  matchmaker : $mm"
+    Write-Host ''
+    Write-Host '  Watch the log for, in order:' -ForegroundColor Cyan
+    Write-Host '    [AFLOnline] Server signer (dedicated server): key=held ...'
+    Write-Host '    AFL_MATCHREPORT: economics from MATCHMAKER -- tier=VoltsPlay ... stake=10 VO'
+    Write-Host '    AFL_MATCHREPORT: ... escrow request(s) posted'
+    Write-Host ''
+
+    if ($DryRun) { Write-Host '  -DryRun: not launching.' -ForegroundColor Yellow; exit 0 }
+
+    # ⚠ Start-Process -ArgumentList EATS the embedded double quotes, and the JSON arrives as
+    # {matchId:...} instead of {"matchId":...} -- malformed, and silently so. Verified by reading the
+    # server's own "LogInit: Command Line:" echo. Build ONE command line and escape the inner quotes as \"
+    # per the Windows C runtime convention, then launch via ProcessStartInfo so nothing re-parses it.
+    $escaped = $url -replace '"', '\"'
+    $cmdline = '"{0}" "{1}" -log -port={2}' -f $ProjectPath, $escaped, $Port
+    if ($EditorArgs) { $cmdline += ' ' + ($EditorArgs -join ' ') }
+
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName        = $serverExe
+    $psi.Arguments       = $cmdline
+    $psi.UseShellExecute = $true
+    $proc = [Diagnostics.Process]::Start($psi)
+
+    Write-Host "  launched pid=$($proc.Id) on port $Port" -ForegroundColor Green
+    Write-Host '  VERIFY the quotes survived: grep the log for "LogInit: Command Line:" and confirm it shows' -ForegroundColor Yellow
+    Write-Host '  {"matchId":... with quotes intact, not {matchId:...' -ForegroundColor Yellow
     exit 0
 }
 
