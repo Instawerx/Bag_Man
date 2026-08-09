@@ -59,7 +59,69 @@ three separate sets. Expect it to grow again as more targets are built.
 
 ---
 
-## 2. #20 — ENV IS SOLVED (2026-08-08 PM). REMAINING WORK IS ONE ALL-HUMAN STAKED PIE.
+## 2. ✅ #20 IS CLOSED — 2026-08-09. Everything below it is historical.
+
+**The escrow → settle → rating chain ran end to end on a DEDICATED SERVER with allocator-verified
+economics.** Match `6B290E6B-4CF5-4487-405A-A3AFF3C8232D`, team 1 wins 7-1.
+
+```
+AFL_ROUND:      MATCH END -- team 1 wins 7-1 -> concluding
+AFL_MATCHREPORT: economics from MATCHMAKER -- tier=VoltsPlay league=ProMod stake=10 VO
+AFL_MATCHREPORT: escrowed 10 from 40419031BCC83EA5   (BalanceAfter 90)
+AFL_MATCHREPORT: escrowed 10 from DF7C3188377BB66D   (BalanceAfter 200090)
+AFL_MATCHREPORT: settle OK -- pot 20, rakeAmount 1 (5%), payoutPool 19 -> DF7C3188377BB66D position 1
+AFL_MATCHREPORT: rating OK -- DF7C..66D mu 27.64 (+3.44) · 40419..EA5 mu 22.36
+```
+
+| Table | Rows | Baseline |
+|---|---|---|
+| `bagman-match-escrow` | 2 (10 VO each) | was 0 |
+| `bagman-match-settlement-ledger` | 1 — Pot 20, Rake 1, Paid 19, **`FailedJson: []`** | was 0 |
+| `bagman-player-ratings` | 2 | unrated |
+| `bagman-rating-ledger` | 1 | was 0 |
+
+**Money conserves exactly: 10 + 10 = 20 = 1 rake + 19 payout.** All tables were empty at baseline, so every
+row is attributable to this run.
+
+Nothing was faked. Economics came from the real allocator after `resolveEconomics` verified both members
+agreed; identities were real PlayFab accounts carried through `?PlayFabId=` → `InitNewPlayer` → `ReconcileId`;
+and `IsRunningDedicatedServer()` — the production branch — is what ran it.
+
+### HOW TO RE-RUN IT
+
+1. `Tools\Invoke-Allocator.ps1 -PlayFabId <id1>,<id2> -Tier VoltsPlay -Stake 10`
+   Drives the DEPLOYED allocator and captures its `GameSessionData` from the GameLift placement. Never
+   hand-write this payload — the whole point is that the allocator produced and verified it.
+2. Fund both accounts: `Tools\Fund-DevAccount.ps1 -PlayFabId <id1>,<id2> -Currency VO -Amount 100`
+3. `Tools\Launch-Editor-Economy.ps1 -Server -NumBots 0 -WarmupSeconds 240`
+4. Two cooked clients: `LyraGame.exe 127.0.0.1:7777?PlayFabId=<id> -log -windowed`
+5. **Play it.** Someone must actually score.
+
+### FIVE TRAPS THIS COST, IN ORDER OF HOW MUCH TIME THEY ATE
+
+1. **The premise was wrong.** This doc said #20 was "blocked on 4 env vars" and was "a verification task, not
+   a build one". Both false. It needed a source engine, a server binary, a server cook, a client cook, two
+   distinct funded identities and a real allocator payload. The env vars were the smallest part.
+2. **A PIE match cannot prove this.** The first attempt faked the stake with a dev cvar and would have gone
+   green while proving only that the fake agreed with itself. Reverted deliberately — see the note in
+   `AFLMatchReporter.cpp` explaining why a PIE match logging `LEAGUE PLAY ... nothing to escrow` is CORRECT.
+3. **Warmup must outlast client boot.** Cooked clients take ~70 s. The default 30 s warmup expired 41 s
+   before they connected, and escrow ran on an empty roster: `0 team(s) with players -- need 2`. Use
+   `-WarmupSeconds 240`. (That failure is also reassuring — escrow REFUSES an unverifiable roster.)
+4. **`Start-Process -ArgumentList` eats embedded quotes.** `?MatchmakerData=` arrived as `{matchId:...}`
+   instead of `{"matchId":...}` — malformed, silently. Always verify against the server's own
+   `LogInit: Command Line:` echo.
+5. **A dedicated server cannot run uncooked content.** It crashes at boot after ~8 GB in
+   `FGenerationInfo::Serialize` via `PackageFileSummary`. Cook the server (`-server -noclient`) — it takes
+   ~4 minutes, versus 2h29m for the client, because a server needs no shaders or bulk data.
+
+⚠ **Rounds 1–11 resolved as `Replay` at 0-0** before anyone was playing; the scoring rounds were 12–19. So
+the score hits 7-1 on round **19**, not round 7. A dedicated server also persists after `MATCH END` — that is
+correct, not a hang.
+
+---
+
+## 2b. ORIGINAL (2026-08-08 PM) — env diagnosis, kept for context
 
 > **UPDATE — supersedes the "blocked on 4 env vars" section below, which is kept for context.**
 >
