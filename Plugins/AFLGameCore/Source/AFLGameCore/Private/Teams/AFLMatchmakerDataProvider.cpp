@@ -2,6 +2,8 @@
 
 #include "Teams/AFLMatchmakerDataProvider.h"
 
+#include "Online/AFLGameLiftHostSubsystem.h"   // S12: the GameLift-delivered roster, when it has arrived
+
 #include "AFLGameCore.h"                       // LogAFLGameCore
 #include "Teams/AFLReconcileIdComponent.h"     // the per-player stashed reconcile key
 #include "Teams/LyraTeamAgentInterface.h"      // IntegerToGenericTeamId
@@ -107,11 +109,26 @@ FString UAFLMatchmakerDataProvider::ResolveGameSessionData(const UObject* WorldC
 {
 	if (!InjectedGameSessionData.IsEmpty())
 	{
-		return InjectedGameSessionData;   // the setter (unit tests / S12 onStartGameSession) wins
+		return InjectedGameSessionData;   // the setter (unit tests) wins -- tests must be able to force a roster
+	}
+
+	// S12: GameLift's onStartGameSession, held by UAFLGameLiftHostSubsystem. This is the PRODUCTION source.
+	//
+	// Deliberately checked BEFORE the launch option and AFTER the test setter, and deliberately only when the
+	// payload has actually ARRIVED. GameLift delivers asynchronously, so "the subsystem exists" is not the same
+	// question as "the roster is known" -- treating an empty payload as authoritative would silently produce an
+	// unassigned-team match, which is exactly the failure this ordering exists to prevent. Empty here means
+	// "not mine to answer", and the launch option below still gets its turn.
+	if (const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(WorldContext))
+	{
+		if (GameLift->HasGameSessionData())
+		{
+			return GameLift->GetGameSessionData();
+		}
 	}
 
 	// Fall back to the ?MatchmakerData= server launch option (the same OptionsString UAFLBotFillComponent reads
-	// NumBots from). S12 replaces this whole source with GameLift onStartGameSession -> GetGameSessionData().
+	// NumBots from). NOT removed by S12 -- it stays as the local/offline path, and it is what #20 was proven on.
 	const UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContext, EGetWorldErrorMode::ReturnNull) : nullptr;
 	if (const AGameModeBase* GameMode = World ? World->GetAuthGameMode() : nullptr)
 	{

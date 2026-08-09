@@ -40,5 +40,17 @@ public class AFLGameCore : ModuleRules
 				"AFLOnline",
 			}
 		);
+
+		// S12: the GameLift Server SDK, for the onStartGameSession -> GetGameSessionData hop.
+		//
+		// SERVER TARGETS ONLY, and deliberately so. The vendored plugin declares TargetAllowList ["Server"]
+		// on both its modules, so this dependency cannot be satisfied in an editor or client build -- adding
+		// it unconditionally would break them. The SDK also defines WITH_GAMELIFT=1 only for server targets,
+		// which is the macro UAFLGameLiftHostSubsystem compiles against; everywhere else that macro is absent
+		// and the subsystem degrades to a no-op that leaves the ?MatchmakerData= launch option in charge.
+		if (Target.Type == TargetRules.TargetType.Server)
+		{
+			PrivateDependencyModuleNames.Add("GameLiftServerSDK");
+		}
 	}
 }
