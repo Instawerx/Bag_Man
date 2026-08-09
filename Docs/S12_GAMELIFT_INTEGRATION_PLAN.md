@@ -75,7 +75,36 @@ backend half and deliberately firewalled from the server half.
 **source-built** engine 5.1+ and GitHub Epic-org membership. We satisfy the source-build requirement as of
 #7. Not needed for S12, but relevant if player gateway is ever adopted.
 
-### B. Lifecycle adapter (the only real new code)
+### ✅ B IS BUILT — 2026-08-09, commit `608caf5c`
+
+`UAFLGameLiftHostSubsystem` (`AFLGameCore/…/Online/`) is the SOURCE half; the CONSUMER half is one added
+branch in `ResolveGameSessionData`. Order is now **test setter → GameLift → `?MatchmakerData=`**.
+
+**Verified, not assumed:**
+
+| Check | Result |
+|---|---|
+| `LyraEditor` builds | ✅ adapter compiles **out** (`WITH_GAMELIFT=0`, no SDK dep) |
+| `LyraServer` builds | ✅ adapter compiles **in** and links |
+| Degrades with no credentials | ✅ `AFL_GAMELIFT: no Anywhere credentials … SDK NOT started` |
+| No regression to #20's path | ✅ `economics from MATCHMAKER -- VoltsPlay/ProMod/10 VO` |
+| Test moved no money | ✅ ledger still 2 escrow / 1 settlement — only the #20 match |
+
+The no-money property was designed into the test: launching with **no clients** means escrow correctly refuses
+(`0 team(s) with players -- need 2`), so the changed code path runs without touching real balances.
+
+⚠ **The uncooked server cannot test this.** It crashes in `PackageFileSummary` before a `GameInstance` exists,
+so the subsystem never initialises and the log shows nothing. That is not an adapter fault — use the cooked
+server. A server re-cook is ~6 min.
+
+**Two API facts found by compiling, not by reading the headers.** `GameSession.h` and `UpdateGameSession.h`
+each carry two variants gated on `GAMELIFT_USE_STD`. **This build compiles the `const char*` variant**, so
+`.c_str()` on the accessors is a compile error (C2228) and every return needs a null guard. Because the
+char\* variant is live, `UpdateGameSession::GetGameSession()` **is** available and backfill can refresh the
+roster — an earlier revision claimed the opposite after misreading which branch was active. If
+`GAMELIFT_USE_STD` is ever defined this stops compiling, which is the good failure.
+
+### B. Lifecycle adapter — original design notes
 A server-only module implementing the GameLift process contract:
 
 - `InitSDK` → `ProcessReady(port, logPaths, callbacks)`
