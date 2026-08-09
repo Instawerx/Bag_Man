@@ -51,14 +51,29 @@ parses `?MatchmakerData=`. S12 adds a caller of `SetGameSessionData` and touches
 
 ## 3. Work breakdown
 
-### A. Server SDK into the project
-Add the GameLift Server SDK for Unreal, built against the **same pinned engine** as everything else
-(post-#7 that is the D: 5.6.1 source build). It links into the **server target only** — it must not appear in
-a client or editor build, mirroring how the earn HMAC key is gated to server/editor in
-`AFLOnlineSubsystem::Initialize`.
+### A. Server SDK into the project — ✅ AVAILABILITY CONFIRMED 2026-08-09
 
-⚠ Verify SDK/engine compatibility before committing to a version. Amazon's UE plugin tracks engine releases
-on its own cadence; a 5.6-compatible release is an assumption until checked.
+**UE 5.6 IS supported.** Amazon's Unreal package is built for UE 5.0 through 5.8, and ships **server SDK 5.x**.
+Source: <https://github.com/amazon-gamelift/amazon-gamelift-plugin-unreal>
+(docs: <https://docs.aws.amazon.com/gameliftservers/latest/developerguide/gamelift-supported.html>)
+
+**Take the SERVER SDK, not the full plugin.** The same repo offers both, and AWS states plainly: *"If you
+don't need the guided workflows, you can get just the server SDK for your game engine from the same GitHub
+repositories."* The full plugin adds UI workflows and sample assets whose job is to **configure and deploy
+fleets** — we already have a fleet, a queue, an allocator and IaC for all three, so those workflows would
+duplicate (or fight) what exists. Smaller surface, no editor UI, nothing that can drift from `tentpole-stack.ts`.
+
+Build it against the **same pinned engine** as everything else (D: 5.6.1 source). Link it into the
+**server target only** — it must not appear in a client or editor build, mirroring how the earn HMAC key is
+gated to server/editor in `AFLOnlineSubsystem::Initialize` so the key cannot exist in a shipped client.
+
+⚠ Nothing is downloaded yet — no `GameLift*.uplugin` exists anywhere on this machine. Only the AWS
+**control-plane** SDK is present, in `Bag_Man_Backend/node_modules/@aws-sdk/client-gamelift`, which is the
+backend half and deliberately firewalled from the server half.
+
+⚠ Note for later: the separate **Client** SDK for Unreal (player gateway, UDP ping beacons) requires a
+**source-built** engine 5.1+ and GitHub Epic-org membership. We satisfy the source-build requirement as of
+#7. Not needed for S12, but relevant if player gateway is ever adopted.
 
 ### B. Lifecycle adapter (the only real new code)
 A server-only module implementing the GameLift process contract:
@@ -168,10 +183,38 @@ how Anywhere fleets handle remote locations — and its exact rule is **not esta
 "1" as if it were the documented limit, and do not plan around "10" either until it is confirmed for
 ANYWHERE compute specifically.
 
-**How to settle it cheaply:** the fleet is inert (zero compute), so call `create-fleet-locations` against it
-directly and see whether a second custom location attaches. That is reversible via `delete-fleet-locations`
-and answers the question definitively without a support ticket. Do this before designing multi-region
-hosting, not after compute registration makes fleets load-bearing.
+### ✅ SETTLED 2026-08-09 BY DIRECT TEST — THE LIMIT IS REAL AND IT IS 1
+
+Created a second custom location and attached it to the fleet directly, outside CloudFormation:
+
+```
+aws gamelift create-location --location-name custom-bagman-2                       -> OK
+aws gamelift create-fleet-locations --fleet-id fleet-40c6b342... \
+    --locations Location=custom-bagman-2
+-> LimitExceededException: Request for 2 remote locations exceeds the limit of 1 available
+```
+
+So it is a **genuine GameLift constraint, not a CloudFormation ordering artifact** — the earlier rename
+failure reproduces through the raw API. Test artifacts cleaned up; the fleet still has exactly
+`custom-bagman-test-1` and nothing else changed.
+
+**It also contradicts Service Quotas.** `Locations in a fleet per region` (`L-55650DB7`) reports default
+**10**, adjustable, with no account override — yet the API enforces **1**. Do not trust the quota console for
+this; it does not describe ANYWHERE-fleet behaviour. Cite this exact API error, not the quota page, in any
+increase request.
+
+### 🚩 CONSEQUENCE FOR S12 TOPOLOGY — DECIDE BEFORE REGISTERING COMPUTE
+
+**One custom location per Anywhere fleet.** Multi-region therefore means **a fleet per region**, not one
+fleet spanning locations, unless AWS raises this specific limit. Concretely:
+
+- Each region needs its own `AWS::GameLift::Fleet` + `AWS::GameLift::Location` pair in `tentpole-stack.ts`
+- The queue can hold up to 10 destinations (`Queue destinations per game session queue`), so one queue
+  fanning out to per-region fleets is the shape that works today
+- `Anywhere fleets per region` is 30 and `Compute per Anywhere fleet` is 100, so neither of those binds first
+
+⚠ And the window to restructure is **now**, while the fleet is inert. Once compute is registered, changing
+fleet or location membership means dropping live matches.
 
 To finish the rename later, do one of:
 - raise the "remote locations per fleet" quota above 1, then redeploy the rename; or
