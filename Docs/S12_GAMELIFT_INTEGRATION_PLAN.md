@@ -149,11 +149,29 @@ left behind was deleted by hand.
 Notably the **fleet was not going to be replaced** — the changeset showed `AnywhereFleet Replacement: False`,
 so GameLift does swap fleet locations in place. Only the quota blocked it.
 
-### 🚩 THIS QUOTA CONSTRAINS S12'S HOSTING DESIGN
+### 🚩 WHAT THE LIMIT ACTUALLY IS — CORRECTED
 
-One remote location per fleet means **one Anywhere location per fleet**. Any multi-region hosting plan needs
-either the quota raised or a fleet per region. Establish which before designing the topology — it is much
-cheaper to know now than after compute is registered and fleets carry live matches.
+An earlier revision of this doc claimed "one remote location per fleet". **That was wrong.** Checked against
+Service Quotas:
+
+| Quota | AWS default | Adjustable | This account |
+|---|---|---|---|
+| Locations in a fleet per region (`L-55650DB7`) | **10** | yes | no override — uses default |
+| Custom locations per region | 20 | yes | — |
+| Anywhere fleets per region | 30 | yes | — |
+| Compute per Anywhere fleet | 100 | yes | — |
+| Queue destinations per game session queue | 10 | yes | — |
+
+No account override is recorded and no increase request is pending. So the deploy failure was **not** an
+account quota setting. The message *"limit of 1 available"* is something narrower — most likely specific to
+how Anywhere fleets handle remote locations — and its exact rule is **not established**. Do not plan around
+"1" as if it were the documented limit, and do not plan around "10" either until it is confirmed for
+ANYWHERE compute specifically.
+
+**How to settle it cheaply:** the fleet is inert (zero compute), so call `create-fleet-locations` against it
+directly and see whether a second custom location attaches. That is reversible via `delete-fleet-locations`
+and answers the question definitively without a support ticket. Do this before designing multi-region
+hosting, not after compute registration makes fleets load-bearing.
 
 To finish the rename later, do one of:
 - raise the "remote locations per fleet" quota above 1, then redeploy the rename; or
