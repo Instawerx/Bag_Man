@@ -104,7 +104,28 @@ queue was inert. **That window closes the moment S12 registers compute.** After 
 means dropping live matches — so any future queue change must be an in-place update, and the fleet should be
 brought into IaC *before* compute is registered, not after.
 
-Still a bare unmanaged resource: the destination fleet itself.
+✅ **The fleet and its custom location are now IaC too** (same day, commit below). `AnywhereFleet`
+(`fleet-40c6b342…`, unchanged id) and `AnywhereLocation` (`custom-bagman-test-1`) were adopted by
+`cdk import` — which **worked** for these, unlike the queue. The difference was not the resource type: the
+queue's import was blocked purely by the phantom Outputs drift, and once the deploy that fixed the mangled
+section sign had run, the template baseline was clean and import succeeded first try. Lesson for future
+adoptions: **fix template drift first, then import** — do not conclude a resource type is un-importable.
+
+Import was the right mechanism here specifically because a recreated fleet gets a **new FleetId**, which
+would have invalidated the queue destination and any registered compute. The queue could tolerate
+delete-and-recreate because GameLift queue ARNs are name-derived and therefore stable; fleet ids are not.
+
+**The whole GameLift substrate is now under management: location → fleet → queue.** What S12 adds on the AWS
+side reduces to registering compute against an already-managed, already-ACTIVE Anywhere fleet.
+
+⚠ Still hand-made and out of IaC once S12 starts: **the registered compute itself**. Decide up front whether
+compute registration is IaC-managed or an operator step — `RegisterCompute` for Anywhere is a runtime action
+(it takes the host's IP/hostname), so it likely belongs in a documented runbook rather than CloudFormation.
+
+One naming point to settle before S12: this fleet is literally described as
+*"TEST fleet (no real server build; placement target only)"*. It is now production-managed infrastructure.
+Either rename it or stand up a properly-named fleet beside it — a fleet called `BagManTentpoleTest` carrying
+real matches is the kind of thing that reads as a mistake at 3am.
 
 ### E. Player sessions
 The allocator already passes `DesiredPlayerSessions` with `PlayerId = m.Entity?.Id` — the **PlayFab entity
