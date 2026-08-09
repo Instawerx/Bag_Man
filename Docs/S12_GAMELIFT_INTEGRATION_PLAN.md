@@ -89,8 +89,22 @@ Two viable topologies:
 - **Managed EC2 fleet** — the real production topology; needs a packaged server upload and build/fleet
   lifecycle.
 
-Either way the **queue must become a CDK resource**, not a bare string constant. A queue that exists only as
-a name in a Lambda is a production hazard independent of S12: it cannot be recreated from IaC.
+✅ **The queue is now a CDK resource** (done 2026-08-08, `Bag_Man_Backend` commits `699758c` / `fb7e904`).
+It is `AWS::GameLift::GameSessionQueue MatchSessionQueue`, `DeletionPolicy: Retain`, destination pinned to the
+Anywhere fleet. Recreated identical to the hand-made original including its ARN.
+
+How, and why it matters for S12: `cdk import` **could not** adopt it. CloudFormation rejected every attempt
+with *"you cannot modify or add [Outputs]"*, even once `cdk diff` proved the delta was resource-only. Root
+cause of the phantom Outputs delta was a mangled section sign in an output description (deployed `?10.1` vs
+source `§10.1`) — since fixed to ASCII, because non-ASCII in a CFN description poisons diffs forever after a
+single bad deploy. Import still refused after that, so the queue was deleted and recreated by `cdk deploy`.
+
+That was safe **only because the fleet has zero registered compute**, so no placement could fulfil and the
+queue was inert. **That window closes the moment S12 registers compute.** After S12, deleting the queue
+means dropping live matches — so any future queue change must be an in-place update, and the fleet should be
+brought into IaC *before* compute is registered, not after.
+
+Still a bare unmanaged resource: the destination fleet itself.
 
 ### E. Player sessions
 The allocator already passes `DesiredPlayerSessions` with `PlayerId = m.Entity?.Id` — the **PlayFab entity
