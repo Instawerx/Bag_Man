@@ -79,4 +79,24 @@ private:
 	 */
 	UPROPERTY(Transient)
 	TScriptInterface<IAFLTeamAssignmentProvider> Provider;
+
+	/**
+	 * S12 — the PROVISIONAL provider, used only while the real decision is still pending.
+	 *
+	 * Under GameLift the roster arrives ASYNCHRONOUSLY, and the first call to GetProvider() happens at
+	 * experience load with zero players — 55 seconds before onStartGameSession in a measured run. Caching a
+	 * LocalFill choice there is a decision made BEFORE its input exists, and it silently sticks: the observed
+	 * result was both players on one team and the match unstaked, while the log showed the payload arriving.
+	 *
+	 * So while the SDK is ready but has not delivered, answer from HERE and do NOT populate `Provider`. The
+	 * next call re-evaluates, and once the payload lands the real provider is chosen and cached exactly once.
+	 * This preserves the single-assigner rule — `Provider` still changes never — while refusing to commit to
+	 * an answer that has not been asked properly yet.
+	 *
+	 * Safe because GameLift ACTIVATES a session before routing any player to it: by the time a real player can
+	 * join, the payload has arrived. The only caller that ever sees this is the zero-player batch at
+	 * experience load, for which LocalFill and matchmaker are indistinguishable — both assign nobody.
+	 */
+	UPROPERTY(Transient)
+	TScriptInterface<IAFLTeamAssignmentProvider> ProvisionalProvider;
 };

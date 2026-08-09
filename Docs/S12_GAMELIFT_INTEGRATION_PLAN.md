@@ -105,7 +105,52 @@ came out LocalFill and unstaked. Three places read the payload:
 All three now call one static resolver, `UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData`.
 Codebase swept: the only remaining `ParseOption(...MatchmakerData)` is that resolver's own fallback.
 
-### 🔴 REMAINING BUG: provider selection is cached BEFORE the payload arrives
+### ✅ PROVIDER TIMING FIXED — 2026-08-09. 🔴 ONE NEW BUG: BOT-FILL TIMING.
+
+The deferral works. `GetProvider()` now refuses to CACHE while the SDK is ready and no payload has arrived,
+serving a provisional LocalFill instead and re-selecting on the next call:
+
+```
+11:07:37  AFL_TEAMPROVIDER: DEFERRED -- GameLift SDK ready but no payload yet. NOT caching.
+11:08:58  AFL_TEAMPROVIDER: selected AFLMatchmakerDataProvider (authoritative=1) -- PRESENT
+11:09:05  per-join -- player -> team 1 · player -> team 2      <-- correct split, from the GameLift roster
+11:12:43  AFL_MATCHREPORT: economics from MATCHMAKER -- VoltsPlay/ProMod/10 VO
+```
+
+Three of four acceptance checks now pass: provider, teams, economics. The single-assigner rule is intact —
+`Provider` is still written exactly once, just no longer prematurely.
+
+#### 🔴 THE NEW BUG: bot-fill reconciles in the gap before clients connect
+
+```
+11:08:58.590  provider becomes AUTHORITATIVE (payload arrived)
+11:08:58.590  BOT 'Hubert' joins                      <-- same instant
+11:09:05.294  first HUMAN joins                       <-- 7 seconds later
+```
+
+`UAFLBotFillComponent::ReconcileBotFill` (`AFLBotFillComponent.cpp:203`) runs the moment the provider turns
+authoritative. Under GameLift that instant falls **after** map load but **before** clients finish connecting,
+so it sees an expected roster of 2 and zero humans present and fills the gap with bots. `?NumBots=0` does not
+prevent it — this is convergence-to-roster, not the static bot count.
+
+This window does not exist in the launch-option flow, where the provider is authoritative from map load —
+which is why #20 saw zero bots with the same `?NumBots=0`.
+
+The bots are correctly refused a team (`R74`, team 255) but remain participants, so escrow refuses:
+*"2 bot(s) in STAKED match -- bots are barred from staked play (R85)"*.
+
+**Fix direction:** bot-fill must converge on a roster that can still be *filled by humans who have not
+arrived yet*. Options: delay reconcile until the expected humans connect or a join deadline expires; or make
+reconcile subtract "roster members not yet connected" from the shortfall rather than treating them as absent.
+The second is closer to the intent — a rostered player who is still loading is not a missing player.
+
+#### 🟢 THE SAFETY PROPERTY HELD THROUGH ALL THREE FAILURES
+
+Three distinct bugs — wrong provider, wrong economics, and now bots — and **no currency moved in any of
+them**. The ledger still holds only the #20 rows. Escrow refused every unverifiable roster rather than
+guessing at one, which is exactly the bias the escrow-before-payout design was built for.
+
+### 🔴 (HISTORICAL) provider selection cached BEFORE the payload arrives
 
 ```
 10:46:50.921  ProcessReady OK -- awaiting onStartGameSession

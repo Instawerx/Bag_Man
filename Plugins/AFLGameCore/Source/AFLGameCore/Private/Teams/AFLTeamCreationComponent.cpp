@@ -5,6 +5,7 @@
 #include "AFLGameCore.h"                    // LogAFLGameCore
 #include "Teams/AFLLocalFillProvider.h"        // offline / casual / PIE provider
 #include "Teams/AFLMatchmakerDataProvider.h"   // authoritative provider -- reachable as of the Phase-0 unlock
+#include "Online/AFLGameLiftHostSubsystem.h"   // S12: is a payload still in flight? (deferral gate below)
 #include "GameFramework/GameModeBase.h"        // OptionsString (the selection signal)
 #include "Kismet/GameplayStatics.h"            // ParseOption
 #include "GameModes/LyraGameMode.h"         // ALyraGameMode::OnGameModePlayerInitialized
@@ -29,6 +30,29 @@ IAFLTeamAssignmentProvider* UAFLTeamCreationComponent::GetProvider()
 		// LocalFill, and the match came out with both players on one team and unstaked. The payload being
 		// present is not the same as this code being able to see it.
 		const FString MatchmakerData = UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this);
+
+		// S12 DEFERRAL. If GameLift is live but has not delivered yet, the question cannot be answered
+		// correctly, so REFUSE TO CACHE an answer. Measured: this call happens at experience load, 55 s before
+		// onStartGameSession; caching LocalFill there stuck for the whole match and produced both players on
+		// one team with the match unstaked -- while the log showed the payload arriving on time.
+		//
+		// Serve the caller from ProvisionalProvider and re-evaluate next call. The single-assigner rule is
+		// intact: `Provider` is still written exactly once, just not prematurely.
+		if (MatchmakerData.IsEmpty())
+		{
+			const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this);
+			if (GameLift && GameLift->IsSdkReady() && !GameLift->HasGameSessionData())
+			{
+				if (!ProvisionalProvider)
+				{
+					ProvisionalProvider = NewObject<UAFLLocalFillProvider>(this);
+					UE_LOG(LogAFLGameCore, Log,
+						TEXT("AFL_TEAMPROVIDER: DEFERRED -- GameLift SDK ready but no payload yet. Serving a "
+						     "provisional LocalFill and NOT caching; will re-select on the next call."));
+				}
+				return ProvisionalProvider.GetInterface();
+			}
+		}
 
 		if (!MatchmakerData.IsEmpty())
 		{

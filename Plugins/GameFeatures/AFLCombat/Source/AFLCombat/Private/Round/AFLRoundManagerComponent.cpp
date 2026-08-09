@@ -3,6 +3,7 @@
 #include "Round/AFLRoundManagerComponent.h"
 
 #include "Match/AFLMatchReporter.h"   // report the result to settlement + rating at match end
+#include "Online/AFLGameLiftHostSubsystem.h"   // S12: has the async roster actually arrived yet?
 
 #include "AFLCombat.h"
 #include "AbilitySystem/Phases/LyraGamePhaseSubsystem.h"   // Task 2: observe AFL.GamePhase.Playing -> ServerStartMatch (the proven-sibling phase-observer path)
@@ -299,6 +300,23 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 		RoundsToWin = DevRoundsToWin;
 		// Keep half-time out of range of a shortened series; a swap mid-way through a 1-round match is noise.
 		HalfTimeAfterRound = FMath::Max(HalfTimeAfterRound, RoundsToWin * 2);
+	}
+#endif
+
+#if !UE_BUILD_SHIPPING
+	// S12 GATE. Under GameLift the roster arrives asynchronously, so a match that starts without it will run
+	// on whatever the team provider guessed -- observed once as both players on one team and unstaked, while
+	// the log cheerfully showed the payload arriving. Not a hard block: refusing to start with no retry path
+	// would hang the match, and escrow already refuses an unverifiable roster, so currency is safe regardless.
+	// What was missing was a way to SEE the condition without team-assignment archaeology.
+	if (const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this))
+	{
+		if (GameLift->IsSdkReady() && !GameLift->HasGameSessionData())
+		{
+			UE_LOG(LogAFLCombat, Error,
+				TEXT("AFL_ROUND: STARTING UNDER GAMELIFT WITH NO PAYLOAD. onStartGameSession has not been "
+				     "received, so teams and economics come from a guess. Expect LocalFill and LEAGUE PLAY."));
+		}
 	}
 #endif
 
