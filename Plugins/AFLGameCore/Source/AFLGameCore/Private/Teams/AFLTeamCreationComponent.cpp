@@ -23,11 +23,12 @@ IAFLTeamAssignmentProvider* UAFLTeamCreationComponent::GetProvider()
 	{
 		// Selected ONCE and cached: a provider that could change mid-match would mean two different authorities
 		// over the same roster, which is the drift hazard the single-assigner rule exists to prevent (SSOT §0.3).
-		FString MatchmakerData;
-		if (const AGameModeBase* GameMode = GetGameStateChecked<AGameStateBase>()->AuthorityGameMode)
-		{
-			MatchmakerData = UGameplayStatics::ParseOption(GameMode->OptionsString, TEXT("MatchmakerData"));
-		}
+		// S12: ask the ONE resolver, which prefers GameLift's delivered payload over the launch option.
+		// This used to ParseOption(OptionsString, "MatchmakerData") directly, and that broke under GameLift:
+		// the roster arrived correctly via onStartGameSession but this selection saw no launch option, chose
+		// LocalFill, and the match came out with both players on one team and unstaked. The payload being
+		// present is not the same as this code being able to see it.
+		const FString MatchmakerData = UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this);
 
 		if (!MatchmakerData.IsEmpty())
 		{

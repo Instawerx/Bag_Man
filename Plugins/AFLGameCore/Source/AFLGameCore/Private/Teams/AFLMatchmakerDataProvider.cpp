@@ -111,14 +111,17 @@ FString UAFLMatchmakerDataProvider::ResolveGameSessionData(const UObject* WorldC
 	{
 		return InjectedGameSessionData;   // the setter (unit tests) wins -- tests must be able to force a roster
 	}
+	return ResolveAuthoritativeMatchmakerData(WorldContext);
+}
 
+FString UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(const UObject* WorldContext)
+{
 	// S12: GameLift's onStartGameSession, held by UAFLGameLiftHostSubsystem. This is the PRODUCTION source.
 	//
-	// Deliberately checked BEFORE the launch option and AFTER the test setter, and deliberately only when the
-	// payload has actually ARRIVED. GameLift delivers asynchronously, so "the subsystem exists" is not the same
-	// question as "the roster is known" -- treating an empty payload as authoritative would silently produce an
-	// unassigned-team match, which is exactly the failure this ordering exists to prevent. Empty here means
-	// "not mine to answer", and the launch option below still gets its turn.
+	// Consulted only when the payload has actually ARRIVED. GameLift delivers asynchronously, so "the
+	// subsystem exists" is not the same question as "the roster is known" -- treating an empty payload as
+	// authoritative would silently produce an unassigned-team match. Empty means "not mine to answer", and
+	// the launch option below still gets its turn.
 	if (const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(WorldContext))
 	{
 		if (GameLift->HasGameSessionData())

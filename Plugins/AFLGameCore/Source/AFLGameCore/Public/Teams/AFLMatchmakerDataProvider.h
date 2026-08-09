@@ -80,8 +80,26 @@ public:
 	static TArray<FAFLTeamAssignment> ResolveAssignments(const FString& GameSessionDataJson,
 		const TArray<FString>& OrderedReconcileIds);
 
+	/**
+	 * THE ONE PLACE that answers "what is the authoritative matchmaker payload for this server?".
+	 * GameLift's onStartGameSession if it has ARRIVED, else the ?MatchmakerData= launch option, else empty.
+	 *
+	 * ⚠ EVERY reader of the payload must call THIS, never ParseOption(OptionsString, "MatchmakerData") directly.
+	 * S12 was originally designed as a one-point swap inside ResolveGameSessionData, and that was WRONG: three
+	 * separate places keyed off the raw launch option, and fixing only one produced a run where GameLift
+	 * delivered the roster correctly and the match still came out LocalFill and unstaked. The three readers:
+	 *
+	 *   1. ResolveGameSessionData      -- the roster data itself
+	 *   2. UAFLTeamCreationComponent   -- which PROVIDER gets selected (matchmaker vs local fill)
+	 *   3. FAFLMatchReporter           -- ReadEconomics, the tier/stake source
+	 *
+	 * Miss any one and the failure is silent and misleading: the log shows the payload arriving while the
+	 * match behaves as if it had not. Static, because the selection in (2) happens BEFORE any provider exists.
+	 */
+	static FString ResolveAuthoritativeMatchmakerData(const UObject* WorldContext);
+
 private:
-	/** The GameSessionData source: the injected string, else the ?MatchmakerData= server launch option (S12: onStartGameSession). */
+	/** Injected test data wins; otherwise defers to ResolveAuthoritativeMatchmakerData. */
 	FString ResolveGameSessionData(const UObject* WorldContext) const;
 
 	/** The reconcile key a controller carries (UAFLReconcileIdComponent on its PlayerState, set at InitNewPlayer). */

@@ -75,6 +75,68 @@ backend half and deliberately firewalled from the server half.
 **source-built** engine 5.1+ and GitHub Epic-org membership. We satisfy the source-build requirement as of
 #7. Not needed for S12, but relevant if player gateway is ever adopted.
 
+## 🔴 ACCEPTANCE TEST RUN 2026-08-09 — HOP WORKS, ONE BUG REMAINS
+
+**The GameLift hop itself is PROVEN.** Compute registered, placement `FULFILLED` on
+`192.168.1.159:7777` (previously `PENDING` forever), and the server received the payload:
+
+```
+AFL_GAMELIFT: ProcessReady OK on port 7777 -- awaiting onStartGameSession.
+LogGameLiftServerSDK: OnStartGameSession Received ... "GameSessionData":"{...economics...}"
+AFL_GAMELIFT: onStartGameSession -- 263 bytes of GameSessionData received; activating.
+```
+
+`?MatchmakerData=` was deliberately OMITTED from the command line, so the payload had exactly one
+possible origin. Note GameLift's own `MatchmakerData` field is `null` — that is the GameLift-matchmaking
+channel, which we do not use; our allocator packs everything into `GameSessionData`. Confusingly similar
+name, unrelated mechanism.
+
+### THE SWAP WAS THREE POINTS, NOT ONE — this doc was wrong
+
+Fixing only `ResolveGameSessionData` produced a run where the roster arrived correctly and the match still
+came out LocalFill and unstaked. Three places read the payload:
+
+| Reader | Drives | Status |
+|---|---|---|
+| `ResolveGameSessionData` | roster data | ✅ fixed |
+| `FAFLMatchReporter::ReadEconomics` | tier / stake | ✅ fixed — now logs `economics from MATCHMAKER` |
+| `UAFLTeamCreationComponent::GetProvider` | **which provider is used** | 🔴 **still broken — see below** |
+
+All three now call one static resolver, `UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData`.
+Codebase swept: the only remaining `ParseOption(...MatchmakerData)` is that resolver's own fallback.
+
+### 🔴 REMAINING BUG: provider selection is cached BEFORE the payload arrives
+
+```
+10:46:50.921  ProcessReady OK -- awaiting onStartGameSession
+10:46:51.586  AFL_TEAMPROVIDER: selected AFLLocalFillProvider (authoritative=0) -- ?MatchmakerData= ABSENT
+10:47:46.720  OnStartGameSession Received                       <-- 55 SECONDS LATER
+```
+
+`GetProvider()` runs at experience load, selects once and caches "as a provider that could change mid-match
+would mean two different authorities over the same roster". That caching is correct in itself — the problem
+is that under GameLift the decision is made **before the input to the decision exists**.
+
+Consequences observed: both players assigned to **team 2**, bots spawned despite `?NumBots=0`, and escrow
+correctly refused with *"2 bot(s) in STAKED match -- bots are barred from staked play (R85)"*. **No currency
+moved** — the ledger still shows only the #20 rows.
+
+**This is the exact hazard §4B of this plan predicted** ("anything reading the roster during InitGame or
+InitNewPlayer could observe an empty string and silently fall back"). The subsystem was designed to survive
+it and the resolver is correct; the defence was simply never applied to the *selection*, only to the *read*.
+`ReadEconomics` escaped it purely because it runs at match start, long after arrival.
+
+**The fix is to gate on arrival, not to re-order.** Under GameLift the server must not select a provider — or
+start a match — until `HasGameSessionData()` is true or the SDK is known absent. Options, cheapest first:
+
+1. Defer selection: `GetProvider()` refuses to cache a LocalFill choice while the SDK is ready and no payload
+   has arrived. Needs every caller to tolerate a deferred answer.
+2. Gate match start on `HasGameSessionData()` when `IsSdkReady()` — closest to what §4B originally proposed.
+3. Have the subsystem, on payload arrival, explicitly invalidate a provider chosen without one. Racy; least
+   preferred, since it reintroduces the mid-match authority change the caching exists to prevent.
+
+---
+
 ### ✅ B IS BUILT — 2026-08-09, commit `608caf5c`
 
 `UAFLGameLiftHostSubsystem` (`AFLGameCore/…/Online/`) is the SOURCE half; the CONSUMER half is one added

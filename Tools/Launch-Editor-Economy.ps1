@@ -219,7 +219,12 @@ if ($Server) {
 
     # UE URL options separate with '?', NOT '&'. The JSON below contains no '?', so it survives ParseOption
     # intact -- but it does contain quotes, so the whole URL is passed as ONE argument.
-    $url = "$Map`?Experience=$Experience`?NumBots=$NumBots`?MatchmakerData=$mm"
+    # In GameLift mode the launch option is DELIBERATELY OMITTED. If both sources were present a passing test
+    # would be ambiguous -- the provider prefers GameLift, but you could not prove from the outside that the
+    # roster had not simply come from the command line. Leaving it out makes onStartGameSession the ONLY
+    # possible source, so a reconciled roster is proof the hop worked.
+    $url = if ($GameLift) { "$Map`?Experience=$Experience`?NumBots=$NumBots" }
+           else           { "$Map`?Experience=$Experience`?NumBots=$NumBots`?MatchmakerData=$mm" }
 
     Write-Host ''
     Write-Host 'Server launch:' -ForegroundColor Cyan

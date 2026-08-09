@@ -5,6 +5,7 @@
 #include "AFLGameCore.h"                 // LogAFLGameCore
 #include "AFLOnlineSubsystem.h"          // the signed server transport (server-only key)
 #include "Teams/AFLReconcileIdComponent.h"   // the per-player reconcile key the matchmaker roster matched on
+#include "Teams/AFLMatchmakerDataProvider.h" // S12: ResolveAuthoritativeMatchmakerData -- the single payload source
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonWriter.h"
@@ -71,7 +72,11 @@ FAFLMatchReporter::FMatchEconomics FAFLMatchReporter::ReadEconomics(const UObjec
 	// launch line: the ticket is what actually matched the players, whereas the launch line is whatever the
 	// process was started with. A staked match must be worth what the players queued for, not what the
 	// command line says.
-	const FString MatchmakerData = UGameplayStatics::ParseOption(Options, TEXT("MatchmakerData"));
+	// S12: the ONE resolver -- GameLift's delivered payload if it arrived, else the launch option. Reading
+	// OptionsString directly here silently produced LEAGUE PLAY under GameLift even while the roster was
+	// delivered correctly, because the economics live in the same payload but were being read from a
+	// different place.
+	const FString MatchmakerData = UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(WorldContext);
 	if (!MatchmakerData.IsEmpty())
 	{
 		TSharedPtr<FJsonObject> Root;
