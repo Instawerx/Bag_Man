@@ -134,10 +134,32 @@ replacement here would have minted a new FleetId and silently orphaned the queue
 before executing. `cdk diff` cannot tell you this — it falls back to a template-only diff and prints
 *"Could not create a change set… will base the diff on template differences"*.
 
-⚠ **The custom location is still named `custom-bagman-test-1`.** Unlike the fleet name, `LocationName` IS the
-physical id, so renaming it is a REPLACEMENT — and the fleet depends on it, so it would cascade. Options:
-live with the name, or rebuild location+fleet together while the fleet is still inert (before compute is
-registered). Doing it after S12 registers compute means dropping live matches. Decide before, not after.
+⚠ **The location is still `custom-bagman-test-1`, and that is an AWS QUOTA, not an oversight.** The rename was
+attempted 2026-08-08 and failed at deploy:
+
+```
+Request for 2 remote locations exceeds the limit of 1 available   (ServiceLimitExceeded)
+```
+
+`LocationName` is the physical id, so a rename is a replacement, and CloudFormation adds the new location
+**before** removing the old — transiently needing two remote locations against a per-fleet limit of one. The
+stack rolled back cleanly (fleet id, name and queue destination all intact); the orphaned `custom-bagman-1`
+left behind was deleted by hand.
+
+Notably the **fleet was not going to be replaced** — the changeset showed `AnywhereFleet Replacement: False`,
+so GameLift does swap fleet locations in place. Only the quota blocked it.
+
+### 🚩 THIS QUOTA CONSTRAINS S12'S HOSTING DESIGN
+
+One remote location per fleet means **one Anywhere location per fleet**. Any multi-region hosting plan needs
+either the quota raised or a fleet per region. Establish which before designing the topology — it is much
+cheaper to know now than after compute is registered and fleets carry live matches.
+
+To finish the rename later, do one of:
+- raise the "remote locations per fleet" quota above 1, then redeploy the rename; or
+- replace the fleet outright while it is still inert. This is **now safe** because the queue destination was
+  rewired from a hardcoded ARN to `Fn::GetAtt(AnywhereFleet, FleetArn)` — a new FleetId propagates to the
+  queue automatically instead of leaving it pointing at a destroyed fleet.
 
 ### E. Player sessions
 The allocator already passes `DesiredPlayerSessions` with `PlayerId = m.Entity?.Id` — the **PlayFab entity
