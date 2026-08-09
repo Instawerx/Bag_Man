@@ -77,6 +77,36 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard")
 	TSubclassOf<UAFLW_ScoreboardRow> RowWidgetClass;
 
+	/** "RETURNING IN 12..." -- the auto-return countdown. Optional so a pre-countdown WBP still binds. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> CountdownText;
+
+	/**
+	 * ECONOMY RESULT for the LOCAL player, read from the replicated UAFLMatchOutcomeComponent. All optional:
+	 * the WBP has no such labels yet, so the C++ lands first and these light up the moment the text blocks
+	 * are added, with no further code change.
+	 *
+	 * These populate LATE and that is correct, not a glitch -- settle and rating are HTTP round-trips that
+	 * answer ~2-3 s after this board is already on screen, so each shows a pending dash until its service
+	 * replies. The dash is deliberate: "-" means not yet known, whereas "0" would be a claim that the match
+	 * paid nothing, which is a different and possibly false statement.
+	 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> StakeText;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> PayoutText;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> RatingDeltaText;
+
+	/**
+	 * Seconds the board holds before returning to the hub on its own. CONTINUE skips the wait.
+	 *
+	 * A board with no timer is not merely less convenient -- it is how a finished match becomes a match that
+	 * never ends. Before the results widget was cooked at all there was no CONTINUE either, so a concluded
+	 * match sat in PostGame indefinitely; one observed run held its GameLift session for 6.5 hours. A player
+	 * who alt-tabs must not be able to reproduce that, so the return does not depend on input.
+	 *
+	 * Set to 0 to disable the timer and require CONTINUE (not recommended for staked play).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard", meta = (ClampMin = "0"))
+	int32 AutoReturnSeconds = 20;
+
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard") FLinearColor VictoryColor = FLinearColor(0.013f, 0.102f, 1.0f); // electric-blue #1E5AFF
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard") FLinearColor DefeatColor  = FLinearColor(1.0f, 0.25f, 0.25f); // hostile red
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Scoreboard") FLinearColor DrawColor    = FLinearColor(1.0f, 0.70f, 0.0f);  // amber
@@ -91,12 +121,36 @@ private:
 	/** Apex-style takeover: hide/restore the in-match HUD (UI.Layer.Game) while the results own the screen. */
 	void SetHUDHidden(bool bHidden);
 
-	/** CONTINUE click -> UGameInstance::ReturnToMainMenu (framework clean session-teardown + travel to the hub). */
+	/** CONTINUE click -> the one return path below. */
 	void HandleContinueClicked();
+
+	/** Countdown tick (1 Hz): repaint CountdownText, and return to the hub when it reaches zero. */
+	void TickAutoReturn();
+
+	/** Repaint the stake/payout/rating labels from the outcome component. Safe to call before data arrives. */
+	void RefreshOutcome();
+
+	/**
+	 * THE ONE RETURN PATH -- UGameInstance::ReturnToMainMenu (clean session teardown + travel to the hub).
+	 *
+	 * Both CONTINUE and the countdown funnel through here, and it is GUARDED. There are now two independent
+	 * triggers racing on the same board: a player pressing CONTINUE on the last countdown second would
+	 * otherwise call ReturnToMainMenu twice, tearing the session down mid-teardown. bReturning makes the
+	 * second caller a no-op rather than relying on the two never coinciding.
+	 */
+	void BeginReturnToHub();
 
 	TWeakObjectPtr<UAFLRoundManagerComponent> Round;
 	int32 LocalSlot = INDEX_NONE;
 	bool bContinueBound = false;
+
+	/** Auto-return state. Cleared on deactivate so a dismissed board cannot travel behind the player. */
+	FTimerHandle AutoReturnTimer;
+	int32 SecondsRemaining = 0;
+	bool bReturning = false;
+
+	/** Subscription to the outcome component; released on deactivate (the component outlives this widget). */
+	FDelegateHandle OutcomeChangedHandle;
 
 	/** Per-player this-match Watts EARNED, handed in by the match-end subsystem via ShowResults(). */
 	TMap<TWeakObjectPtr<APlayerState>, int32> EarnedWatts;
