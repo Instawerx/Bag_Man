@@ -5,6 +5,48 @@ Last commit at handoff: `d20ca894`.
 
 ---
 
+## 0. ⚙ MACHINE SETUP CHANGED 2026-08-09 — READ BEFORE BUILDING
+
+**The project now builds on the D: SOURCE engine, not the C: launcher engine.**
+`Bag_Man.uproject` → `EngineAssociation: {5066982E-439C-2993-A6CB-F48A14DE2492}` = `D:\UE5.6-source`
+(source builds are identified by a registry GUID under `HKCU\Software\Epic Games\Unreal Engine\Builds`,
+not by a version string).
+
+**Why, proven not assumed.** Asked to build `LyraServer`, the C: launcher engine answers:
+> `Server targets are not currently supported from this engine distribution.`
+
+and the same run reports `LyraGameEOS and dynamic target options are disabled when packaging from an
+installed version of the engine`. Both capabilities are required — #20 must be verified on a dedicated
+server, and the shipping login is EOS. An Installed Build ships precompiled Editor and Game only.
+
+Both engines are now 5.6.1 with **matching `CompatibleChangelist 43139311`**; the D: engine carries local
+patches saved at `D:\ue-local-patches-5.6.1.diff` (MSVC `INFINITY` → `std::numeric_limits<float>::infinity()`,
+because MSVC defines `INFINITY` as `((float)(1e+300 * 1e+300))` → C4756 under warnings-as-errors, plus an
+`initguid.h` ordering fix in NNERuntimeORT). **Re-apply after any engine bump** — without them the engine
+build fails at ~99% after hours.
+
+### 🔗 THREE JUNCTIONS — MACHINE-LOCAL, INVISIBLE TO GIT
+
+C: had only 5 GB free after a cook. These redirect the bulk to D: and are **not** in source control, so a
+fresh clone on another machine will NOT have them and will fill its system drive.
+
+| Path on C: | → Target on D: |
+|---|---|
+| `Saved\Cooked` | `D:\BagMan\Cooked` |
+| `Saved\StagedBuilds` | `D:\BagMan\StagedBuilds` |
+| `Intermediate` | `D:\BagMan\Intermediate` (54 GB) |
+
+Recreate with `mklink /J <link> <target>`. Junctions are transparent to UBT — verified: after moving 54 GB of
+`Intermediate`, an incremental build reported *"Target is up to date"* in 11s with nothing rebuilt.
+
+⚠ `Intermediate` is large because **each target configuration keeps its own** — Editor, Server and Client are
+three separate sets. Expect it to grow again as more targets are built.
+
+**Built artifacts:** `Binaries\Win64\LyraServer.exe` (356 MB) · cooked client archived at
+`D:\BagMan\Archive\Windows` (`LyraGame.exe` + 3 pak chunks, 6.6 GB).
+
+---
+
 ## 1. THE FOUR LIVE FRONTS (tasks #23–#26, plus #20)
 
 | # | Front | State | Blocked on |
