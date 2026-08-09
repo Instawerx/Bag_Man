@@ -58,6 +58,22 @@ param(
     [string] $MatchmakerDataFile = 'D:\BagMan\captured-matchmakerdata.json',
     [int]    $Port = 7777,
 
+    # Bots are REFUSED a team in an authoritative match (R74) but still spawn, and the spawn manager then
+    # ensures on PlayerTeamId != INDEX_NONE. Suppress them at the source. UAFLBotFillComponent reads NumBots
+    # from the same OptionsString, so this is a URL option, not the editor's bOverrideBotCount setting.
+    [int]    $NumBots = 0,
+
+    # Warmup must outlast CLIENT BOOT. Default 30s expired 41s before two cooked clients finished loading,
+    # so ServerStartMatch escrowed an EMPTY match: "0 team(s) with players -- need 2". Passed via -dpcvars
+    # because device-profile cvars apply early enough to be read at BeginPlay; -ExecCmds runs too late.
+    [int]    $WarmupSeconds = 180,
+
+    # S12: start under GameLift instead of reading the roster from ?MatchmakerData=. Populates the five
+    # AFL_GAMELIFT_* vars UAFLGameLiftHostSubsystem reads, including a FRESHLY MINTED auth token.
+    [switch] $GameLift,
+    [string] $ComputeName = 'bagman-dev-EREMOSPECIALTY',
+    [string] $FleetId     = 'fleet-40c6b342-c03b-44cd-a9d3-56fe65156a7a',
+
     [string] $Stack    = 'BagManTentpoleStack',
     [string] $SecretId = 'bagman/earn/hmac',
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -176,9 +192,24 @@ if ($DryRun -and -not $Server) {
 }
 
 if ($Server) {
-    $serverExe = 'C:\Dev\Bag_Man\Binaries\Win64\LyraServer.exe'
-    if (-not (Test-Path $serverExe)) {
-        throw "LyraServer.exe not found. It can ONLY be built from the D: source engine -- the C: launcher answers 'Server targets are not currently supported from this engine distribution'."
+    # Prefer the COOKED/STAGED server. Running the uncooked project server crashes at boot after ~8 GB with
+    # an assertion in FGenerationInfo::Serialize via PackageFileSummary -- the loader hits package headers in
+    # a layout it does not expect. Same family as the recorded "uncooked -game cannot resolve PrimaryAssetIds"
+    # finding. A staged build carries its own cooked content, so it is NOT passed the .uproject.
+    $cookedExe  = 'D:\BagMan\Archive\WindowsServer\LyraServer.exe'
+    $projectExe = 'C:\Dev\Bag_Man\Binaries\Win64\LyraServer.exe'
+    if (Test-Path $cookedExe) {
+        $serverExe = $cookedExe
+        $useCooked = $true
+    }
+    elseif (Test-Path $projectExe) {
+        Write-Warning 'Only the UNCOOKED project server exists. It is expected to crash at boot; run a server cook:'
+        Write-Warning '  RunUAT BuildCookRun ... -server -serverconfig=Development -noclient -cook -stage -pak -archive'
+        $serverExe = $projectExe
+        $useCooked = $false
+    }
+    else {
+        throw "No LyraServer.exe. It can ONLY be built from the D: source engine -- the C: launcher answers 'Server targets are not currently supported from this engine distribution'."
     }
     if (-not (Test-Path $MatchmakerDataFile)) {
         throw "No captured payload at $MatchmakerDataFile. Run Tools\Invoke-Allocator.ps1 first -- the payload must be PRODUCED BY THE ALLOCATOR, not hand-written."
@@ -188,7 +219,7 @@ if ($Server) {
 
     # UE URL options separate with '?', NOT '&'. The JSON below contains no '?', so it survives ParseOption
     # intact -- but it does contain quotes, so the whole URL is passed as ONE argument.
-    $url = "$Map`?Experience=$Experience`?MatchmakerData=$mm"
+    $url = "$Map`?Experience=$Experience`?NumBots=$NumBots`?MatchmakerData=$mm"
 
     Write-Host ''
     Write-Host 'Server launch:' -ForegroundColor Cyan
@@ -203,6 +234,47 @@ if ($Server) {
     Write-Host '    AFL_MATCHREPORT: ... escrow request(s) posted'
     Write-Host ''
 
+    if ($GameLift) {
+        # ⚠ THE AUTH TOKEN IS SHORT-LIVED -- measured at 180 minutes. It must NEVER be written into a runbook,
+        # an .env file, or a stored script: a pasted token works right up until it silently does not, and the
+        # failure surfaces as InitSDK refusing to connect. Mint a fresh one on every launch instead. Same
+        # discipline as the earn HMAC key: fetched at launch, held in the process, never persisted, never
+        # echoed -- reported only as held/MISSING.
+        Write-Host ''
+        Write-Host 'GameLift compute:' -ForegroundColor Cyan
+
+        $comp = aws gamelift describe-compute --fleet-id $FleetId --compute-name $ComputeName --output json 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Compute '$ComputeName' not registered on $FleetId. Register it first -- see Docs/RUNBOOK_GAMELIFT_COMPUTE.md."
+        }
+        $c = ($comp | ConvertFrom-Json).Compute
+        if ($c.ComputeStatus -ne 'Active') { throw "Compute is '$($c.ComputeStatus)', not Active." }
+
+        $tok = aws gamelift get-compute-auth-token --fleet-id $FleetId --compute-name $ComputeName --output json 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "get-compute-auth-token failed: $tok" }
+        $t = $tok | ConvertFrom-Json
+
+        $env:AFL_GAMELIFT_WEBSOCKET_URL = $c.GameLiftServiceSdkEndpoint
+        $env:AFL_GAMELIFT_FLEET_ID      = $c.FleetId
+        $env:AFL_GAMELIFT_HOST_ID       = $c.ComputeName
+        $env:AFL_GAMELIFT_PROCESS_ID    = "bagman-$PID"
+        $env:AFL_GAMELIFT_AUTH_TOKEN    = $t.AuthToken
+
+        $mins = [math]::Round(([DateTime]::Parse($t.ExpirationTimestamp).ToUniversalTime() - [DateTime]::UtcNow).TotalMinutes, 0)
+        Write-Host ("  compute   : {0}  ({1} @ {2})" -f $c.ComputeName, $c.ComputeStatus, $c.IpAddress)
+        Write-Host ("  location  : {0}" -f $c.Location)
+        Write-Host ("  websocket : {0}" -f $c.GameLiftServiceSdkEndpoint)
+        Write-Host ("  authToken : held, expires in {0} min" -f $mins) -ForegroundColor Green
+        Write-Host '  the roster will now come from onStartGameSession, NOT ?MatchmakerData=' -ForegroundColor Yellow
+    }
+    else {
+        # Explicitly clear, so a previous -GameLift run in the same shell cannot leak stale credentials into
+        # what is supposed to be a local launch-option run.
+        foreach ($v in 'AFL_GAMELIFT_WEBSOCKET_URL','AFL_GAMELIFT_FLEET_ID','AFL_GAMELIFT_HOST_ID','AFL_GAMELIFT_PROCESS_ID','AFL_GAMELIFT_AUTH_TOKEN') {
+            Remove-Item "env:$v" -ErrorAction SilentlyContinue
+        }
+    }
+
     if ($DryRun) { Write-Host '  -DryRun: not launching.' -ForegroundColor Yellow; exit 0 }
 
     # ⚠ Start-Process -ArgumentList EATS the embedded double quotes, and the JSON arrives as
@@ -210,7 +282,10 @@ if ($Server) {
     # server's own "LogInit: Command Line:" echo. Build ONE command line and escape the inner quotes as \"
     # per the Windows C runtime convention, then launch via ProcessStartInfo so nothing re-parses it.
     $escaped = $url -replace '"', '\"'
-    $cmdline = '"{0}" "{1}" -log -port={2}' -f $ProjectPath, $escaped, $Port
+    # A cooked/staged server must NOT be handed the .uproject -- it loads its own pak content.
+    $dp = '-dpcvars="afl.Match.WarmupDuration={0}"' -f $WarmupSeconds
+    $cmdline = if ($useCooked) { '"{0}" -log -port={1} {2}' -f $escaped, $Port, $dp }
+               else            { '"{0}" "{1}" -log -port={2} {3}' -f $ProjectPath, $escaped, $Port, $dp }
     if ($EditorArgs) { $cmdline += ' ' + ($EditorArgs -join ' ') }
 
     $psi = New-Object Diagnostics.ProcessStartInfo
