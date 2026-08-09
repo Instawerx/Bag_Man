@@ -423,6 +423,10 @@
 		{
 			"Name": "FullBodyIK",
 			"Enabled": true
+		},
+		{
+			"Name": "GameLiftServerSDK",
+			"Enabled": true
 		}
 	],
 	"EpicSampleNameHash": "451731683"
