@@ -122,10 +122,22 @@ side reduces to registering compute against an already-managed, already-ACTIVE A
 compute registration is IaC-managed or an operator step — `RegisterCompute` for Anywhere is a runtime action
 (it takes the host's IP/hostname), so it likely belongs in a documented runbook rather than CloudFormation.
 
-One naming point to settle before S12: this fleet is literally described as
-*"TEST fleet (no real server build; placement target only)"*. It is now production-managed infrastructure.
-Either rename it or stand up a properly-named fleet beside it — a fleet called `BagManTentpoleTest` carrying
-real matches is the kind of thing that reads as a mistake at 3am.
+✅ **Fleet renamed** `BagManTentpoleTest` → **`BagManTentpoleFleet`**, description now
+*"AFL match-hosting Anywhere fleet. Destination of BagManTentpoleQueue; compute registered at S12."*
+
+Done as an **in-place update, FleetId preserved**. Verified before deploying by creating a changeset and
+reading `Replacement: False` off it, rather than assuming — GameLift exposes `UpdateFleetAttributes` so a
+rename does not require replacement, but that is a property-by-property fact worth confirming, since a
+replacement here would have minted a new FleetId and silently orphaned the queue destination.
+
+**Technique worth reusing:** for any change to these resources, create a changeset and read `Replacement`
+before executing. `cdk diff` cannot tell you this — it falls back to a template-only diff and prints
+*"Could not create a change set… will base the diff on template differences"*.
+
+⚠ **The custom location is still named `custom-bagman-test-1`.** Unlike the fleet name, `LocationName` IS the
+physical id, so renaming it is a REPLACEMENT — and the fleet depends on it, so it would cascade. Options:
+live with the name, or rebuild location+fleet together while the fleet is still inert (before compute is
+registered). Doing it after S12 registers compute means dropping live matches. Decide before, not after.
 
 ### E. Player sessions
 The allocator already passes `DesiredPlayerSessions` with `PlayerId = m.Entity?.Id` — the **PlayFab entity
