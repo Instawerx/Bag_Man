@@ -110,15 +110,22 @@ public:
 	 * Is staked play open to this player right now? FALSE puts the staked door in the spec's Disabled
 	 * treatment (sec5) with `StakedUnavailableReason` shown beneath its title.
 	 *
-	 * Still FALSE, but ⚠ **NOT FOR THE REASONS THIS COMMENT USED TO GIVE.** It said the staked lobby was
-	 * unbuilt and every staked queue unpublished. Both are now untrue: `WBP_IRONICS_Lobby_Staked` exists,
-	 * and `/queues` publishes 40 cells including the WattsPlay and VoltsPlay ladders.
+	 * ✅ **TRUE SINCE 2026-08-10 -- THE DOOR IS OPEN.** It was shut for a stated reason and that reason has
+	 * now expired, which is the only way a gate like this should ever be lifted.
 	 *
-	 * The door stays shut for a narrower and more specific reason: **entering a staked queue requires S4
-	 * TicketReview, which R22 makes unskippable, and S4 is unbuilt.** `UAFLW_Lobby_Root::CommitQueue`
-	 * therefore raises `OnTicketReviewRequested` and queues NOTHING -- so an enabled staked door would lead
-	 * to a lobby whose CTA looks live and silently does nothing, which the states table explicitly forbids
-	 * ("never a silent no-op"). A door that says why it cannot open is better than one that opens onto that.
+	 * The reason was: entering a staked queue requires S4 TicketReview (R22, unskippable), S4 was unbuilt,
+	 * and `UAFLW_Lobby_Root::CommitQueue` therefore raised `OnTicketReviewRequested` and queued NOTHING --
+	 * so an enabled door would have led to a lobby whose CTA looked live and silently did nothing, the
+	 * exact "never a silent no-op" the states table forbids.
+	 *
+	 * S4 exists now (`UAFLW_TicketReview` / `WBP_IRONICS_TicketReview`), both lobbies point at it, and it
+	 * carries both R23 guardrails backed by a server that enforces them: a per-entry cap relative to
+	 * balance and a rolling-window ceiling, read from `GET /limits` and re-applied by `/create-ticket`.
+	 *
+	 * ⚠ THE FLAG STAYS, AND `StakedUnavailableReason` STAYS AUTHORED. Staked play is the half of the
+	 * economy that can be closed for reasons that have nothing to do with whether the code works -- a
+	 * regulatory pause, an incident, a region. Deleting the gate because it is currently open would mean
+	 * the next close has to be a code change.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Home")
 	bool bStakedPlayAvailable = false;

@@ -333,6 +333,23 @@ boundary.
 
 **S4 is not skippable, including from re-queue.** R22.
 
+> **✅ BUILT 2026-08-10 — and the staked door is open because of it.** `UAFLW_TicketReview` /
+> `WBP_IRONICS_TicketReview`, pushed by `UAFLW_Lobby_Root::CommitQueue`, which still queues nothing itself.
+> Both guardrails are real rather than drawn: `GET /limits` supplies them and `POST /create-ticket`
+> **enforces** them, so the cap a player is shown and the cap that binds are one object (§7's actual
+> requirement). `/create-ticket` fails CLOSED if the limits store is unreachable.
+>
+> ⚠ **THE TWO NUMBERS ARE NOT THE SAME QUANTITY** (operator ruling, 2026-08-10). The meter **displays
+> realized loss** — what §7 calls it, and what means something to a person — while the ceiling **binds on
+> amount staked**, because at the moment of entry there is no outcome to have lost yet. The window is a
+> **rolling 24h, server-tracked**: a limit a player can reset by relaunching is a readout, not a guardrail.
+>
+> ⚠ **THE MOCK'S `2,000 V` IS NOT SHIPPABLE AND WAS NOT SHIPPED.** The published Volts presets run to
+> 10,000, so a 2,000 ceiling makes the top two rungs of our own ladder unenterable — a product must not
+> publish a stake it forbids. `config/play-limits.json` defaults to 4× the top rung and its loader REFUSES
+> a ceiling below it. **Every figure there is still a placeholder pending your ruling**, which is why they
+> are config and why the API marks itself `provisional: true`.
+
 ---
 
 ## 7. S7 — MatchResults + one-tap re-queue

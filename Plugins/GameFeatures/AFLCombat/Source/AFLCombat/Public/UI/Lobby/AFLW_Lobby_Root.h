@@ -210,9 +210,25 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "AFL|Lobby")
 	FAFLLobbyQueueCommitted OnQueueCommitted;
 
-	/** Fires INSTEAD of committing on a staked entry. S4 is owed; this is the hand-off point for it. */
+	/**
+	 * Fires INSTEAD of committing on a staked entry -- the hand-off to S4.
+	 *
+	 * ⚠ IT STILL FIRES EVEN THOUGH C++ NOW PUSHES S4 ITSELF. Same rule as the home screen's
+	 * `BP_OnDoorChosen`: a WBP may be running the §6 transition off this, or reporting analytics, and
+	 * suppressing it whenever `TicketReviewClass` happens to be set would make those behaviours silently
+	 * configuration-dependent. Leaving the class empty is how a WBP takes over the navigation.
+	 */
 	UPROPERTY(BlueprintAssignable, Category = "AFL|Lobby")
 	FAFLLobbyQueueCommitted OnTicketReviewRequested;
+
+	/**
+	 * S4 TicketReview, pushed onto `UI.Layer.Menu` when a staked entry is committed.
+	 *
+	 * SOFT for the same reason the lobbies are: most sessions never open it, and a league player must
+	 * never pay memory for the wagering surface they are deliberately not being routed through (R98).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Lobby")
+	TSoftClassPtr<UCommonActivatableWidget> TicketReviewClass;
 
 	UPROPERTY(BlueprintAssignable, Category = "AFL|Lobby")
 	FAFLLobbySelectionChanged OnSelectionChanged;
@@ -327,6 +343,9 @@ protected:
 	TSubclassOf<UCommonButtonBase> StakePresetClass;
 
 private:
+	/** Push S4 for a staked entry and hand it the ticket. No-op when the WBP owns navigation. */
+	void PushTicketReview(const FAFLLobbyQueue& Queue);
+
 	/**
 	 * UEditableTextBox::OnTextChanged is a DYNAMIC multicast, unlike UCommonButtonBase::OnClicked() -- so
 	 * this one genuinely has to be a UFUNCTION bound with AddDynamic. Mixing the two idioms up is how a

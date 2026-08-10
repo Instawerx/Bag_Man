@@ -6,18 +6,25 @@
 #include "AFLMatchmakingSubsystem.h"
 #include "CommonButtonBase.h"
 #include "CommonTextBlock.h"
+#include "CommonUIExtensions.h"        // PushContentToLayer_ForPlayer -- the same call every other push uses
 #include "Components/EditableTextBox.h"
 #include "Components/PanelWidget.h"
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Engine/GameInstance.h"
+#include "Engine/LocalPlayer.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
+#include "NativeGameplayTags.h"
 #include "UI/Lobby/AFLW_Lobby_DetailPanel.h"
 #include "UI/Lobby/AFLW_Lobby_QueueRow.h"
+#include "UI/Lobby/AFLW_TicketReview.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_Lobby_Root)
 
 #define LOCTEXT_NAMESPACE "AFLLobbyRoot"
+
+/** The CommonUI menu stack. File-local, matching how the home screen declares the same tag. */
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Lobby, "UI.Layer.Menu");
 
 UAFLW_Lobby_Root::UAFLW_Lobby_Root(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -1010,6 +1017,7 @@ void UAFLW_Lobby_Root::CommitQueue()
 		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOBBY: staked entry %s at %d -- routing to ticket review (R22)."),
 			*Selected->QueueId, Stake);
 		OnTicketReviewRequested.Broadcast(Selected->QueueId, Stake);
+		PushTicketReview(*Selected);
 		return;
 	}
 
@@ -1026,6 +1034,54 @@ void UAFLW_Lobby_Root::CommitQueue()
 	}
 
 	OnQueueCommitted.Broadcast(Selected->QueueId, 0);
+}
+
+void UAFLW_Lobby_Root::PushTicketReview(const FAFLLobbyQueue& Queue)
+{
+	if (TicketReviewClass.IsNull())
+	{
+		// Not an error: a WBP owning navigation leaves this empty and handles OnTicketReviewRequested.
+		UE_LOG(LogAFLCombat, Verbose,
+			TEXT("AFL_LOBBY: no ticket review class set -- S4 navigation left to the WBP."));
+		return;
+	}
+
+	UClass* ScreenClass = TicketReviewClass.LoadSynchronous();
+	APlayerController* PC = GetOwningPlayer();
+	ULocalPlayer* LocalPlayer = PC ? PC->GetLocalPlayer() : nullptr;
+	if (!ScreenClass || !LocalPlayer)
+	{
+		// ⚠ LOUD, because the alternative is a CTA that appears to do nothing. The lobby has already
+		// refused to queue -- R22 -- so if S4 does not appear the player has pressed the only button on
+		// the screen and got silence, which is the exact state the states table forbids.
+		UE_LOG(LogAFLCombat, Error,
+			TEXT("AFL_LOBBY: cannot push ticket review (class=%s player=%s) -- staked entry dead-ends."),
+			ScreenClass ? TEXT("ok") : TEXT("FAILED"), LocalPlayer ? TEXT("ok") : TEXT("none"));
+		return;
+	}
+
+	UCommonActivatableWidget* Pushed =
+		UCommonUIExtensions::PushContentToLayer_ForPlayer(LocalPlayer, TAG_UI_Layer_Menu_Lobby, ScreenClass);
+
+	// The push returns the instance, which is the only chance to hand it the ticket -- S4 deliberately owns
+	// no lookup back into the lobby. It confirms what it was GIVEN, so what the player reviews cannot
+	// diverge from what they selected while the screen was open.
+	if (UAFLW_TicketReview* Review = Cast<UAFLW_TicketReview>(Pushed))
+	{
+		// The bracket id IS the label -- `5v5`, `BR_36` (R99). Prettified nowhere, for the reason
+		// AFLW_Lobby_QueueRow::FormatBracket gives: a second spelling of a bracket is a second place it
+		// can drift from the registry.
+		const FText Title = FText::Format(LOCTEXT("S4QueueLine", "{0} · {1}"),
+			FText::FromString(Queue.Bracket), UEnum::GetDisplayValueAsText(Queue.Ruleset));
+		Review->SetTicket(Queue.QueueId, Stake, Denomination == EAFLDenomination::Volts,
+			Title, StakeBandLabel);
+	}
+	else
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_LOBBY: pushed '%s' for S4 but it is not a UAFLW_TicketReview -- it will show no ticket."),
+			*ScreenClass->GetName());
+	}
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════
