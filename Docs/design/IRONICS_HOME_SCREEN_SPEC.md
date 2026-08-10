@@ -84,16 +84,24 @@ comment records that the no-colour-coding rule is a *ruling*, not a preference, 
 glow) and the `1fr 1fr` slot fill that makes the doors equal weight. Those are UMG designer work, alongside
 the art pass the type ramp still owes.
 
-## 2.2 `W_IRONICS_Home` — A STRUCTURAL SCAFFOLD, **NOT A LAID-OUT SCREEN**
+## 2.2 `W_IRONICS_Home` — **BUILT 2026-08-10**
 
-`Content/UI/Menu/W_IRONICS_Home.uasset`, reparented to `UAFLW_HomeScreen`. **31 widgets, correctly named
-and correctly nested**, both doors binding as real `CommonButtonBase` controls (`W_LyraButton`), with the
-§3 copy and the §4 token colours already applied.
+`Content/UI/Menu/W_IRONICS_Home.uasset`, reparented to `UAFLW_HomeScreen`. The §3 composition is now
+authored: 5% title-safe frame, top bar with the lockup left and wallet chips right, centred kicker and
+subhead, **the two doors at `1fr 1fr`**, centred footer nav. Both doors bind as required
+`CommonButtonBase` controls and the ruled type ramp (§4) is applied throughout.
 
-⚠ **IT HAS NO LAYOUT, AND CANNOT BE GIVEN ONE BY SCRIPT.** Proven in PIE 2026-08-08: the screen loads and
-takes CommonUI input focus, but every element collapses to natural size in the top-left corner and the text
-overlaps itself illegibly. Nothing is wrong with the hierarchy — **not one slot property has been set**,
-because the editor bridge cannot reach them.
+⚠ **THE ORIGINAL DIAGNOSIS IN THIS SECTION WAS WRONG, AND IT COST A MONTH OF "designer work".** It claimed
+31 widgets *"correctly named and correctly nested"* whose only problem was unreachable slot properties.
+Measured 2026-08-10: **every one of the 31 widgets was a FLAT child of `HomeRoot`**, an Overlay — which
+stacks all children at the same position. *That* was the overlapping text, not missing padding. Slot
+properties were never the blocker and in fact work fine (see the corrected table below).
+
+The section had even written down the trap it then fell into: *"a successful rename does NOT prove
+parenting… the decisive test is `remove_widget(parent)` and checking whether the child still resolves."*
+The rename count was reported as proof of structure; it never was.
+
+**Fix:** reparent into the intended hierarchy, then set slots. Both were scripted through the bridge.
 
 **What the bridge CAN and CANNOT do to a WidgetBlueprint.** ⚠ **CORRECTED 2026-08-10** — two rows of the
 original table were wrong, and being wrong in the *pessimistic* direction they steered work away from a path
@@ -127,14 +135,23 @@ conclusion:
    still gets its auto-name, and still renames cleanly. The decisive test is `remove_widget(parent)` and
    checking whether the child still resolves.
 
-**So `W_IRONICS_Home` is very probably NOT a designer-only job any more.** The original claim — *"the
-remaining work is a UMG designer pass, and it was always going to be"* — rested on slot properties being
-unreachable, and they are not. The lobby doors carry pinned region heights, a `1fr | 420px` split, fills and
-per-widget padding, all set through this API. The home screen's `1fr 1fr` door fill and §3 alignments are
-strictly simpler than that.
+**It was not a designer-only job, and §2.2 records what it actually was.** The `1fr 1fr` door fill and every
+§3 alignment were scripted through this API.
 
-What genuinely remains designer work is **§6's motion** (no animation API at all) and the art pass. **Front-end
-wiring stays REVERTED** — `MainScreenClass` points back at `W_IRONICS_FrontEnd` — until the screen is legible.
+Two further gotchas found while doing it:
+
+- **A freshly-created BP widget class must be fully resolved before the HOST compiles against it.** Adding
+  `WBP_IRONICS_DoorButton` and compiling `W_IRONICS_Home` in the same pass failed BOTH required door
+  bindings with *"of type Common Button Base was not found"* — while `compile()` still returned success.
+  Load the child class, then recompile the host.
+- **`CommonButtonBase` does NOT render its style brushes in the UMG designer.** It applies them at runtime
+  through the internal `SButton`, so a designer screenshot shows placeholder chrome, never the token
+  styling. **Button appearance cannot be validated from the designer** — only in PIE.
+
+What genuinely remains is **§6's motion** (no animation API at all) and the art pass. **Front-end wiring
+stays REVERTED** — `MainScreenClass` points back at `W_IRONICS_FrontEnd` — because the doors still lead
+nowhere: §9.4 leaves navigation to the WBP, and `BP_OnDoorChosen` is unhandled, so booting into this screen
+today would present two buttons that do nothing.
 
 ---
 
