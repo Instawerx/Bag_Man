@@ -15,12 +15,21 @@ pointer returns `W_ReplayBrowserScreen` and `W_ReplayListEntry` to the build aft
 removed their last referencer. 0 removed, 6 added, 0 errors. `W_ExperienceSelectionScreen` is still absent,
 so the deprecation held across a second cook rather than only the one that introduced it.
 
-⚠ **Two of those six additions are not ours and they oscillate.**
+⚠ **Two of those six additions are not ours, and they have now moved in both directions.**
 `ShooterMaps/.../L_Convolution_Blockout/{Gameplay,Layout}.uasset` **left** in the 08-09 → 08-10 diff and
-**came back** in 08-10 → 08-10b, with nothing in either change touching ShooterMaps. Two cooks of the same
-content should agree, so something about those DataLayer packages is not deterministic. Not chased —
-they are 2 packages of a 7,335-package build and neither is AFL content — but recorded here because the
-next person to read a diff will see them move again and should know it predates their change.
+**came back** in 08-10 → 08-10b, with nothing in either change touching ShooterMaps.
+
+**Do not read that as nondeterminism — there is a confound, and it is the first thing to test.** The 08-10
+cook ran into an *empty* `Saved/Cooked/Windows`; 08-10b ran *over* 08-10's tree. So the honest statement is
+that a cook over an existing tree did not produce the same set as a clean one, which if true matters more
+than randomness would: it means an incremental cook is not equivalent to the clean cook these manifests are
+compared against. Ruled out already: the map generated identically both times — same World Partition cells,
+same `GenerationHash` per cell — so the difference is in whether those two packages are *emitted*, not in
+how the level was built.
+
+**So when you take a manifest, note whether the tree was empty first.** Comparing a clean cook to an
+incremental one is not a like-for-like diff until this is settled. Tracked as its own ticket; not chased
+here because it is 2 packages of 7,335, neither of them AFL content, and both cooks reported 0 errors.
 
 ⚠ **THE 08-09 TREE NO LONGER EXISTS.** Its manifest is the only surviving record of it. That is the
 point of this folder — the tree was 9.5 GB and was deleted after being measured, but the thing worth
