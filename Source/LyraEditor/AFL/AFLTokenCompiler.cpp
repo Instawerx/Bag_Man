@@ -63,10 +63,74 @@ namespace
 		ERadiusRole Radius;
 	};
 
+	/**
+	 * ══ THE TYPE RAMP — RULED 2026-08-10 ══════════════════════════════════════════════════════════════
+	 *
+	 * OPEN ITEM 1 is closed. The three faces below are the ruling, and the deciding constraint was not
+	 * aesthetic:
+	 *
+	 * ⚠ THE MOCKUPS' STACK WAS NEVER SHIPPABLE. The pages name Bahnschrift and Segoe UI Variable, which are
+	 * Microsoft SYSTEM fonts: not redistributable, so they cannot be embedded in a build, and absent
+	 * entirely on console — which B4 makes a shipping target. That is exactly why every spec says "the
+	 * mockup uses a system stack as a STAND-IN; do not inherit a shipping display face from it". The stack
+	 * was a rendering convenience for a page opened in a browser on Windows, never a type decision.
+	 *
+	 * So the ruling picks faces that are ALREADY LICENCE-CLEARED AND ALREADY IN THE PROJECT — no new
+	 * third-party review, no new redistribution surface, nothing to import:
+	 *
+	 *   DISPLAY  Orbitron        SIL OFL, `Orbitron.tps` on file, inherited from Lyra. The style SSOT asks
+	 *                            for a "techno-sans, ALL-CAPS" and Orbitron is precisely that.
+	 *   BODY     NotoSans        SIL OFL, already the project's body face — every Lyra TextStyle-* in
+	 *                            /Game/UI/Foundation/Text points at it. Matching it means the lobby reads
+	 *                            as the same application as the rest of the front end.
+	 *   DATA     DroidSansMono   Ships with the engine. MONOSPACE, which is what satisfies the handoff's
+	 *                            hard requirement that numerics be TABULAR "so digits do not jitter as
+	 *                            they tick" — a proportional face fails that by construction.
+	 *
+	 * ⚠ ONE CONSEQUENCE, STATED RATHER THAN DISCOVERED. Orbitron is a WIDE geometric face; the mockup's
+	 * stack was a CONDENSED grotesque. `IRONICS_LEAGUE_DOOR_SPEC.md` §8.1 warns that the NeonTube stroke
+	 * widths are tuned to a condensed face and "a different shipping face requires re-tuning them" — so
+	 * that re-tune is now owed. It breaks nothing settled: NeonTube is itself still OPEN ITEM 5.
+	 *
+	 * The second consequence is why display is SCOPED rather than global: a wide all-caps face applied to
+	 * every label would re-break the horizontal budget in region C, which already overflowed once. Display
+	 * is for identity-carrying text only.
+	 */
+	enum class EFaceRole : uint8 { Display, Body, Data };
+
+	struct FFaceSpec
+	{
+		const TCHAR* FontPath;
+		const TCHAR* TypefaceName;
+	};
+
+	const FFaceSpec& FaceFor(EFaceRole Role)
+	{
+		static const FFaceSpec Display{ TEXT("/Game/UI/Foundation/Fonts/Orbitron.Orbitron"),        TEXT("Orbitron") };
+		static const FFaceSpec Body   { TEXT("/Game/UI/Foundation/Fonts/NotoSans.NotoSans"),        TEXT("Regular")  };
+		static const FFaceSpec Data   { TEXT("/Engine/EngineFonts/DroidSansMono.DroidSansMono"),    TEXT("Default")  };
+		switch (Role)
+		{
+		case EFaceRole::Display: return Display;
+		case EFaceRole::Data:    return Data;
+		default:                 return Body;
+		}
+	}
+
 	struct FTextStyleSpec
 	{
 		const TCHAR* AssetName;
 		TArray<FString> ColorTokens;
+		EFaceRole Face;
+		/**
+		 * Point size.
+		 *
+		 * Taken from the lobby page's own CSS rather than invented: it authors at 1280x720, which is the
+		 * canvas the WBPs are built on, so its px values map 1:1. Values are the sizes the page actually
+		 * uses -- 14 for a tab label, 13.5 for a row, 12 for a band, 11.5 for a footnote -- rounded to
+		 * whole points because Slate hinting at fractional sizes is not worth the half-pixel.
+		 */
+		float Size;
 	};
 
 	const TArray<FBorderStyleSpec>& BorderSpecs()
@@ -195,13 +259,26 @@ namespace
 	const TArray<FTextStyleSpec>& TextSpecs()
 	{
 		static const TArray<FTextStyleSpec> Specs = {
-			{ TEXT("TS_IRONICS_Text_Primary"),   { TEXT("--text-1"), TEXT("--t1") } },
-			{ TEXT("TS_IRONICS_Text_Secondary"), { TEXT("--text-2"), TEXT("--t2") } },
-			{ TEXT("TS_IRONICS_Text_Tertiary"),  { TEXT("--text-3"), TEXT("--t3") } },
-			{ TEXT("TS_IRONICS_Text_Electric"),  { TEXT("--house-electric"), TEXT("--electric") } },
-			// The band readout when the value matches no band -- `outside all bands`. Paired with the tint
-			// above; both are semantic, neither is the accent.
-			{ TEXT("TS_IRONICS_Text_Danger"),    { TEXT("--danger-ink") } },
+			// BODY -- prose, labels, reasons. The project's established face.
+			{ TEXT("TS_IRONICS_Text_Primary"),   { TEXT("--text-1"), TEXT("--t1") },                  EFaceRole::Body, 14.f },
+			{ TEXT("TS_IRONICS_Text_Secondary"), { TEXT("--text-2"), TEXT("--t2") },                  EFaceRole::Body, 13.f },
+			{ TEXT("TS_IRONICS_Text_Tertiary"),  { TEXT("--text-3"), TEXT("--t3") },                  EFaceRole::Body, 12.f },
+			{ TEXT("TS_IRONICS_Text_Electric"),  { TEXT("--house-electric"), TEXT("--electric") },    EFaceRole::Body, 13.f },
+			// The band readout when the value matches no band -- `outside all bands`. Paired with the tint;
+			// both are semantic, neither is the accent.
+			{ TEXT("TS_IRONICS_Text_Danger"),    { TEXT("--danger-ink") },                            EFaceRole::Body, 12.f },
+
+			// DISPLAY -- identity-carrying text ONLY: headings, tab labels, the bracket on a row. Scoped
+			// deliberately; a wide all-caps face on every label re-breaks region C's horizontal budget.
+			{ TEXT("TS_IRONICS_Display_Primary"),  { TEXT("--text-1"), TEXT("--t1") },                EFaceRole::Display, 14.f },
+			{ TEXT("TS_IRONICS_Display_Electric"), { TEXT("--house-electric"), TEXT("--electric") },  EFaceRole::Display, 14.f },
+
+			// DATA -- every number a player reads: stake, balance, population, wait, payout, multiple.
+			// MONOSPACE, which is the point: the handoff makes tabular numerals MANDATORY "so digits do not
+			// jitter as they tick", and a proportional face cannot satisfy that at any size.
+			{ TEXT("TS_IRONICS_Data_Primary"),   { TEXT("--text-1"), TEXT("--t1") },                  EFaceRole::Data, 14.f },
+			{ TEXT("TS_IRONICS_Data_Secondary"), { TEXT("--text-2"), TEXT("--t2") },                  EFaceRole::Data, 13.f },
+			{ TEXT("TS_IRONICS_Data_Electric"),  { TEXT("--house-electric"), TEXT("--electric") },    EFaceRole::Data, 13.f },
 		};
 		return Specs;
 	}
@@ -242,9 +319,11 @@ namespace
 	{
 		for (const FBorderStyleSpec& S : BorderSpecs()) { for (const FString& T : S.ColorTokens) { Out.Add(T); } }
 		for (const FTextStyleSpec& S : TextSpecs())     { for (const FString& T : S.ColorTokens) { Out.Add(T); } }
+		// The three font tokens are CONSUMED now, not unreachable: ruling the ramp is exactly what turned
+		// "a list of family names" into a decision the compiler acts on.
 		for (const TCHAR* T : { TEXT("--r-panel"), TEXT("--r-button"), TEXT("--r-input"), TEXT("--blur"),
 		                        TEXT("--house-violet"), TEXT("--violet"), TEXT("--house-black"), TEXT("--depth"),
-		                        TEXT("--neon-text") })
+		                        TEXT("--neon-text"), TEXT("--f-display"), TEXT("--f-body"), TEXT("--f-data") })
 		{
 			Out.Add(T);
 		}
@@ -266,11 +345,6 @@ namespace
 			// neutrals style the page a human reads the mockup ON. Emitting them would put the review
 			// chrome's light-mode greys into the game, and reporting them as OWED implies they belong.
 			OutWhy = TEXT("review surround (.board), not the game screen (.scr) -- never ships");
-			return true;
-		}
-		if (TokenName.StartsWith(TEXT("--f-")))
-		{
-			OutWhy = TEXT("font stack -- a list of family names, not a UFont (see the type-ramp note)");
 			return true;
 		}
 		if (Value.Contains(TEXT("gradient")))
@@ -298,8 +372,6 @@ namespace
 	 * screen spec is explicit that the mockup's system stack must not become the shipping face. Drop a UFont
 	 * at this path and the next compile applies it to every emitted text style -- no code change.
 	 */
-	const TCHAR* GFontAssetPath = TEXT("/Game/UI/IRONICS/Type/F_IRONICS_Display.F_IRONICS_Display");
-
 	/**
 	 * Find-or-create a Blueprint subclass of ParentClass, and hand back its CDO to be written.
 	 *
@@ -437,61 +509,6 @@ namespace
 	 * generous because the SSOT rounds to 2-3 places -- it is catching a wrong colour space, not a rounding
 	 * difference in the last digit.
 	 */
-	/**
-	 * Apply the approved face to the emitted text styles, if one exists yet.
-	 *
-	 * ⚠ ABSENCE IS THE EXPECTED STATE AND IS REPORTED AS OWED, NOT AS AN ERROR. A missing font here is an
-	 * operator decision that has not been made, not a compiler failure -- logging it as an error would train
-	 * everyone to ignore the compiler's errors, which are reserved for "the compiler mis-converted a value".
-	 */
-	void ApplyApprovedFontIfPresent(const FAFLDesignTokens& Tokens, bool bDryRun)
-	{
-		FString Display;
-		Tokens.TryGetString(TEXT("--f-display"), Display);
-
-		UObject* Font = StaticLoadObject(UObject::StaticClass(), nullptr, GFontAssetPath, nullptr, LOAD_NoWarn | LOAD_Quiet);
-		if (!Font)
-		{
-			UE_LOG(LogAFLTokens, Log,
-				TEXT("AFL_TOKENS:   type -- NO approved face (ramp is OPEN ITEM 1). Page asks for '%s'; styles ")
-				TEXT("carry colour only and inherit the face. Drop a UFont at %s to bind it."),
-				Display.IsEmpty() ? TEXT("(no --f-display token)") : *Display, GFontAssetPath);
-			return;
-		}
-
-		const UFont* AsFont = Cast<UFont>(Font);
-		if (!AsFont)
-		{
-			UE_LOG(LogAFLTokens, Warning,
-				TEXT("AFL_TOKENS:   type -- %s exists but is a %s, not a UFont. Not applied."),
-				GFontAssetPath, *Font->GetClass()->GetName());
-			return;
-		}
-
-		int32 Applied = 0;
-		for (const FTextStyleSpec& Spec : TextSpecs())
-		{
-			const FString ObjectPath = FString::Printf(TEXT("/Game/UI/IRONICS/Styles/%s.%s_C"), Spec.AssetName, Spec.AssetName);
-			UClass* StyleClass = LoadClass<UCommonTextStyle>(nullptr, *ObjectPath, nullptr, LOAD_NoWarn | LOAD_Quiet, nullptr);
-			if (!StyleClass || bDryRun)
-			{
-				continue;
-			}
-			UCommonTextStyle* Style = Cast<UCommonTextStyle>(StyleClass->GetDefaultObject());
-			if (!Style)
-			{
-				continue;
-			}
-			Style->Font.FontObject = const_cast<UFont*>(AsFont);
-			if (UBlueprint* BP = Cast<UBlueprint>(StyleClass->ClassGeneratedBy))
-			{
-				SaveIfDirty(BP);
-			}
-			++Applied;
-		}
-		UE_LOG(LogAFLTokens, Log, TEXT("AFL_TOKENS:   type -- approved face applied to %d text style(s)."), Applied);
-	}
-
 	bool ValidateTokenFidelity(const FAFLDesignTokens& Tokens, TArray<FString>& OutViolations, TArray<FString>& OutNotes)
 	{
 		for (const FKnownHouseColor& Known : KnownHouseColors())
@@ -660,6 +677,25 @@ bool UAFLTokenCompilerLibrary::CompileDesignPage(const FString& PageRelativePath
 		{
 			UCommonTextStyle* Style = CastChecked<UCommonTextStyle>(CDO);
 			Style->Color = Color;
+
+			// THE RULED FACE. Loaded rather than assumed present: a missing font is reported and the style
+			// keeps its colour, because a text style with the wrong face is still readable while one that
+			// failed to compile is not.
+			const FFaceSpec& Face = FaceFor(Spec.Face);
+			if (UObject* FontObject = StaticLoadObject(UObject::StaticClass(), nullptr, Face.FontPath,
+				nullptr, LOAD_NoWarn | LOAD_Quiet))
+			{
+				Style->Font.FontObject = FontObject;
+				Style->Font.TypefaceFontName = FName(Face.TypefaceName);
+				Style->Font.Size = Spec.Size;
+			}
+			else
+			{
+				UE_LOG(LogAFLTokens, Warning,
+					TEXT("AFL_TOKENS:   %s -- ruled face '%s' did not load; colour applied, face inherited."),
+					Spec.AssetName, Face.FontPath);
+			}
+
 			SaveIfDirty(BP);
 			++Written;
 		}
@@ -832,17 +868,21 @@ bool UAFLTokenCompilerLibrary::CompileDesignPage(const FString& PageRelativePath
 
 	// ── TYPE ─────────────────────────────────────────────────────────────────────────────────────────
 	//
-	// ⚠ NO FACE IS BAKED, DELIBERATELY, AND THIS IS NOT AN OVERSIGHT. The type ramp is OPEN ITEM 1 in the
-	// style SSOT and is flagged unapproved in all three surface specs; the home screen spec says it in
-	// terms that settle it: *"The mockup uses a system stack as a stand-in -- DO NOT INHERIT A SHIPPING
-	// DISPLAY FACE FROM IT."* The pages name Bahnschrift / Segoe UI / Cascadia Mono, which are family names
-	// with no UFont behind them, so there is nothing to point an FSlateFontInfo at even if the ramp were
-	// approved.
-	//
-	// The hook is here and it is one line: drop an approved UFont at GFontAssetPath and every emitted text
-	// style picks it up on the next run. Until then the styles carry colour only and inherit the face from
-	// their parent, which is the correct behaviour for a stand-in.
-	ApplyApprovedFontIfPresent(Tokens, bDryRun);
+	// RULED 2026-08-10, OPEN ITEM 1 CLOSED -- see the ramp note above TextSpecs for the reasoning and the
+	// one consequence it carries. The faces are applied per style at the emit site; this reports what the
+	// page ASKED for beside what was ruled, so a page that later changes its stack is visible rather than
+	// silently ignored.
+	FString AskedDisplay, AskedBody, AskedData;
+	Tokens.TryGetString(TEXT("--f-display"), AskedDisplay);
+	Tokens.TryGetString(TEXT("--f-body"), AskedBody);
+	Tokens.TryGetString(TEXT("--f-data"), AskedData);
+	if (!AskedDisplay.IsEmpty() || !AskedBody.IsEmpty())
+	{
+		UE_LOG(LogAFLTokens, Log,
+			TEXT("AFL_TOKENS:   type -- RULED display=Orbitron body=NotoSans data=DroidSansMono. ")
+			TEXT("Page asked display='%s' (a Windows system stack: not redistributable, absent on console)."),
+			*AskedDisplay.Left(48));
+	}
 
 	UE_LOG(LogAFLTokens, Log, TEXT("AFL_TOKENS: %s -- %d written, %d new, %d token(s) absent from this page%s"),
 		*PageRelativePath, Written, Created, Missing, bDryRun ? TEXT("  [DRY RUN -- nothing saved]") : TEXT(""));

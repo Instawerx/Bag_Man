@@ -154,7 +154,10 @@ match → wallet. **B / Esc returns to the home screen.** Hover and focus are vi
 1. ~~Population endpoint does not exist~~ — **DONE.** `GET /population` is deployed and serves per-cell
    **and** per-band counts and measured waits. Both doors read it live.
 2. **`UIDisplay.NeonTube`** — style SSOT OPEN ITEM 5, still derived.
-3. **Type ramp** — OPEN ITEM 1, still unapproved.
+3. ~~**Type ramp** — OPEN ITEM 1.~~ **CLOSED 2026-08-10**: Orbitron / Noto Sans / Droid Sans Mono
+   (style SSOT §4). Note for this door specifically: the stake field, the band and every payout figure now
+   resolve to the MONO face, which is what makes §7's "tabular numerals, always" true rather than asked
+   for.
 4. **BR squad variant.** R92 provides for squads holding positions; whether staked BR ships solo-only or
    both is unspecified. R99's floor applies to **squads** if squads are used.
 5. ~~`classify()` reads occupancy, not health~~ — **RULED AND SHIPPED.** See league spec §3.4. Health is

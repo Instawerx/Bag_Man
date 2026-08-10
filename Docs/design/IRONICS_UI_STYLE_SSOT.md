@@ -148,17 +148,50 @@ scene (`BAG_MAN_MASTER_BUILD_v2.0.md:401-402`) - so glass reads bright against d
 HUD with fill light. The aesthetic through-line shared with weapons = **translucent glass + emissive
 neon + energy**, never opaque/metallic (`IRONICS_WEAPONS_SSOT.md:131-135`).
 
-## 4. TYPOGRAPHY (DERIVED ramp - flagged for approval; no type spec existed)
+## 4. TYPOGRAPHY — **RULED 2026-08-10. OPEN ITEM 1 IS CLOSED.**
 
-Grounded in the skill's SF-inspired direction (`SKILL.md:62` light body / semibold actions) + the
-established all-caps terse energy voice (the existing HUD banners "EXTRACTION WINDOW OPEN") + the
-cyber precedent (Chakra Petch / JetBrains Mono, the v1.1 tracker faces). The ramp (confirm font
-licensing before lockdown):
-| Role | Face (recommended) | Weight / case | Use |
-|---|---|---|---|
-| Display | Chakra Petch (or licensed techno-sans equiv) | Bold, ALL-CAPS | titles, round#, banners, the IRONICS lockup |
-| Body / label | SF-Pro-inspired clean sans | Light/Regular, sentence case | menu body, descriptions, settings |
-| Numeric / tabular | JetBrains Mono (or licensed mono) | Medium | Watts/Volts counters, timers, scores, stats (tabular-aligned) |
+**The ruled ramp, shipping:**
+
+| Role | Face | Asset | Licence | Use |
+|---|---|---|---|---|
+| **Display** | **Orbitron** | `/Game/UI/Foundation/Fonts/Orbitron` | SIL OFL, `Orbitron.tps` on file | titles, tab labels, brackets, the IRONICS lockup. ALL-CAPS. |
+| **Body / label** | **Noto Sans** | `/Game/UI/Foundation/Fonts/NotoSans` | SIL OFL | menu body, descriptions, reasons, footnotes. Sentence case. |
+| **Numeric / tabular** | **Droid Sans Mono** | `/Engine/EngineFonts/DroidSansMono` | ships with UE | Watts/Volts, timers, population, waits, payouts, multiples |
+
+**Sizes** are emitted by `AFLTokenCompiler` from the lobby page's own CSS (it authors at 1280×720, the same
+canvas the WBPs use, so px maps 1:1): body 14/13/12, display 14, data 14/13. The compiler writes the face,
+typeface and size into every `TS_IRONICS_*` style, so the ramp cannot drift from this table by hand-edit.
+
+### Why these, and not the mockups' stack
+
+⚠ **THE MOCKUPS' STACK WAS NEVER SHIPPABLE, AND THAT — NOT TASTE — DECIDED THIS.** The pages name
+**Bahnschrift** and **Segoe UI Variable**. Both are Microsoft *system* fonts: **not redistributable**, so
+they cannot be embedded in a build, and **absent entirely on console**, which **B4** makes a shipping
+target. The stack was a rendering convenience for a page opened in a browser on Windows. That is exactly
+what every surface spec meant by *"the mockup uses a system stack as a STAND-IN — do not inherit a shipping
+display face from it."*
+
+The earlier recommendations here (Chakra Petch / SF-equivalent / JetBrains Mono) were precedent, never
+blessed, and all three would have required a **new** third-party licence review. **All three ruled faces are
+already licence-cleared and already in the project** — Orbitron ships with Lyra with its `.tps`, Noto Sans is
+what every existing `TextStyle-*` in `/Game/UI/Foundation/Text` already points at, and Droid Sans Mono comes
+with the engine. Zero new redistribution surface, zero new review, and the lobby reads as the same
+application as the rest of the front end.
+
+**Mono is a requirement, not a preference.** `IRONICS_LOBBY_UX_HANDOFF.md` §8 makes tabular numerals
+mandatory for stake, balance, population, wait and payout *"so digits do not jitter as they tick"* — a
+proportional face cannot satisfy that at any size.
+
+### The one consequence, stated rather than discovered
+
+**Orbitron is a WIDE geometric face; the mockups' stack was a CONDENSED grotesque.** §6 notes the NeonTube
+stroke widths are tuned to a condensed face and that a different shipping face requires re-tuning them —
+**so that re-tune is now owed** (tracked under OPEN ITEM 5, which NeonTube is still unresolved under anyway,
+so nothing settled is disturbed).
+
+That width is also why **Display is SCOPED to identity-carrying text only** — headings, tab labels, brackets
+— and not applied to every label. A wide all-caps face on every string re-breaks the horizontal budget in
+the lobby's axis row, which overflowed 1280px once already during the build.
 
 **Voice:** ALL-CAPS terse for HUD callouts (match the existing banners); sentence case for menu body.
 Energy/electrical motif throughout (it is the brand voice). Numbers are always integer (sec5).
@@ -230,8 +263,12 @@ owns layout - the proven AFL split). No surface bypasses this SSOT.
 ---
 
 ## OPEN ITEMS (need operator sign-off before lockdown)
-1. **Type ramp (sec4)** - confirm faces + licensing (Chakra Petch / SF-equiv / JetBrains Mono are
-   recommendations from precedent, not blessed).
+1. ~~**Type ramp (sec4)** - confirm faces + licensing.~~ **CLOSED 2026-08-10.** Ruled **Orbitron /
+   Noto Sans / Droid Sans Mono** — all three already licence-cleared and already in the project, so no new
+   third-party review. The deciding constraint was that the mockups' Bahnschrift/Segoe stack is
+   non-redistributable and absent on console; see sec4 for the reasoning and for the one thing it leaves
+   owed (re-tuning the NeonTube stroke widths for a wide face, which rolls into OPEN ITEM 5).
+   `AFLTokenCompiler` now writes face + typeface + size into every emitted text style.
 2. **Semantic mapping (sec2.5)** - confirm danger/warning treatment (kept subtle to clear the beam hues).
 3. **IRONICS wordmark/lockup** - RESOLVED 2026-06-30: BOLT locked (sec1), cyan-core/Arc-Violet-rim; final art
    (UI texture + 3D hero) in production. **Arc-Violet #A855F7 secondary locked (sec2.1, sec2.4, sec6).**

@@ -235,8 +235,10 @@ different languages.
 
 ## 8. OWED
 
-1. **Type ramp unapproved** (style SSOT OPEN ITEM 1). The tube stroke widths are tuned to a condensed
-   grotesque — a different shipping face requires re-tuning them.
+1. ~~**Type ramp unapproved**~~ — **CLOSED 2026-08-10**: Orbitron / Noto Sans / Droid Sans Mono (style
+   SSOT §4). ⚠ **The warning in this line came true and is now the owed work:** Orbitron is a WIDE
+   geometric face, not the condensed grotesque the tube strokes were tuned to, **so the NeonTube stroke
+   widths need re-tuning** — folded into OPEN ITEM 2 below, which is unresolved anyway.
 2. **`UIDisplay.NeonTube` approval** (style SSOT OPEN ITEM 5), including the SDF-material-vs-texture call
    and whether the treatment extends beyond the two R98 door headings.
 3. ~~BR bracket set under Battle Royale~~ — **CLOSED by R99** (`ssot/match-modes.md` §2.1.1): `BR_9` · `BR_20` · `BR_36`.

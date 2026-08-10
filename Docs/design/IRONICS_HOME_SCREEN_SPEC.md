@@ -95,32 +95,46 @@ takes CommonUI input focus, but every element collapses to natural size in the t
 overlaps itself illegibly. Nothing is wrong with the hierarchy — **not one slot property has been set**,
 because the editor bridge cannot reach them.
 
-**What the bridge CAN and CANNOT do to a WidgetBlueprint** (each established by experiment, so nobody
-re-derives it):
+**What the bridge CAN and CANNOT do to a WidgetBlueprint.** ⚠ **CORRECTED 2026-08-10** — two rows of the
+original table were wrong, and being wrong in the *pessimistic* direction they steered work away from a path
+that works. Both were re-measured while building the IRONICS lobby doors, which were authored end to end
+through this API and screenshotted:
 
 | | |
 |---|---|
 | ✅ create, parent, remove, rename widgets | `add_widget` / `rename_widget` / `remove_widget` |
 | ✅ set direct widget properties | **PascalCase only** — `Text`, `ColorAndOpacity`, `BrushColor`, `RenderOpacity` |
-| ❌ **slot properties** | alignment, padding, fill/size — **0 changes** in every form tried. This is the whole gap. |
-| ❌ **enum properties** | `Visibility` rejected as string, `ESlateVisibility::` string, and int alike |
+| ✅ **slot properties** — *was listed as impossible* | via the **`slot={}` SUB-TABLE**: `configure_widget('X', {slot={Padding={left=10,…}, Size={SizeRule='Fill',Value=1.0}, VerticalAlignment='VAlign_Center'}})`. The binding calls `Slot->Modify()` + `SynchronizeProperties()`. Passing these at the TOP level does nothing, which is almost certainly what the original measurement did. |
+| ⚠ `CanvasPanelSlot` is the exception | anchors/offsets/alignment are nested under **`LayoutData`**, set as an ImportText string: `{slot={LayoutData="(Offsets=(Left=0,…),Anchors=(Minimum=(X=0,Y=0),Maximum=(X=1,Y=1)),Alignment=(X=0,Y=0))"}}` |
+| ❌ **enum properties** | `Visibility` returns 0 changes in every form. **Still true** — drive visibility from C++. |
+| ❌ `replace_widget` | "engine API is private". Use `remove_widget` + `add_widget`. |
 | ❌ widget animations | no API at all — §6 motion is designer work by necessity |
 
-**Three traps that cost real time here:**
+**Traps that cost real time**, renumbered — the first is new and is the one that invalidated the old
+conclusion:
 
-1. **`add_widget` IGNORES its `name` argument.** Widgets get `<Class>_<N>`; a BP class gets
-   `<Asset>_C_<N>`. Rename in a second step. The `<N>` counters **reset per asset**.
-2. **`compile()` reports SUCCESS even when `BindWidget` bindings FAIL.** UMG logs those as compiler
+1. **`create_asset` SILENTLY IGNORES `parent_class`.** Every WBP comes out a plain `UUserWidget`. Call
+   `reparent("/Script/Module.Class")` explicitly afterwards. ⚠ **This is why trap 3 below matters so much:**
+   with the wrong parent there are no required bindings to fail, so a clean compile means *nothing*.
+2. **`add_widget` HONOURS its `name` argument** — *the original table said it did not*. What it actually
+   needs is the **generated-class path** for a Blueprint widget (`W_LyraButton.W_LyraButton_C`); the plain
+   asset path returns "widget class not found". It also resolves a BP class only once that class is
+   **loaded** — a cold path fails even when spelled correctly, so force a load first.
+3. **`compile()` reports SUCCESS even when `BindWidget` bindings FAIL.** UMG logs those as compiler
    *warnings*, not errors. The only reliable check is grepping the editor log for
-   `required widget binding`. A build shipped with both doors unbound and the bridge called it success.
-3. **A successful rename does NOT prove parenting.** If a parent lookup fails the widget is still created,
-   still gets its auto-name, and still renames cleanly — so "31/31 renames" says nothing about structure.
-   The decisive test is `remove_widget(parent)` and checking whether the child still resolves.
+   `required widget binding`. **Still true, and it is the single most important line in this section.**
+4. **A successful rename does NOT prove parenting.** If a parent lookup fails the widget is still created,
+   still gets its auto-name, and still renames cleanly. The decisive test is `remove_widget(parent)` and
+   checking whether the child still resolves.
 
-**The remaining work is a UMG designer pass**, and it was always going to be: set the `1fr 1fr` door fill,
-alignments and padding per §3, mark the door content stacks hit-test-invisible so clicks reach the buttons
-beneath, then §6's motion. **Front-end wiring is deliberately REVERTED** — `MainScreenClass` points back at
-`W_IRONICS_FrontEnd` — and should only be repointed once the screen is legible.
+**So `W_IRONICS_Home` is very probably NOT a designer-only job any more.** The original claim — *"the
+remaining work is a UMG designer pass, and it was always going to be"* — rested on slot properties being
+unreachable, and they are not. The lobby doors carry pinned region heights, a `1fr | 420px` split, fills and
+per-widget padding, all set through this API. The home screen's `1fr 1fr` door fill and §3 alignments are
+strictly simpler than that.
+
+What genuinely remains designer work is **§6's motion** (no animation API at all) and the art pass. **Front-end
+wiring stays REVERTED** — `MainScreenClass` points back at `W_IRONICS_FrontEnd` — until the screen is legible.
 
 ---
 
@@ -257,9 +271,10 @@ select transition becomes an instant state change. The screen must remain fully 
 
 ## 9. OWED BEFORE BUILD
 
-1. **The type ramp is unapproved.** `IRONICS_UI_STYLE_SSOT.md` §4 flags it as *derived, no type spec
-   existed*. The mockup uses a system stack as a stand-in — **do not inherit a shipping display face from
-   it.**
+1. ~~**The type ramp is unapproved.**~~ **CLOSED 2026-08-10** — ruled **Orbitron / Noto Sans / Droid
+   Sans Mono** (`IRONICS_UI_STYLE_SSOT.md` §4). The warning here was right and is why: the mockup's
+   Bahnschrift/Segoe stack is non-redistributable and absent on console, so it could never have shipped.
+   All three ruled faces were already licence-cleared and already in the project.
 2. ~~**§2 colour-coding decision** needs a yes or an overrule.~~ **CLOSED by R100 (2026-08-08)** — the
    derived position was confirmed: no colour separation. **This was the last DESIGN blocker.** Items 1 and 3
    are ART dependencies (type ramp, bolt lockup), and neither gates the door structure, the routing, the
