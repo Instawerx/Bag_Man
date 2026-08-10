@@ -643,7 +643,21 @@ void UAFLOnlineSubsystem::PostPlayerApi(const FString& EndpointPath, const FStri
 	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	// The player's OWN credential, in a header rather than the body or a query string -- a query string ends
 	// up in access logs and crash reports.
+	//
+	// BOTH SPELLINGS, because the two endpoints were written apart and disagree: /match-status reads
+	// X-SessionTicket, /create-ticket reads X-PlayFab-SessionTicket. Sending one name would silently work for
+	// half the API. Aligning the backend is the better fix, but not while another workstream is deploying to
+	// the same stack -- so the client carries both rather than the API breaking on whichever it meets.
 	Req->SetHeader(TEXT("X-SessionTicket"), SessionTicket);
+	Req->SetHeader(TEXT("X-PlayFab-SessionTicket"), SessionTicket);
+
+	// /create-ticket ALSO needs the entity token: PlayFab requires the player's own credential to create
+	// their matchmaking ticket. Supplying a credential is not authoring a claim -- the SERVER still decides
+	// the stake attributes; this only proves who is asking. Endpoints that do not need it ignore it.
+	if (!EntityToken.IsEmpty())
+	{
+		Req->SetHeader(TEXT("X-EntityToken"), EntityToken);
+	}
 	Req->SetContentAsString(JsonBody);
 
 	Req->OnProcessRequestComplete().BindLambda(
