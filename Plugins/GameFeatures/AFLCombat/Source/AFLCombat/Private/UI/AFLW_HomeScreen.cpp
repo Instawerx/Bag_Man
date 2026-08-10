@@ -78,6 +78,42 @@ namespace
 				Ar.Logf(TEXT("afl.Home.Door -- will choose %s as soon as the home screen exists."),
 					bStaked ? TEXT("STAKED") : TEXT("LEAGUE"));
 			}));
+
+	/** `afl.Home.Nav <loadout|store|venues|career|settings>` -- same wait-for-the-screen probe, for the footer. */
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLHomeNavCmd(
+		TEXT("afl.Home.Nav"),
+		TEXT("Open a footer nav destination as if clicked: afl.Home.Nav [loadout|store|venues|career|settings]."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				const FName NavId(Args.Num() > 0 ? *Args[0].ToLower() : TEXT("store"));
+				TWeakObjectPtr<UWorld> WeakWorld(World);
+				double Deadline = 25.0;
+
+				FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+					[NavId, WeakWorld, Deadline](float Delta) mutable -> bool
+					{
+						Deadline -= Delta;
+						UWorld* W = WeakWorld.Get();
+						if (!W || Deadline <= 0.0)
+						{
+							UE_LOG(LogAFLCombat, Error, TEXT("AFL_HOME: afl.Home.Nav gave up -- no home screen."));
+							return false;
+						}
+						for (TObjectIterator<UAFLW_HomeScreen> It; It; ++It)
+						{
+							UAFLW_HomeScreen* Home = *It;
+							if (Home && Home->GetWorld() == W && !Home->HasAnyFlags(RF_ClassDefaultObject))
+							{
+								Home->OpenNavTarget(NavId);
+								return false;
+							}
+						}
+						return true;
+					}), 0.5f);
+
+				Ar.Logf(TEXT("afl.Home.Nav -- will open '%s' as soon as the home screen exists."), *NavId.ToString());
+			}));
 }
 
 UAFLW_HomeScreen::UAFLW_HomeScreen(const FObjectInitializer& ObjectInitializer)
@@ -108,6 +144,7 @@ void UAFLW_HomeScreen::NativeOnInitialized()
 	}
 
 	ApplyStakedAvailability();
+	ApplyNavAvailability();
 }
 
 void UAFLW_HomeScreen::NativeOnActivated()
@@ -115,8 +152,10 @@ void UAFLW_HomeScreen::NativeOnActivated()
 	Super::NativeOnActivated();
 
 	// Re-apply on every activation: availability is a live product state (a staked queue can open between
-	// two visits to this screen), and the screen is returned to rather than constructed each time.
+	// two visits to this screen), and the screen is returned to rather than constructed each time. The same
+	// is true of the nav -- a destination can be configured in between visits.
 	ApplyStakedAvailability();
+	ApplyNavAvailability();
 }
 
 UWidget* UAFLW_HomeScreen::NativeGetDesiredFocusTarget() const
@@ -217,32 +256,99 @@ void UAFLW_HomeScreen::PushLobbyForDoor(EAFLHomeDoor Door)
 			TEXT("AFL_HOME: no lobby class set for this door -- navigation left to the WBP."));
 		return;
 	}
+	PushScreen(Soft, Door == EAFLHomeDoor::League ? TEXT("league lobby") : TEXT("staked lobby"));
+}
 
-	// Synchronous load AT THE MOMENT OF THE CLICK. The soft reference exists so boot does not pay for both
-	// lobbies; by here the player has committed to one and a hitch on a menu transition is the right place
-	// to spend that cost. Async would mean a click that appears to do nothing for a frame or two.
-	UClass* LobbyClass = Soft.LoadSynchronous();
-	if (!LobbyClass)
+bool UAFLW_HomeScreen::PushScreen(const TSoftClassPtr<UCommonActivatableWidget>& Soft, const TCHAR* Context)
+{
+	// Synchronous load AT THE MOMENT OF THE CLICK. The soft references exist so boot does not pay for every
+	// destination; by here the player has committed to one, and a hitch on a menu transition is the right
+	// place to spend that cost. Async would mean a click that appears to do nothing for a frame or two.
+	UClass* ScreenClass = Soft.LoadSynchronous();
+	if (!ScreenClass)
 	{
 		UE_LOG(LogAFLCombat, Error,
-			TEXT("AFL_HOME: lobby class '%s' failed to load -- the door is a dead end."), *Soft.ToString());
-		return;
+			TEXT("AFL_HOME: %s class '%s' failed to load -- dead end."), Context, *Soft.ToString());
+		return false;
 	}
 
 	APlayerController* PC = GetOwningPlayer();
 	ULocalPlayer* LocalPlayer = PC ? PC->GetLocalPlayer() : nullptr;
 	if (!LocalPlayer)
 	{
-		UE_LOG(LogAFLCombat, Error, TEXT("AFL_HOME: no local player -- cannot push the lobby."));
-		return;
+		UE_LOG(LogAFLCombat, Error, TEXT("AFL_HOME: no local player -- cannot push %s."), Context);
+		return false;
 	}
 
 	// The same call Lyra's own menus use, and the same one afl.Store.Open uses for the cosmetic shop. The
 	// pushed widget's InputConfig=Menu captures input, and its own Back/Esc pops it off THIS stack --
 	// which is what makes the home screen still be there underneath when the player returns.
-	UCommonUIExtensions::PushContentToLayer_ForPlayer(LocalPlayer, TAG_UI_Layer_Menu_HomeDoor, LobbyClass);
+	UCommonUIExtensions::PushContentToLayer_ForPlayer(LocalPlayer, TAG_UI_Layer_Menu_HomeDoor, ScreenClass);
 
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_HOME: pushed %s onto UI.Layer.Menu."), *LobbyClass->GetName());
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_HOME: pushed %s (%s) onto UI.Layer.Menu."), *ScreenClass->GetName(), Context);
+	return true;
+}
+
+const TSoftClassPtr<UCommonActivatableWidget>* UAFLW_HomeScreen::FindNavTarget(FName NavId) const
+{
+	if (NavId == TEXT("loadout"))  { return &LoadoutScreenClass;  }
+	if (NavId == TEXT("store"))    { return &StoreScreenClass;    }
+	if (NavId == TEXT("venues"))   { return &VenuesScreenClass;   }
+	if (NavId == TEXT("career"))   { return &CareerScreenClass;   }
+	if (NavId == TEXT("settings")) { return &SettingsScreenClass; }
+	return nullptr;
+}
+
+void UAFLW_HomeScreen::OpenNavTarget(FName NavId)
+{
+	const TSoftClassPtr<UCommonActivatableWidget>* Target = FindNavTarget(NavId);
+	if (!Target)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_HOME: unknown nav id '%s'."), *NavId.ToString());
+		return;
+	}
+	if (Target->IsNull())
+	{
+		// Refused HERE as well as visually disabled, for the same reason ChooseDoor re-checks availability:
+		// SetIsInteractionEnabled is presentation, and a gamepad or accessibility path can still deliver
+		// the click. A nav item with no destination must not silently appear to work.
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_HOME: nav '%s' has no destination yet -- refused."), *NavId.ToString());
+		return;
+	}
+	PushScreen(*Target, *NavId.ToString());
+}
+
+void UAFLW_HomeScreen::ApplyNavAvailability()
+{
+	struct FNavBinding { UCommonButtonBase* Button; const TCHAR* Id; };
+	const FNavBinding Bindings[] = {
+		{ Nav_Loadout,  TEXT("loadout")  },
+		{ Nav_Store,    TEXT("store")    },
+		{ Nav_Venues,   TEXT("venues")   },
+		{ Nav_Career,   TEXT("career")   },
+		{ Nav_Settings, TEXT("settings") },
+	};
+
+	for (const FNavBinding& B : Bindings)
+	{
+		if (!B.Button)
+		{
+			continue;   // BindWidgetOptional: a WBP need not author every nav item
+		}
+		const FName Id(B.Id);
+
+		// AddUnique-equivalent: NativeOnInitialized runs once, but ApplyNavAvailability is also called on
+		// every activation, and a duplicate binding would push the screen N times per click.
+		B.Button->OnClicked().RemoveAll(this);
+		B.Button->OnClicked().AddWeakLambda(this, [this, Id] { OpenNavTarget(Id); });
+
+		// ⚠ DISABLED, NOT HIDDEN. Same reasoning as the staked door: a player should be able to see that
+		// Venues and Career are coming and that they are not available yet. Hiding them would make the
+		// footer silently change shape as surfaces ship.
+		const TSoftClassPtr<UCommonActivatableWidget>* Target = FindNavTarget(Id);
+		B.Button->SetIsInteractionEnabled(Target && !Target->IsNull());
+	}
 }
 
 void UAFLW_HomeScreen::ApplyStakedAvailability()

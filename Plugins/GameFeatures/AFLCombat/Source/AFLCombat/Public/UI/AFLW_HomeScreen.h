@@ -113,6 +113,24 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home")
 	TSoftClassPtr<UCommonActivatableWidget> StakedLobbyClass;
 
+	/**
+	 * The sec3 footer nav destinations. Soft, for the same reason the lobbies are.
+	 *
+	 * ⚠ AN EMPTY CLASS DISABLES ITS NAV ITEM RATHER THAN LEAVING A DEAD CONTROL. `VenuesScreenClass`
+	 * (S8 VenueShowcase) and `CareerScreenClass` have no asset yet and ship empty on purpose: a nav item
+	 * that accepts a click and goes nowhere is the silent no-op the states table forbids, and it is the same
+	 * failure the staked door is disabled to avoid. Drop a class in and the item lights up; no code change.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home|Nav") TSoftClassPtr<UCommonActivatableWidget> LoadoutScreenClass;
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home|Nav") TSoftClassPtr<UCommonActivatableWidget> StoreScreenClass;
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home|Nav") TSoftClassPtr<UCommonActivatableWidget> VenuesScreenClass;
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home|Nav") TSoftClassPtr<UCommonActivatableWidget> CareerScreenClass;
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home|Nav") TSoftClassPtr<UCommonActivatableWidget> SettingsScreenClass;
+
+	/** Open a footer destination by its nav id (`loadout`/`store`/`venues`/`career`/`settings`). */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Home")
+	void OpenNavTarget(FName NavId);
+
 	/** Push the wallet readout. Both doors show it: it is chrome, and a player's balance is not a stake. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Home")
 	void SetWalletReadout(int64 Watts, int64 Volts);
@@ -173,6 +191,14 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Home")
 	TObjectPtr<UCommonTextBlock> VoltsChip;
 
+	// sec3's footer nav. Underscored to match the widget names the WBP already uses -- BindWidget matches on
+	// the name exactly, and renaming 31 widgets to suit a C++ style preference is the wrong way round.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Home") TObjectPtr<UCommonButtonBase> Nav_Loadout;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Home") TObjectPtr<UCommonButtonBase> Nav_Store;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Home") TObjectPtr<UCommonButtonBase> Nav_Venues;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Home") TObjectPtr<UCommonButtonBase> Nav_Career;
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Home") TObjectPtr<UCommonButtonBase> Nav_Settings;
+
 private:
 	// Bound to UCommonButtonBase::OnClicked(), a plain no-param FCommonButtonEvent -- so these are ordinary
 	// members, not UFUNCTIONs. Marking them UFUNCTION would imply a dynamic binding that does not exist here.
@@ -181,6 +207,15 @@ private:
 
 	/** Push the lobby this door opens onto UI.Layer.Menu. No-op when the WBP owns navigation. */
 	void PushLobbyForDoor(EAFLHomeDoor Door);
+
+	/** The one push path -- both doors and every nav item go through it. False when nothing was pushed. */
+	bool PushScreen(const TSoftClassPtr<UCommonActivatableWidget>& Soft, const TCHAR* Context);
+
+	/** Resolve a nav id to its destination. Null when that surface does not exist yet. */
+	const TSoftClassPtr<UCommonActivatableWidget>* FindNavTarget(FName NavId) const;
+
+	/** Bind the five nav buttons and DISABLE any whose destination is unbuilt. */
+	void ApplyNavAvailability();
 
 	/** Apply `bStakedPlayAvailable` to the staked door and its reason line. */
 	void ApplyStakedAvailability();
