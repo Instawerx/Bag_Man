@@ -50,6 +50,19 @@ RULES
       so the exit code is not evidence. This rule is the authority; R1 checks
       intent, R2 checks reality.
 
+      ⚠ R2 APPLIES THE SAME DEV-ONLY SPLIT AS R1, and did not until 2026-08-10.
+      A cheat or test-harness fixture missing from a CLIENT cook is the correct
+      outcome, not a defect: those call sites run in Development builds where
+      the asset is on disk. Failing on them made the rule permanently red on a
+      real cook tree (AFLBoundaryHeightTestHarness's Scaffold_HeightRig), and a
+      lint that is always red is a lint nobody reads -- the same reasoning that
+      put the ConstructorHelpers exemption in "deliberately not flagged" below.
+      --include-dev promotes dev findings to failures for BOTH rules, together.
+
+  R3  NEVER-COOK LEAK (opt-in, --cooked-dir --strict-never-cook)
+      The mirror of R2: a path declared AFL_NEVER_COOK must be ABSENT. See the
+      marker's own comment for why absence is sometimes the feature.
+
 WHAT IS DELIBERATELY NOT FLAGGED
 --------------------------------
 ConstructorHelpers::FObjectFinder / FClassFinder resolve at CDO construction and
@@ -80,9 +93,11 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import io
 import re
 import sys
 import tempfile
+from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -203,7 +218,8 @@ class Ref:
 class Findings:
     uncovered: list[Ref] = field(default_factory=list)      # R1
     missing_in_cook: list[Ref] = field(default_factory=list)  # R2
-    dev_uncovered: list[Ref] = field(default_factory=list)
+    dev_uncovered: list[Ref] = field(default_factory=list)      # R1, dev call site
+    dev_missing_in_cook: list[Ref] = field(default_factory=list)  # R2, dev call site
     dynamic: list[Ref] = field(default_factory=list)
     never_cook: list[Ref] = field(default_factory=list)     # declared absent by design
     never_cook_leaked: list[Ref] = field(default_factory=list)  # R3: absent-by-design, found PRESENT
@@ -342,11 +358,19 @@ def cooked_candidates(cooked_dir: Path, package: str) -> list[Path]:
     return list(cooked_dir.glob(f"**/{mount}/Content/{rest}.uasset"))
 
 
-def verify_cooked(refs: list[Ref], cooked_dir: Path) -> tuple[list[Ref], list[Ref]]:
+def verify_cooked(refs: list[Ref], cooked_dir: Path) -> tuple[list[Ref], list[Ref], list[Ref]]:
     """
-    Returns (missing, leaked).
+    Returns (missing, dev_missing, leaked).
 
-    `missing` is R2: a path the code needs that the cook does not contain.
+    `missing` / `dev_missing` are R2, split by call site exactly as R1 splits.
+    The dev bucket is advisory unless --include-dev: a fixture that only a cheat
+    or a headless harness loads is SUPPOSED to be absent from a client cook, and
+    force-cooking it would bloat a shipping artifact for no player benefit --
+    which is the same argument the DirectoriesToAlwaysCook block makes against
+    registering test fixtures. Failing on those kept this rule permanently red,
+    and the cost of a permanently red rule is that the day it goes red for a real
+    reason, nobody notices.
+
     `leaked` is R3, the mirror image: a path DECLARED absent-by-design that the
     cook does contain. Same check, opposite expectation -- and the reason the
     AFL_NEVER_COOK marker is a declaration rather than a mute. An exclusion that
@@ -355,6 +379,7 @@ def verify_cooked(refs: list[Ref], cooked_dir: Path) -> tuple[list[Ref], list[Re
     asset this tool was written to catch, and deserves the same alarm.
     """
     missing: list[Ref] = []
+    dev_missing: list[Ref] = []
     leaked: list[Ref] = []
     for ref in refs:
         if ref.is_dynamic:
@@ -364,8 +389,8 @@ def verify_cooked(refs: list[Ref], cooked_dir: Path) -> tuple[list[Ref], list[Re
             if present:
                 leaked.append(ref)
         elif not present:
-            missing.append(ref)
-    return missing, leaked
+            (dev_missing if ref.is_dev else missing).append(ref)
+    return missing, dev_missing, leaked
 
 
 # -----------------------------------------------------------------------------
@@ -401,7 +426,9 @@ def run_all(root: Path, cooked_dir: Path | None = None) -> Findings:
         (out.dev_uncovered if ref.is_dev else out.uncovered).append(ref)
 
     if cooked_dir is not None:
-        out.missing_in_cook, out.never_cook_leaked = verify_cooked(out.all_refs, cooked_dir)
+        (out.missing_in_cook,
+         out.dev_missing_in_cook,
+         out.never_cook_leaked) = verify_cooked(out.all_refs, cooked_dir)
 
     return out
 
@@ -459,7 +486,12 @@ def run_self_test() -> int:
         )
         (src / "ThingCheats.cpp").write_text(
             # dev-only site, uncovered -> reported separately, not a hard failure
-            'G = FSoftObjectPath(TEXT("/Game/DevOnly/GE_Cheat.GE_Cheat_C"));\n',
+            'G = FSoftObjectPath(TEXT("/Game/DevOnly/GE_Cheat.GE_Cheat_C"));\n'
+            # dev-only site, COVERED by always-cook but still absent from the cook
+            # tree -> R2 dev bucket. Covered-but-absent is what isolates the R2
+            # split from the R1 one; a path that fails both would pass this test
+            # even if R2 ignored is_dev entirely.
+            'J = FSoftObjectPath(TEXT("/Game/Covered/DT_Fixture.DT_Fixture"));\n',
             encoding="utf-8",
         )
         # Build artifacts must never be scanned.
@@ -525,11 +557,26 @@ def run_self_test() -> int:
         (cooked / "Proj" / "Content" / "Covered" / "BP_Ok.uasset").write_text("x", encoding="utf-8")
         f2 = run_all(root, cooked_dir=cooked)
         missing = {r.package for r in f2.missing_in_cook}
+        dev_missing = {r.package for r in f2.dev_missing_in_cook}
         if "/Game/Covered/BP_Ok" in missing:
             print("FAIL: R2 flagged an asset that IS in the cook")
             return 1
         if "/AFLBagMan/UI/WBP_Ok" not in missing:
             print("FAIL: R2 missed an asset absent from the cook")
+            return 1
+
+        # R2 splits on call site exactly as R1 does. DT_Fixture is covered by
+        # always-cook (so R1 has nothing to say) and absent from the cook (so R2
+        # does) -- it can only land in the dev bucket via is_dev.
+        if "/Game/Covered/DT_Fixture" in missing:
+            print("FAIL: R2 hard-failed on a dev-only call site")
+            return 1
+        if "/Game/Covered/DT_Fixture" not in dev_missing:
+            print("FAIL: R2 dropped a dev-only absent asset instead of reporting it")
+            return 1
+        # The shipping-site absence must NOT be demoted along with it.
+        if "/AFLBagMan/UI/WBP_Ok" in dev_missing:
+            print("FAIL: R2 demoted a shipping-site absence to the dev bucket")
             return 1
 
         # AFL_NEVER_COOK, both directions. The exemption is only worth having if
@@ -551,8 +598,27 @@ def run_self_test() -> int:
             print("FAIL: R3 false positive on a path genuinely absent from the cook")
             return 1
 
-    print("AFL-COOK self-test: PASS - R1 coverage, R2 cook output, R3 never-cook leak, "
-          "ConstructorHelpers exemption, dev split and dynamic split all correct.")
+        # --include-dev must promote BOTH rules, not just R1. Asserted through
+        # _report's exit code, since that is where the promotion actually lives.
+        quiet = io.StringIO()
+        with redirect_stdout(quiet):
+            lenient = _report(f2, include_dev=False, cooked_dir=cooked)
+            strict = _report(f2, include_dev=True, cooked_dir=cooked)
+        text = quiet.getvalue()
+        if strict != 1:
+            print("FAIL: --include-dev did not fail on dev findings")
+            return 1
+        if lenient != 1:
+            # This fixture has genuine shipping violations, so lenient must still
+            # fail -- otherwise the assertion above proves nothing about dev.
+            print("FAIL: fixture no longer has a shipping-site violation to fail on")
+            return 1
+        if "/Game/Covered/DT_Fixture" not in text:
+            print("FAIL: the dev-only absence was never reported to the user at all")
+            return 1
+
+    print("AFL-COOK self-test: PASS - R1 coverage, R2 cook output + dev split, R3 never-cook "
+          "leak, ConstructorHelpers exemption, dev split and dynamic split all correct.")
     return 0
 
 
@@ -575,20 +641,33 @@ def _report(f: Findings, include_dev: bool, cooked_dir: Path | None,
             print(f"  {ref}")
             print(f"      remedy: add to Config/DefaultGame.ini -> {remedy(ref.package)}")
 
-    if f.missing_in_cook:
+    hard_missing = list(f.missing_in_cook) + (list(f.dev_missing_in_cook) if include_dev else [])
+    if hard_missing:
         failed = True
-        print(f"\nAFL-COOK R2: {len(f.missing_in_cook)} asset(s) ABSENT from the cooked "
+        print(f"\nAFL-COOK R2: {len(hard_missing)} asset(s) ABSENT from the cooked "
               f"output at {cooked_dir}.")
         print("  These are confirmed missing on disk, not merely unconfigured.\n")
-        for ref in f.missing_in_cook:
+        for ref in hard_missing:
             print(f"  {ref}")
             print(f"      remedy: add to Config/DefaultGame.ini -> {remedy(ref.package)}")
 
-    if f.dev_uncovered and not include_dev:
-        print(f"\nAFL-COOK: {len(f.dev_uncovered)} uncovered path(s) in dev-only code "
-              f"(cheats/tests). Not failing the build; re-run with --include-dev to enforce.")
+    if not include_dev and (f.dev_uncovered or f.dev_missing_in_cook):
+        # ONE LINE PER CALL SITE, tagged with what is true of it. A dev path that
+        # is both uncovered and absent used to be printed twice -- once by each
+        # rule -- which read as two problems and made the advisory section look
+        # bigger than it was.
+        by_site: dict[tuple[str, int, str], set[str]] = {}
         for ref in f.dev_uncovered:
-            print(f"  {ref}")
+            by_site.setdefault((ref.file, ref.line, ref.package), set()).add("uncovered")
+        for ref in f.dev_missing_in_cook:
+            by_site.setdefault((ref.file, ref.line, ref.package), set()).add("absent from cook")
+
+        print(f"\nAFL-COOK: {len(by_site)} path(s) in dev-only code (cheats/tests/harnesses). "
+              f"Not failing the build; re-run with --include-dev to enforce.")
+        print("  A fixture only a cheat or a headless harness loads is SUPPOSED to be missing")
+        print("  from a client cook -- those sites run where the asset is on disk.")
+        for (file, line, package), tags in sorted(by_site.items()):
+            print(f"  {file}:{line}: {package}  [{', '.join(sorted(tags))}]")
 
     if f.never_cook_leaked:
         # R3 fires only under --strict-never-cook, because a leak is a policy
@@ -639,7 +718,8 @@ def main(argv: list[str] | None = None) -> int:
                         "A cook can succeed while omitting an asset, so this checks the "
                         "artifact rather than the exit code.")
     p.add_argument("--include-dev", action="store_true",
-                   help="Also fail on uncovered paths in cheats/test harnesses.")
+                   help="Also fail on findings in cheats/test harnesses -- both R1 (uncovered) "
+                        "and R2 (absent from the cook).")
     p.add_argument("--strict-never-cook", action="store_true",
                    help="Fail (R3) if a path declared AFL_NEVER_COOK is actually PRESENT in "
                         "the cook tree -- i.e. an exclusion silently stopped working. "
