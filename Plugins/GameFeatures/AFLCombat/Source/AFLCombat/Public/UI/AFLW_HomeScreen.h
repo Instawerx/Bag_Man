@@ -42,12 +42,19 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAFLHomeDoorChosen, EAFLHomeDoor, Do
  * wagering surface. That rule lives here, in code, where `EnsureNoStakeOnLeagueRoute` holds it and a test
  * can prove it, rather than in a widget graph where a well-meaning rewire could quietly break it.
  *
- * ══ WHAT THIS CLASS DELIBERATELY DOES *NOT* DO ════════════════════════════════════════════════════════
+ * ══ NAVIGATION -- WIRED 2026-08-10, AND WHY IT MOVED INTO C++ ═════════════════════════════════════════
  *
- * It does not navigate. `IRONICS_HOME_SCREEN_SPEC.md` sec9.4 ends the spec AT the split -- the two lobbies
- * behind the doors are separate surfaces that do not exist yet. So this class RESOLVES the choice and
- * BROADCASTS it (`OnDoorChosen` + `BP_OnDoorChosen`); the WBP performs the push. Inventing destinations
- * here would bake a guess into C++ that the spec has not made.
+ * This class used to resolve the choice and broadcast it WITHOUT navigating, on the stated grounds that
+ * `IRONICS_HOME_SCREEN_SPEC.md` sec9.4 ends the spec at the split and *"the two lobbies behind the doors are
+ * separate surfaces that do not exist yet"* -- so a destination in C++ would have been a guess.
+ *
+ * **They exist now** (`WBP_IRONICS_Lobby_League` / `WBP_IRONICS_Lobby_Staked`, both on `UAFLW_Lobby_Root`,
+ * each declaring its own door). The reason for not navigating has therefore expired, and the push lives
+ * here where a test can reach it rather than in a widget graph where it cannot.
+ *
+ * ⚠ THE PUSH IS GATED ON THE CLASS BEING SET, so a WBP that wants to own navigation still can: leave
+ * `LeagueLobbyClass`/`StakedLobbyClass` empty and handle `BP_OnDoorChosen` instead. Both fire either way --
+ * C++ never suppresses the hook, because analytics and the sec6 select transition hang off it.
  *
  * ══ COLOUR (R100) ═════════════════════════════════════════════════════════════════════════════════════
  *
@@ -73,9 +80,15 @@ public:
 	 * Is staked play open to this player right now? FALSE puts the staked door in the spec's Disabled
 	 * treatment (sec5) with `StakedUnavailableReason` shown beneath its title.
 	 *
-	 * Defaults to FALSE and that is the honest shipping state today: the staked lobby is unbuilt and every
-	 * staked queue is unpublished in `config/queue-registry.json`. A door that accepts a click and goes
-	 * nowhere is worse than one that says why it cannot.
+	 * Still FALSE, but ⚠ **NOT FOR THE REASONS THIS COMMENT USED TO GIVE.** It said the staked lobby was
+	 * unbuilt and every staked queue unpublished. Both are now untrue: `WBP_IRONICS_Lobby_Staked` exists,
+	 * and `/queues` publishes 40 cells including the WattsPlay and VoltsPlay ladders.
+	 *
+	 * The door stays shut for a narrower and more specific reason: **entering a staked queue requires S4
+	 * TicketReview, which R22 makes unskippable, and S4 is unbuilt.** `UAFLW_Lobby_Root::CommitQueue`
+	 * therefore raises `OnTicketReviewRequested` and queues NOTHING -- so an enabled staked door would lead
+	 * to a lobby whose CTA looks live and silently does nothing, which the states table explicitly forbids
+	 * ("never a silent no-op"). A door that says why it cannot open is better than one that opens onto that.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Home")
 	bool bStakedPlayAvailable = false;
@@ -84,6 +97,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Home")
 	FText StakedUnavailableReason;
 
+	/**
+	 * The two lobbies, pushed onto `UI.Layer.Menu` when their door is chosen.
+	 *
+	 * SOFT references on purpose: the home screen is the first thing built at boot and must not drag both
+	 * lobby widget trees -- and everything they reference -- into memory before the player has picked one.
+	 *
+	 * ⚠ EACH LOBBY DECLARES ITS OWN DOOR (`UAFLW_Lobby_Root::Door`, EditDefaultsOnly), so pushing the right
+	 * CLASS is the whole of the routing. Nothing here passes a door through, which is what keeps the
+	 * staked lobby from ever being opened in league configuration by a caller that forgot an argument.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home")
+	TSoftClassPtr<UCommonActivatableWidget> LeagueLobbyClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home")
+	TSoftClassPtr<UCommonActivatableWidget> StakedLobbyClass;
+
 	/** Push the wallet readout. Both doors show it: it is chrome, and a player's balance is not a stake. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Home")
 	void SetWalletReadout(int64 Watts, int64 Volts);
@@ -91,6 +120,16 @@ public:
 	/** Server/consumer-facing: can this door be entered? Staked is gated; league is always open. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Home")
 	bool IsDoorAvailable(EAFLHomeDoor Door) const;
+
+	/**
+	 * Choose a door: gate it, broadcast it, then navigate.
+	 *
+	 * PUBLIC because it is the screen's primary verb, not a button detail -- the two doors call it, and so
+	 * does `afl.Home.Door`, which is the only way to exercise the push without an input device. It re-checks
+	 * availability itself, so no caller can route around the gate.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Home")
+	void ChooseDoor(EAFLHomeDoor Door);
 
 	/**
 	 * THE INVARIANT, as a callable predicate so a test can hold it.
@@ -140,8 +179,8 @@ private:
 	void HandleLeagueClicked();
 	void HandleStakedClicked();
 
-	/** Shared resolution path for both doors -- gate, then broadcast. */
-	void ChooseDoor(EAFLHomeDoor Door);
+	/** Push the lobby this door opens onto UI.Layer.Menu. No-op when the WBP owns navigation. */
+	void PushLobbyForDoor(EAFLHomeDoor Door);
 
 	/** Apply `bStakedPlayAvailable` to the staked door and its reason line. */
 	void ApplyStakedAvailability();

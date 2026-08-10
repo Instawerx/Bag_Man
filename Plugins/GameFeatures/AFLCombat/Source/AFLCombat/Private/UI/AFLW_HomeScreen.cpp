@@ -5,17 +5,87 @@
 #include "AFLCombat.h"              // LogAFLCombat
 #include "CommonButtonBase.h"
 #include "CommonTextBlock.h"
+#include "CommonUIExtensions.h"     // PushContentToLayer_ForPlayer -- the same call the store push uses
+#include "Containers/Ticker.h"      // the door probe waits for the screen to exist
+#include "Engine/LocalPlayer.h"
+#include "GameFramework/PlayerController.h"
 #include "Internationalization/Text.h"
+#include "NativeGameplayTags.h"
+#include "UObject/UObjectIterator.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_HomeScreen)
 
 #define LOCTEXT_NAMESPACE "AFLHomeScreen"
 
+/** The CommonUI menu stack. File-local, matching how the store cheat declares the same tag. */
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_HomeDoor, "UI.Layer.Menu");
+
+namespace
+{
+	/**
+	 * `afl.Home.Door <league|staked>` -- exercise the door routing without an input device.
+	 *
+	 * ⚠ THIS IS THE ONLY WAY THE PUSH GETS VERIFIED. A unit test cannot reach it (there is no widget tree
+	 * and no layer stack), and the headless `-game` session that boots the front end has no mouse. Without
+	 * this the navigation would ship on the strength of the code reading correctly, which is exactly the
+	 * standard that let a screen sit for weeks with all 31 widgets unparented.
+	 *
+	 * It calls ChooseDoor, so it goes through the SAME availability gate a click does -- asking for the
+	 * staked door while it is shut prints the refusal rather than bypassing it.
+	 */
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLHomeDoorCmd(
+		TEXT("afl.Home.Door"),
+		TEXT("Choose a home-screen door as if clicked: afl.Home.Door [league|staked]. Goes through the real gate."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				const bool bStaked = Args.Num() > 0 && Args[0].StartsWith(TEXT("s"), ESearchCase::IgnoreCase);
+
+				// ⚠ IT WAITS FOR THE SCREEN RATHER THAN FAILING FAST, and that is the point of the probe:
+				// -ExecCmds fires at engine init, LONG before the front end builds its widgets, so a
+				// fail-fast version can only ever be run by hand -- which is the thing there is no way to
+				// do headlessly. Polls to a hard deadline, then gives up loudly.
+				const bool bWantStaked = bStaked;
+				TWeakObjectPtr<UWorld> WeakWorld(World);
+				double Deadline = 25.0;
+
+				FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+					[bWantStaked, WeakWorld, Deadline](float Delta) mutable -> bool
+					{
+						Deadline -= Delta;
+						UWorld* W = WeakWorld.Get();
+						if (!W || Deadline <= 0.0)
+						{
+							UE_LOG(LogAFLCombat, Error,
+								TEXT("AFL_HOME: afl.Home.Door gave up -- no home screen appeared."));
+							return false;   // stop ticking
+						}
+
+						// The live instance, not the CDO: pushing a layer needs a real widget with a local
+						// player behind it.
+						for (TObjectIterator<UAFLW_HomeScreen> It; It; ++It)
+						{
+							UAFLW_HomeScreen* Home = *It;
+							if (Home && Home->GetWorld() == W && !Home->HasAnyFlags(RF_ClassDefaultObject))
+							{
+								Home->ChooseDoor(bWantStaked ? EAFLHomeDoor::Staked : EAFLHomeDoor::League);
+								return false;
+							}
+						}
+						return true;   // keep waiting
+					}), 0.5f);
+
+				Ar.Logf(TEXT("afl.Home.Door -- will choose %s as soon as the home screen exists."),
+					bStaked ? TEXT("STAKED") : TEXT("LEAGUE"));
+			}));
+}
+
 UAFLW_HomeScreen::UAFLW_HomeScreen(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	// Honest default: the staked lobby is unbuilt and every staked queue is unpublished. The reason is
-	// authored here rather than left empty so a WBP that forgets to set it still says something true.
+	// Authored here rather than left empty so a WBP that forgets to set it still says something true. The
+	// shipping WBP overrides this with the specific reason -- S4 TicketReview is unbuilt (see the header);
+	// this generic fallback only shows on a WBP that set nothing at all.
 	StakedUnavailableReason = LOCTEXT("StakedNotOpen", "Not open yet");
 }
 
@@ -125,7 +195,54 @@ void UAFLW_HomeScreen::ChooseDoor(EAFLHomeDoor Door)
 		Door == EAFLHomeDoor::League ? TEXT("LEAGUE PLAY") : TEXT("STAKED PLAY"));
 
 	OnDoorChosen.Broadcast(Door);
+
+	// ⚠ THE HOOK FIRES REGARDLESS OF WHETHER C++ NAVIGATES. A WBP may be doing the sec6 select transition
+	// (the chosen door blooms, the sibling recedes and blurs) or reporting analytics off this; suppressing
+	// it when a lobby class happens to be set would make those behaviours silently configuration-dependent.
 	BP_OnDoorChosen(Door);
+
+	PushLobbyForDoor(Door);
+}
+
+void UAFLW_HomeScreen::PushLobbyForDoor(EAFLHomeDoor Door)
+{
+	const TSoftClassPtr<UCommonActivatableWidget>& Soft =
+		(Door == EAFLHomeDoor::League) ? LeagueLobbyClass : StakedLobbyClass;
+
+	if (Soft.IsNull())
+	{
+		// Not an error: a WBP owning navigation leaves these empty on purpose (see the header). Verbose so
+		// the deliberate case is quiet and the accidental one is still findable.
+		UE_LOG(LogAFLCombat, Verbose,
+			TEXT("AFL_HOME: no lobby class set for this door -- navigation left to the WBP."));
+		return;
+	}
+
+	// Synchronous load AT THE MOMENT OF THE CLICK. The soft reference exists so boot does not pay for both
+	// lobbies; by here the player has committed to one and a hitch on a menu transition is the right place
+	// to spend that cost. Async would mean a click that appears to do nothing for a frame or two.
+	UClass* LobbyClass = Soft.LoadSynchronous();
+	if (!LobbyClass)
+	{
+		UE_LOG(LogAFLCombat, Error,
+			TEXT("AFL_HOME: lobby class '%s' failed to load -- the door is a dead end."), *Soft.ToString());
+		return;
+	}
+
+	APlayerController* PC = GetOwningPlayer();
+	ULocalPlayer* LocalPlayer = PC ? PC->GetLocalPlayer() : nullptr;
+	if (!LocalPlayer)
+	{
+		UE_LOG(LogAFLCombat, Error, TEXT("AFL_HOME: no local player -- cannot push the lobby."));
+		return;
+	}
+
+	// The same call Lyra's own menus use, and the same one afl.Store.Open uses for the cosmetic shop. The
+	// pushed widget's InputConfig=Menu captures input, and its own Back/Esc pops it off THIS stack --
+	// which is what makes the home screen still be there underneath when the player returns.
+	UCommonUIExtensions::PushContentToLayer_ForPlayer(LocalPlayer, TAG_UI_Layer_Menu_HomeDoor, LobbyClass);
+
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_HOME: pushed %s onto UI.Layer.Menu."), *LobbyClass->GetName());
 }
 
 void UAFLW_HomeScreen::ApplyStakedAvailability()
