@@ -8,7 +8,10 @@
 #include "CommonTextBlock.h"
 #include "Components/EditableTextBox.h"
 #include "Components/PanelWidget.h"
+#include "Cosmetics/AFLWalletComponent.h"
 #include "Engine/GameInstance.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 #include "UI/Lobby/AFLW_Lobby_QueueRow.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_Lobby_Root)
@@ -121,6 +124,50 @@ void UAFLW_Lobby_Root::BindQueueDirectory()
 	Directory->Refresh();
 }
 
+void UAFLW_Lobby_Root::BindWallet()
+{
+	// The store's idiom (UAFLW_FrontEndMarket): the wallet is a UPlayerStateComponent on the local PS.
+	APlayerController* PC = GetOwningPlayer();
+	APlayerState* PS = PC ? PC->PlayerState : nullptr;
+	UAFLWalletComponent* Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+
+	if (!Wallet)
+	{
+		// UNKNOWN, not zero. This is the honest state and it is also the safe one: SetWalletReadout with
+		// INDEX_NONE skeletons the chips and RefreshCommitState disables a staked entry with "Balance
+		// unavailable" rather than a shortfall the player cannot act on.
+		SetWalletReadout(INDEX_NONE, INDEX_NONE);
+		UE_LOG(LogAFLCombat, Verbose,
+			TEXT("AFL_LOBBY: no wallet on the local PlayerState yet -- balance reads unavailable."));
+		return;
+	}
+
+	// AddUnique: this runs on every activation, and a duplicate binding would refresh the chips N times per
+	// change for the life of the process.
+	Wallet->OnWalletChanged.AddUniqueDynamic(this, &UAFLW_Lobby_Root::HandleWalletChanged);
+
+	// ⚠ SEED THROUGH IsBalanceKnown, NOT THROUGH THE NUMBERS. GetVolts() returns 0 both for a player who
+	// has nothing and for a load that has not landed; only the flag separates them, and staked §6 turns on
+	// exactly that distinction -- skeleton and disable on unknown, shortfall and route-to-store on a real
+	// zero. Reading the numbers alone would show every player a confident 0 for the first few frames.
+	if (Wallet->IsBalanceKnown())
+	{
+		SetWalletReadout(Wallet->GetWatts(), Wallet->GetVolts());
+	}
+	else
+	{
+		SetWalletReadout(INDEX_NONE, INDEX_NONE);
+	}
+}
+
+void UAFLW_Lobby_Root::HandleWalletChanged(int32 InVolts, int32 InWatts)
+{
+	// ⚠ THE DELEGATE IS (Volts, Watts); SetWalletReadout IS (Watts, Volts). Swapped on purpose here rather
+	// than by renaming either side -- both orders are load-bearing elsewhere, and on a wagering surface a
+	// silent transposition shows a player the wrong currency's balance while looking entirely plausible.
+	SetWalletReadout(InWatts, InVolts);
+}
+
 void UAFLW_Lobby_Root::HandleDirectoryUpdated(EAFLQueueDirectoryState DirectoryState)
 {
 	UAFLQueueDirectorySubsystem* Directory = UAFLQueueDirectorySubsystem::Get(this);
@@ -154,6 +201,19 @@ void UAFLW_Lobby_Root::NativeDestruct()
 		DirectoryHandle.Reset();
 	}
 
+	// The wallet lives on the PlayerState, which outlives this screen. RemoveDynamic is a no-op when the
+	// binding was never made, so no bound-flag to keep in sync.
+	if (const APlayerController* PC = GetOwningPlayer())
+	{
+		if (const APlayerState* PS = PC->PlayerState)
+		{
+			if (UAFLWalletComponent* Wallet = PS->FindComponentByClass<UAFLWalletComponent>())
+			{
+				Wallet->OnWalletChanged.RemoveDynamic(this, &UAFLW_Lobby_Root::HandleWalletChanged);
+			}
+		}
+	}
+
 	Super::NativeDestruct();
 }
 
@@ -165,7 +225,10 @@ void UAFLW_Lobby_Root::NativeOnActivated()
 	// and this screen is RETURNED to (from S4, from a cancelled queue, from a match) far more often than it
 	// is built. A door that scoped itself once would show the shape it had on first visit.
 	ApplyDoorScoping();
-	RefreshWalletChips();
+
+	// Re-resolve on every activation, not once: on the front end the PlayerState can arrive after this
+	// screen is constructed, and a player returning from a match comes back to a different one.
+	BindWallet();
 
 	// Ask the directory for a fresh read on every activation. Population is live product state and this
 	// screen is RETURNED to far more often than it is built -- a lobby showing the counts it had when the

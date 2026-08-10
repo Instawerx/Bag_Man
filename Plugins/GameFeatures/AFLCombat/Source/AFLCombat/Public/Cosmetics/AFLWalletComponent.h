@@ -99,6 +99,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Wallet")
 	int32 GetWatts() const { return Watts; }
 
+	/**
+	 * Has this player's balance been RESOLVED, or do we simply not know yet?
+	 *
+	 * ⚠ THE READS ABOVE CANNOT ANSWER THIS. `GetVolts()` returns 0 both for a player who genuinely has
+	 * nothing AND for a session where the load has not landed -- and on a wagering surface those are
+	 * opposite claims. `STAKED_DOOR_SPEC.md` §6: an unknown balance renders as a skeleton with entry
+	 * disabled, because *"a wrong balance is worse than no balance"*; a real zero renders as a shortfall
+	 * with a route to the store. Without this flag the lobby cannot tell them apart.
+	 *
+	 * TRUE once the balance has been decided, INCLUDING a persistence miss that seeds a new player at 0 --
+	 * that is a known zero, not an absent answer. False only before anything has resolved.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Wallet")
+	bool IsBalanceKnown() const { return bBalanceKnown; }
+
 	/** True if the player owns CosmeticId (in the replicated owned set). Identity/GrantedFree handled by
 	 *  the catalog Acquisition check inside the gate, not here. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Wallet")
@@ -191,6 +206,10 @@ protected:
 
 	UPROPERTY(ReplicatedUsing = OnRep_Balance)
 	int32 Watts = 0;
+
+	/** Backs IsBalanceKnown. Replicated with the balances so a client can tell 0 from "not yet". */
+	UPROPERTY(Replicated)
+	bool bBalanceKnown = false;
 
 	/** (b) The replicated owned-cosmetic set -- the entitlement source of truth. FName ids match the
 	 *  catalog CosmeticIds (AFL.Edge.*, AFL.Facemask.*, AFL.Ability.*). Replicated so the store UI can grey

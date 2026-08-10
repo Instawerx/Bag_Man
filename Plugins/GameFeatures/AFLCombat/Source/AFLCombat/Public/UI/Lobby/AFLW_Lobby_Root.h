@@ -145,7 +145,10 @@ public:
 	void SetQueueSet(const TArray<FAFLLobbyQueue>& InQueues);
 
 	/**
-	 * Wallet readout. Pass INDEX_NONE for a balance not yet known.
+	 * Wallet readout, pushed manually. `BindWallet` is the live path; this stays public so a test or a
+	 * preview can drive the chips with no PlayerState.
+	 *
+	 * Pass INDEX_NONE for a balance not yet known.
 	 *
 	 * ⚠ UNKNOWN IS NOT ZERO. `STAKED_DOOR_SPEC.md` §6: an unknown balance renders as a skeleton and the CTA
 	 * stays disabled, because *"a wrong balance is worse than no balance on a wagering surface"*.
@@ -331,6 +334,20 @@ private:
 
 	/** Subscribe once, pull what is already cached, and ask for a refresh. Safe with no subsystem present. */
 	void BindQueueDirectory();
+
+	/**
+	 * Resolve the local player's wallet, subscribe to its change signal, and seed the chips.
+	 *
+	 * ⚠ NO WALLET RESOLVED IS `UNKNOWN`, NOT ZERO. On the front end the PlayerState can arrive after this
+	 * screen constructs, and a missing wallet is the strongest possible "we do not know this player's
+	 * balance" -- rendering it as 0 would disable the staked CTA with the wrong reason, or worse, show a
+	 * player a balance they do not have.
+	 */
+	void BindWallet();
+
+	/** UAFLWalletComponent::OnWalletChanged is a DYNAMIC delegate, so this must be a UFUNCTION. */
+	UFUNCTION()
+	void HandleWalletChanged(int32 InVolts, int32 InWatts);
 
 	void ApplyDoorScoping();
 	void RebuildAxisOptions();

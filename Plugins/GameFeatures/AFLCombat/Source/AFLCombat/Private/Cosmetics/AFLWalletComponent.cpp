@@ -109,6 +109,9 @@ void UAFLWalletComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UAFLWalletComponent, Volts);
 	DOREPLIFETIME(UAFLWalletComponent, Watts);
+	// Replicated ALONGSIDE the balances, not derived from them: a client cannot tell 0 from "not yet"
+	// by looking at the number, and on a wagering surface those are opposite claims.
+	DOREPLIFETIME(UAFLWalletComponent, bBalanceKnown);
 	DOREPLIFETIME(UAFLWalletComponent, OwnedCosmeticIds);
 }
 
@@ -750,6 +753,10 @@ void UAFLWalletComponent::CommitMutation(int32 DeltaVolts, int32 DeltaWatts, FNa
 	Volts = FMath::Max(0, Volts + DeltaVolts); // never negative (peg floor).
 	Watts = FMath::Max(0, Watts + DeltaWatts);
 
+	// Any authoritative commit -- earn, purchase, dev seed -- decides the balance, so it is known from here
+	// on whether or not the persistence load ever landed.
+	bBalanceKnown = true;
+
 	bool bGranted = false;
 	if (GrantId != NAME_None && !OwnedCosmeticIds.Contains(GrantId))
 	{
@@ -850,6 +857,14 @@ void UAFLWalletComponent::LoadFromPersistence()
 	{
 		// No backend in bring-up: seed nothing (defaults 0/0/empty stay). The replicated UPROPERTYs hold the
 		// session balance; the dev cheats seed test values. Diag notes the no-op.
+		//
+		// The balance still counts as KNOWN here, and deliberately so: with no backend the session value is
+		// the only truth there is, so calling it unknown would disable staked entry in every bring-up
+		// session while protecting nothing.
+		if (GetOwner() && GetOwner()->HasAuthority())
+		{
+			bBalanceKnown = true;
+		}
 		if (WalletDiagOn())
 		{
 			UE_LOG(LogAFLWalletDiag, Log, TEXT("%s[a] LoadFromPersistence: no backend (stub) -> session balance only"), *WalletPrefix(this));
@@ -867,6 +882,11 @@ void UAFLWalletComponent::LoadFromPersistence()
 			{
 				Self->Volts = bFound ? InVolts : 0;
 				Self->Watts = bFound ? InWatts : 0;
+
+				// ⚠ SET REGARDLESS OF bFound. A cache MISS seeds a new player at 0, and that is a KNOWN
+				// zero -- the answer arrived and it was nothing. "Unknown" means the question has not been
+				// answered yet, which is a different thing and the only one that should skeleton the chip.
+				Self->bBalanceKnown = true;
 			}
 		}
 	}));
