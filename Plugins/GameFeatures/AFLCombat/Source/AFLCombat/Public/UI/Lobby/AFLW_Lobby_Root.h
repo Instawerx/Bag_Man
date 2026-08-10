@@ -368,7 +368,17 @@ private:
 
 	// -- state
 
-	UPROPERTY() EAFLHomeDoor Door = EAFLHomeDoor::League;
+	/**
+	 * ⚠ EditDefaultsOnly, SO EACH WBP DECLARES WHICH DOOR IT IS. Found while authoring the two assets: with
+	 * this private and defaulted to League, `WBP_IRONICS_Lobby_Staked` ran `ApplyDoorScoping` at
+	 * NativeOnInitialized with Door still League and COLLAPSED ITS OWN STAKE AXIS -- a staked lobby with no
+	 * buy-in control, and no error anywhere. Requiring a runtime `SetDoor` before the first scoping pass
+	 * makes correctness depend on call order; declaring it on the asset makes each WBP self-describing.
+	 *
+	 * `SetDoor` remains for a genuine runtime change. League is still the default, because a default that
+	 * silently opened a wagering surface would be the wrong way round (R98).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Lobby") EAFLHomeDoor Door = EAFLHomeDoor::League;
 	UPROPERTY() EAFLRuleset Ruleset = EAFLRuleset::MatchPlay;
 	UPROPERTY() EAFLLeague League = EAFLLeague::Haywire;
 	UPROPERTY() EAFLDenomination Denomination = EAFLDenomination::Watts;
