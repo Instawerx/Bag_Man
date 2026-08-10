@@ -8,6 +8,19 @@ keeping 9.5 GB of cooked output on disk**, and without re-cooking to find out.
 |---|---|---|---|---|
 | `cook_20260809_windows.csv` | Windows client, 2026-08-09 17:46 | 17,204 | 7,333 | 9,715 MB |
 | `cook_20260810_windows.csv` | Windows client, 2026-08-10 12:37 | 17,195 | 7,329 | 9,713 MB |
+| `cook_20260810b_windows.csv` | Windows client, 2026-08-10 late | 17,207 | 7,335 | 9,713 MB |
+
+The **b** cook confirmed a claim the previous one had only made by reasoning: the Career hub's soft class
+pointer returns `W_ReplayBrowserScreen` and `W_ReplayListEntry` to the build after HOST's deprecation had
+removed their last referencer. 0 removed, 6 added, 0 errors. `W_ExperienceSelectionScreen` is still absent,
+so the deprecation held across a second cook rather than only the one that introduced it.
+
+⚠ **Two of those six additions are not ours and they oscillate.**
+`ShooterMaps/.../L_Convolution_Blockout/{Gameplay,Layout}.uasset` **left** in the 08-09 → 08-10 diff and
+**came back** in 08-10 → 08-10b, with nothing in either change touching ShooterMaps. Two cooks of the same
+content should agree, so something about those DataLayer packages is not deterministic. Not chased —
+they are 2 packages of a 7,335-package build and neither is AFL content — but recorded here because the
+next person to read a diff will see them move again and should know it predates their change.
 
 ⚠ **THE 08-09 TREE NO LONGER EXISTS.** Its manifest is the only surviving record of it. That is the
 point of this folder — the tree was 9.5 GB and was deleted after being measured, but the thing worth
