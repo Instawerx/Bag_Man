@@ -160,6 +160,32 @@ void AAFLGameMode::PreLogin(const FString& Options, const FString& Address, cons
 		return;
 	}
 
+	// ⚠ DUPLICATE-USE GUARD. GameLift alone does NOT enforce one-client-per-session: accepting an
+	// already-ACTIVE session SUCCEEDS, which is exactly the property that makes reconnect cheap. Test case 5
+	// proved the consequence -- two clients presenting the same id were BOTH admitted, both resolving to
+	// 'DF7C3188377BB66D', giving two bodies for one stake and two roster entries for one identity.
+	//
+	// So the server, not GameLift, decides. Re-accept is legitimate only when the original holder is GONE:
+	// either they are not connected, or they are inside a reconnect grace window. Anyone else presenting a
+	// live session is a second client on a leaked id.
+	const bool bHasGraceWindow = ReconnectTimers.Contains(ResolvedPlayerId);
+	if (!bHasGraceWindow && GameState)
+	{
+		for (const APlayerState* PS : GameState->PlayerArray)
+		{
+			const UAFLReconcileIdComponent* IdComp = PS ? PS->FindComponentByClass<UAFLReconcileIdComponent>() : nullptr;
+			if (IdComp && IdComp->GetReconcileId() == ResolvedPlayerId)
+			{
+				ErrorMessage = TEXT("This player is already connected to the match.");
+				UE_LOG(LogAFLGameCore, Warning,
+					TEXT("AFL_PLAYERSESSION: REFUSED session '%s' -- '%s' is ALREADY CONNECTED and has no open "
+					     "reconnect window. Duplicate use of a live session id."),
+					*PlayerSessionId, *ResolvedPlayerId);
+				return;
+			}
+		}
+	}
+
 	// Hand the RESOLVED identity to InitNewPlayer, which owns the PlayerState.
 	ValidatedPlayerIds.Add(PlayerSessionId, ResolvedPlayerId);
 }
