@@ -38,6 +38,10 @@ public class LyraEditor : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(
             new string[] {
+				// AFL design-token compiler writes CDO defaults on UCommonBorderStyle / UCommonTextStyle, so
+				// it needs the real CommonUI types. Editor-only: the compiler runs in-editor and emits assets;
+				// no runtime module gains a dependency from this.
+				"CommonUI",
 				"InputCore",
 				"Slate",
 				"SlateCore",

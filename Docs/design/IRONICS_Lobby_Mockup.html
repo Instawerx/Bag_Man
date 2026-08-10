@@ -1,0 +1,1508 @@
+<!doctype html><html><head><!-- frame-runtime --><script>window.__FRAME_PREAMBLE={"capabilities":{"assets":"assets.hcOK0ALv.js","comments":"comments.BKZ3qutA.js","db":"db.CeV_J5G-.js","downloads":"downloads.BXsoAvg9.js","mcp":"mcp.CYSdpjo0.js","permissions":"permissions.DdITF2Mk.js","sample":"sample.DpdXn9di.js","self":"self.BN4be5De.js","user":"user.Cr_h1ETf.js"},"transforms":"_transforms.VaITkagF.js","comments":"_comments.CNSvmFji.js","translate":"_translate.BOzFH2D9.js"}</script><script>(function(){"use strict";var ne=["light","dark","system"];function oe(e){if(e===null||typeof e!="object")return!1;const t=e.__frame_init;return t!==null&&typeof t=="object"}function W(e){return e!==null&&typeof e=="object"&&e.__frame_size_poke===!0}function se(e){if(e===null||typeof e!="object")return!1;const t=e.__frame_theme;if(t===null||typeof t!="object")return!1;const n=t.theme;return typeof n=="string"&&ne.includes(n)}function ie(e){try{typeof reportError=="function"?reportError(e):setTimeout(()=>{throw e},0)}catch{}}var Y=Object.freeze(Object.assign(Object.create(null),{user:Object.freeze(Object.assign(Object.create(null),{id:null,isOwner:!1,canEdit:!1,name:null,avatarUrl:null,email:null}))})),ae={sample:"sample"};function x(){const e=new Uint8Array(20);try{crypto.getRandomValues(e)}catch{for(let n=0;n<e.length;n++)e[n]=Math.floor(Math.random()*256)}let t="";for(const n of e)t+=(n%36).toString(36);return t}function ce(e,t){const n=r=>{const o={path:r},i=r.split("/");return{id:i[i.length-1],path:r,get:()=>t("get",[o]),set:g=>t("set",[o,g]),update:g=>t("update",[o,g]),delete:()=>t("delete",[o]),acquire:g=>t("acquire",[o,g]),onSnapshot:(g,y)=>t("subscribe",[o,g,y]),collection:g=>a(r+"/"+String(g))}},u=r=>({where:(o,i,g)=>u({...r,where:[...r.where??[],{f:String(o),op:String(i),v:g}]}),orderBy:(o,i)=>u({...r,orderBy:{f:String(o),dir:i===void 0?"asc":String(i)}}),limit:o=>u({...r,limit:Number(o)}),get:()=>t("query",[r]),onSnapshot:(o,i)=>t("subscribe",[r,o,i])}),a=r=>({...u({collection:r}),path:r,doc:o=>n(r+"/"+(o===void 0?x():String(o))),add:o=>{const i=n(r+"/"+x());return Promise.resolve(i.set(o)).then(()=>i)}});e.doc=r=>n(String(r)),e.collection=r=>a(String(r))}function J(e){if(window===top||e.type==="auxclick"&&e.button!==1)return;const t=e.composedPath?e.composedPath():[e.target];let n=null;for(let o=0;o<t.length;o++){const i=t[o];if(i&&i.matches&&i.matches("a[href],area[href]")){n=i;break}}if(!n&&e.target&&e.target.closest&&(n=e.target.closest("a[href],area[href]")),!n)return;const u=n.getAttribute("href");if(!u)return;let a,r;try{a=new URL(u,document.baseURI),r=new URL(document.baseURI).origin}catch{return}if((a.protocol==="http:"||a.protocol==="https:")&&a.origin!==r){e.preventDefault();const o=(n.getAttribute("target")??document.querySelector("base[target]")?.getAttribute("target")??"").toLowerCase(),i=e.type==="auxclick"||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||!["","_self","_top","_parent"].includes(o);parent.postMessage({__frame_nav:!0,url:a.href,newTab:i},"*")}}var G={};function I(e){if(window===top)return;const t=Date.now();t-(G[e]||0)<500||(G[e]=t,parent.postMessage({__frame_engaged:!0,kind:e},"*"))}var le=2e3,V=["wheel","touchstart","touchmove","keydown","pointerdown"],X=0;function ue(e){e.isTrusted&&(X=Date.now())}function fe(){addEventListener("click",J,!0),addEventListener("auxclick",J,!0)}function de(){for(let e=0;e<V.length;e++)addEventListener(V[e],ue,{capture:!0,passive:!0});addEventListener("scroll",e=>{e.isTrusted&&Date.now()-X<le&&I("scroll")},{capture:!0,passive:!0}),addEventListener("pointermove",e=>{e.isTrusted&&I("pointer")},{capture:!0,passive:!0}),addEventListener("click",e=>{e.isTrusted&&I("click")},{capture:!0,passive:!0})}var q="__frame_scroll",me=150,pe=310,ge=160,he=3e4;function ve(){let e=0,t=!1,n=!1,u=!1,a=0,r=null;const o=d=>{try{sessionStorage.setItem(q,JSON.stringify({y:d}))}catch{}},i=()=>{if(clearTimeout(e),r===null)return;const d=r;r=null,o(d)},g=()=>{if(t){t=!1;return}n=!0,r=scrollY,clearTimeout(e),e=setTimeout(i,me)};try{addEventListener("scroll",g,{passive:!0}),addEventListener("pagehide",i)}catch{}const y=()=>{let d;try{d=sessionStorage.getItem(q)}catch{return null}if(d===null)return null;let l;try{l=JSON.parse(d)}catch{l=null}const p=l?.y;if(!(typeof p=="number"&&Number.isFinite(p)&&p>=0)){try{sessionStorage.removeItem(q)}catch{}return null}return p};let c=!1;const f=d=>{try{const l=scrollY;scrollTo({top:d,left:0,behavior:"instant"}),a=d,u=!0,clearTimeout(e),r=null,o(d);const p=scrollY;p!==l&&(t=!0),p!==d&&!c&&(c=!0,addEventListener("load",()=>{try{if(scrollY===p){const v=y();f(v!==null?v:a)}}catch{}},{once:!0}))}catch{}},m=()=>{try{return!!location.hash}catch{return!0}};let h=!1;const _=()=>{try{if(h||innerWidth>pe||innerHeight>ge)return;h=!0;const d=Date.now(),l=()=>{try{removeEventListener("resize",l)}catch{}if(Date.now()-d>he||n||m())return;const p=y();f(p!==null?p:a)};addEventListener("resize",l)}catch{}};let w=!1,S=!1;return{restore(){if(w||(w=!0,m()))return;const d=y();d!==null&&(f(d),_())},promoted(){if(S||(S=!0,m()))return;const d=y();d!==null?(f(d),_()):u&&f(a)}}}function _e(e,t,n){const u=[...t.values()].filter(a=>a.targets.some(r=>r.startsWith(e+".")));return{wrap(a,r){const o=`${e}.${a}`,i=u.filter(g=>g.targets.includes(o));return i.length===0?(...g)=>{try{return r(...g)}catch(y){return Promise.reject(y)}}:(...g)=>{let y=g;for(const f of i){const m=f.module.parameters;if(m)try{y=m(y)}catch{return Promise.reject({code:"transform_error",id:f.id,scope:e,message:"parameters transform failed"})}}let c;try{c=r(...y)}catch(f){c=Promise.reject(f)}return c.then(f=>{for(let m=i.length-1;m>=0;m--){const h=i[m],_=h.module.returns;if(_)try{f=_(f)}catch{return n({id:h.id,scope:e,leg:"returns"}),f}}return f},f=>{for(let m=i.length-1;m>=0;m--){const h=i[m],_=h.module.throws;if(_)try{f=_(f)}catch{return n({id:h.id,scope:e,leg:"throws"}),Promise.reject(f)}}return Promise.reject(f)})}}}}function ye(e,t,n,u=()=>{}){const a=new Set(e.changes??[]),r=new Map;for(const o of a){const i=t[o];i&&r.set(o,i)}return{contract:e.contract,changes:a,flags:new Set(e.flags??[]),capabilities:e.capabilities??{},capBudgets:e.capBudgets??{},transforms:r,shellOrigin:n.shellOrigin,mount:n.mount,pipe:o=>_e(o,r,u)}}var Ae="modulepreload",Re=function(e){return"/"+e},je={},be=function(t,n,u){let a=Promise.resolve();function r(o){const i=new Event("vite:preloadError",{cancelable:!0});if(i.payload=o,window.dispatchEvent(i),!i.defaultPrevented)throw o}return a.then(o=>{for(const i of o||[])i.status==="rejected"&&r(i.reason);return t().catch(r)})};(function(){const e=Object.defineProperty,t=globalThis,n=["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCIceCandidate","RTCSessionDescription","RTCRtpSender","RTCRtpReceiver"];let u=0;for(let a=0;a<n.length;a++){const r=n[a];try{e(t,r,{value:void 0,writable:!1,configurable:!1})}catch{try{delete t[r]}catch{}try{e(t,r,{value:void 0,writable:!1,configurable:!0})}catch{}}typeof t[r]=="function"&&u++}if(u&&window!==top)try{parent.postMessage({__frame_rtc_lockdown_failed:u},"*")}catch{}})();var Ee=1e4,we=Object.freeze([...window.__FRAME_PREAMBLE?.origins??["https://claude.ai","https://preview.claude.ai"]]);function Q(e){for(const t of we)if(t.endsWith(":*"))try{const n=new URL(e);if(`${n.protocol}//${n.hostname}:*`===t)return!0}catch{}else if(e===t)return!0;return!1}var k=Object.freeze({...window.__FRAME_PREAMBLE?.capabilities}),D=window.__FRAME_PREAMBLE?.transforms,z=window.__FRAME_PREAMBLE?.comments,B=window.__FRAME_PREAMBLE?.translate,C=/^[\w.-]+\.js$/,Se=/^[a-z][a-z0-9_-]{0,63}$/,Z=null,M=null;function $(e,t,n){try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!1,enumerable:!0})}catch{try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!0,enumerable:!0})}catch{}}}var F=!1;function ee(e){const t=document.documentElement;e==="light"||e==="dark"?(t.dataset.theme=e,t.style.colorScheme=e,F=!0):F&&(delete t.dataset.theme,t.style.colorScheme="",F=!1)}var te=256,P=Object.assign(Object.create(null),{mcp:Object.assign(Object.create(null),{watchTool:{handlerArg:3}}),db:Object.assign(Object.create(null),{subscribe:{handlerArg:1,errArg:2}})}),L=new Map;function re(e,t){const n=L.get(e);if(!n)return;const u=Object.assign(Object.create(null),t);Object.assign(n.impl,u),n.impl.__settled=()=>Promise.reject({code:"capability_removed",message:`${e}: method not in this runtime`});const a=n.queue;n.queue=[];for(const r of a){const o=u[r.method];if(o)if(P[e]?.[r.method])try{r.resolve(o(...r.args))}catch{T(r,P[e][r.method],{code:"transform_error",message:`${e}.${r.method} rejected its arguments`})}else o(...r.args).then(r.resolve,r.reject);else{const i={code:"capability_removed",message:`${e}.${r.method} is not in this runtime`},g=P[e]?.[r.method];if(g){T(r,g,i);continue}r.reject(i)}}}function Oe(e,t){const n=L.get(e);if(!n)return;n.impl.__settled=()=>Promise.reject(t);const u=n.queue;n.queue=[];for(const a of u){const r=P[e]?.[a.method];if(r){T(a,r,t);continue}a.reject(t)}}function N(e,t){const n=Y[e];if(!n){Oe(e,t);return}re(e,Object.fromEntries(Object.entries(n).map(([u,a])=>[u,()=>Promise.resolve(a)])))}function T(e,t,n){if(e.syncState?.dead)return;const u=t.errArg===void 0?void 0:e.args[t.errArg],a=t.errArg===void 0?e.args[t.handlerArg]:u;typeof a=="function"&&queueMicrotask(()=>{if(!e.syncState?.dead)try{a(t.errArg===void 0?{type:"error",error:n}:n)}catch(r){ie(r)}})}var H=Object.getOwnPropertyDescriptor(window,"claude");if(window!==top&&!(H&&H.writable===!1)){fe(),de();let e=null;try{e=ve()}catch{}const t=H?.value??{};$(window,"claude",t);const n=c=>{const f={impl:Object.create(null),queue:[]};L.set(c,f);const m=f.impl,h=d=>({code:"queue_overflow",message:`${c}.${d}: pre-init call queue is full`}),_=(d,l)=>{if(f.queue.length>=te){const p=Y[c];return p&&d in p?Promise.resolve(p[d]):Promise.reject(h(d))}return new Promise((p,v)=>{f.queue.push({method:d,args:l,resolve:p,reject:v})})},w=ae[c],S=new Proxy(w===void 0?m:(()=>{}),{apply:(d,l,p)=>{const v=w,E=m[v]??m.__settled;return E?E(...p):_(v,p)},get:(d,l)=>{if(typeof l!="string"||l==="then"||l==="toJSON"||l==="valueOf")return;if(l==="toString")return Object.prototype.toString;if(w!==void 0&&(l==="call"||l==="apply"||l==="bind"))return Function.prototype[l];const p=P[c]?.[l];return p?(...v)=>{if(typeof v[p.handlerArg]!="function")throw new TypeError(`${c}.${l} requires a handler function`);const E=m[l];if(E)return E(...v);if(m.__settled){const b={dead:!1},U={args:[...v],syncState:b};return m.__settled().catch(s=>T(U,p,s)),()=>{b.dead=!0}}if(f.queue.length>=te){const b={dead:!1};return T({args:[...v],syncState:b},p,h(l)),()=>{b.dead=!0}}let A=null;const R={dead:!1};return f.queue.push({method:l,args:v,resolve:b=>{A=typeof b=="function"?b:null,R.dead&&A?.()},reject:()=>{},syncState:R}),()=>{R.dead=!0,A?.()}}:(...v)=>{const E=m[l]??m.__settled;return E?E(...v):_(l,v)}},set:()=>!1});c==="db"&&ce(m,(d,l)=>S[d](...l)),$(t,c,S)};for(const c of Object.keys(k)){if(t[c]!==void 0){$(t,c,t[c]);continue}n(c)}let u=null,a=null,r=0;const o=c=>{c.source!==parent||!Q(c.origin)||oe(c.data)&&(u=c.data.__frame_init,M=c.origin,removeEventListener("message",o),clearTimeout(r),a?.())};addEventListener("message",o),parent.postMessage({__frame_connect:!0},"*");const i=new Promise(c=>{a=c,r=setTimeout(()=>{removeEventListener("message",o),c()},Ee)}),g=document.readyState==="loading"?new Promise(c=>document.addEventListener("DOMContentLoaded",()=>c(),{once:!0})):Promise.resolve();g.then(()=>{try{e?.restore()}catch{}});const y=c=>{if(!(c.source!==parent||!Q(c.origin))&&W(c.data)){removeEventListener("message",y);try{e?.promoted()}catch{}}};addEventListener("message",y),i.then(async()=>{if(!u||!M){for(const s of L.keys())N(s,{code:"not_granted",message:"frame initialization did not arrive - capability unavailable"});return}ee(u.theme);const c=M;let f=!1,m=!1;addEventListener("message",s=>{if(s.source!==parent||s.origin!==c)return;se(s.data)&&ee(s.data.__frame_theme.theme);const O=s.data?.__fc_mode;O&&typeof O=="object"&&!f&&z&&C.test(z)&&(f=!0,h(z).then(K=>K.install?.(c,O.on===!0)).catch(()=>{}));const j=s.data?.__ft_cmd;j&&typeof j=="object"&&!m&&B&&C.test(B)&&(m=!0,h(B).then(K=>K.install?.(c,j)).catch(()=>{}))});const h=s=>be(()=>import("/_runtime/"+s),void 0),_=Object.keys(u.capabilities??{});for(const s of _)Object.hasOwn(k,s)||Se.test(s)&&t[s]===void 0&&(n(s),N(s,{code:"capability_disabled",message:"capability not in this runtime generation"}));const w=_.filter(s=>Object.hasOwn(k,s)).map(s=>[s,k[s]]).filter(s=>typeof s[1]=="string"&&C.test(s[1])),[S,...d]=await Promise.allSettled([D&&C.test(D)?h(D):Promise.resolve({}),...w.map(([,s])=>h(s))]),l=M;Z=ye(u,S.status==="fulfilled"&&S.value?.TRANSFORMS||{},{shellOrigin:l,mount:re},s=>parent.postMessage({__frame_cap_telemetry:s},l));const p=s=>parent.postMessage({__frame_cap_telemetry:{kind:"cap-load-error",cap:s}},l),v=Z;d.forEach((s,O)=>{const j=w[O][0];if(s.status!=="fulfilled"){p(j);return}try{s.value?.install?.(v)}catch{p(j)}});for(const[s,O]of L)if(!(O.queue.length===0&&Object.keys(O.impl).length>0)){if(_.includes(s)){N(s,{code:"capability_disabled",message:"capability not available in this session"});continue}N(s,{code:"not_granted",message:"capability not available in this session"})}await g,parent.postMessage({__frame_ready:!0},M);let E=-1,A=0;const R=()=>{A=0;const s=Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0);s!==E&&(E=s,parent.postMessage({__frame_size:!0,h:s},l))},b=()=>{A||(A=setTimeout(R,200))},U=new ResizeObserver(b);U.observe(document.documentElement),document.body&&U.observe(document.body),document.addEventListener("load",b,!0),document.fonts?.ready.then(b,()=>{}),addEventListener("beforeprint",()=>{E=-1,R()}),b(),addEventListener("message",s=>{if(!(s.source!==parent||s.origin!==l)&&W(s.data)){try{e?.promoted()}catch{}E=-1,b()}})})}})();</script><!-- /frame-runtime --><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style></head><body>
+<title>IRONICS — Lobby Mockups S1 / S2</title>
+
+<style>
+/* ============================================================================
+   IRONICS MATCHMAKING LOBBY — S1 LobbyRoot / S2 QueueDetail
+   Rendered from Docs/design/IRONICS_LOBBY_UX_HANDOFF.md
+   Tokens from Docs/design/IRONICS_UI_STYLE_SSOT.md
+   Payout figures DERIVED at runtime from economy-store.md 5.2's generating rule.
+
+   TWO SURFACES, DELIBERATELY:
+     .board  — the review surround. Theme-aware (light + dark).
+     .scr    — the game screen. Hard-pinned dark. A mockup of a dark front end
+               must not invert in light mode or it stops being the spec.
+   ========================================================================= */
+
+:root{
+  /* --- house tokens, identical in both themes (they are the product) ------ */
+  --electric:#1E5AFF;
+  --violet:#A855F7;
+  --depth:#05080F;
+
+  /* NEON EDGING — every value below is --electric at a different burn.
+     There is now exactly ONE blue in this lobby. UI.House.Blue #00ADFF is gone:
+     its tertiary/inactive job is done by Electric turned down, not by a second hue.
+     That also removes the three-blues collision the style SSOT warns about, since
+     #00ADFF is the FREE BASE IDENTITY and never belonged in chrome. */
+  --neon:rgba(30,90,255,.40);         /* resting edge — an unlit tube            */
+  --neon-lit:rgba(30,90,255,.70);     /* structural rail                         */
+  --neon-hot:rgba(30,90,255,.95);     /* active segment                          */
+  --neon-bloom:rgba(30,90,255,.50);   /* the spill a tube throws onto its ground */
+  --neon-text:0 0 12px rgba(30,90,255,.95),0 0 3px rgba(30,90,255,.85);
+
+  /* --- board neutrals: light. blue-biased, derived from --electric -------- */
+  --board-bg:#E9EDF5;
+  --board-card:#FFFFFF;
+  --board-ink:#0B111F;
+  --board-mid:#48536A;
+  --board-mute:#6C7791;
+  --board-line:rgba(11,17,31,.14);
+  --board-hair:rgba(11,17,31,.08);
+  --board-inset:rgba(11,17,31,.04);
+
+  /* --- screen internals: fixed, never themed ----------------------------- */
+  --g1:rgba(255,255,255,.12);
+  --g2:rgba(255,255,255,.08);
+  --gb:rgba(255,255,255,.20);
+  --t1:rgba(255,255,255,1);
+  --t2:rgba(255,255,255,.70);
+  --t3:rgba(255,255,255,.45);
+  --danger:rgba(255,80,80,.15);
+  --danger-ink:#FF8A8A;
+
+  /* --- type ------------------------------------------------------------- */
+  /* Windows-native technical pairing. Bahnschrift is a DIN 1451 derivative
+     shipped with Win10/11; Cascadia and Consolas ship with the same box.
+     No webfont means no CSP block and no silent fallback on the target. */
+  --f-display:"Bahnschrift","DIN Alternate","DIN Condensed","Archivo Narrow","Oswald",system-ui,sans-serif;
+  --f-body:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  --f-data:"Cascadia Mono","Consolas","JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+}
+
+@media (prefers-color-scheme:dark){
+  :root{
+    --board-bg:#0A0D14;
+    --board-card:#111621;
+    --board-ink:#E7EBF3;
+    --board-mid:#A6B0C4;
+    --board-mute:#7C8699;
+    --board-line:rgba(231,235,243,.15);
+    --board-hair:rgba(231,235,243,.08);
+    --board-inset:rgba(231,235,243,.04);
+  }
+}
+:root[data-theme="dark"]{
+  --board-bg:#0A0D14;
+  --board-card:#111621;
+  --board-ink:#E7EBF3;
+  --board-mid:#A6B0C4;
+  --board-mute:#7C8699;
+  --board-line:rgba(231,235,243,.15);
+  --board-hair:rgba(231,235,243,.08);
+  --board-inset:rgba(231,235,243,.04);
+}
+:root[data-theme="light"]{
+  --board-bg:#E9EDF5;
+  --board-card:#FFFFFF;
+  --board-ink:#0B111F;
+  --board-mid:#48536A;
+  --board-mute:#6C7791;
+  --board-line:rgba(11,17,31,.14);
+  --board-hair:rgba(11,17,31,.08);
+  --board-inset:rgba(11,17,31,.04);
+}
+
+*{box-sizing:border-box;}
+
+.board{
+  background:var(--board-bg);
+  color:var(--board-ink);
+  font-family:var(--f-body);
+  font-size:15px;
+  line-height:1.6;
+  padding:40px 28px 96px;
+  min-height:100vh;
+}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:56px;}
+
+/* ---------- board typography ------------------------------------------- */
+.eyebrow{
+  font-family:var(--f-display);
+  font-size:12px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--electric);
+}
+h1{
+  font-family:var(--f-display);
+  font-size:clamp(30px,5vw,46px);font-weight:700;letter-spacing:.005em;
+  text-transform:uppercase;line-height:1.02;margin:10px 0 0;text-wrap:balance;
+  font-stretch:90%;
+}
+h2{
+  font-family:var(--f-display);
+  font-size:22px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  margin:0;text-wrap:balance;font-stretch:90%;
+}
+h3{
+  font-family:var(--f-display);
+  font-size:13px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+  margin:0;color:var(--board-mid);
+}
+.lede{color:var(--board-mid);max-width:66ch;margin:14px 0 0;}
+.note{color:var(--board-mute);font-size:13.5px;max-width:74ch;}
+.note strong{color:var(--board-ink);font-weight:600;}
+code,.mono{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:.92em;}
+code{background:var(--board-inset);padding:1px 5px;border-radius:4px;}
+
+/* ---------- section head ------------------------------------------------ */
+.sec-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px;
+  padding-bottom:12px;border-bottom:1px solid var(--board-line);}
+.sec-id{font-family:var(--f-data);font-size:12px;letter-spacing:.1em;
+  color:#fff;background:var(--electric);padding:3px 8px;border-radius:4px;font-weight:700;}
+.sec-sub{color:var(--board-mute);font-size:13.5px;margin-left:auto;}
+
+/* ---------- device frame ------------------------------------------------ */
+.frame{
+  border:1px solid var(--board-line);border-radius:14px;background:var(--depth);
+  overflow:hidden;position:relative;
+}
+.frame-bar{
+  display:flex;align-items:center;gap:10px;height:34px;padding:0 14px;
+  background:var(--board-card);border-bottom:1px solid var(--board-line);
+  font-family:var(--f-data);font-size:11px;letter-spacing:.08em;color:var(--board-mute);
+}
+.frame-bar .dot{width:8px;height:8px;border-radius:50%;background:var(--board-line);}
+.frame-bar .px{margin-left:auto;font-variant-numeric:tabular-nums;}
+.stage{position:relative;overflow:hidden;}
+.stage>.scr{transform-origin:top left;}
+
+/* ============================================================================
+   SCREEN — everything under .scr is the shipping surface
+   ========================================================================= */
+.scr{
+  width:1280px;height:800px;position:relative;
+  background:
+    radial-gradient(1100px 620px at 6% -12%, rgba(30,90,255,.20), transparent 62%),
+    radial-gradient(760px 520px at 104% 118%, rgba(168,85,247,.13), transparent 60%),
+    var(--depth);
+  color:var(--t1);
+  font-family:var(--f-body);font-size:14px;line-height:1.45;
+  display:grid;grid-template-rows:64px 48px 96px 1fr 72px;
+  isolation:isolate;
+}
+.scr *{box-sizing:border-box;}
+.scr .num{font-family:var(--f-data);font-variant-numeric:tabular-nums;}
+.scr .disp{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.1em;font-weight:600;}
+
+/* --- region tags (annotation layer, toggleable) ------------------------- */
+.rgn{
+  position:absolute;right:0;top:0;bottom:0;width:0;
+  display:flex;align-items:center;pointer-events:none;
+}
+.rgn::before{
+  content:"";position:absolute;right:0;top:50%;width:30px;height:1px;
+  background:var(--electric);opacity:.55;
+}
+.rgn i{
+  position:absolute;right:-52px;top:50%;transform:translateY(-50%);
+  font-family:var(--f-display);font-style:normal;font-weight:700;font-size:15px;
+  color:var(--electric);width:24px;height:24px;border:1px solid var(--electric);
+  border-radius:5px;display:grid;place-items:center;background:var(--depth);
+}
+.scr[data-rgn="off"] .rgn{display:none;}
+.scr[data-rgn="on"]{padding-right:64px;}
+
+/* --- A · header --------------------------------------------------------- */
+.hdr{
+  display:flex;align-items:center;gap:26px;padding:0 24px;position:relative;
+  /* lit rail along the header's foot, with the spill it would throw downward */
+  border-bottom:1px solid var(--neon-lit);
+  box-shadow:0 3px 20px -6px var(--neon-bloom);
+  background:linear-gradient(180deg,rgba(30,90,255,.10),transparent 70%);
+}
+.brand{display:flex;align-items:center;gap:10px;}
+.bolt{
+  /* 26px — under the 32px gate, so CORE-DOMINANT: electric fill, electric glow, no violet rim. */
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
+  background:var(--electric);color:#fff;font-size:14px;
+  box-shadow:0 0 16px rgba(30,90,255,.55);
+}
+.brand b{font-family:var(--f-display);font-size:19px;font-weight:700;letter-spacing:.20em;font-stretch:90%;}
+.wallet{display:flex;align-items:center;gap:18px;margin-left:18px;}
+.purse{display:flex;align-items:baseline;gap:6px;}
+.purse .v{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;}
+.purse .u{font-family:var(--f-display);font-size:11px;letter-spacing:.14em;color:var(--t3);}
+.purse.volts .v{color:var(--electric);text-shadow:var(--neon-text);}
+.purse.watts .v{color:var(--t1);}
+.online{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--t2);font-size:13px;}
+.online .pip{width:7px;height:7px;border-radius:50%;background:#3DE08A;box-shadow:0 0 8px rgba(61,224,138,.8);}
+.online .n{font-family:var(--f-data);font-variant-numeric:tabular-nums;color:var(--t1);font-weight:600;}
+.back{
+  width:34px;height:34px;border-radius:9px;border:1px solid var(--neon);background:var(--g2);
+  color:var(--t2);display:grid;place-items:center;cursor:pointer;font-size:13px;
+}
+
+/* --- B · ruleset tabs --------------------------------------------------- */
+.tabs{
+  display:flex;align-items:stretch;gap:0;padding:0 24px;position:relative;
+  /* the unlit length of tube; .tab-ink is the segment that is lit */
+  border-bottom:1px solid var(--neon);
+}
+.tab{
+  position:relative;min-width:168px;padding:0 26px;background:transparent;border:0;
+  color:var(--electric);text-shadow:var(--neon-text);
+  font-family:var(--f-display);font-size:14px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;cursor:pointer;
+  transition:color .12s ease-out,background .12s ease-out,box-shadow .12s ease-out,text-shadow .12s ease-out;
+  display:flex;align-items:center;justify-content:center;gap:9px;
+}
+.tab .cnt{font-family:var(--f-data);font-size:11px;letter-spacing:.04em;color:var(--t3);font-weight:400;}
+.tab:hover:not([disabled]){box-shadow:inset 0 0 0 1px rgba(168,85,247,.75);color:var(--t1);text-shadow:none;}
+.tab[aria-selected="true"]{color:var(--t1);text-shadow:none;background:rgba(30,90,255,.16);}
+.tab[disabled]{opacity:.40;cursor:not-allowed;}
+.tab-ink{
+  position:absolute;bottom:-1px;height:3px;background:var(--electric);
+  box-shadow:0 0 14px 1px var(--neon-hot),0 0 34px var(--neon-bloom);
+  transition:left .18s ease-out,width .18s ease-out;
+}
+.tab-reason{
+  margin-left:14px;align-self:center;font-size:11.5px;color:var(--t3);
+  border-left:1px solid var(--gb);padding-left:14px;
+}
+
+/* --- C · axis row ------------------------------------------------------- */
+.axes{display:flex;align-items:center;gap:44px;padding:0 24px;border-bottom:1px solid var(--neon);}
+.axis{display:flex;flex-direction:column;gap:9px;}
+.axis>span{font-family:var(--f-display);font-size:10.5px;letter-spacing:.20em;color:var(--t3);}
+.sizes{display:flex;gap:8px;}
+.size{
+  display:flex;align-items:center;gap:8px;height:34px;padding:0 16px;border-radius:12px;
+  border:1px solid var(--neon);background:var(--g2);color:var(--t2);cursor:pointer;
+  font-family:var(--f-body);font-size:13.5px;
+  transition:background .14s ease-out,border-color .14s ease-out,color .14s ease-out,box-shadow .14s ease-out;
+}
+.size .rad{width:11px;height:11px;border-radius:50%;border:1.5px solid rgba(30,90,255,.55);}
+.size:hover{box-shadow:0 0 0 1px rgba(168,85,247,.7);color:var(--t1);}
+.size[aria-pressed="true"]{
+  background:rgba(30,90,255,.22);border-color:var(--electric);color:var(--t1);
+  box-shadow:0 0 16px -2px var(--neon-bloom);
+}
+.size[aria-pressed="true"] .rad{border-color:var(--electric);background:var(--electric);box-shadow:0 0 8px var(--neon-hot);}
+
+.stake-row{display:flex;align-items:center;gap:12px;}
+.presets{display:flex;gap:8px;}
+.preset{
+  position:relative;overflow:hidden;min-width:66px;height:34px;border-radius:12px;
+  border:1px solid var(--neon);background:var(--g2);cursor:pointer;
+  color:var(--electric);text-shadow:var(--neon-text);
+  font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:13.5px;font-weight:600;
+  transition:color .14s ease-out,border-color .14s ease-out,box-shadow .14s ease-out,text-shadow .14s ease-out;
+}
+.preset::before{
+  content:"";position:absolute;inset:0;background:var(--electric);
+  transform:scaleX(0);transform-origin:left;transition:transform .14s ease-out;z-index:0;
+}
+.preset span{position:relative;z-index:1;}
+.preset:hover{box-shadow:0 0 0 1px rgba(168,85,247,.7);color:var(--t1);text-shadow:none;}
+.preset[aria-pressed="true"]{
+  color:#fff;text-shadow:none;border-color:var(--electric);
+  box-shadow:0 0 18px -3px var(--neon-bloom);
+}
+.preset[aria-pressed="true"]::before{transform:scaleX(1);}
+.orlab{color:var(--t3);font-size:12.5px;}
+.numfield{
+  width:96px;height:34px;border-radius:8px;border:1px solid var(--neon);background:var(--g2);
+  color:var(--t1);text-align:center;font-family:var(--f-data);font-variant-numeric:tabular-nums;
+  font-size:14px;font-weight:600;
+  transition:border-color .14s ease-out,background .14s ease-out;
+}
+.numfield:focus{outline:none;border-color:var(--violet);box-shadow:0 0 0 1px var(--violet);}
+.numfield[data-invalid="true"]{border-color:#FF5050;background:var(--danger);}
+.band{font-size:12.5px;color:var(--t2);transition:opacity .1s linear;}
+.band[data-invalid="true"]{color:var(--danger-ink);}
+
+/* --- D · list + detail -------------------------------------------------- */
+.split{display:grid;grid-template-columns:1fr 420px;gap:16px;padding:16px 24px;min-height:0;}
+
+.list{
+  border:1px solid var(--neon);border-radius:16px;background:rgba(5,8,15,.55);
+  box-shadow:inset 0 1px 0 rgba(30,90,255,.28);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.list-head{
+  display:grid;grid-template-columns:1fr 132px 104px;gap:12px;align-items:center;
+  height:38px;padding:0 18px;border-bottom:1px solid var(--neon);
+  font-family:var(--f-display);font-size:10.5px;letter-spacing:.18em;color:var(--t3);
+}
+.list-head .r{text-align:right;}
+.rows{display:flex;flex-direction:column;padding:6px;gap:2px;overflow:auto;}
+.row{
+  position:relative;display:grid;grid-template-columns:1fr 132px 104px;gap:12px;align-items:center;
+  height:52px;padding:0 12px;border-radius:10px;border:0;background:transparent;
+  color:var(--t1);cursor:pointer;text-align:left;font-family:var(--f-body);font-size:14px;
+  transition:background .14s ease-out,opacity .14s ease-out;
+}
+.row::before{
+  content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:2px;
+  background:transparent;transition:background .14s ease-out;
+}
+.row:hover{background:var(--g2);}
+.row:hover::before{background:var(--violet);width:2px;}
+.row[aria-pressed="true"]{
+  background:linear-gradient(90deg,rgba(30,90,255,.22),rgba(30,90,255,.06) 55%,transparent);
+  box-shadow:inset 0 0 0 1px rgba(30,90,255,.30);
+}
+.row[aria-pressed="true"]::before{background:var(--electric);width:3px;box-shadow:0 0 12px 1px var(--neon-hot);}
+.row[data-cold="true"]{opacity:.60;}
+.row .q{display:flex;align-items:center;gap:9px;}
+.row .q b{font-family:var(--f-display);font-size:13.5px;letter-spacing:.10em;font-weight:600;}
+.row .q .sep{color:var(--t3);}
+.row .q .bandv{font-family:var(--f-data);font-variant-numeric:tabular-nums;color:var(--t2);font-size:13px;}
+.pop{display:flex;align-items:center;justify-content:flex-end;gap:9px;}
+.pop .n{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:13.5px;min-width:34px;text-align:right;}
+.bar{display:flex;gap:2.5px;}
+.bar i{display:block;width:5px;height:13px;border-radius:1.5px;background:rgba(255,255,255,.16);}
+.bar i.on{background:var(--electric);box-shadow:0 0 7px var(--neon-hot);}
+.bar i.hollow{background:transparent;box-shadow:inset 0 0 0 1px rgba(30,90,255,.55);}
+.wait{text-align:right;font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:13.5px;color:var(--t2);}
+.wait.quiet{color:var(--t3);font-family:var(--f-body);font-size:13px;}
+.list-foot{
+  margin-top:auto;padding:9px 18px;border-top:1px solid var(--neon);
+  font-size:11.5px;color:var(--t3);
+}
+
+/* --- S2 · detail panel (also blown up below) ---------------------------- */
+.panel{
+  /* The one element that carries a full neon outline: it is the focused object
+     on the screen, and the edge is what says so. */
+  border:1px solid var(--neon-lit);border-radius:16px;
+  background:var(--g1);
+  backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);
+  box-shadow:0 0 0 1px rgba(30,90,255,.14),0 0 42px -12px var(--neon-bloom),
+             inset 0 1px 0 rgba(30,90,255,.38);
+  display:flex;flex-direction:column;overflow:hidden;width:420px;
+  animation:panel-in .16s ease-out;
+}
+@keyframes panel-in{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+.p-head{padding:14px 16px 12px;border-bottom:1px solid var(--neon);display:flex;flex-direction:column;gap:2px;}
+.p-title{display:flex;align-items:center;gap:8px;}
+.p-title .z{color:var(--electric);font-size:13px;text-shadow:var(--neon-text);}
+.p-title b{font-family:var(--f-display);font-size:15px;letter-spacing:.13em;font-weight:700;}
+.p-close{margin-left:auto;width:24px;height:24px;border-radius:7px;border:1px solid var(--neon);
+  background:transparent;color:var(--t3);cursor:pointer;display:grid;place-items:center;font-size:11px;}
+.p-close:hover{color:var(--t1);box-shadow:0 0 0 1px rgba(168,85,247,.7);}
+.p-band{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:12px;color:var(--t2);}
+.p-acts{display:flex;gap:8px;margin-top:10px;}
+.btn{
+  height:34px;padding:0 18px;border-radius:12px;border:1px solid var(--neon);background:var(--g2);
+  color:var(--t2);cursor:pointer;font-family:var(--f-display);font-size:12px;letter-spacing:.14em;
+  text-transform:uppercase;font-weight:600;transition:box-shadow .12s ease-out,color .12s ease-out;
+}
+.btn:hover{color:var(--t1);box-shadow:0 0 0 1px rgba(168,85,247,.7);}
+.btn.lead{
+  /* 34px — between the gate's two anchors, so core-dominant at rest.
+     Violet enters on hover only, which is its stated job: focus and edge-glow. */
+  margin-left:auto;background:var(--electric);border-color:var(--electric);color:#fff;
+  box-shadow:0 0 18px rgba(30,90,255,.45);
+}
+.btn.lead:hover{box-shadow:0 0 0 1px rgba(168,85,247,.9),0 0 24px rgba(30,90,255,.6);}
+.btn.lead:active{transform:scale(.98);}
+
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px 16px;}
+.metric{
+  /* a lit filament along the top edge of each card, the rest of the box unlit */
+  border:1px solid var(--neon);border-top-color:rgba(30,90,255,.85);
+  border-radius:12px;background:var(--g2);padding:9px 10px;
+  box-shadow:0 -1px 12px -4px var(--neon-bloom);
+  display:flex;flex-direction:column;gap:2px;min-width:0;
+}
+.metric .lab{font-family:var(--f-display);font-size:9.5px;letter-spacing:.16em;color:var(--t3);}
+.metric .val{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.metric .sub{font-size:10.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.metric.pool .val{color:var(--electric);text-shadow:var(--neon-text);}
+
+.p-tabs{display:flex;border-top:1px solid var(--neon);border-bottom:1px solid var(--neon);position:relative;}
+.p-tab{
+  flex:1;height:36px;background:transparent;border:0;cursor:pointer;color:var(--t3);
+  font-family:var(--f-display);font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;
+  transition:color .12s ease-out,background .12s ease-out;
+}
+.p-tab:hover:not([disabled]){color:var(--t1);box-shadow:inset 0 0 0 1px rgba(168,85,247,.6);}
+.p-tab[aria-selected="true"]{color:var(--t1);background:rgba(30,90,255,.16);
+  box-shadow:inset 0 -2px 0 var(--electric),0 2px 14px -4px var(--neon-bloom);}
+.p-tab[disabled]{opacity:.4;cursor:not-allowed;}
+
+.p-body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:12px;overflow:auto;flex:1;}
+.venue{
+  display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:10px;
+  background:var(--g2);border:1px solid var(--neon);font-size:12.5px;color:var(--t2);
+}
+.venue .flag{color:var(--electric);text-shadow:var(--neon-text);}
+.ruleline{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--t2);}
+.ruleline b{color:var(--t1);font-weight:600;}
+.blocklab{font-family:var(--f-display);font-size:10px;letter-spacing:.18em;color:var(--t3);}
+
+.ladder{display:flex;flex-direction:column;gap:2px;}
+.lad-head,.lad-row{
+  display:grid;grid-template-columns:44px 1fr 68px 62px;gap:8px;align-items:center;
+  padding:0 9px;height:28px;border-radius:7px;
+}
+.lad-head{font-family:var(--f-display);font-size:9.5px;letter-spacing:.14em;color:var(--t3);height:22px;}
+.lad-head .r,.lad-row .r{text-align:right;}
+.lad-row{background:var(--g2);font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:12.5px;}
+.lad-row .pl{font-family:var(--f-display);letter-spacing:.06em;font-weight:600;font-size:12px;}
+.lad-row .share{color:var(--t3);}
+.lad-row .pay{color:var(--t1);font-weight:600;}
+.lad-row .mult{color:var(--electric);text-shadow:var(--neon-text);font-weight:600;}
+/* min cash is marked with a NEUTRAL ring, not a neon one — it is a threshold, and
+   giving it the brand's lit edge would read as "best", which is the opposite. */
+.lad-row.mincash{box-shadow:inset 0 0 0 1px rgba(255,255,255,.30);}
+.lad-row.mincash .mult{color:var(--t1);text-shadow:none;}
+.mincash-tag{
+  display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t3);padding-left:9px;
+}
+.mincash-tag i{font-style:normal;color:var(--t2);}
+.est{font-size:11px;color:var(--t3);line-height:1.5;}
+.wta{
+  padding:10px 11px;border-radius:10px;border:1px solid rgba(30,90,255,.5);
+  background:rgba(30,90,255,.12);font-size:12.5px;color:var(--t2);
+}
+.wta b{color:var(--t1);}
+
+/* --- E · commit bar ----------------------------------------------------- */
+.commit{
+  display:flex;align-items:center;gap:18px;padding:0 24px;position:relative;
+  border-top:1px solid var(--neon-lit);
+  box-shadow:0 -3px 22px -6px var(--neon-bloom);
+  background:linear-gradient(0deg,rgba(30,90,255,.12),transparent 70%);
+}
+.commit .venue-note{font-size:12.5px;color:var(--t3);}
+.commit-right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
+.cta{
+  height:42px;padding:0 28px;border-radius:12px;border:1px solid var(--electric);
+  background:var(--electric);color:#fff;cursor:pointer;
+  font-family:var(--f-display);font-size:13.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;
+  /* 42px — below the 64px gate, so the resting state is core-dominant: electric fill,
+     electric bloom, NO violet. Violet is reserved for hover and focus. */
+  box-shadow:0 0 26px -2px var(--neon-hot),0 0 56px -8px var(--neon-bloom);
+  transition:transform .12s ease-out,box-shadow .12s ease-out,opacity .12s ease-out;
+  display:flex;align-items:center;gap:10px;
+}
+.cta .num{font-weight:600;letter-spacing:.04em;}
+.cta:hover:not([disabled]){box-shadow:0 0 0 1px rgba(168,85,247,.95),0 0 30px rgba(30,90,255,.62);}
+.cta:active:not([disabled]){transform:scale(.98);}
+.cta[disabled]{opacity:.40;cursor:not-allowed;box-shadow:none;}
+.cta-reason{font-size:11.5px;color:var(--danger-ink);height:14px;}
+
+/* ============================================================================
+   BOARD FURNITURE
+   ========================================================================= */
+.controls{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  padding:10px 12px;border:1px solid var(--board-line);border-radius:12px;background:var(--board-card);
+}
+.ctl{
+  display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:8px;
+  border:1px solid var(--board-line);background:transparent;color:var(--board-mid);
+  font-family:var(--f-data);font-size:11.5px;letter-spacing:.05em;cursor:pointer;
+  transition:color .12s ease-out,border-color .12s ease-out,background .12s ease-out;
+}
+.ctl:hover{color:var(--board-ink);border-color:var(--electric);}
+.ctl[aria-pressed="true"]{color:#fff;background:var(--electric);border-color:var(--electric);}
+.ctl-hint{color:var(--board-mute);font-size:12px;margin-left:auto;}
+
+table.spec{
+  width:100%;border-collapse:collapse;font-size:13.5px;
+}
+.tblwrap{overflow-x:auto;border:1px solid var(--board-line);border-radius:12px;background:var(--board-card);}
+table.spec th,table.spec td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--board-hair);vertical-align:top;}
+table.spec th{
+  font-family:var(--f-display);font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--board-mute);font-weight:600;white-space:nowrap;
+}
+table.spec tr:last-child td{border-bottom:0;}
+table.spec td.k{font-family:var(--f-data);font-size:12.5px;white-space:nowrap;color:var(--board-ink);}
+table.spec td.num{font-family:var(--f-data);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
+.rgnkey{
+  display:inline-grid;place-items:center;width:20px;height:20px;border-radius:5px;
+  border:1px solid var(--electric);color:var(--electric);
+  font-family:var(--f-display);font-weight:700;font-size:12px;
+}
+
+.swatches{display:grid;grid-template-columns:repeat(auto-fit,minmax(184px,1fr));gap:10px;}
+.sw{
+  border:1px solid var(--board-line);border-radius:12px;background:var(--board-card);
+  padding:11px 12px;display:flex;flex-direction:column;gap:7px;
+}
+.sw .chip{height:34px;border-radius:8px;border:1px solid var(--board-hair);}
+.sw .nm{font-family:var(--f-data);font-size:11.5px;color:var(--board-ink);}
+.sw .rl{font-size:11.5px;color:var(--board-mute);line-height:1.4;}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;}
+.card{
+  border:1px solid var(--board-line);border-radius:12px;background:var(--board-card);
+  padding:14px 16px;display:flex;flex-direction:column;gap:7px;
+}
+.card h4{
+  margin:0;font-family:var(--f-display);font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--electric);font-weight:600;
+}
+.card p{margin:0;font-size:13px;color:var(--board-mid);line-height:1.55;}
+
+.flag-card{
+  border:1px solid var(--board-line);border-left:3px solid var(--electric);
+  border-radius:12px;background:var(--board-card);padding:16px 18px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.flag-card h4{margin:0;font-family:var(--f-display);font-size:12px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--board-ink);font-weight:700;}
+.flag-card p{margin:0;font-size:13.5px;color:var(--board-mid);line-height:1.6;}
+.flag-card p strong{color:var(--board-ink);}
+
+footer.credits{
+  border-top:1px solid var(--board-line);padding-top:20px;
+  font-size:12.5px;color:var(--board-mute);display:flex;flex-wrap:wrap;gap:8px 22px;
+}
+footer.credits .mono{font-size:12px;}
+
+/* ---------- focus + motion --------------------------------------------- */
+:focus-visible{outline:2px solid var(--violet);outline-offset:2px;border-radius:4px;}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;}
+}
+@media (max-width:640px){
+  .board{padding:26px 14px 64px;}
+  .wrap{gap:40px;}
+}
+</style>
+
+<div class="board">
+<div class="wrap">
+
+  <!-- ================= HEAD ================= -->
+  <header>
+    <p class="eyebrow">IRONICS · Matchmaking lobby · Rendered mockup</p>
+    <h1>S1 LobbyRoot<br>S2 QueueDetail</h1>
+    <p class="lede">
+      The two screens drawn as ASCII in the handoff, rendered in house tokens at shipping size.
+      Live: switch rulesets, pick a format, a stake, a queue. Every payout figure is
+      <strong>solved at render time</strong> from the generating rule in <code>economy-store.md §5.2</code> —
+      none are typed in.
+      <br><br>
+      <strong>The tabs now name the two match-structure components that exist in the tree</strong> —
+      <code>UAFLRoundManagerComponent</code> and <code>UAFLBattleRoyaleComponent</code> — rather than SHOOTOUT
+      and TURBO, which between them have zero code references. Switching the tab re-scopes the axis, the queue
+      list and the payout shape, because all three are properties of the ruleset.
+    </p>
+  </header>
+
+  <!-- ================= S1 ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-id">S1</span>
+      <h2>LobbyRoot</h2>
+      <span class="sec-sub">1280 × 800 · desktop ≥1280 · handoff §3</span>
+    </div>
+
+    <div class="controls" style="margin-top:16px;">
+      <button class="ctl" id="rgn-toggle" aria-pressed="true" type="button">Region tags A–E</button>
+      <button class="ctl" id="fit-toggle" aria-pressed="true" type="button">Fit to width</button>
+      <span class="ctl-hint">Try typing <code>700</code> into the stake field — that is the §12 out-of-band edge case.</span>
+    </div>
+
+    <div class="frame" style="margin-top:14px;">
+      <div class="frame-bar">
+        <span class="dot"></span><span>S1 · AFLW_Lobby_Root</span>
+        <span class="px" id="s1-px">1280 × 800</span>
+      </div>
+      <div class="stage" id="s1-stage">
+        <div class="scr" id="s1" data-rgn="on">
+
+          <!-- A ─ header -->
+          <div class="hdr">
+            <div class="brand">
+              <span class="bolt">⚡</span>
+              <b>IRONICS</b>
+            </div>
+            <div class="wallet">
+              <span class="purse volts"><span class="v">12,480</span><span class="u">V</span></span>
+              <span class="purse watts"><span class="v">3,150</span><span class="u">W</span></span>
+            </div>
+            <div class="online">
+              <span class="pip"></span><span class="n">1,284</span><span>online</span>
+            </div>
+            <button class="back" type="button" aria-label="Back">◀</button>
+            <div class="rgn"><i>A</i></div>
+          </div>
+
+          <!-- B ─ ruleset tabs -->
+          <div class="tabs" id="ruleset-tabs" role="tablist" aria-label="Ruleset">
+            <button class="tab" role="tab" data-rs="MATCHPLAY" aria-selected="true" type="button">
+              MATCH PLAY <span class="cnt" data-cnt="MATCHPLAY">640</span>
+            </button>
+            <button class="tab" role="tab" data-rs="BR" aria-selected="false" type="button">
+              BATTLE ROYALE <span class="cnt" data-cnt="BR">446</span>
+            </button>
+            <span class="tab-reason" id="rs-note"></span>
+            <span class="tab-ink" id="tab-ink"></span>
+            <div class="rgn"><i>B</i></div>
+          </div>
+
+          <!-- C ─ axis row -->
+          <div class="axes">
+            <div class="axis">
+              <!-- The first axis is RULESET-DEPENDENT. Match Play offers team formats;
+                   Battle Royale offers squad sizes. Both axes stay live either way (R19). -->
+              <span id="size-label">FORMAT</span>
+              <div class="sizes" id="size-axis" role="group" aria-label="Format"></div>
+            </div>
+            <div class="axis">
+              <span>STAKE</span>
+              <div class="stake-row">
+                <div class="presets" id="stake-presets" role="group" aria-label="Stake presets">
+                  <button class="preset" type="button" data-stake="100"  aria-pressed="false"><span>100</span></button>
+                  <button class="preset" type="button" data-stake="250"  aria-pressed="false"><span>250</span></button>
+                  <button class="preset" type="button" data-stake="500"  aria-pressed="false"><span>500</span></button>
+                  <button class="preset" type="button" data-stake="1000" aria-pressed="false"><span>1000</span></button>
+                </div>
+                <span class="orlab">or</span>
+                <input class="numfield" id="stake-num" type="text" inputmode="numeric"
+                       value="450" aria-label="Stake in Volts">
+                <span class="band" id="band-read">matching 400–500 V</span>
+              </div>
+            </div>
+            <div class="rgn"><i>C</i></div>
+          </div>
+
+          <!-- D ─ list + detail -->
+          <div class="split">
+            <div class="list">
+              <div class="list-head">
+                <span>QUEUE</span><span class="r">POP</span><span class="r">EST. WAIT</span>
+              </div>
+              <div class="rows" id="queue-rows" role="group" aria-label="Queues"></div>
+              <div class="list-foot" id="list-foot">4 queues · sorted by population</div>
+            </div>
+            <div id="detail-slot"></div>
+            <div class="rgn"><i>D</i></div>
+          </div>
+
+          <!-- E ─ commit bar -->
+          <div class="commit">
+            <span class="venue-note">⚑ venue assigned at match start</span>
+            <div class="commit-right">
+              <button class="cta" id="cta" type="button"></button>
+              <span class="cta-reason" id="cta-reason"></span>
+            </div>
+            <div class="rgn"><i>E</i></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="tblwrap" style="margin-top:16px;">
+      <table class="spec">
+        <thead>
+          <tr><th>Region</th><th>Height</th><th>What it carries</th><th>Why it is shaped that way</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="k"><span class="rgnkey">A</span> Header</td><td class="num">64px</td>
+            <td>Wallet left of centre, population right</td>
+            <td>PokerStars' balance + online count, unchanged.</td>
+          </tr>
+          <tr>
+            <td class="k"><span class="rgnkey">B</span> Ruleset tabs</td><td class="num">48px</td>
+            <td>MATCH PLAY · BATTLE ROYALE</td>
+            <td><strong>Never a dropdown</strong> — R19 wants both visible and comparable. Both are live;
+                neither is a placeholder.</td>
+          </tr>
+          <tr>
+            <td class="k"><span class="rgnkey">C</span> Axis row</td><td class="num">96px</td>
+            <td>SIZE and STAKE, both live</td>
+            <td>R19: no wizard. Both axes are operable at the same instant.</td>
+          </tr>
+          <tr>
+            <td class="k"><span class="rgnkey">D</span> List / detail</td><td class="num">1fr / 420px</td>
+            <td>Queue list, S2 panel</td>
+            <td>PokerStars' list-left / card-right split, unchanged.</td>
+          </tr>
+          <tr>
+            <td class="k"><span class="rgnkey">E</span> Commit bar</td><td class="num">72px</td>
+            <td>Venue disclosure, QUEUE</td>
+            <td>Pinned — re-queue speed depends on it being always reachable.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cards" style="margin-top:16px;">
+      <div class="card">
+        <h4>A row is a queue, not an event</h4>
+        <p>No map name, no venue art, no per-row identity. This is the R18 line and the single most likely
+           thing to drift back toward the reference under pressure — event rows are more visually
+           interesting, which is exactly why they are tempting.</p>
+      </div>
+      <div class="card">
+        <h4>Cold is a variant, not a disabled state</h4>
+        <p>The 1000+ V row sits at 60% with a hollow population pip and reads <em>— quiet</em>. It is still
+           selectable. An empty band must look empty, not broken.</p>
+      </div>
+      <div class="card">
+        <h4>Sorted by population, descending</h4>
+        <p>An informed player self-selects toward the populated option, which shortens waits and
+           self-reinforces. Sorting encodes that without forcing it. Selection is independent of position.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= S2 ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-id">S2</span>
+      <h2>QueueDetail</h2>
+      <span class="sec-sub">the same 420px panel, shown at 150% · handoff §4</span>
+    </div>
+
+    <p class="note" style="margin-top:14px;">
+      This is not a second screen — it is S1 region D's right column, blown up so the ladder reads.
+      Identical markup and CSS to the panel above, scaled. <strong>Option B</strong> (tab row) rather than
+      Option D's left nav: a poker tournament has five internal sections, a queue has three, and a five-slot
+      nav holding three items reads as unfinished while costing the vertical space the ladder needs.
+    </p>
+
+    <div class="frame" style="margin-top:16px;background:var(--depth);">
+      <div class="frame-bar">
+        <span class="dot"></span><span>S2 · AFLW_Lobby_DetailPanel</span>
+        <span class="px">420 × auto @ 150%</span>
+      </div>
+      <div class="stage" id="s2-stage"
+           style="background:radial-gradient(700px 460px at 20% -20%,rgba(30,90,255,.20),transparent 62%),radial-gradient(520px 380px at 108% 116%,rgba(168,85,247,.13),transparent 60%),var(--depth);padding:28px;">
+        <div id="detail-blowup" style="width:420px;transform-origin:top left;"></div>
+      </div>
+    </div>
+
+    <div class="cards" style="margin-top:16px;">
+      <div class="card">
+        <h4>Every figure is prefixed ~</h4>
+        <p>The ladder is a generating rule solved per exact field size, and the field is not final until the
+           match starts. A hard number here would be the same class of promise R20 forbids on the stake band.</p>
+      </div>
+      <div class="card">
+        <h4>The min-cash row is marked</h4>
+        <p>1.40× is an <em>input</em> to the solve, not an outcome of it — and it is the number a player uses
+           to decide whether cashing is worth playing for.</p>
+      </div>
+      <div class="card">
+        <h4>Three payout shapes, one rule</h4>
+        <p><strong>Match Play</strong> has two positions however many players are in it, so
+           <code>ceil(0.15 × 2) = 1</code> — always winner-takes-all at 1.90×. <strong>BR Squad</strong> is nine
+           positions, under ten, so also 1 paid, at 8.55×. <strong>BR Solo</strong> is 36, so 6 paid, topping at
+           13.29×. No mode flag decides any of it.</p>
+      </div>
+      <div class="card">
+        <h4>The dead Payouts tab is gone</h4>
+        <p>§16.7 disabled it because TURBO had no placement basis to key on. Match Play has one — a single
+           winner-takes-all row. <strong>Defined content, not empty</strong>, so the tab is live under both
+           rulesets and the open question closes itself.</p>
+      </div>
+      <div class="card">
+        <h4>The first axis belongs to the ruleset</h4>
+        <p>Match Play offers <strong>FORMAT</strong> — 1v1 · 3v3 · 5v5 · 8v8, the experiences that exist.
+           Battle Royale offers <strong>SQUAD SIZE</strong> — Solo · Duo · Squad. Options are read off the live
+           queues, so the axis can never offer something the matchmaker has no queue for. R19 still holds: both
+           axes stay operable at once, only the option set changes.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ARITHMETIC FLAG ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-id">⚠</span>
+      <h2>Corrections this render forced</h2>
+      <span class="sec-sub">found by running the code and the rule instead of copying the docs</span>
+    </div>
+
+    <div class="flag-card" style="margin-top:16px;">
+      <h4>0 · The ruleset tabs named two things, and neither one existed</h4>
+      <p><strong>TURBO has zero code and zero assets.</strong> Every one of the 18 matches for "turbo" in the
+         tree is <code>WITH_LIBJPEGTURBO</code> — an engine define — or a Tripo model name. There is no timed
+         match structure, no kill-ratio scoring, nothing. <code>match-modes.md §3.3</code> says so itself, in
+         the words <em>"intended shape"</em>. It was never built.</p>
+      <p><strong>SHOOTOUT has zero code either</strong> — and the giveaway is the asset:
+         <code>EXP_AFL_Duel01_Shootout.uasset</code> attaches <code>AFLBattleRoyaleComponent</code> and nothing
+         else. The thing the tab row called SHOOTOUT <em>is</em> Battle Royale, wearing a poker name.</p>
+      <p><strong>Two match-structure components exist.</strong> <code>UAFLRoundManagerComponent</code> — two
+         teams, first to 7 of max 13 — and <code>UAFLBattleRoyaleComponent</code> — N participants, last
+         standing, placement 1..N. (A third, <code>UAFLDeathmatchRankComponent</code>, is named as a sibling in
+         the BR header's own comment and <strong>is not on disk</strong>. That comment is stale too.)</p>
+      <p><strong>So the worst part was not the dead tab.</strong> The round manager is the most-built mode in
+         the game — six experiences at 3v3, 4v4, 5v5 ×2 leagues and 8v8 ×2 leagues — and the old tab row
+         <strong>gave it no way to be queued at all</strong>. One tab pointed at a mode with no name of its
+         own; the other pointed at nothing. Renaming to <strong>MATCH PLAY</strong> and
+         <strong>BATTLE ROYALE</strong> is what makes the layout addressable, not just accurate.</p>
+    </div>
+
+    <div class="cards" style="margin-top:12px;">
+      <div class="flag-card">
+        <h4>1 · The S2 example sat on an illegal field size — fixed</h4>
+        <p>§4's ASCII showed a <strong>10-position</strong> field. <code>economy-store.md §5.2</code> names
+           <strong>10, 14, 21, 27 and 34</strong> as the paid-places thresholds and rules that
+           <em>no queue may sit at a field size where the threshold straddles it</em>. The example sat on one.</p>
+        <p>Re-cut onto <strong>BR_36</strong>, a field size the project actually builds: 36 players resolves to
+           36 solo / <strong>18 duo</strong> / 9 squad positions. None is a threshold, and all three appear in
+           §5.2's own spot-check table — so every figure on this page is independently checkable. The handoff's
+           §4 now carries the corrected ladder and the reason.</p>
+      </div>
+      <div class="flag-card">
+        <h4>2 · A pre-R40 multiple was still in the SSOT — fixed</h4>
+        <p>§4 showed <code>1st ~56% ~5.36×</code> at 10 positions. The rule gives <strong>8.10×</strong> there,
+           and <code>§5.3</code>'s own delta table already said <code>9 → 10 · 8.55× → 8.10×</code>. The
+           <code>5.36×</code> traced to a sentence at <code>economy-store.md:240</code> — a
+           <strong>30%-depth figure that survived the R40 amendment</strong>.</p>
+        <p>Line 240 is corrected. Two neighbouring claims went with it: the block called 9→10 a <em>cliff</em>
+           when at <strong>−5.3% it is the mildest of the five</strong> (the ones that bite are 14, 21, 27, 34 at
+           17–23%), and it credited the N=10 threshold to <code>ceil(0.15 × N)</code> incrementing, which it does
+           not — <strong>10 is where the small-field clause hands off</strong>, one paid place becoming two.</p>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:16px;">
+      <strong>Working assumptions, flagged not hardened.</strong> Rake <code>k = 5%</code> is §16.5's working
+      assumption, not a ruling — every V figure on this page moves if it changes. The four stake presets are
+      §16.1 placeholders. Team payouts are shown as <code>× stake</code>: entry and payout both scale with team
+      size, so <code>× stake</code> reads the same per-player as per-position under an even split.
+      <br><br>
+      <strong>The naming is now a ruling, not a proposal.</strong> <strong>R41</strong> landed across eight
+      documents: SHOOTOUT → BATTLE ROYALE is a rename only; <strong>TURBO is parked</strong>, its design kept in
+      full at <code>match-modes.md</code> §9.7 along with the payout gap that is the real reason it cannot ship
+      — it produces <em>no finishing positions</em>, and a ruleset that cannot be paid cannot be staked. MATCH
+      PLAY took the second slot and is <strong>not TURBO renamed</strong>. R1, R7, R13 and R36 were amended in
+      place. <strong>Docs only</strong> — no asset or C++ identifier was renamed, so
+      <code>EXP_AFL_Duel01_Shootout.uasset</code> still carries the old word while attaching the BR component.
+      <br><br>
+      <strong>Extraction is not a third tab — it is one of Match Play's two round-win routes.</strong> The round
+      manager resolves a round on <em>wiping the enemy team OR completing a central-extract bank</em>, so
+      extraction is inside the ruleset's definition, not layered over it. It appears in the Rules tab where it
+      belongs. <em>(An earlier draft of this page called it an objective layer. Reading the component corrected
+      that — and it also surfaced a question the economy SSOT does not close: whether banking a round win earns
+      at all, and how that relates to the extraction run. Flagged there, not answered here.)</em>
+    </p>
+  </section>
+
+  <!-- ================= TOKENS ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-id">§8</span>
+      <h2>Tokens as used</h2>
+      <span class="sec-sub">hex is for mockups; linear RGB is authoritative</span>
+    </div>
+
+    <div class="swatches" style="margin-top:16px;">
+      <div class="sw">
+        <div class="chip" style="background:#1E5AFF;box-shadow:0 0 22px -4px rgba(30,90,255,.95);"></div>
+        <span class="nm">UI.House.Electric · #1E5AFF</span>
+        <span class="rl">LEAD, and now the <strong>only</strong> blue on these screens. Fills, active states,
+          every edge, every glow, the inactive tab and the unselected preset digits.</span>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background:linear-gradient(90deg,rgba(30,90,255,.40),rgba(30,90,255,.70) 50%,rgba(30,90,255,.95));box-shadow:0 0 18px -3px rgba(30,90,255,.75);"></div>
+        <span class="nm">Neon edging · Electric at 40 / 70 / 95%</span>
+        <span class="rl">Unlit tube · structural rail · lit segment. One hue, three burns — which is how the
+          screen gets depth without a second colour.</span>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background:transparent;box-shadow:inset 0 0 0 2px #A855F7;"></div>
+        <span class="nm">UI.House.Violet · #A855F7</span>
+        <span class="rl">ACCENT ONLY. Focus rim, hover edge, CTA halo. Never a fill, never text — shown here
+          as a rim for that reason.</span>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background:#05080F;"></div>
+        <span class="nm">UI.House.Black · #05080F</span>
+        <span class="rl">Panel depth and list backing. The ground both radials sit on.</span>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background:#05080F;box-shadow:inset 0 0 0 1px #00ADFF;position:relative;">
+          <span style="display:block;height:100%;background:linear-gradient(135deg,transparent 46%,#00ADFF 46%,#00ADFF 54%,transparent 54%);opacity:.8;"></span>
+        </div>
+        <span class="nm">UI.House.Blue · #00ADFF · REMOVED</span>
+        <span class="rl">Was tertiary here. Struck from the lobby — it is the <strong>free base identity</strong>,
+          and identity has no business in chrome.</span>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background:#05080F;box-shadow:inset 0 0 0 40px rgba(255,255,255,.12),inset 0 0 0 1px rgba(30,90,255,.70),0 0 16px -4px rgba(30,90,255,.5);"></div>
+        <span class="nm">Glass.Bg.Primary · 12% + neon edge</span>
+        <span class="rl">Detail panel and metric cards, blur 28px. The border token moved from white-20% to
+          Electric — glass still, but lit at the seam.</span>
+      </div>
+      <div class="sw">
+        <div class="chip" style="background:#05080F;box-shadow:inset 0 0 0 40px rgba(255,80,80,.15),inset 0 0 0 1px rgba(255,80,80,.5);"></div>
+        <span class="rl" style="order:3;">Glass.Tint.Danger. Appears once — the stake field when the value falls
+          outside every band. Semantic, and separate from the accent.</span>
+        <span class="nm">Glass.Tint.Danger · rgba(255,80,80,.15)</span>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:16px;">
+      <strong>One blue, three burns.</strong> House Blue <code>#00ADFF</code> is out; Electric
+      <code>#1E5AFF</code> took its tertiary job. The inactive tab and the unselected preset digits are now
+      Electric with a neon bloom rather than a second hue — a tube reads dim because it is turned down, not
+      because it is a different colour. Every structural edge on the screen is Electric at
+      <strong>40% (unlit) · 70% (rail) · 95% (lit segment)</strong>: header foot and commit head are rails, the
+      ruleset baseline is unlit tube with the active tab as its lit segment, metric cards carry a filament along
+      the top edge only, and the detail panel is the one element with a full outline — because it is the focused
+      object and the edge is what says so.
+      <br><br>
+      <strong>Two places deliberately stay unlit.</strong> The <em>min-cash row</em> is ringed in neutral white,
+      not neon — it marks a threshold, and the brand's lit edge would read as "best", which is the opposite of
+      what that row means. The <em>danger tint</em> on an out-of-band stake is semantic and stays red; semantic
+      colour is not the accent.
+      <br><br>
+      <strong>The blend law survives the change.</strong> Electric is core, fill, edge and glow; Violet is rim,
+      focus and hover, and never touches readable core, fill or text. The rim is size-gated on at ≥64px and
+      core-dominant at ≤32px — and <strong>nothing in this lobby is 64px</strong>, so
+      <strong>violet appears nowhere at rest</strong>. Hover the QUEUE button or tab into any control to see it.
+      Adding the neon edging did not change that: the edging is Electric, so the accent stayed reserved.
+      <br><br>
+      <strong>Chrome is not identity — and that is why House Blue had to go.</strong> Three distinct blues exist
+      with three distinct owners: Volts <code>#1E5AFF</code>, the <em>free base identity</em>
+      <code>#00ADFF</code>, and the <em>house default identity</em> <code>#5090FF</code>. Spending the free base
+      identity's hue on inactive chrome is exactly the collision the style SSOT calls the classic failure here,
+      and it is invisible on any single screen. Any per-player colour must resolve through the identity registry,
+      never from this table.
+      <br><br>
+      <strong>One contrast trade, stated rather than hidden.</strong> Electric on the black ground measures
+      <span class="mono">3.75:1</span> — under AA for 14px text. It is used for text in exactly two places, both
+      <em>inactive</em> states, where the lit edge and the fill carry the signal and the glyph is not the thing
+      being read. Every active and every readable value is white at <span class="mono">18:1</span>.
+      <br><br>
+      <strong>Type.</strong> Display is Bahnschrift, a DIN 1451 derivative; data is Cascadia Mono falling back to
+      Consolas; body is Segoe UI Variable. All three ship with Windows, so the target machine renders the intended
+      faces without a webfont — which the artifact CSP would block anyway.
+    </p>
+  </section>
+
+  <footer class="credits">
+    <span>Source · <span class="mono">Docs/design/IRONICS_LOBBY_UX_HANDOFF.md</span></span>
+    <span>Tokens · <span class="mono">Docs/design/IRONICS_UI_STYLE_SSOT.md §2–§3</span></span>
+    <span>Payout rule · <span class="mono">Docs/ssot/economy-store.md §5.2</span></span>
+    <span>S3 · S4 · S5 · S6 · S7 · S8 not built — S1 and S2 only</span>
+  </footer>
+
+</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ======================================================================
+     THE GENERATING RULE — economy-store.md 5.2
+     Nothing below is a typed-in payout figure. Everything is solved.
+     ==================================================================== */
+  var RAKE = 0.05;      // 16.5 WORKING ASSUMPTION, not a ruling
+  var MIN_CASH = 1.4;   // M, fixed, in stake units — an INPUT to the solve
+
+  function paidPlaces(N){ return N < 10 ? 1 : Math.ceil(0.15 * N); }
+
+  function solveRatio(p, B){
+    // M * (r^p - 1)/(r - 1) = B, solve r > 1. Monotone increasing in r, so bisect.
+    var f = function(r){ return MIN_CASH * (Math.pow(r, p) - 1) / (r - 1); };
+    var lo = 1 + 1e-9, hi = 64;
+    for (var i = 0; i < 200; i++){
+      var m = (lo + hi) / 2;
+      if (f(m) < B) { lo = m; } else { hi = m; }
+    }
+    return (lo + hi) / 2;
+  }
+
+  function ladderFor(positions, entryV){
+    var p = paidPlaces(positions);
+    var B = positions * (1 - RAKE);              // budget, in stake units
+    var pool = Math.round(positions * entryV * (1 - RAKE));
+    var mult = [];
+    if (p === 1){
+      mult = [B];                                 // no ratio to solve
+    } else {
+      var r = solveRatio(p, B);
+      for (var i = 0; i < p; i++){ mult.push(MIN_CASH * Math.pow(r, i)); }
+      mult.reverse();                             // index 0 = 1st place
+    }
+    var v = mult.map(function(m){ return Math.round(m * entryV); });
+    var sum = v.reduce(function(a,b){ return a + b; }, 0);
+    v[0] += (pool - sum);                          // reconcile rounding into 1st
+    return { paid:p, pool:pool, mult:mult, v:v, positions:positions, entry:entryV };
+  }
+
+  /* ======================================================================
+     DATA — THE TWO RULESETS THAT ACTUALLY EXIST AS CODE.
+
+       MATCH PLAY    = UAFLRoundManagerComponent   (2 teams, first to 7 of max 13)
+       BATTLE ROYALE = UAFLBattleRoyaleComponent   (N participants, last standing,
+                                                    placement 1..N)
+
+     There is no third. SHOOTOUT and TURBO have zero code references between them;
+     EXP_AFL_Duel01_Shootout.uasset attaches AFLBattleRoyaleComponent, so the thing
+     the old tab row called SHOOTOUT was Battle Royale wearing a poker name, and
+     TURBO was nothing at all.
+
+     THE PAYOUT CONSEQUENCE IS NOT A CHOICE — IT FALLS OUT OF R37. Paid places key
+     on FINISHING POSITIONS. Match Play has exactly TWO positions regardless of how
+     many players are in it, so ceil(0.15 x 2) = 1 and it is winner-takes-all with
+     no mode flag. Battle Royale has N, so it scales. Same rule, two shapes.
+     ==================================================================== */
+  var RULESETS = {
+    MATCHPLAY: {
+      label:'MATCH PLAY',
+      component:'UAFLRoundManagerComponent',
+      axis:'FORMAT',
+      axisAria:'Team format',
+      note:'Two teams · first to 7 rounds · best of 13 · sides swap at half',
+      rules:[
+        ['HOW IT ENDS','A team reaches <b>7 round wins</b>. Best of 13, so the series is <b>bounded</b> — it cannot run long.'],
+        ['ROUND WIN','<b>Wipe the enemy team, or complete the central extract bank.</b> Two routes — a team behind on the fight can still take the round on the objective.'],
+        ['ROUND TIMER','Bounded per round. On expiry: <b>higher banked progress → core-holder → no-score replay.</b>'],
+        ['RESPAWN','<b>Between rounds, never within one.</b> Death costs the round, not the match.'],
+        ['SIDES','<b>Swapped at half.</b> A map advantage held by one side is held by both.'],
+        ['WARMUP','30s, once, before the series. <b>Not per round</b> — the round reset is a countdown, not a warmup.']
+      ],
+      queues:[
+        {id:'mp5v5', size:'5v5', team:5, positions:2, stake:450, band:'400–500 V', pop:312, wait:'~20s', cold:false},
+        {id:'mp8v8', size:'8v8', team:8, positions:2, stake:450, band:'400–500 V', pop:188, wait:'~35s', cold:false},
+        {id:'mp3v3', size:'3v3', team:3, positions:2, stake:450, band:'400–500 V', pop:96,  wait:'~15s', cold:false},
+        {id:'mp1v1', size:'1v1', team:1, positions:2, stake:450, band:'400–500 V', pop:44,  wait:'~30s', cold:false}
+      ]
+    },
+    BR: {
+      label:'BATTLE ROYALE',
+      component:'UAFLBattleRoyaleComponent',
+      axis:'SQUAD SIZE',
+      axisAria:'Squad size',
+      note:'Last standing · no timer · no respawn · zone closes',
+      rules:[
+        ['HOW IT ENDS','One participant or squad remains. It resolves the instant the alive-count reaches the survivor threshold. <b>No timer.</b>'],
+        ['RESPAWN','<b>Suppressed for the match.</b> You are in until you are out.'],
+        ['WARMUP','30s. Weapons and movement abilities are blocked; walking and looking are not.'],
+        ['ZONE','The playable area shrinks. It exists to force last-standing to resolve, not as decoration.']
+      ],
+      queues:[
+        {id:'brsquad', size:'Squad', team:4, players:36, stake:450,  band:'400–500 V', pop:210, wait:'~25s', cold:false},
+        {id:'brsolo',  size:'Solo',  team:1, players:36, stake:450,  band:'400–500 V', pop:142, wait:'~15s', cold:false},
+        {id:'brduo',   size:'Duo',   team:2, players:36, stake:450,  band:'400–500 V', pop:88,  wait:'~40s', cold:false},
+        {id:'brduohi', size:'Duo',   team:2, players:36, stake:1000, band:'1000+ V',   pop:6,   wait:'— quiet', cold:true}
+      ]
+    }
+  };
+
+  Object.keys(RULESETS).forEach(function(k){
+    var rs = RULESETS[k]; rs.id = k;
+    rs.queues.forEach(function(q){
+      q.rs = k;
+      if (q.positions == null) q.positions = q.players / q.team;   // BR: field ÷ squad size
+      q.entry = q.stake * q.team;                                  // one position's entry
+      q.ladder = ladderFor(q.positions, q.entry);
+    });
+    rs.queues.sort(function(a,b){ return b.pop - a.pop; });
+    rs.pop = rs.queues.reduce(function(a,q){ return a + q.pop; }, 0);
+  });
+
+  function RS(){ return RULESETS[state.ruleset]; }
+  function QUEUES(){ return RS().queues; }
+
+  // 16.1 PLACEHOLDER tiers — not a ruling
+  var BANDS = [
+    { lo:90,   hi:150,      label:'90–150 V'  },
+    { lo:200,  hi:300,      label:'200–300 V' },
+    { lo:400,  hi:500,      label:'400–500 V' },
+    { lo:1000, hi:Infinity, label:'1000+ V'   }
+  ];
+  function bandFor(v){
+    for (var i = 0; i < BANDS.length; i++){
+      if (v >= BANDS[i].lo && v <= BANDS[i].hi) return BANDS[i];
+    }
+    return null;
+  }
+
+  var state = { ruleset:'MATCHPLAY', selected:'mp5v5', stake:450, size:'5v5', tab:'overview' };
+
+  var fmt = function(n){ return n.toLocaleString('en-US'); };
+  var el  = function(id){ return document.getElementById(id); };
+
+  /* ======================================================================
+     QUEUE LIST
+     ==================================================================== */
+  function popBar(pop, cold){
+    var lit = pop >= 200 ? 4 : pop >= 120 ? 3 : pop >= 50 ? 2 : 1;
+    var out = '';
+    for (var i = 0; i < 4; i++){
+      var cls = i < lit ? (cold ? 'hollow' : 'on') : '';
+      out += '<i class="' + cls + '"></i>';
+    }
+    return out;
+  }
+
+  function renderRows(){
+    var host = el('queue-rows');
+    host.innerHTML = '';
+    QUEUES().forEach(function(q){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'row';
+      b.setAttribute('aria-pressed', String(q.id === state.selected));
+      b.setAttribute('data-cold', String(q.cold));
+      b.innerHTML =
+        '<span class="q"><b>' + q.size + '</b><span class="sep">·</span>' +
+          '<span class="bandv">' + q.band + '</span></span>' +
+        '<span class="pop"><span class="n">' + q.pop + '</span><span class="bar">' + popBar(q.pop, q.cold) + '</span></span>' +
+        '<span class="wait' + (q.cold ? ' quiet' : '') + '">' + q.wait + '</span>';
+      b.addEventListener('click', function(){
+        state.selected = q.id;
+        state.size = q.size;
+        state.stake = q.stake;
+        syncAxes();
+        renderRows();
+        renderDetail();
+        renderCommit();
+      });
+      host.appendChild(b);
+    });
+    el('list-foot').textContent =
+      QUEUES().length + ' queues · sorted by population · ' + RS().component;
+  }
+
+  function current(){
+    var qs = QUEUES();
+    for (var i = 0; i < qs.length; i++){ if (qs[i].id === state.selected) return qs[i]; }
+    return qs[0];
+  }
+
+  /* ======================================================================
+     S2 DETAIL PANEL — one builder, rendered twice
+     ==================================================================== */
+  var PLACE = ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
+
+  function panelHTML(q){
+    var L = q.ladder;
+    var tabs = [
+      { id:'overview', label:'Overview' },
+      { id:'payouts',  label:'Payouts'  },
+      { id:'rules',    label:'Rules'    }
+    ];
+    var tabHTML = tabs.map(function(t){
+      return '<button class="p-tab" role="tab" type="button" data-tab="' + t.id + '" ' +
+             'aria-selected="' + (state.tab === t.id) + '">' + t.label + '</button>';
+    }).join('');
+
+    var rs = RS();
+    var isMP = rs.id === 'MATCHPLAY';
+    var field = isMP ? (q.team * 2) + ' players · ' + q.size : q.players + ' players';
+
+    var body = '';
+    if (state.tab === 'overview'){
+      body =
+        '<div class="venue"><span class="flag">⚑</span> venue assigned at match start</div>' +
+        '<div class="ruleline">' +
+          '<span class="blocklab">RULESET</span>' +
+          '<span>' + rs.note + '</span>' +
+          '<span>Warmup <b>30s</b></span>' +
+          '<span>Field <b>' + field + '</b> · <b>' + L.positions + ' finishing position' + (L.positions === 1 ? '' : 's') + '</b></span>' +
+        '</div>' +
+        '<div class="ruleline">' +
+          '<span class="blocklab">PAYOUT</span>' +
+          '<span>' + (L.paid === 1
+             ? '<b>Winner takes all</b> — ' + (isMP
+                 ? 'two positions, so ceil(0.15 × 2) = 1'
+                 : L.positions + ' positions is under ten')
+             : '<b>' + L.paid + ' of ' + L.positions + '</b> positions paid · min cash <b>1.40×</b>') + '</span>' +
+        '</div>';
+    } else if (state.tab === 'payouts'){
+      if (L.paid === 1){
+        body =
+          '<div class="wta"><b>Winner takes all.</b> ' + (isMP
+            ? 'A team mode has exactly <b>two</b> finishing positions no matter how many players are in it, so ' +
+              'paid places resolves to one.'
+            : L.positions + ' finishing positions is fewer than ten, so paid places resolves to one and the ' +
+              'whole budget goes to first.') +
+            ' No mode flag — it falls out of <span class="num">ceil(0.15 × ' + L.positions + ')</span>.</div>' +
+          '<div class="ladder">' +
+            '<div class="lad-head"><span>PLACE</span><span></span><span class="r">~ PAYOUT</span><span class="r">~ ×</span></div>' +
+            '<div class="lad-row mincash"><span class="pl">1st</span><span class="share">100% of pool</span>' +
+              '<span class="pay r">' + fmt(L.v[0]) + ' V</span>' +
+              '<span class="mult r">' + L.mult[0].toFixed(2) + '×</span></div>' +
+          '</div>' +
+          '<div class="mincash-tag"><i>◄</i> first place is also min cash at p = 1</div>';
+      } else {
+        var rows = '';
+        for (var i = 0; i < L.paid; i++){
+          var isMin = (i === L.paid - 1);
+          var share = (L.v[i] / L.pool * 100);
+          rows +=
+            '<div class="lad-row' + (isMin ? ' mincash' : '') + '">' +
+              '<span class="pl">' + PLACE[i] + '</span>' +
+              '<span class="share">~' + share.toFixed(1) + '% of pool</span>' +
+              '<span class="pay r">' + fmt(L.v[i]) + ' V</span>' +
+              '<span class="mult r">' + L.mult[i].toFixed(2) + '×</span>' +
+            '</div>';
+        }
+        body =
+          '<div class="ladder">' +
+            '<div class="lad-head"><span>PLACE</span><span></span><span class="r">~ PAYOUT</span><span class="r">~ × STAKE</span></div>' +
+            rows +
+          '</div>' +
+          '<div class="mincash-tag"><i>◄</i> ' + PLACE[L.paid - 1] + ' is min cash — 1.40×, fixed as an input</div>';
+      }
+      body +=
+        '<div class="est">Estimated. The ladder is solved for the exact field size and the field is not final ' +
+        'until the match starts. Rake 5% is a working assumption.</div>';
+    } else {
+      body =
+        '<div class="venue"><span class="flag">⚑</span> venue assigned at match start</div>' +
+        rs.rules.map(function(r){
+          return '<div class="ruleline"><span class="blocklab">' + r[0] + '</span><span>' + r[1] + '</span></div>';
+        }).join('');
+    }
+
+    var b = bandFor(q.stake);
+    return '' +
+      '<div class="panel">' +
+        '<div class="p-head">' +
+          '<div class="p-title"><span class="z">⚡</span><b>' + rs.label + ' · ' + q.size.toUpperCase() + '</b>' +
+            '<button class="p-close" type="button" aria-label="Close">✕</button></div>' +
+          '<div class="p-band">' + (b ? b.label : q.band) + ' band</div>' +
+          '<div class="p-acts"><button class="btn" type="button">Back</button>' +
+            '<button class="btn lead" type="button">Queue</button></div>' +
+        '</div>' +
+        '<div class="metrics">' +
+          '<div class="metric"><span class="lab">STAKE</span><span class="val">' + fmt(q.stake) + ' V</span>' +
+            '<span class="sub">band ' + (b ? b.label.replace(' V','') : '—') + '</span></div>' +
+          '<div class="metric pool"><span class="lab">PRIZE POOL</span><span class="val">~' + fmt(L.pool) + ' V</span>' +
+            '<span class="sub">est. ' + L.positions + ' position' + (L.positions === 1 ? '' : 's') + '</span></div>' +
+          '<div class="metric"><span class="lab">PLAYERS</span><span class="val">' + q.pop + ' waiting</span>' +
+            '<span class="sub">' + L.paid + ' paid</span></div>' +
+        '</div>' +
+        '<div class="p-tabs" role="tablist" aria-label="Queue detail">' + tabHTML + '</div>' +
+        '<div class="p-body">' + body + '</div>' +
+      '</div>';
+  }
+
+  function wireTabs(host){
+    Array.prototype.forEach.call(host.querySelectorAll('.p-tab'), function(t){
+      t.addEventListener('click', function(){
+        state.tab = t.getAttribute('data-tab');
+        renderDetail();
+      });
+    });
+  }
+
+  function renderDetail(){
+    var q = current();
+    var html = panelHTML(q);
+
+    var inline = el('detail-slot');
+    inline.innerHTML = html;
+    wireTabs(inline);
+
+    var big = el('detail-blowup');
+    big.innerHTML = html;
+    wireTabs(big);
+    fitBlowup();
+  }
+
+  /* ======================================================================
+     AXES + COMMIT
+     ==================================================================== */
+  /* The first axis is rebuilt per ruleset — Match Play offers team formats, Battle
+     Royale offers squad sizes. Options come from the queues that actually exist, so
+     the axis can never offer something the matchmaker has no queue for (R18). */
+  function renderAxis(){
+    var rs = RS();
+    el('size-label').textContent = rs.axis;
+    var host = el('size-axis');
+    host.setAttribute('aria-label', rs.axisAria);
+    var seen = [], opts = [];
+    rs.queues.forEach(function(q){ if (seen.indexOf(q.size) < 0){ seen.push(q.size); opts.push(q); } });
+    opts.sort(function(a,b){ return a.team - b.team; });
+    host.innerHTML = opts.map(function(q){
+      return '<button class="size" type="button" data-size="' + q.size + '" aria-pressed="' +
+             (q.size === state.size) + '"><span class="rad"></span>' + q.size + '</button>';
+    }).join('');
+    Array.prototype.forEach.call(host.querySelectorAll('.size'), function(b){
+      b.addEventListener('click', function(){
+        state.size = b.getAttribute('data-size');
+        var match = null;
+        QUEUES().forEach(function(q){
+          if (q.size === state.size && q.stake === state.stake && !match) match = q;
+        });
+        if (!match) QUEUES().forEach(function(q){ if (q.size === state.size && !match) match = q; });
+        if (match){ state.selected = match.id; state.stake = match.stake; }
+        redraw();
+      });
+    });
+  }
+
+  function syncAxes(){
+    Array.prototype.forEach.call(document.querySelectorAll('#size-axis .size'), function(b){
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-size') === state.size));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#stake-presets .preset'), function(b){
+      b.setAttribute('aria-pressed', String(Number(b.getAttribute('data-stake')) === state.stake));
+    });
+    var f = el('stake-num');
+    if (document.activeElement !== f) f.value = String(state.stake);
+    renderBand();
+  }
+
+  function renderBand(){
+    var b = bandFor(state.stake);
+    var read = el('band-read');
+    var f = el('stake-num');
+    if (b){
+      read.textContent = 'matching ' + b.label;
+      read.removeAttribute('data-invalid');
+      f.removeAttribute('data-invalid');
+    } else {
+      read.textContent = 'outside all bands';
+      read.setAttribute('data-invalid','true');
+      f.setAttribute('data-invalid','true');
+    }
+    return b;
+  }
+
+  function renderCommit(){
+    var q = current();
+    var b = bandFor(state.stake);
+    var cta = el('cta');
+    var reason = el('cta-reason');
+    if (b){
+      cta.removeAttribute('disabled');
+      cta.innerHTML = 'QUEUE <span class="num">· ' + q.size + ' · ' + fmt(state.stake) + ' V · ' +
+                      (q.cold ? 'quiet' : q.wait) + '</span>';
+      reason.textContent = '';
+    } else {
+      cta.setAttribute('disabled','');
+      cta.innerHTML = 'QUEUE <span class="num">· ' + fmt(state.stake) + ' V</span>';
+      reason.textContent = fmt(state.stake) + ' V matches no band. Nearest is 400–500 V.';
+    }
+  }
+
+  function redraw(){ renderAxis(); syncAxes(); renderRows(); renderDetail(); renderCommit(); }
+
+  /* ---- ruleset tabs — BOTH LIVE. Switching re-scopes the axis, the list and the
+     payout shape, because all three are properties of the ruleset, not of the page. */
+  Array.prototype.forEach.call(document.querySelectorAll('#ruleset-tabs .tab'), function(t){
+    t.addEventListener('click', function(){
+      state.ruleset = t.getAttribute('data-rs');
+      var q = QUEUES()[0];                 // most populated queue in the new ruleset
+      state.selected = q.id; state.size = q.size; state.stake = q.stake;
+      Array.prototype.forEach.call(document.querySelectorAll('#ruleset-tabs .tab'), function(o){
+        o.setAttribute('aria-selected', String(o === t));
+      });
+      redraw(); placeInk();
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('#stake-presets .preset'), function(b){
+    b.addEventListener('click', function(){
+      state.stake = Number(b.getAttribute('data-stake'));
+      var match = null;
+      QUEUES().forEach(function(q){
+        if (q.size === state.size && q.stake === state.stake && !match) match = q;
+      });
+      if (match) state.selected = match.id;
+      redraw();
+    });
+  });
+
+  el('stake-num').addEventListener('input', function(e){
+    var raw = e.target.value.replace(/[^0-9]/g,'');
+    e.target.value = raw;
+    state.stake = raw === '' ? 0 : Number(raw);
+    Array.prototype.forEach.call(document.querySelectorAll('#stake-presets .preset'), function(b){
+      b.setAttribute('aria-pressed', String(Number(b.getAttribute('data-stake')) === state.stake));
+    });
+    renderBand();
+    renderCommit();
+  });
+
+  /* ---- ruleset tab underline: the lit segment of the tube ---- */
+  function placeInk(){
+    var t = document.querySelector('#ruleset-tabs .tab[aria-selected="true"]');
+    var ink = el('tab-ink');
+    if (!t) return;
+    ink.style.left  = t.offsetLeft + 'px';
+    ink.style.width = t.offsetWidth + 'px';
+    el('rs-note').textContent = RS().component;
+    Array.prototype.forEach.call(document.querySelectorAll('#ruleset-tabs .cnt'), function(c){
+      c.textContent = fmt(RULESETS[c.getAttribute('data-cnt')].pop);
+    });
+  }
+
+  /* ======================================================================
+     BOARD CONTROLS + FIT
+     ==================================================================== */
+  var fitOn = true;
+
+  function fitS1(){
+    var stage = el('s1-stage');
+    var scr = el('s1');
+    var w = scr.offsetWidth || 1280;
+    var h = 800;
+    // A zero-width stage means layout has not settled — commonly because the page is
+    // rendering in a panel that is not displayed yet. Scaling to 0 would then latch.
+    var avail = stage.clientWidth;
+    if (!avail) return;
+    var s = fitOn ? Math.min(1, avail / w) : 1;
+    var t = 'scale(' + s + ')';
+    if (scr.style.transform === t) return;      // idempotent: no write, no observer echo
+    scr.style.transform = t;
+    stage.style.height = (h * s) + 'px';
+    stage.style.overflowX = 'hidden';
+    el('s1-px').textContent = '1280 × 800' + (s < 0.999 ? '  ·  ' + Math.round(s * 100) + '%' : '');
+    placeInk();
+  }
+
+  function fitBlowup(){
+    var stage = el('s2-stage');
+    var big = el('detail-blowup');
+    if (!stage.clientWidth) return;
+    var avail = stage.clientWidth - 56;             // 28px padding each side
+    var s = Math.max(0.6, Math.min(1.5, avail / 420));
+    big.style.transform = 'scale(' + s + ')';
+    var inner = big.firstElementChild;
+    var h = inner ? inner.offsetHeight : 520;
+    var hh = (h * s + 56) + 'px';
+    if (stage.style.height !== hh) stage.style.height = hh;
+  }
+
+  // Both fits write a height onto the box they measure, so a ResizeObserver re-enters
+  // once. Convergence — not a timer — is what stops it: each fit skips the write when
+  // the value already matches, so the second pass changes no box and the observer goes
+  // quiet. The guard is only a same-tick re-entrancy stop and MUST clear synchronously:
+  // clearing it inside requestAnimationFrame latches it forever in a hidden or
+  // backgrounded tab, where rAF never fires.
+  var fitting = false;
+  function fitAll(){
+    if (fitting) return;
+    fitting = true;
+    try { fitS1(); fitBlowup(); }
+    finally { fitting = false; }
+  }
+
+  el('rgn-toggle').addEventListener('click', function(){
+    var on = this.getAttribute('aria-pressed') === 'true';
+    this.setAttribute('aria-pressed', String(!on));
+    el('s1').setAttribute('data-rgn', !on ? 'on' : 'off');
+    requestAnimationFrame(fitS1);
+  });
+
+  el('fit-toggle').addEventListener('click', function(){
+    fitOn = this.getAttribute('aria-pressed') !== 'true';
+    this.setAttribute('aria-pressed', String(fitOn));
+    fitS1();
+  });
+
+  window.addEventListener('resize', fitAll);
+
+  /* ---- boot ---- */
+  redraw();
+  fitAll();
+  requestAnimationFrame(fitAll);
+  window.addEventListener('load', fitAll);
+
+  // The page may first lay out inside a hidden panel, where every box measures 0.
+  // Observing the stages re-fits the instant they gain a real width.
+  if (typeof ResizeObserver === 'function'){
+    var ro = new ResizeObserver(fitAll);
+    ro.observe(el('s1-stage'));
+    ro.observe(el('s2-stage'));
+    ro.observe(document.querySelector('.wrap'));
+  }
+})();
+</script>
+
+</body></html>
