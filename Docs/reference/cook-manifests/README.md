@@ -8,28 +8,44 @@ keeping 9.5 GB of cooked output on disk**, and without re-cooking to find out.
 |---|---|---|---|---|
 | `cook_20260809_windows.csv` | Windows client, 2026-08-09 17:46 | 17,204 | 7,333 | 9,715 MB |
 | `cook_20260810_windows.csv` | Windows client, 2026-08-10 12:37 | 17,195 | 7,329 | 9,713 MB |
-| `cook_20260810b_windows.csv` | Windows client, 2026-08-10 late | 17,207 | 7,335 | 9,713 MB |
+| `cook_20260810b_windows.csv` | Windows client, 2026-08-10 late — **incremental** | 17,207 | 7,335 | 9,713 MB |
+| `cook_20260810c_windows.csv` | Windows client, 2026-08-10 later — **clean** | 17,199 | 7,331 | 9,713 MB |
 
 The **b** cook confirmed a claim the previous one had only made by reasoning: the Career hub's soft class
 pointer returns `W_ReplayBrowserScreen` and `W_ReplayListEntry` to the build after HOST's deprecation had
 removed their last referencer. 0 removed, 6 added, 0 errors. `W_ExperienceSelectionScreen` is still absent,
 so the deprecation held across a second cook rather than only the one that introduced it.
 
-⚠ **Two of those six additions are not ours, and they have now moved in both directions.**
-`ShooterMaps/.../L_Convolution_Blockout/{Gameplay,Layout}.uasset` **left** in the 08-09 → 08-10 diff and
-**came back** in 08-10 → 08-10b, with nothing in either change touching ShooterMaps.
+## ⚠ THE COOK IS NOT REPRODUCIBLE, AND THE VARIANCE REACHES AFL CONTENT
 
-**Do not read that as nondeterminism — there is a confound, and it is the first thing to test.** The 08-10
-cook ran into an *empty* `Saved/Cooked/Windows`; 08-10b ran *over* 08-10's tree. So the honest statement is
-that a cook over an existing tree did not produce the same set as a clean one, which if true matters more
-than randomness would: it means an incremental cook is not equivalent to the clean cook these manifests are
-compared against. Ruled out already: the map generated identically both times — same World Partition cells,
-same `GenerationHash` per cell — so the difference is in whether those two packages are *emitted*, not in
-how the level was built.
+**Two CLEAN cooks of the same content produced different package sets.** `08-10` and `08-10c` were both run
+into an emptied `Saved/Cooked/Windows` with the same command, and they disagree in both directions. Every
+run reported `Success - 0 error(s)`.
 
-**So when you take a manifest, note whether the tree was empty first.** Comparing a clean cook to an
-incremental one is not a like-for-like diff until this is settled. Tracked as its own ticket; not chased
-here because it is 2 packages of 7,335, neither of them AFL content, and both cooks reported 0 errors.
+| package | 08-09 | 08-10 (clean) | 08-10b (incr) | 08-10c (clean) |
+|---|:--:|:--:|:--:|:--:|
+| `L_ShantyTown/ExtraSpawn` | ✅ | ✅ | ✅ | **✗** |
+| `L_ShantyTown/Gameplay` | ✅ | ✅ | ✅ | **✗** |
+| `L_ShantyTown/Layout` | ✅ | ✅ | ✅ | **✗** |
+| `L_ShantyTown/Lighting` | ✅ | ✅ | ✅ | **✗** |
+| `L_ShantyTown/District_{Arena,Duel,Team}` | ✅ | ✅ | ✅ | ✅ |
+| `ShooterMaps L_Convolution/{Gameplay,Layout}` | ✅ | **✗** | ✅ | ✅ |
+
+`L_ShantyTown.umap` itself cooked in every run — **only DataLayer packages move.** An earlier note here
+blamed a clean-vs-incremental difference; that was wrong, and this table is what refuted it. The
+incremental run is the one that agreed with history.
+
+**Why it matters:** ShantyTown is the next BR map and its districts are streamed content. A build missing
+`Layout`/`Gameplay`/`Lighting` is a broken streaming setup that PIE will never reproduce, because in PIE
+every asset is on disk — the same shape as every cook-refs bug in `DefaultGame.ini`'s
+`DirectoriesToAlwaysCook` block. The dangerous direction is the one observed: **fewer packages, still
+"0 errors".**
+
+**Confound not yet excluded:** `08-10c` ran immediately after a cook killed by an out-of-memory abort. The
+partial tree was deleted before retrying, but the DerivedDataCache persisted.
+
+**So: diff every cook against a manifest before trusting it, and record whether a previous cook aborted.**
+Tracked as its own ticket with a three-step isolation plan.
 
 ⚠ **THE 08-09 TREE NO LONGER EXISTS.** Its manifest is the only surviving record of it. That is the
 point of this folder — the tree was 9.5 GB and was deleted after being measured, but the thing worth
