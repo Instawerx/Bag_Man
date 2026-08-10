@@ -214,7 +214,7 @@ struct FAFLLobbyQueue
  * therefore LEFT-ANCHORED: the first four fields are fixed, and everything after the fourth separator is
  * the bracket. Splitting from the right would work today and break the first time a tier is renamed.
  */
-struct AFLCOMBAT_API FAFLLobbyQueueId
+struct AFLGAMECORE_API FAFLLobbyQueueId
 {
 	static FString Compose(EAFLPlayTier Tier, EAFLLeague League, EAFLRuleset Ruleset,
 	                       EAFLVenueClass Venue, const FString& Bracket);

@@ -15,6 +15,11 @@ public class AFLCombatTests : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"AFLCombat",
+				// AFL.Lobby exercises FAFLLobbyQueueId (queue-id grammar) and FAFLLobbyQueue, which live in
+				// the ALWAYS-LOADED AFLGameCore rather than in AFLCombat -- the queue vocabulary sits beside
+				// the tier/league/ruleset enums the match result already carries, and the directory
+				// subsystem that produces it cannot live in an ExplicitlyLoaded GameFeature.
+				"AFLGameCore",
 				"GameplayAbilities",
 				"GameplayTags",
 				"GameplayMessageRuntime",

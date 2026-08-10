@@ -3,8 +3,9 @@
 #pragma once
 
 #include "CommonActivatableWidget.h"
+#include "Online/AFLLobbyTypes.h"
+#include "Online/AFLQueueDirectorySubsystem.h"
 #include "UI/AFLW_HomeScreen.h"
-#include "UI/Lobby/AFLLobbyTypes.h"
 
 #include "AFLW_Lobby_Root.generated.h"
 
@@ -81,9 +82,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAFLLobbySelectionChanged, const FAF
  * **It bands no stake.** R59 puts snapping on the server; §3 of the staked spec: *"The UI displays; it
  * never re-implements the rule."* `SetStakeBand` is a setter fed from the server, not a local computation.
  *
- * **It fetches nothing.** The queue set arrives through `SetQueueSet` -- the same setter-rather-than-guess
- * choice `UAFLW_HomeScreen::SetWalletReadout` made, and for the same reason: a widget that owns its own
- * HTTP is a widget that cannot be tested without a network.
+ * **It fetches nothing.** The queue set arrives through `SetQueueSet`, fed by
+ * `UAFLQueueDirectorySubsystem` -- which is where the two HTTP reads live, in the always-loaded module. The
+ * widget subscribes to a cached directory and asks it to refresh; it never issues a request itself, so it
+ * still renders from an injected set with no network at all.
  *
  * **It does not skip S4.** R22 makes TicketReview unskippable on a staked entry, so a staked commit raises
  * `OnTicketReviewRequested` and queues NOTHING. Only the league route -- which has no ticket to review,
@@ -214,6 +216,7 @@ public:
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeOnActivated() override;
+	virtual void NativeDestruct() override;
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
 
 	// ── WBP HOOKS ────────────────────────────────────────────────────────────────────────────────────
@@ -320,6 +323,15 @@ private:
 	UFUNCTION()
 	void HandleStakeTextChanged(const FText& Text);
 
+	/**
+	 * The directory settled. Pull whatever it honestly has -- including the population-unavailable case,
+	 * where the ladder still draws and every cell reads `Count unavailable` (league §7).
+	 */
+	void HandleDirectoryUpdated(EAFLQueueDirectoryState DirectoryState);
+
+	/** Subscribe once, pull what is already cached, and ask for a refresh. Safe with no subsystem present. */
+	void BindQueueDirectory();
+
 	void ApplyDoorScoping();
 	void RebuildAxisOptions();
 	void RebuildQueueList();
@@ -383,4 +395,7 @@ private:
 	UPROPERTY() int64 WattsBalance = INDEX_NONE;
 	UPROPERTY() int64 VoltsBalance = INDEX_NONE;
 	UPROPERTY() int32 OnlineCount = INDEX_NONE;
+
+	/** Held so the subscription is released in NativeDestruct -- the directory outlives every lobby screen. */
+	FDelegateHandle DirectoryHandle;
 };

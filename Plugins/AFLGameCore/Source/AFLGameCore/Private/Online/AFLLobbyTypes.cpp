@@ -1,6 +1,6 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
-#include "UI/Lobby/AFLLobbyTypes.h"
+#include "Online/AFLLobbyTypes.h"
 
 FString FAFLLobbyQueueId::Compose(EAFLPlayTier Tier, EAFLLeague League, EAFLRuleset Ruleset,
                                   EAFLVenueClass Venue, const FString& Bracket)

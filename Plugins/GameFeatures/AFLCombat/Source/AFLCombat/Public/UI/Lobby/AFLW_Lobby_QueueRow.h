@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CommonButtonBase.h"
-#include "UI/Lobby/AFLLobbyTypes.h"
+#include "Online/AFLLobbyTypes.h"
 
 #include "AFLW_Lobby_QueueRow.generated.h"
 

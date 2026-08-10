@@ -92,6 +92,69 @@ void UAFLW_Lobby_Root::NativeOnInitialized()
 	}
 
 	ApplyDoorScoping();
+	BindQueueDirectory();
+}
+
+void UAFLW_Lobby_Root::BindQueueDirectory()
+{
+	UAFLQueueDirectorySubsystem* Directory = UAFLQueueDirectorySubsystem::Get(this);
+	if (!Directory)
+	{
+		// Not an error worth logging every construct: the directory is a GameInstanceSubsystem, so this is
+		// null in a widget-preview or a test harness with no game instance. The screen still renders from
+		// whatever SetQueueSet is handed directly, which is exactly why that stayed public.
+		return;
+	}
+
+	if (!DirectoryHandle.IsValid())
+	{
+		DirectoryHandle = Directory->OnUpdated.AddUObject(this, &UAFLW_Lobby_Root::HandleDirectoryUpdated);
+	}
+
+	// Take what is already cached BEFORE asking for a refresh. Returning to this screen from a match or a
+	// cancelled queue should paint the ladder immediately rather than showing an empty list for a round
+	// trip -- the previous read is still the best answer we have until a newer one lands.
+	if (Directory->GetQueues().Num() > 0)
+	{
+		SetQueueSet(Directory->GetQueues());
+	}
+	Directory->Refresh();
+}
+
+void UAFLW_Lobby_Root::HandleDirectoryUpdated(EAFLQueueDirectoryState DirectoryState)
+{
+	UAFLQueueDirectorySubsystem* Directory = UAFLQueueDirectorySubsystem::Get(this);
+	if (!Directory)
+	{
+		return;
+	}
+
+	if (DirectoryState == EAFLQueueDirectoryState::Failed && Directory->GetQueues().Num() == 0)
+	{
+		// No ladder at all. The commit bar already states "No queue is open in this combination yet.", which
+		// is true but incomplete -- so say which of the two it is. §7: "Population unavailable" and "nothing
+		// is open" are different claims, and the one thing forbidden is presenting either as an empty lobby.
+		UE_LOG(LogAFLCombat, Error, TEXT("AFL_LOBBY: the queue directory could not be read -- no ladder to draw."));
+	}
+
+	SetQueueSet(Directory->GetQueues());
+}
+
+void UAFLW_Lobby_Root::NativeDestruct()
+{
+	// The directory is a GameInstanceSubsystem and outlives every lobby screen, so an unreleased handle is a
+	// subscription that survives the widget. AddUObject would not call into a dead object, but the entry
+	// stays on the invocation list for the life of the process, once per screen visit.
+	if (DirectoryHandle.IsValid())
+	{
+		if (UAFLQueueDirectorySubsystem* Directory = UAFLQueueDirectorySubsystem::Get(this))
+		{
+			Directory->OnUpdated.Remove(DirectoryHandle);
+		}
+		DirectoryHandle.Reset();
+	}
+
+	Super::NativeDestruct();
 }
 
 void UAFLW_Lobby_Root::NativeOnActivated()
@@ -103,6 +166,11 @@ void UAFLW_Lobby_Root::NativeOnActivated()
 	// is built. A door that scoped itself once would show the shape it had on first visit.
 	ApplyDoorScoping();
 	RefreshWalletChips();
+
+	// Ask the directory for a fresh read on every activation. Population is live product state and this
+	// screen is RETURNED to far more often than it is built -- a lobby showing the counts it had when the
+	// player left for a match is the stale-estimate failure §3.4 spent three subsections closing.
+	BindQueueDirectory();
 
 	// Reconcile before rebuilding: a bracket that was open when this screen was last left can have closed
 	// while the player was away, and league §7 rules that the selection moves to the first bracket still

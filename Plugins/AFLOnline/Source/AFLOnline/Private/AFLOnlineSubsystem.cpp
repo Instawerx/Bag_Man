@@ -607,6 +607,34 @@ FString UAFLOnlineSubsystem::PlayerApiBaseUrl() const
 	{
 		Url.LeftChopInline(1);   // callers pass "/match-status"; a trailing slash would make "//match-status"
 	}
+
+	// ⚠ A SCHEME WITH NO HOST IS REFUSED HERE, LOUDLY. Found 2026-08-10: an UNQUOTED ini value is truncated
+	// by UE's config parser at the `//` in `https://`, so this returned the six characters `https:`. That is
+	// non-empty, so every caller's "no api base url" guard passed, the client built `https:/match-status`,
+	// and libcurl reported `Could not resolve host: match-status` -- three layers from the config line that
+	// caused it, and only ever on the CONFIG path, which is the shipping one. The env var wins over config
+	// and was what every earlier test used, so the shipping path had never actually been exercised.
+	//
+	// The quotes in DefaultGame.ini fix the data. This fixes the DIAGNOSIS: returning empty routes a
+	// malformed URL into the callers' existing "set AFL_API_BASE_URL, or [AFL.Online] PlayerApiBaseUrl"
+	// message instead of into a DNS failure that names a path fragment as a hostname.
+	if (!Url.IsEmpty())
+	{
+		int32 SchemeEnd = INDEX_NONE;
+		const bool bHasScheme = Url.FindChar(TEXT(':'), SchemeEnd);
+		const bool bHasHost = bHasScheme
+			? Url.Mid(SchemeEnd + 1).Replace(TEXT("/"), TEXT("")).Len() > 0
+			: Url.Len() > 0;
+		if (!bHasHost)
+		{
+			UE_LOG(LogAFLOnline, Error,
+				TEXT("[AFLOnline] PlayerApiBaseUrl is '%s' -- a scheme with no host. If it came from "
+				     "DefaultGame.ini, QUOTE IT: PlayerApiBaseUrl=\"https://host\" -- unquoted, the ini "
+				     "parser truncates the value at the '//'."), *Url);
+			return FString();
+		}
+	}
+
 	return Url;
 }
 

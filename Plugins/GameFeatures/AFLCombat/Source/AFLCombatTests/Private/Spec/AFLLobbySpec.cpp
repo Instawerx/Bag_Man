@@ -17,7 +17,8 @@
 // the Spec variant does not auto-register in this module.
 
 #include "Misc/AutomationTest.h"
-#include "UI/Lobby/AFLLobbyTypes.h"
+#include "Online/AFLLobbyTypes.h"
+#include "Online/AFLQueueDirectorySubsystem.h"
 #include "UI/Lobby/AFLW_Lobby_QueueRow.h"
 #include "UI/Lobby/AFLW_Lobby_Root.h"
 
@@ -213,6 +214,163 @@ bool FAFLLobby_AbsencesNeverCollapse::RunTest(const FString&)
 		FAFLLobbyQueueId::PopulationStateFromWire(TEXT("draining")) == EAFLPopulationState::Unknown);
 	TestTrue(TEXT("an empty state is Unknown, not Cold"),
 		FAFLLobbyQueueId::PopulationStateFromWire(FString()) == EAFLPopulationState::Unknown);
+
+	return true;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════
+//  THE WIRE CONTRACT
+//
+//  The honesty rules are only as good as the parser feeding them. `playersMatching` and
+//  `estimatedWaitSeconds` are documented `number | null`, and a JSON reader that treats a null as a no-op
+//  leaves whatever was already in the variable — which for a default-constructed struct is 0. That single
+//  slip renders "we could not find out" as "nobody is there" on every unread cell, and it would look
+//  completely correct in a screenshot. These run the real parsers over captured bodies, no network.
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLLobby_QueuesResponseParses, "AFL.Lobby.Wire_QueuesResponseParses",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FAFLLobby_QueuesResponseParses::RunTest(const FString&)
+{
+	// Shaped exactly like GET /queues?includeUnpublished=true — one published Match Play cell, one
+	// unpublished BR cell (the live state today: no BR playlist ships), and one staked cell with rungs.
+	const FString Body = TEXT(R"JSON({
+	  "dimensions": { "totalCells": 3, "publishedCells": 2 },
+	  "queues": [
+	    { "queueId":"LeaguePlay_Haywire_MatchPlay_Arena_5v5", "tier":"LeaguePlay", "league":"Haywire",
+	      "ruleset":"MatchPlay", "venue":"Arena", "bracket":"5v5", "positions":2, "slots":10,
+	      "staked":false, "rated":false, "botsPermitted":true, "currency":null, "stakeRungs":[],
+	      "published":true, "mapPool":["L_Arena_04"] },
+	    { "queueId":"LeaguePlay_Haywire_BattleRoyale_Map_BR_36", "tier":"LeaguePlay", "league":"Haywire",
+	      "ruleset":"BattleRoyale", "venue":"Map", "bracket":"BR_36", "positions":36, "slots":36,
+	      "staked":false, "rated":false, "botsPermitted":true, "currency":null, "stakeRungs":[],
+	      "published":false, "mapPool":[] },
+	    { "queueId":"VoltsPlay_ProMod_MatchPlay_Arena_3v3", "tier":"VoltsPlay", "league":"ProMod",
+	      "ruleset":"MatchPlay", "venue":"Arena", "bracket":"3v3", "positions":2, "slots":6,
+	      "staked":true, "rated":true, "botsPermitted":false, "currency":"VO",
+	      "stakeRungs":[100,500,2500,10000], "published":true, "mapPool":["L_Arena_01"] }
+	  ]
+	})JSON");
+
+	TArray<FAFLLobbyQueue> Queues;
+	if (!TestTrue(TEXT("the body parses"), UAFLQueueDirectorySubsystem::ParseQueuesResponse(Body, Queues)))
+	{
+		return false;
+	}
+	if (!TestEqual(TEXT("all three cells survive, published and not"), Queues.Num(), 3))
+	{
+		return false;
+	}
+
+	// PUBLISHED starts Unknown — the cell exists and we have not read its population yet. NOT Cold.
+	TestTrue(TEXT("a published cell starts Unknown, not Cold"), Queues[0].State == EAFLPopulationState::Unknown);
+	TestTrue(TEXT("a published cell is selectable"), Queues[0].IsSelectable());
+	TestFalse(TEXT("a fresh cell has no count"), Queues[0].HasCount());
+
+	// UNPUBLISHED starts NotOpen — a fact about the CONTENT (R63), and it must still be in the array so the
+	// ladder can draw it disabled rather than hiding the unshipped half.
+	TestTrue(TEXT("an unpublished cell is NotOpen"), Queues[1].State == EAFLPopulationState::NotOpen);
+	TestFalse(TEXT("an unpublished cell is not selectable"), Queues[1].IsSelectable());
+	TestEqual(TEXT("the BR bracket keeps its underscore"), Queues[1].Bracket, FString(TEXT("BR_36")));
+	TestTrue(TEXT("the BR ruleset reads off the field, not the id"), Queues[1].Ruleset == EAFLRuleset::BattleRoyale);
+	TestEqual(TEXT("BR positions is the field size (R99)"), Queues[1].Positions, 36);
+
+	// LEAGUE cells carry NO rungs. stakeRungs for LeaguePlay returns [] — there is no buy-in to pick.
+	TestEqual(TEXT("a league cell publishes no stake rungs"), Queues[0].StakeRungs.Num(), 0);
+	TestEqual(TEXT("a Volts cell publishes four rungs (R69)"), Queues[2].StakeRungs.Num(), 4);
+	TestEqual(TEXT("the first Volts rung is 100"), Queues[2].StakeRungs[0], 100);
+	TestTrue(TEXT("the staked tier resolves"), Queues[2].Tier == EAFLPlayTier::VoltsPlay);
+	TestTrue(TEXT("staked is ProMod (R86)"), Queues[2].League == EAFLLeague::ProMod);
+
+	// A malformed body is refused rather than yielding a half-populated ladder.
+	TArray<FAFLLobbyQueue> Nothing;
+	TestFalse(TEXT("a non-JSON body is refused"),
+		UAFLQueueDirectorySubsystem::ParseQueuesResponse(TEXT("<html>502</html>"), Nothing));
+	TestFalse(TEXT("a body with no queues array is refused"),
+		UAFLQueueDirectorySubsystem::ParseQueuesResponse(TEXT(R"({"error":"registry invalid"})"), Nothing));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLLobby_PopulationOverlay, "AFL.Lobby.Wire_PopulationNullIsNotZero",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FAFLLobby_PopulationOverlay::RunTest(const FString&)
+{
+	const FString Ladder = TEXT(R"JSON({"queues":[
+	  { "queueId":"LeaguePlay_Haywire_MatchPlay_Arena_5v5", "tier":"LeaguePlay", "league":"Haywire",
+	    "ruleset":"MatchPlay", "venue":"Arena", "bracket":"5v5", "positions":2, "slots":10,
+	    "stakeRungs":[], "published":true, "mapPool":["L_Arena_04"] },
+	  { "queueId":"LeaguePlay_Haywire_MatchPlay_Arena_8v8", "tier":"LeaguePlay", "league":"Haywire",
+	    "ruleset":"MatchPlay", "venue":"Arena", "bracket":"8v8", "positions":2, "slots":16,
+	    "stakeRungs":[], "published":true, "mapPool":["L_Arena_04"] },
+	  { "queueId":"VoltsPlay_ProMod_MatchPlay_Arena_3v3", "tier":"VoltsPlay", "league":"ProMod",
+	    "ruleset":"MatchPlay", "venue":"Arena", "bracket":"3v3", "positions":2, "slots":6,
+	    "stakeRungs":[100,500], "published":true, "mapPool":["L_Arena_01"] }
+	]})JSON");
+
+	TArray<FAFLLobbyQueue> Queues;
+	if (!TestTrue(TEXT("the ladder parses"), UAFLQueueDirectorySubsystem::ParseQueuesResponse(Ladder, Queues)))
+	{
+		return false;
+	}
+
+	// Cell 1: live and fully reported. Cell 2: reported but UNREADABLE — both nullable fields are null, which
+	// classify() calls `unknown`. Cell 3: staked, with one live band and one stalled band on its OWN wait.
+	// A fourth entry names a cell the ladder does not have, which must be ignored rather than appended.
+	const FString Population = TEXT(R"JSON({"cells":[
+	  { "queueId":"LeaguePlay_Haywire_MatchPlay_Arena_5v5", "bracket":"5v5", "slots":10,
+	    "playersMatching":5, "estimatedWaitSeconds":20, "state":"live", "bands":[] },
+	  { "queueId":"LeaguePlay_Haywire_MatchPlay_Arena_8v8", "bracket":"8v8", "slots":16,
+	    "playersMatching":null, "estimatedWaitSeconds":null, "state":"unknown", "bands":[] },
+	  { "queueId":"VoltsPlay_ProMod_MatchPlay_Arena_3v3", "bracket":"3v3", "slots":6,
+	    "playersMatching":9, "estimatedWaitSeconds":38, "state":"live", "bands":[
+	      { "centre":100, "waiting":7, "estimatedWaitSeconds":38, "state":"live" },
+	      { "centre":500, "waiting":2, "estimatedWaitSeconds":null, "state":"stalled" } ] },
+	  { "queueId":"VoltsPlay_ProMod_BattleRoyale_Map_BR_20", "bracket":"BR_20", "slots":20,
+	    "playersMatching":3, "estimatedWaitSeconds":null, "state":"stalled", "bands":[] }
+	]})JSON");
+
+	const int32 Matched = UAFLQueueDirectorySubsystem::ApplyPopulationResponse(Population, Queues);
+	TestEqual(TEXT("only the three cells the ladder knows are matched"), Matched, 3);
+	TestEqual(TEXT("an unmatched reading never grows the ladder"), Queues.Num(), 3);
+
+	// A fully-reported cell carries its real numbers through.
+	TestTrue(TEXT("cell 1 is live"), Queues[0].State == EAFLPopulationState::Live);
+	TestEqual(TEXT("cell 1 count survives"), Queues[0].PlayersMatching, 5);
+	TestEqual(TEXT("cell 1 wait survives"), Queues[0].EstimatedWaitSeconds, 20);
+
+	// ⚠ THE ONE THAT MATTERS. Both nullable fields were JSON null. Had the parser let TryGetNumberField fail
+	// silently onto a default-constructed 0, this cell would render "0 waiting" — a claim that nobody is
+	// there, made about a queue we could not read at all.
+	TestTrue(TEXT("a null-reported cell is Unknown"), Queues[1].State == EAFLPopulationState::Unknown);
+	TestFalse(TEXT("a null count is NOT a count"), Queues[1].HasCount());
+	TestFalse(TEXT("a null wait is NOT an estimate"), Queues[1].HasEstimate());
+	TestNotEqual(TEXT("a null count is not zero"), Queues[1].PlayersMatching, 0);
+	TestFalse(TEXT("and it never renders as a number"),
+		UAFLW_Lobby_QueueRow::FormatPopulation(Queues[1]).ToString().IsNumeric());
+
+	// Bands: present on the staked cell, ABSENT on the league ones. Staked §5.1 — "bands that do not exist"
+	// and "bands that are empty" are different things and must not render alike.
+	TestEqual(TEXT("a league cell has no bands at all"), Queues[0].Bands.Num(), 0);
+	if (TestEqual(TEXT("the staked cell carries both rungs"), Queues[2].Bands.Num(), 2))
+	{
+		TestTrue(TEXT("the cheap rung is live"), Queues[2].Bands[0].State == EAFLPopulationState::Live);
+		// EVERY BAND ON ITS OWN MEASURED WAIT: the cell reads live at 38s while its 500 rung is stalled.
+		// Letting the band inherit the cell's number is the laundering §5.2 names.
+		TestTrue(TEXT("the dear rung is stalled on its OWN wait, not the cell's"),
+			Queues[2].Bands[1].State == EAFLPopulationState::Stalled);
+		TestFalse(TEXT("a stalled band quotes no estimate"), Queues[2].Bands[1].HasEstimate());
+		TestEqual(TEXT("the stalled band still reports its real count"), Queues[2].Bands[1].Waiting, 2);
+	}
+
+	// A population body we cannot read overlays nothing and leaves the ladder standing at Unknown.
+	TArray<FAFLLobbyQueue> Fresh;
+	UAFLQueueDirectorySubsystem::ParseQueuesResponse(Ladder, Fresh);
+	TestEqual(TEXT("a garbage population body matches nothing"),
+		UAFLQueueDirectorySubsystem::ApplyPopulationResponse(TEXT("<html>502</html>"), Fresh), 0);
+	TestEqual(TEXT("the ladder survives a failed population read"), Fresh.Num(), 3);
+	TestTrue(TEXT("and every cell reads Unknown rather than Cold"),
+		Fresh[0].State == EAFLPopulationState::Unknown && Fresh[2].State == EAFLPopulationState::Unknown);
 
 	return true;
 }
