@@ -73,6 +73,293 @@ bool UAFLGameLiftHostSubsystem::HasGameSessionData() const
 	return !GameSessionDataJson.IsEmpty();
 }
 
+// Everything below to the #else uses GameLift SDK TYPES, which exist only on a server target -- the module
+// is a server-only dependency and WITH_GAMELIFT is 0 everywhere else. The client build broke on exactly this
+// omission: EPlayerSessionStatus and FGameLiftServerSDKModule are undeclared there, and the errors cascade
+// from the first use rather than naming the real cause.
+#if WITH_GAMELIFT
+
+/**
+ * S12-E RESEARCH PROBE (scope doc §4.2). Answers ONE question that the reconnect design depends on and that
+ * cannot be answered from documentation with enough confidence to build on:
+ *
+ *     CAN A PLAYER SESSION THAT IS ALREADY `ACTIVE` BE ACCEPTED AGAIN BY A RETURNING CLIENT?
+ *
+ * The answer decides the whole reconnect path. If re-accept succeeds, a dropped player reconnects with the
+ * id they already hold and the client change is a retry. If it fails, the backend must mint a fresh session
+ * via CreatePlayerSession, which means a new endpoint AND a client-side reconnect flow -- a materially
+ * bigger piece of work. Guessing wrong means building the wrong one.
+ *
+ * It also answers the follow-up: can a session be accepted after RemovePlayerSession, or is removal
+ * terminal? That decides whether the grace window can safely release the slot early.
+ *
+ * ⚠ DESTRUCTIVE -- IT CONSUMES A REAL PLAYER SESSION. It accepts and then removes one of the placement's
+ * sessions, so the player holding that id can no longer join. NEVER enable it for a real match; it exists
+ * to be run against a throwaway placement with no humans connecting.
+ *
+ * Default OFF. Enable with -dpcvars=afl.GameLift.SessionProbe=1.
+ */
+static TAutoConsoleVariable<int32> CVarAFLGameLiftSessionProbe(
+	TEXT("afl.GameLift.SessionProbe"),
+	0,
+	TEXT("S12-E research: on game-session activation, exercise the player-session lifecycle and log every ")
+	TEXT("state transition. DESTRUCTIVE -- consumes a player session. Never enable for a real match."),
+	ECVF_Default);
+
+/** One describe, logged. Returns the status so the caller can assert transitions rather than eyeball them. */
+static EPlayerSessionStatus ProbeDescribeOne(FGameLiftServerSDKModule& Mod, const FString& PlayerSessionId, const TCHAR* Stage)
+{
+	FGameLiftDescribePlayerSessionsRequest Req;
+	Req.m_playerSessionId = PlayerSessionId;
+	Req.m_limit = 1;
+
+	const FGameLiftDescribePlayerSessionsOutcome Out = Mod.DescribePlayerSessions(Req);
+	if (!Out.IsSuccess())
+	{
+		UE_LOG(LogAFLGameCore, Error, TEXT("AFL_PROBE: [%s] describe FAILED -- %s"),
+			Stage, *Out.GetError().m_errorMessage);
+		return EPlayerSessionStatus::NOT_SET;
+	}
+
+	const TArray<FGameLiftPlayerSession>& Sessions = Out.GetResult().m_playerSessions;
+	if (Sessions.Num() == 0)
+	{
+		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_PROBE: [%s] describe returned NO sessions for %s"), Stage, *PlayerSessionId);
+		return EPlayerSessionStatus::NOT_SET;
+	}
+
+	const EPlayerSessionStatus Status = Sessions[0].m_status;
+	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_PROBE: [%s] %s  playerId='%s'  status=%s"),
+		Stage, *PlayerSessionId, *Sessions[0].m_playerId, *GetNameForPlayerSessionStatus(Status));
+	return Status;
+}
+
+/** Log an accept/remove attempt with its outcome -- the success/failure IS the research result. */
+static bool ProbeAttempt(const FGameLiftGenericOutcome& Outcome, const TCHAR* What)
+{
+	if (Outcome.IsSuccess())
+	{
+		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_PROBE: %s -> SUCCESS"), What);
+		return true;
+	}
+	UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_PROBE: %s -> FAILED: %s"), What, *Outcome.GetError().m_errorMessage);
+	return false;
+}
+
+static void RunPlayerSessionProbe(FGameLiftServerSDKModule& Mod)
+{
+	UE_LOG(LogAFLGameCore, Warning,
+		TEXT("AFL_PROBE: ===== S12-E player-session probe START (DESTRUCTIVE -- consumes a player session) ====="));
+
+	const FGameLiftStringOutcome IdOut = Mod.GetGameSessionId();
+	if (!IdOut.IsSuccess())
+	{
+		UE_LOG(LogAFLGameCore, Error, TEXT("AFL_PROBE: GetGameSessionId FAILED -- %s"), *IdOut.GetError().m_errorMessage);
+		return;
+	}
+	const FString GameSessionId = IdOut.GetResult();
+	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_PROBE: gameSessionId=%s"), *GameSessionId);
+
+	// Enumerate what the placement reserved. Establishes the BASELINE state before anything is touched --
+	// without it a later ACTIVE proves nothing, because it could have been ACTIVE all along.
+	//
+	// ⚠ THIS POLLS, AND THE DELAY IT MEASURES IS ITSELF A DESIGN INPUT -- it is not a retry papering over a
+	// flake. First run of this probe enumerated once at activation and got ZERO sessions, while the AWS CLI
+	// showed both existing moments later. So the placement's player sessions are NOT guaranteed visible to
+	// the server SDK at the instant onStartGameSession fires.
+	//
+	// That gap matters for the real implementation: if a client can connect before its own session is
+	// queryable here, a PreLogin that calls AcceptPlayerSession would reject a legitimate player. Measuring
+	// how long visibility actually takes is the only way to know whether that race is reachable.
+	TArray<FGameLiftPlayerSession> Sessions;
+	const double StartedAt = FPlatformTime::Seconds();
+	for (int32 Attempt = 1; Attempt <= 20; ++Attempt)
+	{
+		FGameLiftDescribePlayerSessionsRequest All;
+		All.m_gameSessionId = GameSessionId;
+		All.m_limit = 20;
+
+		const FGameLiftDescribePlayerSessionsOutcome AllOut = Mod.DescribePlayerSessions(All);
+		if (!AllOut.IsSuccess())
+		{
+			UE_LOG(LogAFLGameCore, Error, TEXT("AFL_PROBE: enumerate FAILED (attempt %d) -- %s"),
+				Attempt, *AllOut.GetError().m_errorMessage);
+			return;
+		}
+
+		Sessions = AllOut.GetResult().m_playerSessions;
+		if (Sessions.Num() > 0)
+		{
+			UE_LOG(LogAFLGameCore, Log,
+				TEXT("AFL_PROBE: player sessions became visible after %.2fs (attempt %d) -- %d session(s):"),
+				FPlatformTime::Seconds() - StartedAt, Attempt, Sessions.Num());
+			break;
+		}
+		FPlatformProcess::Sleep(0.5f);   // websocket callback thread, not the game thread -- safe to block here
+	}
+
+	for (const FGameLiftPlayerSession& S : Sessions)
+	{
+		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_PROBE:   %s  playerId='%s'  status=%s"),
+			*S.m_playerSessionId, *S.m_playerId, *GetNameForPlayerSessionStatus(S.m_status));
+	}
+	if (Sessions.Num() == 0)
+	{
+		UE_LOG(LogAFLGameCore, Warning,
+			TEXT("AFL_PROBE: NO player sessions visible after %.2fs of polling. Either the placement created "
+			     "none, or server-SDK visibility is slower than the probe waits."),
+			FPlatformTime::Seconds() - StartedAt);
+		return;
+	}
+
+	const FString Target = Sessions[0].m_playerSessionId;
+	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_PROBE: target = %s"), *Target);
+
+	// Q0 baseline -> expect RESERVED
+	ProbeDescribeOne(Mod, Target, TEXT("0/baseline"));
+
+	// Q1 first accept -> expect SUCCESS, then ACTIVE
+	ProbeAttempt(Mod.AcceptPlayerSession(Target), TEXT("1/accept #1"));
+	ProbeDescribeOne(Mod, Target, TEXT("1/after accept #1"));
+
+	// Q2 ***THE QUESTION***: accept an ALREADY-ACTIVE session. Success here means a reconnecting client can
+	// simply re-present the id it already has; failure means the backend must mint a new one.
+	ProbeAttempt(Mod.AcceptPlayerSession(Target), TEXT("2/accept #2 (ALREADY ACTIVE -- the reconnect question)"));
+	ProbeDescribeOne(Mod, Target, TEXT("2/after accept #2"));
+
+	// Q3 removal -> expect COMPLETED
+	ProbeAttempt(Mod.RemovePlayerSession(Target), TEXT("3/remove"));
+	ProbeDescribeOne(Mod, Target, TEXT("3/after remove"));
+
+	// Q4 accept after removal. Decides whether a grace window may release the slot early and still let the
+	// player back, or whether removal is the point of no return.
+	ProbeAttempt(Mod.AcceptPlayerSession(Target), TEXT("4/accept after remove (is removal terminal?)"));
+	ProbeDescribeOne(Mod, Target, TEXT("4/after accept-post-remove"));
+
+	UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_PROBE: ===== S12-E player-session probe END ====="));
+}
+
+UAFLGameLiftHostSubsystem::EPlayerSessionCheck UAFLGameLiftHostSubsystem::CheckAndAcceptPlayerSession(
+	const FString& PlayerSessionId, FString& OutPlayerId) const
+{
+	OutPlayerId.Reset();
+	if (!bSdkReady || PlayerSessionId.IsEmpty())
+	{
+		return EPlayerSessionCheck::Rejected;
+	}
+
+	FGameLiftServerSDKModule& Mod = FModuleManager::LoadModuleChecked<FGameLiftServerSDKModule>(FName("GameLiftServerSDK"));
+
+	// RESOLVE FIRST, ACCEPT SECOND, and the order is load-bearing. Accepting before we know who this is would
+	// consume the reservation for a session we might then decide is not ours -- and acceptance is not
+	// reversible except by RemovePlayerSession, which is terminal.
+	FGameLiftDescribePlayerSessionsRequest Req;
+	Req.m_playerSessionId = PlayerSessionId;
+	Req.m_limit = 1;
+
+	const FGameLiftDescribePlayerSessionsOutcome Out = Mod.DescribePlayerSessions(Req);
+	if (!Out.IsSuccess())
+	{
+		// The service answered with an error -- a malformed or unknown id lands here. That is a rejection,
+		// distinct from "known but not yet visible" below.
+		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_PLAYERSESSION: describe refused '%s' -- %s"),
+			*PlayerSessionId, *Out.GetError().m_errorMessage);
+		return EPlayerSessionCheck::Rejected;
+	}
+
+	const TArray<FGameLiftPlayerSession>& Sessions = Out.GetResult().m_playerSessions;
+	if (Sessions.Num() == 0)
+	{
+		// Known-unknown. Measured propagation is ~1.44s, so this is very likely a client that beat its own
+		// session's visibility rather than a forgery. NOT a rejection on its own -- the caller retries.
+		return EPlayerSessionCheck::NotVisibleYet;
+	}
+
+	const FGameLiftPlayerSession& Session = Sessions[0];
+
+	// A session already COMPLETED/TIMEDOUT cannot be accepted -- GameLift refuses it outright, and letting
+	// the caller discover that via a generic accept failure would lose the reason.
+	if (Session.m_status == EPlayerSessionStatus::COMPLETED || Session.m_status == EPlayerSessionStatus::TIMEDOUT)
+	{
+		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_PLAYERSESSION: '%s' is %s -- refusing."),
+			*PlayerSessionId, *GetNameForPlayerSessionStatus(Session.m_status));
+		return EPlayerSessionCheck::Rejected;
+	}
+
+	const FGameLiftGenericOutcome Accepted = Mod.AcceptPlayerSession(PlayerSessionId);
+	if (!Accepted.IsSuccess())
+	{
+		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_PLAYERSESSION: accept refused '%s' -- %s"),
+			*PlayerSessionId, *Accepted.GetError().m_errorMessage);
+		return EPlayerSessionCheck::Rejected;
+	}
+
+	OutPlayerId = Session.m_playerId;
+	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_PLAYERSESSION: accepted '%s' -> playerId '%s' (was %s)."),
+		*PlayerSessionId, *OutPlayerId, *GetNameForPlayerSessionStatus(Session.m_status));
+	return EPlayerSessionCheck::Valid;
+}
+
+void UAFLGameLiftHostSubsystem::ReleasePlayerSession(const FString& PlayerSessionId) const
+{
+	if (!bSdkReady || PlayerSessionId.IsEmpty())
+	{
+		return;
+	}
+	FGameLiftServerSDKModule& Mod = FModuleManager::LoadModuleChecked<FGameLiftServerSDKModule>(FName("GameLiftServerSDK"));
+	const FGameLiftGenericOutcome Removed = Mod.RemovePlayerSession(PlayerSessionId);
+	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_PLAYERSESSION: release '%s' -> %s"),
+		*PlayerSessionId, Removed.IsSuccess() ? TEXT("COMPLETED") : *Removed.GetError().m_errorMessage);
+}
+
+void UAFLGameLiftHostSubsystem::SetAcceptingPlayers(bool bAccepting) const
+{
+	if (!bSdkReady)
+	{
+		return;   // offline / PIE / launch-option -- no session to open or close
+	}
+	FGameLiftServerSDKModule& Mod = FModuleManager::LoadModuleChecked<FGameLiftServerSDKModule>(FName("GameLiftServerSDK"));
+	const EPlayerSessionCreationPolicy Policy =
+		bAccepting ? EPlayerSessionCreationPolicy::ACCEPT_ALL : EPlayerSessionCreationPolicy::DENY_ALL;
+
+	const FGameLiftGenericOutcome Out = Mod.UpdatePlayerSessionCreationPolicy(Policy);
+	if (Out.IsSuccess())
+	{
+		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_PLAYERSESSION: creation policy -> %s"),
+			bAccepting ? TEXT("ACCEPT_ALL") : TEXT("DENY_ALL"));
+	}
+	else
+	{
+		// Logged at Warning, not Error: failing to CLOSE the session is a hardening gap, not a breach -- the
+		// PreLogin identity gate still refuses anyone whose session is not on this match's roster.
+		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_PLAYERSESSION: creation policy change FAILED -- %s"),
+			*Out.GetError().m_errorMessage);
+	}
+}
+
+#else   // !WITH_GAMELIFT
+
+// Client / editor builds. The header declares these unconditionally so callers need no #if of their own; the
+// gate that calls them is guarded by IsSdkReady(), which is permanently false here, so these are unreachable
+// rather than merely harmless. Rejected is still the honest return: with no session authority present, no
+// session can be validated.
+UAFLGameLiftHostSubsystem::EPlayerSessionCheck UAFLGameLiftHostSubsystem::CheckAndAcceptPlayerSession(
+	const FString& /*PlayerSessionId*/, FString& OutPlayerId) const
+{
+	OutPlayerId.Reset();
+	return EPlayerSessionCheck::Rejected;
+}
+
+void UAFLGameLiftHostSubsystem::ReleasePlayerSession(const FString& /*PlayerSessionId*/) const
+{
+}
+
+void UAFLGameLiftHostSubsystem::SetAcceptingPlayers(bool /*bAccepting*/) const
+{
+}
+
+#endif  // WITH_GAMELIFT
+
 void UAFLGameLiftHostSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -151,6 +438,14 @@ void UAFLGameLiftHostSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 			{
 				UE_LOG(LogAFLGameCore, Error, TEXT("AFL_GAMELIFT: ActivateGameSession FAILED -- %s"),
 					*Activated.GetError().m_errorMessage);
+			}
+
+			// S12-E research probe. AFTER activation on purpose: player sessions are only meaningful once the
+			// session is active, and running it earlier would measure the wrong state. Gated off by default;
+			// see the probe's comment for why it must never run against a real match.
+			if (CVarAFLGameLiftSessionProbe.GetValueOnAnyThread() != 0)
+			{
+				RunPlayerSessionProbe(Mod);
 			}
 		});
 

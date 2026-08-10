@@ -91,7 +91,15 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $ProjectPath = 'C:\Dev\Bag_Man\Bag_Man.uproject'
-$EditorPath  = 'C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe'
+# ⚠ THE D: SOURCE ENGINE, NOT THE C: LAUNCHER BUILD. Both are installed and both will open the project, but
+# only this one matches what Bag_Man is built against: the .uproject's EngineAssociation is the source
+# build's GUID, and the dedicated-server + EOS targets can ONLY be produced here -- the launcher engine
+# answers "Server targets are not currently supported from this engine distribution".
+#
+# Opening with the launcher engine silently uses a different binary set from every LyraGame/LyraServer
+# artifact we cook, which is the kind of mismatch that surfaces later as an unexplained content or module
+# error rather than an honest "wrong engine" message.
+$EditorPath  = 'D:\UE5.6-source\Engine\Binaries\Win64\UnrealEditor.exe'
 
 # Engine env var  <-  CloudFormation output key
 $UrlMap = [ordered]@{

@@ -10,6 +10,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Cosmetics/AFLWalletComponent.h"
+#include "Online/AFLGameLiftHostSubsystem.h"   // S12-E: seal the roster (DENY_ALL) once the match is live
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Controller.h"
@@ -254,6 +255,19 @@ void UAFLMatchPhaseComponent::EnterPlaying()
 	ScheduleNextWindow();
 	const float Active = FMath::Max(0.1f, CVarAFLMatchActiveDuration.GetValueOnGameThread());
 	GetWorld()->GetTimerManager().SetTimer(ActiveTimer, this, &UAFLMatchPhaseComponent::EnterPostGame, Active, /*loop=*/false);
+	// S12-E: SEAL THE ROSTER. From here the match is live and, in a staked tier, stakes are escrowed against
+	// exactly the players present. A late placement would put someone into a match they never paid into and
+	// that settlement will not pay out to. The PreLogin identity gate already refuses anyone whose session is
+	// not on this roster; this stops GameLift minting a session for this match at all.
+	//
+	// This does NOT close the door on a dropped player returning: the policy blocks CREATION of new player
+	// sessions, while a reconnect re-presents the ACTIVE session the player already holds (verified against
+	// live GameLift). So it can stay closed for the whole match. Safe no-op off GameLift.
+	if (const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this))
+	{
+		GameLift->SetAcceptingPlayers(false);
+	}
+
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: PLAYING started (%.0fs; window cadence armed, Watts snapshotted)."), Active);
 }
 
