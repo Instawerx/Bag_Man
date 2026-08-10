@@ -12,6 +12,7 @@
 #include "Engine/GameInstance.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
+#include "UI/Lobby/AFLW_Lobby_DetailPanel.h"
 #include "UI/Lobby/AFLW_Lobby_QueueRow.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_Lobby_Root)
@@ -916,10 +917,23 @@ void UAFLW_Lobby_Root::RefreshCommitState()
 
 void UAFLW_Lobby_Root::BroadcastSelection()
 {
-	if (const FAFLLobbyQueue* Selected = GetSelectedQueue())
+	const FAFLLobbyQueue* Selected = GetSelectedQueue();
+	if (!Selected)
 	{
-		OnSelectionChanged.Broadcast(*Selected);
+		return;
 	}
+
+	// S2 is fed HERE rather than by a listener on OnSelectionChanged: the panel is region D's own right
+	// column, not an outside observer, and routing it through the public delegate would mean the screen's
+	// two halves could disagree if anything ever unsubscribed. The delegate stays for genuine outsiders.
+	if (QueueDetail)
+	{
+		// Stake is zero on the league route by construction (IsAxisLegalForDoor refuses to set one), so the
+		// panel's ladder correctly falls to a no-buy-in preview rather than a pool of nothing.
+		QueueDetail->SetQueue(*Selected, Stake, StakeBandLabel);
+	}
+
+	OnSelectionChanged.Broadcast(*Selected);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════

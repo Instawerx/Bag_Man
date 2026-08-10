@@ -9,6 +9,7 @@
 
 #include "AFLW_Lobby_Root.generated.h"
 
+class UAFLW_Lobby_DetailPanel;
 class UAFLW_Lobby_QueueRow;
 class UCommonButtonBase;
 class UCommonTextBlock;
@@ -290,6 +291,14 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Lobby") TObjectPtr<UCommonTextBlock> BandReadout;
 
 	// D/E · chrome
+	/**
+	 * S2, living in region D's 420px column.
+	 *
+	 * BindWidgetOptional so S1 still renders without it -- the list and the commit bar are the screen; the
+	 * detail panel is what the selected row expands into.
+	 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Lobby") TObjectPtr<UAFLW_Lobby_DetailPanel> QueueDetail;
+
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Lobby") TObjectPtr<UCommonTextBlock> ListFooter;
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Lobby") TObjectPtr<UCommonTextBlock> VenueNote;
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Lobby") TObjectPtr<UCommonTextBlock> CommitSummary;
