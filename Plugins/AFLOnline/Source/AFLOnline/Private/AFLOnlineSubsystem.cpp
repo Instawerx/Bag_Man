@@ -14,6 +14,7 @@
 #include "TimerManager.h"
 #include "HAL/PlatformMisc.h"                    // FPlatformMisc::GetEnvironmentVariable (server-only earn key/URL)
 #include "Misc/CoreMisc.h"                       // IsRunningDedicatedServer()
+#include "Misc/ConfigCacheIni.h"                 // GConfig -- the CLIENT's API base URL (no env on a player's box)
 #include "Misc/DateTime.h"                       // FDateTime::UtcNow (canary ts)
 #include "Misc/Guid.h"                           // FGuid (canary matchId/nonce)
 #include "GameFramework/CheatManagerDefines.h"   // UE_WITH_CHEAT_MANAGER (canary guard)
@@ -586,6 +587,78 @@ void UAFLOnlineSubsystem::PostServerSigned(const FString& Url, const FString& Bo
 			const FString RespBody = Response->GetContentAsString();
 			const bool bOk = (Http == 200);
 			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] PostServerSigned -> http=%d ok=%d"), Http, bOk ? 1 : 0);
+			OnComplete(bOk, RespBody);
+		});
+	Req->ProcessRequest();
+}
+
+FString UAFLOnlineSubsystem::PlayerApiBaseUrl() const
+{
+	// Env first, so the dedicated-server tooling that already exports AFL_* keeps resolving exactly as before
+	// and a local run can point at a different stack without editing config.
+	FString Url = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_API_BASE_URL"));
+	if (Url.IsEmpty())
+	{
+		// The shipping path. A player's process has no environment we control.
+		GConfig->GetString(TEXT("AFL.Online"), TEXT("PlayerApiBaseUrl"), Url, GGameIni);
+	}
+	Url.TrimStartAndEndInline();
+	while (Url.EndsWith(TEXT("/")))
+	{
+		Url.LeftChopInline(1);   // callers pass "/match-status"; a trailing slash would make "//match-status"
+	}
+	return Url;
+}
+
+void UAFLOnlineSubsystem::PostPlayerApi(const FString& EndpointPath, const FString& JsonBody,
+	TFunction<void(bool, const FString&)> OnComplete)
+{
+	const FString Base = PlayerApiBaseUrl();
+	if (Base.IsEmpty())
+	{
+		// Named explicitly. "Matchmaking is broken" with no reason is the failure this message exists to
+		// prevent -- a missing config line looks identical to a network fault from the player's side.
+		UE_LOG(LogAFLOnline, Error,
+			TEXT("[AFLOnline] PostPlayerApi('%s') SKIP -- no API base URL. Set AFL_API_BASE_URL, or "
+			     "[AFL.Online] PlayerApiBaseUrl in DefaultGame.ini."), *EndpointPath);
+		OnComplete(false, TEXT("skip: no api base url"));
+		return;
+	}
+
+	if (SessionTicket.IsEmpty())
+	{
+		// Not a fault to shout about: the player simply is not logged in yet. The caller decides whether to
+		// wait (CallWhenLoggedIn) or surface "sign in to play".
+		UE_LOG(LogAFLOnline, Warning,
+			TEXT("[AFLOnline] PostPlayerApi('%s') SKIP -- no SessionTicket (not logged in)."), *EndpointPath);
+		OnComplete(false, TEXT("skip: not logged in"));
+		return;
+	}
+
+	const FString FullUrl = Base + (EndpointPath.StartsWith(TEXT("/")) ? EndpointPath : TEXT("/") + EndpointPath);
+
+	const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
+	Req->SetURL(FullUrl);
+	Req->SetVerb(TEXT("POST"));
+	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	// The player's OWN credential, in a header rather than the body or a query string -- a query string ends
+	// up in access logs and crash reports.
+	Req->SetHeader(TEXT("X-SessionTicket"), SessionTicket);
+	Req->SetContentAsString(JsonBody);
+
+	Req->OnProcessRequestComplete().BindLambda(
+		[OnComplete, EndpointPath](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnectedOk)
+		{
+			if (!bConnectedOk || !Response.IsValid())
+			{
+				UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostPlayerApi('%s') HTTP failed (no response)."), *EndpointPath);
+				OnComplete(false, TEXT("no response"));
+				return;
+			}
+			const int32 Http = Response->GetResponseCode();
+			const FString RespBody = Response->GetContentAsString();
+			const bool bOk = (Http == 200);
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] PostPlayerApi('%s') -> http=%d ok=%d"), *EndpointPath, Http, bOk ? 1 : 0);
 			OnComplete(bOk, RespBody);
 		});
 	Req->ProcessRequest();

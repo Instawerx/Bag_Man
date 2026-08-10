@@ -123,6 +123,38 @@ public:
 	 *  single clear "economy not wired" line instead of three identical per-endpoint skips. */
 	bool IsMatchReportingConfigured() const;
 
+	/**
+	 * POST to one of OUR player-facing Lambdas as THE PLAYER -- the deliberate inverse of PostServerSigned.
+	 *
+	 * ⚠ IT SIGNS NOTHING, AND THAT IS THE POINT. The server endpoints authenticate a trusted caller with a
+	 * shared HMAC key; a client cannot hold one, because a key shipped to every player is a key every player
+	 * has. These endpoints instead authenticate the player AS THEMSELVES with their own PlayFab
+	 * SessionTicket, which PlayFab vouches for and which names exactly one account.
+	 *
+	 * The distinction is not stylistic. /create-ticket takes a SessionTicket and lets the SERVER author the
+	 * stake attributes; /match-status takes a SessionTicket and returns only the caller's own row. Neither
+	 * accepts a player id, so neither can be aimed at somebody else.
+	 *
+	 * Needed because the two existing transports both refuse this job: PostClientApi is hardwired to
+	 * PlayFab's base URL, auth header and {code,status,data} envelope, and the PostServer* family is
+	 * HMAC-gated and returns early on any process that is not a dedicated server.
+	 *
+	 * EndpointPath is appended to the configured API base ("/match-status"). OnComplete(bOk = HTTP 200, raw body).
+	 */
+	void PostPlayerApi(const FString& EndpointPath, const FString& JsonBody,
+		TFunction<void(bool, const FString&)> OnComplete);
+
+	/**
+	 * Base URL of our Lambda API for CLIENT calls.
+	 *
+	 * ⚠ CONFIG, NOT ENVIRONMENT. Every server URL here is read from an env var, which works because a
+	 * dedicated server is launched by our own tooling. A shipping client is launched by the player and has no
+	 * environment to read -- so a client that resolved its endpoint the same way would silently have none and
+	 * fail to matchmake with no explanation. Read from DefaultGame.ini; the env var still wins when present so
+	 * local server-side tooling keeps behaving identically.
+	 */
+	FString PlayerApiBaseUrl() const;
+
 private:
 	enum class EAFLLoginState : uint8 { NotStarted, InFlight, LoggedIn, Failed };
 	EAFLLoginState LoginState = EAFLLoginState::NotStarted;
