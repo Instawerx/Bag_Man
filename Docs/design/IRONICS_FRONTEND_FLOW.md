@@ -134,6 +134,12 @@ Both §9 blockers named here were closed by ruling, not by working around them: 
 colour-coding decision is R100** — the doors are *not* colour-coded, they differ by density, motion rate and
 content.
 
-**Still unbuilt behind the split**, and each blocks something specific rather than the structure: **S4
-TicketReview** (R22, unskippable — the only reason the staked door is disabled), the **Venues** surface (S8
-VenueShowcase) and the **Career** surface, which also owns REPLAYS as a sub-tab.
+**Still unbuilt behind the split:** the **Venues** surface (S8 VenueShowcase), and Career's two progression
+tabs — **Volume** and **Rank**, kept apart because R10 forbids conflating cumulative volume with skill
+rating. All three ship as disabled controls with stated reasons rather than as empty panels.
+
+> **✅ S4 AND CAREER BOTH LANDED 2026-08-10.** S4 TicketReview closed the only reason the staked door was
+> shut, and **the door is open**. The Career hub (`UAFLW_CareerHub`) closed the REPLAYS ruling: it hosts
+> `W_ReplayBrowserScreen` as a tab inside a `CommonActivatableWidgetSwitcher` rather than pushing it, so
+> the root-level nav stack stays one deep. Verified live:
+> `AFL_HOME: pushed WBP_IRONICS_CareerHub_C (career)` → `AFL_CAREER: showing 'replays'`.

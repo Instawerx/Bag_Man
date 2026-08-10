@@ -205,12 +205,17 @@ seat at this table, and both were ruled on explicitly rather than dropped by omi
 - **REPLAYS — deferred, not deleted.** It is a real player feature, but a **sixth item breaks the symmetry of
   this layout and crowds touch targets** on cross-platform screens. Reviewing past match evidence chains is
   an analytical task, so it lands as a **sub-tab inside Career** when that surface exists. `W_ReplayBrowserScreen`
-  is untouched on disk; until Career ships it is simply unreachable.
-  > ⚠ **AND IT NO LONGER COOKS — measured, 2026-08-10, and not what I predicted.** Its only referencers were
-  > the two dead roots that moved out with HOST, so cutting them cut the last cooked path to it too;
-  > `W_ReplayBrowserScreen` and `W_ReplayListEntry` both left the build. Nothing is broken — no shipping code
-  > names either — and both return automatically the moment Career hard-references them. Noted because the
+  is untouched on disk.
+  > ⚠ **IT STOPPED COOKING WHEN HOST WAS DEPRECATED — measured 2026-08-10, and not what I predicted.** Its
+  > only referencers were the two dead roots that moved out with HOST, so cutting them cut the last cooked
+  > path to it; `W_ReplayBrowserScreen` and `W_ReplayListEntry` both left the build. Noted because the
   > earlier claim that REPLAYS "stays in the cooked tree" was wrong.
+  >
+  > **✅ RESOLVED THE SAME DAY — Career exists and REPLAYS lives in it.** `WBP_IRONICS_CareerHub`
+  > (`UAFLW_CareerHub`) holds it as a tab inside a `CommonActivatableWidgetSwitcher`, so selecting it is
+  > **not a push**: the player stays on Career and the back stack still has one thing on it, which is what
+  > the ruling asked for. `CareerScreenClass` is set, so the CAREER footer item is live. The hub's soft
+  > class pointer is also the referencer that returns both replay packages to the cook.
 
 ⚠ **Neither has a value in `EAFLNavTarget`.** An enum entry with no footer slot would be an API promising
 navigation the design says will not happen here.
