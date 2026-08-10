@@ -39,7 +39,14 @@ namespace
 	 * LAST path to the asset -- nothing else in content references it any more -- and /Game/DeveloperUtils
 	 * is in DirectoriesToNeverCook besides, so the screen is absent from a packaged client even if this
 	 * file were somehow compiled into one.
+	 *
+	 * The marker below declares that to Tools/AFL_Lint/cook_soft_refs.py. Without it the lint reports this
+	 * as a violation and offers a remedy -- adding this folder to DirectoriesToAlwaysCook -- that would
+	 * reverse the deprecation. It is NOT a mute: R3 fails the lint if this asset ever turns up IN a cook
+	 * tree, because an exclusion that silently stopped working is exactly as invisible as the missing
+	 * assets that tool was written to catch.
 	 */
+	// AFL_NEVER_COOK
 	const TCHAR* const GHostMenuPath =
 		TEXT("/Game/DeveloperUtils/Host/W_ExperienceSelectionScreen.W_ExperienceSelectionScreen_C");
 

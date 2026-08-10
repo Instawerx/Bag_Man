@@ -66,6 +66,11 @@ map-preview menu. (Already started: the load screen is Armory-themed.)
   Career**, so it is unreachable until that surface lands. The two dead roots (`W_IRONICS_FrontEnd`,
   `W_LyraFrontEnd`) moved to `/Game/DeveloperUtils/Host/` with the screen, because a hard reference from a cooked
   package outranks any cook filter.
+  > **Measured on the 2026-08-10 full cook** (7,653 packages, 0 errors): 26 packages left and 22 arrived, a net
+  > −4 / −2 MB. The whole reachable set behind the old root went with it — the `/UI/Menu/Experiences` family,
+  > `W_LyraTileButton`, `W_UserWatermark`, `W_FrontEndHUDLayout` and the menu art. **Replays left too** (its
+  > only referencers were those dead roots); it returns when Career references it. See `DefaultGame.ini`
+  > §DirectoriesToNeverCook for the full before/after.
 - **Loadout locker** (`UAFLW_LoadoutBase`/`AAFLLoadoutPod`, Inc 1-3 proven) + **Store** (`UAFLW_FrontEndMarket`) =
   full-screen **UI overlays** (push `UI.Layer.Menu`) — work over ANY map.
 
