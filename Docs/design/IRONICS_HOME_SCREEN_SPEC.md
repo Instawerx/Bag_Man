@@ -148,10 +148,16 @@ Two further gotchas found while doing it:
   through the internal `SButton`, so a designer screenshot shows placeholder chrome, never the token
   styling. **Button appearance cannot be validated from the designer** — only in PIE.
 
-What genuinely remains is **§6's motion** (no animation API at all) and the art pass. **Front-end wiring
-stays REVERTED** — `MainScreenClass` points back at `W_IRONICS_FrontEnd` — because the doors still lead
-nowhere: §9.4 leaves navigation to the WBP, and `BP_OnDoorChosen` is unhandled, so booting into this screen
-today would present two buttons that do nothing.
+What genuinely remains is **§6's motion** (no animation API at all) and the art pass.
+
+> **✅ THE WIRING IS NO LONGER REVERTED (2026-08-09/10).** The reason given here — *"the doors still lead
+> nowhere"* — expired when both lobby WBPs landed. `MainScreenClass` is now **`W_IRONICS_Home`**, both doors
+> push their lobby through `UAFLW_HomeScreen::PushScreen`, and the §3 footer is five real buttons on a typed
+> routing table (`GetNavRoutes`) rather than the text blocks it was authored with. Verified in `-game` via
+> `afl.Home.Door` and `afl.Home.Nav`, which exist precisely because a headless session has no mouse.
+>
+> Two footer items ship **disabled**: VENUES and CAREER have no asset, and an item that accepts a click and
+> goes nowhere is the silent no-op §5 forbids. **HOST and REPLAYS are not in this footer at all** — see §3.
 
 ---
 
@@ -184,6 +190,25 @@ path is the lesser one.
 equivalent — but note this is a console/PC surface, so the collapse is a safety net, not a target layout.
 
 **Geometry:** panel radius **20px** (§3 band 16–24) · button **12px** · input **8px**.
+
+### 3.1 The footer is FIVE items — HOST and REPLAYS are not among them  *(operator ruling, 2026-08-10)*
+
+The old root (`W_IRONICS_FrontEnd`) carried **HOST / STORE / SETTINGS / REPLAYS**. Two of those four have no
+seat at this table, and both were ruled on explicitly rather than dropped by omission:
+
+- **HOST — deprecated.** Match allocation is the queue's job now: door → queue → PlayFab/GameLift
+  orchestration. A client-side "pick a map and listen-serve it" control is not just dead UI, it is a way to
+  originate a session the allocator never authorised, and R18 makes this front end a stake lobby rather than
+  a map browser. `W_ExperienceSelectionScreen` moved to `/Game/DeveloperUtils/Host/` — added to
+  `DirectoriesToNeverCook`, so it is absent from a packaged client — and is summoned by
+  **`afl.Debug.SummonHostMenu`**, which does not compile under `UE_BUILD_SHIPPING`.
+- **REPLAYS — deferred, not deleted.** It is a real player feature, but a **sixth item breaks the symmetry of
+  this layout and crowds touch targets** on cross-platform screens. Reviewing past match evidence chains is
+  an analytical task, so it lands as a **sub-tab inside Career** when that surface exists. `W_ReplayBrowserScreen`
+  is untouched and stays in the cooked tree; until Career ships it is simply unreachable.
+
+⚠ **Neither has a value in `EAFLNavTarget`.** An enum entry with no footer slot would be an API promising
+navigation the design says will not happen here.
 
 ---
 

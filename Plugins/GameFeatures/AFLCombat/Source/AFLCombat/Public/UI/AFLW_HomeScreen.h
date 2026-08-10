@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CommonActivatableWidget.h"
+#include "Containers/ArrayView.h"
 
 #include "AFLW_HomeScreen.generated.h"
 
@@ -22,6 +23,35 @@ enum class EAFLHomeDoor : uint8
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAFLHomeDoorChosen, EAFLHomeDoor, Door);
+
+/**
+ * The sec3 footer nav destinations, as a TYPE rather than a string.
+ *
+ * This used to be an `FName` id resolved by a chain of string comparisons, which meant a nav item could be
+ * renamed or retyped and the routing would keep compiling and quietly stop working -- the same class of
+ * silent break that left the footer inert as text blocks. An enum makes the compiler the thing that
+ * notices. `GetNavRoutes()` is the single table that pairs each value with its button and its destination;
+ * adding an item is one row there, not three edits that can drift apart.
+ *
+ * ⚠ EXACTLY THE FIVE ITEMS sec3 DRAWS, and no more. HOST is deprecated (2026-08-10 ruling -- match
+ * allocation belongs to the queue, so a client-side map picker is a route the allocator never authorised;
+ * it lives on as `afl.Debug.SummonHostMenu` in non-shipping builds). REPLAYS is a real player feature that
+ * was denied a sixth slot -- a sixth item breaks the sec1 layout's symmetry and crowds touch targets -- and
+ * lands as a sub-tab INSIDE Career once that surface exists. Neither belongs in this enum: a value with no
+ * footer slot would be an API promising navigation that the design says will not happen here.
+ */
+UENUM(BlueprintType)
+enum class EAFLNavTarget : uint8
+{
+	Loadout,
+	Store,
+	Venues,
+	Career,
+	Settings
+};
+
+/** One footer item: its enum value, its console id, and member pointers to its button and destination. */
+struct FAFLNavRoute;
 
 /**
  * UAFLW_HomeScreen -- the IRONICS home screen: LEAGUE PLAY | STAKED PLAY (R98, R100).
@@ -127,9 +157,36 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home|Nav") TSoftClassPtr<UCommonActivatableWidget> CareerScreenClass;
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Home|Nav") TSoftClassPtr<UCommonActivatableWidget> SettingsScreenClass;
 
-	/** Open a footer destination by its nav id (`loadout`/`store`/`venues`/`career`/`settings`). */
+	/** Open a footer destination. Refuses -- loudly -- when that surface has no asset yet. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Home")
-	void OpenNavTarget(FName NavId);
+	void OpenNavTarget(EAFLNavTarget Target);
+
+	/**
+	 * Same, addressed by console id (`loadout`/`store`/`venues`/`career`/`settings`).
+	 *
+	 * The string form exists ONLY for callers that cannot hold an enum -- `afl.Home.Nav` is the whole list.
+	 * It parses to `EAFLNavTarget` immediately and rejects anything it cannot parse, so the stringly-typed
+	 * surface stops at this one function instead of running through the routing.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Home")
+	void OpenNavTargetById(FName NavId);
+
+	/**
+	 * The routing table, as predicates a test can hold -- the same reason `IsStakeLegalForDoor` is public.
+	 *
+	 * These are what make the enum worth having. A rename or a new value that nobody wired produces a
+	 * FAILING TEST rather than a footer item that looks fine and does nothing, which is the failure this
+	 * screen has already shipped once.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Home")
+	static bool IsNavTargetRouted(EAFLNavTarget Target);
+
+	/** The console id for a target (`loadout`, `store`, ...). `NAME_None` if the target has no row. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Home")
+	static FName GetNavTargetId(EAFLNavTarget Target);
+
+	/** Parse a console id. False for anything that is not one of the five, without guessing. */
+	static bool TryParseNavTarget(FName NavId, EAFLNavTarget& OutTarget);
 
 	/** Push the wallet readout. Both doors show it: it is chrome, and a player's balance is not a stake. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Home")
@@ -211,8 +268,15 @@ private:
 	/** The one push path -- both doors and every nav item go through it. False when nothing was pushed. */
 	bool PushScreen(const TSoftClassPtr<UCommonActivatableWidget>& Soft, const TCHAR* Context);
 
-	/** Resolve a nav id to its destination. Null when that surface does not exist yet. */
-	const TSoftClassPtr<UCommonActivatableWidget>* FindNavTarget(FName NavId) const;
+	/**
+	 * THE ROUTING TABLE -- one row per footer item, and the only place the three halves of a nav item
+	 * (enum value, button, destination) are associated. Binding, availability and the push all read it, so
+	 * they cannot disagree with each other; a new item is one row and nothing else.
+	 */
+	static TArrayView<const FAFLNavRoute> GetNavRoutes();
+
+	/** Resolve a nav target to its row. Never null for a valid enum value -- the table is exhaustive. */
+	static const FAFLNavRoute* FindNavRoute(EAFLNavTarget Target);
 
 	/** Bind the five nav buttons and DISABLE any whose destination is unbuilt. */
 	void ApplyNavAvailability();

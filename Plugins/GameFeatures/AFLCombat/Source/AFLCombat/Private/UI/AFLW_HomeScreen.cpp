@@ -20,6 +20,26 @@
 /** The CommonUI menu stack. File-local, matching how the store cheat declares the same tag. */
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_HomeDoor, "UI.Layer.Menu");
 
+/**
+ * One footer nav item.
+ *
+ * ⚠ THE MEMBER POINTERS ARE THE POINT. A nav item is three things -- an identity, a button, a destination
+ * -- and the obvious implementations keep those in three separate places: an enum, a list of bindings, and
+ * a switch. Three lists drift. Here the association is stated once, so `ApplyNavAvailability` (binds the
+ * click, disables the unbuilt), `OpenNavTarget` (pushes) and `TryParseNavTarget` (console) all read the
+ * SAME row. Adding a sixth item is one line; forgetting to bind it is not expressible.
+ */
+struct FAFLNavRoute
+{
+	EAFLNavTarget Target;
+
+	/** Console id for `afl.Home.Nav`. Lowercase, and the only string in the routing. */
+	const TCHAR* Id;
+
+	TObjectPtr<UCommonButtonBase>           UAFLW_HomeScreen::*Button;
+	TSoftClassPtr<UCommonActivatableWidget> UAFLW_HomeScreen::*Destination;
+};
+
 namespace
 {
 	/**
@@ -105,7 +125,7 @@ namespace
 							UAFLW_HomeScreen* Home = *It;
 							if (Home && Home->GetWorld() == W && !Home->HasAnyFlags(RF_ClassDefaultObject))
 							{
-								Home->OpenNavTarget(NavId);
+								Home->OpenNavTargetById(NavId);
 								return false;
 							}
 						}
@@ -289,65 +309,113 @@ bool UAFLW_HomeScreen::PushScreen(const TSoftClassPtr<UCommonActivatableWidget>&
 	return true;
 }
 
-const TSoftClassPtr<UCommonActivatableWidget>* UAFLW_HomeScreen::FindNavTarget(FName NavId) const
+TArrayView<const FAFLNavRoute> UAFLW_HomeScreen::GetNavRoutes()
 {
-	if (NavId == TEXT("loadout"))  { return &LoadoutScreenClass;  }
-	if (NavId == TEXT("store"))    { return &StoreScreenClass;    }
-	if (NavId == TEXT("venues"))   { return &VenuesScreenClass;   }
-	if (NavId == TEXT("career"))   { return &CareerScreenClass;   }
-	if (NavId == TEXT("settings")) { return &SettingsScreenClass; }
+	// sec3's footer, in the order it is drawn. FIVE ITEMS -- see EAFLNavTarget for why HOST and REPLAYS are
+	// not among them. Both member pointers are taken here, inside the class, which is what lets protected
+	// BindWidget slots be named in a plain struct.
+	static const FAFLNavRoute Routes[] = {
+		{ EAFLNavTarget::Loadout,  TEXT("loadout"),  &UAFLW_HomeScreen::Nav_Loadout,  &UAFLW_HomeScreen::LoadoutScreenClass  },
+		{ EAFLNavTarget::Store,    TEXT("store"),    &UAFLW_HomeScreen::Nav_Store,    &UAFLW_HomeScreen::StoreScreenClass    },
+		{ EAFLNavTarget::Venues,   TEXT("venues"),   &UAFLW_HomeScreen::Nav_Venues,   &UAFLW_HomeScreen::VenuesScreenClass   },
+		{ EAFLNavTarget::Career,   TEXT("career"),   &UAFLW_HomeScreen::Nav_Career,   &UAFLW_HomeScreen::CareerScreenClass   },
+		{ EAFLNavTarget::Settings, TEXT("settings"), &UAFLW_HomeScreen::Nav_Settings, &UAFLW_HomeScreen::SettingsScreenClass },
+	};
+	return MakeArrayView(Routes);
+}
+
+const FAFLNavRoute* UAFLW_HomeScreen::FindNavRoute(EAFLNavTarget Target)
+{
+	for (const FAFLNavRoute& Route : GetNavRoutes())
+	{
+		if (Route.Target == Target)
+		{
+			return &Route;
+		}
+	}
 	return nullptr;
 }
 
-void UAFLW_HomeScreen::OpenNavTarget(FName NavId)
+bool UAFLW_HomeScreen::IsNavTargetRouted(EAFLNavTarget Target)
 {
-	const TSoftClassPtr<UCommonActivatableWidget>* Target = FindNavTarget(NavId);
-	if (!Target)
+	return FindNavRoute(Target) != nullptr;
+}
+
+FName UAFLW_HomeScreen::GetNavTargetId(EAFLNavTarget Target)
+{
+	const FAFLNavRoute* Route = FindNavRoute(Target);
+	return Route ? FName(Route->Id) : NAME_None;
+}
+
+bool UAFLW_HomeScreen::TryParseNavTarget(FName NavId, EAFLNavTarget& OutTarget)
+{
+	for (const FAFLNavRoute& Route : GetNavRoutes())
+	{
+		if (NavId == FName(Route.Id))
+		{
+			OutTarget = Route.Target;
+			return true;
+		}
+	}
+	return false;   // no guessing, no nearest match: an unknown id is a caller bug, not a routing decision
+}
+
+void UAFLW_HomeScreen::OpenNavTargetById(FName NavId)
+{
+	EAFLNavTarget Target = EAFLNavTarget::Store;
+	if (!TryParseNavTarget(NavId, Target))
 	{
 		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_HOME: unknown nav id '%s'."), *NavId.ToString());
 		return;
 	}
-	if (Target->IsNull())
+	OpenNavTarget(Target);
+}
+
+void UAFLW_HomeScreen::OpenNavTarget(EAFLNavTarget Target)
+{
+	const FAFLNavRoute* Route = FindNavRoute(Target);
+	if (!Route)
+	{
+		// Only reachable if a value was added to EAFLNavTarget without a row -- which is the case the table
+		// exists to make loud rather than silent. Error, not warning: it is a code defect, not a state.
+		UE_LOG(LogAFLCombat, Error,
+			TEXT("AFL_HOME: nav target %d has no route -- add a row to GetNavRoutes()."), (int32)Target);
+		return;
+	}
+
+	const TSoftClassPtr<UCommonActivatableWidget>& Destination = this->*(Route->Destination);
+	if (Destination.IsNull())
 	{
 		// Refused HERE as well as visually disabled, for the same reason ChooseDoor re-checks availability:
 		// SetIsInteractionEnabled is presentation, and a gamepad or accessibility path can still deliver
 		// the click. A nav item with no destination must not silently appear to work.
 		UE_LOG(LogAFLCombat, Warning,
-			TEXT("AFL_HOME: nav '%s' has no destination yet -- refused."), *NavId.ToString());
+			TEXT("AFL_HOME: nav '%s' has no destination yet -- refused."), Route->Id);
 		return;
 	}
-	PushScreen(*Target, *NavId.ToString());
+	PushScreen(Destination, Route->Id);
 }
 
 void UAFLW_HomeScreen::ApplyNavAvailability()
 {
-	struct FNavBinding { UCommonButtonBase* Button; const TCHAR* Id; };
-	const FNavBinding Bindings[] = {
-		{ Nav_Loadout,  TEXT("loadout")  },
-		{ Nav_Store,    TEXT("store")    },
-		{ Nav_Venues,   TEXT("venues")   },
-		{ Nav_Career,   TEXT("career")   },
-		{ Nav_Settings, TEXT("settings") },
-	};
-
-	for (const FNavBinding& B : Bindings)
+	for (const FAFLNavRoute& Route : GetNavRoutes())
 	{
-		if (!B.Button)
+		UCommonButtonBase* Button = this->*(Route.Button);
+		if (!Button)
 		{
 			continue;   // BindWidgetOptional: a WBP need not author every nav item
 		}
-		const FName Id(B.Id);
 
 		// AddUnique-equivalent: NativeOnInitialized runs once, but ApplyNavAvailability is also called on
 		// every activation, and a duplicate binding would push the screen N times per click.
-		B.Button->OnClicked().RemoveAll(this);
-		B.Button->OnClicked().AddWeakLambda(this, [this, Id] { OpenNavTarget(Id); });
+		const EAFLNavTarget Target = Route.Target;
+		Button->OnClicked().RemoveAll(this);
+		Button->OnClicked().AddWeakLambda(this, [this, Target] { OpenNavTarget(Target); });
 
 		// ⚠ DISABLED, NOT HIDDEN. Same reasoning as the staked door: a player should be able to see that
 		// Venues and Career are coming and that they are not available yet. Hiding them would make the
 		// footer silently change shape as surfaces ship.
-		const TSoftClassPtr<UCommonActivatableWidget>* Target = FindNavTarget(Id);
-		B.Button->SetIsInteractionEnabled(Target && !Target->IsNull());
+		Button->SetIsInteractionEnabled(!(this->*(Route.Destination)).IsNull());
 	}
 }
 

@@ -90,3 +90,77 @@ bool FAFLHome_LeagueIsAlwaysOpen::RunTest(const FString&)
 
 	return true;
 }
+
+// ══ THE FOOTER NAV ROUTING TABLE ══════════════════════════════════════════════════════════════════════
+//
+// Ruled into existence 2026-08-10, after the footer shipped as five CommonTextBlocks: readable, correctly
+// laid out, and completely inert. Nothing failed — the screen compiled, the WBP compiled, the items were
+// visible and legible, and Store and Settings were simply unreachable. The whole class of defect is
+// "navigation that looks present and is not", so the routing is now a typed table (GetNavRoutes) and these
+// tests hold it. They need no world, no widget tree and no PIE.
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLHome_EveryNavTargetHasARoute, "AFL.Home.Nav_EveryTargetIsRouted",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FAFLHome_EveryNavTargetHasARoute::RunTest(const FString&)
+{
+	// Drives the ENUM, not a hand-written list, so a sixth value added without a table row fails here
+	// rather than at a player's click. That is the entire point of the table being typed.
+	const UEnum* NavEnum = StaticEnum<EAFLNavTarget>();
+	if (!TestNotNull(TEXT("EAFLNavTarget is a reflected enum"), NavEnum))
+	{
+		return false;
+	}
+
+	// NumEnums() counts the implicit _MAX sentinel UHT appends, hence the -1.
+	const int32 Count = NavEnum->NumEnums() - 1;
+	TestEqual(TEXT("the footer draws exactly the five items sec3 specifies"), Count, 5);
+
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		const EAFLNavTarget Target = static_cast<EAFLNavTarget>(NavEnum->GetValueByIndex(Index));
+		const FString Name = NavEnum->GetNameStringByIndex(Index);
+
+		TestTrue(FString::Printf(TEXT("%s has a row in GetNavRoutes()"), *Name),
+			UAFLW_HomeScreen::IsNavTargetRouted(Target));
+
+		// Round-trip through the console id. A row whose id no longer parses back to its own target is a
+		// table that has drifted — afl.Home.Nav would open the wrong screen, silently and plausibly.
+		const FName Id = UAFLW_HomeScreen::GetNavTargetId(Target);
+		TestNotEqual(FString::Printf(TEXT("%s has a console id"), *Name), Id, FName(NAME_None));
+
+		EAFLNavTarget RoundTripped = EAFLNavTarget::Store;
+		if (TestTrue(FString::Printf(TEXT("'%s' parses"), *Id.ToString()),
+				UAFLW_HomeScreen::TryParseNavTarget(Id, RoundTripped)))
+		{
+			TestEqual(FString::Printf(TEXT("'%s' parses back to %s"), *Id.ToString(), *Name),
+				(int32)RoundTripped, (int32)Target);
+		}
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLHome_DeprecatedSurfacesAreNotRoutable, "AFL.Home.Nav_HostAndReplaysAreNotFooterItems",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FAFLHome_DeprecatedSurfacesAreNotRoutable::RunTest(const FString&)
+{
+	// HOST is DEPRECATED (2026-08-10): match allocation runs door -> queue -> allocator, so a client-side
+	// arena picker is a way to originate a session the allocator never authorised. REPLAYS is DEFERRED: a
+	// real feature, denied a sixth slot because it breaks the sec3 layout, landing as a Career sub-tab.
+	//
+	// Both are one sympathetic edit away from being "helpfully" re-added to the footer. This test is what
+	// makes that edit fail loudly instead of quietly reversing a ruling.
+	EAFLNavTarget Parsed = EAFLNavTarget::Store;
+	for (const TCHAR* Id : { TEXT("host"), TEXT("replays"), TEXT("replay"), TEXT("experiences") })
+	{
+		TestFalse(FString::Printf(TEXT("'%s' is not a footer destination"), Id),
+			UAFLW_HomeScreen::TryParseNavTarget(FName(Id), Parsed));
+	}
+
+	// And nothing is routable by accident: an unknown id must be refused outright rather than resolved to
+	// a nearest match. TryParseNavTarget does no guessing, and this is the assertion that keeps it that way.
+	TestFalse(TEXT("an empty id is refused"), UAFLW_HomeScreen::TryParseNavTarget(NAME_None, Parsed));
+	TestFalse(TEXT("a near-miss id is refused"), UAFLW_HomeScreen::TryParseNavTarget(TEXT("stores"), Parsed));
+
+	return true;
+}

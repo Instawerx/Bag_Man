@@ -52,11 +52,20 @@ map-preview menu. (Already started: the load screen is Armory-themed.)
   **`ShooterGameLobbyBG`** (`/ShooterMaps/Items/Backgrounds/`, a `ULyraLobbyBackground`) → **`BackgroundLevel`**
   (`TSoftObjectPtr<UWorld>`, `LyraLobbyBackground.h:23`) = **`L_ShooterFrontendBackground`** today.
 - **Default screen:** `B_LyraFrontendStateComponent` (`/Game/UI/`) → `PressStartScreenClass` = `W_IRONICS_Startup`,
-  `MainScreenClass` = **`W_IRONICS_FrontEnd`** (the button menu). Both already IRONICS-logo'd (fork; see
-  `WASH_INVENTORY.md`).
-- **Hub buttons** (W_IRONICS_FrontEnd refs, verified): **HOST** → `W_ExperienceSelectionScreen` (arena picker →
-  UserFacing playlist → ServerTravel) · **STORE** → `AFLW_Menu_CosmeticShop` (wired) · SETTINGS → `W_LyraSettingScreen`
-  · REPLAYS → `W_ReplayBrowserScreen`. **LOADOUT = NOT referenced** (still placeholder / cheat-only `afl.Loadout.Open`).
+  `MainScreenClass` = **`W_IRONICS_Home`** (the R98 door split) — ⚠ **repointed 2026-08-09**, was
+  `W_IRONICS_FrontEnd`. Both already IRONICS-logo'd (fork; see `WASH_INVENTORY.md`).
+- **Root nav** (`UAFLW_HomeScreen::GetNavRoutes`, verified in `-game`): two **doors** — LEAGUE PLAY →
+  `WBP_IRONICS_Lobby_League`, STAKED PLAY → `WBP_IRONICS_Lobby_Staked` (disabled until S4 TicketReview exists) —
+  over a five-item **footer**: LOADOUT → `WBP_AFL_Loadout` · **STORE** → `AFLW_Menu_CosmeticShop` · VENUES → *(no
+  asset; item disabled)* · CAREER → *(no asset; item disabled)* · SETTINGS → `W_LyraSettingScreen`.
+- ⚠ **HOST IS DEPRECATED and REPLAYS IS DEFERRED (operator ruling, 2026-08-10).** The old button set is gone with
+  the old root. Match allocation now runs door → queue → allocator, so a client-side arena picker could originate
+  a session the allocator never authorised: `W_ExperienceSelectionScreen` moved to `/Game/DeveloperUtils/Host/`
+  (never cooked) and is summoned by `afl.Debug.SummonHostMenu` in non-shipping builds only. `W_ReplayBrowserScreen`
+  is untouched at `/Game/UI/Menu/Replays/` and was denied a sixth footer slot — it becomes a **sub-tab inside
+  Career**, so it is unreachable until that surface lands. The two dead roots (`W_IRONICS_FrontEnd`,
+  `W_LyraFrontEnd`) moved to `/Game/DeveloperUtils/Host/` with the screen, because a hard reference from a cooked
+  package outranks any cook filter.
 - **Loadout locker** (`UAFLW_LoadoutBase`/`AAFLLoadoutPod`, Inc 1-3 proven) + **Store** (`UAFLW_FrontEndMarket`) =
   full-screen **UI overlays** (push `UI.Layer.Menu`) — work over ANY map.
 
@@ -92,6 +101,9 @@ the every-map hub rule, satisfied at the one knob, menu intact.
    hero robot — hide/remove so only the hero shows. Follow-on, not a blocker.
 5. **HOST / ServerTravel — UNCHANGED:** HOST → `W_ExperienceSelectionScreen` → ServerTravel is forward travel FROM
    the hub; Path A doesn't touch it.
+   > **SUPERSEDED 2026-08-10 — HOST is deprecated.** Path A still doesn't touch ServerTravel, but the *player-facing*
+   > entry to it is gone: the route is door → queue → allocator, and HOST survives only as `afl.Debug.SummonHostMenu`
+   > in non-shipping builds. Read this step as historical.
 6. **RETURN — UNCHANGED (just the knob):** `ReturnToMainMenu → GameDefaultMap` (now the armory). No code change.
 
 ### First cut = the GameDefaultMap repoint + registration, PIE-verified full-loop
@@ -104,14 +116,19 @@ LOADOUT button. `L_LyraFrontEnd` becomes the unused stock front-end (kept on dis
 > (`DefaultGame.ini:205`). Steps 3, 5 and 6 were no-change by design. **Still open from this cut:** step 4,
 > the three stray `Character_Default` mannequins (cosmetic).
 
-### What the front end does NOT have yet — the R98 split is unbuilt
+### ✅ RESOLVED — the R98 split is BUILT (2026-08-06 → 2026-08-10)
 
-`W_IRONICS_FrontEnd` still presents the **HOST / STORE / SETTINGS / REPLAYS** button set. The R98 first
-decision — **LEAGUE PLAY vs STAKED PLAY** — exists as `IRONICS_HOME_SCREEN_SPEC.md` plus both door specs and
-their mockups, and as **no widget at all**: a content search for `W_IRONICS_*` returns only `FrontEnd` and
-`Startup`. Nothing in-engine reads either door spec.
+**This section said the split existed "as no widget at all". That is no longer true and the whole passage is
+superseded.** What shipped, in order: the `UAFLW_Lobby_Root` chassis and both door WBPs, the `/queues` +
+`/population` join, the wallet bind, the S2 detail panel, the `/band` and presence endpoints, `W_IRONICS_Home`
+itself, the `MainScreenClass` repoint, and the footer nav. All of it is exercised headlessly by
+`afl.Home.Door`, `afl.Home.Nav` and the `AFL.Home` / `AFL.Lobby` / `AFL.Payout` suites.
 
-Two of the three §9 blockers are still operator-owed and both bear on the *visual* build, not the structure:
-the **type ramp is unapproved** (a stand-in system stack must not be inherited into a shipping face) and the
-**§2 colour-coding decision** needs a yes or an overrule. The door **structure** — two doors, routing, focus
-order, the never-show-a-stake-to-a-league-player rule — is fully specified and blocked by neither.
+Both §9 blockers named here were closed by ruling, not by working around them: the **type ramp is approved**
+(`IRONICS_UI_STYLE_SSOT.md` §4, with the `UFont` dropped and the token compiler re-run) and the **§2
+colour-coding decision is R100** — the doors are *not* colour-coded, they differ by density, motion rate and
+content.
+
+**Still unbuilt behind the split**, and each blocks something specific rather than the structure: **S4
+TicketReview** (R22, unskippable — the only reason the staked door is disabled), the **Venues** surface (S8
+VenueShowcase) and the **Career** surface, which also owns REPLAYS as a sub-tab.
