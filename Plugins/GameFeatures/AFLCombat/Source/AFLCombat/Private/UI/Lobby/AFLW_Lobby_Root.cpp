@@ -114,6 +114,16 @@ void UAFLW_Lobby_Root::BindQueueDirectory()
 	{
 		DirectoryHandle = Directory->OnUpdated.AddUObject(this, &UAFLW_Lobby_Root::HandleDirectoryUpdated);
 	}
+	if (!PresenceHandle.IsValid())
+	{
+		PresenceHandle = Directory->OnPresenceUpdated.AddUObject(this, &UAFLW_Lobby_Root::SetOnlineCount);
+	}
+
+	// The MEASURED online count -- clients that heartbeat inside the window. Deliberately not summed from
+	// /population, which publishes no headline total on purpose, and not the queued count, which is a
+	// different quantity. It reads 0 with nobody playing, which is the correct output of a real source.
+	SetOnlineCount(Directory->GetOnlineCount());
+	Directory->RefreshPresence();
 
 	// Take what is already cached BEFORE asking for a refresh. Returning to this screen from a match or a
 	// cancelled queue should paint the ladder immediately rather than showing an empty list for a round
@@ -200,6 +210,14 @@ void UAFLW_Lobby_Root::NativeDestruct()
 			Directory->OnUpdated.Remove(DirectoryHandle);
 		}
 		DirectoryHandle.Reset();
+	}
+	if (PresenceHandle.IsValid())
+	{
+		if (UAFLQueueDirectorySubsystem* Directory = UAFLQueueDirectorySubsystem::Get(this))
+		{
+			Directory->OnPresenceUpdated.Remove(PresenceHandle);
+		}
+		PresenceHandle.Reset();
 	}
 
 	// The wallet lives on the PlayerState, which outlives this screen. RemoveDynamic is a no-op when the
@@ -487,6 +505,32 @@ void UAFLW_Lobby_Root::SetStake(int32 InStake)
 	if (BandReadout)
 	{
 		BandReadout->SetText(FText::GetEmpty());
+	}
+
+	// Ask the server what this amount matches. The reply lands in SetStakeBand.
+	if (Stake > 0)
+	{
+		if (UAFLQueueDirectorySubsystem* Directory = UAFLQueueDirectorySubsystem::Get(this))
+		{
+			const int32 Requested = Stake;
+			TWeakObjectPtr<UAFLW_Lobby_Root> WeakThis(this);
+			Directory->ResolveBand(ResolveTier(Door, Denomination), Stake,
+				FAFLOnBandResolved::CreateLambda([WeakThis, Requested](bool bOk, const FText& Label, bool bInSomeBand)
+				{
+					UAFLW_Lobby_Root* Self = WeakThis.Get();
+					if (!Self || Self->Stake != Requested)
+					{
+						// ⚠ A REPLY FOR AN AMOUNT THE PLAYER HAS ALREADY TYPED PAST IS DISCARDED. Typing
+						// "450" fires four requests and they can land out of order; without this check the
+						// field could read 450 while the band underneath describes 45.
+						return;
+					}
+					if (bOk)
+					{
+						Self->SetStakeBand(Label, bInSomeBand);
+					}
+				}));
+		}
 	}
 
 	RefreshPresetSelection();

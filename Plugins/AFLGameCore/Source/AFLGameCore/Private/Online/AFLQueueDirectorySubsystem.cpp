@@ -127,6 +127,70 @@ namespace
 				Directory->Refresh();
 				Ar.Log(TEXT("afl.Lobby.Directory -- refreshing; the ladder prints to the log when both reads land."));
 			}));
+
+	/**
+	 * `afl.Lobby.Band <tier> <amount>` -- prove the R59 round trip against the live endpoint.
+	 *
+	 * The unit tests cannot cover this: the whole point of the band is that the CLIENT DOES NOT COMPUTE IT,
+	 * so the only thing worth verifying is that the real server answers and the real client renders what it
+	 * said. Defaults to the staked door's worked example.
+	 */
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLLobbyBandCmd(
+		TEXT("afl.Lobby.Band"),
+		TEXT("Resolve a stake band server-side: afl.Lobby.Band [VoltsPlay|WattsPlay|LeaguePlay] [amount]. Prints to the log."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				UAFLQueueDirectorySubsystem* Directory = UAFLQueueDirectorySubsystem::Get(World);
+				if (!Directory)
+				{
+					Ar.Log(TEXT("afl.Lobby.Band -- no game instance."));
+					return;
+				}
+
+				EAFLPlayTier Tier = EAFLPlayTier::VoltsPlay;
+				if (Args.Num() > 0) { FAFLLobbyQueueId::FromWire(Args[0], Tier); }
+				const int32 Amount = Args.Num() > 1 ? FCString::Atoi(*Args[1]) : 450;
+
+				// Logs rather than writing to Ar: the output device belongs to this console invocation and
+				// is gone by the time the round trip lands.
+				Directory->ResolveBand(Tier, Amount,
+					FAFLOnBandResolved::CreateLambda([Amount](bool bOk, const FText& Label, bool bInSomeBand)
+					{
+						UE_LOG(LogAFLGameCore, Log,
+							TEXT("AFL_BAND: amount=%d ok=%s inBand=%s label='%s'"),
+							Amount, bOk ? TEXT("yes") : TEXT("NO"),
+							bInSomeBand ? TEXT("yes") : TEXT("no"), *Label.ToString());
+					}));
+				Ar.Log(TEXT("afl.Lobby.Band -- asked; the answer prints to the log."));
+			}));
+
+	/** `afl.Lobby.Presence` -- read the measured online count. Expected to print 0 with nobody playing. */
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLLobbyPresenceCmd(
+		TEXT("afl.Lobby.Presence"),
+		TEXT("Read the measured online count from GET /presence. 0 is the correct answer when nobody is playing."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
+			[](const TArray<FString>&, UWorld* World, FOutputDevice& Ar)
+			{
+				UAFLQueueDirectorySubsystem* Directory = UAFLQueueDirectorySubsystem::Get(World);
+				if (!Directory)
+				{
+					Ar.Log(TEXT("afl.Lobby.Presence -- no game instance."));
+					return;
+				}
+				TWeakObjectPtr<UAFLQueueDirectorySubsystem> Weak(Directory);
+				TSharedRef<FDelegateHandle> Handle = MakeShared<FDelegateHandle>();
+				*Handle = Directory->OnPresenceUpdated.AddLambda([Weak, Handle](int32 Online)
+				{
+					if (UAFLQueueDirectorySubsystem* Self = Weak.Get())
+					{
+						Self->OnPresenceUpdated.Remove(*Handle);
+					}
+					UE_LOG(LogAFLGameCore, Log, TEXT("AFL_PRESENCE: online=%d (measured heartbeats, 90s window)"), Online);
+				});
+				Directory->RefreshPresence();
+				Ar.Log(TEXT("afl.Lobby.Presence -- asked; the count prints to the log."));
+			}));
 }
 
 UAFLQueueDirectorySubsystem* UAFLQueueDirectorySubsystem::Get(const UObject* WorldContextObject)
@@ -233,6 +297,116 @@ void UAFLQueueDirectorySubsystem::Refresh()
 			});
 		Request->ProcessRequest();
 	}
+}
+
+void UAFLQueueDirectorySubsystem::ResolveBand(EAFLPlayTier Tier, int32 Amount, FAFLOnBandResolved OnResolved)
+{
+	const FString BaseUrl = ResolveBaseUrl();
+	if (BaseUrl.IsEmpty() || Amount <= 0)
+	{
+		OnResolved.ExecuteIfBound(false, FText::GetEmpty(), false);
+		return;
+	}
+
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(FString::Printf(TEXT("%s/band?tier=%s&amount=%d"),
+		*BaseUrl, FAFLLobbyQueueId::ToWire(Tier), Amount));
+	Request->SetVerb(TEXT("GET"));
+
+	Request->OnProcessRequestComplete().BindLambda(
+		[OnResolved](FHttpRequestPtr, FHttpResponsePtr Res, bool bOk)
+		{
+			const int32 Code = Res.IsValid() ? Res->GetResponseCode() : 0;
+
+			// A 400 is a REAL ANSWER, not a transport failure: the amount matched no band, which the door
+			// must render as `outside all bands` with the CTA disabled. Collapsing it into "the request
+			// failed" would leave the player staring at a stale band while the button refused them.
+			if (bOk && Res.IsValid() && Code == 400)
+			{
+				OnResolved.ExecuteIfBound(true, FText::GetEmpty(), /*bInSomeBand=*/false);
+				return;
+			}
+			if (!bOk || !Res.IsValid() || Code < 200 || Code >= 300)
+			{
+				UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_BAND: GET /band failed (code %d)."), Code);
+				OnResolved.ExecuteIfBound(false, FText::GetEmpty(), false);
+				return;
+			}
+
+			TSharedPtr<FJsonObject> Root;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Res->GetContentAsString());
+			if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+			{
+				OnResolved.ExecuteIfBound(false, FText::GetEmpty(), false);
+				return;
+			}
+
+			const TSharedPtr<FJsonObject>* Band = nullptr;
+			if (!Root->TryGetObjectField(TEXT("band"), Band) || !Band || !Band->IsValid())
+			{
+				// `band: null` on a LEAGUE tier -- a true answer meaning there is no buy-in here. Reported
+				// as OK with no label, so the door renders nothing rather than an error.
+				OnResolved.ExecuteIfBound(true, FText::GetEmpty(), true);
+				return;
+			}
+
+			int32 Min = 0, Max = 0;
+			(*Band)->TryGetNumberField(TEXT("min"), Min);
+			(*Band)->TryGetNumberField(TEXT("max"), Max);
+
+			// The page's phrasing, verbatim: "matching 400-500 V". Stated in the same place as the value,
+			// never a tooltip -- a qualification the player has to go looking for was not made.
+			const FText Label = FText::Format(
+				NSLOCTEXT("AFLLobby", "BandMatching", "matching {0}-{1}"),
+				FText::AsNumber(Min), FText::AsNumber(Max));
+			OnResolved.ExecuteIfBound(true, Label, true);
+		});
+	Request->ProcessRequest();
+}
+
+void UAFLQueueDirectorySubsystem::RefreshPresence()
+{
+	const FString BaseUrl = ResolveBaseUrl();
+	if (BaseUrl.IsEmpty())
+	{
+		return;
+	}
+
+	TWeakObjectPtr<UAFLQueueDirectorySubsystem> WeakThis(this);
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(BaseUrl + TEXT("/presence"));
+	Request->SetVerb(TEXT("GET"));
+	Request->OnProcessRequestComplete().BindLambda(
+		[WeakThis](FHttpRequestPtr, FHttpResponsePtr Res, bool bOk)
+		{
+			UAFLQueueDirectorySubsystem* Self = WeakThis.Get();
+			if (!Self)
+			{
+				return;
+			}
+			const int32 Code = Res.IsValid() ? Res->GetResponseCode() : 0;
+			if (!bOk || !Res.IsValid() || Code < 200 || Code >= 300)
+			{
+				// ⚠ THE LAST GOOD VALUE SURVIVES A FAILED READ. Zeroing here would turn a network blip into
+				// "the game is empty", which is a claim, not an absence.
+				UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_PRESENCE: GET /presence failed (code %d)."), Code);
+				return;
+			}
+
+			TSharedPtr<FJsonObject> Root;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Res->GetContentAsString());
+			if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+			{
+				return;
+			}
+			int32 Online = INDEX_NONE;
+			if (Root->TryGetNumberField(TEXT("online"), Online))
+			{
+				Self->OnlineCount = Online;
+				Self->OnPresenceUpdated.Broadcast(Online);
+			}
+		});
+	Request->ProcessRequest();
 }
 
 void UAFLQueueDirectorySubsystem::HandleQueuesResponse(FHttpRequestPtr, FHttpResponsePtr Response, bool bConnectedSuccessfully)

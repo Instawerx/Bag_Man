@@ -24,6 +24,12 @@ enum class EAFLQueueDirectoryState : uint8
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FAFLOnQueueDirectoryUpdated, EAFLQueueDirectoryState /*State*/);
 
+/** The server's answer for one entered amount. Empty label = the server said there is no band. */
+DECLARE_DELEGATE_ThreeParams(FAFLOnBandResolved, bool /*bOk*/, const FText& /*Label*/, bool /*bInSomeBand*/);
+
+/** Players present, or INDEX_NONE when the read failed. Never 0-on-failure. */
+DECLARE_MULTICAST_DELEGATE_OneParam(FAFLOnPresenceUpdated, int32 /*Online*/);
+
 /**
  * UAFLQueueDirectorySubsystem -- what can be entered, and how busy it is.
  *
@@ -91,6 +97,32 @@ public:
 	FAFLOnQueueDirectoryUpdated OnUpdated;
 
 	/**
+	 * Ask the SERVER which band an amount matches -- `GET /band`.
+	 *
+	 * ⚠ THE CLIENT DOES NOT SNAP. R59 puts it on the server and `STAKED_DOOR_SPEC.md` §3 is one line about
+	 * it: *"The UI displays; it never re-implements the rule."* A client that computed its own band would
+	 * be asserting a server fact, and it buys nothing -- the server re-resolves on receipt regardless.
+	 *
+	 * Ties go DOWN and the centre never moves as the band widens with wait (R60); both are the server's
+	 * behaviour, verified against the live endpoint, and neither is reproduced here.
+	 */
+	void ResolveBand(EAFLPlayTier Tier, int32 Amount, FAFLOnBandResolved OnResolved);
+
+	/**
+	 * Refresh the measured online count -- `GET /presence`.
+	 *
+	 * ⚠ NOT DERIVED FROM /population, WHICH REFUSES TO SERVE A HEADLINE TOTAL, and not the queued count,
+	 * which is a different and much smaller quantity. This is how many clients sent a heartbeat inside the
+	 * window. **It reads 0 when nobody is playing, and that is the point of measuring it.**
+	 */
+	void RefreshPresence();
+
+	/** Players present, or INDEX_NONE until a read succeeds. */
+	int32 GetOnlineCount() const { return OnlineCount; }
+
+	FAFLOnPresenceUpdated OnPresenceUpdated;
+
+	/**
 	 * Parse a `/queues` body into cells. Public and static so a test can hold the contract against a
 	 * captured response with no network -- the same reason the row's formatters are static.
 	 */
@@ -122,4 +154,7 @@ private:
 	bool bLadderOk = false;
 	bool bPopulationOk = false;
 	bool bPopulationKnown = false;
+
+	/** INDEX_NONE until /presence answers. A failed read leaves the last good value rather than zeroing it. */
+	int32 OnlineCount = INDEX_NONE;
 };

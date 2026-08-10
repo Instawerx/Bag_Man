@@ -434,4 +434,5 @@ private:
 
 	/** Held so the subscription is released in NativeDestruct -- the directory outlives every lobby screen. */
 	FDelegateHandle DirectoryHandle;
+	FDelegateHandle PresenceHandle;
 };
