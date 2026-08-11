@@ -136,6 +136,15 @@ EAFLCareerTab UAFLW_CareerHub::ResolveLandingTab() const
 void UAFLW_CareerHub::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
+
+	// THE HUB HAD NO WAY OUT. It declares no BackButton and neither WBP contains a back-ish widget, so a
+	// player who opened CAREER was stranded there -- the hub sits on its layer with nothing to pop it.
+	// bIsBackHandler makes UCommonActivatableWidget route the Back action (Escape, gamepad B) to this
+	// widget and deactivate it, which needs no layout change and cannot be silently unwired the way an
+	// optional BindWidget can. A VISIBLE back control is still owed for mouse-only players; this is the
+	// keyboard/gamepad exit, not a substitute for one.
+	bIsBackHandler = true;
+
 	ApplyTabAvailability();
 }
 

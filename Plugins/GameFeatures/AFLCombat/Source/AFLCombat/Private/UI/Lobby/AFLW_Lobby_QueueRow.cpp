@@ -57,6 +57,13 @@ void UAFLW_Lobby_QueueRow::NativePreConstruct()
 {
 	Super::NativePreConstruct();
 
+	// Rows and size tiles are BOTH this class (WBP_IRONICS_Lobby_QueueRow and WBP_IRONICS_Lobby_SizeTile),
+	// and they are spawned into the list at RUNTIME -- so there is no instance in any WBP to tick a
+	// focusable box on. Unfocusable, they log "does not support focus" and cannot be reached by keyboard or
+	// gamepad, which makes the queue list mouse-only. Set here rather than on the WBP so every child and
+	// every runtime-created row gets it without anyone remembering to.
+	SetIsFocusable(true);
+
 	// Designer-time only: without this the row shows whatever placeholder strings the WBP was authored with,
 	// which is how a mocked-up "88 waiting" ends up looking like a live reading in a screenshot.
 	if (IsDesignTime() && BracketText && BracketText->GetText().IsEmpty())
