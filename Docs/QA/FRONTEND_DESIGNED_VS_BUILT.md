@@ -88,7 +88,40 @@ Every one of these presented as "dead button" or "missing data". None of them wa
    designed alongside it.
 3. Band readout live-update unverified.
 
-## 6. Order this suggests
+## 6. What the last 40 commits add that source-reading missed
+
+Reading the history rather than only the code changes the picture in three ways. **This section exists
+because the first draft of this document was written from source and the tracker alone, and was wrong or
+blind in each of the following.**
+
+**a. There is a live cook / packaging workstream, and it is not front-end.** Eleven of the last forty
+commits are one investigation: `be97de4b` (the cook is not reproducible and drops `L_ShantyTown`
+DataLayers) → `9629bbd6` (**an ABORTED cook poisons the next one**) → `1ce62186` (abort ruled out as the
+cause, DDC is an input not the cause) → `94a791ca` (force-cook the DataLayer roots, 19 of 19) →
+`5f5ab3b4` (a check for the DataLayer gap, **because the fix only covers today's folders**). Plus
+`076004dd`, `5f3ca71b`, `d6ae77e5`, `1e4c8151`, `86d51f1d`, `0dc03380`. Cook health gates shipping and is
+entirely absent from the front-end matrix above — a "100% front end" that cannot cook reproducibly is not
+100% of anything.
+
+**b. Two nav decisions were rulings, not omissions.** `5b884d3a` deprecated **HOST** and deferred
+**REPLAYS**, driven by a measurement (`86d51f1d` — the HOST strip is real in cook size, and it took
+REPLAYS with it). REPLAYS then returned as a Career *tab* rather than a push (`0b8f7702`). So the footer
+being five items is a decision with a cost behind it, not an unfinished six.
+
+**c. Kill telemetry is deliberately out of scope.** `103ed783` scopes it as a secondary system —
+**analysis only, nothing built** — with the two rulings recorded in `089fdd66`. It should never appear on
+a gap list as missing work.
+
+**Corrections to this document's own earlier rows:**
+
+- **The type ramp is RULED** (`3d745e84`), so R100's "type ramp is unapproved" art dependency is closed.
+  The §3.2 R100 row above should be read as blocked only on being *checked*, not on a pending approval.
+- **The online count is real and self-releasing** (`36c5c77d`, presence heartbeat) and server-resolved
+  (`78bafdf4`). The §5 BUILT row is stronger than "a component exists".
+
+---
+
+## 7. Order this suggests
 
 1. Preset labels — staking is not choosable without them
 2. R23 guardrails — required before real stakes move
