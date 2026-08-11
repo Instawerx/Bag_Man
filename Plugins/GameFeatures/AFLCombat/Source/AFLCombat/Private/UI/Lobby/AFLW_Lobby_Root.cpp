@@ -706,13 +706,52 @@ void UAFLW_Lobby_Root::FinishRefresh()
 {
 	RebuildAxisOptions();
 	RebuildQueueList();
+	RefreshAxisSelection();
 	RefreshCommitState();
+
+	// UNCONDITIONAL, and deliberately not inside the bSelectionChangedPending branch below. On the staked
+	// door there are no published cells, so a selection never CHANGES -- there was never one to change from
+	// -- and anything hung off that flag simply never runs. That is precisely how the panel ended up
+	// showing its authored "Text Block" strings. The empty state has to be driven by every refresh, not by
+	// a transition that does not happen.
+	if (QueueDetail && !GetSelectedQueue())
+	{
+		QueueDetail->ShowNoSelection(LOCTEXT("DetailNothingOpen", "Nothing is open in this combination yet"));
+	}
 
 	if (bSelectionChangedPending)
 	{
 		bSelectionChangedPending = false;
 		BroadcastSelection();
 	}
+}
+
+void UAFLW_Lobby_Root::RefreshAxisSelection()
+{
+	// THE AXIS BUTTONS NEVER SHOWED WHICH OPTION WAS CHOSEN. Only spawned rows, tiles and presets were
+	// given SetIsSelected; the fixed axis buttons were bound to their handlers and then never told
+	// anything. Clicking HAYWIRE genuinely ran SelectLeague and changed the state -- it just left the
+	// button looking exactly as it did before, which is indistinguishable from a dead button.
+	//
+	// RULESET and VENUE CLASS escaped the report only because changing them visibly rewrites the format
+	// row underneath, so the feedback arrived by side effect. LEAGUE changes nothing on screen when both
+	// leagues publish the same brackets, so it looked broken while working.
+	const auto Mark = [](UCommonButtonBase* Button, bool bSelected)
+	{
+		if (Button)
+		{
+			Button->SetIsSelected(bSelected);
+		}
+	};
+
+	Mark(MatchPlayTab,    Ruleset == EAFLRuleset::MatchPlay);
+	Mark(BattleRoyaleTab, Ruleset == EAFLRuleset::BattleRoyale);
+	Mark(HaywireButton,   League == EAFLLeague::Haywire);
+	Mark(ProModButton,    League == EAFLLeague::ProMod);
+	Mark(WattsButton,     Denomination == EAFLDenomination::Watts);
+	Mark(VoltsButton,     Denomination == EAFLDenomination::Volts);
+	Mark(ArenaButton,     Venue == EAFLVenueClass::Arena);
+	Mark(MapButton,       Venue == EAFLVenueClass::Map);
 }
 
 void UAFLW_Lobby_Root::RefreshRowsInPlace()
@@ -977,6 +1016,15 @@ void UAFLW_Lobby_Root::BroadcastSelection()
 	const FAFLLobbyQueue* Selected = GetSelectedQueue();
 	if (!Selected)
 	{
+		// DO NOT just return. The panel is not an observer that can be left alone -- it is region D's own
+		// column, and a column nobody writes to shows whatever the WBP was authored with. That is why the
+		// staked door read "Text Block" in every field (no published cells, so no selection is ever
+		// reached), and why switching the league door to BATTLE ROYALE left the previous MATCH PLAY
+		// figures standing over a list that said "Not open yet".
+		if (QueueDetail)
+		{
+			QueueDetail->ShowNoSelection(LOCTEXT("DetailNothingOpen", "Nothing is open in this combination yet"));
+		}
 		return;
 	}
 

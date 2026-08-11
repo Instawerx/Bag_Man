@@ -100,6 +100,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Lobby")
 	void SelectTab(EAFLQueueDetailTab Tab);
 
+	/**
+	 * NO QUEUE IS SELECTED -- say so, in the panel's own voice.
+	 *
+	 * Without this the panel is simply never written to, and a widget that is never written to shows what
+	 * the WBP was authored with: the literal string "Text Block". That is what the staked door displayed
+	 * for every field, because it has no published cells and therefore never reaches a selection. The
+	 * league door hit the same defect from the other side -- switching to BATTLE ROYALE left the previous
+	 * MATCH PLAY figures standing while the list underneath read "Not open yet", which is worse than
+	 * placeholder text because it is plausible.
+	 *
+	 * An empty band must look empty (ssot/ui-frontend.md section 5.2). A panel showing stale or mocked
+	 * numbers is the same failure that rule exists to prevent, one surface further in.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Lobby")
+	void ShowNoSelection(const FText& Reason);
+
 	/** The solved ladder for the queue currently shown. Invalid until SetQueue lands a real cell. */
 	const FAFLPayoutLadder& GetLadder() const { return Ladder; }
 

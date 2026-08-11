@@ -114,6 +114,38 @@ void UAFLW_Lobby_DetailPanel::SetQueue(const FAFLLobbyQueue& InQueue, int32 InSt
 	BP_OnQueueShown(Queue, Ladder.bWinnerTakesAll);
 }
 
+void UAFLW_Lobby_DetailPanel::ShowNoSelection(const FText& Reason)
+{
+	// Every field is written, including the ones that would otherwise keep a previous queue's numbers.
+	// A dash is the honest reading for a metric that has no value yet -- not "0", which is a claim.
+	const FText Dash = LOCTEXT("DetailNoValue", "—");
+
+	if (TitleText)    { TitleText->SetText(Reason); }
+	if (BandText)     { BandText->SetText(FText::GetEmpty()); }
+	if (StakeValue)   { StakeValue->SetText(Dash); }
+	if (StakeSub)     { StakeSub->SetText(FText::GetEmpty()); }
+	if (PoolValue)    { PoolValue->SetText(Dash); }
+	if (PoolSub)      { PoolSub->SetText(FText::GetEmpty()); }
+	if (PlayersValue) { PlayersValue->SetText(Dash); }
+	if (PlayersSub)   { PlayersSub->SetText(FText::GetEmpty()); }
+	if (OverviewText) { OverviewText->SetText(FText::GetEmpty()); }
+	if (RulesText)    { RulesText->SetText(FText::GetEmpty()); }
+	if (VenueNote)    { VenueNote->SetText(FText::GetEmpty()); }
+	if (PayoutFootnote) { PayoutFootnote->SetText(FText::GetEmpty()); }
+
+	// The ladder is rows spawned from a previous queue; leaving them is the same staleness in list form.
+	if (PayoutLadderBox)
+	{
+		PayoutLadderBox->ClearChildren();
+	}
+
+	// Nothing to queue for. Enabling this would offer entry to a queue that does not exist.
+	if (QueueButton)
+	{
+		QueueButton->SetIsEnabled(false);
+	}
+}
+
 void UAFLW_Lobby_DetailPanel::SelectTab(EAFLQueueDetailTab Tab)
 {
 	CurrentTab = Tab;

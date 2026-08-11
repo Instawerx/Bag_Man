@@ -387,6 +387,9 @@ private:
 	/** Rebuild both views, then fire any selection change ReconcileSelection deferred. One tail, one order. */
 	void FinishRefresh();
 
+	/** Push the current axis state onto the fixed axis buttons, so a chosen option LOOKS chosen. */
+	void RefreshAxisSelection();
+
 	/**
 	 * Restate the existing rows and tiles without destroying them.
 	 *
