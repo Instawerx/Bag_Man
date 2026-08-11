@@ -108,6 +108,10 @@ void UAFLW_Lobby_Root::NativeOnInitialized()
 		VenueNote->SetText(LOCTEXT("VenueAtStart", "Venue assigned at match start"));
 	}
 
+	// The door arrives from the WBP class defaults, so it is already set by the time we get here and no
+	// SetDoor call will ever transition to it. Apply the door's invariants against whatever it IS.
+	EnforceDoorInvariants();
+
 	ApplyDoorScoping();
 	BindQueueDirectory();
 }
@@ -323,22 +327,7 @@ void UAFLW_Lobby_Root::SetDoor(EAFLHomeDoor InDoor)
 		return;
 	}
 	Door = InDoor;
-
-	if (Door == EAFLHomeDoor::Staked)
-	{
-		// R86, enforced rather than assumed: there is no staked Haywire cell in the registry at all, so a
-		// stale Haywire selection carried through the split would scope the list to nothing and read as an
-		// empty lobby rather than as an illegal combination.
-		League = EAFLLeague::ProMod;
-	}
-	else
-	{
-		// Leaving the staked door drops the stake entirely. Not zeroed-and-kept: there is no buy-in on this
-		// route, so a retained amount would be a wagering value living on the free side of R98.
-		Stake = 0;
-		StakeBandLabel = FText::GetEmpty();
-		bStakeInSomeBand = true;
-	}
+	EnforceDoorInvariants();
 
 	ApplyDoorScoping();
 	ReconcileSelection();
@@ -723,6 +712,33 @@ void UAFLW_Lobby_Root::FinishRefresh()
 	{
 		bSelectionChangedPending = false;
 		BroadcastSelection();
+	}
+}
+
+void UAFLW_Lobby_Root::EnforceDoorInvariants()
+{
+	if (Door == EAFLHomeDoor::Staked)
+	{
+		// R86, enforced rather than assumed: there is no staked Haywire cell in the registry at all, so a
+		// Haywire selection on this door scopes the list to nothing and reads as an empty lobby rather than
+		// as an illegal combination.
+		//
+		// ⚠ THIS MUST RUN AT INITIALISATION, NOT ONLY ON A DOOR TRANSITION -- and that distinction was the
+		// whole staked bug. WBP_IRONICS_Lobby_Staked carries Door=Staked in its class defaults (that is how
+		// one chassis serves two doors), so SetDoor(Staked) hit its `Door == InDoor` early return, this
+		// correction never ran, and League stayed at its Haywire member default. Every staked cell is
+		// ProMod, so the filter matched ZERO of the 20 published staked queues, the list came up empty, no
+		// selection was ever made, and the detail panel kept its authored "Text Block" strings. A door
+		// invariant applied only on the transition is not an invariant.
+		League = EAFLLeague::ProMod;
+	}
+	else
+	{
+		// The league door has no buy-in, so a retained amount would be a wagering value living on the free
+		// side of R98. Cleared rather than kept-and-zeroed.
+		Stake = 0;
+		StakeBandLabel = FText::GetEmpty();
+		bStakeInSomeBand = true;
 	}
 }
 

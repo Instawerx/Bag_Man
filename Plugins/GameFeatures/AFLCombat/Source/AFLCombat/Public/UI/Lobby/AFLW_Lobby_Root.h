@@ -390,6 +390,9 @@ private:
 	/** Push the current axis state onto the fixed axis buttons, so a chosen option LOOKS chosen. */
 	void RefreshAxisSelection();
 
+	/** Apply the door's product rules to the current state. Runs at INIT as well as on a door change. */
+	void EnforceDoorInvariants();
+
 	/**
 	 * Restate the existing rows and tiles without destroying them.
 	 *
