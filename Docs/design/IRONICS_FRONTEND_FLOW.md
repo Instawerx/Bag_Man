@@ -134,9 +134,14 @@ Both §9 blockers named here were closed by ruling, not by working around them: 
 colour-coding decision is R100** — the doors are *not* colour-coded, they differ by density, motion rate and
 content.
 
-**Still unbuilt behind the split:** the **Venues** surface (S8 VenueShowcase), and Career's two progression
-tabs — **Volume** and **Rank**, kept apart because R10 forbids conflating cumulative volume with skill
-rating. All three ship as disabled controls with stated reasons rather than as empty panels.
+**Still unbuilt behind the split:** Career's two progression tabs — **Volume** and **Rank**, kept apart
+because R10 forbids conflating cumulative volume with skill rating. Both ship as disabled controls with
+stated reasons rather than as empty panels.
+
+**S8 VenueShowcase is BUILT (2026-08-10)** — `UAFLW_VenueShowcase` / `WBP_IRONICS_VenueShowcase`, wired to
+the VENUES footer item. Three venues, **one row per LEVEL** (ARCANEON's four playlists appear once, because
+a list of configurations is a config picker). It carries **no queue affordance**: §8's one permitted exit
+is a deep link that `BuildLobbyDeepLink` makes carry nothing, by taking no arguments at all.
 
 > **✅ S4 AND CAREER BOTH LANDED 2026-08-10.** S4 TicketReview closed the only reason the staked door was
 > shut, and **the door is open**. The Career hub (`UAFLW_CareerHub`) closed the REPLAYS ruling: it hosts
