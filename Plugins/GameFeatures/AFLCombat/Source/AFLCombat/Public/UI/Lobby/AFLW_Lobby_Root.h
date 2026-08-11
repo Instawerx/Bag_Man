@@ -393,6 +393,9 @@ private:
 	/** Apply the door's product rules to the current state. Runs at INIT as well as on a door change. */
 	void EnforceDoorInvariants();
 
+	/** `V` / `W` for the current tier, empty on the league route. Must match the detail panel's mapping. */
+	FString StakeCurrencySuffix() const;
+
 	/**
 	 * Restate the existing rows and tiles without destroying them.
 	 *

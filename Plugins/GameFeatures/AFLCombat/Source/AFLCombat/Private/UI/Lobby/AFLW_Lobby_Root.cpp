@@ -715,6 +715,18 @@ void UAFLW_Lobby_Root::FinishRefresh()
 	}
 }
 
+FString UAFLW_Lobby_Root::StakeCurrencySuffix() const
+{
+	// Same mapping as UAFLW_Lobby_DetailPanel::CurrencySuffix -- the two surfaces must never disagree about
+	// what a number is denominated in. Empty on the league route, which has no buy-in to denominate (R98).
+	switch (ResolveTier(Door, Denomination))
+	{
+	case EAFLPlayTier::VoltsPlay: return TEXT("V");
+	case EAFLPlayTier::WattsPlay: return TEXT("W");
+	default:                      return FString();
+	}
+}
+
 void UAFLW_Lobby_Root::EnforceDoorInvariants()
 {
 	if (Door == EAFLHomeDoor::Staked)
@@ -878,6 +890,35 @@ void UAFLW_Lobby_Root::RebuildAxisOptions()
 			{
 				continue;
 			}
+			// LABEL IT. The preset was spawned, wired and selected correctly and then never told what it
+			// stood for, so every rung rendered W_LyraButton_C's authored "{ButtonText}" placeholder. Four
+			// identical buttons cannot express a ladder, which made a deliberate stake impossible and is
+			// the reason the staked door was unusable even once it listed queues.
+			//
+			// WBP_IRONICS_Lobby_StakePreset has NO widgets of its own -- it inherits its layout from
+			// W_LyraButton_C, so there is no text block here to bind. ULyraButtonBase::SetButtonText is the
+			// parent's own setter and the correct seam; a new AFL preset class would duplicate a control
+			// Lyra already owns.
+			//
+			// ⚠ CALLED BY REFLECTION, NOT LINKED. `class ULyraButtonBase` carries NO LYRAGAME_API, so it is
+			// unexported and a direct call fails at link with LNK2019 on SetButtonText -- the same wall as
+			// UGameFeatureAction_WorldActionBase. Adding the export macro would edit a Lyra header and cost
+			// upstream mergeability, which CLAUDE.md rules out. SetButtonText is UFUNCTION(BlueprintCallable),
+			// so reflection reaches it without touching Lyra at all.
+			//
+			// R20 section 16.1: rungs come from the cell's StakeRungs and are never authored in the widget,
+			// so the label is formatted from the value the server published rather than typed into a WBP.
+			if (UFunction* SetTextFn = Preset->FindFunction(TEXT("SetButtonText")))
+			{
+				struct FSetButtonTextParams { FText InText; };
+				FSetButtonTextParams Params;
+				Params.InText = FText::Format(
+					LOCTEXT("StakePresetLabel", "{0} {1}"),
+					FText::AsNumber(Rung),
+					FText::FromString(StakeCurrencySuffix()));
+				Preset->ProcessEvent(SetTextFn, &Params);
+			}
+
 			Preset->SetIsSelected(Rung == Stake);
 			Preset->OnClicked().AddWeakLambda(this, [this, Rung] { SetStake(Rung); });
 			StakePresetBox->AddChild(Preset);
