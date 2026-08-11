@@ -68,7 +68,10 @@ makes it stop mattering here.
 **Still true regardless:**
 1. **Diff every cook against a manifest.** None of this appeared in totals, warnings, or exit codes.
 2. **Ship from clean cooks only** — an incremental tree emits packages a clean one does not.
-3. **A new WorldPartition map needs its DataLayer folder covered**, or it re-enters the lottery.
+3. **A new WorldPartition map needs its DataLayer folder covered**, or it re-enters the lottery —
+   and `Tools/AFL_Lint/cook_datalayers.py --cooked-dir <tree>` is the check that says so out loud
+   rather than relying on someone remembering. It compares every `DataLayers/<Map>/*.uasset` on
+   disk to the cook and exits 1 on any gap.
 
 *Three earlier readings of this are superseded by the table above: "nondeterminism", then "a
 clean-vs-incremental confound", then "reproducible from a healthy state". Each was the most a smaller
