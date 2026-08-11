@@ -266,6 +266,45 @@ const ENTRIES = [
  c:['4b89557b']},
 
 // ============================ MATCHMAKING =================================
+{g:'MATCHMAKING', status:'PROVEN', opRep:true, ssot:'ssot/matchmaking.md',
+ t:'/create-ticket authenticates -- tickets are accepted',
+ what:'WATCHED: operator ran one league queue in PIE and the client received http=200 with ticket dec820ed-197a-ff59-9ee5-6a2f4b3a0000, stake null on the league route. Every ticket before this was refused. Root cause was the caller credential, not the player: Authentication/ValidateEntityToken is documented Only callable by the title entity and requires X-EntityToken, and we sent X-SecretKey -- so PlayFab answered 401 NotAuthenticated 1074 This API method does not allow anonymous callers and never examined the player token. The secret was valid the whole time, proven by AuthenticateSessionTicket succeeding with it in the same invocation. Remedy is two legs: GetEntityToken with X-SecretKey mints the title entity token, then ValidateEntityToken authenticates with X-EntityToken and asks about the player token in the body.',
+ remains:'A ticket being ACCEPTED is not a match being PLACED. See the three OPEN rows below -- nothing has ever placed.',
+ warn:'An earlier attempt at this same endpoint synthesised the creator as a master_player_account id wearing a title_player_account label and was refused as The Entities for the creator do not match. Do NOT derive the entity from the session ticket: the two identifiers are different namespaces.',
+ c:['81afad5','cb2df2c']},
+
+{g:'MATCHMAKING', status:'COMMITTED', ssot:'ssot/matchmaking.md',
+ t:'Matchmaking end to end -- League and Staked, code-complete and NOT PROVEN',
+ what:'The client path is whole: lobby resolves a queue, reads the live directory, commits, and the ticket is accepted server-side. The backend chain exists in full -- /create-ticket to PlayFab, PlayFab match result to /allocate, /allocate to GameLift, ready row to /match-status.',
+ remains:'NO MATCH HAS EVER PLACED. /match-status was polled about 35 times on a solo 3v3 and returned status waiting every time, which is the correct answer for a queue that cannot form. This stays COMMITTED until a match is watched forming and a client travels into it.',
+ c:[]},
+
+{g:'MATCHMAKING', status:'OPEN', ssot:'ssot/matchmaking.md',
+ t:'Solo placement is impossible -- MinMatchSize equals MaxMatchSize on all 12 queues',
+ what:'Read live from PlayFab Match/ListMatchmakingQueues: every queue is min==max. 3v3 places at exactly 6 tickets, 5v5 at 10, 8v8 at 16. There is no relaxation and no minimum-player policy. Three independent reasons a solo queue cannot place: PlayFab will not form the match, nothing synthesises the missing players, and /allocate only runs on a match result so no ready row is ever written. UAFLBotFillComponent is MATCH-SIDE -- it tops up a session that already exists and cannot place a ticket.',
+ remains:'A decision between a LeaguePlay queue with MinMatchSize=1 and a league-only path that calls /allocate directly with a single-member roster. botsPermitted(tier) already exists in the registry, true for LeaguePlay and false for staked and rated, and NOTHING READS IT -- that flag is the gate either path should hang off.',
+ warn:'botsPermitted is FALSE for WattsPlay and VoltsPlay and must stay false. A staked or rated match filled with bots is a product problem, not a config one.',
+ c:[]},
+
+{g:'MATCHMAKING', status:'OPEN', ssot:'ssot/matchmaking.md',
+ t:'The directory offers 40 cells and only 12 PlayFab queues exist',
+ what:'config/queue-registry.json publishes 40 cells; PlayFab has 12 queues, all MatchPlay Arena at 3v3, 5v5 and 8v8 across the four tiers. There is no 1v1, 2v2 or 4v4, no Map class, and no BattleRoyale. So 28 published cells have nothing behind them. This is not theoretical: ticket dec820ed was created against LeaguePlay_ProMod_MatchPlay_Arena_2v2, which can never place.',
+ remains:'Decide between creating the missing PlayFab queues and unpublishing the cells that have none, then make publish state and queue existence structurally impossible to diverge rather than a thing someone remembers.',
+ warn:'/create-ticket currently ACCEPTS a queueId with no PlayFab queue behind it and returns 200, so the failure surfaces as a ticket that waits forever instead of an error.',
+ c:[]},
+
+{g:'MATCHMAKING', status:'OPEN', ssot:'ssot/matchmaking.md',
+ t:'GameLift compute is registered but LAN-only',
+ what:'Read live: fleet BagManTentpoleFleet (fleet-40c6b342, ANYWHERE) is ACTIVE with compute bagman-dev-EREMOSPECIALTY, status Active, location custom-bagman-test-1. This CORRECTS the older note that no compute was registered and a placement would stay PENDING -- that gate is closed.',
+ remains:'Its address is 192.168.1.159, a private RFC1918 address. Reachable from that LAN and from nothing else, so a placement can FULFILL and hand back a tuple a remote client cannot connect to. Fine for local PIE, not for a second machine.',
+ c:[]},
+
+{g:'MATCHMAKING', status:'OPEN', ssot:'ssot/matchmaking.md',
+ t:'/cancel-ticket does not exist',
+ what:'There is no cancel endpoint. The UE cancel path stops the client polling and deliberately does NOT pretend to withdraw the ticket (AFLMatchmakingSubsystem.cpp around line 277): the PlayFab ticket keeps living and may still match, and in a staked tier the stake is escrowed against it.',
+ remains:'A /cancel-ticket calling PlayFab CancelMatchmakingTicket, with the ticket id read server-side from the existing ticket index rather than from the request, and -- the hard half -- releasing the play-limits exposure row that /create-ticket writes BEFORE the ticket exists. Without that release a cancelled entry permanently consumes headroom. Also a ruling on cancel arriving after a match has formed.',
+ c:[]},
+
 {g:'MATCHMAKING', status:'COMMITTED', ssot:'ssot/matchmaking.md',
  t:'ARCANEON experiences, playlists and front-end tiles',
  what:'Four configs on L_Arena_04 shipped hidden, then four tiles live in the front end with the gore split proven both ways. A Block-155 gap was found and fixed: ARCANEON ProMod was missing the entire Pro component set.',
@@ -529,6 +568,12 @@ const ENTRIES = [
  c:[]},
 
 // =========================== CROSS-CUTTING ================================
+{g:'CROSS-CUTTING', status:'COMMITTED', opRep:true, ssot:'(multiple)',
+ t:'Two-engine partition RETIRED -- D: for everything',
+ what:'OPERATOR RULING 2026-08-11: D:\\UE5.6-source is the single engine for editor, PIE, AIK, dedicated servers and shipping cooks. The old split -- C: launcher for editor and development client, D: source for servers and cooks -- is retired. The C: launcher install is retained but unused. Reason: the two engines stamp different Changelists (launcher 44394996, source 0) into one Binaries\\Win64, clobber each other, and the losing engine then refuses to load the tree behind the modules are missing or built with a different engine version prompt across about 60 modules. Every crossing cost a full rebuild. Engines are invoked BY EXPLICIT PATH, never via EngineAssociation -- the uproject GUID resolving to D: today is a coincidence that agrees with the ruling, not the reason for it.',
+ remains:'A full cycle -- editor, PIE, dedicated server and a shipping cook -- proven clean on D: alone. Until then the C: install stays on disk rather than being removed. Docs/QA and the runbook carry the qualified command; the bare Build.bat lines in older prompt text mean the qualified form.',
+ c:[]},
+
 {g:'CROSS-CUTTING', status:'COMMITTED', ssot:'DOCTRINE.md + ssot/',
  t:'Three-tier documentation structure',
  what:'Tier 1 Docs/DOCTRINE.md — 94 laws plus 11 banked traps added as X13–X23. Tier 2 — all eight SSOTs under Docs/ssot/: map-build-system, match-modes, matchmaking, economy-store, league-play, combat-arsenal, character-system, ui-frontend. Tier 3 — this file.',
