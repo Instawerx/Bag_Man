@@ -754,10 +754,19 @@ void UAFLW_Lobby_Root::RefreshAxisSelection()
 	// leagues publish the same brackets, so it looked broken while working.
 	const auto Mark = [](UCommonButtonBase* Button, bool bSelected)
 	{
-		if (Button)
+		if (!Button)
 		{
-			Button->SetIsSelected(bSelected);
+			return;
 		}
+
+		// ⚠ SetIsSelected IS A SILENT NO-OP UNLESS THE BUTTON IS SELECTABLE. CommonUI guards it with
+		// `if (bSelectable && bSelected != InSelected)` and returns without a warning otherwise, so an axis
+		// button authored with bSelectable off swallows every call and keeps looking untouched. That is why
+		// the first attempt at this fix changed nothing on screen: the state was correct, the calls were
+		// made, and CommonUI dropped them. Assert selectable here rather than relying on each WBP to
+		// remember -- these buttons ARE the selection indicator for their axis.
+		Button->SetIsSelectable(true);
+		Button->SetIsSelected(bSelected);
 	};
 
 	Mark(MatchPlayTab,    Ruleset == EAFLRuleset::MatchPlay);
