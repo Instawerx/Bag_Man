@@ -1,6 +1,15 @@
-# SCOPE — Kill telemetry as a SECONDARY system
+# Kill telemetry as a SECONDARY system — SCOPED, then RULED
 
-**Status: SCOPE ONLY. Nothing has been built or changed.** Operator direction, 2026-08-10: *"track kills
+**Status: BOTH RULINGS LANDED 2026-08-10. Implementation may begin.**
+
+> **RULING 1 — ADMIN-ONLY.** Kill telemetry does **not** fill R10's career-volume axis. The Career VOLUME
+> tab stays unbuilt and R10's axis stays explicitly unsourced. No player-facing kill ladder.
+>
+> **RULING 2 — A KILL IS A CONFIRMED ELIMINATION ONLY.** See §5.1 for the exact definition this expands to.
+
+The original scope follows unchanged below, so the reasoning behind the rulings stays readable.
+
+**Original status: SCOPE ONLY. Nothing had been built or changed.** Operator direction, 2026-08-10: *"track kills
 as a secondary system not affecting ranking, but allowing us to highlight and reward from an Admin or
 tournament standpoint. Fully scope impact before changing any of Game Science designed systems."*
 
@@ -65,7 +74,42 @@ write, where `eventKey` carries the `matchId`.
 
 ---
 
-## 5. THE ONE REAL DECISION: does this become R10's career volume?
+## 5. THE DECISION — RULED: ADMIN-ONLY
+
+**Ruled 2026-08-10: (b).** Kills do not fill R10's volume axis. The reasoning below stood and the
+recommendation in §8 was taken.
+
+### 5.1 RULED — what counts as a kill
+
+> **A kill is a CONFIRMED ELIMINATION ONLY.**
+
+That expands to exactly this, and it is the definition any reporter must implement:
+
+| Case | Counts? | Why |
+|---|:--:|---|
+| Player A deals the damage that eliminates player B | **YES** | The confirmed elimination. The only positive case. |
+| Assist (damage, no final blow) | **no** | "Confirmed elimination only" excludes soft credit. |
+| A knock/down that is revived | **no** | Not an elimination — nothing was confirmed. |
+| A knock/down that later becomes an elimination | **YES**, to whoever confirmed it | The confirming blow is the kill, not the knock. |
+| Environmental / world death, no player cause | **no** | No eliminator to credit. |
+| Self-elimination (fall, own explosive) | **no** | Same. |
+| Death by disconnect / timeout | **no** | Not an elimination. |
+| **Team kill** | **no** ⚠ | **My conservative reading, not stated in the ruling** — see below. |
+
+⚠ **TEAM KILLS ARE THE ONE CASE THE RULING'S WORDING DOES NOT SETTLE.** A teammate elimination *is* a
+confirmed elimination by the letter of it. Excluded here on the grounds that crediting one would reward
+the single behaviour nobody wants and is trivially farmable by two cooperating accounts — which matters
+more than usual because §4's whole purpose is tournament standings and rewards. **Flip it if that reading
+is wrong; it is one predicate.**
+
+⚠ **The definition is the reporter's job, not the backend's.** The game server is the only thing that
+knows how an elimination happened; the backend receives an integer it cannot audit. So this table has to
+be implemented at the source, and any later change to it produces a discontinuity in the data that no
+migration can repair.
+
+### 5.2 The original analysis (retained)
+
+The question was: does this become R10's career volume?
 
 R10 names volume as **cumulative eliminations** with thresholds at 100 · 500 · 1,000 · 5,000 · 10,000.
 A kill counter *is* that quantity. So building this either:
@@ -117,7 +161,9 @@ VOLUME tab, which is already stubbed and disabled with a stated reason.
 
 ---
 
-## 8. WHAT I RECOMMEND
+## 8. WHAT I RECOMMENDED — AND WHAT WAS RULED
+
+✅ **Taken. Ruled admin-only on 2026-08-10.** The recommendation as written:
 
 **(b) — admin-only, for now**, and keep R10's volume axis explicitly unsourced rather than quietly
 filling it with kills.
