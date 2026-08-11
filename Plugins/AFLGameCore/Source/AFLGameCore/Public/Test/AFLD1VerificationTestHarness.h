@@ -19,8 +19,7 @@ enum class EDataLayerRuntimeState : uint8;
 /**
  * UAFLD1VerificationTestHarness  (D1 duel boundary -- the assertions nobody has watched)
  *
- * Cheat-driven FSM behind `afl.D1.Verify` (the afl.DL.StreamTest / afl.DL.HeightTest registration
- * pattern). D1's seal is harness-asserted (2356 sweeps) and its collision is a property readback.
+ * Cheat-driven FSM behind `afl.D1.Verify` (the afl.DL.StreamTest registration pattern). D1's seal is harness-asserted (2356 sweeps) and its collision is a property readback.
  * Both are real; neither is the project standard, and R55 in particular has NEVER been exercised --
  * three weapon channels were flipped BLOCK -> IGNORE and no shot has ever been fired at the boundary.
  *
@@ -36,11 +35,13 @@ enum class EDataLayerRuntimeState : uint8;
  *
  * TWO CLASSIFIER LESSONS ARE BUILT IN, because both have already cost a block:
  *
- *  1. D3 ASKS WHETHER THE PAWN GOT PAST, NOT WHETHER IT ENDED ON TOP. The height harness scores
- *     CLEARED as "grounded at or above the wall top" (AFLBoundaryHeightTestHarness.cpp:325), which is
- *     the right question for measuring a wall and the WRONG one for a seal -- Block 234 scored a 14 m
- *     overshoot as a fail because the pawn did not finish standing up there. Here every tick is
- *     sampled and ANY sample outside the enclosure is an escape, whatever happens afterwards.
+ *  1. D3 ASKS WHETHER THE PAWN GOT PAST, NOT WHETHER IT ENDED ON TOP. The since-deleted height harness
+ *     scored CLEARED as "grounded at or above the wall top", which is the right question for measuring
+ *     a wall and the WRONG one for a seal -- Block 234 scored a 14 m overshoot as a fail because the
+ *     pawn did not finish standing up there. Here every tick is sampled and ANY sample outside the
+ *     enclosure is an escape, whatever happens afterwards. (That harness was removed 2026-08-10: it
+ *     measured against a Scaffold_HeightRig data layer that was never authored, so it had never run.
+ *     The lesson outlived it and is why it is restated here rather than cited.)
  *
  *  2. A SEAL TEST FAILS OPEN. Doing nothing produces "never left the volume", which reads as a PASS.
  *     So containment is only credited when the trial actually ENGAGED -- the verb fired and the pawn
