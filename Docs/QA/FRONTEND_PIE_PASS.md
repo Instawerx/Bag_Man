@@ -4,8 +4,23 @@
 nothing has been watched in PIE. This is the checklist that converts them, so the pass is a gate
 rather than a vibe.
 
-**Map:** `/Game/System/FrontEnd/Maps/L_LyraFrontEnd`. `W_IRONICS_Home` is pushed via
-`/Game/UI/B_LyraFrontendStateComponent`, so PIE should land on the IRONICS home screen, not Lyra's.
+**Map:** `/Game/BagMan/Armory/L_IRONICS_Armory` — `GameDefaultMap` in `Config/DefaultEngine.ini`, and
+what the game actually boots. Do not use `L_LyraFrontEnd`; find the front end by reading
+`GameDefaultMap`, never by searching for a map named "FrontEnd".
+
+**How the home screen is reached (verified 2026-08-11):**
+`L_IRONICS_Armory` World Settings → `DefaultGameplayExperience = B_LyraFrontEnd_Experience` →
+adds `/Game/UI/B_LyraFrontendStateComponent` → its `MainScreenClass` is **`W_IRONICS_Home_C`**.
+So the stock-named Lyra experience is what serves OUR home screen; the IRONICS surface is reached by
+a repointed `MainScreenClass`, not by a differently-named experience.
+
+⚠ **A black editor viewport on this map is EXPECTED and is not a failure.** The home screen is a
+widget pushed by the experience at runtime — it exists only under PIE. Judge this surface from PIE,
+never from the editor viewport.
+
+⚠ **`B_IRONICS_Armory_Experience` is ORPHANED** — referenced by nothing but `/Game/DefaultGame_Label`.
+No map points at it. It is not what serves the front end and must not be assumed to. Its status is
+an open question, not a blocker for this pass.
 
 **Rules of the pass**
 - `PROVEN` means **watched on screen**, not read from a log ([[proven-is-watched]]). A green log line
