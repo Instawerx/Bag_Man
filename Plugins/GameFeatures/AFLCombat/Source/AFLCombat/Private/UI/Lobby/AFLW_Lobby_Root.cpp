@@ -90,6 +90,12 @@ void UAFLW_Lobby_Root::NativeOnInitialized()
 	BindAxisButton(MapButton,        [this] { SelectVenueClass(EAFLVenueClass::Map); });
 	BindAxisButton(CommitButton,     [this] { CommitQueue(); });
 
+	// BACK. This was declared BindWidgetOptional and never bound, so the lobby had no way out: the widget
+	// sat on UI.Layer.Menu with nothing to pop it. Optional binding is why it failed silently -- a missing
+	// BindWidget errors at compile, a missing BindWidgetOptional is just null, and a bound-but-unwired
+	// button looks identical to a wired one until someone clicks it. Same idiom as UAFLW_VenueShowcase.
+	BindAxisButton(BackButton,       [this] { DeactivateWidget(); });
+
 	if (StakeNumericField)
 	{
 		StakeNumericField->OnTextChanged.AddDynamic(this, &UAFLW_Lobby_Root::HandleStakeTextChanged);

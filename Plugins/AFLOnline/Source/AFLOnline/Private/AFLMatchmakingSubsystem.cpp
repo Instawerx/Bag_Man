@@ -74,7 +74,15 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 {
 	if (State == EAFLMatchmakingState::Requesting || State == EAFLMatchmakingState::Queued)
 	{
-		UE_LOG(LogAFLMatchmaking, Warning, TEXT("AFL_MM: StartMatchmaking ignored -- already in the queue."));
+		// De-duplication, and the two cases are NOT the same thing -- saying so matters. Requesting means a
+		// /create-ticket is still in flight; Queued means one was accepted. Logging both as "already in the
+		// queue" reads, in a log where the next line is a 400, as though a refused ticket had left the client
+		// stuck queued. It has not: the refusal path sets Failed, and the next attempt goes out normally.
+		// That misreading cost a diagnosis on 2026-08-11, so the message now names the actual state.
+		UE_LOG(LogAFLMatchmaking, Warning, TEXT("AFL_MM: StartMatchmaking ignored -- %s."),
+			State == EAFLMatchmakingState::Requesting
+				? TEXT("a ticket request is already in flight")
+				: TEXT("already queued"));
 		return;
 	}
 	if (QueueId.IsEmpty())
