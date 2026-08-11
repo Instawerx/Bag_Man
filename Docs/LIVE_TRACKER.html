@@ -293,6 +293,13 @@ const ENTRIES = [
  warn:'/create-ticket currently ACCEPTS a queueId with no PlayFab queue behind it and returns 200, so the failure surfaces as a ticket that waits forever instead of an error.',
  c:[]},
 
+{g:'MATCHMAKING', status:'COMMITTED', ssot:'ssot/matchmaking.md',
+ t:'/create-ticket refuses a queue with no PlayFab queue behind it',
+ what:'Deployed 2026-08-11 (commit 7f199de, lambda bagman-create-ticket). The endpoint previously ACCEPTED a published cell that can never place and returned 200 -- PlayFab does not reject this for us, which is how ticket dec820ed was created against LeaguePlay_ProMod_MatchPlay_Arena_2v2. Now lists the live PlayFab queues, reusing the title entity token already minted for ValidateEntityToken, and refuses a cell with nothing behind it: 409 with its own message, this queue is published but has no matchmaking queue behind it yet. A queue list that cannot be READ is 503, never a refusal aimed at the player. leg=ListMatchmakingQueues and leg=QueueExists follow the instrument pattern.',
+ remains:'NOT WATCHED. No client has been seen receiving the 409 -- the 28 orphaned cells are still offered by the directory, so the next league or staked queue against Arena_2v2 or any Map cell is what will prove it. Moves to PROVEN when that is watched on screen.',
+ warn:'Sibling to -- not a duplicate of -- the 409 that fires when a cell is UNPUBLISHED (no map backs it, R63). Same status by ruling, because a distinct status would make two identical situations branch differently client-side; the MESSAGES are what differ and each site comments the other.',
+ c:['7f199de']},
+
 {g:'MATCHMAKING', status:'OPEN', ssot:'ssot/matchmaking.md',
  t:'GameLift compute is registered but LAN-only',
  what:'Read live: fleet BagManTentpoleFleet (fleet-40c6b342, ANYWHERE) is ACTIVE with compute bagman-dev-EREMOSPECIALTY, status Active, location custom-bagman-test-1. This CORRECTS the older note that no compute was registered and a placement would stay PENDING -- that gate is closed.',
