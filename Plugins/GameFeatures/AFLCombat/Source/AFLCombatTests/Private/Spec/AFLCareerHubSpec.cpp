@@ -92,3 +92,84 @@ bool FAFLCareer_UnknownTabIsRefused::RunTest(const FString&)
 	}
 	return true;
 }
+
+// ══ THE RANK TAB ══════════════════════════════════════════════════════════════════════════════════════
+//
+// One distinction carries this whole surface: UNPLACED IS NOT ZERO. The server sends `rating: null` for a
+// ruleset the player has never touched, the subsystem keeps it as INDEX_NONE, and the widget is the last
+// place it can be thrown away. A 0 printed next to the word RANK is a claim about a player, and it is the
+// one they would remember.
+
+#include "UI/AFLW_CareerRank.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLCareer_UnplacedIsNotZero, "AFL.Career.UnplacedIsNotRatedZero",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FAFLCareer_UnplacedIsNotZero::RunTest(const FString&)
+{
+	FAFLCareerLadder Never;                      // never played: INDEX_NONE, not placed
+	Never.Ruleset = EAFLRuleset::BattleRoyale;
+
+	FAFLCareerLadder RatedZero;                  // genuinely rated 0 -- a real, if unhappy, standing
+	RatedZero.Ruleset = EAFLRuleset::BattleRoyale;
+	RatedZero.Rating = 0;
+	RatedZero.MatchCount = 12;
+	RatedZero.bPlaced = true;
+
+	const FString NeverText = UAFLW_CareerRank::FormatRating(Never).ToString();
+	const FString ZeroText  = UAFLW_CareerRank::FormatRating(RatedZero).ToString();
+
+	TestEqual(TEXT("an unplayed ladder reads UNRANKED"), NeverText, FString(TEXT("UNRANKED")));
+	TestNotEqual(TEXT("and is NOT the same text as a real rating of zero"), NeverText, ZeroText);
+	TestTrue(TEXT("a real zero still prints as a number"), ZeroText.Contains(TEXT("0")));
+
+	// bPlaced is the predicate, not `Rating > 0` -- a rated-zero player is placed and must read as placed.
+	FAFLCareerLadder Contradictory;              // defends against a half-parsed payload
+	Contradictory.Rating = 1500;
+	Contradictory.bPlaced = false;
+	TestEqual(TEXT("bPlaced governs, even against a stray rating"),
+		UAFLW_CareerRank::FormatRating(Contradictory).ToString(), FString(TEXT("UNRANKED")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLCareer_MatchesAreContextNotScore, "AFL.Career.MatchesReadAsContextNotAScore",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FAFLCareer_MatchesAreContextNotScore::RunTest(const FString&)
+{
+	// R10 keeps the axes apart: "volume rewards attendance, rating measures strength". Matches appear on
+	// this tab as context for a rating and must never be presented as a score of their own -- and an empty
+	// ladder reads as an invitation rather than an absence, because it is the line that tells a MATCH PLAY
+	// regular that BATTLE ROYALE exists.
+	FAFLCareerLadder Empty;
+	TestEqual(TEXT("no matches reads as an invitation"),
+		UAFLW_CareerRank::FormatContext(Empty).ToString(), FString(TEXT("not played yet")));
+
+	FAFLCareerLadder Played;
+	Played.MatchCount = 41;
+	Played.Rating = 1234;
+	Played.bPlaced = true;
+	const FString Ctx = UAFLW_CareerRank::FormatContext(Played).ToString();
+	TestTrue(TEXT("matches are stated"), Ctx.Contains(TEXT("41")));
+	TestTrue(TEXT("and labelled as matches, not as a score"), Ctx.Contains(TEXT("matches")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLCareer_RulesetIdsAreExact, "AFL.Career.RulesetIdsMatchTheBackendExactly",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FAFLCareer_RulesetIdsAreExact::RunTest(const FString&)
+{
+	EAFLRuleset R = EAFLRuleset::MatchPlay;
+	TestTrue (TEXT("BattleRoyale parses"), UAFLCareerSubsystem::TryParseRuleset(TEXT("BattleRoyale"), R));
+	TestEqual(TEXT("to BattleRoyale"), (int32)R, (int32)EAFLRuleset::BattleRoyale);
+	TestTrue (TEXT("MatchPlay parses"),  UAFLCareerSubsystem::TryParseRuleset(TEXT("MatchPlay"), R));
+	TestEqual(TEXT("to MatchPlay"), (int32)R, (int32)EAFLRuleset::MatchPlay);
+
+	// No fuzzy matching. An unrecognised ruleset is a client/server contract change, and guessing would
+	// turn that into a silently mis-labelled ladder -- a player's BR rating shown under MATCH PLAY.
+	for (const TCHAR* Bad : { TEXT("battleroyale"), TEXT("BATTLEROYALE"), TEXT("Battle Royale"),
+	                          TEXT("Match Play"), TEXT("BR"), TEXT("") })
+	{
+		TestFalse(FString::Printf(TEXT("'%s' is refused"), Bad),
+			UAFLCareerSubsystem::TryParseRuleset(Bad, R));
+	}
+	return true;
+}
