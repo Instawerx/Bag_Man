@@ -55,9 +55,12 @@ map-preview menu. (Already started: the load screen is Armory-themed.)
   `MainScreenClass` = **`W_IRONICS_Home`** (the R98 door split) — ⚠ **repointed 2026-08-09**, was
   `W_IRONICS_FrontEnd`. Both already IRONICS-logo'd (fork; see `WASH_INVENTORY.md`).
 - **Root nav** (`UAFLW_HomeScreen::GetNavRoutes`, verified in `-game`): two **doors** — LEAGUE PLAY →
-  `WBP_IRONICS_Lobby_League`, STAKED PLAY → `WBP_IRONICS_Lobby_Staked` (disabled until S4 TicketReview exists) —
-  over a five-item **footer**: LOADOUT → `WBP_AFL_Loadout` · **STORE** → `AFLW_Menu_CosmeticShop` · VENUES → *(no
-  asset; item disabled)* · CAREER → *(no asset; item disabled)* · SETTINGS → `W_LyraSettingScreen`.
+  `WBP_IRONICS_Lobby_League`, STAKED PLAY → `WBP_IRONICS_Lobby_Staked` (**open since 2026-08-10**; S4
+  TicketReview closed the only reason it was shut) — over a five-item **footer**, now all five live:
+  LOADOUT → `WBP_AFL_Loadout` · **STORE** → `AFLW_Menu_CosmeticShop` · **VENUES** →
+  `WBP_IRONICS_VenueShowcase` · **CAREER** → `WBP_IRONICS_CareerHub` (hosts REPLAYS as a tab) ·
+  SETTINGS → `W_LyraSettingScreen`. The only disabled controls left in the front end are Career's two
+  progression tabs, Volume and Rank.
 - ⚠ **HOST IS DEPRECATED and REPLAYS IS DEFERRED (operator ruling, 2026-08-10).** The old button set is gone with
   the old root. Match allocation now runs door → queue → allocator, so a client-side arena picker could originate
   a session the allocator never authorised: `W_ExperienceSelectionScreen` moved to `/Game/DeveloperUtils/Host/`
