@@ -5,8 +5,9 @@
 reviewed, and the whole point of a locked style system is that nothing enters the game that has not been
 measured against it.
 
-> **THE RULE IN ONE LINE:** new art is **briefed from the locked SSOT + an existing Artifact**, handed to
-> **`/design`** as a written prompt, and **reviewed back against the same SSOT** before it lands.
+> **THE RULE IN ONE LINE:** new art is **briefed from the locked SSOT + an existing Artifact**, routed to
+> **the right producer for its family** (§2 Step 4 — `/design` for component art, *not* for pictorial
+> art), and **reviewed back against the same SSOT** before it lands.
 
 ---
 
