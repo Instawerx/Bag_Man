@@ -220,7 +220,7 @@ void UAFLW_Lobby_DetailPanel::RefreshBodies()
 	}
 	if (StakeSub)
 	{
-		StakeSub->SetText(Band.IsEmpty() ? LOCTEXT("StakeSubFree", "Played for loot and Watts") : Band);
+		StakeSub->SetText(Band.IsEmpty() ? LOCTEXT("StakeSubFree", "Loot and Watts") : Band);
 	}
 	if (PoolValue)
 	{
@@ -230,8 +230,10 @@ void UAFLW_Lobby_DetailPanel::RefreshBodies()
 	}
 	if (PoolSub)
 	{
-		PoolSub->SetText(FText::Format(LOCTEXT("PoolSub", "est. {0} position{1}"),
-			FText::AsNumber(Ladder.Positions), Ladder.Positions == 1 ? FText::GetEmpty() : FText::FromString(TEXT("s"))));
+		// "positions" is doing less work than its width costs under a card already titled PRIZE POOL, and the
+		// card is ~135 px wide. "est." is kept: it kills the plural arg, not the estimate qualifier, and keeps
+		// this distinct from PlayersSub's "{0} paid" -- one ESTIMATES positions, the other STATES what pays.
+		PoolSub->SetText(FText::Format(LOCTEXT("PoolSub", "est. {0}"), FText::AsNumber(Ladder.Positions)));
 	}
 	if (PlayersValue)
 	{
