@@ -538,6 +538,24 @@ const ENTRIES = [
  remains:'PIE verification. The stake band is server-resolved, so it needs a live session to be watched rather than read.',
  c:['2a3f24fa','0850c40c','590fb17e','f8d8f7fa','78bafdf4']},
 
+{g:'UI / FRONT END', status:'PROVEN', ssot:'ssot/ui-frontend.md',
+ t:'S1 axis selection — the chips show which option is chosen',
+ what:'OPERATOR-WATCHED IN PIE: clicking an axis chip paints its selected state on the FIRST click, on both doors, and the previous choice clears in the same frame. Arc-Violet reaches Slate here for the first time. Three causes had to fall together. W_LyraButton_C answers UpdateButtonStyle from NativePreConstruct with Set Style = DefaultStyle, so the authored per-instance Style was overwritten before first paint and the surface rendered Lyra stock ButtonStyle-Primary-M — fixed by setting DefaultStyle on all twelve instances (X27). bSelectable and bToggleable were authored False, making SetIsSelected a silent no-op and deselection unreachable (X28). bTriggerClickedAfterSelection was False, so HandleButtonClicked ran our handler FIRST and CommonUI inverted the result AFTER, landing selection one interaction late (X29). BTN_IRONICS_Tab additionally had no selected outline at all. Lane: AIK authored the assets and the C++; CLAUDE CODE traced the cause through the engine source; the OPERATOR proved it — PROVEN is the watch, not the build.',
+ remains:'Outline widths are unruled: BTN_IRONICS_Control sits at 4.0 and BTN_IRONICS_Tab at 3.0, both now visible for the first time and neither yet judged. The Mark() force-set was removed only after this watch; its replacement ensure did not fire.',
+ c:['3736a702','5437f3b7']},
+
+{g:'UI / FRONT END', status:'PROVEN', ssot:'ssot/ui-frontend.md',
+ t:'S1 layout — the tile row is bounded and nothing bleeds',
+ what:'OPERATOR-WATCHED IN PIE: the size-tile row stays inside its lane, the format ladder no longer overlaps the axis above it, and the detail cards render clean. Three changes, none of which worked alone: the AxisLaneA slot went Fill to Automatic, the C_Axes height clamp was lifted (inert by itself — it only did anything once paired with the lane fix), and the runtime-created tile slots were set to Fill, because AddChild defaults to Automatic and a HorizontalBox never compresses six tiles asking for their summed desired width. Lane: AIK authored; the OPERATOR watched.',
+ remains:'',
+ c:['4269592e','5437f3b7','3736a702']},
+
+{g:'UI / FRONT END', status:'PROVEN', ssot:'ssot/ui-frontend.md',
+ t:'S2 detail panel copy — the cards fold, and claim only what is known',
+ what:'OPERATOR-WATCHED IN PIE: the detail cards wrap instead of pushing their neighbours. Nine text blocks gained auto-wrap. Wrap was only half of it — on an Automatic slot it can never fire, which is now banked as X30. Two copy corrections: the free stake sub-line read "Played for loot and Watts", a payout promise on a surface that has none, now "Loot and Watts"; and the pool sub-line dropped its hand-rolled plural to "est. {0}". The proposed "0 paid" was rejected — it is PlayersSub verbatim, and would have collapsed the distinction between a position EXISTING and a position PAYING. Lane: AIK authored; the OPERATOR watched.',
+ remains:'',
+ c:['4269592e']},
+
 {g:'UI / FRONT END', status:'COMMITTED', ssot:'ssot/ui-frontend.md',
  t:'S2 QueueDetail — the payout ladder solved rather than typed',
  what:'The payout ladder is computed in the widget from the economy rule and pinned to the SSOT, so no figure on the surface is transcribed.',
