@@ -8,6 +8,7 @@
 #include "CommonTextBlock.h"
 #include "CommonUIExtensions.h"        // PushContentToLayer_ForPlayer -- the same call every other push uses
 #include "Components/EditableTextBox.h"
+#include "Components/HorizontalBoxSlot.h"   // tile slots are runtime-created; they must be Fill, not Auto
 #include "Components/PanelWidget.h"
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Engine/GameInstance.h"
@@ -391,6 +392,11 @@ void UAFLW_Lobby_Root::SelectRuleset(EAFLRuleset InRuleset)
 {
 	if (Ruleset == InRuleset)
 	{
+		// bToggleable is TRUE (X28), so CommonUI has ALREADY toggled this chip off by the time we get
+		// here -- a click on the current selection deselects in HandleButtonClicked before the handler
+		// runs. The axis must always show exactly one selection, so re-assert rather than returning into
+		// a blank axis. Cheap: Mark() no-ops on the buttons whose state did not move.
+		RefreshAxisSelection();
 		return;
 	}
 	Ruleset = InRuleset;
@@ -410,17 +416,46 @@ void UAFLW_Lobby_Root::SelectLeague(EAFLLeague InLeague)
 		// Reachable despite the panel being hidden: a hidden widget can still be driven by a gamepad path
 		// or a Blueprint call, and R86 is a product rule rather than a presentation one. Refuse it here,
 		// where it is authoritative -- the same argument UAFLW_HomeScreen::ChooseDoor makes.
-		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOBBY: league axis is not on the staked door (R86) -- refused."));
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_LEAGUE: select %s REFUSED -- league axis is not on the staked door (R86)."),
+			FAFLLobbyQueueId::ToWire(InLeague));
 		return;
 	}
 	if (League == InLeague)
 	{
+		// A no-change click is indistinguishable from a dead button unless it says so.
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_LEAGUE: select %s -- NO CHANGE (already selected)."),
+			FAFLLobbyQueueId::ToWire(InLeague));
+		// bToggleable is TRUE (X28), so CommonUI has ALREADY toggled this chip off by the time we get
+		// here -- a click on the current selection deselects in HandleButtonClicked before the handler
+		// runs. The axis must always show exactly one selection, so re-assert rather than returning into
+		// a blank axis. Cheap: Mark() no-ops on the buttons whose state did not move.
+		RefreshAxisSelection();
 		return;
 	}
+	const EAFLLeague OldLeague = League;
 	League = InLeague;
 
 	ReconcileSelection();
 	FinishRefresh();
+
+	// THE ONE STATE CHANGE ON THIS SURFACE THAT LEFT NO TRACE. SetDoor, commit and the directory all log;
+	// the league axis did not, which is why two sessions could not be read afterwards. Reports the WHOLE
+	// scope, not just the league, because the drop is an AND of four terms and naming only the changed one
+	// reproduces the blindness this line exists to remove.
+	TArray<const FAFLLobbyQueue*> Scoped;
+	CollectScopedQueues(Scoped);
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("AFL_LEAGUE: %s -> %s | scope tier=%s league=%s ruleset=%s venue=%s | matched %d of %d cells | selected='%s'"),
+		FAFLLobbyQueueId::ToWire(OldLeague),
+		FAFLLobbyQueueId::ToWire(League),
+		FAFLLobbyQueueId::ToWire(ResolveTier(Door, Denomination)),
+		FAFLLobbyQueueId::ToWire(League),
+		FAFLLobbyQueueId::ToWire(Ruleset),
+		FAFLLobbyQueueId::ToWire(Venue),
+		Scoped.Num(), Queues.Num(),
+		SelectedBracket.IsEmpty() ? TEXT("<none>") : *SelectedBracket);
 }
 
 void UAFLW_Lobby_Root::SelectDenomination(EAFLDenomination InDenomination)
@@ -432,6 +467,11 @@ void UAFLW_Lobby_Root::SelectDenomination(EAFLDenomination InDenomination)
 	}
 	if (Denomination == InDenomination)
 	{
+		// bToggleable is TRUE (X28), so CommonUI has ALREADY toggled this chip off by the time we get
+		// here -- a click on the current selection deselects in HandleButtonClicked before the handler
+		// runs. The axis must always show exactly one selection, so re-assert rather than returning into
+		// a blank axis. Cheap: Mark() no-ops on the buttons whose state did not move.
+		RefreshAxisSelection();
 		return;
 	}
 	Denomination = InDenomination;
@@ -459,6 +499,11 @@ void UAFLW_Lobby_Root::SelectVenueClass(EAFLVenueClass InVenue)
 {
 	if (Venue == InVenue)
 	{
+		// bToggleable is TRUE (X28), so CommonUI has ALREADY toggled this chip off by the time we get
+		// here -- a click on the current selection deselects in HandleButtonClicked before the handler
+		// runs. The axis must always show exactly one selection, so re-assert rather than returning into
+		// a blank axis. Cheap: Mark() no-ops on the buttons whose state did not move.
+		RefreshAxisSelection();
 		return;
 	}
 	Venue = InVenue;
@@ -771,14 +816,22 @@ void UAFLW_Lobby_Root::RefreshAxisSelection()
 			return;
 		}
 
-		// ⚠ SetIsSelected IS A SILENT NO-OP UNLESS THE BUTTON IS SELECTABLE. CommonUI guards it with
-		// `if (bSelectable && bSelected != InSelected)` and returns without a warning otherwise, so an axis
-		// button authored with bSelectable off swallows every call and keeps looking untouched. That is why
-		// the first attempt at this fix changed nothing on screen: the state was correct, the calls were
-		// made, and CommonUI dropped them. Assert selectable here rather than relying on each WBP to
-		// remember -- these buttons ARE the selection indicator for their axis.
-		Button->SetIsSelectable(true);
+		// bSelectable, bToggleable and bTriggerClickedAfterSelection are AUTHORED TRUE on all twelve axis
+		// instances (X28/X29). The SetIsSelectable(true) force-set that used to live here is gone
+		// deliberately: it MASKED the authored value, so a button that lost the flag in its WBP still
+		// worked at runtime and the asset drift stayed invisible until it surfaced on some other surface
+		// that had no force-set.
+		//
+		// ⚠ SetIsSelected IS A SILENT NO-OP UNLESS THE BUTTON IS SELECTABLE -- CommonUI guards it with
+		// `if (bSelectable && bSelected != InSelected)` and returns without a warning. So assert the
+		// OUTCOME rather than the flag: bSelectable is protected with no getter, and the outcome is the
+		// stronger check anyway -- it catches a dropped flag AND any future re-inversion of the
+		// click/handler write order, which is the one that cost a watch cycle.
 		Button->SetIsSelected(bSelected);
+		ensureMsgf(Button->GetSelected() == bSelected,
+			TEXT("AFL_LOBBY: %s did not take selection %s -- WBP drift, see X28 (bSelectable) / X29 ")
+			TEXT("(bTriggerClickedAfterSelection)."),
+			*Button->GetName(), bSelected ? TEXT("TRUE") : TEXT("FALSE"));
 	};
 
 	Mark(MatchPlayTab,    Ruleset == EAFLRuleset::MatchPlay);
@@ -863,9 +916,35 @@ void UAFLW_Lobby_Root::RebuildAxisOptions()
 		const FString Bracket = Queue->Bracket;
 		Tile->OnClicked().AddWeakLambda(this, [this, Bracket] { SelectBracket(Bracket); });
 
-		SizeAxisBox->AddChild(Tile);
+		// EQUAL-WEIGHT FILL, NOT AUTO. AddChild's default HorizontalBoxSlot is AUTOMATIC, so six tiles ask
+		// for their summed desired width; a HorizontalBox never compresses, and with clipping INHERIT the
+		// overflow PAINTS -- off the left edge and up over the league buttons. Fill divides the lane six
+		// ways and bounds each tile.
+		//
+		// It is also what makes the tiles' auto_wrap_text work at all: wrap fires at the ALLOCATED width,
+		// and an AUTOMATIC slot allocates the desired width, so wrapping in an auto slot can never trigger.
+		if (UHorizontalBoxSlot* TileSlot = Cast<UHorizontalBoxSlot>(SizeAxisBox->AddChild(Tile)))
+		{
+			TileSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		}
 		SpawnedTiles.Add(Tile);
 	}
+
+	// SCOPE vs SPAWN, SEPARATED ON PURPOSE. Every readable layer above this point has been exonerated for
+	// the missing Haywire cells -- parse keeps all 72, the four scope terms match on ruleset and venue, and
+	// the two early-outs above would empty EVERY scope rather than one. So the next question is which side
+	// of the spawn the cells die on, and a single "the list is empty" cannot answer it:
+	//   matched N, created 0  -> the spawn is the drop (SizeTileClass, CreateWidget)
+	//   matched N, created N  -> the tiles EXIST and are not visible, which is a WBP/layout question
+	//                            in a different lane, not a lobby-code one
+	//   matched 0             -> the scope really is empty; the filter terms are the place to look
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("AFL_LEAGUE: axis rebuild | scope tier=%s league=%s ruleset=%s venue=%s | matched %d of %d cells | tiles created %d"),
+		FAFLLobbyQueueId::ToWire(ResolveTier(Door, Denomination)),
+		FAFLLobbyQueueId::ToWire(League),
+		FAFLLobbyQueueId::ToWire(Ruleset),
+		FAFLLobbyQueueId::ToWire(Venue),
+		Scoped.Num(), Queues.Num(), SpawnedTiles.Num());
 
 	// The stake ladder is the other half of §5's "looked up once and rendered twice". Rungs come from the
 	// cell the server published, never from a list authored here -- §16.1 flags the preset values as
