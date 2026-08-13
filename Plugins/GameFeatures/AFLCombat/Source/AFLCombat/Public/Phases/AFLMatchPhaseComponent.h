@@ -119,7 +119,16 @@ protected:
 private:
 	// -- the match spine --
 	void StartSpineFromWarmup();        // shared by BeginPlay + RestartMatch (reads cvars fresh)
-	void EnterPlaying();                // WarmupTimer fire: chain Warmup -> Playing
+	void EnterPlaying();                // WarmupTimer fire: chain Warmup -> Playing (GATED, see the .cpp)
+
+	// ── MATCH-START GATE ── Holds Warmup->Playing until the payload has arrived AND a placed player is
+	// present. Gated HERE because EnterPlaying has nine downstream consumers; see the block comment at the
+	// hold. GameLift only -- inert in PIE.
+	void  TickMatchStartGate();
+	bool  IsUnderGameLift() const;
+	bool  HasPayload() const;
+	int32 CountHumanParticipants() const;
+	bool  IsReadyToStartMatch() const;
 	void EnterPostGame();               // ActiveTimer fire: Playing -> PostGame (terminal)
 	void StartPhaseByClass(TSubclassOf<ULyraGamePhaseAbility> PhaseClass, const FGameplayTag& PhaseTag);
 	/** Sweep every pawn's ASC and SET the tag on/off. Returns the ASC count covered -- log it: a count
@@ -148,10 +157,32 @@ private:
 	 *  Magnitude payload (the match-end Watts). */
 	void BroadcastAnnounce(const FGameplayTag& EventTag, UObject* Target = nullptr, double Magnitude = 0.0) const;
 
+	FTimerHandle MatchStartGateTimer;   // re-checks the hold; this component does not tick
 	FTimerHandle WarmupTimer;           // warmup -> playing
 	FTimerHandle ActiveTimer;           // playing -> postgame
 	FTimerHandle WindowOpenTimer;       // cadence (next opening)
 	FTimerHandle WindowDurationTimer;   // this window's lifetime
+	bool  bAwaitingMatchStart = false;  // the gate is holding Warmup->Playing
+	bool  bPayloadTimeoutLogged = false;
+	float MatchStartHeldSeconds = 0.f;
+
+	/** Poll cadence for the gate. Cheap: two bools and a PlayerArray walk. */
+	static constexpr float MatchStartGatePollSeconds = 1.f;
+
+	/**
+	 * 600s IS THE GAMELIFT QUEUE TIMEOUT (BagManTentpoleQueue). A placement not delivered by then was
+	 * CANCELLED AT SOURCE, so no payload is coming. Worst observed ProcessReady->payload here is 5m46s.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Match") float PayloadWaitSeconds = 600.f;
+
+	/**
+	 * 600s IS THE READY-ROW TTL (MATCH_READY_TTL_SECONDS, backend shared/match-ready.ts). A player who has
+	 * not arrived before their row expires CANNOT arrive -- /match-status answers `waiting` and hands out no
+	 * address -- so past this the wait is provably pointless. Deliberately NOT reused from the abandonment
+	 * grace (60s): that answers "will they come back", this answers "have they got here yet".
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Match") float NoShowDeadlineSeconds = 600.f;
+
 	bool bWindowOpen = false;
 	bool bMatchEnded = false;           // PostGame reached -> cadence no-ops, terminal
 	bool bExternalMatchEndAuthority = false;   // round FSM owns match-end -> the 480s time-conclude no-ops

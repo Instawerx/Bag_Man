@@ -145,36 +145,6 @@ public:
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float AbandonmentGraceSeconds = 60.f;
 
-	/**
-	 * PAYLOAD GATE. How long to hold the match start waiting for onStartGameSession, under GameLift only.
-	 *
-	 * 600s IS THE GAMELIFT QUEUE TIMEOUT (BagManTentpoleQueue, TimeoutInSeconds=600), and that is the whole
-	 * defence of the number: a placement that has not been delivered within it has been CANCELLED AT SOURCE,
-	 * so waiting longer cannot produce a payload -- there is no longer one to deliver. Anything shorter is a
-	 * guess; anything longer waits for something that provably will not come.
-	 *
-	 * Worst observed ProcessReady -> payload on this fleet is 5m46s (2026-08-13, 17:17:01 -> 17:22:47), which
-	 * a 300s value would have failed. 600s covers it with margin and stops at a real boundary.
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float PayloadWaitSeconds = 600.f;
-
-	/**
-	 * NO-SHOW DEADLINE. How long a started match waits for its FIRST human before concluding as NoShow.
-	 *
-	 * SEPARATE FROM AbandonmentGraceSeconds AND DELIBERATELY NOT REUSED FROM IT. The grace window answers
-	 * "the players left, will they come back" -- 60s is right for that. This answers "have the players we
-	 * were placed for arrived yet", which is a travel problem, not a reconnect one, and 60s is nowhere near
-	 * enough: measured 2026-08-13, the clients claimed 9m23s after match start and a 60s window killed the
-	 * match four times running.
-	 *
-	 * 600s BECAUSE IT IS THE READY-ROW TTL (MATCH_READY_TTL_SECONDS in the backend's shared/match-ready.ts).
-	 * A player who has not arrived before their ready row expires CANNOT arrive: /match-status answers
-	 * `waiting`, they are never handed an address, and there is nothing left to travel with. So past this
-	 * point the wait is provably pointless -- the same kind of real boundary as the queue timeout above,
-	 * rather than a number chosen to feel generous.
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float NoShowDeadlineSeconds = 600.f;
-
 	/** s6 traversal-density sampler: server-side per-living-pawn position emit cadence (seconds), the
 	 *  traversal heatmap's data source. ~1-1.5s = cheap + dense enough for a flow read. Telemetry-tunable. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float TraverseSampleInterval = 1.25f;
@@ -329,12 +299,6 @@ private:
 	 *  between rounds or at half time just as easily as mid-round. */
 	void Server_TickAbandonmentWatch(float DeltaTime);
 
-	/**
-	 * PAYLOAD GATE tick. Holds a Playing transition that arrived before onStartGameSession and starts the
-	 * match the moment the payload lands -- or, at PayloadWaitSeconds, falls through to LocalFill rather
-	 * than shutting the server down. GameLift only; inert everywhere else.
-	 */
-	void Server_TickPayloadWait(float DeltaTime);
 	int32 TeamHoldingCore() const;                       // the team with a pawn carrying State.Extracting (else INDEX_NONE)
 	void BindDeathDelegates();                           // full reconcile: rebind OnDeathStarted across PlayerArray
 	/** Bind one pawn's health component, guarded. AddDynamic is NOT idempotent -- a double bind fires
@@ -364,13 +328,19 @@ private:
 	float HumanlessSeconds = 0.f;
 
 	/**
-	 * ARRIVAL GATE. Has ANY human been seen in this match yet?
+	 * ARRIVAL GATE. Has ANY human been seen in this match yet? DERIVED at ServerStartMatch from
+	 * CountHumanParticipants() > 0 -- never written by another component.
 	 *
 	 * ⚠ THIS IS THE ONE BIT THE ABANDONMENT WATCH WAS MISSING. CountHumanParticipants() == 0 has two
 	 * completely different meanings -- "everyone left" and "nobody has arrived yet" -- and the watch could
 	 * not tell them apart, so it spent its 60s grace window on ARRIVAL LATENCY and cancelled four matches
-	 * that were about to be populated. This latch separates them: until it is true the watch is disarmed and
-	 * the no-show deadline governs instead; once true the watch behaves exactly as it always has.
+	 * that were about to be populated.
+	 *
+	 * IT IS NOW TRUE BY CONSTRUCTION. UAFLMatchPhaseComponent holds Warmup->Playing until a human is present,
+	 * so by the time ServerStartMatch runs the ambiguity no longer exists and 0 can only mean they LEFT. The
+	 * latch is kept rather than deleted because it is the ASSERTION that this holds: if it is ever false at
+	 * match start, the phase gate was bypassed (a cheat-started match, a replay path) and the watch stays
+	 * disarmed instead of cancelling a match nobody was ever placed into.
 	 *
 	 * "EXPECTED" IS IMPLICIT, AND THAT IS DELIBERATE -- no roster match is performed. Under GameLift a client
 	 * cannot connect at all without a playerSessionId, /claim-session mints one only for a caller holding a
@@ -379,22 +349,6 @@ private:
 	 * second roster copy that can drift out of sync with the one the connection layer already enforces.
 	 */
 	bool bAnyHumanEverJoined = false;
-
-	/** Seconds spent holding the Playing transition waiting for onStartGameSession. Payload gate only. */
-	float PayloadWaitedSeconds = 0.f;
-
-	/** True while the payload gate is holding a Playing transition that has not yet been honoured. */
-	bool bAwaitingPayload = false;
-
-	/** Seconds a started match has gone without ever seeing a human. Drives NoShowDeadlineSeconds. */
-	float NoShowSeconds = 0.f;
-
-	/**
-	 * True when this match is running under GameLift with the SDK live -- the only condition under which
-	 * either gate applies. PIE and any launch without -GameLift have no expected roster and a listen host is
-	 * the only human, so gating there would hang every local session.
-	 */
-	bool IsUnderGameLift() const;
 
 	/**
 	 * WHO WAS DEBITED, captured at match start and held for the whole match.

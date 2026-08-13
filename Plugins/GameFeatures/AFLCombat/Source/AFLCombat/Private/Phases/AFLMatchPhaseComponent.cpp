@@ -221,16 +221,104 @@ void UAFLMatchPhaseComponent::RestartMatch()
 	// Warmup too, so starting Warmup cancels PostGame/Playing/.ExtractionWindow cleanly).
 	if (UWorld* World = GetWorld())
 	{
+		// The gate timer is cleared with the rest, and bAwaitingMatchStart with it. A restart issued WHILE the
+		// gate is holding would otherwise leave a live gate timer alongside the fresh WarmupTimer -- and if the
+		// gate released in between, EnterPlaying would run twice (two ActiveTimers, two phase starts).
+		World->GetTimerManager().ClearTimer(MatchStartGateTimer);
 		World->GetTimerManager().ClearTimer(WarmupTimer);
 		World->GetTimerManager().ClearTimer(ActiveTimer);
 		World->GetTimerManager().ClearTimer(WindowOpenTimer);
 		World->GetTimerManager().ClearTimer(WindowDurationTimer);
 	}
+	bAwaitingMatchStart = false;
 	SetMatchTagOnAllPawns(TAG_State_Match_Warmup_Driver, /*bPresent=*/false);
 	SetMatchTagOnAllPawns(TAG_State_Match_Ended_Driver,  /*bPresent=*/false);
 	bWindowOpen = false;
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: RESTART -- spine reset, re-entering Warmup with fresh cvars."));
 	StartSpineFromWarmup();
+}
+
+bool UAFLMatchPhaseComponent::IsUnderGameLift() const
+{
+	// IsSdkReady() is the ONLY predicate separating a GameLift-hosted server from PIE or a -Server launch
+	// without -GameLift. It must stay in front of every payload/presence test.
+	const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this);
+	return GameLift && GameLift->IsSdkReady();
+}
+
+bool UAFLMatchPhaseComponent::HasPayload() const
+{
+	const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this);
+	return GameLift && GameLift->HasGameSessionData();
+}
+
+int32 UAFLMatchPhaseComponent::CountHumanParticipants() const
+{
+	// Mirrors UAFLRoundManagerComponent::CountHumanParticipants. A disconnected player's PlayerState leaves
+	// PlayerArray (AGameModeBase::Logout), so this needs no separate connection bookkeeping.
+	const AGameStateBase* GS = GetGameStateChecked<AGameStateBase>();
+	int32 Count = 0;
+	for (const APlayerState* PS : GS->PlayerArray)
+	{
+		if (PS && !PS->IsABot() && !PS->IsOnlyASpectator())
+		{
+			++Count;
+		}
+	}
+	return Count;
+}
+
+bool UAFLMatchPhaseComponent::IsReadyToStartMatch() const
+{
+	// BOTH, not either. The payload names who is expected; a present human proves someone actually arrived.
+	return HasPayload() && CountHumanParticipants() > 0;
+}
+
+void UAFLMatchPhaseComponent::TickMatchStartGate()
+{
+	if (!bAwaitingMatchStart || bMatchEnded)
+	{
+		GetWorld()->GetTimerManager().ClearTimer(MatchStartGateTimer);
+		return;
+	}
+
+	if (IsReadyToStartMatch())
+	{
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_PHASE: Warmup->Playing RELEASED after %.0fs -- payload present and %d player(s) on the field."),
+			MatchStartHeldSeconds, CountHumanParticipants());
+		// bAwaitingMatchStart is cleared by EnterPlaying itself, which now passes the gate.
+		EnterPlaying();
+		return;
+	}
+
+	MatchStartHeldSeconds += MatchStartGatePollSeconds;
+
+	// The payload deadline is the GameLift queue timeout: past it the placement was cancelled at source, so no
+	// payload is coming. Logged ONCE, and it does NOT release the gate -- under GameLift a server with no
+	// payload has no game session, so /claim-session can mint nothing and AFLGameMode refuses every connection
+	// at PreLogin. Nobody can ever join it, and releasing would only start an empty match.
+	if (!bPayloadTimeoutLogged && MatchStartHeldSeconds >= PayloadWaitSeconds)
+	{
+		bPayloadTimeoutLogged = true;
+		UE_LOG(LogAFLCombat, Error,
+			TEXT("AFL_PHASE: no payload after %.0fs (the GameLift queue timeout) -- the placement was cancelled at "
+			     "source. No client can connect without it; holding until the NO SHOW bound."),
+			PayloadWaitSeconds);
+	}
+
+	// THE TERMINATION GUARANTEE. Nobody arrived; conclude so the process stops holding a session and the
+	// compute can be recycled. The match never started, so nothing was staked and there is nothing to refund.
+	if (MatchStartHeldSeconds >= NoShowDeadlineSeconds)
+	{
+		GetWorld()->GetTimerManager().ClearTimer(MatchStartGateTimer);
+		bAwaitingMatchStart = false;
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_PHASE: NO SHOW after %.0fs -- payload=%s, no placed player ever arrived. Concluding to "
+			     "PostGame; the match never started."),
+			MatchStartHeldSeconds, HasPayload() ? TEXT("yes") : TEXT("NO"));
+		EnterPostGame();
+	}
 }
 
 void UAFLMatchPhaseComponent::EnterPlaying()
@@ -239,6 +327,58 @@ void UAFLMatchPhaseComponent::EnterPlaying()
 	{
 		return;
 	}
+
+	// ══ THE MATCH-START GATE ═════════════════════════════════════════════════════════════════════════════
+	//
+	// Under GameLift, hold this transition until the placement payload has arrived AND at least one placed
+	// player is actually on the field. Everything below inherits the hold.
+	//
+	// ⚠ IT IS GATED HERE, AND ONLY HERE, BECAUSE THIS ONE FUNCTION HAS NINE DOWNSTREAM CONSUMERS. Gating any
+	// single consumer leaves the other eight ungated -- which is not a hypothetical: it was tried three times
+	// on 2026-08-13 and produced three separate dead-match defects, each found by a different live run.
+	//
+	//   DIRECT, in the body below:
+	//     1. StartPhaseByClass(Playing)      fires every phase observer (see 7-9)
+	//     2. SetMatchTagOnAllPawns(Warmup,0) lifts the fire/movement block
+	//     3. SnapshotMatchStartWatts()
+	//     4. ScheduleNextWindow()            arms the extraction-window cadence
+	//     5. ActiveTimer -> EnterPostGame    the 480s match-duration clock
+	//     6. SetAcceptingPlayers(false)      SEALS THE ROSTER -- and this one bit the gate that lived in
+	//                                        ServerStartMatch: the match waited for players while this
+	//                                        locked them out, so /claim-session refused every arrival with
+	//                                        InvalidGameSessionStatusException. A deadlock only the no-show
+	//                                        bound could end.
+	//   OBSERVERS of AFL.GamePhase.Playing, fired by (1):
+	//     7. UAFLRoundManagerComponent   ServerStartMatch -> rounds tick, ESCROW is taken (once, here)
+	//     8. UAFLBattleRoyaleComponent   its OWN ServerStartMatch, same reflective binding
+	//     9. AAFLExtractionZone          observes the CHILD tag Playing.ExtractionWindow, not this one
+	//
+	// ADDING A TENTH? It inherits this gate for free, and that is the point of the altitude. Do not add a
+	// second gate on the same condition further down -- two gates at two altitudes is exactly how (6) was
+	// missed.
+	//
+	// GAMELIFT ONLY. PIE has no expected roster and its listen host is the only human; gating there would
+	// hang every local session on its first match.
+	if (IsUnderGameLift() && !IsReadyToStartMatch())
+	{
+		if (!bAwaitingMatchStart)
+		{
+			bAwaitingMatchStart = true;
+			MatchStartHeldSeconds = 0.f;
+			bPayloadTimeoutLogged = false;
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_PHASE: HOLDING Warmup->Playing -- payload=%s players=%d. Nothing downstream runs: no "
+				     "rounds, no escrow, no roster seal. Concluding as NO SHOW in %.0fs."),
+				HasPayload() ? TEXT("yes") : TEXT("NO"), CountHumanParticipants(), NoShowDeadlineSeconds);
+		}
+		// Re-check on a cheap repeating timer rather than ticking: this component does not tick, and the
+		// transition is already timer-driven, so a timer keeps the mechanism uniform.
+		GetWorld()->GetTimerManager().SetTimer(MatchStartGateTimer, this,
+			&UAFLMatchPhaseComponent::TickMatchStartGate, MatchStartGatePollSeconds, /*loop=*/true);
+		return;
+	}
+	GetWorld()->GetTimerManager().ClearTimer(MatchStartGateTimer);
+	bAwaitingMatchStart = false;
 	// Lift the warmup block, go active (auto-cancels Warmup), snapshot Watts, arm the cadence + the
 	// match-duration timer.
 	//
@@ -456,6 +596,7 @@ void UAFLMatchPhaseComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	if (UWorld* World = GetWorld())
 	{
+		World->GetTimerManager().ClearTimer(MatchStartGateTimer);
 		World->GetTimerManager().ClearTimer(WarmupTimer);
 		World->GetTimerManager().ClearTimer(ActiveTimer);
 		World->GetTimerManager().ClearTimer(WindowOpenTimer);

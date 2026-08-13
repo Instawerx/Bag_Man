@@ -174,85 +174,12 @@ void UAFLRoundManagerComponent::HandlePlayingPhaseActive(const FGameplayTag& Pha
 	// <2-teams abort-without-marking retry make a re-fire a no-op -> exactly one AFL_A13B_MATCHID assign.
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TASK2 Playing phase active (tag=%s) -> ServerStartMatch."), *PhaseTag.ToString());
 
-	// ── PAYLOAD GATE ─────────────────────────────────────────────────────────────────────────────────────
-	//
-	// Under GameLift the roster arrives asynchronously, and the Playing transition is a WARMUP TIMER that
-	// knows nothing about it. Starting here regardless is what produced four dead matches on 2026-08-13: the
-	// match began on a LocalFill guess, found an empty arena, and cancelled itself before the placement had
-	// even been delivered.
-	//
-	// ServerStartMatch already COMPUTES this exact condition (IsSdkReady() && !HasGameSessionData()) and logs
-	// it as an Error before proceeding. Its comment rejected a hard block because "refusing to start with no
-	// retry path would hang the match" -- correct at the time, and the reason this is a HOLD with a deadline
-	// rather than a refusal. The retry path is the tick below.
-	//
-	// GATE THE CALLER, NOT ServerStartMatch. That function is also reached by afl.Round.Start and by replay
-	// paths which legitimately have no payload; a guard inside it would change behaviour for all of them.
-	// Holding here leaves its bMatchStarted latch and <2-teams abort-retry untouched, so a re-fire stays the
-	// no-op it has always been.
-	if (IsUnderGameLift())
-	{
-		const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this);
-		if (GameLift && !GameLift->HasGameSessionData())
-		{
-			if (!bAwaitingPayload)
-			{
-				bAwaitingPayload = true;
-				PayloadWaitedSeconds = 0.f;
-				UE_LOG(LogAFLCombat, Warning,
-					TEXT("AFL_ROUND: HOLDING match start -- onStartGameSession has not arrived. Waiting up to %.0fs "
-					     "for the payload; the match will NOT start on a guessed roster before then."),
-					PayloadWaitSeconds);
-			}
-			return;   // held; Server_TickPayloadWait starts the match when the payload lands or the deadline passes
-		}
-	}
-
+	// NO GATE HERE ANY MORE. It lived here, then in ServerStartMatch, and both were the wrong altitude --
+	// EnterPlaying() has nine downstream consumers and gating one left eight ungated (rounds, then escrow,
+	// then the roster seal, each found by a separate dead run). The hold now sits at the top of
+	// UAFLMatchPhaseComponent::EnterPlaying, so this phase CANNOT fire before the payload has arrived and a
+	// placed player is present. By the time this observer runs, both are already true.
 	ServerStartMatch();
-}
-
-bool UAFLRoundManagerComponent::IsUnderGameLift() const
-{
-	// IsSdkReady() is the ONLY predicate that separates a GameLift-hosted server from PIE or a -Server launch
-	// without -GameLift. It must stay in front of every payload/arrival test: a bare !HasGameSessionData()
-	// would be true in PIE forever and hang every local session on its first match.
-	const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this);
-	return GameLift && GameLift->IsSdkReady();
-}
-
-void UAFLRoundManagerComponent::Server_TickPayloadWait(float DeltaTime)
-{
-	if (!bAwaitingPayload || bMatchStarted || bMatchConcluded)
-	{
-		return;
-	}
-
-	const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this);
-	if (GameLift && GameLift->HasGameSessionData())
-	{
-		bAwaitingPayload = false;
-		UE_LOG(LogAFLCombat, Log,
-			TEXT("AFL_ROUND: payload ARRIVED after %.0fs -- starting the match on the real roster."),
-			PayloadWaitedSeconds);
-		ServerStartMatch();
-		return;
-	}
-
-	PayloadWaitedSeconds += DeltaTime;
-	if (PayloadWaitedSeconds >= PayloadWaitSeconds)
-	{
-		// FALL THROUGH, DO NOT SHUT DOWN. The server is the HOST, not the placement -- self-terminating would
-		// race a payload that might land moments later and would cost the compute registration, of which this
-		// fleet has exactly one. Degrading to LocalFill is survivable: escrow independently refuses an
-		// unverifiable roster, so no currency moves on a guessed match. The blast radius is a bad practice
-		// match, not a bad payment. ServerStartMatch's existing Error is left to stand as the record.
-		bAwaitingPayload = false;
-		UE_LOG(LogAFLCombat, Error,
-			TEXT("AFL_ROUND: payload NEVER ARRIVED within %.0fs (the GameLift queue timeout) -- starting on "
-			     "LocalFill. The placement was cancelled at source; there is nothing left to wait for."),
-			PayloadWaitSeconds);
-		ServerStartMatch();
-	}
 }
 
 void UAFLRoundManagerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -308,7 +235,6 @@ void UAFLRoundManagerComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 		// empty during warmup, between rounds or at half time, and a watchdog that only ran mid-round would
 		// leave those states hanging exactly as long as no watchdog at all. DeltaTime is the interval-tick
 		// accumulated delta, so the countdown is real seconds regardless of TickInterval.
-		Server_TickPayloadWait(DeltaTime);
 		Server_TickAbandonmentWatch(DeltaTime);
 	}
 
@@ -379,10 +305,11 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	bMatchConcluded = false;
 	ConsecutiveReplays = 0;
 	HumanlessSeconds = 0.f;
-	// Per-match, for the same reason HumanlessSeconds is: a reused component must not inherit the previous
-	// match's arrival state, or the second match on a server would arm its abandonment watch immediately.
-	bAnyHumanEverJoined = false;
-	NoShowSeconds = 0.f;
+	// DERIVED, NOT WRITTEN FROM OUTSIDE. The phase gate guarantees a human is present before Warmup->Playing
+	// can fire, so reading the count here cannot disagree with the condition that released the gate -- and a
+	// derived value cannot drift from it the way a member set by another component could. The phase component
+	// never reaches across into this one; the two stay decoupled and agree by construction.
+	bAnyHumanEverJoined = CountHumanParticipants() > 0;
 	OnRep_Score();   // listen-host local HUD
 #if !UE_BUILD_SHIPPING
 	// Read once per match, here, so the log line below always reports the value the match will ACTUALLY use.
@@ -766,15 +693,6 @@ void UAFLRoundManagerComponent::Server_TickAbandonmentWatch(float DeltaTime)
 		// ── ARRIVAL GATE ARMS HERE, ONCE, AND NEVER DISARMS ──────────────────────────────────────────────
 		// From this moment the watch is doing the job it was written for: the players WERE here, so a later
 		// emptiness genuinely means they left. Everything below is untouched.
-		if (!bAnyHumanEverJoined)
-		{
-			bAnyHumanEverJoined = true;
-			NoShowSeconds = 0.f;
-			UE_LOG(LogAFLCombat, Log,
-				TEXT("AFL_ROUND: first human participant present after %.0fs -- abandonment watch ARMED."),
-				NoShowSeconds);
-		}
-
 		if (HumanlessSeconds > 0.f)
 		{
 			UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: a human participant is present again after %.0fs -- abandonment watch reset."),
@@ -784,35 +702,10 @@ void UAFLRoundManagerComponent::Server_TickAbandonmentWatch(float DeltaTime)
 		return;
 	}
 
-	// ── NOBODY HAS EVER ARRIVED: THIS IS A NO-SHOW, NOT AN ABANDONMENT ───────────────────────────────────
-	//
-	// The abandonment grace is 60s because a player who dropped is either coming straight back or is gone.
-	// Arrival is a different problem on a different timescale -- claim, travel, map load, and a human
-	// deciding to press a button -- and spending the reconnect budget on it is what killed four matches on
-	// 2026-08-13, each cancelled roughly 60s after starting into an empty arena that was about to fill.
-	//
-	// GAMELIFT ONLY. In PIE the listen host is the only human and is present from the first tick, so this
-	// branch is unreachable there; guarding it anyway keeps a headless local -Server run (no expected roster,
-	// nobody ever joins) from waiting the full deadline before concluding.
-	if (IsUnderGameLift() && !bAnyHumanEverJoined)
-	{
-		const bool bFirstNoShowTick = (NoShowSeconds <= 0.f);
-		NoShowSeconds += DeltaTime;
-		if (bFirstNoShowTick)
-		{
-			UE_LOG(LogAFLCombat, Warning,
-				TEXT("AFL_ROUND: match %s started with NOBODY PRESENT YET -- abandonment watch held; concluding "
-				     "as NO SHOW in %.0fs if no placed player arrives."),
-				*GetMatchId(), NoShowDeadlineSeconds);
-		}
-
-		if (NoShowSeconds >= NoShowDeadlineSeconds)
-		{
-			Server_CancelMatch(EAFLMatchCancelReason::NoShow);
-		}
-		return;   // the abandonment clock does not run until someone has actually been here
-	}
-
+	// NO ARRIVAL BRANCH HERE ANY MORE. The match-start gate holds ServerStartMatch until a human is present,
+	// so bAnyHumanEverJoined is already true whenever this watch runs and CountHumanParticipants() == 0 can
+	// only mean they LEFT -- which is the case this watch was written for and has always handled correctly.
+	// The no-show bound lives in UAFLMatchPhaseComponent, which holds the phase before any match exists.
 	const bool bFirstEmptyTick = (HumanlessSeconds <= 0.f);
 	HumanlessSeconds += DeltaTime;
 	if (bFirstEmptyTick)
