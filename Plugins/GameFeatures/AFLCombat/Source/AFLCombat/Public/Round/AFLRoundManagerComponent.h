@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Match/AFLMatchPopulationComponent.h"          // join coverage: sites #3 (pawn) + #4 (PlayerState ASC)
+#include "Match/AFLEscrowLedger.h"                     // FAFLEscrowLedger -- held by value-in-shared-ptr, needs the full type
 #include "Misc/Guid.h"   // A1.3b: FGuid MatchId + EGuidFormats
 #include "GameFramework/GameplayMessageSubsystem.h"   // FGameplayMessageListenerHandle (member)
 #include "AFLRoundRestartPolicy.h"                     // IAFLRoundRestartPolicy (the always-loaded AFLGameCore seam)
@@ -37,6 +38,26 @@ enum class EAFLRoundWinReason : uint8
 };
 
 /**
+ * Why a match ended with NO RESULT. Both map to the backend's 'cancelled-refund' terminal state; they are kept
+ * apart because they are different operational events -- one is players leaving, the other is players present
+ * and the mode failing to resolve -- and a single "cancelled" line in the log could not tell you which.
+ */
+UENUM(BlueprintType)
+enum class EAFLMatchCancelReason : uint8
+{
+	/** No human participants remain, and none returned within the grace window. */
+	Abandoned,
+	/** The round FSM produced MaxConsecutiveReplays no-score rounds in a row and cannot reach RoundsToWin. */
+	ReplayCap,
+	/**
+	 * Nobody ever arrived. DISTINCT FROM Abandoned ON PURPOSE -- they are different events and a ledger that
+	 * calls them the same thing misleads exactly when someone is reading it to explain a missing payout.
+	 * Abandoned means the players were here and left; NoShow means the match was placed and never populated.
+	 */
+	NoShow
+};
+
+/**
  * UAFLRoundManagerComponent  (Arena_01 round-based extraction wrapper -- the code half)
  *
  * Server-authoritative round FSM for the Arena PvP win condition (Arena_01_DESIGN.md s1.1/s7/s12,
@@ -52,6 +73,17 @@ enum class EAFLRoundWinReason : uint8
  *
  * NET SAFETY: state is PLAIN replicated UPROPERTYs only -- NO custom net-serialized struct is introduced
  * (the AFLNetTypes rule governs NetSerialize/NetDeltaSerialize GAS structs, not GameState components).
+ *
+ * ⚠ THE MATCH IS GUARANTEED TO TERMINATE, and first-to-RoundsToWin is NOT that guarantee. A round can resolve
+ * with NO winner (EAFLRoundWinReason::Replay -- nobody banked, nobody held the core), which scores nothing, so
+ * a series of them never approaches RoundsToWin. Two bounds close that, and both end in the SAME place --
+ * Server_CancelMatch, terminal state 'cancelled-refund':
+ *
+ *   MaxConsecutiveReplays    -- the mode cannot resolve. Bounds a stalled series (observed: 219 rounds at 0-0).
+ *   AbandonmentGraceSeconds  -- there is nobody left to resolve it. Bounds an empty one (observed: 80 minutes).
+ *
+ * Both were unbounded before, and the cost was not academic: a staked match that never ends holds its players'
+ * escrow and its GameLift session for as long as the process lives.
  *
  * RECONCILED EXTERNAL SIGNALS (all server-side, named to recon):
  *  - Death/wipe  : ULyraHealthComponent::OnDeathStarted (FLyraHealth_DeathEvent; fires for AFL pawns --
@@ -77,6 +109,71 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float RoundTimeLimit = 100.f;
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") bool  bAllowMidRoundRespawn = false;
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float RoundResetCountdown = 5.f;
+
+	/**
+	 * THE REPLAY BOUND. How many consecutive no-score (Replay) rounds the series tolerates before the match is
+	 * cancelled. 0 disables the bound.
+	 *
+	 * ⚠ WITHOUT THIS THE MATCH LENGTH IS UNBOUNDED, and that is not a theoretical reading -- an S12 acceptance
+	 * run produced 219 rounds over 6.5 hours at 0-0. A Replay is a legitimate outcome (nobody banked, nobody
+	 * held the core, no wipe) and scores nothing, so a series where every round replays never approaches
+	 * RoundsToWin. First-to-N bounds a match only if rounds actually score.
+	 *
+	 * CONSECUTIVE, not cumulative, and the difference is what keeps this from ending real matches: an isolated
+	 * replay between scoring rounds is ordinary, and cumulative counting would eventually cancel a long, close,
+	 * perfectly healthy series. A run of N is the stall itself. It also still bounds the match -- every run
+	 * shorter than N is separated by a round that scores, and scores are capped at 2*RoundsToWin-1.
+	 *
+	 * 3 is deliberately low. Reaching it takes 3 x RoundTimeLimit (300s at the default) of both teams failing
+	 * to bank, hold the core, or kill each other; a stalemate that deep is not a match anyone is playing.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") int32 MaxConsecutiveReplays = 3;
+
+	/**
+	 * THE ABANDONMENT WINDOW. Seconds with NO human participant connected before the match is cancelled.
+	 * 0 disables the watchdog.
+	 *
+	 * ⚠ A match with nobody in it does not end on its own. Bots keep dying and respawning, rounds keep
+	 * resolving, and on a dedicated fleet the process holds its GameLift session and its escrow until someone
+	 * notices. In the S12 run both clients dropped at 16:43 and the server was still resolving rounds at 18:04.
+	 *
+	 * THE GRACE IS NOT POLITENESS. A brief drop, a travel, or a host migration can empty PlayerArray for a few
+	 * seconds, and cancelling on the first empty frame would refund matches over a network blip -- a refund is
+	 * economically neutral but it still destroys a contest the players wanted. 60s is long enough that a
+	 * genuine reconnect keeps the match, and short enough that an abandoned session is measured in seconds of
+	 * fleet time rather than hours. Any human returning resets it to zero.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float AbandonmentGraceSeconds = 60.f;
+
+	/**
+	 * PAYLOAD GATE. How long to hold the match start waiting for onStartGameSession, under GameLift only.
+	 *
+	 * 600s IS THE GAMELIFT QUEUE TIMEOUT (BagManTentpoleQueue, TimeoutInSeconds=600), and that is the whole
+	 * defence of the number: a placement that has not been delivered within it has been CANCELLED AT SOURCE,
+	 * so waiting longer cannot produce a payload -- there is no longer one to deliver. Anything shorter is a
+	 * guess; anything longer waits for something that provably will not come.
+	 *
+	 * Worst observed ProcessReady -> payload on this fleet is 5m46s (2026-08-13, 17:17:01 -> 17:22:47), which
+	 * a 300s value would have failed. 600s covers it with margin and stops at a real boundary.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float PayloadWaitSeconds = 600.f;
+
+	/**
+	 * NO-SHOW DEADLINE. How long a started match waits for its FIRST human before concluding as NoShow.
+	 *
+	 * SEPARATE FROM AbandonmentGraceSeconds AND DELIBERATELY NOT REUSED FROM IT. The grace window answers
+	 * "the players left, will they come back" -- 60s is right for that. This answers "have the players we
+	 * were placed for arrived yet", which is a travel problem, not a reconnect one, and 60s is nowhere near
+	 * enough: measured 2026-08-13, the clients claimed 9m23s after match start and a 60s window killed the
+	 * match four times running.
+	 *
+	 * 600s BECAUSE IT IS THE READY-ROW TTL (MATCH_READY_TTL_SECONDS in the backend's shared/match-ready.ts).
+	 * A player who has not arrived before their ready row expires CANNOT arrive: /match-status answers
+	 * `waiting`, they are never handed an address, and there is nothing left to travel with. So past this
+	 * point the wait is provably pointless -- the same kind of real boundary as the queue timeout above,
+	 * rather than a number chosen to feel generous.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float NoShowDeadlineSeconds = 600.f;
 
 	/** s6 traversal-density sampler: server-side per-living-pawn position emit cadence (seconds), the
 	 *  traversal heatmap's data source. ~1-1.5s = cheap + dense enough for a flow read. Telemetry-tunable. */
@@ -186,6 +283,23 @@ protected:
 	void Server_BetweenRounds();                         // RoundEnd countdown fire: (halftime?) -> reset -> begin
 	void Server_EnterHalfTime();                         // toggles bSidesSwapped
 	void Server_EndMatch(int32 WinningTeamId);
+
+	/**
+	 * End the match with NO RESULT and refund the stake.
+	 *
+	 * The counterpart to Server_EndMatch, and the two are mutually exclusive by the bMatchConcluded latch:
+	 * `/settle-match` CLAIMS a matchId with a conditional write and can never be re-settled, so a match that
+	 * both concluded and cancelled would have its outcome decided by whichever HTTP request happened to arrive
+	 * first. The latch makes that race unreachable in-process; the backend's claim is the backstop, not the
+	 * plan. Both functions run on the game thread, so the check-and-set needs no synchronisation.
+	 *
+	 * Refunds BEFORE concluding -- the opposite order to Server_EndMatch, deliberately. That function concludes
+	 * first so players are not made to wait on a backend round-trip to see the match end; in a cancellation the
+	 * usual reason is that there are no players left to wait, and the refund is the entire purpose of the path.
+	 * Both calls are fire-and-forget, so the ordering costs nothing either way.
+	 */
+	void Server_CancelMatch(EAFLMatchCancelReason Reason);
+
 	void Server_ResetRoundActors();                      // force-respawn all (fresh pawns clear carry/extract for free)
 
 	// -- reconciled external signals --
@@ -204,6 +318,23 @@ protected:
 private:
 	bool HasAuth() const;                                // GetOwner()->HasAuthority() (the GameState actor)
 	int32 AliveCount(int32 TeamId) const;                // enumerate PlayerArray by team, count !IsDeadOrDying
+
+	/** Human PARTICIPANTS currently connected -- not bots, not pure spectators. The abandonment test: a lobby
+	 *  holding only bots (or only an observer) has nobody the match is being played for. */
+	int32 CountHumanParticipants() const;
+
+	/** The abandonment watchdog, driven from the (already running) server tick. Accumulates time with no human
+	 *  participant present and cancels the match once it passes AbandonmentGraceSeconds; any human returning
+	 *  resets the accumulator. Runs in EVERY phase, not just RoundActive -- a lobby can empty during warmup,
+	 *  between rounds or at half time just as easily as mid-round. */
+	void Server_TickAbandonmentWatch(float DeltaTime);
+
+	/**
+	 * PAYLOAD GATE tick. Holds a Playing transition that arrived before onStartGameSession and starts the
+	 * match the moment the payload lands -- or, at PayloadWaitSeconds, falls through to LocalFill rather
+	 * than shutting the server down. GameLift only; inert everywhere else.
+	 */
+	void Server_TickPayloadWait(float DeltaTime);
 	int32 TeamHoldingCore() const;                       // the team with a pawn carrying State.Extracting (else INDEX_NONE)
 	void BindDeathDelegates();                           // full reconcile: rebind OnDeathStarted across PlayerArray
 	/** Bind one pawn's health component, guarded. AddDynamic is NOT idempotent -- a double bind fires
@@ -215,6 +346,68 @@ private:
 	void SetRoundRespawnSuppressed(bool bSuppressed);     // apply/remove State.Round.NoRespawn on every player ASC -> round FSM is the lone respawn authority
 
 	bool bMatchStarted = false;
+
+	/**
+	 * THE SINGLE-CONCLUSION LATCH. Set by Server_EndMatch and Server_CancelMatch, checked by both.
+	 *
+	 * A match has exactly one terminal report because settlement CLAIMS the matchId with a conditional write --
+	 * a second report is not an overwrite, it is a race whose winner is decided by network timing. bMatchStarted
+	 * cannot serve here: it marks the match as begun and stays true across the end, so it says nothing about
+	 * whether an outcome has already been sent.
+	 */
+	bool bMatchConcluded = false;
+
+	/** DEFECT 1's counter: no-score rounds since the last one that scored. Reset by any scoring resolution. */
+	int32 ConsecutiveReplays = 0;
+
+	/** DEFECT 2's accumulator: seconds since the last human participant was seen. 0 whenever one is present. */
+	float HumanlessSeconds = 0.f;
+
+	/**
+	 * ARRIVAL GATE. Has ANY human been seen in this match yet?
+	 *
+	 * ⚠ THIS IS THE ONE BIT THE ABANDONMENT WATCH WAS MISSING. CountHumanParticipants() == 0 has two
+	 * completely different meanings -- "everyone left" and "nobody has arrived yet" -- and the watch could
+	 * not tell them apart, so it spent its 60s grace window on ARRIVAL LATENCY and cancelled four matches
+	 * that were about to be populated. This latch separates them: until it is true the watch is disarmed and
+	 * the no-show deadline governs instead; once true the watch behaves exactly as it always has.
+	 *
+	 * "EXPECTED" IS IMPLICIT, AND THAT IS DELIBERATE -- no roster match is performed. Under GameLift a client
+	 * cannot connect at all without a playerSessionId, /claim-session mints one only for a caller holding a
+	 * ready row naming that game session, and AFLGameMode REFUSES a connection with no ?PlayerSessionId= at
+	 * PreLogin. So the only humans who can appear ARE the placed ones. Matching PlayFabIds here would add a
+	 * second roster copy that can drift out of sync with the one the connection layer already enforces.
+	 */
+	bool bAnyHumanEverJoined = false;
+
+	/** Seconds spent holding the Playing transition waiting for onStartGameSession. Payload gate only. */
+	float PayloadWaitedSeconds = 0.f;
+
+	/** True while the payload gate is holding a Playing transition that has not yet been honoured. */
+	bool bAwaitingPayload = false;
+
+	/** Seconds a started match has gone without ever seeing a human. Drives NoShowDeadlineSeconds. */
+	float NoShowSeconds = 0.f;
+
+	/**
+	 * True when this match is running under GameLift with the SDK live -- the only condition under which
+	 * either gate applies. PIE and any launch without -GameLift have no expected roster and a listen host is
+	 * the only human, so gating there would hang every local session.
+	 */
+	bool IsUnderGameLift() const;
+
+	/**
+	 * WHO WAS DEBITED, captured at match start and held for the whole match.
+	 *
+	 * ⚠ THIS IS WHY ABANDONMENT CAN BE REFUNDED AT ALL. A settlement body needs a playFabId and an amount per
+	 * entry; every other path in this codebase reads those off GS->PlayerArray. In the case this exists for the
+	 * PlayerArray is EMPTY -- the match is ending precisely because everyone left. The snapshot is taken while
+	 * the roster is still there and outlives it.
+	 *
+	 * Null for an unstaked match, an unwired economy, or a refused escrow -- in each of those nothing was taken,
+	 * so a cancellation has nothing to give back.
+	 */
+	TSharedPtr<FAFLEscrowLedger> EscrowLedger;
 	/** SITE #4's cached decision -- mirrors the last SetRoundRespawnSuppressed call, so a joiner can be
 	 *  given the state that is true NOW without replaying the round history. Written before the sweep. */
 	bool bRespawnSuppressed = false;

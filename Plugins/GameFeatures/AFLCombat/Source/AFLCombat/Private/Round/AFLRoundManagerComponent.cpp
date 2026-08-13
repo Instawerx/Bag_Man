@@ -173,7 +173,86 @@ void UAFLRoundManagerComponent::HandlePlayingPhaseActive(const FGameplayTag& Pha
 	// check). Route straight into the EXISTING ServerStartMatch (unchanged): its bMatchStarted guard + the
 	// <2-teams abort-without-marking retry make a re-fire a no-op -> exactly one AFL_A13B_MATCHID assign.
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TASK2 Playing phase active (tag=%s) -> ServerStartMatch."), *PhaseTag.ToString());
+
+	// ── PAYLOAD GATE ─────────────────────────────────────────────────────────────────────────────────────
+	//
+	// Under GameLift the roster arrives asynchronously, and the Playing transition is a WARMUP TIMER that
+	// knows nothing about it. Starting here regardless is what produced four dead matches on 2026-08-13: the
+	// match began on a LocalFill guess, found an empty arena, and cancelled itself before the placement had
+	// even been delivered.
+	//
+	// ServerStartMatch already COMPUTES this exact condition (IsSdkReady() && !HasGameSessionData()) and logs
+	// it as an Error before proceeding. Its comment rejected a hard block because "refusing to start with no
+	// retry path would hang the match" -- correct at the time, and the reason this is a HOLD with a deadline
+	// rather than a refusal. The retry path is the tick below.
+	//
+	// GATE THE CALLER, NOT ServerStartMatch. That function is also reached by afl.Round.Start and by replay
+	// paths which legitimately have no payload; a guard inside it would change behaviour for all of them.
+	// Holding here leaves its bMatchStarted latch and <2-teams abort-retry untouched, so a re-fire stays the
+	// no-op it has always been.
+	if (IsUnderGameLift())
+	{
+		const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this);
+		if (GameLift && !GameLift->HasGameSessionData())
+		{
+			if (!bAwaitingPayload)
+			{
+				bAwaitingPayload = true;
+				PayloadWaitedSeconds = 0.f;
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("AFL_ROUND: HOLDING match start -- onStartGameSession has not arrived. Waiting up to %.0fs "
+					     "for the payload; the match will NOT start on a guessed roster before then."),
+					PayloadWaitSeconds);
+			}
+			return;   // held; Server_TickPayloadWait starts the match when the payload lands or the deadline passes
+		}
+	}
+
 	ServerStartMatch();
+}
+
+bool UAFLRoundManagerComponent::IsUnderGameLift() const
+{
+	// IsSdkReady() is the ONLY predicate that separates a GameLift-hosted server from PIE or a -Server launch
+	// without -GameLift. It must stay in front of every payload/arrival test: a bare !HasGameSessionData()
+	// would be true in PIE forever and hang every local session on its first match.
+	const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this);
+	return GameLift && GameLift->IsSdkReady();
+}
+
+void UAFLRoundManagerComponent::Server_TickPayloadWait(float DeltaTime)
+{
+	if (!bAwaitingPayload || bMatchStarted || bMatchConcluded)
+	{
+		return;
+	}
+
+	const UAFLGameLiftHostSubsystem* GameLift = UAFLGameLiftHostSubsystem::Get(this);
+	if (GameLift && GameLift->HasGameSessionData())
+	{
+		bAwaitingPayload = false;
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_ROUND: payload ARRIVED after %.0fs -- starting the match on the real roster."),
+			PayloadWaitedSeconds);
+		ServerStartMatch();
+		return;
+	}
+
+	PayloadWaitedSeconds += DeltaTime;
+	if (PayloadWaitedSeconds >= PayloadWaitSeconds)
+	{
+		// FALL THROUGH, DO NOT SHUT DOWN. The server is the HOST, not the placement -- self-terminating would
+		// race a payload that might land moments later and would cost the compute registration, of which this
+		// fleet has exactly one. Degrading to LocalFill is survivable: escrow independently refuses an
+		// unverifiable roster, so no currency moves on a guessed match. The blast radius is a bad practice
+		// match, not a bad payment. ServerStartMatch's existing Error is left to stand as the record.
+		bAwaitingPayload = false;
+		UE_LOG(LogAFLCombat, Error,
+			TEXT("AFL_ROUND: payload NEVER ARRIVED within %.0fs (the GameLift queue timeout) -- starting on "
+			     "LocalFill. The placement was cancelled at source; there is nothing left to wait for."),
+			PayloadWaitSeconds);
+		ServerStartMatch();
+	}
 }
 
 void UAFLRoundManagerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -224,6 +303,13 @@ void UAFLRoundManagerComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 			// publish. Drop to Verbose once the countdown is signed off.
 			UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: warmup countdown -> %.0fs"), NewWarmup);
 		}
+
+		// DEFECT 2: the abandonment watchdog. Deliberately ABOVE the RoundActive gate below -- a lobby can
+		// empty during warmup, between rounds or at half time, and a watchdog that only ran mid-round would
+		// leave those states hanging exactly as long as no watchdog at all. DeltaTime is the interval-tick
+		// accumulated delta, so the countdown is real seconds regardless of TickInterval.
+		Server_TickPayloadWait(DeltaTime);
+		Server_TickAbandonmentWatch(DeltaTime);
 	}
 
 	if (!HasAuth() || Phase != EAFLRoundPhase::RoundActive)
@@ -290,6 +376,13 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	Team0Score = 0;
 	Team1Score = 0;
 	bSidesSwapped = false;
+	bMatchConcluded = false;
+	ConsecutiveReplays = 0;
+	HumanlessSeconds = 0.f;
+	// Per-match, for the same reason HumanlessSeconds is: a reused component must not inherit the previous
+	// match's arrival state, or the second match on a server would arm its abandonment watch immediately.
+	bAnyHumanEverJoined = false;
+	NoShowSeconds = 0.f;
 	OnRep_Score();   // listen-host local HUD
 #if !UE_BUILD_SHIPPING
 	// Read once per match, here, so the log line below always reports the value the match will ACTUALLY use.
@@ -330,7 +423,11 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	// A no-op in LEAGUE PLAY (no buy-in) and in any session without the economy env vars -- so an ordinary
 	// PIE run is unaffected. Escrow is all-or-nothing: it validates every team before debiting anyone, so a
 	// misconfigured staked match charges nobody rather than charging half the lobby.
-	FAFLMatchReporter::EscrowTeamSeries(this, MatchId, FAFLMatchReporter::ReadEconomics(this));
+	//
+	// THE RETURNED LEDGER IS HELD FOR THE WHOLE MATCH, and it is the only reason an abandoned match can be
+	// refunded: by the time abandonment is detected the players are gone from PlayerArray, and this snapshot is
+	// all that still knows who was charged what. Null when nothing was taken.
+	EscrowLedger = FAFLMatchReporter::EscrowTeamSeries(this, MatchId, FAFLMatchReporter::ReadEconomics(this));
 
 	// Suppress the ShooterCore auto-respawn for the whole match: the cloned GA_AFL_AutoRespawn skips its
 	// respawn node while State.Round.NoRespawn is on the owning ASC, so the round FSM is the LONE respawn
@@ -353,8 +450,11 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 
 void UAFLRoundManagerComponent::Server_BeginRound()
 {
-	if (!HasAuth())
+	if (!HasAuth() || bMatchConcluded)
 	{
+		// The latch, not just the cleared timers. Both terminal paths clear ResetTimerHandle, so this is
+		// belt-and-braces -- but a round starting after the outcome has been reported would run a match whose
+		// result is already settled, and that is worth three lines to make structurally impossible.
 		return;
 	}
 	++CurrentRound;
@@ -487,6 +587,12 @@ void UAFLRoundManagerComponent::Server_ResolveRound(int32 WinningTeamId, EAFLRou
 	else if (WinSlot == 1) { ++Team1Score; }
 	// INDEX_NONE (Replay / non-participating) -> no score change
 
+	// DEFECT 1: BOUND THE REPLAYS. Keyed off whether the round SCORED, not off the reason -- the score is what
+	// first-to-RoundsToWin actually consumes, so it is the honest test for "did this round move the series".
+	// Reset on any scoring round, because the stall this guards against is a RUN of them (see the header).
+	if (WinSlot == INDEX_NONE) { ++ConsecutiveReplays; }
+	else                       { ConsecutiveReplays = 0; }
+
 	LastWinningTeam = WinningTeamId;
 	LastWinReason = Reason;
 	OnRep_Score();            // listen-host local HUD
@@ -494,11 +600,24 @@ void UAFLRoundManagerComponent::Server_ResolveRound(int32 WinningTeamId, EAFLRou
 	EmitRoundTelemetry(WinningTeamId, Reason);
 	SetPhaseAuthoritative(EAFLRoundPhase::RoundEnd);
 
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: round %d RESOLVED -- winner team %d, reason %s. Score %d-%d."),
-		CurrentRound, WinningTeamId, *UEnum::GetValueAsString(Reason), Team0Score, Team1Score);
+	// The run is reported ON the line that would otherwise repeat identically forever -- the S12 log had 219
+	// of those and nothing in any of them said the series was going nowhere.
+	const FString RunSuffix = (ConsecutiveReplays > 0)
+		? FString::Printf(TEXT(" (no-score run: %d/%d)"), ConsecutiveReplays, MaxConsecutiveReplays)
+		: FString();
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: round %d RESOLVED -- winner team %d, reason %s. Score %d-%d.%s"),
+		CurrentRound, WinningTeamId, *UEnum::GetValueAsString(Reason), Team0Score, Team1Score, *RunSuffix);
 
 	if (Team0Score >= RoundsToWin) { Server_EndMatch(ParticipatingTeams[0]); return; }
 	if (Team1Score >= RoundsToWin) { Server_EndMatch(ParticipatingTeams[1]); return; }
+
+	// Checked AFTER the win conditions: a round that scores cannot be a replay, so this can never pre-empt a
+	// legitimately won series. It only fires where the series cannot progress at all.
+	if (MaxConsecutiveReplays > 0 && ConsecutiveReplays >= MaxConsecutiveReplays)
+	{
+		Server_CancelMatch(EAFLMatchCancelReason::ReplayCap);
+		return;
+	}
 
 	if (UWorld* World = GetWorld())
 	{
@@ -509,8 +628,11 @@ void UAFLRoundManagerComponent::Server_ResolveRound(int32 WinningTeamId, EAFLRou
 
 void UAFLRoundManagerComponent::Server_BetweenRounds()
 {
-	if (!HasAuth())
+	if (!HasAuth() || bMatchConcluded)
 	{
+		// Same latch as Server_BeginRound, and for the same reason: this respawns the whole lobby, which is a
+		// conspicuous thing to do in a match whose outcome has already been reported. The terminal paths clear
+		// ResetTimerHandle so it should be unreachable -- "should be" is what the guard is for.
 		return;
 	}
 	// Side swap BEFORE the reset, so the respawn selects the swapped side (the game mode reads bSidesSwapped).
@@ -538,6 +660,17 @@ void UAFLRoundManagerComponent::Server_EnterHalfTime()
 
 void UAFLRoundManagerComponent::Server_EndMatch(int32 WinningTeamId)
 {
+	// ONE TERMINAL REPORT PER MATCH. Settlement claims the matchId with a conditional write, so a second report
+	// does not correct the first -- it races it. See bMatchConcluded in the header.
+	if (bMatchConcluded)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_ROUND: Server_EndMatch(team %d) ignored -- match %s has already concluded."),
+			WinningTeamId, *GetMatchId());
+		return;
+	}
+	bMatchConcluded = true;
+
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(RoundTimerHandle);
@@ -590,6 +723,176 @@ void UAFLRoundManagerComponent::Server_EndMatch(int32 WinningTeamId)
 			// swallowing the reason is what would make it unrecoverable.
 			UE_LOG(LogAFLCombat, Error, TEXT("AFL_ROUND: match %s NOT reported -- %s"),
 				*GetMatchId(), *BuildError);
+		}
+	}
+}
+
+int32 UAFLRoundManagerComponent::CountHumanParticipants() const
+{
+	const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr;
+	if (!GS)
+	{
+		// No game state is not "no humans". Returning 0 here would start the abandonment clock during a world
+		// transition, so report the state that cannot be wrong: something is present until proven otherwise.
+		return 1;
+	}
+	int32 Count = 0;
+	for (const APlayerState* PS : GS->PlayerArray)
+	{
+		// A disconnected player's PlayerState leaves PlayerArray (AGameModeBase::Logout), which is exactly the
+		// signal this needs -- no separate connection bookkeeping to drift out of sync with it.
+		if (!PS || PS->IsABot() || PS->IsOnlyASpectator())
+		{
+			continue;
+		}
+		++Count;
+	}
+	return Count;
+}
+
+void UAFLRoundManagerComponent::Server_TickAbandonmentWatch(float DeltaTime)
+{
+	// Before the match starts nothing has been staked and no session is being held on anyone's behalf, and
+	// after it concludes there is nothing left to cancel. Both reset the clock rather than just skipping, so a
+	// stale accumulator cannot survive into the next match on a reused component.
+	if (!bMatchStarted || bMatchConcluded || AbandonmentGraceSeconds <= 0.f)
+	{
+		HumanlessSeconds = 0.f;
+		return;
+	}
+
+	if (CountHumanParticipants() > 0)
+	{
+		// ── ARRIVAL GATE ARMS HERE, ONCE, AND NEVER DISARMS ──────────────────────────────────────────────
+		// From this moment the watch is doing the job it was written for: the players WERE here, so a later
+		// emptiness genuinely means they left. Everything below is untouched.
+		if (!bAnyHumanEverJoined)
+		{
+			bAnyHumanEverJoined = true;
+			NoShowSeconds = 0.f;
+			UE_LOG(LogAFLCombat, Log,
+				TEXT("AFL_ROUND: first human participant present after %.0fs -- abandonment watch ARMED."),
+				NoShowSeconds);
+		}
+
+		if (HumanlessSeconds > 0.f)
+		{
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: a human participant is present again after %.0fs -- abandonment watch reset."),
+				HumanlessSeconds);
+			HumanlessSeconds = 0.f;
+		}
+		return;
+	}
+
+	// ── NOBODY HAS EVER ARRIVED: THIS IS A NO-SHOW, NOT AN ABANDONMENT ───────────────────────────────────
+	//
+	// The abandonment grace is 60s because a player who dropped is either coming straight back or is gone.
+	// Arrival is a different problem on a different timescale -- claim, travel, map load, and a human
+	// deciding to press a button -- and spending the reconnect budget on it is what killed four matches on
+	// 2026-08-13, each cancelled roughly 60s after starting into an empty arena that was about to fill.
+	//
+	// GAMELIFT ONLY. In PIE the listen host is the only human and is present from the first tick, so this
+	// branch is unreachable there; guarding it anyway keeps a headless local -Server run (no expected roster,
+	// nobody ever joins) from waiting the full deadline before concluding.
+	if (IsUnderGameLift() && !bAnyHumanEverJoined)
+	{
+		const bool bFirstNoShowTick = (NoShowSeconds <= 0.f);
+		NoShowSeconds += DeltaTime;
+		if (bFirstNoShowTick)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_ROUND: match %s started with NOBODY PRESENT YET -- abandonment watch held; concluding "
+				     "as NO SHOW in %.0fs if no placed player arrives."),
+				*GetMatchId(), NoShowDeadlineSeconds);
+		}
+
+		if (NoShowSeconds >= NoShowDeadlineSeconds)
+		{
+			Server_CancelMatch(EAFLMatchCancelReason::NoShow);
+		}
+		return;   // the abandonment clock does not run until someone has actually been here
+	}
+
+	const bool bFirstEmptyTick = (HumanlessSeconds <= 0.f);
+	HumanlessSeconds += DeltaTime;
+	if (bFirstEmptyTick)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_ROUND: NO HUMAN PARTICIPANTS REMAIN in match %s (round %d, score %d-%d) -- cancelling in %.0fs unless one returns."),
+			*GetMatchId(), CurrentRound, Team0Score, Team1Score, AbandonmentGraceSeconds);
+	}
+
+	if (HumanlessSeconds >= AbandonmentGraceSeconds)
+	{
+		Server_CancelMatch(EAFLMatchCancelReason::Abandoned);
+	}
+}
+
+void UAFLRoundManagerComponent::Server_CancelMatch(EAFLMatchCancelReason Reason)
+{
+	if (!HasAuth() || bMatchConcluded)
+	{
+		return;   // the latch shared with Server_EndMatch -- one terminal report per match, never a race
+	}
+	bMatchConcluded = true;
+
+	// NO SHOW READS DIFFERENTLY FROM ABANDONED ON PURPOSE. "Nobody remained" and "nobody ever came" are
+	// different events with different causes -- one is a player problem, the other a placement/travel one --
+	// and a log that spells them the same way sends the next reader down the wrong path.
+	const TCHAR* ReasonText;
+	switch (Reason)
+	{
+	case EAFLMatchCancelReason::Abandoned: ReasonText = TEXT("ABANDONED -- no human participants remained"); break;
+	case EAFLMatchCancelReason::NoShow:    ReasonText = TEXT("NO SHOW -- no placed player ever arrived");     break;
+	default:                               ReasonText = TEXT("STALEMATE -- consecutive no-score rounds hit the replay cap"); break;
+	}
+
+	// Stop the FSM FIRST. Every handler below is gated on RoundActive, so clearing the timers and leaving
+	// RoundActive is what actually stops rounds resolving -- without it a pending reset timer would begin
+	// round N+1 into a match whose refund is already in flight.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(RoundTimerHandle);
+		World->GetTimerManager().ClearTimer(ResetTimerHandle);
+	}
+	UnbindDeathDelegates();
+	SetRoundRespawnSuppressed(false);
+	SetPhaseAuthoritative(EAFLRoundPhase::MatchEnd);
+
+	UE_LOG(LogAFLCombat, Warning,
+		TEXT("AFL_ROUND: MATCH CANCELLED -- %s. Match %s ended at round %d, score %d-%d, NO RESULT."),
+		ReasonText, *GetMatchId(), CurrentRound, Team0Score, Team1Score);
+
+	// REFUND FIRST. Server_EndMatch concludes before reporting so players are not held on an HTTP round-trip
+	// to see the match end; here the usual case is that nobody is left to hold, and the refund is the whole
+	// reason this path exists. Both are fire-and-forget, so nothing downstream depends on the order.
+	//
+	// NOT ReportMatchEnd: that would post terminalState 'settled' against a match with no winner AND move the
+	// ladder. A cancelled match pays back exactly what it took and moves no rating.
+	if (EscrowLedger.IsValid())
+	{
+		FAFLMatchReporter::ReportMatchCancelled(this, *EscrowLedger, ReasonText);
+	}
+	else
+	{
+		// Nothing was staked (LEAGUE PLAY, an unwired economy, or a refused escrow) -- so there is nothing to
+		// give back. Said explicitly, because "no refund line in the log" and "the refund never fired" look
+		// identical otherwise, and only one of them is fine.
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: match %s held no escrow -- cancellation refunds nothing."), *GetMatchId());
+	}
+
+	// Then release the match the same way a won one is released: ConcludeMatch is what frees fire/movement,
+	// starts PostGame and lets the session wind down. Skipping it for a cancellation would leave a dedicated
+	// server sitting in a live match phase with no match -- the exact state this fix exists to end.
+	if (const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr)
+	{
+		if (UAFLMatchPhaseComponent* MatchPhase = GS->FindComponentByClass<UAFLMatchPhaseComponent>())
+		{
+			MatchPhase->ConcludeMatch();
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_ROUND: MATCH CANCELLED but no UAFLMatchPhaseComponent resident -- conclusion (freeze/PostGame) SKIPPED."));
 		}
 	}
 }
