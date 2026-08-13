@@ -80,6 +80,20 @@ private:
 	void PollMatchStatus();
 	void StopPolling();
 
+	/**
+	 * Claim a GameLift player session, THEN travel. Called the instant /match-status says `ready`.
+	 *
+	 * ⚠ THE CLAIM CANNOT HAPPEN EARLIER, AND THAT IS THE WHOLE POINT OF FIX B. GameLift reserves a player
+	 * session for 60 SECONDS -- a service constant with no knob -- and the clock starts when the session is
+	 * MINTED. Minting at placement (which is what the backend used to do) burned the entire window before any
+	 * player had read the row: verified 2026-08-12, both sessions read TIMEDOUT, unclaimed, while the match
+	 * sat ACTIVE and joinable by nobody. Claiming here starts the 60s at the moment we are about to spend it.
+	 *
+	 * /claim-session is IDEMPOTENT inside that window -- a second call returns the same id rather than holding
+	 * a second reservation -- so a retry is safe to add here later without risk of consuming a teammate's slot.
+	 */
+	void ClaimAndTravel(const FString& MatchId);
+
 	/** Issue the actual travel once a full tuple is in hand. */
 	void TravelToMatch(const FString& IpAddress, int32 Port, const FString& PlayerSessionId);
 

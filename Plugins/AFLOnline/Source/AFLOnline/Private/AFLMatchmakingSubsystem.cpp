@@ -221,28 +221,109 @@ void UAFLMatchmakingSubsystem::PollMatchStatus()
 				return;   // "waiting" is the normal answer for most of the queue
 			}
 
-			FString Ip, Psid, MatchId;
+			FString Ip, MatchId;
 			int32 Port = 0;
 			Root->TryGetStringField(TEXT("ipAddress"), Ip);
 			Root->TryGetNumberField(TEXT("port"), Port);
-			Root->TryGetStringField(TEXT("playerSessionId"), Psid);
 			Root->TryGetStringField(TEXT("matchId"), MatchId);
 
-			// ⚠ ALL THREE OR NOTHING. Travelling on a partial tuple is worse than not travelling: without a
-			// playerSessionId the server REFUSES the connection at PreLogin (S12-E), so the player would be
-			// bounced to the front end with no explanation while their stake sits escrowed in a match they
-			// never joined. Stay in the queue and let the next poll -- or the timeout -- decide.
-			if (Ip.IsEmpty() || Port <= 0 || Psid.IsEmpty())
+			// ⚠ THE STATUS PAYLOAD NO LONGER CARRIES A playerSessionId, AND MUST NOT. Fix B: a psid minted at
+			// placement is dead 60s later, so /match-status answers only the DURABLE half -- where the match
+			// is. The id we travel with is claimed below, at travel time. If a psid ever reappears here, read
+			// the header on ClaimAndTravel before using it.
+			//
+			// The address still has to be whole before we spend a claim: claiming against a half-read status
+			// would reserve a GameLift slot we then cannot use, and the reservation is not free -- on a 2-slot
+			// match a wasted one can lock the other player out.
+			if (Ip.IsEmpty() || Port <= 0)
 			{
 				UE_LOG(LogAFLMatchmaking, Error,
-					TEXT("AFL_MM: /match-status said READY but the tuple is incomplete (ip='%s' port=%d psid='%s') -- not travelling."),
-					*Ip, Port, *Psid);
+					TEXT("AFL_MM: /match-status said READY but the address is incomplete (ip='%s' port=%d) -- not claiming."),
+					*Ip, Port);
 				return;
 			}
 
 			Self->StopPolling();
-			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: MATCH READY match=%s -> %s:%d"), *MatchId, *Ip, Port);
+			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: MATCH READY match=%s -> %s:%d -- claiming a place."), *MatchId, *Ip, Port);
 			Self->SetState(EAFLMatchmakingState::Joining, NSLOCTEXT("AFL", "MMJoining", "Match found. Joining..."));
+			Self->ClaimAndTravel(MatchId);
+		});
+}
+
+void UAFLMatchmakingSubsystem::ClaimAndTravel(const FString& MatchId)
+{
+	UAFLOnlineSubsystem* Online = GetGameInstance() ? GetGameInstance()->GetSubsystem<UAFLOnlineSubsystem>() : nullptr;
+	if (!Online)
+	{
+		SetState(EAFLMatchmakingState::Failed, NSLOCTEXT("AFL", "MMNoOnlineClaim", "Online services unavailable."));
+		return;
+	}
+
+	// The request body is EMPTY, and that is the security model rather than laziness. /claim-session names
+	// nobody: it resolves the caller from the SessionTicket and reads the game session off that caller's OWN
+	// ready row. There is no field in which to name another player's match, so a claim against someone else's
+	// session is unconstructible rather than merely rejected.
+	TWeakObjectPtr<UAFLMatchmakingSubsystem> WeakThis(this);
+	Online->PostPlayerApi(TEXT("/claim-session"), TEXT("{}"),
+		[WeakThis, MatchId](bool bOk, const FString& Resp)
+		{
+			UAFLMatchmakingSubsystem* Self = WeakThis.Get();
+			if (!Self || Self->State != EAFLMatchmakingState::Joining)
+			{
+				return;   // cancelled, or the player quit while the claim was in flight
+			}
+
+			if (!bOk)
+			{
+				// Surface the SERVER's reason. "that match is no longer joinable" is a thing a player can act
+				// on; replacing it with a generic failure would make it look like a network problem.
+				const FText Why = ErrorTextFrom(Resp, NSLOCTEXT("AFL", "MMClaimFailed", "Could not join the match."));
+				UE_LOG(LogAFLMatchmaking, Error, TEXT("AFL_MM: /claim-session REFUSED -- %s"), *Resp.Left(300));
+				Self->SetState(EAFLMatchmakingState::Failed, Why);
+				return;
+			}
+
+			const TSharedPtr<FJsonObject> Root = ParseJson(Resp);
+			if (!Root.IsValid())
+			{
+				UE_LOG(LogAFLMatchmaking, Error, TEXT("AFL_MM: /claim-session unparseable -- not travelling."));
+				Self->SetState(EAFLMatchmakingState::Failed, NSLOCTEXT("AFL", "MMClaimBad", "Could not join the match."));
+				return;
+			}
+
+			FString Ip, Psid;
+			int32 Port = 0;
+			Root->TryGetStringField(TEXT("ipAddress"), Ip);
+			Root->TryGetNumberField(TEXT("port"), Port);
+			Root->TryGetStringField(TEXT("playerSessionId"), Psid);
+
+			// ⚠ ALL THREE OR NOTHING -- unchanged in spirit, but now checked against the CLAIMED tuple rather
+			// than one that arrived in the status payload. This is the authoritative set: the psid was minted
+			// seconds ago and its 60s reservation is running from now. Without it the server REFUSES the
+			// connection at PreLogin (S12-E) and the player is bounced to the front end with no explanation
+			// while their stake sits escrowed in a match they never joined.
+			//
+			// FAILED, not "keep polling": polling has already stopped and the claim is a terminal act. A
+			// half-answered claim means something is wrong server-side, and silently retrying would spend
+			// another GameLift reservation on each attempt.
+			if (Ip.IsEmpty() || Port <= 0 || Psid.IsEmpty())
+			{
+				UE_LOG(LogAFLMatchmaking, Error,
+					TEXT("AFL_MM: /claim-session returned an incomplete tuple (ip='%s' port=%d psid='%s') -- not travelling."),
+					*Ip, Port, *Psid);
+				Self->SetState(EAFLMatchmakingState::Failed, NSLOCTEXT("AFL", "MMClaimBad2", "Could not join the match."));
+				return;
+			}
+
+			// `reused` is logged, not acted on: it is the backend telling us this call was idempotent (a
+			// retry inside the 60s window returned the id it minted before, rather than holding a second
+			// reservation). Worth seeing in a log when diagnosing a double-join.
+			bool bReused = false;
+			Root->TryGetBoolField(TEXT("reused"), bReused);
+
+			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: CLAIMED %s match=%s -> %s:%d"),
+				bReused ? TEXT("(reused)") : TEXT("(fresh)"), *MatchId, *Ip, Port);
+
 			Self->TravelToMatch(Ip, Port, Psid);
 		});
 }
