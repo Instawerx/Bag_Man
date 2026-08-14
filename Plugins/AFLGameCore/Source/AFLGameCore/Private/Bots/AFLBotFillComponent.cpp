@@ -17,9 +17,30 @@
 #include "GameFramework/PlayerController.h"    // human filter (APlayerController)
 #include "GameFramework/PlayerState.h"
 #include "Kismet/GameplayStatics.h"            // GetIntOption (URL "NumBots" parity)
+#include "AbilitySystem/Phases/LyraGamePhaseSubsystem.h"   // phase QUERY only, and reflectively -- see IsPhaseActiveReflected
+#include "NativeGameplayTags.h"
 #include "TimerManager.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLBotFillComponent)
+
+// The two match phases the roster wait cares about. Their drivers are file-local to AFLMatchPhaseComponent
+// (AFLCombat, a GameFeature this always-loaded core module cannot reference), so we define our own statics
+// for the same strings -- UE dedups -- and observe WITHOUT linking that module's symbols. Same technique
+// UAFLRoundManagerComponent and AAFLExtractionZone already use for this tag.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_AFL_GamePhase_Playing_Bots, "AFL.GamePhase.Playing");
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_AFL_GamePhase_PostGame_Bots, "AFL.GamePhase.PostGame");
+
+namespace
+{
+	// ULyraGamePhaseSubsystem::IsPhaseActive is public and BlueprintCallable and STILL does not link from
+	// outside LyraGame -- the subsystem class carries no LYRAGAME_API, so none of its members cross the DLL
+	// boundary, UFUNCTION or not. Reflection is the only route. Param layout = (FGameplayTag, bool return).
+	struct FK2IsPhaseActiveParams
+	{
+		FGameplayTag PhaseTag;
+		bool ReturnValue = false;
+	};
+}
 
 #if WITH_SERVER_CODE
 
@@ -85,6 +106,15 @@ int32 UAFLBotFillComponent::CountHumans() const
 	return Humans;
 }
 
+bool UAFLBotFillComponent::IsTierKnown() const
+{
+	// A tier is trustworthy unless an external authority owns the roster and has not delivered it yet. With no
+	// external roster at all (PIE / offline / a launch line stating its own ?Tier=) the launch options ARE the
+	// answer, so there is nothing to wait for.
+	return !UAFLMatchmakerDataProvider::IsRosterExternallyOwned(this)
+		|| !UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this).IsEmpty();
+}
+
 bool UAFLBotFillComponent::ShouldBarBots() const
 {
 	// THE TIER IS THE POLICY (R74/R85/R87, ai-bots §6.3): bots are permitted exactly where the outcome moves
@@ -96,10 +126,7 @@ bool UAFLBotFillComponent::ShouldBarBots() const
 	// production, including the LEAGUE PLAY matches that are supposed to have them.
 	//
 	// But ownership still matters for one thing: whether the tier can be TRUSTED yet.
-	const bool bExternallyOwned = UAFLMatchmakerDataProvider::IsRosterExternallyOwned(this);
-	const bool bTierIsKnown = !UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this).IsEmpty();
-
-	if (bExternallyOwned && !bTierIsKnown)
+	if (!IsTierKnown())
 	{
 		// PAYLOAD IN FLIGHT -- the roster is coming but has not named its tier. ReadEconomics would fall
 		// through to the launch line, find no ?Tier=, and answer LEAGUE PLAY: an UNKNOWN tier is
@@ -135,6 +162,100 @@ int32 UAFLBotFillComponent::ResolveHumanBaseline() const
 
 	// No roster: PIE / offline / LocalFill. Humans arrive on their own schedule and are only ever observed.
 	return CountHumans();
+}
+
+bool UAFLBotFillComponent::IsPhaseActiveReflected(const UWorld* World, const FGameplayTag& PhaseTag)
+{
+	const ULyraGamePhaseSubsystem* Sub = UWorld::GetSubsystem<ULyraGamePhaseSubsystem>(World);
+	if (!Sub) { return false; }
+	if (UFunction* Fn = Sub->FindFunction(TEXT("IsPhaseActive")))
+	{
+		FK2IsPhaseActiveParams Params;
+		Params.PhaseTag = PhaseTag;
+		const_cast<ULyraGamePhaseSubsystem*>(Sub)->ProcessEvent(Fn, &Params);
+		return Params.ReturnValue;
+	}
+	return false;
+}
+
+void UAFLBotFillComponent::TickRosterWait()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	FTimerManager& Timers = World->GetTimerManager();
+
+	// ── (1) PLAYING BEGAN. CHECKED FIRST, AND IT BEATS A ROSTER THAT ARRIVED THIS SAME TICK. ──────────────
+	//
+	// Bots materialising mid-match is visible and unexplainable to the players in it; being short-handed at
+	// least looks like what it is. So this is a REFUSAL, not a late fill.
+	//
+	// Reaching it also means an invariant broke. UAFLMatchPhaseComponent holds Warmup->Playing until the
+	// payload has arrived AND a human is present (871d0eea), so under the healthy flow the roster is ALWAYS
+	// here before Playing and this branch is unreachable. Hence Error, not Log: the correct response to a
+	// broken invariant is a loud record of it, never a silent recovery that hides which invariant broke.
+	if (IsPhaseActiveReflected(World, TAG_AFL_GamePhase_Playing_Bots))
+	{
+		Timers.ClearTimer(RosterWaitTimer);
+		UE_LOG(LogAFLGameCore, Error,
+			TEXT("AFLBots: roster wait ABANDONED after %.0fs -- AFL.GamePhase.Playing is already active and bots "
+			     "are NOT filled mid-match. The match-phase gate should have held Playing until the payload "
+			     "arrived, so reaching this means that gate was bypassed or the payload came late. Playing "
+			     "SHORT-HANDED (target %d, %d human(s) present) rather than spawning bots into a live match."),
+			RosterWaitedSeconds, ComputeTargetTotal(), CountHumans());
+		return;
+	}
+
+	// ── (2) The match concluded without ever reaching Playing -- a NO SHOW. Nothing to fill, and nobody to
+	// fill it for. Quiet: this is an ordinary outcome, not a fault.
+	if (IsPhaseActiveReflected(World, TAG_AFL_GamePhase_PostGame_Bots))
+	{
+		Timers.ClearTimer(RosterWaitTimer);
+		UE_LOG(LogAFLGameCore, Log,
+			TEXT("AFLBots: roster wait ENDED after %.0fs -- the match concluded before Playing (no show)."),
+			RosterWaitedSeconds);
+		return;
+	}
+
+	// ── (3) THE THING WE WERE WAITING FOR. The tier is now answerable, so re-run the decision that could not
+	// be made at experience load.
+	if (IsTierKnown())
+	{
+		Timers.ClearTimer(RosterWaitTimer);
+
+		if (ShouldBarBots())
+		{
+			// Arrived, and it bars bots. Terminal -- the wait is over and the answer is no.
+			UE_LOG(LogAFLGameCore, Log,
+				TEXT("AFLBots: roster arrived after %.0fs and its tier BARS bots (staked/rated) -- no fill, as "
+				     "intended. R74/R85."), RosterWaitedSeconds);
+			return;
+		}
+
+		UE_LOG(LogAFLGameCore, Log,
+			TEXT("AFLBots: roster arrived after %.0fs -- re-evaluating the fill that stood down at experience "
+			     "load (expected humans %d, target %d)."),
+			RosterWaitedSeconds, ResolveHumanBaseline(), ComputeTargetTotal());
+
+		// DIRECTLY, not through the join hook. That is what makes this one mechanism cover both hazards: it
+		// re-fires when humans joined BEFORE the payload (hazard 1) and it does not care whether the converge
+		// hooks ever bound (hazard 2).
+		ReconcileBotFill();
+		return;
+	}
+
+	// ── (4) THE BOUND. See RosterWaitBudgetSeconds: past the GameLift queue timeout no payload can arrive.
+	RosterWaitedSeconds += RosterPollSeconds;
+	if (RosterWaitedSeconds >= RosterWaitBudgetSeconds)
+	{
+		Timers.ClearTimer(RosterWaitTimer);
+		UE_LOG(LogAFLGameCore, Error,
+			TEXT("AFLBots: roster wait EXPIRED after %.0fs with no payload, no Playing phase and no conclusion. "
+			     "The placement was cancelled at source (the queue timeout) -- there is nothing left to wait "
+			     "for, and this process is holding a session nobody can join."), RosterWaitedSeconds);
+	}
 }
 
 #endif // WITH_SERVER_CODE
@@ -186,6 +307,23 @@ void UAFLBotFillComponent::ServerCreateBots_Implementation()
 			TEXT("AFLBots: fill STANDS DOWN -- %d bot(s) suppressed; bots are barred for this match (staked/rated "
 			     "tier, or an externally-owned roster that has not named its tier yet)."), EffectiveBotCount);
 		EffectiveBotCount = 0;
+
+		// ── ARM THE ROSTER WAIT ── but ONLY for the "not yet" reason.
+		//
+		// The two stand-down reasons are not the same thing and must not be treated as one. "This tier bars
+		// bots" is a FINAL answer -- a staked match will never permit them, and arming a timer to re-ask would
+		// poll for ten minutes to reach the conclusion it already has. "The tier has not arrived" is the only
+		// one worth waiting on, and it is the reason this branch fires on every GameLift placement.
+		if (!IsTierKnown() && !GetWorld()->GetTimerManager().IsTimerActive(RosterWaitTimer))
+		{
+			RosterWaitedSeconds = 0.f;
+			GetWorld()->GetTimerManager().SetTimer(RosterWaitTimer, this,
+				&UAFLBotFillComponent::TickRosterWait, RosterPollSeconds, /*bLoop=*/true);
+			UE_LOG(LogAFLGameCore, Log,
+				TEXT("AFLBots: roster wait ARMED (%.0fs poll, %.0fs bound) -- the tier is unknown until the "
+				     "payload lands. Nothing keeps calling bot fill, so it must call itself."),
+				RosterPollSeconds, RosterWaitBudgetSeconds);
+		}
 	}
 
 	UE_LOG(LogAFLGameCore, Log,

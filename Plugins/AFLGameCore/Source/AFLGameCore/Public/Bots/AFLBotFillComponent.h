@@ -8,6 +8,7 @@
 
 class AController;
 class AGameModeBase;
+struct FGameplayTag;   // by const-ref only (IsPhaseActiveReflected) -- no need to pull the container header in
 
 /**
  * UAFLBotFillComponent  (Team SSOT §7 T1.3 -- human-aware bot FILL, displace/re-fill)
@@ -62,6 +63,18 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Bots")
 	int32 TeamSize = 3;
 
+	/**
+	 * THE BOUND. 600s, and it is the SAME boundary UAFLMatchPhaseComponent's payload wait uses: the GameLift
+	 * queue timeout (BagManTentpoleQueue, TimeoutInSeconds=600). Past it the placement was CANCELLED AT
+	 * SOURCE, so no payload can arrive and there is nothing left to poll for. Not a comfort margin -- a fact.
+	 *
+	 * IT SHOULD NEVER BE THE THING THAT FIRES, and that is the point of a backstop. Every healthy path clears
+	 * this timer first: the payload arrives (~4s, measured), or Playing begins, or the match concludes. If
+	 * this bound is ever reached it means all three failed to happen for ten minutes, which is worth a log
+	 * rather than a silent timer running for the life of the process.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Bots") float RosterWaitBudgetSeconds = 600.f;
+
 	//~ULyraBotCreationComponent interface
 	virtual void ServerCreateBots_Implementation() override;
 	//~End of ULyraBotCreationComponent interface
@@ -95,6 +108,46 @@ private:
 	bool ShouldBarBots() const;
 
 	/**
+	 * Can the tier be TRUSTED yet? False only while an externally-owned roster has not delivered its payload.
+	 * Separated from ShouldBarBots so the poll can tell the two stand-down reasons apart: "not yet" is worth
+	 * waiting on, "this tier bars bots" is terminal and must never arm a timer.
+	 */
+	bool IsTierKnown() const;
+
+	/**
+	 * THE ROSTER WAIT. 1 Hz, self-terminating, armed ONLY when the one-shot fill stood down because the tier
+	 * was not yet known. Re-runs the fill decision once the payload lands.
+	 *
+	 * WHY A POLL AND NOT A DELEGATE ON UAFLGameLiftHostSubsystem -- three reasons, all structural:
+	 *   1. THREAD. The payload is delivered on GameLift's OWN websocket thread ("THE HOP", the
+	 *      OnStartGameSession lambda). Bots can only be spawned on the game thread, so a delegate could not be
+	 *      consumed where it fires -- it would need an AsyncTask hop, which is most of what makes an event
+	 *      cleaner than a poll in the first place.
+	 *   2. TWO ARRIVAL POINTS. OnStartGameSession is not the only one: OnUpdateGameSession re-delivers the
+	 *      session on backfill or property change and overwrites the roster. A delegate must be broadcast from
+	 *      BOTH, forever, by everyone who ever touches that file. A poll reads PRESENCE and cannot miss one.
+	 *   3. LIFETIME. UAFLGameLiftHostSubsystem is a GameInstanceSubsystem -- it outlives the world. Every
+	 *      subscriber must unsubscribe or dangle across travel. A component-owned timer dies with the component.
+	 *
+	 * WHEN A DELEGATE WOULD EARN ITS KEEP: a SECOND consumer. The likely one is UAFLTeamCreationComponent,
+	 * which selects the provider off this same payload and has the identical in-flight problem -- it currently
+	 * self-heals only because GetProvider() re-resolves on every call and something keeps calling it. Nothing
+	 * keeps calling bot fill, which is the entire reason this timer exists. Two pollers would be worse than one
+	 * broadcast; one poller is not.
+	 */
+	void TickRosterWait();
+
+	/**
+	 * Is this phase active? Reflective, because ULyraGamePhaseSubsystem is a bare UCLASS() with no
+	 * LYRAGAME_API -- none of its members link from outside LyraGame, UFUNCTION or not.
+	 *
+	 * Duplicated from UAFLMatchPhaseComponent::IsPhaseActiveReflected rather than shared: that one lives in
+	 * AFLCombat, a GameFeature, and this is the always-loaded core module -- the dependency would run the wrong
+	 * way. Same six lines, same reason, deliberately not a new cross-module seam for one query.
+	 */
+	static bool IsPhaseActiveReflected(const UWorld* World, const FGameplayTag& PhaseTag);
+
+	/**
 	 * HOW MANY HUMANS THIS MATCH WILL SEAT -- Option A, the payload roster, not who has connected yet.
 	 *
 	 * The roster names every human the match was committed for, so `Target - Expected` is stable from the
@@ -117,6 +170,15 @@ private:
 
 	/** Converge hooks bound once, after the one-shot fill (LocalFill / non-authoritative only). */
 	bool bConvergeHooksBound = false;
+
+	/** The roster wait. Component-owned, so it dies with the component -- no cross-world lifetime to manage. */
+	FTimerHandle RosterWaitTimer;
+
+	/** Seconds the roster wait has run. Bounds it; also what the arrival log reports. */
+	float RosterWaitedSeconds = 0.f;
+
+	/** Poll cadence. Cheap: two payload reads and two reflective phase queries. */
+	static constexpr float RosterPollSeconds = 1.f;
 
 	/** Re-entrancy guard: our own Spawn/RemoveOneBot re-fire the join/logout hooks (bot-filtered). */
 	bool bReconciling = false;
