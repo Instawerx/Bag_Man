@@ -496,6 +496,35 @@ void FAFLMatchReporter::EscrowTeamSeries(const UObject* WorldContext, const FGui
 		*Wire, Posted, Economics.StakePerPosition, *Economics.CurrencyCode, HumansByTeam.Num());
 }
 
+/**
+ * ⚠ THERE IS NO UNSTAKED EARN BRANCH HERE, AND ITS ABSENCE IS THE DESIGN. DO NOT ADD ONE.
+ *
+ * This function has exactly two branches -- `bStaked` -> settle and `bRanked` -> rate -- so a LEAGUE PLAY
+ * MatchPlay match passes the config gate, evaluates both conditions to false, and deliberately does nothing.
+ * That looks like a gap and is not one. Operator ruling, 2026-08-14:
+ *
+ *     MATCHPLAY AWARDS NO WATTS. Loot is the entire reward for League elimination. Watts are earned through
+ *     EXTRACTION, and through staked settlement. Nothing is missing.
+ *
+ * WHY THIS COMMENT EXISTS. The absence is indistinguishable from an oversight from inside this file, and it
+ * was investigated as one: `bagman-currency-earn` showed 17 lifetime invocations, none of them from a match,
+ * while a full evening of 1v1/2v2/8v8 League gates concluded without paying a single Watt. The conclusion
+ * looked inescapable -- "the LeaguePlay terminal was never wired" -- and it was wrong. There is no terminal
+ * to wire. Somebody will run that same query again and reach for the same fix; this paragraph is the answer
+ * they should find first.
+ *
+ * WHERE WATTS ACTUALLY COME FROM, so the next reader does not have to grep for it:
+ *
+ *   EXTRACTION   UAFLAG_Extract::HandleChannelComplete -> Wallet->EarnWattsAuthority(Reward, "extraction")
+ *                Reward = round(CarriedEnergy * WattsPerEnergy * ExtractMult). Per EXTRACTION, mid-match,
+ *                on the ability -- never at match end, and never from here. MatchPlay has no extraction
+ *                phase, which is exactly why an elimination match pays nothing.
+ *   SETTLEMENT   the bStaked branch below. Pot minus rake, to the finishing positions.
+ *
+ * A third branch would need an award rule that does not exist -- no placement curve, no kill bounty, no
+ * round-win payment, no participation floor -- so anyone adding one is inventing economy design, not
+ * repairing an omission. That is a ruling to seek, not a patch to write.
+ */
 void FAFLMatchReporter::ReportMatchEnd(const UObject* WorldContext, const FAFLMatchResult& Result,
 	int32 StakeAmountPerPosition, const FString& CurrencyCode)
 {
