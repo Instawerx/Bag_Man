@@ -124,6 +124,14 @@ bool UAFLBotFillComponent::ShouldBarBots() const
 	return !UAFLMatchmakerDataProvider::AreBotsPermitted(this);
 }
 
+int32 UAFLBotFillComponent::RosterExpectedHumans() const
+{
+	// INDEX_NONE means "no usable roster" -- absent OR present-but-unparseable. Those two must collapse
+	// together here, because a payload that cannot be parsed is not a roster no matter how many bytes it has.
+	return UAFLMatchmakerDataProvider::CountRosterMembers(
+		UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this));
+}
+
 int32 UAFLBotFillComponent::ResolveHumanBaseline() const
 {
 	// OPTION A, named in this file's header and in IAFLTeamAssignmentProvider since T1, implemented here.
@@ -134,8 +142,7 @@ int32 UAFLBotFillComponent::ResolveHumanBaseline() const
 	// one". Going through the instance would make the bot count depend on who asked first. The statics reach
 	// the same payload with no such ordering. (Consequence to know: a roster injected via the provider's test
 	// setter does not reach the fill; only the real payload does.)
-	const int32 Expected = UAFLMatchmakerDataProvider::CountRosterMembers(
-		UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this));
+	const int32 Expected = RosterExpectedHumans();
 	if (Expected >= 0)
 	{
 		return Expected;   // INDEX_NONE means NO ROSTER -- never a roster of zero. Only >= 0 is an answer.
@@ -143,6 +150,22 @@ int32 UAFLBotFillComponent::ResolveHumanBaseline() const
 
 	// No roster: PIE / offline / LocalFill. Humans arrive on their own schedule and are only ever observed.
 	return CountHumans();
+}
+
+const TCHAR* UAFLBotFillComponent::RosterSourceLabel() const
+{
+	// THREE STATES, NOT TWO, AND THE MIDDLE ONE IS WHY THIS EXISTS. The old label tested whether the payload
+	// STRING was empty, so a payload that arrived but would not parse reported "payload roster" while the
+	// count had silently fallen back to present-count. Measured 2026-08-14: a launch line whose JSON was
+	// mangled by shell quoting logged "ExpectedHumans=0 (payload roster)" -- a confounded run wearing the
+	// label of a valid one, which is worse than no label at all.
+	if (RosterExpectedHumans() >= 0)
+	{
+		return TEXT("payload roster");
+	}
+	return UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this).IsEmpty()
+		? TEXT("present-count, no roster")
+		: TEXT("present-count -- ROSTER PRESENT BUT UNPARSEABLE");
 }
 
 bool UAFLBotFillComponent::IsPhaseActiveReflected(const UWorld* World, const FGameplayTag& PhaseTag)
@@ -310,7 +333,7 @@ void UAFLBotFillComponent::ServerCreateBots_Implementation()
 	UE_LOG(LogAFLGameCore, Log,
 		TEXT("AFLBots: human-aware fill -- TeamSize=%d NumTeams=%d ExpectedHumans=%d (%s) -> %d bot(s) (target %d)"),
 		TeamSize, NumTeams, HumanBaseline,
-		UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this).IsEmpty() ? TEXT("present-count, no roster") : TEXT("payload roster"),
+		RosterSourceLabel(),
 		EffectiveBotCount, Target);
 
 	// Reuse the stock spawn/possess/team-routing path unchanged -- each bot routes through
@@ -472,8 +495,7 @@ void UAFLBotFillComponent::ReconcileBotFill()
 
 	UE_LOG(LogAFLGameCore, Log,
 		TEXT("AFLBots: converge -- ExpectedHumans=%d (%s) Present=%d Target=%d -> %d bot(s)"),
-		ResolveHumanBaseline(),
-		UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this).IsEmpty() ? TEXT("present-count, no roster") : TEXT("payload roster"),
+		ResolveHumanBaseline(), RosterSourceLabel(),
 		CountHumans(), ComputeTargetTotal(), SpawnedBotList.Num());
 
 	bReconciling = false;

@@ -305,10 +305,15 @@ void UAFLRoundManagerComponent::ServerStartMatch()
 	bMatchConcluded = false;
 	ConsecutiveReplays = 0;
 	HumanlessSeconds = 0.f;
-	// DERIVED, NOT WRITTEN FROM OUTSIDE. The phase gate guarantees a human is present before Warmup->Playing
-	// can fire, so reading the count here cannot disagree with the condition that released the gate -- and a
-	// derived value cannot drift from it the way a member set by another component could. The phase component
-	// never reaches across into this one; the two stay decoupled and agree by construction.
+	// SEEDED HERE, LATCHED LATER. Derived rather than written from outside: under GameLift the phase gate
+	// guarantees a human before Warmup->Playing can fire, so this reads true and cannot disagree with the
+	// condition that released the gate -- and a derived value cannot drift the way a member set by another
+	// component could. The phase component never reaches across into this one.
+	//
+	// OFF GameLift there is no gate and this reads FALSE, which is correct and is the point: the match has
+	// started with nobody here yet. Server_TickAbandonmentWatch latches it the moment the first human appears
+	// and refuses to run the abandonment clock until then. Seeding it without that latch is what left it a
+	// dead value -- written every match, read nowhere.
 	bAnyHumanEverJoined = CountHumanParticipants() > 0;
 	OnRep_Score();   // listen-host local HUD
 #if !UE_BUILD_SHIPPING
@@ -692,7 +697,13 @@ void UAFLRoundManagerComponent::Server_TickAbandonmentWatch(float DeltaTime)
 	{
 		// ── ARRIVAL GATE ARMS HERE, ONCE, AND NEVER DISARMS ──────────────────────────────────────────────
 		// From this moment the watch is doing the job it was written for: the players WERE here, so a later
-		// emptiness genuinely means they left. Everything below is untouched.
+		// emptiness genuinely means they left.
+		if (!bAnyHumanEverJoined)
+		{
+			bAnyHumanEverJoined = true;
+			UE_LOG(LogAFLCombat, Log,
+				TEXT("AFL_ROUND: first human participant present -- abandonment watch ARMED."));
+		}
 		if (HumanlessSeconds > 0.f)
 		{
 			UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: a human participant is present again after %.0fs -- abandonment watch reset."),
@@ -702,10 +713,31 @@ void UAFLRoundManagerComponent::Server_TickAbandonmentWatch(float DeltaTime)
 		return;
 	}
 
-	// NO ARRIVAL BRANCH HERE ANY MORE. The match-start gate holds ServerStartMatch until a human is present,
-	// so bAnyHumanEverJoined is already true whenever this watch runs and CountHumanParticipants() == 0 can
-	// only mean they LEFT -- which is the case this watch was written for and has always handled correctly.
-	// The no-show bound lives in UAFLMatchPhaseComponent, which holds the phase before any match exists.
+	// ── NOBODY HAS EVER ARRIVED: NOT AN ABANDONMENT, ON ANY PATH ─────────────────────────────────────────
+	//
+	// You cannot leave a match you never joined. This is the same distinction the old no-show branch drew --
+	// but that one was written `IsUnderGameLift() && !bAnyHumanEverJoined`, so OFF GameLift it fell straight
+	// through to the abandonment accumulation below and cancelled at the 60s grace. That is not a regression
+	// from the gate consolidation; it predates it, and it made every launch-line and PIE run a race:
+	//
+	//   MEASURED 2026-08-14, launch-line 3v3, operator connecting a real client by hand:
+	//     02.44.50.219  match START (teams 1 v 2)          <- warmup expired, 0 humans present
+    //     02.44.50.489  NO HUMAN PARTICIPANTS REMAIN ... cancelling in 60s
+	//     02.45.50.253  MATCH CANCELLED -- ABANDONED, score 0-0, NO RESULT
+	//     02.47.05.354  the human joins                    <- 77s after the match was already dead
+	//   They then saw "ROUND 1 / MATCH END" on the card, a dead timer, and no damage -- because PostGame
+	//   applies State.Match.Ended and blocks every fire ability. One defect, four symptoms.
+	//
+	// The GameLift no-show bound is NOT reinstated here. UAFLMatchPhaseComponent holds Warmup->Playing until
+	// the payload has arrived AND a human is present (871d0eea), so under GameLift this branch is unreachable
+	// -- the latch is already true by the time any match exists. This guard exists for the paths that have no
+	// such gate: PIE, listen server, and the launch-line dedicated runs used to test without a backend. There
+	// a humanless match simply waits, which is correct -- it is a dev server, and the operator ends it.
+	if (!bAnyHumanEverJoined)
+	{
+		return;
+	}
+
 	const bool bFirstEmptyTick = (HumanlessSeconds <= 0.f);
 	HumanlessSeconds += DeltaTime;
 	if (bFirstEmptyTick)

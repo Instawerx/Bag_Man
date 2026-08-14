@@ -156,6 +156,12 @@ private:
 	 */
 	int32 ResolveHumanBaseline() const;
 
+	/** Roster member count, or INDEX_NONE when there is no USABLE roster -- absent or unparseable alike. */
+	int32 RosterExpectedHumans() const;
+
+	/** What ResolveHumanBaseline actually used. Reports PARSE success, never mere payload presence. */
+	const TCHAR* RosterSourceLabel() const;
+
 	/** Bring the bot count to max(0, Target - ResolveHumanBaseline()): trim the fuller team / spawn to the floor. */
 	void ReconcileBotFill();
 
