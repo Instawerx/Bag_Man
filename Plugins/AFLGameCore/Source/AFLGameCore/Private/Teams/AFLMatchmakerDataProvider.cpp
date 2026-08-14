@@ -16,6 +16,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/GameModeBase.h"
+#include "GameFramework/GameStateBase.h"   // PlayerArray, for the already-present guard in TallyExpectedTeams
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "Kismet/GameplayStatics.h"            // ParseOption (mirrors UAFLBotFillComponent's OptionsString read)
@@ -226,6 +227,73 @@ int32 UAFLMatchmakerDataProvider::CountRosterMembers(const FString& GameSessionD
 	return Members->Num();
 }
 
+void UAFLMatchmakerDataProvider::TallyExpectedTeams(const UObject* WorldContext,
+	const FString& GameSessionDataJson, TMap<int32, int32>& OutCounts)
+{
+	OutCounts.Reset();
+	if (GameSessionDataJson.IsEmpty())
+	{
+		return;   // no roster -> nothing is spoken for
+	}
+
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(GameSessionDataJson);
+	const TArray<TSharedPtr<FJsonValue>>* Members = nullptr;
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid()
+		|| !Root->TryGetArrayField(TEXT("members"), Members) || !Members)
+	{
+		return;   // unparseable is NOT a roster -- same collapse CountRosterMembers makes
+	}
+
+	// ── THE DOUBLE-COUNT GUARD ───────────────────────────────────────────────────────────────────────────
+	// A rostered human who has ALREADY arrived is in the live counts BuildLiveCounts produced. Seeding them
+	// again would count one person twice and push bots off their side -- turning an over-correction into the
+	// mirror image of the bug this fixes. So collect who is already here first, and seed only the absent.
+	//
+	// Keyed on GetReconcileIdFromState, which is the SAME key ChooseTeamForJoiningPlayer seats humans by. If
+	// the two ever disagreed, a human could be both seeded and seated; sharing the key makes that impossible
+	// rather than unlikely.
+	TSet<FString> PresentReconcileIds;
+	const UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContext, EGetWorldErrorMode::ReturnNull) : nullptr;
+	if (const AGameStateBase* GameState = World ? World->GetGameState() : nullptr)
+	{
+		for (const APlayerState* PS : GameState->PlayerArray)
+		{
+			if (PS && !PS->IsABot())
+			{
+				const FString Key = GetReconcileIdFromState(PS);
+				if (!Key.IsEmpty())
+				{
+					PresentReconcileIds.Add(Key);
+				}
+			}
+		}
+	}
+
+	for (const TSharedPtr<FJsonValue>& MemberVal : *Members)
+	{
+		const TSharedPtr<FJsonObject> Member = MemberVal.IsValid() ? MemberVal->AsObject() : nullptr;
+		if (!Member.IsValid())
+		{
+			continue;
+		}
+		FString Id, TeamStr;
+		Member->TryGetStringField(TEXT("id"), Id);
+		Member->TryGetStringField(TEXT("team"), TeamStr);
+		if (Id.IsEmpty() || PresentReconcileIds.Contains(Id))
+		{
+			continue;   // already standing on the field -> already counted
+		}
+
+		// SAME 0-BASED -> 1-BASED MAPPING AS ResolveAssignments, deliberately mirrored rather than shared: that
+		// function emits assignments index-parallel to a caller's id list, which is a different job. If the
+		// roster ever arrives already 1-based, BOTH the +1 there and the +1 here move together or the balance
+		// silently seeds the wrong side.
+		const int32 RosterIndex = TeamStr.IsNumeric() ? FCString::Atoi(*TeamStr) : 0;
+		OutCounts.FindOrAdd(RosterIndex + 1) += 1;
+	}
+}
+
 bool UAFLMatchmakerDataProvider::AreBotsPermitted(const UObject* WorldContext)
 {
 	// ⚠ THE ONE PLACE THIS QUESTION IS ANSWERED. It was asked three separate times, three different ways, and
@@ -285,15 +353,29 @@ FGenericTeamId UAFLMatchmakerDataProvider::ChooseTeamForJoiningPlayer(const UObj
 		}
 
 		// PERMITTED. A bot has no roster entry, so the reconcile lookup below could never seat it -- balance it
-		// against the LIVE POPULATION instead, through LocalFill's rule so there is ONE balance rule rather
-		// than two that can drift. That method is const, takes no participant and holds no instance state
-		// (both helpers behind it are static, and the class has no members), so the CDO answers it without
-		// allocating. Deliberately NOT keyed on the arriver's identity: bots arrive with an uninitialised
-		// PlayerId and keying on it piles every bot onto one team -- the 2v3 trap LocalFill already documents.
-		const FGenericTeamId BotTeam = GetDefault<UAFLLocalFillProvider>()->ChooseBalancedTeam(WorldContext);
+		// instead, through LocalFill's rule so there is ONE balance rule rather than two that can drift. That
+		// method is const, takes no participant and holds no instance state (both helpers behind it are
+		// static, and the class has no members), so the CDO answers it without allocating. Deliberately NOT
+		// keyed on the arriver's identity: bots arrive with an uninitialised PlayerId and keying on it piles
+		// every bot onto one team -- the 2v3 trap LocalFill already documents.
+		//
+		// AND IT BALANCES AGAINST THE ROSTER, NOT JUST THE FIELD. Live counts alone answer "who is standing
+		// here", which is the wrong question while rostered humans are still travelling: the bots would fill
+		// first, split evenly among themselves, and each arriving human would then land on their ROSTERED side
+		// and overload it. MEASURED 2026-08-14: solo LEAGUE PLAY roster, bots split 3/2, the human was seated
+		// by roster onto the 3 side, and a 3v3 field ran 4v2 -- swept 7-0 by the heavy side.
+		//
+		// The COUNT was already roster-aware (Target - expected humans, 1193fef1); this makes the SIDES
+		// roster-aware too. Same defect one layer over, and the same answer: ask the roster, not the arrivals.
+		TMap<int32, int32> ExpectedByTeam;
+		TallyExpectedTeams(WorldContext, ResolveGameSessionData(WorldContext), ExpectedByTeam);
+		const FGenericTeamId BotTeam =
+			GetDefault<UAFLLocalFillProvider>()->ChooseBalancedTeam(WorldContext, &ExpectedByTeam);
 		UE_LOG(LogAFLGameCore, Log,
-			TEXT("AFLTeams: Matchmaker per-join -- BOT '%s' -> team %d (balanced; this tier permits bots)."),
-			*JoiningPlayer->GetPlayerName(), static_cast<int32>(BotTeam.GetId()));
+			TEXT("AFLTeams: Matchmaker per-join -- BOT '%s' -> team %d (balanced vs live + %d expected roster "
+			     "seat(s); this tier permits bots)."),
+			*JoiningPlayer->GetPlayerName(), static_cast<int32>(BotTeam.GetId()),
+			[&ExpectedByTeam]{ int32 N = 0; for (const TPair<int32, int32>& P : ExpectedByTeam) { N += P.Value; } return N; }());
 		return BotTeam;
 	}
 

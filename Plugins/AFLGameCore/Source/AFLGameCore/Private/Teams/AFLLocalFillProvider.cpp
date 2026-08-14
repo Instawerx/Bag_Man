@@ -78,13 +78,37 @@ int32 UAFLLocalFillProvider::PickLeastPopulated(const TArray<int32>& TeamIds, co
 	return BestId;
 }
 
-FGenericTeamId UAFLLocalFillProvider::ChooseBalancedTeam(const UObject* WorldContext) const
+FGenericTeamId UAFLLocalFillProvider::ChooseBalancedTeam(const UObject* WorldContext,
+	const TMap<int32, int32>* SeedCounts) const
 {
 	TArray<int32> TeamIds;
 	TMap<int32, int32> Counts;
 	if (!BuildLiveCounts(WorldContext, TeamIds, Counts))
 	{
 		return FGenericTeamId::NoTeam;
+	}
+
+	// SEED COUNTS: seats that are SPOKEN FOR but not yet occupied. Live counts alone describe who is standing
+	// on the field right now, which is the wrong question when a roster names humans who are still travelling
+	// -- the bots fill first, balance among themselves, and the arriving humans then land on their rostered
+	// side and overload it. MEASURED 2026-08-14: a solo LEAGUE PLAY roster produced a 3/2 bot split, the human
+	// was seated by roster onto the 3 side, and the match ran 4v2 on a 3v3 field (and was swept 7-0).
+	//
+	// LocalFill itself never passes these -- it has no roster, and with SeedCounts null this function is
+	// byte-identical to what it always was. The caller that HAS a roster (UAFLMatchmakerDataProvider) supplies
+	// the tally. ONE balance rule either way; the knowledge of who is expected lives with whoever has it.
+	if (SeedCounts)
+	{
+		for (const TPair<int32, int32>& Seed : *SeedCounts)
+		{
+			if (int32* Count = Counts.Find(Seed.Key))
+			{
+				*Count += Seed.Value;
+			}
+			// A seeded team id that is not in the live team set is IGNORED, not added: TeamIds comes from
+			// ULyraTeamSubsystem and is the authority on which teams exist. A roster naming a team this mode
+			// does not author is a roster/mode mismatch, and inventing the team here would hide it.
+		}
 	}
 
 	const int32 Best = PickLeastPopulated(TeamIds, Counts);

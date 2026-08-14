@@ -45,8 +45,13 @@ public:
 	 *
 	 * Kept as its own public method rather than folded into ChooseTeamForJoiningPlayer: it is the named rule
 	 * the Team SSOT refers to, it takes no participant, and it is directly testable.
+	 *
+	 * SeedCounts (optional): additional per-team occupancy to weigh in -- seats spoken for but not yet
+	 * occupied, e.g. rostered humans still travelling. Null (the default) is exactly the old behaviour, which
+	 * is what LocalFill passes; only a caller holding a roster has anything to seed.
 	 */
-	FGenericTeamId ChooseBalancedTeam(const UObject* WorldContext) const;
+	FGenericTeamId ChooseBalancedTeam(const UObject* WorldContext,
+		const TMap<int32, int32>* SeedCounts = nullptr) const;
 
 private:
 	/** Team-id set (ULyraTeamSubsystem, sorted ascending) + current per-team member counts (GameState). */

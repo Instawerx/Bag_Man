@@ -143,6 +143,20 @@ public:
 	 */
 	static bool AreBotsPermitted(const UObject* WorldContext);
 
+	/**
+	 * PER-TEAM SEATS THE ROSTER HAS SPOKEN FOR BUT WHICH ARE NOT YET OCCUPIED -- i.e. rostered humans who have
+	 * not connected. Feeds UAFLLocalFillProvider::ChooseBalancedTeam's SeedCounts so bot fill leaves room on
+	 * the sides those humans will land on, instead of splitting evenly and being overloaded on arrival.
+	 *
+	 * SKIPS anyone already present, keyed on the SAME reconcile id ChooseTeamForJoiningPlayer seats humans by
+	 * -- a human counted once in the live counts must not be counted again here.
+	 *
+	 * Empty output for an absent OR unparseable roster: bytes that will not parse are not a roster, and an
+	 * empty tally degrades this to exactly the old live-count balance.
+	 */
+	static void TallyExpectedTeams(const UObject* WorldContext, const FString& GameSessionDataJson,
+		TMap<int32, int32>& OutCounts);
+
 private:
 	/** Injected test data wins; otherwise defers to ResolveAuthoritativeMatchmakerData. */
 	FString ResolveGameSessionData(const UObject* WorldContext) const;
