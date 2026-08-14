@@ -58,7 +58,7 @@ void UAFLMatchmakingSubsystem::SetState(EAFLMatchmakingState NewState, const FTe
 	OnStateChanged.Broadcast(NewState, Reason);
 }
 
-void UAFLMatchmakingSubsystem::StopPolling()
+void UAFLMatchmakingSubsystem::ClearPollTimer()
 {
 	if (UGameInstance* GI = GetGameInstance())
 	{
@@ -67,7 +67,67 @@ void UAFLMatchmakingSubsystem::StopPolling()
 			World->GetTimerManager().ClearTimer(PollTimer);
 		}
 	}
-	PollCount = 0;
+}
+
+void UAFLMatchmakingSubsystem::StopPolling()
+{
+	// STOP = the attempt is OVER. Clearing the timer and forgetting the clock belong together here, because
+	// every caller of this is a terminal transition: matched, failed, gave up, subsystem torn down.
+	//
+	// ⚠ CANCEL IS NOT ONE OF THEM AND MUST NOT USE THIS. A cancel that FAILS leaves the player queued, and
+	// resetting the clock there would tell the ladder they had just arrived -- restarting at 3s and, worse,
+	// restarting the 12-hour give-up on someone who had already waited most of it. Cancel clears the timer
+	// only; it resets progress in its SUCCESS branch, where the attempt really is over.
+	ClearPollTimer();
+	ResetPollProgress();
+}
+
+void UAFLMatchmakingSubsystem::ResetPollProgress()
+{
+	// ⚠ THE TIMER AND THE CLOCK RESET TOGETHER OR NOT AT ALL. This used to be `PollCount = 0` sitting at the
+	// bottom of StopPolling, and the ladder adds a SECOND piece of progress beside it. Two assignments in one
+	// function is exactly how they drift: someone adds an early-out above the reset, or a third caller clears
+	// the timer directly, and the queue clock survives into the next attempt. The player then presses PLAY
+	// and their first poll lands on the 60-second tail -- a dead button, from the first tick, with no error
+	// anywhere. Hence one function, and the ensure in ArmNextPoll's caller that proves it ran.
+	QueueStartRealSeconds = 0.0;
+}
+
+float UAFLMatchmakingSubsystem::ElapsedQueuedSeconds() const
+{
+	if (QueueStartRealSeconds <= 0.0)
+	{
+		return 0.0f;
+	}
+	const UGameInstance* GI = GetGameInstance();
+	const UWorld* World = GI ? GI->GetWorld() : nullptr;
+	return World ? static_cast<float>(World->GetRealTimeSeconds() - QueueStartRealSeconds) : 0.0f;
+}
+
+float UAFLMatchmakingSubsystem::PollIntervalForWait(float WaitedSeconds)
+{
+	if (WaitedSeconds < 60.0f)   { return 3.0f; }
+	if (WaitedSeconds < 600.0f)  { return 10.0f; }
+	if (WaitedSeconds < 3600.0f) { return 30.0f; }
+	return 60.0f;
+}
+
+void UAFLMatchmakingSubsystem::ArmNextPoll()
+{
+	UGameInstance* GI = GetGameInstance();
+	UWorld* World = GI ? GI->GetWorld() : nullptr;
+	if (!World)
+	{
+		return;
+	}
+
+	// A RE-ARMING ONE-SHOT, NOT A LOOPING TIMER. A looping timer has one fixed rate for its whole life, so
+	// the ladder cannot exist inside it -- changing the interval means clearing and re-setting anyway. Doing
+	// it explicitly at the end of each poll also means the NEXT interval is chosen from the wait we have
+	// actually accrued, rather than from whatever it was when the queue began.
+	const float Interval = PollIntervalForWait(ElapsedQueuedSeconds());
+	World->GetTimerManager().SetTimer(PollTimer, this,
+		&UAFLMatchmakingSubsystem::PollMatchStatus, Interval, /*bLoop=*/false);
 }
 
 void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 Stake)
@@ -148,19 +208,29 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: ticket accepted -- %s"), *Resp.Left(200));
 			Self->SetState(EAFLMatchmakingState::Queued, NSLOCTEXT("AFL", "MMQueued", "Searching for a match..."));
 
-			// Poll immediately, then on the interval: at high population a match can be waiting before the
-			// first tick would fire, and a player staring at a spinner for three seconds after the match is
-			// already placed is three seconds of the match running without them.
-			Self->PollCount = 0;
-			Self->PollMatchStatus();
+			// ⚠ THE TRAP, ASSERTED RATHER THAN REMEMBERED. If a previous attempt's clock survived, this queue
+			// starts partway up the ladder -- the first poll waits 60s instead of 3s and the PLAY button
+			// looks dead from the very first tick, with nothing logged and nothing failing. That is a bug
+			// that reads as a network problem. StopPolling -> ResetPollProgress is what clears it; this
+			// ensure is what proves the clear actually happened, on every single queue attempt, in every
+			// non-shipping build.
+			ensureMsgf(Self->ElapsedQueuedSeconds() < 1.0f,
+				TEXT("AFL_MM: queue clock was NOT reset -- %.0fs already on it before the first poll. A stale ")
+				TEXT("clock starts this attempt on the ladder's 60s tail."), Self->ElapsedQueuedSeconds());
+
 			if (UGameInstance* GI = Self->GetGameInstance())
 			{
 				if (UWorld* World = GI->GetWorld())
 				{
-					World->GetTimerManager().SetTimer(Self->PollTimer, Self,
-						&UAFLMatchmakingSubsystem::PollMatchStatus, PollIntervalSeconds, /*bLoop=*/true);
+					Self->QueueStartRealSeconds = World->GetRealTimeSeconds();
 				}
 			}
+
+			// Poll immediately, then on the ladder: at high population a match can be waiting before the
+			// first tick would fire, and a player staring at a spinner for three seconds after the match is
+			// already placed is three seconds of the match running without them. PollMatchStatus arms the
+			// next one itself, so there is no looping timer to set here.
+			Self->PollMatchStatus();
 		});
 }
 
@@ -172,7 +242,11 @@ void UAFLMatchmakingSubsystem::PollMatchStatus()
 		return;
 	}
 
-	if (++PollCount > MaxPolls)
+	// THE CLIENT GIVES UP WHEN THE TICKET DOES, not before. The old cap was 200 polls x 3s = 603s against a
+	// staked ticket that FlexMatch holds for 43,200 -- so the player was told "no match found" while the
+	// thing that could still match them ran on for another eleven hours, and would have placed them into a
+	// staked match they were no longer watching.
+	if (ElapsedQueuedSeconds() >= MaxQueueSeconds)
 	{
 		StopPolling();
 		SetState(EAFLMatchmakingState::Failed,
@@ -188,6 +262,13 @@ void UAFLMatchmakingSubsystem::PollMatchStatus()
 		return;
 	}
 
+	// ARMED BEFORE THE REQUEST GOES OUT, not in the response handler. A poll that fails, times out, or comes
+	// back unparseable must still schedule the next one -- otherwise one dropped request silently ends the
+	// queue while the state still says Queued, which is the failure the "a failed poll is not a failed queue"
+	// note below exists to prevent. Arming here makes that structural instead of a property of every early
+	// return in the callback.
+	ArmNextPoll();
+
 	TWeakObjectPtr<UAFLMatchmakingSubsystem> WeakThis(this);
 	Online->PostPlayerApi(TEXT("/match-status"), TEXT("{}"),
 		[WeakThis](bool bOk, const FString& Resp)
@@ -199,8 +280,8 @@ void UAFLMatchmakingSubsystem::PollMatchStatus()
 			}
 
 			// A FAILED POLL IS NOT A FAILED QUEUE. One dropped request while a match is forming must not
-			// throw the player out of a queue they may already have matched in. Keep polling; MaxPolls is
-			// the only thing that gives up.
+			// throw the player out of a queue they may already have matched in. Keep polling; only the
+			// 43,200s cap gives up, and the next poll is already armed before this request went out.
 			if (!bOk)
 			{
 				UE_LOG(LogAFLMatchmaking, Warning, TEXT("AFL_MM: /match-status poll failed (continuing) -- %s"), *Resp.Left(160));
@@ -352,16 +433,88 @@ void UAFLMatchmakingSubsystem::CancelMatchmaking()
 	{
 		return;
 	}
-	StopPolling();
+	// TIMER ONLY -- see the note on StopPolling. If this cancel fails the player is still queued and the
+	// ladder must resume where it was, not from zero.
+	ClearPollTimer();
 
-	// ⚠ THIS STOPS US LISTENING; IT DOES NOT WITHDRAW THE PLAYFAB TICKET. The ticket keeps living server-side
-	// and may still match, at which point the player has been placed in a game they are no longer watching
-	// for -- and in a staked tier their stake is escrowed against it.
+	// THE TICKET IS NOW ACTUALLY WITHDRAWN. This function used to stop the client listening and nothing else,
+	// and said so: "a Cancel button that only stops the client looking is worse than none, because it tells
+	// the player something happened that did not." That comment came out with the behaviour it described.
 	//
-	// Cancelling properly needs a backend counterpart (a /cancel-ticket that calls PlayFab
-	// CancelMatchmakingTicket for the caller). Deliberately NOT faked here: a Cancel button that only stops
-	// the client looking is worse than none, because it tells the player something happened that did not.
-	UE_LOG(LogAFLMatchmaking, Warning,
-		TEXT("AFL_MM: cancelled locally -- the PlayFab ticket is NOT withdrawn (needs a /cancel-ticket endpoint)."));
-	SetState(EAFLMatchmakingState::Idle, NSLOCTEXT("AFL", "MMCancelled", "Search stopped."));
+	// It mattered more every phase. At a 120s PlayFab lifetime an orphaned ticket was a two-minute window; a
+	// staked FlexMatch ticket lives 43,200s, so a player who cancelled and walked away stayed matchable for
+	// twelve hours, with their stake committed to a match nobody was watching.
+	UAFLOnlineSubsystem* Online = GetGameInstance() ? GetGameInstance()->GetSubsystem<UAFLOnlineSubsystem>() : nullptr;
+	if (!Online)
+	{
+		// We cannot reach the backend, so we cannot claim the ticket is gone. Say what is true.
+		SetState(EAFLMatchmakingState::Failed,
+			NSLOCTEXT("AFL", "MMCancelNoOnline", "Could not stop the search -- you may still be in the queue."));
+		return;
+	}
+
+	// NOT Idle YET. The player is out of the queue when the SERVER says so, not when we stop asking.
+	SetState(EAFLMatchmakingState::Cancelling, NSLOCTEXT("AFL", "MMCancelling", "Stopping search..."));
+
+	// AN EMPTY BODY, AND THAT IS THE CONTRACT. /cancel-ticket takes NOTHING from the request -- it resolves
+	// the player from the session ticket and finds their live entries through the byPlayerEntry index. There
+	// is no queueId or ticketId to send, and sending one would not change what gets cancelled.
+	TWeakObjectPtr<UAFLMatchmakingSubsystem> WeakThis(this);
+	Online->PostPlayerApi(TEXT("/cancel-ticket"), TEXT("{}"),
+		[WeakThis](bool bOk, const FString& Resp)
+		{
+			UAFLMatchmakingSubsystem* Self = WeakThis.Get();
+			if (!Self)
+			{
+				return;
+			}
+
+			if (!bOk)
+			{
+				// ⚠ BACK TO QUEUED, AND POLLING RESUMES. The ticket was not withdrawn, so the player IS still
+				// queued and still matchable -- and if we stopped watching they would be placed into a match
+				// they had walked away from. Returning to Idle here would re-create the exact lie this change
+				// deleted, just with a shorter fuse.
+				UE_LOG(LogAFLMatchmaking, Error, TEXT("AFL_MM: /cancel-ticket FAILED -- still queued. %s"), *Resp.Left(300));
+				Self->SetState(EAFLMatchmakingState::Queued,
+					NSLOCTEXT("AFL", "MMCancelFailed", "Could not stop the search -- you are still in the queue."));
+				Self->ArmNextPoll();
+				return;
+			}
+
+			// EXPOSURE IS REPORTED SEPARATELY FROM THE CANCEL, because they are two different facts. The
+			// search stopped; whether the staked hold came back is its own answer, and `exposureUnaddressable`
+			// is the case where it did not. Folding it into a plain "Search stopped." would tell the player
+			// their stake was freed when it was not.
+			int32 Cancelled = 0;
+			bool bAnyUnaddressable = false;
+			if (const TSharedPtr<FJsonObject> Root = ParseJson(Resp))
+			{
+				Root->TryGetNumberField(TEXT("cancelled"), Cancelled);
+				const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
+				if (Root->TryGetArrayField(TEXT("entries"), Entries) && Entries)
+				{
+					for (const TSharedPtr<FJsonValue>& E : *Entries)
+					{
+						const TSharedPtr<FJsonObject>* Obj = nullptr;
+						bool bUnaddressable = false;
+						if (E.IsValid() && E->TryGetObject(Obj) && Obj &&
+							(*Obj)->TryGetBoolField(TEXT("exposureUnaddressable"), bUnaddressable) && bUnaddressable)
+						{
+							bAnyUnaddressable = true;
+						}
+					}
+				}
+			}
+
+			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: /cancel-ticket OK -- %d entr(ies) withdrawn%s"),
+				Cancelled, bAnyUnaddressable ? TEXT(", EXPOSURE NOT RELEASED") : TEXT(""));
+
+			// The attempt is genuinely over now, so the clock goes with it.
+			Self->ResetPollProgress();
+			Self->SetState(EAFLMatchmakingState::Idle, bAnyUnaddressable
+				? NSLOCTEXT("AFL", "MMCancelledHeld",
+					"Search stopped. Your stake hold could not be released automatically -- it clears within 24 hours.")
+				: NSLOCTEXT("AFL", "MMCancelled", "Search stopped."));
+		});
 }

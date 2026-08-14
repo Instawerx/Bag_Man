@@ -21,6 +21,16 @@ enum class EAFLMatchmakingState : uint8
 	Joining,
 	/** Refused or gave up. Reason carries something a player can act on. */
 	Failed,
+	/**
+	 * A /cancel-ticket is in flight. APPENDED, never inserted -- a Blueprint that stored one of the values
+	 * above by index would silently mean something else if this were slotted in the middle.
+	 *
+	 * It exists because cancelling is no longer instantaneous or local. The client stops polling immediately,
+	 * but the player is NOT out of the queue until the server says the ticket was withdrawn -- and if that
+	 * call fails they are still queued and still matchable. Showing Idle before the answer arrives would be
+	 * the same lie the old local-only cancel told, just with a shorter fuse.
+	 */
+	Cancelling,
 };
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FAFLOnMatchmakingState, EAFLMatchmakingState /*State*/, const FText& /*Reason*/);
@@ -66,7 +76,10 @@ public:
 	 */
 	void StartMatchmaking(const FString& QueueId, int32 Stake);
 
-	/** Stop polling and return to Idle. Does NOT withdraw the PlayFab ticket -- see the .cpp note. */
+	/**
+	 * Stop searching, and WITHDRAW THE TICKET. Calls POST /cancel-ticket; the ticket is not gone until that
+	 * answers. On failure the state returns to Queued and polling RESUMES, because the ticket is still live.
+	 */
 	void CancelMatchmaking();
 
 	EAFLMatchmakingState GetState() const { return State; }
@@ -97,17 +110,63 @@ private:
 	/** Issue the actual travel once a full tuple is in hand. */
 	void TravelToMatch(const FString& IpAddress, int32 Port, const FString& PlayerSessionId);
 
+	/** Arm the next poll at the ladder's current step. One-shot; each poll re-arms the next. */
+	void ArmNextPoll();
+
+	/** Clear the pending poll WITHOUT forgetting how long this attempt has waited. Cancel needs exactly this. */
+	void ClearPollTimer();
+
+	/**
+	 * Clear BOTH pieces of poll progress. ⚠ THE ONE PLACE THAT MAY DO SO, and the reason it is a function
+	 * rather than two assignments: the timer and the queue clock have to reset together or a second queue
+	 * attempt inherits the first one's position on the ladder and starts on the 60-second tail, which reads
+	 * to a player as a dead button from the very first tick.
+	 */
+	void ResetPollProgress();
+
+	/** Seconds this queue attempt has been waiting. 0 when not queued. */
+	float ElapsedQueuedSeconds() const;
+
+	/**
+	 * THE BACKOFF LADDER. A staked ticket lives 43,200s at FlexMatch while the old client gave up at 603s --
+	 * a 72x disagreement in which the player was told "no match found" while the thing that could still match
+	 * them ran for another eleven hours.
+	 *
+	 *   0-60s     3s    UNCHANGED, deliberately. Every join timing Phase 6 measured was taken at 3s, and the
+	 *                   first minute is where a bot-filled match commits for a solo player.
+	 *   60s-10m   10s   Past a minute the player has accepted they are waiting; 10s is imperceptible against
+	 *                   that and cuts the busiest stretch from 180 polls to 54.
+	 *   10m-1h    30s   Nobody watches a queue for an hour. This step keeps the ticket JOINABLE, not responsive.
+	 *   1h-12h    60s   The tail, and 79% of the polls.
+	 *
+	 * ⚠ 60s IS BOUNDED BY MATCH_READY_TTL_SECONDS = 600, NOT CHOSEN FOR TIDINESS. The ready row written at
+	 * placement expires ten minutes later, so any interval under that still finds it. 60s keeps 10x margin
+	 * for clock skew, a cold Lambda, and a missed tick. 300s would halve the tail polls and cut the margin
+	 * to 2x, which is not a trade worth making for ~330 requests.
+	 *
+	 * 834 polls covers the full 43,200s, against 14,400 for a flat 3s and 200 for the old cap.
+	 */
+	static float PollIntervalForWait(float WaitedSeconds);
+
 	EAFLMatchmakingState State = EAFLMatchmakingState::Idle;
 	FText LastReason;
 
 	FTimerHandle PollTimer;
 
 	/**
-	 * How long to keep asking before giving up. Generous: a real queue can legitimately take minutes at low
-	 * population, and a client that quits early leaves a player holding a PlayFab ticket that may still
-	 * match -- placing them in a game they are no longer watching for.
+	 * When this queue attempt started, on the world's REAL-time clock -- not accumulated per tick.
+	 *
+	 * Real time rather than game time because a paused or dilated front end must not distort a queue clock
+	 * the server is keeping in wall seconds. A stamp rather than an accumulator because an accumulator drifts
+	 * by one interval per step and has to be corrected in two places; subtraction cannot.
 	 */
-	static constexpr float PollIntervalSeconds = 3.0f;
-	static constexpr int32 MaxPolls = 200;   // ~10 minutes
-	int32 PollCount = 0;
+	double QueueStartRealSeconds = 0.0;
+
+	/**
+	 * The client's own give-up, matched to the LONGEST a ticket can live server-side: staked configurations
+	 * carry RequestTimeoutSeconds 43,200 and carry NO expansion, so a staked ticket really can wait twelve
+	 * hours for humans. A shorter client cap does not shorten the ticket -- it only stops us watching one
+	 * that is still live, which is how a player gets placed into a staked match nobody is looking at.
+	 */
+	static constexpr float MaxQueueSeconds = 43200.0f;
 };
