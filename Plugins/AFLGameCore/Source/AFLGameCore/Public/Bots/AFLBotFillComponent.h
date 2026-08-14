@@ -79,7 +79,31 @@ private:
 	/** Real humans currently in PlayerArray (bots + spectators excluded). */
 	int32 CountHumans() const;
 
-	/** Bring the bot count to max(0, Target - CountHumans()): trim the fuller team / spawn to the floor. */
+	/**
+	 * ARE BOTS BARRED FROM THIS MATCH? The single gate for BOTH fills (they must never disagree).
+	 *
+	 * Replaces the tier-BLIND `IsRosterExternallyOwned()` test, which stood bots down for every GameLift
+	 * placement regardless of tier and so made bot-fill unreachable in production entirely.
+	 *
+	 * ⚠ IT FAILS CLOSED ON AN UNKNOWN TIER, AND THAT IS THE WHOLE DESIGN. `ReadEconomics` cannot say "I do
+	 * not know" -- with no payload it returns LEAGUE PLAY, which permits bots. Measured 2026-08-13, the
+	 * one-shot fill runs 4.085s BEFORE onStartGameSession delivers the payload (23:26:30.640 vs
+	 * 23:26:34.725), so a naive `IsRosterExternallyOwned() && !BotsPermitted(Tier)` reads `true && !true` =
+	 * false in that window and spawns bots into a match that may turn out to be STAKED. An externally-owned
+	 * roster that has not yet named its tier is therefore treated as barring bots.
+	 */
+	bool ShouldBarBots() const;
+
+	/**
+	 * HOW MANY HUMANS THIS MATCH WILL SEAT -- Option A, the payload roster, not who has connected yet.
+	 *
+	 * The roster names every human the match was committed for, so `Target - Expected` is stable from the
+	 * first evaluation and does not oscillate as players travel in. Falls back to CountHumans() only when
+	 * there is no roster (PIE / offline / LocalFill), where expectation is genuinely unknowable.
+	 */
+	int32 ResolveHumanBaseline() const;
+
+	/** Bring the bot count to max(0, Target - ResolveHumanBaseline()): trim the fuller team / spawn to the floor. */
 	void ReconcileBotFill();
 
 	/** Remove one spawned bot sitting on the CURRENTLY fuller team (keeps the balanced split). */

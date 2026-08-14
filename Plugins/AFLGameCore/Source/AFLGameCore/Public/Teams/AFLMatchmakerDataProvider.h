@@ -119,6 +119,16 @@ public:
 	 */
 	static bool IsRosterExternallyOwned(const UObject* WorldContext);
 
+	/**
+	 * How many members the roster names. INDEX_NONE when the JSON is absent or unparseable -- NEVER 0, because
+	 * "no roster" and "a roster of nobody" must not collapse into the same answer.
+	 *
+	 * PUBLIC for the same reason the two statics above are: `UAFLBotFillComponent` needs the expected human
+	 * count (Option A) and runs before any provider object exists, so it cannot reach the non-static
+	 * GetExpectedHumanCount() without making the bot count depend on who called GetProvider() first.
+	 */
+	static int32 CountRosterMembers(const FString& GameSessionDataJson);
+
 private:
 	/** Injected test data wins; otherwise defers to ResolveAuthoritativeMatchmakerData. */
 	FString ResolveGameSessionData(const UObject* WorldContext) const;
@@ -128,9 +138,6 @@ private:
 
 	/** The same key read straight off a PlayerState -- the per-join path has no controller in hand. */
 	static FString GetReconcileIdFromState(const APlayerState* PS);
-
-	/** How many members the roster names. INDEX_NONE when the JSON is absent or unparseable. */
-	static int32 CountRosterMembers(const FString& GameSessionDataJson);
 
 	/** Injected roster JSON (SetGameSessionData). Empty -> fall back to the launch option. */
 	FString InjectedGameSessionData;

@@ -4,7 +4,9 @@
 
 #include "AFLGameCore.h"                       // LogAFLGameCore
 #include "Teams/AFLTeamCreationComponent.h"    // IsAssignmentAuthoritative (the bind-time seam gate)
-#include "Teams/AFLMatchmakerDataProvider.h"   // S12: IsRosterExternallyOwned -- the fire-time gate on both fills
+#include "Teams/AFLMatchmakerDataProvider.h"   // the roster: expected-human count + whether the tier is known yet
+#include "Match/AFLMatchReporter.h"            // ReadEconomics -- the ONE tier resolver (payload, else launch line)
+#include "Online/AFLLobbyTypes.h"              // AFLLobby::BotsPermitted -- the policy, mirrored from registry.ts
 #include "AIController.h"                       // AAIController (bot controllers)
 #include "Teams/LyraTeamSubsystem.h"           // live team count + FindTeamFromObject
 #include "GameModes/LyraGameMode.h"            // ALyraGameMode::OnGameModePlayerInitialized
@@ -83,6 +85,58 @@ int32 UAFLBotFillComponent::CountHumans() const
 	return Humans;
 }
 
+bool UAFLBotFillComponent::ShouldBarBots() const
+{
+	// THE TIER IS THE POLICY (R74/R85/R87, ai-bots §6.3): bots are permitted exactly where the outcome moves
+	// neither a balance nor a rating. `AFLLobby::BotsPermitted` is the same derivation the backend registry
+	// makes (registry.ts botsPermitted), so the two cannot disagree.
+	//
+	// The roster's OWNER is not the policy, which is what the old gate got wrong. It asked
+	// IsRosterExternallyOwned() -- true for EVERY GameLift placement -- and so barred bots from all of
+	// production, including the LEAGUE PLAY matches that are supposed to have them.
+	//
+	// But ownership still matters for one thing: whether the tier can be TRUSTED yet.
+	const bool bExternallyOwned = UAFLMatchmakerDataProvider::IsRosterExternallyOwned(this);
+	const bool bTierIsKnown = !UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this).IsEmpty();
+
+	if (bExternallyOwned && !bTierIsKnown)
+	{
+		// PAYLOAD IN FLIGHT -- the roster is coming but has not named its tier. ReadEconomics would fall
+		// through to the launch line, find no ?Tier=, and answer LEAGUE PLAY: an UNKNOWN tier is
+		// indistinguishable from a permitting one. Bar bots rather than guess; a staked match that briefly
+		// had bots cannot be un-had, whereas a permitted match that fills a moment later loses nothing.
+		return true;
+	}
+
+	// Trustworthy in both remaining cases: the payload has arrived (tier from the roster the players actually
+	// matched on), or no external roster exists at all (PIE / offline / a launch line that states its own
+	// ?Tier=). Reusing ReadEconomics keeps ONE tier resolver -- reading the payload here by hand is exactly
+	// how the economics once came out LEAGUE PLAY under GameLift while the roster was delivered correctly.
+	const EAFLPlayTier Tier = FAFLMatchReporter::ReadEconomics(this).Tier;
+	return !AFLLobby::BotsPermitted(Tier);
+}
+
+int32 UAFLBotFillComponent::ResolveHumanBaseline() const
+{
+	// OPTION A, named in this file's header and in IAFLTeamAssignmentProvider since T1, implemented here.
+	//
+	// This is `UAFLMatchmakerDataProvider::GetExpectedHumanCount()`'s body verbatim rather than a call to it,
+	// and deliberately: that method is non-static on the provider, and the provider may not EXIST yet at
+	// fill time -- UAFLTeamCreationComponent::IsAssignmentAuthoritative() "deliberately does not construct
+	// one". Going through the instance would make the bot count depend on who asked first. The statics reach
+	// the same payload with no such ordering. (Consequence to know: a roster injected via the provider's test
+	// setter does not reach the fill; only the real payload does.)
+	const int32 Expected = UAFLMatchmakerDataProvider::CountRosterMembers(
+		UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this));
+	if (Expected >= 0)
+	{
+		return Expected;   // INDEX_NONE means NO ROSTER -- never a roster of zero. Only >= 0 is an answer.
+	}
+
+	// No roster: PIE / offline / LocalFill. Humans arrive on their own schedule and are only ever observed.
+	return CountHumans();
+}
+
 #endif // WITH_SERVER_CODE
 
 void UAFLBotFillComponent::ServerCreateBots_Implementation()
@@ -98,9 +152,14 @@ void UAFLBotFillComponent::ServerCreateBots_Implementation()
 	RemainingBotNames = RandomBotNames;
 
 	const int32 NumTeams = GetNumTeams();       // team creation ran HighPriority, before this LowPriority pass
-	const int32 HumanCount = CountHumans();     // humans PRESENT at experience-load -- converges below
 	const int32 Target = ComputeTargetTotal();  // playlist FieldSize, else TeamSize * NumTeams (3 * 2 = 6 for 3v3)
-	int32 EffectiveBotCount = FMath::Max(0, Target - HumanCount);
+
+	// OPTION A: subtract the humans this match will SEAT, not the humans who have arrived. At experience load
+	// the present count is 0 for every placed match -- everyone is still travelling -- so the old
+	// `Target - CountHumans()` asked for a FULL field of bots and relied on converge to take them back out
+	// one join at a time. The roster answers the question directly and does not oscillate.
+	const int32 HumanBaseline = ResolveHumanBaseline();
+	int32 EffectiveBotCount = FMath::Max(0, Target - HumanBaseline);
 
 	// Keep parity with stock's URL override so QA can still force an exact count.
 	if (AGameModeBase* GameMode = GetGameMode<AGameModeBase>())
@@ -108,28 +167,32 @@ void UAFLBotFillComponent::ServerCreateBots_Implementation()
 		EffectiveBotCount = UGameplayStatics::GetIntOption(GameMode->OptionsString, TEXT("NumBots"), EffectiveBotCount);
 	}
 
-	// S12 GATE, same rule as converge below: an externally-owned roster gets NO bots, and this pass is where
-	// production would otherwise create them. It runs at experience load with Humans=0 -- every rostered player
-	// is still connecting -- so `Target - Humans` is the FULL field. The acceptance run only escaped that
-	// because it was launched with ?NumBots=0 by hand; a real placement carries no such option, so this pass
-	// would have spawned a full field of bots into a staked match and, with converge now standing down, they
-	// would have stayed. Gating only converge would have left production strictly worse than before.
+	// THE TIER GATE, same predicate as converge below (they must never disagree -- a fill that spawns and a
+	// converge that removes is how bots get created and then stranded).
 	//
 	// Deliberately placed AFTER the ?NumBots= override so it also overrides it: bots are barred outright from a
 	// staked or rated roster (R74/R85), so this is not a count to be tuned. The provider already refuses them a
 	// team (255) and escrow already refuses the match; this stops them being created in the first place, which
 	// is the only one of the three that keeps the match playable.
-	if (EffectiveBotCount > 0 && UAFLMatchmakerDataProvider::IsRosterExternallyOwned(this))
+	//
+	// EXPECT THIS TO FIRE ON EVERY GAMELIFT PLACEMENT, and not because the tier bars bots. The payload lands
+	// ~4s after this pass (measured), so ShouldBarBots() is still in its fail-closed window here and the
+	// one-shot fill can never be the thing that seats bots in a placed match. Converge does that, on the first
+	// human join, by which time the tier is known. That asymmetry is intended, not a gap to be closed by
+	// weakening the gate.
+	if (EffectiveBotCount > 0 && ShouldBarBots())
 	{
 		UE_LOG(LogAFLGameCore, Log,
-			TEXT("AFLBots: fill STANDS DOWN -- %d bot(s) suppressed; the roster is externally owned and its "
-			     "players are still connecting."), EffectiveBotCount);
+			TEXT("AFLBots: fill STANDS DOWN -- %d bot(s) suppressed; bots are barred for this match (staked/rated "
+			     "tier, or an externally-owned roster that has not named its tier yet)."), EffectiveBotCount);
 		EffectiveBotCount = 0;
 	}
 
 	UE_LOG(LogAFLGameCore, Log,
-		TEXT("AFLBots: human-aware fill -- TeamSize=%d NumTeams=%d Humans=%d -> %d bot(s) (target %d)"),
-		TeamSize, NumTeams, HumanCount, EffectiveBotCount, Target);
+		TEXT("AFLBots: human-aware fill -- TeamSize=%d NumTeams=%d ExpectedHumans=%d (%s) -> %d bot(s) (target %d)"),
+		TeamSize, NumTeams, HumanBaseline,
+		UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this).IsEmpty() ? TEXT("present-count, no roster") : TEXT("payload roster"),
+		EffectiveBotCount, Target);
 
 	// Reuse the stock spawn/possess/team-routing path unchanged -- each bot routes through
 	// OnGameModePlayerInitialized -> ServerChooseTeamForPlayer -> the provider's balance.
@@ -242,25 +305,33 @@ void UAFLBotFillComponent::ReconcileBotFill()
 	// and would have made this guard a no-op. Second, the bots were not a side effect of the roster arriving;
 	// converge would have spawned them anyway, and the first bot's own join is what selected the provider.
 	//
-	// So ask who OWNS the roster, not who has already built a provider for it. IsRosterExternallyOwned answers
-	// true both when the payload has arrived and while it is still in flight -- a seat that is about to be
-	// claimed is not an empty seat.
+	// So ask the TIER, not who has already built a provider. ShouldBarBots() is the same predicate the one-shot
+	// fill uses, and it still treats a roster whose payload is in flight as barring bots -- a seat that is
+	// about to be claimed is not an empty seat, and a tier nobody has stated yet is not a permitting one.
+	//
+	// THIS IS NOW THE PATH THAT ACTUALLY SEATS BOTS IN A PLACED MATCH. The one-shot fill runs before the
+	// payload and can only ever stand down; converge runs on the first human join, when the roster is present,
+	// the tier is known and ResolveHumanBaseline() can answer from it. A solo LEAGUE PLAY commit therefore
+	// fills on that human's join: target 6, expected 1, five bots.
 	//
 	// NOTE the asymmetry this leaves deliberately: the one-shot fill honours ?NumBots= and converge never has
-	// (it targets ComputeTargetTotal() - CountHumans() outright), which is why ?NumBots=0 suppressed the fill
-	// and bots still appeared. The guard makes that moot for externally-owned rosters. A local match that
-	// wants a hard bot cap still cannot get one from converge; that is a separate gap, not this bug.
-	if (UAFLMatchmakerDataProvider::IsRosterExternallyOwned(this))
+	// (it targets ComputeTargetTotal() - ResolveHumanBaseline() outright), which is why ?NumBots=0 suppressed
+	// the fill and bots still appeared. A local match that wants a hard bot cap still cannot get one from
+	// converge; that is a separate gap, not this bug.
+	if (ShouldBarBots())
 	{
 		UE_LOG(LogAFLGameCore, Log,
-			TEXT("AFLBots: converge STANDS DOWN -- the roster is externally owned, so players who are absent "
-			     "are rostered-but-still-connecting, not seats to fill."));
+			TEXT("AFLBots: converge STANDS DOWN -- bots are barred for this match (staked/rated tier, or an "
+			     "externally-owned roster that has not named its tier yet)."));
 		return;
 	}
 
 	bReconciling = true;
 
-	const int32 DesiredBots = FMath::Max(0, ComputeTargetTotal() - CountHumans());
+	// OPTION A here too -- the two passes MUST use the same baseline or they fight: a one-shot fill sized
+	// against the roster and a converge sized against present humans would spawn on every arrival and trim on
+	// the next. With the roster, DesiredBots is constant for the whole match and each join is a no-op.
+	const int32 DesiredBots = FMath::Max(0, ComputeTargetTotal() - ResolveHumanBaseline());
 
 	// Trim overflow from the fuller team (holds the balanced split); backfill the floor with stock spawns.
 	// The safety bound guards against any pathological churn (never expected -- Target is small and fixed).
@@ -275,7 +346,9 @@ void UAFLBotFillComponent::ReconcileBotFill()
 	}
 
 	UE_LOG(LogAFLGameCore, Log,
-		TEXT("AFLBots: converge -- Humans=%d Target=%d -> %d bot(s)"),
+		TEXT("AFLBots: converge -- ExpectedHumans=%d (%s) Present=%d Target=%d -> %d bot(s)"),
+		ResolveHumanBaseline(),
+		UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this).IsEmpty() ? TEXT("present-count, no roster") : TEXT("payload roster"),
 		CountHumans(), ComputeTargetTotal(), SpawnedBotList.Num());
 
 	bReconciling = false;
