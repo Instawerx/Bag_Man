@@ -5,6 +5,9 @@
 #include "Online/AFLGameLiftHostSubsystem.h"   // S12: the GameLift-delivered roster, when it has arrived
 
 #include "AFLGameCore.h"                       // LogAFLGameCore
+#include "Match/AFLMatchReporter.h"            // ReadEconomics -- the ONE tier resolver
+#include "Online/AFLLobbyTypes.h"              // AFLLobby::BotsPermitted -- the ONE bot policy
+#include "Teams/AFLLocalFillProvider.h"        // ChooseBalancedTeam -- the ONE balance rule, reused for permitted bots
 #include "Teams/AFLReconcileIdComponent.h"     // the per-player stashed reconcile key
 #include "Teams/LyraTeamAgentInterface.h"      // IntegerToGenericTeamId
 #include "Dom/JsonObject.h"
@@ -223,6 +226,30 @@ int32 UAFLMatchmakerDataProvider::CountRosterMembers(const FString& GameSessionD
 	return Members->Num();
 }
 
+bool UAFLMatchmakerDataProvider::AreBotsPermitted(const UObject* WorldContext)
+{
+	// ⚠ THE ONE PLACE THIS QUESTION IS ANSWERED. It was asked three separate times, three different ways, and
+	// got the wrong answer twice -- bot CREATION (fixed in 1193fef1), bot ASSIGNMENT (the caller below, fixed
+	// with this), and the result VALIDATOR (FAFLMatchResult::Validate, which had it right all along because it
+	// tested bStaked||bRanked rather than authority). Three implementations of one policy is how two of them
+	// drifted. There is now one, and the other sites call it.
+	//
+	// FAIL CLOSED ON AN UNKNOWN TIER. FAFLMatchReporter::ReadEconomics cannot say "I do not know": with no
+	// payload it falls through to the launch line and answers LEAGUE PLAY, which PERMITS bots. So an
+	// externally-owned roster that has not delivered yet must be treated as barring them -- a staked match
+	// that briefly had bots cannot be un-had, while a permitted match that fills a moment later loses nothing.
+	const bool bExternallyOwned = IsRosterExternallyOwned(WorldContext);
+	const bool bTierIsKnown = !ResolveAuthoritativeMatchmakerData(WorldContext).IsEmpty();
+	if (bExternallyOwned && !bTierIsKnown)
+	{
+		return false;
+	}
+
+	// Trustworthy now: the payload arrived (the tier the players actually matched on), or no external roster
+	// exists at all (PIE / offline / a launch line stating its own ?Tier=).
+	return AFLLobby::BotsPermitted(FAFLMatchReporter::ReadEconomics(WorldContext).Tier);
+}
+
 FGenericTeamId UAFLMatchmakerDataProvider::ChooseTeamForJoiningPlayer(const UObject* WorldContext,
 	const APlayerState* JoiningPlayer) const
 {
@@ -231,17 +258,43 @@ FGenericTeamId UAFLMatchmakerDataProvider::ChooseTeamForJoiningPlayer(const UObj
 		return FGenericTeamId::NoTeam;
 	}
 
-	// A bot has no roster entry, and in an authoritative match it should not exist at all: `ai-bots.md` §6.3
-	// forbids bot-fill in any match whose result carries stake or rating, and R74 keeps them out of population
-	// entirely. Answering NoTeam rather than balancing means a bot that reaches here is VISIBLE as unassigned
-	// instead of being quietly seated into a staked side.
+	// ── BOTS: THE TIER DECIDES, NOT THE AUTHORITY ────────────────────────────────────────────────────────
+	//
+	// This test used to be `IsABot()` alone, reached only on an authoritative roster -- i.e. it refused a bot
+	// a team because SOMEONE ELSE OWNED THE ROSTER. That is the same tier-blind confusion 1193fef1 removed
+	// from bot CREATION, left standing one layer down in bot ASSIGNMENT, and its own comment gave it away:
+	// it cited "staked or rated" while the code asked "authoritative".
+	//
+	// MEASURED 2026-08-14, and it is exactly what a half-fix produces. With creation un-blinded, a solo LEAGUE
+	// PLAY placement spawned the right five bots -- "ExpectedHumans=1 (payload roster) -> 5 bot(s) (target 6)"
+	// -- and then all five landed here and were refused: five "-> team 255" lines, followed by
+	// `Ensure condition failed: PlayerTeamId != INDEX_NONE` in AFLPlayerSpawningManagerComponent. Bots that
+	// exist, have no side, and trip the spawner. Un-blinding one gate without the other is worse than neither.
 	if (JoiningPlayer->IsABot())
 	{
-		UE_LOG(LogAFLGameCore, Warning,
-			TEXT("AFLTeams: Matchmaker per-join -- BOT '%s' reached an AUTHORITATIVE match. Left unassigned; "
-			     "bots do not belong in a staked or rated roster (ai-bots R74)."),
-			*JoiningPlayer->GetPlayerName());
-		return FGenericTeamId::NoTeam;
+		if (!AreBotsPermitted(WorldContext))
+		{
+			// Barred: a STAKED or RATED roster (R74/R85, ai-bots §6.3), or a tier not yet knowable. Answering
+			// NoTeam rather than balancing keeps such a bot VISIBLE as unassigned instead of quietly seated
+			// into a staked side -- the original intent, now applied on the correct condition.
+			UE_LOG(LogAFLGameCore, Warning,
+				TEXT("AFLTeams: Matchmaker per-join -- BOT '%s' left unassigned; this match's tier does not "
+				     "permit bots (staked/rated), or its tier is not yet known. ai-bots R74/R85."),
+				*JoiningPlayer->GetPlayerName());
+			return FGenericTeamId::NoTeam;
+		}
+
+		// PERMITTED. A bot has no roster entry, so the reconcile lookup below could never seat it -- balance it
+		// against the LIVE POPULATION instead, through LocalFill's rule so there is ONE balance rule rather
+		// than two that can drift. That method is const, takes no participant and holds no instance state
+		// (both helpers behind it are static, and the class has no members), so the CDO answers it without
+		// allocating. Deliberately NOT keyed on the arriver's identity: bots arrive with an uninitialised
+		// PlayerId and keying on it piles every bot onto one team -- the 2v3 trap LocalFill already documents.
+		const FGenericTeamId BotTeam = GetDefault<UAFLLocalFillProvider>()->ChooseBalancedTeam(WorldContext);
+		UE_LOG(LogAFLGameCore, Log,
+			TEXT("AFLTeams: Matchmaker per-join -- BOT '%s' -> team %d (balanced; this tier permits bots)."),
+			*JoiningPlayer->GetPlayerName(), static_cast<int32>(BotTeam.GetId()));
+		return BotTeam;
 	}
 
 	const FString ReconcileId = GetReconcileIdFromState(JoiningPlayer);

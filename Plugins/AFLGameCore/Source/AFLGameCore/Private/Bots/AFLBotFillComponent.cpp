@@ -3,10 +3,7 @@
 #include "Bots/AFLBotFillComponent.h"
 
 #include "AFLGameCore.h"                       // LogAFLGameCore
-#include "Teams/AFLTeamCreationComponent.h"    // IsAssignmentAuthoritative (the bind-time seam gate)
-#include "Teams/AFLMatchmakerDataProvider.h"   // the roster: expected-human count + whether the tier is known yet
-#include "Match/AFLMatchReporter.h"            // ReadEconomics -- the ONE tier resolver (payload, else launch line)
-#include "Online/AFLLobbyTypes.h"              // AFLLobby::BotsPermitted -- the policy, mirrored from registry.ts
+#include "Teams/AFLMatchmakerDataProvider.h"   // roster count, tier-known test, AND AreBotsPermitted (the one policy)
 #include "AIController.h"                       // AAIController (bot controllers)
 #include "Teams/LyraTeamSubsystem.h"           // live team count + FindTeamFromObject
 #include "GameModes/LyraGameMode.h"            // ALyraGameMode::OnGameModePlayerInitialized
@@ -117,30 +114,14 @@ bool UAFLBotFillComponent::IsTierKnown() const
 
 bool UAFLBotFillComponent::ShouldBarBots() const
 {
-	// THE TIER IS THE POLICY (R74/R85/R87, ai-bots §6.3): bots are permitted exactly where the outcome moves
-	// neither a balance nor a rating. `AFLLobby::BotsPermitted` is the same derivation the backend registry
-	// makes (registry.ts botsPermitted), so the two cannot disagree.
+	// DELEGATED, NOT REIMPLEMENTED. This function used to carry its own copy of the policy -- tier known?
+	// tier permits? -- and the same policy was written a second time inside the provider's per-join gate and a
+	// third time in the result validator. Two of those three drifted, and the second one was only caught
+	// because the first was fixed and produced five teamless bots.
 	//
-	// The roster's OWNER is not the policy, which is what the old gate got wrong. It asked
-	// IsRosterExternallyOwned() -- true for EVERY GameLift placement -- and so barred bots from all of
-	// production, including the LEAGUE PLAY matches that are supposed to have them.
-	//
-	// But ownership still matters for one thing: whether the tier can be TRUSTED yet.
-	if (!IsTierKnown())
-	{
-		// PAYLOAD IN FLIGHT -- the roster is coming but has not named its tier. ReadEconomics would fall
-		// through to the launch line, find no ?Tier=, and answer LEAGUE PLAY: an UNKNOWN tier is
-		// indistinguishable from a permitting one. Bar bots rather than guess; a staked match that briefly
-		// had bots cannot be un-had, whereas a permitted match that fills a moment later loses nothing.
-		return true;
-	}
-
-	// Trustworthy in both remaining cases: the payload has arrived (tier from the roster the players actually
-	// matched on), or no external roster exists at all (PIE / offline / a launch line that states its own
-	// ?Tier=). Reusing ReadEconomics keeps ONE tier resolver -- reading the payload here by hand is exactly
-	// how the economics once came out LEAGUE PLAY under GameLift while the roster was delivered correctly.
-	const EAFLPlayTier Tier = FAFLMatchReporter::ReadEconomics(this).Tier;
-	return !AFLLobby::BotsPermitted(Tier);
+	// So the policy now lives in exactly ONE function and everyone asks it. The behaviour here is unchanged:
+	// UAFLMatchmakerDataProvider::AreBotsPermitted is the identical rule, fail-closed on an unknown tier.
+	return !UAFLMatchmakerDataProvider::AreBotsPermitted(this);
 }
 
 int32 UAFLBotFillComponent::ResolveHumanBaseline() const
@@ -342,20 +323,26 @@ void UAFLBotFillComponent::ServerCreateBots_Implementation()
 	// --- Converge (displace/re-fill), SEAM-GATED (SSOT §0.2/§3) --------------------------------------------
 	// The fill above counts humans PRESENT at experience-load; on a listen server only the host is connected
 	// then, so it overshoots when remote clients join. While the active provider is NON-authoritative (LocalFill
-	// / offline / PIE), converge to Target on each late HUMAN join/leave. A T2 MatchmakerDataProvider
-	// (authoritative) seats all humans pre-start -> this path stays inert, and a future one-shot
-	// `Target - IAFLTeamAssignmentProvider::GetExpectedHumanCount()` (Option A) replaces the present-count fill.
-	bool bAuthoritative = false;
-	const UWorld* World = GetWorld();
-	if (const AGameStateBase* GameState = World ? World->GetGameState() : nullptr)
-	{
-		if (const UAFLTeamCreationComponent* TeamCreation = GameState->FindComponentByClass<UAFLTeamCreationComponent>())
-		{
-			bAuthoritative = TeamCreation->IsAssignmentAuthoritative();
-		}
-	}
-
-	if (!bAuthoritative && !bConvergeHooksBound)
+	// ── CONVERGE HOOKS BIND UNCONDITIONALLY ──────────────────────────────────────────────────────────────
+	//
+	// This used to bind only when UAFLTeamCreationComponent::IsAssignmentAuthoritative() was FALSE -- i.e. it
+	// decided "should converge ever run?" by asking who owns the roster. That was the third form of the same
+	// confusion 1193fef1 removed from bot creation and the provider's per-join gate: an authoritative roster
+	// does not mean bots are barred, it means a matchmaker chose the humans. A LEAGUE PLAY placement is
+	// authoritative AND permits bots, and under the old gate its converge never bound at all.
+	//
+	// ⚠ AND IT MUST NOT BE "FIXED" BY SWAPPING IN AreBotsPermitted() HERE. That would reintroduce the exact
+	// hazard this file already documents: bind time is EXPERIENCE LOAD, which under GameLift is ~4s BEFORE the
+	// payload lands, so the tier is unknown, the fail-closed answer is "barred", and the hooks would never bind
+	// -- permanently, on a match that turns out to permit bots. The old gate failed for precisely this reason
+	// ("reads authority ONCE, at experience load"). Asking a FIRE-TIME question at BIND time is the bug; asking
+	// a different fire-time question at bind time would just be the same bug with a better predicate.
+	//
+	// So bind always and decide late. ReconcileBotFill() opens with ShouldBarBots(), evaluated when the hook
+	// actually fires -- by which point the payload has landed and the tier is knowable. Binding costs two
+	// delegate subscriptions; being unable to converge for the life of the match costs the match. In a barred
+	// match the hooks still bind, fire, and stand down with a log, which is correct and cheap.
+	if (!bConvergeHooksBound)
 	{
 		if (ALyraGameMode* GameMode = GetGameMode<ALyraGameMode>())
 		{

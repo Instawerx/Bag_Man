@@ -129,6 +129,20 @@ public:
 	 */
 	static int32 CountRosterMembers(const FString& GameSessionDataJson);
 
+	/**
+	 * DOES THIS MATCH PERMIT BOTS? THE ONE PLACE THIS IS ANSWERED -- every gate that used to ask it its own
+	 * way now calls here.
+	 *
+	 * The question is the TIER (does the outcome move a balance or a rating -- R74/R85/R87, ai-bots §6.3),
+	 * NEVER "does an external authority own this roster". Asking the second in place of the first is the
+	 * confusion that barred bots from all of production (bot creation, 1193fef1) and then left five of them
+	 * teamless in a LEAGUE PLAY match (bot assignment, this change).
+	 *
+	 * FAILS CLOSED on a tier that is not yet knowable: ReadEconomics answers LEAGUE PLAY when it has nothing
+	 * to read, and LEAGUE PLAY permits bots, so "unknown" must not be allowed to read as "yes".
+	 */
+	static bool AreBotsPermitted(const UObject* WorldContext);
+
 private:
 	/** Injected test data wins; otherwise defers to ResolveAuthoritativeMatchmakerData. */
 	FString ResolveGameSessionData(const UObject* WorldContext) const;
