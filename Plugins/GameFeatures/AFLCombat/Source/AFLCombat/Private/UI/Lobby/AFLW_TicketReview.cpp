@@ -7,6 +7,8 @@
 #include "CommonButtonBase.h"
 #include "CommonTextBlock.h"
 #include "Components/ProgressBar.h"
+#include "Containers/Ticker.h"        // the probe waits for S4 to exist
+#include "UObject/UObjectIterator.h"   // finding the live instance, never the CDO
 #include "Engine/GameInstance.h"
 #include "Internationalization/Text.h"
 
@@ -28,6 +30,95 @@ namespace
 	{
 		return bVolts ? LOCTEXT("MarkVolts", "V") : LOCTEXT("MarkWatts", "W");
 	}
+
+	/**
+	 * `afl.Lobby.Ticket [status|confirm|cancel]` -- drive S4 from the console.
+	 *
+	 * ⚠ THE HEADER HAS CLAIMED THIS EXISTS SINCE S4 WAS WRITTEN. `Confirm()` is documented as "public because
+	 * it is the screen's verb and the afl.Lobby.Ticket probe drives it" -- and the probe was never built. Six
+	 * other front-end screens have one (afl.Home.Door, afl.Home.Nav, afl.Career.Tab, afl.Venues.Select,
+	 * afl.Loadout.Open, afl.DevMenu). The ONLY screen that moves money had none.
+	 *
+	 * That was not merely an untested surface, it was an inescapable one. S4 overrides no back action, so
+	 * Escape and gamepad B do not pop it; the only exits are two buttons. Measured 2026-08-14 on a cooked
+	 * client: both players reached S4 at the right cell and the right stake, could reach neither button, and
+	 * the canary could not proceed OR retreat. A money screen with no reachable control and no console path
+	 * is a trap, and the probe is the floor under it.
+	 *
+	 * IT GOES THROUGH THE REAL VERBS, exactly as afl.Home.Door goes through ChooseDoor. `confirm` calls
+	 * Confirm(), which re-checks the guardrails itself rather than trusting the button's appearance -- so a
+	 * probe-driven commit that would breach a cap prints the same refusal a click would, and the SERVER
+	 * re-validates the balance, the band and both limits regardless. This bypasses nothing.
+	 *
+	 * Unguarded for Shipping, like its six siblings: UE strips the console from Shipping builds, so the
+	 * registration is inert there.
+	 */
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLTicketCmd(
+		TEXT("afl.Lobby.Ticket"),
+		TEXT("Drive the staked ticket review screen: afl.Lobby.Ticket [status|confirm|cancel]. "
+			 "Goes through the real Confirm/Cancel verbs, so every guardrail still applies."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				const FString Verb = Args.Num() > 0 ? Args[0].ToLower() : TEXT("status");
+				if (Verb != TEXT("status") && Verb != TEXT("confirm") && Verb != TEXT("cancel"))
+				{
+					Ar.Logf(TEXT("afl.Lobby.Ticket -- unknown verb '%s'. Use status, confirm or cancel."), *Verb);
+					return;
+				}
+
+				// WAITS FOR THE SCREEN, same as afl.Home.Door and for the same reason: -ExecCmds fires at
+				// engine init, long before the front end has navigated anywhere, so a fail-fast probe could
+				// only ever be typed by hand -- which is precisely what is impossible headlessly.
+				TWeakObjectPtr<UWorld> WeakWorld(World);
+				double Deadline = 25.0;
+
+				FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+					[Verb, WeakWorld, Deadline](float Delta) mutable -> bool
+					{
+						Deadline -= Delta;
+						UWorld* W = WeakWorld.Get();
+						if (!W || Deadline <= 0.0)
+						{
+							UE_LOG(LogAFLCombat, Error,
+								TEXT("AFL_S4: afl.Lobby.Ticket gave up -- no ticket review screen appeared."));
+							return false;
+						}
+
+						for (TObjectIterator<UAFLW_TicketReview> It; It; ++It)
+						{
+							UAFLW_TicketReview* S4 = *It;
+							// The live instance, never the CDO -- a CDO has no ticket and no local player.
+							if (!S4 || S4->GetWorld() != W || S4->HasAnyFlags(RF_ClassDefaultObject))
+							{
+								continue;
+							}
+
+							UE_LOG(LogAFLCombat, Log, TEXT("AFL_S4: probe %s -- %s"),
+								*Verb, *S4->DescribeTicket());
+
+							if (Verb == TEXT("confirm")) { S4->Confirm(); }
+							else if (Verb == TEXT("cancel")) { S4->Cancel(); }
+							return false;
+						}
+						return true;   // keep waiting
+					}), 0.5f);
+
+				Ar.Logf(TEXT("afl.Lobby.Ticket -- will %s as soon as S4 exists (prints to the log)."), *Verb);
+			}));
+}
+
+FString UAFLW_TicketReview::DescribeTicket() const
+{
+	// The three facts that decide whether a commit can happen, in one line, so the probe's output explains a
+	// refusal without needing a second command. `limits unknown` and `entry refused` are different failures:
+	// the first means /limits never answered, the second means it did and the answer was no.
+	return FString::Printf(TEXT("%s at %lld%s | limits %s | entry %s"),
+		QueueId.IsEmpty() ? TEXT("<no ticket>") : *QueueId,
+		TypedStake,
+		bVolts ? TEXT("V") : TEXT("W"),
+		bLimitsKnown ? TEXT("known") : TEXT("UNKNOWN"),
+		IsEntryPermitted() ? TEXT("permitted") : TEXT("REFUSED"));
 }
 
 void UAFLW_TicketReview::NativeOnInitialized()

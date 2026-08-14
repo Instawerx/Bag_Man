@@ -77,6 +77,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|S4")
 	void Cancel();
 
+	/**
+	 * One line of state for the `afl.Lobby.Ticket` probe: which ticket, at what stake, whether the limits
+	 * arrived, and whether the entry passes them. The last two are DIFFERENT failures and the string says so
+	 * -- `limits UNKNOWN` means /limits never answered, `entry REFUSED` means it did and the answer was no.
+	 * Reading a disabled Confirm button cannot tell those apart, and they send an investigator to opposite
+	 * halves of the system.
+	 */
+	FString DescribeTicket() const;
+
 	/** True when the limits are known AND this entry passes both of them. Mirrors the server's evaluator. */
 	UFUNCTION(BlueprintPure, Category = "AFL|S4")
 	bool IsEntryPermitted() const;
