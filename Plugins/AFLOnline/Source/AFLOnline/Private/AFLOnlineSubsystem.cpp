@@ -356,9 +356,38 @@ void UAFLOnlineSubsystem::StartLoginWithCustomID()
 	LoginState  = EAFLLoginState::InFlight;
 	LoginMethod = TEXT("LoginWithCustomID(dev)");
 
+	const FString DevCustomId = ResolveDevCustomId();
+
+	// ⚠ SAY WHETHER THIS ID IS SHARED, not merely what it is. The id was already logged on the request line
+	// below, and that was not enough: two COOKED clients both logged in as AFL_DEV_TEST_01, PlayFab refused the
+	// second with a bare 409 Conflict, and the run read as a matchmaking failure for two cycles before anyone
+	// compared the two ids by hand. Knowing the value only helps if you are already suspicious.
+	//
+	// THE COLLISION IS EDITOR-vs-COOKED, WHICH IS WHY IT HID SO LONG. ResolveDevCustomId appends a _P<n> suffix
+	// per PIE instance -- but only under WITH_EDITOR, keyed on PIEInstance. A packaged build has neither, so
+	// every cooked client on a machine resolves to the SAME account. Two editor clients are distinct; two
+	// cooked clients are one player wearing two windows, and nothing downstream can tell.
+	//
+	// The fix needs no code: -dpcvars=afl.Online.DevCustomId=<other id> on the second instance. This warning
+	// exists to point at that line the FIRST time it matters, rather than after a wasted run.
+	const bool bIsBareDefault = DevCustomId.Equals(GDefaultDevCustom);
+	if (bIsBareDefault)
+	{
+		UE_LOG(LogAFLOnline, Warning,
+			TEXT("[AFLOnline] dev identity = '%s' (THE DEFAULT -- every other instance on this machine resolves "
+			     "to the SAME PlayFab account, and PlayFab refuses the second with http=409). For a second "
+			     "client pass: -dpcvars=afl.Online.DevCustomId=%s_P2"),
+			*DevCustomId, GDefaultDevCustom);
+	}
+	else
+	{
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] dev identity = '%s' (overridden -- distinct from the default '%s')"),
+			*DevCustomId, GDefaultDevCustom);
+	}
+
 	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
 	Body->SetStringField(TEXT("TitleId"), GetTitleId());
-	Body->SetStringField(TEXT("CustomId"), ResolveDevCustomId());
+	Body->SetStringField(TEXT("CustomId"), DevCustomId);
 	Body->SetBoolField(TEXT("CreateAccount"), true);
 
 	FString BodyStr;
