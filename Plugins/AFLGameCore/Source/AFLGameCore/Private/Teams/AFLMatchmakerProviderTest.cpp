@@ -95,6 +95,37 @@ namespace
 			Check(A.Num() == 1 && A[0].TeamId == FGenericTeamId::NoTeam, TEXT("malformed JSON -> NoTeam (no crash)"));
 		}
 
+		// 5) FIELD SIZE -- how a PLACED match learns how many seats it has.
+		//
+		// A published BR_9 cell ran as a 36-player field on 2026-08-14: bot fill sizes from TeamSize * NumTeams,
+		// solo BR has TeamSize 1, and one 36-team B_AFL_TeamSetup_Solo is shared by every BR bracket. The
+		// intended override, `?FieldSize=N` from the playlist, only reaches a URL a CLIENT travels to -- this
+		// server's map loaded at 02:39:48 and its session arrived at 02:49:50, 602s later. So the allocator
+		// puts `fieldSize` in GameSessionData and this static is how the server reads it.
+		{
+			// The declaration itself, on a roster shaped exactly like the live one.
+			const FString WithSize = TEXT("{\"matchId\":\"m\",\"members\":[{\"id\":\"A\",\"team\":\"0\"}],\"fieldSize\":9}");
+			Check(UAFLMatchmakerDataProvider::ReadFieldSize(WithSize) == 9, TEXT("fieldSize 9 is read as 9"));
+
+			// ⚠ ABSENT MUST BE INDEX_NONE, NOT 0. Every ticket minted before the `bracket` attribute existed
+			// produces a payload with no fieldSize, and 0 would read as "seat nobody" instead of "not stated".
+			// This is the case that lets the change deploy while tickets are already in flight.
+			Check(UAFLMatchmakerDataProvider::ReadFieldSize(GMatchmakerFixture2Team) == INDEX_NONE,
+				TEXT("a payload WITHOUT fieldSize -> INDEX_NONE (falls back to structural, unchanged)"));
+
+			Check(UAFLMatchmakerDataProvider::ReadFieldSize(TEXT("{not json")) == INDEX_NONE,
+				TEXT("malformed JSON -> INDEX_NONE (no crash)"));
+			Check(UAFLMatchmakerDataProvider::ReadFieldSize(FString()) == INDEX_NONE,
+				TEXT("empty payload -> INDEX_NONE"));
+
+			// A zero or negative field is a broken payload, not a smaller match. Refuse it and let the
+			// structural fallback answer honestly.
+			Check(UAFLMatchmakerDataProvider::ReadFieldSize(
+				TEXT("{\"members\":[],\"fieldSize\":0}")) == INDEX_NONE, TEXT("fieldSize 0 -> INDEX_NONE"));
+			Check(UAFLMatchmakerDataProvider::ReadFieldSize(
+				TEXT("{\"members\":[],\"fieldSize\":-4}")) == INDEX_NONE, TEXT("negative fieldSize -> INDEX_NONE"));
+		}
+
 		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_MMTEST: DONE -- %d passed, %d failed. %s"),
 			Pass, Fail, (Fail == 0) ? TEXT("ALL GREEN") : TEXT("*** FAILURES ***"));
 	}

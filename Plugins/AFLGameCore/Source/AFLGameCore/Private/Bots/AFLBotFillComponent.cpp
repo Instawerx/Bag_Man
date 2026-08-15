@@ -67,7 +67,31 @@ int32 UAFLBotFillComponent::ComputeTargetTotal() const
 		return Structural;
 	}
 
-	const int32 Declared = UGameplayStatics::GetIntOption(GameMode->OptionsString, TEXT("FieldSize"), 0);
+	// ── WHERE THE DECLARATION COMES FROM, IN PRIORITY ORDER ────────────────────────────────────────────
+	//
+	// THE PAYLOAD WINS, AND IT HAD TO. `?FieldSize=N` arrives through OptionsString, which is frozen at
+	// LoadMap -- fine wherever a CLIENT travels (PIE, offline, listen server), because CommonSession composes
+	// that URL from the playlist's ExtraArgs at travel time. A dedicated server never travels: it boots its
+	// map from a launch command line, calls ProcessReady, and waits. MEASURED 2026-08-14: LoadMap 02:39:48,
+	// onStartGameSession 02:49:50 -- 602 seconds apart. The URL was parsed ten minutes before the match
+	// existed, so it cannot describe it, and a BR_9 cell ran as a 36-player field: 2 humans, 34 bots.
+	//
+	// GameSessionData is the only per-match channel -- placement hands the session to whichever process is
+	// free, and nothing else tells that process which bracket it drew. The allocator resolves the ticket's
+	// bracket against the registry and emits `fieldSize`.
+	//
+	// The URL is kept as the second source, not replaced: it remains the ONLY source in PIE and offline,
+	// which is where this component is otherwise exercised.
+	const TCHAR* Source = TEXT("match payload");
+	int32 Declared = UAFLMatchmakerDataProvider::ReadFieldSize(
+		UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this));
+
+	if (Declared <= 0)
+	{
+		Source = TEXT("playlist URL");
+		Declared = UGameplayStatics::GetIntOption(GameMode->OptionsString, TEXT("FieldSize"), 0);
+	}
+
 	if (Declared <= 0)
 	{
 		return Structural;   // no declaration -- every pre-existing mode keeps its exact behaviour
@@ -77,9 +101,14 @@ int32 UAFLBotFillComponent::ComputeTargetTotal() const
 	{
 		// Seating more players than there are team slots doubles players up, which silently breaks solo BR.
 		// Clamp, but say so loudly: this is an authoring error in the playlist or the team set, not a tuning knob.
+		//
+		// ⚠ ONE-DIRECTIONAL, DELIBERATELY. Only the OVER-declaration warns. `Declared < Structural` is the
+		// ORDINARY case now and must stay silent: every BR bracket declares against the same 36-team
+		// `B_AFL_TeamSetup_Solo`, so a BR_9 is 9-against-36 on every single match. Warning on that would put a
+		// line in the log for correct behaviour, which is how a log stops being read.
 		UE_LOG(LogAFLGameCore, Warning,
-			TEXT("AFLBots: playlist declares FieldSize=%d but the team set only seats %d (TeamSize=%d x %d teams) -- clamping."),
-			Declared, Structural, TeamSize, GetNumTeams());
+			TEXT("AFLBots: %s declares FieldSize=%d but the team set only seats %d (TeamSize=%d x %d teams) -- clamping."),
+			Source, Declared, Structural, TeamSize, GetNumTeams());
 		return Structural;
 	}
 

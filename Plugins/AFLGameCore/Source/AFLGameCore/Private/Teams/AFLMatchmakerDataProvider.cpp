@@ -227,6 +227,34 @@ int32 UAFLMatchmakerDataProvider::CountRosterMembers(const FString& GameSessionD
 	return Members->Num();
 }
 
+int32 UAFLMatchmakerDataProvider::ReadFieldSize(const FString& GameSessionDataJson)
+{
+	if (GameSessionDataJson.IsEmpty())
+	{
+		return INDEX_NONE;
+	}
+
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(GameSessionDataJson);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		return INDEX_NONE;
+	}
+
+	// ABSENT IS THE ORDINARY CASE, NOT A FAULT. The allocator omits the key when the ticket carried no
+	// bracket -- every ticket minted before the attribute existed, and every non-matchmade launch. Silence
+	// here is what makes the field additive: the caller falls back to the structural product unchanged.
+	int32 FieldSize = 0;
+	if (!Root->TryGetNumberField(TEXT("fieldSize"), FieldSize))
+	{
+		return INDEX_NONE;
+	}
+
+	// A declared field of zero or fewer is not a smaller match, it is a broken payload. Refuse it rather than
+	// letting it read as "seat nobody" -- the fallback is the honest answer.
+	return FieldSize > 0 ? FieldSize : INDEX_NONE;
+}
+
 void UAFLMatchmakerDataProvider::TallyExpectedTeams(const UObject* WorldContext,
 	const FString& GameSessionDataJson, TMap<int32, int32>& OutCounts)
 {

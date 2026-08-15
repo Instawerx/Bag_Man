@@ -30,11 +30,25 @@ struct FGameplayTag;   // by const-ref only (IsPhaseActiveReflected) -- no need 
  *   leave (FGameModeEvents::OnGameModeLogoutEvent)      -> total < Target -> SpawnOneBot (down to the floor)
  * removing from the fuller team so the balanced split holds. Converges to Target regardless of connect order.
  *
- * FIELD SIZE IS DECLARED BY THE PLAYLIST (`?FieldSize=N`), NOT BY THE TEAM COUNT. For a SOLO battle royale
- * TeamSize is 1, so the structural target `TeamSize * NumTeams` collapses to "however many teams the team-setup
- * asset happens to author" -- and one `B_AFL_TeamSetup_Solo` (36 teams) is shared by every BR bracket. That made
- * BR9 and BR20 fill to 36, measured in PIE: 35 bots in a nine-player match. The bracket is a property of the
- * PLAYLIST, so the playlist declares it, via `ULyraUserFacingExperienceDefinition::ExtraArgs` -> URL option.
+ * FIELD SIZE IS DECLARED, NOT DERIVED FROM THE TEAM COUNT. For a SOLO battle royale TeamSize is 1, so the
+ * structural target `TeamSize * NumTeams` collapses to "however many teams the team-setup asset happens to
+ * author" -- and one `B_AFL_TeamSetup_Solo` (36 teams) is shared by every BR bracket. That made BR9 and BR20
+ * fill to 36, measured in PIE: 35 bots in a nine-player match.
+ *
+ * TWO SOURCES, AND WHICH ONE APPLIES DEPENDS ON HOW THE MATCH STARTED:
+ *
+ *   PLAYLIST URL  `?FieldSize=N` from `ULyraUserFacingExperienceDefinition::ExtraArgs`. Governs anywhere a
+ *                 CLIENT travels -- PIE, offline, listen server -- because CommonSession composes that URL
+ *                 from the playlist at travel time.
+ *   MATCH PAYLOAD `fieldSize` in GameSessionData, resolved by /allocate from the bracket the ticket carried.
+ *                 THE ONLY SOURCE A PLACED MATCH HAS, and it takes precedence.
+ *
+ * ⚠ WHY THE URL ALONE WAS NOT ENOUGH, MEASURED 2026-08-14. A dedicated server never travels: it boots its map
+ * from a launch command line, calls ProcessReady and waits. LoadMap ran at 02:39:48 and onStartGameSession
+ * delivered the roster at 02:49:50 -- 602 seconds apart. `OptionsString` was parsed ten minutes before the
+ * match existed, so it could not describe it, and a published BR_9 cell ran as a 36-player field: 2 humans,
+ * 34 bots, watched end to end. Placement hands a session to whichever process is free, so nothing but the
+ * payload can tell that process which bracket it drew.
  *
  * Why the URL and not a team-setup asset per bracket: a per-bracket team setup needs a per-bracket Teams action
  * set to reference it, and `FGameFeatureComponentEntry` is not BlueprintType -- the `AddComponents` row cannot be
@@ -84,9 +98,10 @@ private:
 	/** Live team count (ULyraTeamSubsystem::GetTeamIDs). */
 	int32 GetNumTeams() const;
 
-	/** Total seats for the mode. The playlist's `?FieldSize=N` wins when present (clamped to the structural
-	 *  capacity); otherwise the structural product max(0, TeamSize) * GetNumTeams(). Single source for BOTH the
-	 *  one-shot fill and the converge pass -- they computed it separately before, which is how they could drift. */
+	/** Total seats for the mode. A DECLARED size wins when present -- the match payload's `fieldSize` first,
+	 *  then the playlist's `?FieldSize=N` -- clamped DOWNWARD ONLY to the structural capacity; otherwise the
+	 *  structural product max(0, TeamSize) * GetNumTeams(). Single source for BOTH the one-shot fill and the
+	 *  converge pass -- they computed it separately before, which is how they could drift. */
 	int32 ComputeTargetTotal() const;
 
 	/** Real humans currently in PlayerArray (bots + spectators excluded). */

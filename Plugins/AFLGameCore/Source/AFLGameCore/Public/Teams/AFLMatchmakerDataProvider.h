@@ -130,6 +130,24 @@ public:
 	static int32 CountRosterMembers(const FString& GameSessionDataJson);
 
 	/**
+	 * HOW MANY SEATS THE MATCH HAS -- the allocator's `fieldSize`. INDEX_NONE when absent or unparseable, and
+	 * those two collapse together for the same reason they do in CountRosterMembers: a payload that will not
+	 * parse is not a declaration no matter how many bytes it has.
+	 *
+	 * ⚠ THIS IS THE ONLY ROUTE A PLACED MATCH HAS. `?FieldSize=N` reaches
+	 * `UAFLBotFillComponent::ComputeTargetTotal` through `GameMode->OptionsString`, which is frozen at
+	 * LoadMap. A dedicated server boots its map from a launch command line and then waits for a session --
+	 * measured 2026-08-14, LoadMap at 02:39:48 and onStartGameSession at 02:49:50, 602 seconds apart -- so the
+	 * URL was parsed long before the match existed and cannot describe it. A BR_9 cell ran as a 36-player
+	 * field because of it. The playlist's declaration still governs PIE and offline, where a client travels.
+	 *
+	 * Static for the same reason as the resolver and CountRosterMembers: bot fill runs before any provider
+	 * object exists, so reaching the payload through an instance would make the field size depend on who
+	 * asked first.
+	 */
+	static int32 ReadFieldSize(const FString& GameSessionDataJson);
+
+	/**
 	 * DOES THIS MATCH PERMIT BOTS? THE ONE PLACE THIS IS ANSWERED -- every gate that used to ask it its own
 	 * way now calls here.
 	 *
