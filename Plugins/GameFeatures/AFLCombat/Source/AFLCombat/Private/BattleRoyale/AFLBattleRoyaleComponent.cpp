@@ -16,6 +16,9 @@
 #include "NativeGameplayTags.h"
 #include "Net/UnrealNetwork.h"
 #include "Phases/AFLMatchPhaseComponent.h"
+#include "Match/AFLMatchReporter.h"      // EscrowFreeForAll + BuildFieldResult + ReportMatchEnd/Cancelled
+#include "Match/AFLEscrowLedger.h"       // the pot snapshot held for the match lifetime
+#include "Match/AFLMatchResultTypes.h"   // FAFLMatchResult
 #include "Teams/LyraTeamSubsystem.h"   // BLOCK 177: runtime team id for the belief-state roster (same source as the round manager)
 #include "Telemetry/AFLCombatTelemetry.h"
 
@@ -108,8 +111,43 @@ void UAFLBattleRoyaleComponent::HandlePlayingPhaseActive(const FGameplayTag& Pha
 	ServerStartMatch();
 }
 
+void UAFLBattleRoyaleComponent::Server_CancelMatch(const FString& ReasonText)
+{
+	if (!HasAuth() || bEconomySettled)
+	{
+		return;   // the latch shared with Server_EndMatch -- one terminal per match, never a race
+	}
+	bEconomySettled = true;
+
+	if (!EscrowLedger.IsValid() || !EscrowLedger->IsStaked())
+	{
+		// Nothing was taken, so there is nothing to give back. The ordinary case for every LEAGUE PLAY field.
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_BR: match %s cancelled (%s) -- unstaked, no pot to refund."), *GetMatchId(), *ReasonText);
+		return;
+	}
+
+	UE_LOG(LogAFLCombat, Warning,
+		TEXT("AFL_BR: match %s CANCELLED (%s) -- refunding %d entr(ies), NO rake, NO rating."),
+		*GetMatchId(), *ReasonText, EscrowLedger->Entries.Num());
+	FAFLMatchReporter::ReportMatchCancelled(this, *EscrowLedger, ReasonText);
+}
+
 void UAFLBattleRoyaleComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// ⚠ THE BACKSTOP, NOT THE INTENDED PATH. A staked field whose pot never moved is money held against a
+	// match that will never report, so tearing the component down without refunding would strand it. This
+	// fires only when the latch is still open -- a settled or already-refunded match returns immediately.
+	//
+	// It is NOT an abandonment watch and must not be mistaken for one: EndPlay also runs on level travel and
+	// server shutdown, so it recovers the pot rather than diagnosing why the match died. A BR-side humanless
+	// watch (the equivalent of UAFLRoundManagerComponent AbandonmentGraceSeconds) is a separate task, and
+	// until it exists this is the only thing standing between an abandoned staked field and a stranded pot.
+	if (HasAuth() && !bEconomySettled && EscrowLedger.IsValid() && EscrowLedger->IsStaked())
+	{
+		Server_CancelMatch(TEXT("component torn down with an unsettled pot"));
+	}
+
 	UnbindDeathDelegates();
 	Super::EndPlay(EndPlayReason);
 }
@@ -139,6 +177,20 @@ void UAFLBattleRoyaleComponent::ServerStartMatch()
 	bMatchStarted = true;
 	MatchId = FGuid::NewGuid();   // authored ONCE, past the guard -> stable staking/earn contract id
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR_MATCHID assigned %s"), *GetMatchId());
+
+	// ══ TAKE THE POT, HERE, AT THE ONE MOMENT THE ROSTER IS BOTH COMPLETE AND AUTHORITATIVE ═══════════════
+	//
+	// The match-start gate has already held Playing until every rostered human is present, so PlayerArray is
+	// the real field rather than whoever arrived first. That is what makes this the right frame: escrow taken
+	// earlier would miss a traveller, and taken later would charge people for a match already in progress.
+	//
+	// ONE UNIT PER PLAYER, because in a free-for-all each player IS a finishing position. EscrowFreeForAll
+	// refuses the whole match rather than debiting anyone if bots are present (R85), if two players share a
+	// runtime team (a squad, R92, which this path does not fund), or if anyone lacks a reconcile id.
+	//
+	// The ledger is held for the match lifetime -- see the member comment. Null here is not a failure: an
+	// unstaked LEAGUE PLAY match has no pot, which is the ordinary case for every BR cell published today.
+	EscrowLedger = FAFLMatchReporter::EscrowFreeForAll(this, MatchId, FAFLMatchReporter::ReadEconomics(this));
 
 	Placements.Reset();
 	SetPhaseAuthoritative(EAFLBRPhase::Playing);
@@ -234,6 +286,35 @@ void UAFLBattleRoyaleComponent::Server_EndMatch(APlayerState* Winner)
 	FAFLCombatTelemetry::EmitRoundResolved(/*Round=*/0, WinnerPlayerId, FName(TEXT("last_standing")));
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR: MATCH END -- winner %s (playerId=%d), participants=%d -> concluding."),
 		*GetNameSafe(Winner), WinnerPlayerId, TotalParticipants);
+
+	// ══ REPORT IT. Until this landed, BR played and paid nothing. ═════════════════════════════════════════
+	//
+	// ORDER MATTERS: before ConcludeMatch, while PlayerArray is still populated. The builder enumerates live
+	// players to pair them with their placements, and conclusion begins the teardown that empties it.
+	//
+	// The latch is shared with the cancel path so a pot moves exactly once.
+	if (!bEconomySettled)
+	{
+		const FAFLMatchReporter::FMatchEconomics Econ = FAFLMatchReporter::ReadEconomics(this);
+		FAFLMatchResult Result;
+		FString BuildError;
+		if (FAFLMatchReporter::BuildFieldResult(this, MatchId, Placements, Econ, Result, BuildError))
+		{
+			bEconomySettled = true;
+			// Sends settle only when staked and rating only when rated; an unstaked LEAGUE PLAY field reports
+			// nothing and that is the correct outcome, not a skipped step.
+			FAFLMatchReporter::ReportMatchEnd(this, Result, Econ.StakePerPosition, Econ.CurrencyCode);
+		}
+		else
+		{
+			// LOUD. A staked field that cannot build a result has a pot sitting in escrow with nothing to
+			// settle it -- the cancel path is what recovers that, and it needs a human to notice.
+			UE_LOG(LogAFLCombat, Error,
+				TEXT("AFL_BR: match %s ended but the field result could NOT be built -- %s. Nothing settled, nothing rated%s."),
+				*GetMatchId(), *BuildError,
+				(EscrowLedger.IsValid() && EscrowLedger->IsStaked()) ? TEXT("; A POT REMAINS IN ESCROW") : TEXT(""));
+		}
+	}
 
 	// Conclude via the PROVEN PostGame machinery on the resident match-phase component (freeze via
 	// State.Match.Ended + PostGame + per-player Watts banner). Idempotent (bMatchEnded). Null-guarded.

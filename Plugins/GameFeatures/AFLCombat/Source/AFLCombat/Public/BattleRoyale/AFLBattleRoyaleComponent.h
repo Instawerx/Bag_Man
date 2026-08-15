@@ -118,6 +118,19 @@ private:
 	void SetRespawnBlocked(bool bBlocked);                 // apply/remove State.Round.NoRespawn on every player ASC
 	void Server_EndMatch(APlayerState* Winner);
 
+	/**
+	 * Refund the pot and end the match with NO RESULT. Mirrors UAFLRoundManagerComponent::Server_CancelMatch.
+	 *
+	 * ⚠ NOT ReportMatchEnd. A cancelled match has no winner, and posting a settlement would both pay a curve
+	 * against an outcome nobody played and move a rating -- a ladder you can farm by disconnecting. The refund
+	 * is built from the LEDGER, which is the only thing that still describes the pot once the players have gone.
+	 *
+	 * ⚠ ITS TRIGGER IS NOT WIRED YET, AND THAT IS STATED RATHER THAN HIDDEN. Battle royale has no abandonment
+	 * watch: UAFLRoundManagerComponent owns that for MATCH PLAY and is in neither BR experience. So today the
+	 * only caller is EndPlay on an unsettled staked match. A BR-side humanless watch is its own task.
+	 */
+	void Server_CancelMatch(const FString& ReasonText);
+
 	void BindDeathDelegates();                             // full reconcile at match start
 	bool BindDeathDelegateForPawn(APawn* Pawn);            // guarded (AddDynamic is not idempotent)
 	void UnbindDeathDelegates();
@@ -128,5 +141,19 @@ private:
 
 	/** Booked finishing places, keyed by PlayerState (survives pawn death; the ASC/PS is the stable identity). */
 	TMap<TWeakObjectPtr<APlayerState>, int32> Placements;
+
+	/**
+	 * What this server took at match start, and from whom. NULL for an unstaked match -- LEAGUE PLAY has no
+	 * buy-in, so there is no pot and nothing a cancellation would refund.
+	 *
+	 * ⚠ HELD FOR THE MATCH LIFETIME, and that is the entire reason the type exists. At abandonment the players
+	 * are gone: PlayerArray is empty and the PlayerStates are destroyed, so a refund built from live state
+	 * refunds nobody. This snapshot outlives the players it describes.
+	 *
+	 * Latched false once settled or refunded, so the EndPlay backstop cannot post a second settlement against
+	 * a pot that has already moved.
+	 */
+	TSharedPtr<struct FAFLEscrowLedger> EscrowLedger;
+	bool bEconomySettled = false;
 	TArray<TWeakObjectPtr<ULyraHealthComponent>> BoundHealthComps;
 };
