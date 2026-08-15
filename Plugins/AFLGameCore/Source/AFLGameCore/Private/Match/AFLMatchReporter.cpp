@@ -231,6 +231,7 @@ bool FAFLMatchReporter::BuildTeamSeriesResult(const UObject* WorldContext, const
 
 bool FAFLMatchReporter::BuildFieldResult(const UObject* WorldContext, const FGuid& MatchId,
 	const TMap<TWeakObjectPtr<APlayerState>, int32>& Placements,
+	const TArray<FAFLMatchParticipant>& Departed,
 	const FMatchEconomics& Economics, FAFLMatchResult& OutResult, FString& OutError)
 {
 	OutResult = FAFLMatchResult();
@@ -301,9 +302,18 @@ bool FAFLMatchReporter::BuildFieldResult(const UObject* WorldContext, const FGui
 		OutResult.Participants.Add(MoveTemp(P));
 	}
 
+	// ── THE PLAYERS WHO ARE NO LONGER HERE ──────────────────────────────────────────────────────────────
+	// Captured by the caller at the moment each of them left, because none of this is readable now: their
+	// PlayerState is destroyed and their controller with it. They keep the rung they took on the way out, so
+	// the ladder stays dense and the field settles exactly as if they had died in that position.
+	for (const FAFLMatchParticipant& Gone : Departed)
+	{
+		OutResult.Participants.Add(Gone);
+	}
+
 	if (OutResult.Participants.Num() == 0)
 	{
-		OutError = TEXT("no participants in PlayerArray at match end");
+		OutError = TEXT("no participants at match end -- neither present nor departed");
 		return false;
 	}
 	return true;

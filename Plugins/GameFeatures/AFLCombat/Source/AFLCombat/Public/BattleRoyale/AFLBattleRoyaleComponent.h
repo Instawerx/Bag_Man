@@ -4,6 +4,7 @@
 
 #include "Match/AFLMatchPopulationComponent.h"          // join coverage: sites #3 (pawn death-bind) + #4 (PlayerState ASC)
 #include "Misc/Guid.h"                                    // FGuid MatchId + EGuidFormats (staking contract id)
+#include "Match/AFLMatchResultTypes.h"                     // FAFLMatchParticipant -- DepartedParticipants holds them BY VALUE
 #include "AFLRoundRestartPolicy.h"                        // IAFLRoundRestartPolicy (the always-loaded AFLGameCore seam)
 
 #include "AFLBattleRoyaleComponent.generated.h"
@@ -105,6 +106,23 @@ protected:
 	UFUNCTION() void HandlePlayingPhaseActive(const FGameplayTag& PhaseTag);   // AFL.GamePhase.Playing -> ServerStartMatch
 	UFUNCTION() void HandlePlayerDeath(AActor* OwningActor);                    // ULyraHealthComponent::OnDeathStarted
 
+	/**
+	 * FORFEIT. A human who disconnects mid-match takes their placement AT THE MOMENT OF LEAVING -- operator
+	 * ruling 2026-08-15, and it is literal: the rung is booked here, in the logout broadcast, not when a grace
+	 * expires. Same mechanism the ladder already runs on death, different trigger.
+	 *
+	 * WHY BOOK NOW RATHER THAN AT A GRACE. It keeps the ladder dense with no ghost sitting in the field and
+	 * nothing waiting on a player who may never return. AAFLGameMode::ReconnectGraceSeconds is unaffected and
+	 * keeps doing its own job -- holding the GameLift seat -- which is honest, because BR reconnect does not
+	 * work today regardless: respawn is blocked for the match, so a returning player arrives bodiless. If BR
+	 * reconnect is ever built, this ruling reopens with it.
+	 *
+	 * ⚠ REFUNDING A LEAVER IS EXPLOITABLE -- whoever is behind simply leaves. The stake stays escrowed and the
+	 * match settles normally. The ONLY refund case is EVERY human leaving, which is the abandonment watch and
+	 * not this. The opposite ruling from 2026-08-09 is still written in AFLGameMode.h and is now superseded.
+	 */
+	void HandlePlayerLoggedOut(AGameModeBase* GameMode, AController* Exiting);
+
 	UFUNCTION() void OnRep_Phase();
 	UFUNCTION() void OnRep_MatchId();
 	UFUNCTION() void OnRep_Resolved();
@@ -137,10 +155,27 @@ private:
 
 	bool bMatchStarted = false;
 	bool bRespawnBlocked = false;                          // cached source-of-truth for the join site + ShouldBlockRestart
+	bool bLogoutHookBound = false;                         // OnGameModeLogoutEvent is global -- bind once, not per restart
 	int32 NextPlacement = 0;                               // = the finishing place the next elimination books (N, N-1, ...)
 
 	/** Booked finishing places, keyed by PlayerState (survives pawn death; the ASC/PS is the stable identity). */
 	TMap<TWeakObjectPtr<APlayerState>, int32> Placements;
+
+	/** Book `PS` at the next free rung. False when they already hold one -- OnDeathStarted can fire twice, and
+	 *  a forfeit can follow a death in the same frame. Shared by the death and forfeit triggers so the two
+	 *  cannot book differently. */
+	bool BookPlacement(APlayerState* PS);
+
+	/**
+	 * Participants who LEFT, captured whole at the moment they left.
+	 *
+	 * ⚠ A PlayerState POINTER WOULD BE USELESS HERE. A forfeiter is destroyed with their controller, so by
+	 * match end `Placements` holds a stale weak pointer and PlayerArray cannot describe them at all. The
+	 * reconcile id, the bot flag and the rung are read once, while they still exist, and carried to the result
+	 * builder. Without this a forfeiter silently vanishes from the result -- taking their rung with them and
+	 * leaving the ladder non-dense, which is the exact defect that stranded a pot.
+	 */
+	TArray<FAFLMatchParticipant> DepartedParticipants;
 
 	/**
 	 * What this server took at match start, and from whom. NULL for an unstaked match -- LEAGUE PLAY has no

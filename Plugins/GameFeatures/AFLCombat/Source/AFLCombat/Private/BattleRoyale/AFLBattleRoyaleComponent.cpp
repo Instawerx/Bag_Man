@@ -16,6 +16,9 @@
 #include "NativeGameplayTags.h"
 #include "Net/UnrealNetwork.h"
 #include "Phases/AFLMatchPhaseComponent.h"
+#include "GameFramework/GameModeBase.h"   // FGameModeEvents -- the forfeit trigger
+#include "Teams/AFLReconcileIdComponent.h" // the forfeiter identity, captured before their state is destroyed
+#include "TimerManager.h"                  // next-tick end-condition re-check after a forfeit
 #include "Match/AFLMatchReporter.h"      // EscrowFreeForAll + BuildFieldResult + ReportMatchEnd/Cancelled
 #include "Match/AFLEscrowLedger.h"       // the pot snapshot held for the match lifetime
 #include "Match/AFLMatchResultTypes.h"   // FAFLMatchResult
@@ -193,6 +196,19 @@ void UAFLBattleRoyaleComponent::ServerStartMatch()
 	EscrowLedger = FAFLMatchReporter::EscrowFreeForAll(this, MatchId, FAFLMatchReporter::ReadEconomics(this));
 
 	Placements.Reset();
+	DepartedParticipants.Reset();
+
+	// FORFEIT TRIGGER. Bound at match start rather than in BeginPlay so a logout before the match exists is
+	// simply a logout -- there is no ladder to take a rung from yet. Same event the bot fill converge uses.
+	//
+	// GUARDED: OnGameModeLogoutEvent is a GLOBAL multicast, and RestartMatch runs ServerStartMatch again on the
+	// same component. Without this an in-session restart would book two rungs for one leaver.
+	if (!bLogoutHookBound)
+	{
+		FGameModeEvents::OnGameModeLogoutEvent().AddUObject(this, &UAFLBattleRoyaleComponent::HandlePlayerLoggedOut);
+		bLogoutHookBound = true;
+	}
+
 	SetPhaseAuthoritative(EAFLBRPhase::Playing);
 	AlivePlayers = AliveParticipants();
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR: match START (participants=%d, alive=%d, survivorsToWin=%d, id=%s)."),
@@ -216,6 +232,86 @@ void UAFLBattleRoyaleComponent::ServerStartMatch()
 	LogBeliefState(TEXT("MATCH_START"), nullptr);
 }
 
+bool UAFLBattleRoyaleComponent::BookPlacement(APlayerState* PS)
+{
+	// ONE BOOKING SITE FOR BOTH TRIGGERS. Death and forfeit are the same ladder step and must not be able to
+	// disagree about the rung or the double-book guard -- OnDeathStarted can fire twice for one pawn, and a
+	// forfeit can arrive in the same frame as a death.
+	if (!PS || Placements.Contains(PS))
+	{
+		return false;
+	}
+	Placements.Add(PS, NextPlacement);
+	NextPlacement = FMath::Max(1, NextPlacement - 1);
+	return true;
+}
+
+void UAFLBattleRoyaleComponent::HandlePlayerLoggedOut(AGameModeBase* /*GameMode*/, AController* Exiting)
+{
+	if (!HasAuth() || Phase != EAFLBRPhase::Playing)
+	{
+		return;   // before the match or after it concluded, leaving is just leaving
+	}
+
+	APlayerState* PS = Exiting ? Exiting->PlayerState : nullptr;
+	if (!PS || PS->IsABot())
+	{
+		return;   // a bot leaving is bot fill doing its job, not a forfeit
+	}
+
+	// ⚠ THE PLAYERSTATE IS STILL IN PlayerArray DURING THIS BROADCAST and is destroyed immediately after --
+	// AGameModeBase::Logout removes it once every listener has run. This is therefore the LAST frame in which
+	// this player can be described at all, which is why the identity is captured here rather than referenced.
+	const bool bBooked = BookPlacement(PS);
+	if (!bBooked)
+	{
+		// Already dead and placed, then the client dropped. Their rung is correct and nothing more is owed.
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR: %s disconnected after already being placed -- no forfeit needed."),
+			*GetNameSafe(PS));
+		return;
+	}
+
+	FAFLMatchParticipant Gone;
+	Gone.bIsBot = false;
+	Gone.TeamId = INDEX_NONE;                 // ruling: a free-for-all result has no teams economically
+	Gone.FinishingPosition = Placements[PS];
+	if (const UAFLReconcileIdComponent* IdComp = PS->FindComponentByClass<UAFLReconcileIdComponent>())
+	{
+		Gone.ReconcileId = IdComp->GetReconcileId();
+	}
+	if (Gone.ReconcileId.IsEmpty())
+	{
+		// LOUD. A staked forfeiter with no reconcile id cannot be settled, and the result will be refused at
+		// report -- which now correctly leaves the teardown refund armed rather than stranding the pot.
+		UE_LOG(LogAFLCombat, Error,
+			TEXT("AFL_BR: %s forfeited at placement %d but carries NO reconcile id -- they cannot be settled."),
+			*GetNameSafe(PS), Gone.FinishingPosition);
+	}
+	DepartedParticipants.Add(MoveTemp(Gone));
+
+	UE_LOG(LogAFLCombat, Warning,
+		TEXT("AFL_BR: %s FORFEITED by disconnect -> placement %d. Stake stays escrowed; the match settles normally."),
+		*GetNameSafe(PS), Placements[PS]);
+
+	// ⚠ RE-CHECK THE END CONDITION. It is otherwise evaluated ONLY on a death, so a field that empties by
+	// disconnects would run until the last two players killed each other -- or never. AliveParticipants reads
+	// PlayerArray, which still holds this leaver for the rest of this frame, so the count is taken NEXT tick.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			if (!HasAuth() || Phase != EAFLBRPhase::Playing) { return; }
+			APlayerState* LastAlive = nullptr;
+			AlivePlayers = AliveParticipants(&LastAlive);
+			LogBeliefState(TEXT("FORFEIT"), nullptr);
+			if (AlivePlayers <= SurvivorsToWin)
+			{
+				Server_EndMatch(AlivePlayers == 1 ? LastAlive : nullptr);
+			}
+		}));
+	}
+}
+
 void UAFLBattleRoyaleComponent::HandlePlayerDeath(AActor* OwningActor)
 {
 	if (!HasAuth() || Phase != EAFLBRPhase::Playing)
@@ -236,11 +332,9 @@ void UAFLBattleRoyaleComponent::HandlePlayerDeath(AActor* OwningActor)
 	}
 
 	// Book the finishing place (guarded: OnDeathStarted must count each participant once).
-	if (VictimPS && !Placements.Contains(VictimPS))
+	if (BookPlacement(VictimPS))
 	{
-		Placements.Add(VictimPS, NextPlacement);
-		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR: %s eliminated -> placement %d."), *GetNameSafe(VictimPS), NextPlacement);
-		NextPlacement = FMath::Max(1, NextPlacement - 1);
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR: %s eliminated -> placement %d."), *GetNameSafe(VictimPS), Placements[VictimPS]);
 	}
 
 	// Per-kill spatial telemetry (solo -> team INDEX_NONE), reusing the proven combat telemetry sink.
@@ -298,7 +392,7 @@ void UAFLBattleRoyaleComponent::Server_EndMatch(APlayerState* Winner)
 		const FAFLMatchReporter::FMatchEconomics Econ = FAFLMatchReporter::ReadEconomics(this);
 		FAFLMatchResult Result;
 		FString BuildError;
-		if (FAFLMatchReporter::BuildFieldResult(this, MatchId, Placements, Econ, Result, BuildError))
+		if (FAFLMatchReporter::BuildFieldResult(this, MatchId, Placements, DepartedParticipants, Econ, Result, BuildError))
 		{
 			// ⚠ LATCHED ON THE REPORT, NOT ON THE BUILD. They are different questions and the gap between them
 			// strands money. A field that loses a player to a disconnect BUILDS perfectly well -- every

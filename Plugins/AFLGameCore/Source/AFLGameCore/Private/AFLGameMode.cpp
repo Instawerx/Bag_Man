@@ -88,17 +88,21 @@ void AAFLGameMode::HandleReconnectWindowExpired(FString PlayFabId)
 	}
 	SessionIdByPlayFabId.Remove(PlayFabId);
 
-	// ⚠ INTEGRATION POINT, DELIBERATELY NOT WIRED YET. The operator ruling is CANCELLED-REFUND for a dropout
-	// that never returns, and the machinery for that is UAFLRoundManagerComponent::Server_CancelMatch(
-	// EAFLMatchCancelReason) -- which exists in the working tree but is UNCOMMITTED by another workstream
-	// (replay-cap / abandonment). A dropout is a THIRD cancel reason alongside Abandoned and ReplayCap.
+	// ⚠ DO NOT WIRE THIS TO Server_CancelMatch. The instruction that used to sit here said exactly that, and it
+	// is now WRONG: it was written against the 2026-08-09 ruling of cancelled-refund for a dropout, which was
+	// REVERSED on 2026-08-15. Refunding a leaver is exploitable -- whoever is behind simply leaves. Anyone
+	// following the old note would have built a griefing tool.
 	//
-	// Adding a value to that enum now would collide with in-flight work, and building a second, parallel
-	// cancel path is exactly what the S12-E scope says not to do. So this logs loudly and stops; wire it to
-	// Server_CancelMatch once that change lands.
-	UE_LOG(LogAFLGameCore, Warning,
-		TEXT("AFL_RECONNECT: grace expired for '%s' -- seat released. MATCH NOT YET RESOLVED: wire this to "
-		     "Server_CancelMatch(<dropout reason>) for the cancelled-refund ruling."),
+	// NOTHING IS OWED HERE ANY MORE, and that is why this only logs. The forfeit already happened, at the
+	// moment of leaving, in UAFLBattleRoyaleComponent::HandlePlayerLoggedOut -- the leaver took their placement
+	// on the way out and the match settles normally around them. By the time this timer fires the ladder is
+	// already correct. All this does is release the seat.
+	//
+	// The ONLY refund case is EVERY human leaving, which is the abandonment watch, keyed on the match being
+	// empty rather than on any one player.
+	UE_LOG(LogAFLGameCore, Log,
+		TEXT("AFL_RECONNECT: grace expired for '%s' -- seat released. No refund is owed: a mid-match dropout "
+		     "FORFEITS at the moment of leaving (2026-08-15), and the match settles normally."),
 		*PlayFabId);
 }
 

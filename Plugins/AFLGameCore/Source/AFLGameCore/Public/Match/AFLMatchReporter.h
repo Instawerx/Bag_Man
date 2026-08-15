@@ -238,9 +238,16 @@ public:
 	 * TeamId is INDEX_NONE on every participant. Operator ruling: a free-for-all has no teams ECONOMICALLY,
 	 * even though the runtime assigns 1..N for spawning and damage. Writing the live ids would claim a
 	 * structure the mode does not have, and would make a future squad BR indistinguishable from solo.
+	 *
+	 * ⚠ `Departed` CARRIES THE PLAYERS WHO ARE NO LONGER IN PlayerArray, AND IT IS NOT OPTIONAL. A forfeiting
+	 * player books a placement at the moment they leave and is then destroyed with their controller, so by
+	 * match end PlayerArray cannot describe them and their PlayerState pointer is stale. Enumerating live
+	 * players alone would drop them, and dropping them removes their rung -- leaving the ladder non-dense and
+	 * the whole result unsettleable. The caller captures their identity at disconnect, while it still exists.
 	 */
 	static bool BuildFieldResult(const UObject* WorldContext, const FGuid& MatchId,
 		const TMap<TWeakObjectPtr<APlayerState>, int32>& Placements,
+		const TArray<FAFLMatchParticipant>& Departed,
 		const FMatchEconomics& Economics, FAFLMatchResult& OutResult, FString& OutError);
 
 	/** The wire spelling of the ruleset. MUST match the backend's `Ruleset` union exactly -- there are only

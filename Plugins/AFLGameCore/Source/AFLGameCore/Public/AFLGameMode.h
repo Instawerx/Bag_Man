@@ -80,11 +80,26 @@ private:
 	TMap<FString, FString> ValidatedPlayerIds;
 
 	/**
-	 * How long a dropped player keeps their seat. Ruling (operator, 2026-08-09): a dropout that never returns
-	 * resolves as CANCELLED-REFUND, not forfeit -- a power cut must not be punished like a rage-quit.
+	 * How long a dropped player keeps their GAMELIFT SEAT. That is now the whole of this value's job.
+	 *
+	 * ⚠ SUPERSEDED RULING, LEFT VISIBLE BECAUSE IT WAS ACTED ON. This said: "Ruling (operator, 2026-08-09): a
+	 * dropout that never returns resolves as CANCELLED-REFUND, not forfeit -- a power cut must not be punished
+	 * like a rage-quit." REVERSED 2026-08-15, and the reversal is not a softening -- refunding a leaver is
+	 * EXPLOITABLE, because whoever is behind simply leaves. Poker-shaped: a disconnected staked player gets a
+	 * grace and then FORFEITS. The stake stays escrowed and the match settles normally.
+	 *
+	 * THE ONLY REFUND CASE IS EVERY HUMAN LEAVING, which is the abandonment watch and not this timer.
+	 *
+	 * WHAT THIS NO LONGER GOVERNS: the forfeit itself. Operator ruling is that a leaver takes their placement
+	 * AT THE MOMENT OF LEAVING, so there is no window to size -- UAFLBattleRoyaleComponent books the rung in
+	 * the logout broadcast. This timer only decides how long the seat is held before ReleasePlayerSession.
+	 *
+	 * ⚠ AND THE SEAT IT HOLDS BUYS NOTHING IN BR TODAY. Respawn is blocked for the whole match, so a player who
+	 * reconnects inside the window returns bodiless. Honest to keep holding it -- releasing is terminal, and a
+	 * future reconnect path would want the seat -- but do not read the 90s as a working reconnect.
 	 *
 	 * 90s is a judgement call, not a measurement: long enough to survive a router reboot or a game restart,
-	 * short enough that the opponent is not held indefinitely. Tune with real data.
+	 * short enough that the seat is not held indefinitely. Tune with real data.
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Reconnect", meta = (ClampMin = "0"))
 	float ReconnectGraceSeconds = 90.f;
