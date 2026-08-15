@@ -262,9 +262,16 @@ private:
 	/**
 	 * How long a match with ZERO humans is given before it is cancelled and refunded.
 	 *
+	 * ⚠ A MATCH WITH NOBODY IN IT DOES NOT END ON ITS OWN. Bots keep dying and respawning, rounds keep
+	 * resolving, and on a dedicated fleet the process holds its GameLift session and its escrow until someone
+	 * notices. Measured in the S12 run: both clients dropped at 16:43 and the server was still resolving rounds
+	 * at 18:04. (Carried here from UAFLRoundManagerComponent with the watch itself.)
+	 *
 	 * THE GRACE IS NOT POLITENESS. A brief drop, a travel, or a host migration can empty PlayerArray for a few
 	 * seconds, and cancelling on the first empty frame would refund matches over a network blip -- a refund is
-	 * economically neutral but it still destroys a contest the players wanted. Any human returning resets it.
+	 * economically neutral but it still destroys a contest the players wanted. 60s is long enough that a
+	 * genuine reconnect keeps the match, and short enough that an abandoned session is measured in seconds of
+	 * fleet time rather than hours. Any human returning resets it.
 	 *
 	 * ⚠ DISTINCT FROM A FORFEIT, AND THE DISTINCTION IS THE WHOLE RULING. One player leaving forfeits and the
 	 * match settles normally around them; refunding a single leaver is exploitable. This fires only when the

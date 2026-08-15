@@ -143,9 +143,10 @@ void UAFLBattleRoyaleComponent::EndPlay(const EEndPlayReason::Type EndPlayReason
 	// fires only when the latch is still open -- a settled or already-refunded match returns immediately.
 	//
 	// It is NOT an abandonment watch and must not be mistaken for one: EndPlay also runs on level travel and
-	// server shutdown, so it recovers the pot rather than diagnosing why the match died. A BR-side humanless
-	// watch (the equivalent of UAFLRoundManagerComponent AbandonmentGraceSeconds) is a separate task, and
-	// until it exists this is the only thing standing between an abandoned staked field and a stranded pot.
+	// server shutdown, so it recovers the pot rather than diagnosing why the match died. The real watch now
+	// exists -- UAFLMatchPhaseComponent owns it and reaches this component through
+	// IAFLMatchCancelPolicy::ServerCancelAbandoned -- so this is the backstop behind it rather than the only
+	// line of defence it was when written.
 	if (HasAuth() && !bEconomySettled && EscrowLedger.IsValid() && EscrowLedger->IsStaked())
 	{
 		Server_CancelMatch(TEXT("component torn down with an unsettled pot"));

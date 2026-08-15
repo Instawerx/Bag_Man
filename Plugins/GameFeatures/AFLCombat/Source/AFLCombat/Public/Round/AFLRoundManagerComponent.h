@@ -81,7 +81,10 @@ enum class EAFLMatchCancelReason : uint8
  * Server_CancelMatch, terminal state 'cancelled-refund':
  *
  *   MaxConsecutiveReplays    -- the mode cannot resolve. Bounds a stalled series (observed: 219 rounds at 0-0).
- *   AbandonmentGraceSeconds  -- there is nobody left to resolve it. Bounds an empty one (observed: 80 minutes).
+ *   the humanless watch      -- there is nobody left to resolve it. Bounds an empty one (observed: 80 minutes).
+ *                               NOW ON UAFLMatchPhaseComponent, reaching this component through
+ *                               IAFLMatchCancelPolicy::ServerCancelAbandoned. The guarantee is unchanged; only
+ *                               the clock moved, so that battle royale inherits it too.
  *
  * Both were unbounded before, and the cost was not academic: a staked match that never ends holds its players'
  * escrow and its GameLift session for as long as the process lives.
@@ -130,21 +133,9 @@ public:
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") int32 MaxConsecutiveReplays = 3;
 
-	/**
-	 * THE ABANDONMENT WINDOW. Seconds with NO human participant connected before the match is cancelled.
-	 * 0 disables the watchdog.
-	 *
-	 * ⚠ A match with nobody in it does not end on its own. Bots keep dying and respawning, rounds keep
-	 * resolving, and on a dedicated fleet the process holds its GameLift session and its escrow until someone
-	 * notices. In the S12 run both clients dropped at 16:43 and the server was still resolving rounds at 18:04.
-	 *
-	 * THE GRACE IS NOT POLITENESS. A brief drop, a travel, or a host migration can empty PlayerArray for a few
-	 * seconds, and cancelling on the first empty frame would refund matches over a network blip -- a refund is
-	 * economically neutral but it still destroys a contest the players wanted. 60s is long enough that a
-	 * genuine reconnect keeps the match, and short enough that an abandoned session is measured in seconds of
-	 * fleet time rather than hours. Any human returning resets it to zero.
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "AFL|Round") float AbandonmentGraceSeconds = 60.f;
+	// AbandonmentGraceSeconds DELETED 2026-08-15. The window now lives on UAFLMatchPhaseComponent with the
+	// watch that reads it; this copy was left behind inert by the relocation and nothing read it. Its
+	// reasoning and the S12 measurement moved with it.
 
 	/** s6 traversal-density sampler: server-side per-living-pawn position emit cadence (seconds), the
 	 *  traversal heatmap's data source. ~1-1.5s = cheap + dense enough for a flow read. Telemetry-tunable. */
