@@ -103,8 +103,23 @@ public:
 	 *
 	 * Sends settle only when the result is staked, rating only when it is rated. Under R85 those coincide,
 	 * but they are checked independently because R77 keeps them independent booleans.
+	 *
+	 * ⚠ RETURNS WHETHER THE POT WAS DEALT WITH, AND A CALLER HOLDING ESCROW MUST READ IT. False means NOTHING
+	 * WAS SENT -- the result was refused as invalid, the economy is unwired, or the settle body could not be
+	 * built -- so a staked pot is still sitting in escrow and whatever backstop that caller has must still fire.
+	 *
+	 * It was void, and that cost a real defect: UAFLBattleRoyaleComponent latched `bEconomySettled` on
+	 * BuildFieldResult SUCCESS, which is a different question. A battle royale that loses a player to a
+	 * disconnect builds a result perfectly well -- every remaining PlayerArray member has a placement -- but the
+	 * leaver takes their rung with them, so the positions are NOT DENSE and this function refuses them one step
+	 * later. The latch was already set, the settlement never posted, and the EndPlay refund backstop was
+	 * suppressed by the very flag that was supposed to guard it. One disconnect stranded the whole pot.
+	 *
+	 * TRUE does NOT mean the money moved. The POSTs are asynchronous and their completions are logged, not
+	 * awaited. True means "validated and dispatched, do not refund behind me" -- which is exactly the question a
+	 * teardown backstop is asking, and the only one that can be answered synchronously.
 	 */
-	static void ReportMatchEnd(const UObject* WorldContext, const FAFLMatchResult& Result,
+	static bool ReportMatchEnd(const UObject* WorldContext, const FAFLMatchResult& Result,
 		int32 StakeAmountPerPosition, const FString& CurrencyCode);
 
 	/**

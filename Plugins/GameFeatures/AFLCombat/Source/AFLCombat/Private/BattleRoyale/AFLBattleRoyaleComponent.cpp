@@ -300,10 +300,22 @@ void UAFLBattleRoyaleComponent::Server_EndMatch(APlayerState* Winner)
 		FString BuildError;
 		if (FAFLMatchReporter::BuildFieldResult(this, MatchId, Placements, Econ, Result, BuildError))
 		{
-			bEconomySettled = true;
+			// ⚠ LATCHED ON THE REPORT, NOT ON THE BUILD. They are different questions and the gap between them
+			// strands money. A field that loses a player to a disconnect BUILDS perfectly well -- every
+			// remaining PlayerArray member has a placement -- but the leaver took their rung with them, so the
+			// positions are not dense and ReportMatchEnd refuses them one step later. Latching on the build set
+			// the flag anyway, the settlement never posted, and the EndPlay backstop below was suppressed by
+			// the very flag meant to guard it. One disconnect stranded the entire pot with no refund.
+			//
 			// Sends settle only when staked and rating only when rated; an unstaked LEAGUE PLAY field reports
-			// nothing and that is the correct outcome, not a skipped step.
-			FAFLMatchReporter::ReportMatchEnd(this, Result, Econ.StakePerPosition, Econ.CurrencyCode);
+			// nothing, returns TRUE, and correctly latches -- it has no pot for a backstop to refund.
+			bEconomySettled = FAFLMatchReporter::ReportMatchEnd(this, Result, Econ.StakePerPosition, Econ.CurrencyCode);
+			if (!bEconomySettled)
+			{
+				UE_LOG(LogAFLCombat, Error,
+					TEXT("AFL_BR: match %s built a result but REPORTED NOTHING -- the pot is untouched and the teardown refund is armed."),
+					*GetMatchId());
+			}
 		}
 		else
 		{

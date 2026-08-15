@@ -131,6 +131,56 @@ bool FAFLFieldResult_BotsInStakedRefused::RunTest(const FString&)
 }
 
 
+// ── THE LATCH: A REFUSED REPORT MUST NOT LOOK LIKE A SETTLED ONE ────────────────────────────────────────
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLFieldResult_RefusedReportLeavesPotArmed,
+	"AFL.Match.FieldResult.RefusedReportReturnsFalse",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FAFLFieldResult_RefusedReportLeavesPotArmed::RunTest(const FString&)
+{
+	// ══ THE SEQUENCE THAT STRANDED A POT ════════════════════════════════════════════════════════════════
+	//
+	// A staked nine-way field loses one player to a disconnect mid-match. Nothing books a placement for a
+	// leaver today, and they vanish from PlayerArray -- so BuildFieldResult SUCCEEDS (every remaining player
+	// does hold a placement) while the ladder has a hole where their rung was.
+	//
+	// The old code latched bEconomySettled on that build success. ReportMatchEnd then refused the result, sent
+	// nothing, and the teardown refund was suppressed by the flag meant to guard it. Pot escrowed, never
+	// settled, never refunded.
+	//
+	// ⚠ WHAT THIS CAN AND CANNOT REACH. ReportMatchEnd validates BEFORE it touches the world, so the refusal
+	// is reachable with a null context. The other two steps are not: BuildFieldResult needs a GameState and
+	// the teardown backstop needs a live ledger, so "builds successfully" and "the backstop refunds" are
+	// verified by reading, not here. What IS pinned is the hinge -- a refused report reports FALSE, which is
+	// the single bit the backstop reads.
+	// ⚠ THE REFUSAL LOGS AT ERROR, AND THE HARNESS COUNTS THAT AS A FAILURE unless it is declared. Caught by
+	// this test going red on its first run while the log showed the refusal working perfectly -- the harness
+	// was failing it, not the code. Declaring them keeps the loud log (which is the point of the refusal)
+	// without the test lying about it.
+	// ONLY the refusal is declared. An AddExpectedError that never fires is ITSELF a failure -- declaring
+	// "reported NOTHING for the pot" here went red with "did not occur", and correctly: both calls below
+	// return at an EARLIER exit (validation, then no-subsystem) and never reach that line. The harness caught
+	// a wrong expectation rather than wrong code, which is the distinction worth keeping.
+	AddExpectedError(TEXT("REFUSING to report"), EAutomationExpectedErrorFlags::Contains, 0);
+
+	FAFLMatchResult Holed = SoloField(9);
+	Holed.Participants[4].FinishingPosition = 9;   // position 5 missing, 9 twice -- a leaver's rung removed
+
+	FString Error;
+	TestFalse(TEXT("the holed result does not validate"), Holed.Validate(Error));
+	TestFalse(TEXT("and ReportMatchEnd REFUSES it -- returning false, so the pot stays armed"),
+		FAFLMatchReporter::ReportMatchEnd(nullptr, Holed, /*Stake=*/100, TEXT("VO")));
+
+	// The same call on a WELL-FORMED staked result also returns false here, and for a different reason: no
+	// online subsystem exists in an automation context, so nothing is dispatched. Both answers are honest --
+	// nothing was sent in either case, and a caller holding a pot must still refund it. This is asserted so
+	// nobody later reads the first result as "false means invalid".
+	TestFalse(TEXT("a VALID staked result also returns false with no subsystem -- nothing was sent"),
+		FAFLMatchReporter::ReportMatchEnd(nullptr, SoloField(9), 100, TEXT("VO")));
+	return true;
+}
+
+
 // ── THE ESCROW REFUSALS ─────────────────────────────────────────────────────────────────────────────────
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLFieldResult_EscrowRefusals,

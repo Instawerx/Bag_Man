@@ -1032,10 +1032,14 @@ namespace
  * round-win payment, no participation floor -- so anyone adding one is inventing economy design, not
  * repairing an omission. That is a ruling to seek, not a patch to write.
  */
-void FAFLMatchReporter::ReportMatchEnd(const UObject* WorldContext, const FAFLMatchResult& Result,
+bool FAFLMatchReporter::ReportMatchEnd(const UObject* WorldContext, const FAFLMatchResult& Result,
 	int32 StakeAmountPerPosition, const FString& CurrencyCode)
 {
 	const FString Wire = MatchIdToWire(Result.MatchId);
+
+	// ⚠ EVERY `return false` BELOW MEANS A STAKED POT IS STILL IN ESCROW. They are not tidy early-outs; each
+	// one is a caller's refund backstop being told it still has work to do. See the header for the defect that
+	// made this a bool.
 
 	// VALIDATE FIRST, ALWAYS. A settlement built from a malformed result is worse than no settlement,
 	// because the backend has no way to know the result was malformed -- it would accept it.
@@ -1043,30 +1047,39 @@ void FAFLMatchReporter::ReportMatchEnd(const UObject* WorldContext, const FAFLMa
 	if (!Result.Validate(ValidationError))
 	{
 		UE_LOG(LogAFLGameCore, Error, TEXT("AFL_MATCHREPORT: REFUSING to report match %s -- invalid result: %s"), *Wire, *ValidationError);
-		return;
+		return false;
 	}
 
 	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(WorldContext);
 	if (!Online)
 	{
 		UE_LOG(LogAFLGameCore, Warning, TEXT("AFL_MATCHREPORT: no online subsystem -- match %s not reported."), *Wire);
-		return;
+		return false;
 	}
 	if (!Online->IsMatchReportingConfigured())
 	{
 		// One clear line rather than three identical per-endpoint skips. Expected in a plain PIE session,
 		// where the env vars are absent by design.
+		//
+		// FALSE, even though this is the ordinary PIE case: nothing was sent. A caller with a pot must still
+		// refund it. In practice an unwired economy also escrowed nothing, so its ledger is null and its
+		// backstop no-ops -- but that is the ESCROW path's guarantee to make, not an assumption to bake in here.
 		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_MATCHREPORT: economy not wired (AFL_EARN_HMAC_KEY / AFL_*_URL absent) -- match %s not reported."), *Wire);
-		return;
+		return false;
 	}
 
 	// bStaked and bRanked are checked INDEPENDENTLY. R85 makes them coincide today, but R77 keeps them
 	// separate booleans on purpose, and a future tier that splits them must not silently skip one report.
+	// THE POT'S FATE, tracked separately from the rating's. An unstaked match has no pot, so there is nothing
+	// for a backstop to refund and it starts true; a staked one only earns it by dispatching a settlement.
+	bool bPotDispatched = !Result.bStaked;
+
 	if (Result.bStaked)
 	{
 		FString Body, Error;
 		if (BuildSettleBody(Result, StakeAmountPerPosition, CurrencyCode, TEXT("settled"), Body, Error))
 		{
+			bPotDispatched = true;
 			// WeakContext, not a raw capture: this lambda runs on an HTTP completion, seconds after match end
 			// and after travel may already have begun. A raw UObject* here would be a use-after-free on any
 			// player who left first, which is exactly the window this callback lives in.
@@ -1114,6 +1127,16 @@ void FAFLMatchReporter::ReportMatchEnd(const UObject* WorldContext, const FAFLMa
 			UE_LOG(LogAFLGameCore, Error, TEXT("AFL_MATCHREPORT: cannot rate match %s -- %s"), *Wire, *Error);
 		}
 	}
+
+	// ⚠ THE POT ONLY. A rating that failed to build is a real fault and is logged as one, but it moves no
+	// money -- refunding a settled pot because the LADDER could not be written would be far worse than a
+	// missing rating. The caller is asking one question and it is about the money.
+	if (!bPotDispatched)
+	{
+		UE_LOG(LogAFLGameCore, Error,
+			TEXT("AFL_MATCHREPORT: match %s reported NOTHING for the pot -- any escrow taken for it is still held."), *Wire);
+	}
+	return bPotDispatched;
 }
 
 void FAFLMatchReporter::ReportMatchCancelled(const UObject* WorldContext, const FAFLEscrowLedger& Ledger,
