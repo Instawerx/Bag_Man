@@ -7,6 +7,7 @@
 #include "Misc/Guid.h"   // A1.3b: FGuid MatchId + EGuidFormats
 #include "GameFramework/GameplayMessageSubsystem.h"   // FGameplayMessageListenerHandle (member)
 #include "AFLRoundRestartPolicy.h"                     // IAFLRoundRestartPolicy (the always-loaded AFLGameCore seam)
+#include "AFLMatchCancelPolicy.h"                      // IAFLMatchCancelPolicy -- the abandonment seam (watch lives on the phase component)
 #include "AFLMatchTierSource.h"                        // IAFLMatchTierSource (same seam -- bot aim tiering)
 
 #include "AFLRoundManagerComponent.generated.h"
@@ -96,7 +97,7 @@ enum class EAFLMatchCancelReason : uint8
  *                  ControllerCanRestart is private/non-virtual -> the gate lives on the game mode).
  */
 UCLASS(ClassGroup = (AFL), meta = (BlueprintSpawnableComponent))
-class AFLCOMBAT_API UAFLRoundManagerComponent : public UAFLMatchPopulationComponent, public IAFLRoundRestartPolicy, public IAFLMatchTierSource
+class AFLCOMBAT_API UAFLRoundManagerComponent : public UAFLMatchPopulationComponent, public IAFLRoundRestartPolicy, public IAFLMatchTierSource, public IAFLMatchCancelPolicy
 {
 	GENERATED_BODY()
 
@@ -289,15 +290,16 @@ private:
 	bool HasAuth() const;                                // GetOwner()->HasAuthority() (the GameState actor)
 	int32 AliveCount(int32 TeamId) const;                // enumerate PlayerArray by team, count !IsDeadOrDying
 
-	/** Human PARTICIPANTS currently connected -- not bots, not pure spectators. The abandonment test: a lobby
-	 *  holding only bots (or only an observer) has nobody the match is being played for. */
+	/** Human PARTICIPANTS currently connected -- not bots, not pure spectators. */
 	int32 CountHumanParticipants() const;
 
-	/** The abandonment watchdog, driven from the (already running) server tick. Accumulates time with no human
-	 *  participant present and cancels the match once it passes AbandonmentGraceSeconds; any human returning
-	 *  resets the accumulator. Runs in EVERY phase, not just RoundActive -- a lobby can empty during warmup,
-	 *  between rounds or at half time just as easily as mid-round. */
-	void Server_TickAbandonmentWatch(float DeltaTime);
+	//~IAFLMatchCancelPolicy -- the abandonment seam. The WATCH itself moved to UAFLMatchPhaseComponent on
+	// 2026-08-15 (it was in the MATCH PLAY experiences and in neither BR one, so it could never see an
+	// abandoned battle royale). This component still owns what abandonment MEANS here: stopping the round FSM,
+	// unbinding deaths, and refunding off the ledger.
+	virtual bool IsMatchLiveForAbandonment() const override;
+	virtual void ServerCancelAbandoned() override;
+	//~End of IAFLMatchCancelPolicy
 
 	int32 TeamHoldingCore() const;                       // the team with a pawn carrying State.Extracting (else INDEX_NONE)
 	void BindDeathDelegates();                           // full reconcile: rebind OnDeathStarted across PlayerArray

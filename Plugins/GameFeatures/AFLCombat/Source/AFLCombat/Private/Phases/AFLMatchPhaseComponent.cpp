@@ -12,6 +12,7 @@
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Online/AFLGameLiftHostSubsystem.h"   // S12-E: seal the roster (DENY_ALL) once the match is live
 #include "Teams/AFLMatchmakerDataProvider.h"    // the arrival gate's roster: CountRosterMembers + RosterAbsentees
+#include "AFLMatchCancelPolicy.h"               // the abandonment seam -- one watch, both modes
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Controller.h"
@@ -189,6 +190,13 @@ void UAFLMatchPhaseComponent::StartSpineFromWarmup()
 	StartPhaseByClass(WarmupPhaseClass, TAG_AFL_GamePhase_Warmup_Driver);
 	const int32 Covered = SetMatchTagOnAllPawns(TAG_State_Match_Warmup_Driver, /*bPresent=*/true);
 
+	// THE HUMANLESS WATCH RUNS FOR THE WHOLE SPINE, not just the playing phase -- it gates itself on
+	// IsMatchLiveForAbandonment rather than on a phase, so it is correct to arm it once here and leave it.
+	// A restart re-enters through this function and SetTimer replaces rather than stacks.
+	HumanlessSeconds = 0.f;
+	GetWorld()->GetTimerManager().SetTimer(AbandonmentTimer, this,
+		&UAFLMatchPhaseComponent::TickAbandonmentWatch, AbandonmentPollSeconds, /*loop=*/true);
+
 	const float Warmup = FMath::Max(0.1f, CVarAFLMatchWarmupDuration.GetValueOnGameThread());
 	GetWorld()->GetTimerManager().SetTimer(WarmupTimer, this, &UAFLMatchPhaseComponent::EnterPlaying, Warmup, /*loop=*/false);
 	// The COUNT is the proof. This sweep runs during game-feature activation, before any player has
@@ -268,6 +276,83 @@ int32 UAFLMatchPhaseComponent::CountHumanParticipants() const
 		}
 	}
 	return Count;
+}
+
+IAFLMatchCancelPolicy* UAFLMatchPhaseComponent::FindCancelPolicy() const
+{
+	// Same lookup AAFLGameMode uses for IAFLRoundRestartPolicy: iterate the GameState's components and take the
+	// first implementer. Null is ordinary, not an error -- the mode GameFeature may not have loaded yet.
+	if (const AGameStateBase* GS = GetGameStateChecked<AGameStateBase>())
+	{
+		TArray<UActorComponent*> Comps;
+		GS->GetComponents(Comps);
+		for (UActorComponent* Comp : Comps)
+		{
+			if (IAFLMatchCancelPolicy* Policy = Cast<IAFLMatchCancelPolicy>(Comp))
+			{
+				return Policy;
+			}
+		}
+	}
+	return nullptr;
+}
+
+void UAFLMatchPhaseComponent::TickAbandonmentWatch()
+{
+	IAFLMatchCancelPolicy* Policy = FindCancelPolicy();
+
+	// Before a match starts nothing is staked and no session is held on anyone's behalf; after it concludes
+	// there is nothing left to cancel. Both RESET rather than merely skip, so a stale accumulator cannot
+	// survive into the next match on a reused component.
+	if (!Policy || !Policy->IsMatchLiveForAbandonment() || AbandonmentGraceSeconds <= 0.f)
+	{
+		HumanlessSeconds = 0.f;
+		return;
+	}
+
+	if (CountHumanParticipants() > 0)
+	{
+		// ARMS HERE, ONCE, AND NEVER DISARMS. From this moment the players WERE here, so a later emptiness
+		// genuinely means they left.
+		if (!bAnyHumanEverJoined)
+		{
+			bAnyHumanEverJoined = true;
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: first human participant present -- abandonment watch ARMED."));
+		}
+		if (HumanlessSeconds > 0.f)
+		{
+			UE_LOG(LogAFLCombat, Log,
+				TEXT("AFL_PHASE: a human participant is present again after %.0fs -- abandonment watch reset."), HumanlessSeconds);
+			HumanlessSeconds = 0.f;
+		}
+		return;
+	}
+
+	// ── NOBODY HAS EVER ARRIVED: NOT AN ABANDONMENT, ON ANY PATH ────────────────────────────────────────
+	// You cannot leave a match you never joined. Under GameLift the arrival gate makes this unreachable -- a
+	// match cannot start without a human. It guards the paths with no such gate: PIE, listen server, and the
+	// launch-line dedicated runs used to test without a backend, where a humanless match once cancelled itself
+	// at the grace and the operator then joined a match that had been dead for 77 seconds.
+	if (!bAnyHumanEverJoined)
+	{
+		return;
+	}
+
+	const bool bFirstEmptyTick = (HumanlessSeconds <= 0.f);
+	HumanlessSeconds += AbandonmentPollSeconds;
+	if (bFirstEmptyTick)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_PHASE: NO HUMAN PARTICIPANTS REMAIN -- cancelling in %.0fs unless one returns. (A SINGLE "
+			     "leaver forfeits and does not reach here; this is the empty-field case.)"),
+			AbandonmentGraceSeconds);
+	}
+
+	if (HumanlessSeconds >= AbandonmentGraceSeconds)
+	{
+		HumanlessSeconds = 0.f;
+		Policy->ServerCancelAbandoned();
+	}
 }
 
 EAFLStartGateDecision UAFLMatchPhaseComponent::EvaluateStartGate(

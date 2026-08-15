@@ -6,6 +6,7 @@
 #include "Misc/Guid.h"                                    // FGuid MatchId + EGuidFormats (staking contract id)
 #include "Match/AFLMatchResultTypes.h"                     // FAFLMatchParticipant -- DepartedParticipants holds them BY VALUE
 #include "AFLRoundRestartPolicy.h"                        // IAFLRoundRestartPolicy (the always-loaded AFLGameCore seam)
+#include "AFLMatchCancelPolicy.h"                        // IAFLMatchCancelPolicy -- BR inherits the ONE humanless watch
 
 #include "AFLBattleRoyaleComponent.generated.h"
 
@@ -49,7 +50,7 @@ enum class EAFLBRPhase : uint8
  * NET SAFETY: plain replicated UPROPERTYs only (no custom net-serialized struct), per the round manager rule.
  */
 UCLASS(ClassGroup = (AFL), meta = (BlueprintSpawnableComponent))
-class AFLCOMBAT_API UAFLBattleRoyaleComponent : public UAFLMatchPopulationComponent, public IAFLRoundRestartPolicy
+class AFLCOMBAT_API UAFLBattleRoyaleComponent : public UAFLMatchPopulationComponent, public IAFLRoundRestartPolicy, public IAFLMatchCancelPolicy
 {
 	GENERATED_BODY()
 
@@ -92,6 +93,16 @@ public:
 	// GetTeamSideIndex default (INDEX_NONE) is correct -- BR has no fixed team sides.
 	virtual bool ShouldBlockRestart() const override { return bRespawnBlocked; }
 	//~End IAFLRoundRestartPolicy
+
+	//~IAFLMatchCancelPolicy -- BR now inherits the ONE humanless watch, which lives on UAFLMatchPhaseComponent.
+	// Before this, that watch was owned by UAFLRoundManagerComponent -- present in the MATCH PLAY experiences
+	// and in NEITHER battle royale one -- so an abandoned staked BR held its pot until the process tore down.
+	//
+	// ⚠ THIS IS THE EMPTY-FIELD CASE ONLY. A single leaver FORFEITS and the match settles normally around them;
+	// refunding one is exploitable. Nobody can farm "everybody left".
+	virtual bool IsMatchLiveForAbandonment() const override { return bMatchStarted && !bEconomySettled && Phase != EAFLBRPhase::MatchEnd; }
+	virtual void ServerCancelAbandoned() override { Server_CancelMatch(TEXT("no human participants remain")); }
+	//~End IAFLMatchCancelPolicy
 
 protected:
 	virtual void BeginPlay() override;

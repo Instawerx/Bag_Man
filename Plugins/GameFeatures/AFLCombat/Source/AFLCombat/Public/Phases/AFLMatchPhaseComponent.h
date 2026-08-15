@@ -253,6 +253,38 @@ private:
 	/** Held-seconds at which the first human appeared; negative until one does. The grace measures from here. */
 	float FirstArrivalHeldSeconds = -1.f;
 
+	// ── THE HUMANLESS WATCH ─────────────────────────────────────────────────────────────────────────────
+	// Relocated here from UAFLRoundManagerComponent, which is in the MATCH PLAY experiences and in NEITHER
+	// battle royale one -- so an abandoned staked BR held its pot until the process tore down. This component
+	// is resident in both modes and already counts humans for the arrival gate, so one clock now serves both.
+	// It reaches the mode through IAFLMatchCancelPolicy; see that header for why duplication was rejected.
+
+	/**
+	 * How long a match with ZERO humans is given before it is cancelled and refunded.
+	 *
+	 * THE GRACE IS NOT POLITENESS. A brief drop, a travel, or a host migration can empty PlayerArray for a few
+	 * seconds, and cancelling on the first empty frame would refund matches over a network blip -- a refund is
+	 * economically neutral but it still destroys a contest the players wanted. Any human returning resets it.
+	 *
+	 * ⚠ DISTINCT FROM A FORFEIT, AND THE DISTINCTION IS THE WHOLE RULING. One player leaving forfeits and the
+	 * match settles normally around them; refunding a single leaver is exploitable. This fires only when the
+	 * field is EMPTY, which nobody can farm. 60s carried over unchanged from the round manager.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Match") float AbandonmentGraceSeconds = 60.f;
+
+	void  TickAbandonmentWatch();
+	/** The first mode component on the GameState implementing IAFLMatchCancelPolicy, or null before one loads. */
+	class IAFLMatchCancelPolicy* FindCancelPolicy() const;
+
+	FTimerHandle AbandonmentTimer;
+	float HumanlessSeconds = 0.f;
+	/** Armed by the first human ever seen, and never disarmed. You cannot abandon a match you never joined --
+	 *  without this a humanless PIE or launch-line match cancels itself at the grace, which it once did. */
+	bool  bAnyHumanEverJoined = false;
+
+	/** Poll cadence for the watch. 1s against a 60s grace; the old tick ran at 4Hz for no benefit here. */
+	static constexpr float AbandonmentPollSeconds = 1.f;
+
 	bool bWindowOpen = false;
 	bool bMatchEnded = false;           // PostGame reached -> cadence no-ops, terminal
 	bool bExternalMatchEndAuthority = false;   // round FSM owns match-end -> the 480s time-conclude no-ops

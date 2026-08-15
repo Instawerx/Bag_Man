@@ -151,7 +151,8 @@ FAFLMatchReporter::FMatchEconomics FAFLMatchReporter::ReadEconomics(const UObjec
 }
 
 bool FAFLMatchReporter::BuildTeamSeriesResult(const UObject* WorldContext, const FGuid& MatchId, int32 WinningTeamId,
-	const FMatchEconomics& Economics, FAFLMatchResult& OutResult, FString& OutError)
+	const FMatchEconomics& Economics, const FAFLEscrowLedger* Ledger,
+	FAFLMatchResult& OutResult, FString& OutError)
 {
 	OutResult = FAFLMatchResult();
 	OutError.Reset();
@@ -221,9 +222,40 @@ bool FAFLMatchReporter::BuildTeamSeriesResult(const UObject* WorldContext, const
 		OutResult.Participants.Add(MoveTemp(P));
 	}
 
+	// ── THE PLAYERS WHO STAKED AND ARE NO LONGER HERE ───────────────────────────────────────────────────
+	// Operator ruling 2026-08-15: a MATCH PLAY leaver forfeits but SHARES THEIR TEAM'S PAYOUT if that team
+	// wins. Their stake funded the position's unit, so withholding it is refund-by-omission -- and it would
+	// hand a losing player a grief button. PlayerArray cannot describe them; the ledger can, and already does.
+	if (Ledger)
+	{
+		TSet<FString> Present;
+		for (const FAFLMatchParticipant& P : OutResult.Participants)
+		{
+			if (!P.ReconcileId.IsEmpty()) { Present.Add(P.ReconcileId); }
+		}
+		for (const FAFLEscrowedEntry& E : Ledger->Entries)
+		{
+			if (E.ReconcileId.IsEmpty() || Present.Contains(E.ReconcileId))
+			{
+				continue;
+			}
+			FAFLMatchParticipant Gone;
+			Gone.bIsBot = false;              // bots never appear in the ledger -- they do not stake (R85)
+			Gone.ReconcileId = E.ReconcileId;
+			Gone.TeamId = E.TeamId;
+			// The SAME derivation a present player gets. A two-team series resolves over exactly 2, so a
+			// leaver on the winning side is in first place and is paid, which is the whole of the ruling.
+			Gone.FinishingPosition = (E.TeamId == WinningTeamId) ? 1 : 2;
+			OutResult.Participants.Add(MoveTemp(Gone));
+			UE_LOG(LogAFLGameCore, Log,
+				TEXT("AFL_MATCHREPORT: %s left before match end -- settled from the ledger at position %d (team %d)."),
+				*E.ReconcileId, Gone.FinishingPosition, E.TeamId);
+		}
+	}
+
 	if (OutResult.Participants.Num() == 0)
 	{
-		OutError = TEXT("no participants in PlayerArray at match end");
+		OutError = TEXT("no participants at match end -- neither present nor on the escrow ledger");
 		return false;
 	}
 	return true;

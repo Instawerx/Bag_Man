@@ -218,9 +218,24 @@ public:
 	 *
 	 * Returns false with a reason when the world cannot produce a settleable result (no players, a human
 	 * with no reconcile id, and so on) rather than emitting a half-built one.
+	 *
+	 * ⚠ `Ledger` IS HOW A LEAVER STILL GETS PAID, and it is nullable only because an unstaked match has none.
+	 * Operator ruling 2026-08-15: a MATCH PLAY player who disconnects FORFEITS but still SHARES THEIR TEAM'S
+	 * PAYOUT if that team wins -- their stake funded the position's unit and the team won the series, so
+	 * withholding it is refund-by-omission AND it would let a losing player grief by leaving.
+	 *
+	 * PlayerArray alone cannot do that: a leaver is gone from it. The escrow ledger can, and needs no new
+	 * capture to do it -- it already holds { ReconcileId, TeamId, Amount } for EVERY human who staked, it is
+	 * held by the round manager for the match lifetime, and bots never appear in it. Any ledger entry whose id
+	 * is not among the present players is added here, with their position derived from the winner exactly as a
+	 * present player's is.
+	 *
+	 * An unstaked match passes null and nothing changes: with no ledger there is no pot, and R85 makes it
+	 * unrated too, so nobody is owed anything a leaver could miss.
 	 */
 	static bool BuildTeamSeriesResult(const UObject* WorldContext, const FGuid& MatchId, int32 WinningTeamId,
-		const FMatchEconomics& Economics, FAFLMatchResult& OutResult, FString& OutError);
+		const FMatchEconomics& Economics, const FAFLEscrowLedger* Ledger,
+		FAFLMatchResult& OutResult, FString& OutError);
 
 	/**
 	 * Build the result for a FREE-FOR-ALL field (BATTLE ROYALE) from live player state plus the placements.

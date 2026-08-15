@@ -231,11 +231,13 @@ void UAFLRoundManagerComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 			UE_LOG(LogAFLCombat, Log, TEXT("AFL_PHASE: warmup countdown -> %.0fs"), NewWarmup);
 		}
 
-		// DEFECT 2: the abandonment watchdog. Deliberately ABOVE the RoundActive gate below -- a lobby can
-		// empty during warmup, between rounds or at half time, and a watchdog that only ran mid-round would
-		// leave those states hanging exactly as long as no watchdog at all. DeltaTime is the interval-tick
-		// accumulated delta, so the countdown is real seconds regardless of TickInterval.
-		Server_TickAbandonmentWatch(DeltaTime);
+		// THE ABANDONMENT WATCHDOG MOVED, 2026-08-15. It now lives on UAFLMatchPhaseComponent and reaches this
+		// component through IAFLMatchCancelPolicy. The reason is not tidiness: this component is in the MATCH
+		// PLAY experiences and in NEITHER battle royale one, so the watch it owned could never see an abandoned
+		// BR -- a staked BR held its pot until the process tore down. The phase component is resident in both.
+		//
+		// Its properties are unchanged and are now that component's: still 60s, still ABOVE any round gate (a
+		// lobby can empty during warmup, between rounds or at half time), still reset by any human returning.
 	}
 
 	if (!HasAuth() || Phase != EAFLRoundPhase::RoundActive)
@@ -645,7 +647,11 @@ void UAFLRoundManagerComponent::Server_EndMatch(int32 WinningTeamId)
 
 		FAFLMatchResult Result;
 		FString BuildError;
-		if (FAFLMatchReporter::BuildTeamSeriesResult(this, MatchId, WinningTeamId, Econ, Result, BuildError))
+		// THE LEDGER IS PASSED SO LEAVERS ARE STILL PAID. Operator ruling 2026-08-15: a MATCH PLAY player who
+		// disconnects forfeits but SHARES THEIR TEAM'S PAYOUT if that team wins -- their stake funded the
+		// position's unit. PlayerArray cannot describe them by now; the ledger has held them since match start.
+		// Null on an unstaked match, where there is no pot and nobody is owed anything to miss.
+		if (FAFLMatchReporter::BuildTeamSeriesResult(this, MatchId, WinningTeamId, Econ, EscrowLedger.Get(), Result, BuildError))
 		{
 			FAFLMatchReporter::ReportMatchEnd(this, Result, Econ.StakePerPosition, Econ.CurrencyCode);
 		}
@@ -682,76 +688,21 @@ int32 UAFLRoundManagerComponent::CountHumanParticipants() const
 	return Count;
 }
 
-void UAFLRoundManagerComponent::Server_TickAbandonmentWatch(float DeltaTime)
+bool UAFLRoundManagerComponent::IsMatchLiveForAbandonment() const
 {
-	// Before the match starts nothing has been staked and no session is being held on anyone's behalf, and
-	// after it concludes there is nothing left to cancel. Both reset the clock rather than just skipping, so a
-	// stale accumulator cannot survive into the next match on a reused component.
-	if (!bMatchStarted || bMatchConcluded || AbandonmentGraceSeconds <= 0.f)
-	{
-		HumanlessSeconds = 0.f;
-		return;
-	}
-
-	if (CountHumanParticipants() > 0)
-	{
-		// ── ARRIVAL GATE ARMS HERE, ONCE, AND NEVER DISARMS ──────────────────────────────────────────────
-		// From this moment the watch is doing the job it was written for: the players WERE here, so a later
-		// emptiness genuinely means they left.
-		if (!bAnyHumanEverJoined)
-		{
-			bAnyHumanEverJoined = true;
-			UE_LOG(LogAFLCombat, Log,
-				TEXT("AFL_ROUND: first human participant present -- abandonment watch ARMED."));
-		}
-		if (HumanlessSeconds > 0.f)
-		{
-			UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUND: a human participant is present again after %.0fs -- abandonment watch reset."),
-				HumanlessSeconds);
-			HumanlessSeconds = 0.f;
-		}
-		return;
-	}
-
-	// ── NOBODY HAS EVER ARRIVED: NOT AN ABANDONMENT, ON ANY PATH ─────────────────────────────────────────
-	//
-	// You cannot leave a match you never joined. This is the same distinction the old no-show branch drew --
-	// but that one was written `IsUnderGameLift() && !bAnyHumanEverJoined`, so OFF GameLift it fell straight
-	// through to the abandonment accumulation below and cancelled at the 60s grace. That is not a regression
-	// from the gate consolidation; it predates it, and it made every launch-line and PIE run a race:
-	//
-	//   MEASURED 2026-08-14, launch-line 3v3, operator connecting a real client by hand:
-	//     02.44.50.219  match START (teams 1 v 2)          <- warmup expired, 0 humans present
-    //     02.44.50.489  NO HUMAN PARTICIPANTS REMAIN ... cancelling in 60s
-	//     02.45.50.253  MATCH CANCELLED -- ABANDONED, score 0-0, NO RESULT
-	//     02.47.05.354  the human joins                    <- 77s after the match was already dead
-	//   They then saw "ROUND 1 / MATCH END" on the card, a dead timer, and no damage -- because PostGame
-	//   applies State.Match.Ended and blocks every fire ability. One defect, four symptoms.
-	//
-	// The GameLift no-show bound is NOT reinstated here. UAFLMatchPhaseComponent holds Warmup->Playing until
-	// the payload has arrived AND a human is present (871d0eea), so under GameLift this branch is unreachable
-	// -- the latch is already true by the time any match exists. This guard exists for the paths that have no
-	// such gate: PIE, listen server, and the launch-line dedicated runs used to test without a backend. There
-	// a humanless match simply waits, which is correct -- it is a dev server, and the operator ends it.
-	if (!bAnyHumanEverJoined)
-	{
-		return;
-	}
-
-	const bool bFirstEmptyTick = (HumanlessSeconds <= 0.f);
-	HumanlessSeconds += DeltaTime;
-	if (bFirstEmptyTick)
-	{
-		UE_LOG(LogAFLCombat, Warning,
-			TEXT("AFL_ROUND: NO HUMAN PARTICIPANTS REMAIN in match %s (round %d, score %d-%d) -- cancelling in %.0fs unless one returns."),
-			*GetMatchId(), CurrentRound, Team0Score, Team1Score, AbandonmentGraceSeconds);
-	}
-
-	if (HumanlessSeconds >= AbandonmentGraceSeconds)
-	{
-		Server_CancelMatch(EAFLMatchCancelReason::Abandoned);
-	}
+	// The same window the watch used when it lived here: between match start and match conclusion.
+	return bMatchStarted && !bMatchConcluded;
 }
+
+void UAFLRoundManagerComponent::ServerCancelAbandoned()
+{
+	Server_CancelMatch(EAFLMatchCancelReason::Abandoned);
+}
+
+// Server_TickAbandonmentWatch DELETED 2026-08-15 -- the humanless watch now lives on
+// UAFLMatchPhaseComponent and reaches this component through IAFLMatchCancelPolicy. Removed rather than
+// left dormant: two implementations of one policy is precisely the drift that made AreBotsPermitted
+// necessary, and a dead copy of a money-critical clock is the worst kind to leave lying around.
 
 void UAFLRoundManagerComponent::Server_CancelMatch(EAFLMatchCancelReason Reason)
 {
