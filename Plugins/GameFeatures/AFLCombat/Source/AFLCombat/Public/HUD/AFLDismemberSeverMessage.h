@@ -40,7 +40,22 @@ struct AFLCOMBAT_API FAFLDismemberSeverMessage
 	UPROPERTY(BlueprintReadWrite, Category="AFL|Dismember")
 	bool bLethal = false;
 
-	/** Damage that spilled PAST the zone-HP into the body chain on the depleting hit. */
+	/**
+	 * EVERYTHING THAT REACHED THE BODY from the depleting hit -- spill AND bleed-through.
+	 *
+	 * ⚠ THIS SAID "damage that spilled PAST the zone-HP" AND THAT STOPPED BEING TRUE AT e25f6dda. Limbs now
+	 * absorb 65% and always pass the rest on, so a depleting hit reaches the body by two routes:
+	 *
+	 *     SPILL  damage in excess of the zone's HP        (EffectiveDamage - ZoneHP)
+	 *     BLEED  the 35% withheld from what it DID absorb (0.35 * Absorbed)
+	 *
+	 * On a 1.2 hit into a 0.8 limb that is 0.40 + 0.28 = 0.68, and this field carries 0.68.
+	 *
+	 * THE BROADER MEANING IS THE CORRECT ONE, not merely the one the code happens to produce. After
+	 * bleed-through, "damage that spilled past the zone HP" describes neither the damage dealt nor the damage
+	 * the body received -- it is a bookkeeping figure for a model that no longer runs. A consumer scaling a
+	 * gib impulse, or asking how hard the shot carried through, wants what actually landed.
+	 */
 	UPROPERTY(BlueprintReadWrite, Category="AFL|Dismember")
 	double Overflow = 0.0;
 

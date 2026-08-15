@@ -383,8 +383,18 @@ bool FAFLPipeline_T6_Headshot_Overkill::RunTest(const FString& Parameters)
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-// T-LIMB-1 — chip, no spill, no sever: LeftArmHealth=2.0, deal 1.2 at upperarm_l
-// -> arm 2.0->0.8, body untouched (Health 100), no sever.
+// T-LIMB-1 — chip + BLEED, no spill, no sever: LeftArmHealth=2.0, deal 1.2 at upperarm_l
+// -> arm 2.0->0.8, body takes the 35% bleed (Health 100->99.58), no sever.
+//
+// ⚠ THE BODY IS NO LONGER UNTOUCHED, AND THAT IS THE WHOLE POINT OF e25f6dda. This test asserted
+// Health==100 because a limb with HP above the incoming damage used to consume the hit ENTIRELY:
+// `Absorbed == EffectiveDamage`, so the subtraction landed on exactly zero. Measured in a 36-player PIE,
+// that ate 46 of 161 damage events, severed ZERO limbs all match, and left 30 of 35 eliminations to the
+// shrinking zone -- a battle royale decided by weather rather than by shooting.
+//
+// A limb now absorbs 65% and ALWAYS passes the rest to the body: EffectiveDamage -= Absorbed * 0.65.
+// So 1.2 absorbed leaks 0.35 * 1.2 = 0.42, and the arm still loses the full 1.2 (Absorbed is capped at
+// ZoneHP, unchanged). These four numbers are arithmetic under that model, not a re-tuning.
 // -----------------------------------------------------------------------------
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLZone_T_LIMB_1_Chip,
     "AFL.Combat.Pipeline.T_LIMB_1_Chip", AFL_TEST_FLAGS)
@@ -394,15 +404,26 @@ bool FAFLZone_T_LIMB_1_Chip::RunTest(const FString& Parameters)
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute(), 2.0f);
     Fx.FireDamageAtBone(/*Base=*/1.2f, /*Bone=*/TEXT("upperarm_l"));
     TestEqual(TEXT("LeftArmHealth"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute()), 0.8f, 0.05f);
-    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        100.0f, 0.05f);
+    // 100 - (0.35 * 1.2) = 99.58. A landed shot is never free (e25f6dda).
+    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        99.58f, 0.05f);
     TestEqual(TEXT("Shield"),        Fx.ReadAttribute(UAFLAttributeSet_Combat::GetShieldAttribute()),        0.0f, 0.05f);
     TestEqual(TEXT("SeverCount"),    Fx.ObservedSeverCount, 0);
     return true;
 }
 
 // -----------------------------------------------------------------------------
-// T-LIMB-2 — deplete -> sever + spill: LeftArmHealth=0.8, deal 1.2 at upperarm_l
-// -> arm 0.8->0.0 (floored), 0.4 spills to Health (100->99.6), sever LeftArm non-lethal.
+// T-LIMB-2 — deplete -> sever + spill + bleed: LeftArmHealth=0.8, deal 1.2 at upperarm_l
+// -> arm 0.8->0.0 (floored), 0.68 reaches Health (100->99.32), sever LeftArm non-lethal.
+//
+// ⚠ 0.68, NOT 0.4, AND THE DIFFERENCE IS TWO SEPARATE ROUTES TO THE BODY (e25f6dda):
+//     0.40  SPILL  -- damage in excess of the zone's HP: 1.2 - 0.8
+//     0.28  BLEED  -- the 35% the limb did not absorb of what it DID take: 0.35 * 0.8
+//   EffectiveDamage = 1.2 - (0.8 * 0.65) = 0.68, and SeverOverflow IS that figure.
+//
+// The commit that introduced bleed-through addressed overflow only for a limb ALREADY at zero ("Absorbed
+// is capped at ZoneHP, so once the limb is gone this reduces to the old behaviour exactly") -- true, and
+// silent about the DEPLETING hit, which is the only hit that ever broadcasts a sever. So this assertion
+// went red for eight days while the code was right.
 // -----------------------------------------------------------------------------
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLZone_T_LIMB_2_SeverSpill,
     "AFL.Combat.Pipeline.T_LIMB_2_SeverSpill", AFL_TEST_FLAGS)
@@ -412,11 +433,15 @@ bool FAFLZone_T_LIMB_2_SeverSpill::RunTest(const FString& Parameters)
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute(), 0.8f);
     Fx.FireDamageAtBone(/*Base=*/1.2f, /*Bone=*/TEXT("upperarm_l"));
     TestEqual(TEXT("LeftArmHealth"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute()), 0.0f, 0.05f);
-    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        99.6f, 0.05f);
+    // 100 - 0.68 = 99.32, where 0.68 = 0.40 spill + 0.28 bleed.
+    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        99.32f, 0.05f);
     TestEqual(TEXT("SeverCount"),    Fx.ObservedSeverCount, 1);
     TestEqual(TEXT("SeverZone"),     static_cast<int32>(Fx.LastSeverZone), static_cast<int32>(EAFLBodyZone::LeftArm));
     TestFalse(TEXT("SeverLethal"),   Fx.LastSeverLethal);
-    TestEqual(TEXT("SeverOverflow"), static_cast<float>(Fx.LastSeverOverflow), 0.4f, 0.05f);
+    // OVERFLOW IS EVERYTHING THAT REACHED THE BODY, not the pre-bleed spill. Its declaration comment said
+    // "spilled PAST the zone-HP", which stopped describing the value at e25f6dda and has been corrected --
+    // after bleed-through, "past the zone HP" names neither the damage dealt nor the damage received.
+    TestEqual(TEXT("SeverOverflow"), static_cast<float>(Fx.LastSeverOverflow), 0.68f, 0.05f);
     return true;
 }
 
@@ -439,8 +464,13 @@ bool FAFLZone_T_LIMB_3_Inert::RunTest(const FString& Parameters)
 }
 
 // -----------------------------------------------------------------------------
-// T-LIMB-4 — armor respected: Armor=100 (50% mitig), LeftArmHealth=2.0, Base=2.0
-// -> EffectiveDamage=1.0 (post-mitigation); arm absorbs the POST-mitigation value 2.0->1.0.
+// T-LIMB-4 — armor respected, and bled AFTER mitigation: Armor=100 (50% mitig), LeftArmHealth=2.0, Base=2.0
+// -> EffectiveDamage=1.0 (post-mitigation); arm absorbs the POST-mitigation 1.0 (2.0->1.0), body takes
+//    0.35 * 1.0 = 0.35 (Health 100->99.65).
+//
+// ⚠ THE ORDER IS THE ASSERTION HERE. Bleed-through is computed on the POST-mitigation figure, so armour
+// still halves the shot before the limb sees it -- 2.0 base bleeds 0.35, not 0.70. Armour reducing what
+// bleeds is the difference between armour mattering and armour being a rounding error (e25f6dda).
 // -----------------------------------------------------------------------------
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAFLZone_T_LIMB_4_Armor,
     "AFL.Combat.Pipeline.T_LIMB_4_Armor", AFL_TEST_FLAGS)
@@ -451,7 +481,8 @@ bool FAFLZone_T_LIMB_4_Armor::RunTest(const FString& Parameters)
     Fx.OverrideAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute(), 2.0f);
     Fx.FireDamageAtBone(/*Base=*/2.0f, /*Bone=*/TEXT("upperarm_l"));
     TestEqual(TEXT("LeftArmHealth"), Fx.ReadAttribute(UAFLAttributeSet_Combat::GetLeftArmHealthAttribute()), 1.0f, 0.05f);
-    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        100.0f, 0.05f);
+    // 100 - (0.35 * 1.0) = 99.65. Armour halved the shot BEFORE the limb bled it.
+    TestEqual(TEXT("Health"),        Fx.ReadAttribute(ULyraHealthSet::GetHealthAttribute()),        99.65f, 0.05f);
     TestEqual(TEXT("SeverCount"),    Fx.ObservedSeverCount, 0);
     return true;
 }
