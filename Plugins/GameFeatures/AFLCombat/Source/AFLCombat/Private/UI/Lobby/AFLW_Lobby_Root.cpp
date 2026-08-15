@@ -680,18 +680,56 @@ void UAFLW_Lobby_Root::CollectScopedQueues(TArray<const FAFLLobbyQueue*>& Out) c
 		//  2. An unknown count sorts BELOW a known one rather than as zero -- INDEX_NONE does that for free.
 		//     Ranking "we could not read it" as "nobody is here" is the collapse §3.2 forbids, and a sort
 		//     order is just as much a claim as a label.
+		//  3. ⚠ PROXIMITY TO FILLING, NOT RAW HEAD COUNT -- and this is §3.3's own intent, corrected for a
+		//     list that mixes bracket sizes. Raw population is only comparable between cells of the same
+		//     size. Against 1v1, BR_9, BR_20 and BR_36 in one list it inverts: `20 / 36` outranks `7 / 9`
+		//     while `7 / 9` is the one about to fire and `20 / 36` still needs sixteen people. Ranking by
+		//     the GAP puts the cell nearest firing on top, which is what "self-select toward the populated
+		//     option, which shortens waits and self-reinforces" was actually asking for.
+		//
+		//     This matters most exactly where the population is thinnest. Twelve staked cells and nine
+		//     players is a smear in which every cell looks dead; the list's job is to funnel them into the
+		//     same one, and it is the ONLY mechanism that does so -- poker lobbies default to this sort for
+		//     the same reason.
+		//
+		//  4. AN EMPTY CELL NEVER OUTRANKS AN OCCUPIED ONE, whatever the arithmetic says. `0 / 9` has a
+		//     smaller gap than `20 / 36` and is strictly worse to join: one is momentum, the other is being
+		//     alone. Occupancy is checked before proximity so the gap can never promote a dead cell.
 		const bool bAOpen = A.State != EAFLPopulationState::NotOpen;
 		const bool bBOpen = B.State != EAFLPopulationState::NotOpen;
 		if (bAOpen != bBOpen)
 		{
 			return bAOpen;
 		}
-		if (A.PlayersMatching != B.PlayersMatching)
+
+		// Unknown (INDEX_NONE) is neither occupied nor empty -- it is unread, and it sinks below both rather
+		// than being ranked as zero. Same collapse §3.2 forbids in the label, applied to the order.
+		const bool bAKnown = A.PlayersMatching >= 0;
+		const bool bBKnown = B.PlayersMatching >= 0;
+		if (bAKnown != bBKnown)
 		{
-			return A.PlayersMatching > B.PlayersMatching;
+			return bAKnown;
 		}
-		// Stable, readable tie-break: the ladder's own order. Two equally-populated brackets should not
-		// swap places between refreshes.
+		if (bAKnown)
+		{
+			const bool bAHasPlayers = A.PlayersMatching > 0;
+			const bool bBHasPlayers = B.PlayersMatching > 0;
+			if (bAHasPlayers != bBHasPlayers)
+			{
+				return bAHasPlayers;
+			}
+			if (bAHasPlayers)
+			{
+				const int32 GapA = FMath::Max(0, A.Slots - A.PlayersMatching);
+				const int32 GapB = FMath::Max(0, B.Slots - B.PlayersMatching);
+				if (GapA != GapB)
+				{
+					return GapA < GapB;
+				}
+			}
+		}
+		// Stable, readable tie-break: the ladder's own order. Two equally-placed brackets should not swap
+		// between refreshes.
 		return A.Slots < B.Slots;
 	});
 }

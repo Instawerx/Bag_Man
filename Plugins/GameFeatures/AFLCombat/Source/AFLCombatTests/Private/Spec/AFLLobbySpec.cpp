@@ -24,11 +24,14 @@
 
 namespace
 {
-	FAFLLobbyQueue MakeQueue(EAFLPopulationState State, int32 Players, int32 WaitSeconds, bool bPublished = true)
+	// Slots is a parameter because the population read is now RELATIVE to it: `3` is nearly full in a 1v1 and
+	// nearly empty in a BR_36, and the fraction only appears while a cell is short of its field.
+	FAFLLobbyQueue MakeQueue(EAFLPopulationState State, int32 Players, int32 WaitSeconds, bool bPublished = true,
+		int32 Slots = 10)
 	{
 		FAFLLobbyQueue Queue;
 		Queue.Bracket = TEXT("5v5");
-		Queue.Slots = 10;
+		Queue.Slots = Slots;
 		Queue.bPublished = bPublished;
 		Queue.State = State;
 		Queue.PlayersMatching = Players;
@@ -176,16 +179,22 @@ bool FAFLLobby_AbsencesNeverCollapse::RunTest(const FString&)
 	{
 		const FAFLLobbyQueue Queue = MakeQueue(EAFLPopulationState::Cold, 0, INDEX_NONE);
 		TestTrue(TEXT("a cold queue is still selectable"), Queue.IsSelectable());
-		TestFalse(TEXT("a cold queue does not render a bare 0"),
-			UAFLW_Lobby_QueueRow::FormatPopulation(Queue).ToString().IsNumeric());
+		// STILL not a bare `0` -- but it is no longer the word "Quiet" either. `0 / 9` is the honest read and
+		// the one that tells a player what being first would cost them, which on a STAKED cell is the whole
+		// question: bots are barred there, so nothing completes a short field.
+		const FString ColdPop = UAFLW_Lobby_QueueRow::FormatPopulation(Queue).ToString();
+		TestFalse(TEXT("a cold queue does not render a bare 0"), ColdPop.IsNumeric());
+		TestTrue(TEXT("a cold queue states the field size it would need"), ColdPop.Contains(TEXT("/")));
 	}
 
 	// STALLED — about the queue's BEHAVIOUR. People here, nothing matched. The count IS shown, because there
 	// genuinely are people in it; what is absent is the evidence that it works.
 	{
 		const FAFLLobbyQueue Queue = MakeQueue(EAFLPopulationState::Stalled, 9, INDEX_NONE);
-		TestEqual(TEXT("a stalled queue shows its real count"),
-			UAFLW_Lobby_QueueRow::FormatPopulation(Queue).ToString(), FString(TEXT("9")));
+		// OF SLOTS, not a bare count. `9` alone is meaningless across a ladder holding 1v1 through BR_36 --
+		// it is nearly full in one and nearly empty in another, and the denominator is the whole difference.
+		TestTrue(TEXT("a stalled queue shows its real count against the field size"),
+			UAFLW_Lobby_QueueRow::FormatPopulation(Queue).ToString().Contains(TEXT("9 /")));
 		const FString Wait = UAFLW_Lobby_QueueRow::FormatWait(Queue).ToString();
 		TestFalse(TEXT("a stalled queue quotes no wait figure"), Wait.Contains(TEXT("~")));
 		TestTrue(TEXT("a stalled queue is selectable"), Queue.IsSelectable());
@@ -200,10 +209,29 @@ bool FAFLLobby_AbsencesNeverCollapse::RunTest(const FString&)
 	// A LIVE queue still reports its real numbers — the honesty rules must not have made everything mute.
 	{
 		const FAFLLobbyQueue Queue = MakeQueue(EAFLPopulationState::Live, 88, 40);
-		TestEqual(TEXT("a live queue shows its count"),
+		// ⚠ NO DENOMINATOR HERE, AND THAT IS THE RULE NOT AN EXCEPTION. 88 players waiting on a 10-slot cell
+		// is eight matches forming, not an over-full table -- PlayersMatching counts who is WAITING, not who
+		// is seated. Printing `88 / 10` would state a shortfall that does not exist, so the fraction is
+		// reserved for a cell that genuinely cannot fill yet.
+		TestEqual(TEXT("a busy queue shows a bare count, not a fraction"),
 			UAFLW_Lobby_QueueRow::FormatPopulation(Queue).ToString(), FString(TEXT("88")));
 		TestTrue(TEXT("a live queue shows an approximate wait"),
 			UAFLW_Lobby_QueueRow::FormatWait(Queue).ToString().Contains(TEXT("40")));
+	}
+
+	// UNDER-FILLED — the case the fraction exists for. A staked BR_36 with three people must say so: bots are
+	// barred there, so nothing completes a short field, and "Quiet" invited a player into a queue that could
+	// never fire. The wait column names the shortfall once it is close enough to act on.
+	{
+		const FAFLLobbyQueue Sparse = MakeQueue(EAFLPopulationState::Stalled, 3, INDEX_NONE, /*bPublished=*/true, /*Slots=*/36);
+		TestEqual(TEXT("a short field shows X of N"),
+			UAFLW_Lobby_QueueRow::FormatPopulation(Sparse).ToString(), FString(TEXT("3 / 36")));
+		TestFalse(TEXT("a distant field is not taunted with a shortfall"),
+			UAFLW_Lobby_QueueRow::FormatWait(Sparse).ToString().Contains(TEXT("needs")));
+
+		const FAFLLobbyQueue Nearly = MakeQueue(EAFLPopulationState::Warm, 7, INDEX_NONE, /*bPublished=*/true, /*Slots=*/9);
+		TestEqual(TEXT("a nearly-full field names the gap"),
+			UAFLW_Lobby_QueueRow::FormatWait(Nearly).ToString(), FString(TEXT("needs 2 more")));
 	}
 
 	// An unrecognised server state falls to Unknown, NEVER Cold. This is the same collapse in the parser

@@ -68,11 +68,26 @@ public:
 	/** `5v5` / `BR_36`. The bracket id verbatim: it is already the player-facing label (R99). */
 	static FText FormatBracket(const FAFLLobbyQueue& InQueue);
 
-	/** `88` when known, `--` when not. NEVER `0` for an unknown count. */
+	/**
+	 * `7 / 9` -- the sit-and-go read. `Count unavailable` when unknown, and NEVER `0` for an unknown count.
+	 *
+	 * OF SLOTS, not a bare number. `3` means something completely different in a 1v1 than in a BR_36, and the
+	 * denominator is what tells a player whether being first is worth it -- which is the whole question on a
+	 * staked cell, where bots are barred and nothing completes a short field.
+	 */
 	static FText FormatPopulation(const FAFLLobbyQueue& InQueue);
 
-	/** `~40s` / `~2m` / `no recent match` / `no estimate` / `Not open yet`. Never fabricates a figure. */
+	/** `needs 2 more` / `~40s` / `no recent match` / `no estimate` / `Not open yet`. Never fabricates a figure. */
 	static FText FormatWait(const FAFLLobbyQueue& InQueue);
+
+	/**
+	 * How close counts as nearly full -- the gap at which the wait column names the shortfall instead of
+	 * estimating a time.
+	 *
+	 * 3 is a judgement call. Small enough that `needs 3 more` is a call to action rather than a status, and
+	 * large enough to cover the last stretch of a 9-slot field where the estimate is worthless anyway.
+	 */
+	static constexpr int32 NearlyFullGap = 3;
 
 	/**
 	 * The full spoken row -- *"5v5, 400 to 500 Volts, 88 waiting, estimated wait 40 seconds"* (handoff §14).

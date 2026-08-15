@@ -91,21 +91,68 @@ FText UAFLW_Lobby_QueueRow::FormatPopulation(const FAFLLobbyQueue& InQueue)
 		// the one surface whose entire job is honesty about population.
 		return LOCTEXT("PopUnavailable", "Count unavailable");
 
-	case EAFLPopulationState::Cold:
-		return LOCTEXT("PopQuiet", "Quiet");
-
 	default:
 		break;
 	}
 
-	// Live / Warm / Stalled all have people in them, so all three show the number.
-	return InQueue.HasCount()
-		? FText::AsNumber(InQueue.PlayersMatching)
-		: LOCTEXT("PopUnavailable_Fallback", "Count unavailable");
+	// ══ THE SIT-AND-GO READ: X OF N, ALWAYS ════════════════════════════════════════════════════════════
+	//
+	// This used to be a bare count -- `3` -- with Cold rendering the word "Quiet". Both hid the number that
+	// actually decides whether to press: how many are NEEDED. `3` means something completely different in a
+	// 1v1 than in a BR_36, and "Quiet" says nothing at all about whether being first is worth it.
+	//
+	// ⚠ AND THE OMISSION HAD TEETH ON THE STAKED LADDER. Cold is deliberately still selectable -- "someone
+	// has to be first" -- which is TRUE for LEAGUE PLAY, where bot fill completes the field at the commit
+	// deadline. It is FALSE for staked, where bots are barred and nothing completes it. A staked BR_36
+	// showing "Quiet" invited a player into a queue that could never fire. `3 / 36` tells them the truth and
+	// lets them choose, which is exactly what a poker lobby does with `6/9 seated`.
+	//
+	// ⚠ THIS IS ALSO WHY THERE IS NO `Unfillable` STATE GATING THE PRESS. Disabling an empty cell guarantees
+	// it stays empty -- nobody can be first, so the count never reaches one, so it never enables. That is a
+	// queue death spiral, self-inflicted. The count makes "be first" an informed choice instead of a trap.
+	// ⚠ THE DENOMINATOR ONLY MEANS SOMETHING WHILE THE CELL IS SHORT, and getting that wrong is how this was
+	// first written. PlayersMatching counts players WAITING, not players seated -- so a healthy cell can hold
+	// far more than one match's worth. `88 / 10` is not an over-full table, it is eight matches forming, and
+	// rendering it as a fraction states a shortfall that does not exist.
+	//
+	// So the fraction appears exactly where it earns its place: a cell that cannot yet fill. At or above the
+	// field size the bare count returns, because the question "how many more?" has already been answered.
+	if (!InQueue.HasCount())
+	{
+		return LOCTEXT("PopUnavailable_Fallback", "Count unavailable");
+	}
+	if (InQueue.PlayersMatching >= InQueue.Slots)
+	{
+		return FText::AsNumber(InQueue.PlayersMatching);
+	}
+	return FText::Format(LOCTEXT("PopOfSlots", "{0} / {1}"),
+		FText::AsNumber(InQueue.PlayersMatching), FText::AsNumber(InQueue.Slots));
 }
 
 FText UAFLW_Lobby_QueueRow::FormatWait(const FAFLLobbyQueue& InQueue)
 {
+	// ══ WHEN A CELL IS NEARLY FULL, THE GAP BEATS EVERY ESTIMATE ═══════════════════════════════════════
+	//
+	// `needs 2 more` is a fact and an instruction. A wait estimate at the same moment is a guess about human
+	// behaviour, and this surface refuses guesses on principle. Checked BEFORE the state switch because it
+	// outranks all of them: a Stalled cell one player short is not "no recent match", it is nearly away.
+	//
+	// It deliberately does NOT fire at a gap of zero or on an empty cell -- a full cell is about to place and
+	// says so, and `needs 36 more` on a dead ladder is a taunt rather than an instruction. The count column
+	// already carries `0 / 36` for that case, which is the honest read without the false urgency.
+	// ⚠ ONLY WHILE THE CELL IS SHORT. PlayersMatching counts players WAITING, so a busy cell holds more than
+	// one match's worth and has a real measured wait -- suppressing that in favour of a fabricated "full"
+	// would replace the one honest figure on the row with a guess. A gap at or below zero is not a shortfall
+	// and falls straight through to the estimate.
+	if (InQueue.State != EAFLPopulationState::NotOpen && InQueue.HasCount() && InQueue.PlayersMatching > 0)
+	{
+		const int32 Gap = InQueue.Slots - InQueue.PlayersMatching;
+		if (Gap > 0 && Gap <= NearlyFullGap)
+		{
+			return FText::Format(LOCTEXT("WaitNeedsMore", "needs {0} more"), FText::AsNumber(Gap));
+		}
+	}
+
 	switch (InQueue.State)
 	{
 	case EAFLPopulationState::NotOpen:
