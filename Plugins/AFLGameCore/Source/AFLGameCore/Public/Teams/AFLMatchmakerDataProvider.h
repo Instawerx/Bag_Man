@@ -148,6 +148,29 @@ public:
 	static int32 ReadFieldSize(const FString& GameSessionDataJson);
 
 	/**
+	 * WHO IS STANDING ON THE FIELD, by the SAME key seating uses -- GetReconcileIdFromState over the non-bot
+	 * entries of PlayerArray. Bots and id-less states are skipped.
+	 *
+	 * ⚠ LIFTED OUT OF TallyExpectedTeams, WHICH BUILT THIS INLINE. It now has two callers -- the pre-seat and
+	 * the match-start arrival gate -- and they must agree about who counts as "here" or the gate can open on a
+	 * player the pre-seat is still holding a slot for. Sharing the KEY is what makes that impossible rather
+	 * than unlikely, which is the reason TallyExpectedTeams chose this key in the first place.
+	 */
+	static TSet<FString> CollectPresentReconcileIds(const UObject* WorldContext);
+
+	/**
+	 * WHICH ROSTERED HUMANS HAVE NOT ARRIVED YET -- `members[]` minus CollectPresentReconcileIds. Empty when
+	 * everyone is here AND empty when there is no usable roster; the caller separates those two with
+	 * CountRosterMembers, which answers INDEX_NONE for "no roster" and never 0.
+	 *
+	 * ⚠ SET MEMBERSHIP, NOT A COUNT COMPARISON. `present >= rostered` is satisfied by the wrong people: a dev
+	 * connection, a promoted spectator, or a reconnect carrying a fresh PlayerState all make the number while a
+	 * rostered player is still travelling. The gate would open on a field of the right size and the wrong
+	 * players. Names are also what makes the grace-expiry log worth reading.
+	 */
+	static TArray<FString> RosterAbsentees(const UObject* WorldContext, const FString& GameSessionDataJson);
+
+	/**
 	 * DOES THIS MATCH PERMIT BOTS? THE ONE PLACE THIS IS ANSWERED -- every gate that used to ask it its own
 	 * way now calls here.
 	 *

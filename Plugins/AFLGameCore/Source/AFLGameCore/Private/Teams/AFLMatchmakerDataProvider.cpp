@@ -255,6 +255,70 @@ int32 UAFLMatchmakerDataProvider::ReadFieldSize(const FString& GameSessionDataJs
 	return FieldSize > 0 ? FieldSize : INDEX_NONE;
 }
 
+TSet<FString> UAFLMatchmakerDataProvider::CollectPresentReconcileIds(const UObject* WorldContext)
+{
+	// Keyed on GetReconcileIdFromState, which is the SAME key ChooseTeamForJoiningPlayer seats humans by. If
+	// the two ever disagreed, a human could be both seeded and seated; sharing the key makes that impossible
+	// rather than unlikely.
+	//
+	// A player whose id has not been stashed yet is NOT here for these purposes, and that is deliberate: the
+	// stash happens on the identity join, which is also when the roster can first recognise them. Counting an
+	// unstashed connection as "present" would let the arrival gate open on somebody nobody can name.
+	TSet<FString> Present;
+	const UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContext, EGetWorldErrorMode::ReturnNull) : nullptr;
+	if (const AGameStateBase* GameState = World ? World->GetGameState() : nullptr)
+	{
+		for (const APlayerState* PS : GameState->PlayerArray)
+		{
+			if (PS && !PS->IsABot())
+			{
+				const FString Key = GetReconcileIdFromState(PS);
+				if (!Key.IsEmpty())
+				{
+					Present.Add(Key);
+				}
+			}
+		}
+	}
+	return Present;
+}
+
+TArray<FString> UAFLMatchmakerDataProvider::RosterAbsentees(const UObject* WorldContext,
+	const FString& GameSessionDataJson)
+{
+	TArray<FString> Absent;
+	if (GameSessionDataJson.IsEmpty())
+	{
+		return Absent;   // no roster -- "nobody is missing" and "nobody is expected" are the caller's to separate
+	}
+
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(GameSessionDataJson);
+	const TArray<TSharedPtr<FJsonValue>>* Members = nullptr;
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid()
+		|| !Root->TryGetArrayField(TEXT("members"), Members) || !Members)
+	{
+		return Absent;   // unparseable is NOT a roster -- same collapse CountRosterMembers makes
+	}
+
+	const TSet<FString> Present = CollectPresentReconcileIds(WorldContext);
+	for (const TSharedPtr<FJsonValue>& MemberVal : *Members)
+	{
+		const TSharedPtr<FJsonObject> Member = MemberVal.IsValid() ? MemberVal->AsObject() : nullptr;
+		if (!Member.IsValid())
+		{
+			continue;
+		}
+		FString Id;
+		Member->TryGetStringField(TEXT("id"), Id);
+		if (!Id.IsEmpty() && !Present.Contains(Id))
+		{
+			Absent.Add(Id);
+		}
+	}
+	return Absent;
+}
+
 void UAFLMatchmakerDataProvider::TallyExpectedTeams(const UObject* WorldContext,
 	const FString& GameSessionDataJson, TMap<int32, int32>& OutCounts)
 {
@@ -278,25 +342,9 @@ void UAFLMatchmakerDataProvider::TallyExpectedTeams(const UObject* WorldContext,
 	// again would count one person twice and push bots off their side -- turning an over-correction into the
 	// mirror image of the bug this fixes. So collect who is already here first, and seed only the absent.
 	//
-	// Keyed on GetReconcileIdFromState, which is the SAME key ChooseTeamForJoiningPlayer seats humans by. If
-	// the two ever disagreed, a human could be both seeded and seated; sharing the key makes that impossible
-	// rather than unlikely.
-	TSet<FString> PresentReconcileIds;
-	const UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContext, EGetWorldErrorMode::ReturnNull) : nullptr;
-	if (const AGameStateBase* GameState = World ? World->GetGameState() : nullptr)
-	{
-		for (const APlayerState* PS : GameState->PlayerArray)
-		{
-			if (PS && !PS->IsABot())
-			{
-				const FString Key = GetReconcileIdFromState(PS);
-				if (!Key.IsEmpty())
-				{
-					PresentReconcileIds.Add(Key);
-				}
-			}
-		}
-	}
+	// The set is built by CollectPresentReconcileIds rather than inline here, because the match-start arrival
+	// gate now asks the same question and the two must agree about who counts as "here".
+	const TSet<FString> PresentReconcileIds = CollectPresentReconcileIds(WorldContext);
 
 	for (const TSharedPtr<FJsonValue>& MemberVal : *Members)
 	{

@@ -11,6 +11,7 @@
 #include "AbilitySystemGlobals.h"
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Online/AFLGameLiftHostSubsystem.h"   // S12-E: seal the roster (DENY_ALL) once the match is live
+#include "Teams/AFLMatchmakerDataProvider.h"    // the arrival gate's roster: CountRosterMembers + RosterAbsentees
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Controller.h"
@@ -231,6 +232,7 @@ void UAFLMatchPhaseComponent::RestartMatch()
 		World->GetTimerManager().ClearTimer(WindowDurationTimer);
 	}
 	bAwaitingMatchStart = false;
+	FirstArrivalHeldSeconds = -1.f;   // a restart re-opens the arrival window; a stale stamp would expire it instantly
 	SetMatchTagOnAllPawns(TAG_State_Match_Warmup_Driver, /*bPresent=*/false);
 	SetMatchTagOnAllPawns(TAG_State_Match_Ended_Driver,  /*bPresent=*/false);
 	bWindowOpen = false;
@@ -268,10 +270,102 @@ int32 UAFLMatchPhaseComponent::CountHumanParticipants() const
 	return Count;
 }
 
+EAFLStartGateDecision UAFLMatchPhaseComponent::EvaluateStartGate(
+	bool  bHasPayload,
+	int32 RosterHumanCount,
+	int32 PresentHumanCount,
+	int32 AbsentRosteredCount,
+	float HeldSeconds,
+	float SecondsSinceFirstArrival,
+	float ArrivalGraceSeconds,
+	float NoShowDeadlineSeconds)
+{
+	const bool bAtNoShowBound = HeldSeconds >= NoShowDeadlineSeconds;
+
+	// ── NOTHING CAN START WITHOUT A PAYLOAD ──────────────────────────────────────────────────────────────
+	// Unchanged, and it does not release at the payload deadline: under GameLift a server with no game session
+	// refuses every connection at PreLogin, so nobody can ever join it and releasing would start an empty match.
+	if (!bHasPayload)
+	{
+		return bAtNoShowBound ? EAFLStartGateDecision::CancelNoShow : EAFLStartGateDecision::Hold;
+	}
+
+	// ── NOBODY IS HERE ───────────────────────────────────────────────────────────────────────────────────
+	// The no-show bound's ORIGINAL ending, and the only one it used to have.
+	if (PresentHumanCount <= 0)
+	{
+		return bAtNoShowBound ? EAFLStartGateDecision::CancelNoShow : EAFLStartGateDecision::Hold;
+	}
+
+	// ── NO ROSTER TO CHECK AGAINST ───────────────────────────────────────────────────────────────────────
+	// INDEX_NONE, never 0: CountRosterMembers refuses to collapse "no roster" into "a roster of nobody". PIE
+	// and offline live here, and so does a payload that will not parse. This is the pre-2026-08-14 rule
+	// verbatim -- payload present and at least one human -- and it is REQUIRED, not a courtesy: a match with no
+	// roster has no arrival to wait for, and holding would hang it until the no-show bound killed it.
+	if (RosterHumanCount < 0)
+	{
+		return EAFLStartGateDecision::OpenNoRoster;
+	}
+
+	// ── EVERYONE THE MATCHMAKER PROMISED IS STANDING HERE ────────────────────────────────────────────────
+	if (AbsentRosteredCount <= 0)
+	{
+		return EAFLStartGateDecision::OpenAllPresent;
+	}
+
+	// ── SOMEONE IS STILL MISSING ─────────────────────────────────────────────────────────────────────────
+	// The grace runs from the FIRST arrival, so it cannot expire on an empty field -- negative means nobody
+	// has arrived and the PresentHumanCount check above has already handled that.
+	if (SecondsSinceFirstArrival >= 0.f && SecondsSinceFirstArrival >= ArrivalGraceSeconds)
+	{
+		return EAFLStartGateDecision::OpenGraceExpired;
+	}
+
+	// THE BOUND'S SECOND ENDING. Reachable only when somebody arrived so late that the no-show bound beats
+	// their own grace; with a 30s grace and a 600s bound that means an arrival past 570s. One human present is
+	// a match worth starting, so it starts -- the alternative is cancelling a match somebody is sitting in.
+	if (bAtNoShowBound)
+	{
+		return EAFLStartGateDecision::OpenGraceExpired;
+	}
+
+	return EAFLStartGateDecision::Hold;
+}
+
+EAFLStartGateDecision UAFLMatchPhaseComponent::DecideStartGate(TArray<FString>* OutAbsentees) const
+{
+	// THE ROSTER IS READ THROUGH THE PROVIDER, NEVER PARSED HERE. Four readers already share those statics
+	// (bot fill's count, the pre-seat's by-team tally, the field size, and now this); a fifth ad-hoc
+	// FJsonSerializer call in a GameFeature module is exactly how the five would drift apart.
+	const FString Payload = UAFLMatchmakerDataProvider::ResolveAuthoritativeMatchmakerData(this);
+	const int32 RosterHumans = UAFLMatchmakerDataProvider::CountRosterMembers(Payload);
+
+	TArray<FString> Absent;
+	if (RosterHumans > 0)
+	{
+		Absent = UAFLMatchmakerDataProvider::RosterAbsentees(this, Payload);
+	}
+	if (OutAbsentees)
+	{
+		*OutAbsentees = Absent;
+	}
+
+	const float SinceFirstArrival = (FirstArrivalHeldSeconds >= 0.f)
+		? (MatchStartHeldSeconds - FirstArrivalHeldSeconds)
+		: -1.f;
+
+	return EvaluateStartGate(HasPayload(), RosterHumans, CountHumanParticipants(), Absent.Num(),
+		MatchStartHeldSeconds, SinceFirstArrival, ArrivalGraceSeconds, NoShowDeadlineSeconds);
+}
+
 bool UAFLMatchPhaseComponent::IsReadyToStartMatch() const
 {
-	// BOTH, not either. The payload names who is expected; a present human proves someone actually arrived.
-	return HasPayload() && CountHumanParticipants() > 0;
+	// Kept as a bool so EnterPlaying's `IsUnderGameLift() && !IsReadyToStartMatch()` reads unchanged. The
+	// distinction between the three ways of opening only matters to the gate tick, which logs them apart.
+	const EAFLStartGateDecision Decision = DecideStartGate(nullptr);
+	return Decision == EAFLStartGateDecision::OpenAllPresent
+		|| Decision == EAFLStartGateDecision::OpenGraceExpired
+		|| Decision == EAFLStartGateDecision::OpenNoRoster;
 }
 
 void UAFLMatchPhaseComponent::TickMatchStartGate()
@@ -282,14 +376,55 @@ void UAFLMatchPhaseComponent::TickMatchStartGate()
 		return;
 	}
 
-	if (IsReadyToStartMatch())
+	// STAMP THE FIRST ARRIVAL BEFORE DECIDING. The grace measures from the first human, so the frame they
+	// appear must already know it -- otherwise the first poll after their arrival reads "nobody has come yet"
+	// and the grace starts one tick late, every time.
+	if (FirstArrivalHeldSeconds < 0.f && CountHumanParticipants() > 0)
 	{
+		FirstArrivalHeldSeconds = MatchStartHeldSeconds;
+	}
+
+	TArray<FString> Absentees;
+	const EAFLStartGateDecision Decision = DecideStartGate(&Absentees);
+
+	switch (Decision)
+	{
+	case EAFLStartGateDecision::OpenAllPresent:
 		UE_LOG(LogAFLCombat, Log,
-			TEXT("AFL_PHASE: Warmup->Playing RELEASED after %.0fs -- payload present and %d player(s) on the field."),
+			TEXT("AFL_PHASE: Warmup->Playing RELEASED after %.0fs -- all %d rostered player(s) present."),
 			MatchStartHeldSeconds, CountHumanParticipants());
-		// bAwaitingMatchStart is cleared by EnterPlaying itself, which now passes the gate.
+		EnterPlaying();   // clears bAwaitingMatchStart itself, and now passes the gate
+		return;
+
+	case EAFLStartGateDecision::OpenNoRoster:
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_PHASE: Warmup->Playing RELEASED after %.0fs -- payload present, %d player(s) on the field, "
+			     "NO USABLE ROSTER to check against (PIE/offline/unparseable payload)."),
+			MatchStartHeldSeconds, CountHumanParticipants());
 		EnterPlaying();
 		return;
+
+	case EAFLStartGateDecision::OpenGraceExpired:
+		// ⚠ THE LINE THAT SEPARATES A BAD CONNECTION FROM A GATE REGRESSION, so it names names. If this fires
+		// with a full lobby's worth of absentees, the gate did not regress -- the roster did. If it fires
+		// every match with exactly one straggler, the grace is too short. Neither reading is available from
+		// "started short-handed".
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_PHASE: STARTING SHORT-HANDED after %.0fs -- the %.0fs arrival grace expired with %d "
+			     "rostered player(s) MISSING: [%s]. %d present. They were promised by the matchmaker and never "
+			     "arrived; they are not participants in this match."),
+			MatchStartHeldSeconds, ArrivalGraceSeconds, Absentees.Num(), *FString::Join(Absentees, TEXT(", ")),
+			CountHumanParticipants());
+		EnterPlaying();
+		return;
+
+	case EAFLStartGateDecision::CancelNoShow:
+		// Falls through to the no-show block below, which owns the terminal log and EnterPostGame.
+		break;
+
+	case EAFLStartGateDecision::Hold:
+	default:
+		break;
 	}
 
 	MatchStartHeldSeconds += MatchStartGatePollSeconds;
@@ -366,6 +501,8 @@ void UAFLMatchPhaseComponent::EnterPlaying()
 			bAwaitingMatchStart = true;
 			MatchStartHeldSeconds = 0.f;
 			bPayloadTimeoutLogged = false;
+			// The grace has not started: it runs from the first ARRIVAL, not from the start of the hold.
+			FirstArrivalHeldSeconds = -1.f;
 			UE_LOG(LogAFLCombat, Warning,
 				TEXT("AFL_PHASE: HOLDING Warmup->Playing -- payload=%s players=%d. Nothing downstream runs: no "
 				     "rounds, no escrow, no roster seal. Concluding as NO SHOW in %.0fs."),

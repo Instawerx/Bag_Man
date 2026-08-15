@@ -13,6 +13,27 @@ class ULyraExperienceDefinition;
 class APlayerState;
 
 /**
+ * What the match-start arrival gate decided this poll. Named outcomes rather than a bool, because the four
+ * ways a match may start are NOT interchangeable in the log: starting complete, starting without someone the
+ * matchmaker promised, starting with no roster to check against, and refusing to start at all are four
+ * different things to read at 3am.
+ */
+UENUM()
+enum class EAFLStartGateDecision : uint8
+{
+	/** Keep waiting. Either the payload has not landed, or nobody is here, or someone rostered is still travelling. */
+	Hold,
+	/** Every rostered human is on the field. The ordinary release. */
+	OpenAllPresent,
+	/** The arrival grace expired with someone still missing -- start short-handed. LOG WHO. */
+	OpenGraceExpired,
+	/** No usable roster (PIE / offline / unparseable payload): the pre-2026-08-14 rule, "payload and someone here". */
+	OpenNoRoster,
+	/** The no-show bound with ZERO humans present. Terminal: the match never started and never will. */
+	CancelNoShow,
+};
+
+/**
  * UAFLMatchPhaseComponent  (match phases cycle 1 -- the driver, AFL-0902/0804)
  *
  * Server-only GameStateComponent (the Lyra scoring-component shape -- arrives via the experience
@@ -110,6 +131,34 @@ public:
 	 *  extraction-window cadence is UNAFFECTED. Default false = this component is the authority (time path). */
 	void SetExternalMatchEndAuthority(bool bExternal) { bExternalMatchEndAuthority = bExternal; }
 
+	/**
+	 * THE ARRIVAL-GATE DECISION, AS A PURE FUNCTION -- no world, no GameState, no JSON. Feed it the facts and
+	 * it decides, which is what lets the whole gate be proved in CI instead of by watching a match.
+	 *
+	 * ⚠ THIS EXISTS BECAUSE THE OLD CONDITION WAS UNTESTABLE AND WRONG. It was
+	 * `HasPayload() && CountHumanParticipants() > 0` -- the payload read as a BOOL and the count read from
+	 * PlayerArray, with nothing comparing the two. On 2026-08-14 the first of two rostered humans released the
+	 * gate 1.24s before the second arrived; the second was seated on a team, never spawned (the BR restart
+	 * policy denies a pawn once the match has started), never tracked, and finished a nine-slot battle royale
+	 * as neither a survivor nor a placement.
+	 *
+	 * `RosterHumanCount` is INDEX_NONE when there is no usable roster -- PIE, offline, or a payload that will
+	 * not parse -- and that case MUST fall back to the old rule rather than hold, because a match with no
+	 * roster has no arrival to wait for and holding would hang it forever.
+	 *
+	 * `SecondsSinceFirstArrival` is negative until somebody arrives, so the grace cannot expire on an empty
+	 * field: the grace answers "are the stragglers still coming", not "has it been a while".
+	 */
+	static EAFLStartGateDecision EvaluateStartGate(
+		bool  bHasPayload,
+		int32 RosterHumanCount,
+		int32 PresentHumanCount,
+		int32 AbsentRosteredCount,
+		float HeldSeconds,
+		float SecondsSinceFirstArrival,
+		float ArrivalGraceSeconds,
+		float NoShowDeadlineSeconds);
+
 protected:
 	/** JOIN COVERAGE (stage 1). Applies Warmup / Ended / NoDismember to a joiner's PlayerState ASC.
 	 *  Warmup + Ended come from LIVE phase queries -- IsPhaseActiveReflected -- so there is no cache to
@@ -128,6 +177,9 @@ private:
 	bool  IsUnderGameLift() const;
 	bool  HasPayload() const;
 	int32 CountHumanParticipants() const;
+	/** Gathers this world's facts and hands them to EvaluateStartGate. Fills OutAbsentees (optional) with the
+	 *  rostered ids still missing, so the short-handed log can name them. */
+	EAFLStartGateDecision DecideStartGate(TArray<FString>* OutAbsentees) const;
 	bool  IsReadyToStartMatch() const;
 	void EnterPostGame();               // ActiveTimer fire: Playing -> PostGame (terminal)
 	void StartPhaseByClass(TSubclassOf<ULyraGamePhaseAbility> PhaseClass, const FGameplayTag& PhaseTag);
@@ -182,6 +234,24 @@ private:
 	 * grace (60s): that answers "will they come back", this answers "have they got here yet".
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Match") float NoShowDeadlineSeconds = 600.f;
+
+	/**
+	 * HOW LONG A COMPLETE FIELD WAITS FOR A STRAGGLER, measured from the FIRST human's arrival -- not from the
+	 * start of the hold, which would spend the budget waiting for the first player rather than the last.
+	 *
+	 * 30s IS FIFTEEN TIMES THE MEASURED SPREAD. On the 2026-08-14 gate run the two clients' LoadMap calls were
+	 * 1.9s apart (02:50:00.659 and 02:50:02.578); the gate opened between them and cost the second player the
+	 * whole match. A grace this wide is invisible when everyone shows and still bounded when one does not.
+	 *
+	 * ⚠ DELIBERATELY NOT NoShowDeadlineSeconds. That bound is the ready-row TTL -- "can this player still
+	 * arrive at all" -- and holding a full field for ten minutes because one person never loaded is worse than
+	 * starting without them. Two questions, two clocks, the same distinction NoShowDeadlineSeconds itself
+	 * records against the abandonment grace.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Match") float ArrivalGraceSeconds = 30.f;
+
+	/** Held-seconds at which the first human appeared; negative until one does. The grace measures from here. */
+	float FirstArrivalHeldSeconds = -1.f;
 
 	bool bWindowOpen = false;
 	bool bMatchEnded = false;           // PostGame reached -> cadence no-ops, terminal
