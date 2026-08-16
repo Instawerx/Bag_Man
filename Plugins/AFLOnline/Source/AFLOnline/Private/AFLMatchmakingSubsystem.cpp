@@ -784,6 +784,20 @@ namespace AFLMultiQueueCanary
 		bool bStakedOnly = false;
 		int32 StakeA = 0;
 
+		/**
+		 * HOLD MODE: enter one cell and STAY in it, reporting state, until the process is killed.
+		 *
+		 * ⚠ THIS EXISTS BECAUSE `-ExecCmds="afl.MM.Queue ..."` IS NOT RELIABLE AND THE CANARIES ARE. Measured
+		 * 2026-08-16: two clients launched with a correct queue command line and never executed it -- 1512 log
+		 * lines, no /create-ticket -- while every canary run in the same session executed on the first try. The
+		 * difference is the login gate in step 0: ExecCmds fires as soon as a console exists, and a bare Queue
+		 * command issued before PlayFab has answered is refused by StartMatchmaking and simply never retried.
+		 *
+		 * So the escrow harness stops using the bare command. Hold mode is a canary that queues and then does
+		 * nothing, which is exactly what a match-forming test needs from its clients.
+		 */
+		bool bHold = false;
+
 		static constexpr double StepTimeout = 25.0;
 
 		/**
@@ -866,6 +880,17 @@ namespace AFLMultiQueueCanary
 				if (M->IsQueuedIn(A))
 				{
 					LogState(M, TEXT("A-live"));
+					if (bHold)
+					{
+						// Entered. Now stay put and let the match form -- the client must not touch the entry
+						// again, because the thing under test is what the SERVER does with it.
+						UE_LOG(LogAFLMatchmaking, Log,
+							TEXT("AFL_MQ_CANARY HOLDING in %s at stake %d -- will not cancel; kill the process to end."),
+							*A, StakeA);
+						Step = 6;
+						StepStarted = Now;
+						break;
+					}
 					if (bStakedOnly)
 					{
 						// The reservation exists NOW. Leave immediately and let step 4 prove it came back --
@@ -973,6 +998,22 @@ namespace AFLMultiQueueCanary
 					Fail(TEXT("no cell filled within the window -- supersede was never exercised (NOT proof it is broken)"));
 					Finish(M);
 					return false;
+				}
+				break;
+			}
+
+			case 6:   // HOLD -- report, never act
+			{
+				// A heartbeat rather than silence: a hold that quietly died looks identical to a hold that is
+				// working, and this runs unattended for minutes while a match forms.
+				if (FMath::Fmod(Now - StepStarted, 30.0) < 1.1)
+				{
+					LogState(M, TEXT("holding"));
+				}
+				if (M->GetState() == EAFLMatchmakingState::Joining)
+				{
+					UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MQ_CANARY HOLD ended -- match joined."));
+					return false;   // deliberately NO Finish(): cancelling here would withdraw a live match
 				}
 				break;
 			}
@@ -1127,6 +1168,39 @@ static void HandleAFLMMVerifyStaked(const TArray<FString>& Args, UWorld* World, 
 
 	Ar.Logf(TEXT("afl.MM.VerifyStakedEntry started -- %s at %d. THIS SPENDS REAL CURRENCY."), *Run->A, Stake);
 }
+
+static void HandleAFLMMQueueAndHold(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+{
+	UAFLMatchmakingSubsystem* MM = AFLMultiQueueCanary::Get(World);
+	if (!MM) { Ar.Log(TEXT("afl.MM.QueueAndHold - no matchmaking subsystem.")); return; }
+	if (Args.Num() < 1) { Ar.Log(TEXT("afl.MM.QueueAndHold <queueId> [stake]")); return; }
+
+	using namespace AFLMultiQueueCanary;
+	if (ActiveRun.IsValid()) { Ar.Log(TEXT("afl.MM.QueueAndHold - a run is already in progress.")); return; }
+
+	TSharedPtr<FRun> Run = MakeShared<FRun>();
+	Run->MM = MM;
+	Run->A = Args[0];
+	Run->B = TEXT("<unused>");
+	Run->bHold = true;
+	Run->StakeA = Args.Num() > 1 ? FCString::Atoi(*Args[1]) : 0;
+	Run->StepStarted = FPlatformTime::Seconds();
+
+	ActiveRun = Run;
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+		[Run](float Dt) -> bool
+		{
+			const bool bContinue = Run->Tick(Dt);
+			if (!bContinue) { AFLMultiQueueCanary::ActiveRun.Reset(); }
+			return bContinue;
+		}), 0.5f);
+
+	Ar.Logf(TEXT("afl.MM.QueueAndHold started -- %s at %d. Waits for login, enters, then holds."), *Run->A, Run->StakeA);
+}
+
+FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMQueueAndHoldCmd(TEXT("afl.MM.QueueAndHold"),
+	TEXT("Wait for login, enter ONE cell (optionally staked), then hold the entry without cancelling -- the client half of a match-forming test. Use this instead of afl.MM.Queue under -ExecCmds, which fires before login and is silently refused."),
+	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMQueueAndHold));
 
 FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMVerifyStakedCmd(TEXT("afl.MM.VerifyStakedEntry"),
 	TEXT("Enter a STAKED cell with a buy-in, then leave it -- proving the play-limits reservation is written on entry and GIVEN BACK on leave. Does not wait for a match: staked rule sets carry no expansions, so nothing fills short-handed. Args: <queueId> <stake>."),
