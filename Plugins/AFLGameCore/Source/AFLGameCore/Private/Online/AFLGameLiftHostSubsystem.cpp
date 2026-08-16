@@ -342,6 +342,52 @@ void UAFLGameLiftHostSubsystem::SetAcceptingPlayers(bool bAccepting) const
 	}
 }
 
+/**
+ * ⚠ FILE SCOPE, NOT A MEMBER, BECAUSE THE SUBSYSTEM DOES NOT SURVIVE THE TRAVEL.
+ *
+ * Measured live 2026-08-16: after `travelling to 'L_ShantyTown?...'` the PostLoadMapWithWorld callback fired
+ * and the weak pointer to the subsystem was already null --
+ *
+ *     AFL_GAMELIFT: travel completed but the host subsystem is gone -- not activating.
+ *
+ * An absolute ServerTravel replaces the world and takes this GameInstanceSubsystem with it, so ANY activation
+ * hung off a UObject is a race against its own destruction. The first attempt captured raw `this` and crashed
+ * outright (EXCEPTION_ACCESS_VIOLATION inside LoadMap); the weak pointer turned the crash into a silent
+ * no-activation, which is better and still wrong.
+ *
+ * The GameLift SDK is a MODULE -- it outlives every world. Activation belongs here, reached through a static
+ * that owns its own once-guard, so the thing that admits players cannot be destroyed by the travel that was
+ * supposed to prepare the map for them.
+ */
+static bool GAFLGameSessionActivated = false;
+
+static void ActivateGameSessionOnce(const TCHAR* Why)
+{
+	check(IsInGameThread());
+	if (GAFLGameSessionActivated)
+	{
+		return;
+	}
+	GAFLGameSessionActivated = true;
+
+	FGameLiftServerSDKModule& Mod = FModuleManager::LoadModuleChecked<FGameLiftServerSDKModule>(FName("GameLiftServerSDK"));
+	const FGameLiftGenericOutcome Activated = Mod.ActivateGameSession();
+	if (Activated.IsSuccess())
+	{
+		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_GAMELIFT: ActivateGameSession OK (%s) -- players may now connect."), Why);
+	}
+	else
+	{
+		UE_LOG(LogAFLGameCore, Error, TEXT("AFL_GAMELIFT: ActivateGameSession FAILED (%s) -- %s"),
+			Why, *Activated.GetError().m_errorMessage);
+	}
+
+	if (CVarAFLGameLiftSessionProbe.GetValueOnAnyThread() != 0)
+	{
+		RunPlayerSessionProbe(Mod);
+	}
+}
+
 #else   // !WITH_GAMELIFT
 
 // Client / editor builds. The header declares these unconditionally so callers need no #if of their own; the
@@ -367,39 +413,14 @@ void UAFLGameLiftHostSubsystem::SetAcceptingPlayers(bool /*bAccepting*/) const
 
 void UAFLGameLiftHostSubsystem::ActivateOnce(const TCHAR* Why)
 {
-	// ⚠ ONE ACTIVATION, WHATEVER ROUTE ARRIVES FIRST. Three paths end here -- travel completed, travel was not
-	// possible, travel was issued but the map never loaded -- and GameLift treats a second ActivateGameSession
-	// as an error on an already-active session. The flag is read and written on the game thread only.
-	if (bGameSessionActivated)
-	{
-		return;
-	}
+	// Thin wrapper so the no-travel routes read the same as the after-travel one. The guard that matters lives
+	// in the module-scope function; bGameSessionActivated is kept only so a caller can still ask what happened.
 	bGameSessionActivated = true;
-
 #if WITH_GAMELIFT
-	FGameLiftServerSDKModule& Mod = FModuleManager::LoadModuleChecked<FGameLiftServerSDKModule>(FName("GameLiftServerSDK"));
-	const FGameLiftGenericOutcome Activated = Mod.ActivateGameSession();
-	if (Activated.IsSuccess())
-	{
-		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_GAMELIFT: ActivateGameSession OK (%s) -- players may now connect."), Why);
-	}
-	else
-	{
-		UE_LOG(LogAFLGameCore, Error, TEXT("AFL_GAMELIFT: ActivateGameSession FAILED (%s) -- %s"),
-			Why, *Activated.GetError().m_errorMessage);
-	}
-
-	// S12-E research probe. AFTER activation on purpose: player sessions are only meaningful once the session
-	// is active, and running it earlier would measure the wrong state. Gated off by default; see the probe's
-	// comment for why it must never run against a real match.
-	if (CVarAFLGameLiftSessionProbe.GetValueOnAnyThread() != 0)
-	{
-		RunPlayerSessionProbe(Mod);
-	}
+	ActivateGameSessionOnce(Why);
 #else
-	// Editor and client builds have no SDK. The travel path above is still compiled and still exercised by a
-	// -game run, which is how it gets tested without a fleet; only the activation is absent, because there is
-	// nothing to activate against.
+	// No SDK in an editor or client build. The travel path above still compiles and still runs under -game,
+	// which is how it is exercised without a fleet; only the activation is absent, having nothing to activate.
 	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_GAMELIFT: activation skipped (%s) -- no GameLift SDK in this build."), Why);
 #endif
 }
@@ -448,18 +469,43 @@ void UAFLGameLiftHostSubsystem::BeginMatchTravel(const FString& GameSessionDataJ
 	// itself mid-login -- the PreLogin/AcceptPlayerSession race the probe in this file measured.
 	//
 	// Bound BEFORE the travel is issued, because a cooked map already in memory can complete inside the call.
-	TravelCompleteHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddLambda(
-		[this](UWorld* LoadedWorld)
+	// ⚠ WEAK POINTER AND A SHARED HANDLE, NOT RAW `this` AND A MEMBER. The first version captured `this` and
+	// read TravelCompleteHandle off it inside the callback, and the server died there:
+	//
+	//     EXCEPTION_ACCESS_VIOLATION reading 0xffffffffffffffff
+	//     BeginMatchTravel'::`2'::<lambda_1>::operator()  <- PostLoadMapWithWorld::Broadcast <- UEngine::LoadMap
+	//
+	// This fires from INSIDE LoadMap, mid-teardown of the outgoing world, which is the least safe moment to
+	// dereference a UObject captured four seconds earlier. The handle lives in a TSharedRef captured BY VALUE
+	// so unsubscribing never touches the subsystem at all, and the subsystem itself is reached through a weak
+	// pointer that simply declines to run if it has gone.
+	//
+	// Not activating in that case is correct rather than merely safe: if the subsystem is gone there is no
+	// match left to admit players to, and GameLift reaping an unactivated process is the honest outcome.
+	const TSharedRef<FDelegateHandle> Handle = MakeShared<FDelegateHandle>();
+	TWeakObjectPtr<UAFLGameLiftHostSubsystem> WeakThis(this);
+
+	*Handle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddLambda(
+		[WeakThis, Handle](UWorld* LoadedWorld)
 		{
-			if (TravelCompleteHandle.IsValid())
-			{
-				FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(TravelCompleteHandle);
-				TravelCompleteHandle.Reset();
-			}
+			// Unsubscribe FIRST and unconditionally -- a travel that happens later must not re-enter this.
+			FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(*Handle);
+
 			UE_LOG(LogAFLGameCore, Log, TEXT("AFL_GAMELIFT: travel complete -- world '%s'."),
 				LoadedWorld ? *LoadedWorld->GetMapName() : TEXT("<null>"));
-			ActivateOnce(TEXT("after travel"));
+
+			// ⚠ NOTHING HERE TOUCHES THE SUBSYSTEM. It is gone by now -- the travel destroyed it. The weak
+			// pointer is kept only to tidy the member handle if it happens to have survived; the ACTIVATION
+			// goes straight to the module-scope function, which cannot be destroyed by a world change.
+			if (UAFLGameLiftHostSubsystem* Self = WeakThis.Get())
+			{
+				Self->TravelCompleteHandle.Reset();
+			}
+#if WITH_GAMELIFT
+			ActivateGameSessionOnce(TEXT("after travel"));
+#endif
 		});
+	TravelCompleteHandle = *Handle;
 
 	// `listen` so the dedicated server accepts connections on the destination map, and the experience rides as
 	// a URL OPTION -- which is how Lyra selects one, and the only per-match channel that survives the travel.
@@ -472,11 +518,8 @@ void UAFLGameLiftHostSubsystem::BeginMatchTravel(const FString& GameSessionDataJ
 		// The travel was REFUSED outright -- a bad map name is the likely cause. Do not leave the session
 		// unactivated: GameLift would eventually reap the process and the players would be stranded with no
 		// explanation. Activate where we are and say plainly that escrow will not run.
-		if (TravelCompleteHandle.IsValid())
-		{
-			FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(TravelCompleteHandle);
-			TravelCompleteHandle.Reset();
-		}
+		FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(*Handle);
+		TravelCompleteHandle.Reset();
 		UE_LOG(LogAFLGameCore, Error,
 			TEXT("AFL_GAMELIFT: ServerTravel REFUSED for '%s' -- activating on the launch map. Escrow and "
 			     "settlement will NOT run for this match."), *TravelUrl);
