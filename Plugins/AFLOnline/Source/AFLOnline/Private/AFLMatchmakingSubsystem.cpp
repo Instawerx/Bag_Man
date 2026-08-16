@@ -3,10 +3,13 @@
 #include "AFLMatchmakingSubsystem.h"
 
 #include "AFLOnlineSubsystem.h"
+#include "Containers/Ticker.h"                  // FTSTicker -- the multi-queue canary's step pump
 #include "Dom/JsonObject.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "GameFramework/CheatManagerDefines.h"  // UE_WITH_CHEAT_MANAGER -- without it the commands SILENTLY vanish
 #include "GameFramework/PlayerController.h"
+#include "HAL/IConsoleManager.h"                // FAutoConsoleCommandWithWorldArgsAndOutputDevice
 #include "Kismet/GameplayStatics.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -707,3 +710,262 @@ void UAFLMatchmakingSubsystem::CancelQueue(const FString& QueueId)
 				: NSLOCTEXT("AFL", "MMCancelled", "Search stopped."));
 		});
 }
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// MULTI-QUEUE HARNESS -- dev-only console commands, and the scripted canary that proves the feature.
+//
+// âš  WHY A CANARY AND NOT "CLICK TWO ROWS AND LOOK". Multi-queue's claims are about STATE, not pixels: that a
+// second entry is accepted while the first is live, that leaving one cell keeps the other, and that a refused
+// join does not wipe entries that survive. Every one of those is a proposition with a truth value, and this
+// project's doctrine prefers a deterministic assertion over an eyeball for exactly that kind of claim.
+// Watching a lobby cannot distinguish "two entries" from "one entry drawn twice", and cannot see the entry
+// list at all.
+//
+// What it does NOT prove, and no console command could: that the LEAVE control renders where a person expects
+// it. That still needs eyes on the screen.
+//
+// Uses FREE LEAGUE PLAY cells by default and never defaults to anything staked -- the canary creates REAL
+// tickets against the DEPLOYED backend, and a harness that quietly moves money is not a harness.
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+#if UE_WITH_CHEAT_MANAGER
+
+namespace AFLMultiQueueCanary
+{
+	/** Default pair: two DIFFERENT free cells, so a pass cannot come from one cell answering twice. */
+	static const TCHAR* DefaultQueueA = TEXT("LeaguePlay_Haywire_MatchPlay_Arena_2v2");
+	static const TCHAR* DefaultQueueB = TEXT("LeaguePlay_Haywire_MatchPlay_Map_1v1");
+
+	static UAFLMatchmakingSubsystem* Get(UWorld* World)
+	{
+		UGameInstance* GI = World ? World->GetGameInstance() : nullptr;
+		return GI ? GI->GetSubsystem<UAFLMatchmakingSubsystem>() : nullptr;
+	}
+
+	static void LogState(UAFLMatchmakingSubsystem* MM, const TCHAR* Tag)
+	{
+		const TArray<FString> Ids = MM->GetQueuedQueueIds();
+		UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MQ %s count=%d [%s]"),
+			Tag, MM->GetQueuedCount(), *FString::Join(Ids, TEXT(", ")));
+	}
+
+	/**
+	 * The scripted run. A ticker rather than nested callbacks: every step is "wait until a PREDICATE about the
+	 * entry list holds, or time out", which is what makes each assertion independent of how many round trips
+	 * the step happened to take.
+	 */
+	struct FRun
+	{
+		TWeakObjectPtr<UAFLMatchmakingSubsystem> MM;
+		FString A, B;
+		int32 Step = 0;
+		double StepStarted = 0.0;
+		int32 Failures = 0;
+
+		static constexpr double StepTimeout = 25.0;
+
+		void Fail(const TCHAR* What)
+		{
+			++Failures;
+			UE_LOG(LogAFLMatchmaking, Error, TEXT("AFL_MQ_CANARY FAIL step=%d -- %s"), Step, What);
+		}
+
+		void Advance(double Now) { ++Step; StepStarted = Now; }
+
+		void Finish(UAFLMatchmakingSubsystem* M)
+		{
+			LogState(M, TEXT("final"));
+			// ALWAYS clean up. A canary that leaves live tickets behind poisons the next run -- and step 0
+			// refuses to start dirty, so it would poison it visibly rather than silently. Bare cancel = all.
+			M->CancelMatchmaking();
+			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MQ_CANARY RESULT %s (failures=%d)"),
+				Failures == 0 ? TEXT("PASS") : TEXT("FAIL"), Failures);
+		}
+
+		bool Tick(float)
+		{
+			UAFLMatchmakingSubsystem* M = MM.Get();
+			if (!M)
+			{
+				UE_LOG(LogAFLMatchmaking, Error, TEXT("AFL_MQ_CANARY ABORT -- subsystem gone"));
+				return false;
+			}
+
+			const double Now = FPlatformTime::Seconds();
+			const bool bTimedOut = (Now - StepStarted) > StepTimeout;
+
+			switch (Step)
+			{
+			case 0:
+			{
+				// ⚠ WAIT FOR LOGIN FIRST, WITH A LONGER BUDGET THAN A NORMAL STEP. This canary is meant to be
+				// driven by -ExecCmds at launch, which fires as soon as a console exists -- comfortably before
+				// PlayFab has answered. Without this gate every run would fail at "cell A never became live"
+				// and the diagnosis would be a matchmaking bug that does not exist.
+				UGameInstance* GI = M->GetGameInstance();
+				UAFLOnlineSubsystem* Online = GI ? GI->GetSubsystem<UAFLOnlineSubsystem>() : nullptr;
+				if (!Online || !Online->IsLoggedIn())
+				{
+					if ((Now - StepStarted) > 90.0)
+					{
+						Fail(TEXT("not signed in after 90s -- the canary never got to test anything"));
+						Finish(M);
+						return false;
+					}
+					return true;   // keep waiting; deliberately do NOT advance
+				}
+				UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MQ_CANARY signed in -- proceeding"));
+				Advance(Now);
+				break;
+			}
+
+			case 1:
+				UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MQ_CANARY BEGIN A=%s B=%s"), *A, *B);
+				LogState(M, TEXT("before"));
+				if (M->GetQueuedCount() != 0)
+				{
+					// Refuse to start dirty. A pass that began with entries already live would prove nothing.
+					Fail(TEXT("player is ALREADY queued -- run afl.MM.Leave first"));
+					Finish(M);
+					return false;
+				}
+				M->StartMatchmaking(A, 0);
+				Advance(Now);
+				break;
+
+			case 2:   // A accepted
+				if (M->IsQueuedIn(A))
+				{
+					LogState(M, TEXT("A-live"));
+					M->StartMatchmaking(B, 0);
+					Advance(Now);
+				}
+				else if (bTimedOut) { Fail(TEXT("cell A never became live")); Finish(M); return false; }
+				break;
+
+			case 3:   // B accepted ALONGSIDE A -- THE CLAIM
+				if (M->IsQueuedIn(A) && M->IsQueuedIn(B))
+				{
+					LogState(M, TEXT("both-live"));
+					UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MQ_CANARY PASS-1 two entries live at once"));
+					if (M->GetQueuedCount() != 2) { Fail(TEXT("both cells report live but count != 2")); }
+					M->CancelQueue(A);
+					Advance(Now);
+				}
+				else if (bTimedOut)
+				{
+					Fail(TEXT("second entry never became live -- the guard may still be refusing it"));
+					Finish(M);
+					return false;
+				}
+				break;
+
+			case 4:   // A gone, B survives -- THE OTHER CLAIM
+				if (!M->IsQueuedIn(A) && M->IsQueuedIn(B))
+				{
+					LogState(M, TEXT("after-leave-A"));
+					UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MQ_CANARY PASS-2 per-cell leave kept the other entry"));
+					if (M->GetQueuedCount() != 1) { Fail(TEXT("B survives but count != 1")); }
+					Advance(Now);
+				}
+				else if (!M->IsQueuedIn(A) && !M->IsQueuedIn(B))
+				{
+					// The failure this whole design exists to prevent: leaving one cell took both.
+					Fail(TEXT("leaving A ALSO dropped B -- per-cell cancel is behaving as cancel-all"));
+					Finish(M);
+					return false;
+				}
+				else if (bTimedOut) { Fail(TEXT("cell A never cleared")); Finish(M); return false; }
+				break;
+
+			default:
+				Finish(M);
+				return false;
+			}
+			return true;
+		}
+	};
+
+	static TSharedPtr<FRun> ActiveRun;
+}
+
+static void HandleAFLMMStatus(const TArray<FString>&, UWorld* World, FOutputDevice& Ar)
+{
+	UAFLMatchmakingSubsystem* MM = AFLMultiQueueCanary::Get(World);
+	if (!MM) { Ar.Log(TEXT("afl.MM.Status - no matchmaking subsystem (need a game world).")); return; }
+	Ar.Logf(TEXT("afl.MM.Status state=%d count=%d oldest=%s"),
+		static_cast<int32>(MM->GetState()), MM->GetQueuedCount(), *MM->GetOldestQueuedQueueId());
+	for (const FString& Id : MM->GetQueuedQueueIds()) { Ar.Logf(TEXT("   entry: %s"), *Id); }
+}
+
+static void HandleAFLMMQueue(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+{
+	UAFLMatchmakingSubsystem* MM = AFLMultiQueueCanary::Get(World);
+	if (!MM) { Ar.Log(TEXT("afl.MM.Queue - no matchmaking subsystem.")); return; }
+	if (Args.Num() == 0) { Ar.Log(TEXT("afl.MM.Queue <queueId> [stake]")); return; }
+	const int32 Stake = Args.Num() > 1 ? FCString::Atoi(*Args[1]) : 0;
+	Ar.Logf(TEXT("afl.MM.Queue -> %s (stake=%d)"), *Args[0], Stake);
+	MM->StartMatchmaking(Args[0], Stake);
+}
+
+static void HandleAFLMMLeave(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+{
+	UAFLMatchmakingSubsystem* MM = AFLMultiQueueCanary::Get(World);
+	if (!MM) { Ar.Log(TEXT("afl.MM.Leave - no matchmaking subsystem.")); return; }
+	const FString Which = Args.Num() > 0 ? Args[0] : FString();
+	Ar.Logf(TEXT("afl.MM.Leave -> %s"), Which.IsEmpty() ? TEXT("<ALL>") : *Which);
+	MM->CancelQueue(Which);
+}
+
+static void HandleAFLMMVerify(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+{
+	UAFLMatchmakingSubsystem* MM = AFLMultiQueueCanary::Get(World);
+	if (!MM) { Ar.Log(TEXT("afl.MM.VerifyMultiQueue - no matchmaking subsystem.")); return; }
+
+	using namespace AFLMultiQueueCanary;
+	if (ActiveRun.IsValid()) { Ar.Log(TEXT("afl.MM.VerifyMultiQueue - a run is already in progress.")); return; }
+
+	TSharedPtr<FRun> Run = MakeShared<FRun>();
+	Run->MM = MM;
+	Run->A = (Args.Num() > 0 && !Args[0].IsEmpty()) ? Args[0] : DefaultQueueA;
+	Run->B = (Args.Num() > 1 && !Args[1].IsEmpty()) ? Args[1] : DefaultQueueB;
+	Run->StepStarted = FPlatformTime::Seconds();
+
+	if (Run->A == Run->B)
+	{
+		// Two names for one cell would "pass" step 2 the moment the duplicate guard refused the second join
+		// while the first entry was still live -- a green light for the exact bug the guard prevents.
+		Ar.Log(TEXT("afl.MM.VerifyMultiQueue - A and B must be DIFFERENT cells."));
+		return;
+	}
+
+	ActiveRun = Run;
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+		[Run](float Dt) -> bool
+		{
+			const bool bContinue = Run->Tick(Dt);
+			if (!bContinue) { AFLMultiQueueCanary::ActiveRun.Reset(); }
+			return bContinue;
+		}), 0.5f);
+
+	Ar.Logf(TEXT("afl.MM.VerifyMultiQueue started -- A=%s B=%s. Watch the log for AFL_MQ_CANARY."), *Run->A, *Run->B);
+}
+
+FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMStatusCmd(TEXT("afl.MM.Status"),
+	TEXT("Print the live matchmaking entry list (state, count, every queued cell)."),
+	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMStatus));
+
+FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMQueueCmd(TEXT("afl.MM.Queue"),
+	TEXT("Enter a cell: afl.MM.Queue <queueId> [stake]. Multi-entry is permitted; the same cell twice is not."),
+	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMQueue));
+
+FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMLeaveCmd(TEXT("afl.MM.Leave"),
+	TEXT("Leave ONE cell: afl.MM.Leave <queueId>. No argument leaves every cell."),
+	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMLeave));
+
+FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMVerifyCmd(TEXT("afl.MM.VerifyMultiQueue"),
+	TEXT("Scripted canary: queue A, queue B alongside it, assert BOTH are live, leave A only, assert B survives. Args: [queueA] [queueB], defaulting to two free LeaguePlay cells. Logs AFL_MQ_CANARY PASS-1/PASS-2 and a final RESULT line."),
+	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMVerify));
+
+#endif // UE_WITH_CHEAT_MANAGER
+
