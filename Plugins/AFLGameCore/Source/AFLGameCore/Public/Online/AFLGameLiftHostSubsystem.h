@@ -123,6 +123,30 @@ private:
 	 *  relying on it being "just a pointer swap". */
 	mutable FCriticalSection DataLock;
 
+	/**
+	 * THE TRAVEL, AND THEN THE ACTIVATION -- in that order, which is the whole point.
+	 *
+	 * A placed server boots the map on its LAUNCH LINE, written long before any match exists, so without this
+	 * it activates and sits on stock Lyra. Measured live 2026-08-16: a staked 1v1 seated 2/2 on
+	 * L_Convolution_Blockout running B_LyraShooterGame_ControlPoints, and UAFLMatchReporter -- the only thing
+	 * that posts /escrow-entry -- lives on an AFL experience, so no stake was ever debited.
+	 *
+	 * ⚠ ACTIVATION IS WHAT TELLS GAMELIFT PLAYERS MAY CONNECT. Activating first and travelling after would let
+	 * a fast client land on the launch map and be travelled out from under itself mid-login, which is the
+	 * PreLogin/AcceptPlayerSession race this file's own probe comment measured. So the order is: travel, wait
+	 * for the map to finish loading, THEN activate.
+	 */
+	void BeginMatchTravel(const FString& GameSessionDataJsonCopy);
+
+	/** ActivateGameSession, exactly once, whatever route got us here. */
+	void ActivateOnce(const TCHAR* Why);
+
+	/** PostLoadMapWithWorld subscription, held only between the travel and the activation. */
+	FDelegateHandle TravelCompleteHandle;
+
+	/** Guards against a double activation: travel-complete and the no-travel fallback both end here. */
+	bool bGameSessionActivated = false;
+
 	/** The verbatim JSON from GameLift. Same contract the allocator emits and ?MatchmakerData= carries. */
 	FString GameSessionDataJson;
 

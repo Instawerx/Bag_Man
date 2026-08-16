@@ -3,9 +3,14 @@
 #include "Online/AFLGameLiftHostSubsystem.h"
 
 #include "AFLGameCore.h"   // LogAFLGameCore
+#include "Async/Async.h"                    // AsyncTask -- the websocket->game-thread hop for the travel
+#include "Dom/JsonObject.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "UObject/UObjectGlobals.h"         // FCoreUObjectDelegates::PostLoadMapWithWorld -- travel completion
 #include "HAL/PlatformMisc.h"   // GetEnvironmentVariable -- Anywhere credentials, same pattern as AFLOnline
 #include "Misc/CoreMisc.h"      // IsRunningDedicatedServer
 
@@ -360,6 +365,125 @@ void UAFLGameLiftHostSubsystem::SetAcceptingPlayers(bool /*bAccepting*/) const
 
 #endif  // WITH_GAMELIFT
 
+void UAFLGameLiftHostSubsystem::ActivateOnce(const TCHAR* Why)
+{
+	// ⚠ ONE ACTIVATION, WHATEVER ROUTE ARRIVES FIRST. Three paths end here -- travel completed, travel was not
+	// possible, travel was issued but the map never loaded -- and GameLift treats a second ActivateGameSession
+	// as an error on an already-active session. The flag is read and written on the game thread only.
+	if (bGameSessionActivated)
+	{
+		return;
+	}
+	bGameSessionActivated = true;
+
+#if WITH_GAMELIFT
+	FGameLiftServerSDKModule& Mod = FModuleManager::LoadModuleChecked<FGameLiftServerSDKModule>(FName("GameLiftServerSDK"));
+	const FGameLiftGenericOutcome Activated = Mod.ActivateGameSession();
+	if (Activated.IsSuccess())
+	{
+		UE_LOG(LogAFLGameCore, Log, TEXT("AFL_GAMELIFT: ActivateGameSession OK (%s) -- players may now connect."), Why);
+	}
+	else
+	{
+		UE_LOG(LogAFLGameCore, Error, TEXT("AFL_GAMELIFT: ActivateGameSession FAILED (%s) -- %s"),
+			Why, *Activated.GetError().m_errorMessage);
+	}
+
+	// S12-E research probe. AFTER activation on purpose: player sessions are only meaningful once the session
+	// is active, and running it earlier would measure the wrong state. Gated off by default; see the probe's
+	// comment for why it must never run against a real match.
+	if (CVarAFLGameLiftSessionProbe.GetValueOnAnyThread() != 0)
+	{
+		RunPlayerSessionProbe(Mod);
+	}
+#else
+	// Editor and client builds have no SDK. The travel path above is still compiled and still exercised by a
+	// -game run, which is how it gets tested without a fleet; only the activation is absent, because there is
+	// nothing to activate against.
+	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_GAMELIFT: activation skipped (%s) -- no GameLift SDK in this build."), Why);
+#endif
+}
+
+void UAFLGameLiftHostSubsystem::BeginMatchTravel(const FString& GameSessionDataJsonCopy)
+{
+	check(IsInGameThread());
+
+	FString MapName, ExperienceName;
+	{
+		TSharedPtr<FJsonObject> Root;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(GameSessionDataJsonCopy);
+		if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+		{
+			Root->TryGetStringField(TEXT("map"), MapName);
+			Root->TryGetStringField(TEXT("experience"), ExperienceName);
+		}
+	}
+
+	// ⚠ NO MAP OR NO EXPERIENCE IS NOT AN ERROR, AND MUST NOT BECOME ONE. Thirteen published cells have no
+	// experience authored yet, and an older allocator sends neither field; in both cases the correct behaviour
+	// is the one this server had before travel existed -- stay put and activate, so the match still runs. It
+	// runs WITHOUT escrow, which the allocator also warns about, but a match that plays unbilled beats a
+	// server that refuses to activate and strands nine seated players.
+	if (MapName.IsEmpty() || ExperienceName.IsEmpty())
+	{
+		UE_LOG(LogAFLGameCore, Warning,
+			TEXT("AFL_GAMELIFT: no travel target in GameSessionData (map='%s' experience='%s') -- staying on the "
+			     "launch map. UAFLMatchReporter will NOT exist here, so escrow and settlement will not run."),
+			*MapName, *ExperienceName);
+		ActivateOnce(TEXT("no travel target"));
+		return;
+	}
+
+	UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAFLGameCore, Error, TEXT("AFL_GAMELIFT: no world to travel -- activating in place."));
+		ActivateOnce(TEXT("no world"));
+		return;
+	}
+
+	// ⚠ ACTIVATE ON MAP-LOAD-COMPLETE, NOT HERE. ServerTravel is asynchronous: it returns having QUEUED the
+	// load. Activating now would tell GameLift to admit players while the destination is still loading, and a
+	// client that connected in that window would join the launch map and then be travelled out from under
+	// itself mid-login -- the PreLogin/AcceptPlayerSession race the probe in this file measured.
+	//
+	// Bound BEFORE the travel is issued, because a cooked map already in memory can complete inside the call.
+	TravelCompleteHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddLambda(
+		[this](UWorld* LoadedWorld)
+		{
+			if (TravelCompleteHandle.IsValid())
+			{
+				FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(TravelCompleteHandle);
+				TravelCompleteHandle.Reset();
+			}
+			UE_LOG(LogAFLGameCore, Log, TEXT("AFL_GAMELIFT: travel complete -- world '%s'."),
+				LoadedWorld ? *LoadedWorld->GetMapName() : TEXT("<null>"));
+			ActivateOnce(TEXT("after travel"));
+		});
+
+	// `listen` so the dedicated server accepts connections on the destination map, and the experience rides as
+	// a URL OPTION -- which is how Lyra selects one, and the only per-match channel that survives the travel.
+	const FString TravelUrl = FString::Printf(TEXT("%s?listen?Experience=%s"), *MapName, *ExperienceName);
+	UE_LOG(LogAFLGameCore, Log, TEXT("AFL_GAMELIFT: travelling to '%s' (activation deferred until it loads)."),
+		*TravelUrl);
+
+	if (!World->ServerTravel(TravelUrl, /*bAbsolute=*/true))
+	{
+		// The travel was REFUSED outright -- a bad map name is the likely cause. Do not leave the session
+		// unactivated: GameLift would eventually reap the process and the players would be stranded with no
+		// explanation. Activate where we are and say plainly that escrow will not run.
+		if (TravelCompleteHandle.IsValid())
+		{
+			FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(TravelCompleteHandle);
+			TravelCompleteHandle.Reset();
+		}
+		UE_LOG(LogAFLGameCore, Error,
+			TEXT("AFL_GAMELIFT: ServerTravel REFUSED for '%s' -- activating on the launch map. Escrow and "
+			     "settlement will NOT run for this match."), *TravelUrl);
+		ActivateOnce(TEXT("travel refused"));
+	}
+}
+
 void UAFLGameLiftHostSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -429,24 +553,20 @@ void UAFLGameLiftHostSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 				GameSessionDataJson = Json;
 			}
 			UE_LOG(LogAFLGameCore, Log,
-				TEXT("AFL_GAMELIFT: onStartGameSession -- %d bytes of GameSessionData received; activating."),
-				Json.Len());
+				TEXT("AFL_GAMELIFT: onStartGameSession -- %d bytes of GameSessionData received."), Json.Len());
 
-			FGameLiftServerSDKModule& Mod = FModuleManager::LoadModuleChecked<FGameLiftServerSDKModule>(FName("GameLiftServerSDK"));
-			const FGameLiftGenericOutcome Activated = Mod.ActivateGameSession();
-			if (!Activated.IsSuccess())
+			// ⚠ THE HOP TO THE GAME THREAD. This lambda runs on the GameLift SDK's WEBSOCKET thread, and
+			// ServerTravel touches the world -- calling it here is a data race with whatever the game thread
+			// is doing, and the kind that survives a hundred runs and then corrupts one. Everything from the
+			// travel decision onward happens in BeginMatchTravel, on the game thread.
+			//
+			// The payload is passed BY VALUE rather than re-read under the lock on the other side: the value
+			// that arrived with THIS session is the one this travel must use, and a backfill's
+			// OnUpdateGameSession can legitimately overwrite the member between the two.
+			AsyncTask(ENamedThreads::GameThread, [this, Json]()
 			{
-				UE_LOG(LogAFLGameCore, Error, TEXT("AFL_GAMELIFT: ActivateGameSession FAILED -- %s"),
-					*Activated.GetError().m_errorMessage);
-			}
-
-			// S12-E research probe. AFTER activation on purpose: player sessions are only meaningful once the
-			// session is active, and running it earlier would measure the wrong state. Gated off by default;
-			// see the probe's comment for why it must never run against a real match.
-			if (CVarAFLGameLiftSessionProbe.GetValueOnAnyThread() != 0)
-			{
-				RunPlayerSessionProbe(Mod);
-			}
+				BeginMatchTravel(Json);
+			});
 		});
 
 	// A backfill or property change re-delivers the session. Take the new payload: the roster is the thing
