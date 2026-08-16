@@ -772,6 +772,18 @@ namespace AFLMultiQueueCanary
 		 */
 		bool bSupersede = false;
 
+		/**
+		 * STAKED MODE: one cell, entered WITH A BUY-IN, then left again.
+		 *
+		 * ⚠ IT DELIBERATELY DOES NOT WAIT FOR A MATCH, because a staked cell cannot produce one here. Staked
+		 * rule sets carry NO expansions -- "absence is the enforcement" -- so BR_9 is min=9 max=9 and needs
+		 * nine real humans; nothing commits it short-handed, by design. What this exercises is the leg that was
+		 * actually broken: entry writes a play-limits reservation, and LEAVING GIVES IT BACK. Until tonight no
+		 * path released one, silently, because the GSI never carried the exposureKey.
+		 */
+		bool bStakedOnly = false;
+		int32 StakeA = 0;
+
 		static constexpr double StepTimeout = 25.0;
 
 		/**
@@ -846,7 +858,7 @@ namespace AFLMultiQueueCanary
 					Finish(M);
 					return false;
 				}
-				M->StartMatchmaking(A, 0);
+				M->StartMatchmaking(A, StakeA);
 				Advance(Now);
 				break;
 
@@ -854,6 +866,19 @@ namespace AFLMultiQueueCanary
 				if (M->IsQueuedIn(A))
 				{
 					LogState(M, TEXT("A-live"));
+					if (bStakedOnly)
+					{
+						// The reservation exists NOW. Leave immediately and let step 4 prove it came back --
+						// the assertion lives in the play-limits table, which this client cannot read, so the
+						// log line is the marker the operator correlates against.
+						UE_LOG(LogAFLMatchmaking, Log,
+							TEXT("AFL_MQ_CANARY PASS-1 staked entry accepted for %s at %d -- exposure should now be HELD"),
+							*A, StakeA);
+						M->CancelQueue(A);
+						Step = 4;
+						StepStarted = Now;
+						break;
+					}
 					M->StartMatchmaking(B, 0);
 					Advance(Now);
 				}
@@ -891,6 +916,18 @@ namespace AFLMultiQueueCanary
 				break;
 
 			case 4:   // A gone, B survives -- THE OTHER CLAIM
+				if (bStakedOnly)
+				{
+					if (!M->IsQueuedIn(A))
+					{
+						LogState(M, TEXT("after-staked-leave"));
+						UE_LOG(LogAFLMatchmaking, Log,
+							TEXT("AFL_MQ_CANARY PASS-2 staked entry withdrawn -- exposure should now be RELEASED"));
+						Advance(Now);
+					}
+					else if (bTimedOut) { Fail(TEXT("staked entry never cleared")); Finish(M); return false; }
+					break;
+				}
 				if (!M->IsQueuedIn(A) && M->IsQueuedIn(B))
 				{
 					LogState(M, TEXT("after-leave-A"));
@@ -1053,6 +1090,47 @@ static void HandleAFLMMVerifySupersede(const TArray<FString>& Args, UWorld* Worl
 
 	Ar.Logf(TEXT("afl.MM.VerifySupersede started -- A=%s B=%s. This waits up to 420s for a bot commit."), *Run->A, *Run->B);
 }
+
+static void HandleAFLMMVerifyStaked(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+{
+	UAFLMatchmakingSubsystem* MM = AFLMultiQueueCanary::Get(World);
+	if (!MM) { Ar.Log(TEXT("afl.MM.VerifyStakedEntry - no matchmaking subsystem.")); return; }
+
+	using namespace AFLMultiQueueCanary;
+	if (ActiveRun.IsValid()) { Ar.Log(TEXT("afl.MM.VerifyStakedEntry - a run is already in progress.")); return; }
+	if (Args.Num() < 2) { Ar.Log(TEXT("afl.MM.VerifyStakedEntry <queueId> <stake>  -- stake must be > 0")); return; }
+
+	const int32 Stake = FCString::Atoi(*Args[1]);
+	if (Stake <= 0)
+	{
+		// A staked cell REFUSES a zero stake (R85), so a typo here would look like a matchmaking failure.
+		Ar.Log(TEXT("afl.MM.VerifyStakedEntry - stake must be > 0 for a staked cell."));
+		return;
+	}
+
+	TSharedPtr<FRun> Run = MakeShared<FRun>();
+	Run->MM = MM;
+	Run->A = Args[0];
+	Run->B = TEXT("<unused>");
+	Run->bStakedOnly = true;
+	Run->StakeA = Stake;
+	Run->StepStarted = FPlatformTime::Seconds();
+
+	ActiveRun = Run;
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+		[Run](float Dt) -> bool
+		{
+			const bool bContinue = Run->Tick(Dt);
+			if (!bContinue) { AFLMultiQueueCanary::ActiveRun.Reset(); }
+			return bContinue;
+		}), 0.5f);
+
+	Ar.Logf(TEXT("afl.MM.VerifyStakedEntry started -- %s at %d. THIS SPENDS REAL CURRENCY."), *Run->A, Stake);
+}
+
+FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMVerifyStakedCmd(TEXT("afl.MM.VerifyStakedEntry"),
+	TEXT("Enter a STAKED cell with a buy-in, then leave it -- proving the play-limits reservation is written on entry and GIVEN BACK on leave. Does not wait for a match: staked rule sets carry no expansions, so nothing fills short-handed. Args: <queueId> <stake>."),
+	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMVerifyStaked));
 
 FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMVerifySupersedeCmd(TEXT("afl.MM.VerifySupersede"),
 	TEXT("Queue A and B, then DO NOTHING and wait for one to fill -- proving the ALLOCATOR withdraws the other (first-to-fill-wins). Waits up to 420s for the 300s bot commit. Logs AFL_MQ_CANARY PASS-3."),
