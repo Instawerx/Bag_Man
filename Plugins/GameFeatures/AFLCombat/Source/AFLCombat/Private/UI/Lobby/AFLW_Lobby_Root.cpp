@@ -110,7 +110,14 @@ void UAFLW_Lobby_Root::NativeOnInitialized()
 		if (UAFLMatchmakingSubsystem* Matchmaking = GameInstance->GetSubsystem<UAFLMatchmakingSubsystem>())
 		{
 			MatchmakingHandle = Matchmaking->OnStateChanged.AddWeakLambda(this,
-				[this](EAFLMatchmakingState, const FText&) { RefreshQueuedRows(); });
+				[this](EAFLMatchmakingState, const FText&)
+				{
+					RefreshQueuedRows();
+					// AND the CTA, because "already in this queue" is a commit-state answer that changes for
+					// exactly the same reasons the rows do. Refreshing only the rows would leave the button
+					// offering a join the subsystem would then refuse.
+					RefreshCommitState();
+				});
 		}
 	}
 
@@ -1170,6 +1177,18 @@ void UAFLW_Lobby_Root::RefreshCommitState()
 		bEnabled = false;
 		Reason = LOCTEXT("CommitNotOpen", "Not open yet.");
 	}
+	else if (IsQueuedInSelected())
+	{
+		// ⚠ ALREADY IN THIS CELL. Multi-entry means the commit button stays live while queued -- entering a
+		// SECOND cell is the point -- but entering the SAME one twice is refused by the subsystem, because the
+		// ticket index is keyed (queueId, playFabId) and a second ticket would overwrite the row that is the
+		// only handle on the first.
+		//
+		// Stating it here rather than letting the press be swallowed is §10: a CTA that does nothing must say
+		// why. Without this the button looked live, did nothing, and logged a warning nobody was reading.
+		bEnabled = false;
+		Reason = LOCTEXT("CommitAlreadyQueued", "You are already in this queue.");
+	}
 	else if (IsAxisLegalForDoor(Door, EAFLLobbyAxis::Stake))
 	{
 		const int64 Balance = (Denomination == EAFLDenomination::Volts) ? VoltsBalance : WattsBalance;
@@ -1267,6 +1286,19 @@ bool UAFLW_Lobby_Root::RequiresTicketReview() const
 	// per-entry cap and the session meter -- must be legible BEFORE they bind, so a staked entry cannot
 	// skip the screen that shows them. The league route has neither, because it has no stake.
 	return AFLLobby::IsStaked(ResolveTier(Door, Denomination));
+}
+
+bool UAFLW_Lobby_Root::IsQueuedInSelected() const
+{
+	const FAFLLobbyQueue* Selected = GetSelectedQueue();
+	if (!Selected)
+	{
+		return false;
+	}
+	const UGameInstance* GameInstance = GetGameInstance();
+	const UAFLMatchmakingSubsystem* Matchmaking =
+		GameInstance ? GameInstance->GetSubsystem<UAFLMatchmakingSubsystem>() : nullptr;
+	return Matchmaking && Matchmaking->IsQueuedIn(Selected->QueueId);
 }
 
 void UAFLW_Lobby_Root::RefreshQueuedRows()

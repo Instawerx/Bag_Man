@@ -415,6 +415,10 @@ private:
 	 */
 	void RefreshQueuedRows();
 
+	/** Whether the currently-selected cell is one we already hold an entry in. Drives the commit CTA's
+	 *  "already in this queue" refusal -- the one join multi-entry still forbids. */
+	bool IsQueuedInSelected() const;
+
 	/** Light the preset matching the current stake. Separate beat from selection, so separate function. */
 	void RefreshPresetSelection();
 

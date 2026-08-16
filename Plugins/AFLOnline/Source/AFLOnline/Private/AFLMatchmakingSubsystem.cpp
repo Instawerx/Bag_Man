@@ -61,9 +61,15 @@ void UAFLMatchmakingSubsystem::SetState(EAFLMatchmakingState NewState, const FTe
 	// deliberately returns to Queued with the ticket intact. Clearing at each call site would need five
 	// correct decisions instead of one, and the failure mode is a lobby row offering to cancel a cell the
 	// player is not in -- or worse, not offering it for one they are.
+	//
+	// ⚠ SAFE ONLY BECAUSE Failed IS NO LONGER SET WHILE ENTRIES SURVIVE. A refused join with two live entries
+	// used to land here as Failed and would now wipe both. That path goes through RederiveState instead, which
+	// cannot produce Failed -- Failed is reached only by the give-up cap and by fatal service errors, where
+	// every entry really is over. If a future call site sets Failed with entries still live, it is dropping
+	// them on the floor and this is where it happens.
 	if (NewState == EAFLMatchmakingState::Idle || NewState == EAFLMatchmakingState::Failed)
 	{
-		QueuedQueueId.Reset();
+		Entries.Reset();
 	}
 
 	OnStateChanged.Broadcast(NewState, Reason);
@@ -100,19 +106,87 @@ void UAFLMatchmakingSubsystem::ResetPollProgress()
 	// function is exactly how they drift: someone adds an early-out above the reset, or a third caller clears
 	// the timer directly, and the queue clock survives into the next attempt. The player then presses PLAY
 	// and their first poll lands on the 60-second tail -- a dead button, from the first tick, with no error
-	// anywhere. Hence one function, and the ensure in ArmNextPoll's caller that proves it ran.
-	QueueStartRealSeconds = 0.0;
+	// anywhere. Hence one function.
+	//
+	// THE CLOCK IS NOW THE ENTRY LIST ITSELF. Each entry carries its own start stamp, so "reset the progress"
+	// is "no entries are live" -- there is no separate scalar left to drift out of step. Clearing entries here
+	// would be wrong, though: this runs on cancel paths that have already decided what survives.
+	ClearPollTimer();
 }
 
 float UAFLMatchmakingSubsystem::ElapsedQueuedSeconds() const
 {
-	if (QueueStartRealSeconds <= 0.0)
+	// THE OLDEST ENTRY GOVERNS, and that is not an arbitrary pick. FlexMatch commits a bot-permitted match on
+	// `expansionAgeSelection: 'oldest'` -- the longest-waiting ticket in a partial match is what fires the
+	// expansion -- so the oldest entry is also the one whose deadline actually arrives first. Running the poll
+	// ladder off the newest would put the client on the 3s rung for a player who has been waiting ten minutes,
+	// and running it off an average would track nothing real.
+	double Oldest = 0.0;
+	for (const FEntry& Entry : Entries)
+	{
+		if (Entry.StartRealSeconds > 0.0 && (Oldest <= 0.0 || Entry.StartRealSeconds < Oldest))
+		{
+			Oldest = Entry.StartRealSeconds;
+		}
+	}
+	if (Oldest <= 0.0)
 	{
 		return 0.0f;
 	}
 	const UGameInstance* GI = GetGameInstance();
 	const UWorld* World = GI ? GI->GetWorld() : nullptr;
-	return World ? static_cast<float>(World->GetRealTimeSeconds() - QueueStartRealSeconds) : 0.0f;
+	return World ? static_cast<float>(World->GetRealTimeSeconds() - Oldest) : 0.0f;
+}
+
+bool UAFLMatchmakingSubsystem::IsQueuedIn(const FString& InQueueId) const
+{
+	if (InQueueId.IsEmpty())
+	{
+		return false;
+	}
+	return Entries.ContainsByPredicate([&InQueueId](const FEntry& E) { return E.QueueId == InQueueId; });
+}
+
+TArray<FString> UAFLMatchmakingSubsystem::GetQueuedQueueIds() const
+{
+	TArray<FString> Out;
+	Out.Reserve(Entries.Num());
+	for (const FEntry& Entry : Entries)
+	{
+		Out.Add(Entry.QueueId);
+	}
+	return Out;
+}
+
+FString UAFLMatchmakingSubsystem::GetOldestQueuedQueueId() const
+{
+	const FEntry* Best = nullptr;
+	for (const FEntry& Entry : Entries)
+	{
+		if (!Best || Entry.StartRealSeconds < Best->StartRealSeconds)
+		{
+			Best = &Entry;
+		}
+	}
+	return Best ? Best->QueueId : FString();
+}
+
+void UAFLMatchmakingSubsystem::RederiveState(const FText& Reason)
+{
+	// ⚠ STATE IS DERIVED FROM THE ENTRY LIST, NOT ASSIGNED BY WHOEVER ACTED LAST. With one entry the two were
+	// the same thing and assignment was fine. With several they are not: a REFUSED join while two entries are
+	// live must not set Failed, because the player is very much still queued -- and the old code set Failed
+	// from the refusal handler unconditionally. Deriving makes that class of bug unrepresentable rather than
+	// something every future call site has to remember.
+	//
+	// Joining is terminal and Cancelling is a claim about an in-flight request, so neither is derivable from
+	// the list; both are still set explicitly and this function is not called on those paths.
+	const EAFLMatchmakingState Derived =
+		Entries.Num() > 0            ? EAFLMatchmakingState::Queued
+		: RequestsInFlight > 0       ? EAFLMatchmakingState::Requesting
+		:                              EAFLMatchmakingState::Idle;
+
+	SetState(Derived, Reason);
 }
 
 float UAFLMatchmakingSubsystem::PollIntervalForWait(float WaitedSeconds)
@@ -143,17 +217,23 @@ void UAFLMatchmakingSubsystem::ArmNextPoll()
 
 void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 Stake)
 {
-	if (State == EAFLMatchmakingState::Requesting || State == EAFLMatchmakingState::Queued)
+	// ⚠ THE BLANKET GUARD IS GONE, AND WHAT REPLACES IT IS NARROWER ON PURPOSE.
+	//
+	// It used to refuse outright while Requesting or Queued -- one entry, ever. That made the backend's
+	// first-to-fill-wins design unreachable: /cancel-ticket grew a per-cell selector, the allocator learned to
+	// withdraw superseded entries and release their exposure, and no player could produce the second entry any
+	// of it existed for.
+	//
+	// What remains is a DUPLICATE guard, and it is not cosmetic. `bagman-queue-ticket-index` is keyed
+	// (queueId, playFabId), so a second ticket in the SAME cell overwrites that row -- and the row is the only
+	// record of the first ticket's id and its exposureKey. The first FlexMatch ticket would keep searching
+	// with nothing able to name it and its play-limit reservation would be stranded until the window rolled.
+	// One entry per cell is a storage invariant, not a preference.
+	if (IsQueuedIn(QueueId))
 	{
-		// De-duplication, and the two cases are NOT the same thing -- saying so matters. Requesting means a
-		// /create-ticket is still in flight; Queued means one was accepted. Logging both as "already in the
-		// queue" reads, in a log where the next line is a 400, as though a refused ticket had left the client
-		// stuck queued. It has not: the refusal path sets Failed, and the next attempt goes out normally.
-		// That misreading cost a diagnosis on 2026-08-11, so the message now names the actual state.
-		UE_LOG(LogAFLMatchmaking, Warning, TEXT("AFL_MM: StartMatchmaking ignored -- %s."),
-			State == EAFLMatchmakingState::Requesting
-				? TEXT("a ticket request is already in flight")
-				: TEXT("already queued"));
+		UE_LOG(LogAFLMatchmaking, Warning,
+			TEXT("AFL_MM: StartMatchmaking ignored -- already queued in %s. A second ticket in one cell would "
+			     "overwrite its index row and strand the first."), *QueueId);
 		return;
 	}
 	if (QueueId.IsEmpty())
@@ -175,13 +255,11 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 		return;
 	}
 
-	// BEFORE the state change, because SetState broadcasts and a listener that asks "which cell?" during the
-	// Requesting transition must not be told "none". Set here rather than on the response for the same reason
-	// the state is: the attempt exists the moment we commit to it, and a cancel arriving mid-flight needs a
-	// cell to name.
-	QueuedQueueId = QueueId;
-
-	SetState(EAFLMatchmakingState::Requesting, NSLOCTEXT("AFL", "MMRequesting", "Joining queue..."));
+	// ⚠ COUNTED BEFORE THE STATE IS DERIVED, because RederiveState reads it. An in-flight join is what makes
+	// Requesting true when no entry has been accepted yet; with entries already live the derived state stays
+	// Queued, which is correct -- the player IS queued, and is additionally joining somewhere else.
+	++RequestsInFlight;
+	RederiveState(NSLOCTEXT("AFL", "MMRequesting", "Joining queue..."));
 
 	// Built by hand rather than a serializer for the same reason the signed bodies are: the shape is two
 	// fields and the wire form should be obvious at the call site.
@@ -202,7 +280,7 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 
 	TWeakObjectPtr<UAFLMatchmakingSubsystem> WeakThis(this);
 	Online->PostPlayerApi(TEXT("/create-ticket"), Body,
-		[WeakThis](bool bOk, const FString& Resp)
+		[WeakThis, QueueId, Stake](bool bOk, const FString& Resp)
 		{
 			// The player may have quit to desktop while this was in flight.
 			UAFLMatchmakingSubsystem* Self = WeakThis.Get();
@@ -211,42 +289,72 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 				return;
 			}
 
+			Self->RequestsInFlight = FMath::Max(0, Self->RequestsInFlight - 1);
+
 			if (!bOk)
 			{
 				// Surface the SERVER's reason. These are the ones a player can act on -- "queue is staked, a
 				// positive stake is required", "insufficient balance", "no map backs it yet" -- and replacing
 				// them with a generic failure would make every one of them look like a network problem.
 				const FText Why = ErrorTextFrom(Resp, NSLOCTEXT("AFL", "MMTicketFailed", "Could not join the queue."));
-				UE_LOG(LogAFLMatchmaking, Error, TEXT("AFL_MM: /create-ticket REFUSED -- %s"), *Resp.Left(300));
-				Self->SetState(EAFLMatchmakingState::Failed, Why);
+				UE_LOG(LogAFLMatchmaking, Error, TEXT("AFL_MM: /create-ticket REFUSED for %s -- %s"),
+					*QueueId, *Resp.Left(300));
+
+				// ⚠ A REFUSED JOIN IS NOT A FAILED SESSION WHEN OTHER ENTRIES ARE LIVE. This was an
+				// unconditional SetState(Failed), which was right while one entry was the maximum and becomes
+				// destructive the moment it is not: Failed clears the entry list, so being turned away from a
+				// third cell would have silently dropped the two the player was still queued in -- and they
+				// would remain live at FlexMatch, unwatched, with the client reporting Idle.
+				//
+				// RederiveState yields Queued while entries survive and Failed is not reachable from it, so
+				// the reason is still delivered and nothing is thrown away.
+				if (Self->Entries.Num() > 0)
+				{
+					Self->RederiveState(Why);
+				}
+				else
+				{
+					Self->SetState(EAFLMatchmakingState::Failed, Why);
+				}
 				return;
 			}
 
-			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: ticket accepted -- %s"), *Resp.Left(200));
-			Self->SetState(EAFLMatchmakingState::Queued, NSLOCTEXT("AFL", "MMQueued", "Searching for a match..."));
+			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: ticket accepted for %s -- %s"), *QueueId, *Resp.Left(200));
 
-			// ⚠ THE TRAP, ASSERTED RATHER THAN REMEMBERED. If a previous attempt's clock survived, this queue
-			// starts partway up the ladder -- the first poll waits 60s instead of 3s and the PLAY button
-			// looks dead from the very first tick, with nothing logged and nothing failing. That is a bug
-			// that reads as a network problem. StopPolling -> ResetPollProgress is what clears it; this
-			// ensure is what proves the clear actually happened, on every single queue attempt, in every
-			// non-shipping build.
-			ensureMsgf(Self->ElapsedQueuedSeconds() < 1.0f,
-				TEXT("AFL_MM: queue clock was NOT reset -- %.0fs already on it before the first poll. A stale ")
-				TEXT("clock starts this attempt on the ladder's 60s tail."), Self->ElapsedQueuedSeconds());
-
-			if (UGameInstance* GI = Self->GetGameInstance())
+			// ⚠ THE STALE-CLOCK ENSURE THAT USED TO LIVE HERE IS GONE, AND ITS REMOVAL IS NOT A RELAXATION.
+			// It asserted ElapsedQueuedSeconds() < 1.0f on every accepted ticket, to catch a previous
+			// attempt's clock surviving into a new one. Under multi-entry that condition is LEGITIMATELY
+			// false: joining a second cell while the first has been waiting five minutes reports 300s,
+			// because the elapsed figure is deliberately the OLDEST entry's. The assert would fire on correct
+			// behaviour, every time, which is worse than not having it -- an ensure that cries wolf gets
+			// disabled and takes the real signal with it. The bug it guarded is now structurally impossible:
+			// the clock is per-entry and an entry is stamped at the moment it is created, below.
+			FEntry Entry;
+			Entry.QueueId = QueueId;
+			Entry.Stake = Stake;
+			if (const UGameInstance* GI = Self->GetGameInstance())
 			{
-				if (UWorld* World = GI->GetWorld())
+				if (const UWorld* World = GI->GetWorld())
 				{
-					Self->QueueStartRealSeconds = World->GetRealTimeSeconds();
+					Entry.StartRealSeconds = World->GetRealTimeSeconds();
 				}
 			}
+			Self->Entries.Add(MoveTemp(Entry));
+
+			Self->RederiveState(Self->Entries.Num() > 1
+				? FText::Format(NSLOCTEXT("AFL", "MMQueuedMulti", "Searching {0} queues..."),
+					FText::AsNumber(Self->Entries.Num()))
+				: NSLOCTEXT("AFL", "MMQueued", "Searching for a match..."));
 
 			// Poll immediately, then on the ladder: at high population a match can be waiting before the
 			// first tick would fire, and a player staring at a spinner for three seconds after the match is
 			// already placed is three seconds of the match running without them. PollMatchStatus arms the
 			// next one itself, so there is no looping timer to set here.
+			//
+			// ⚠ ONE POLL SERVES EVERY ENTRY. /match-status is keyed by the PLAYER -- it posts an empty body and
+			// the server resolves identity from the session ticket -- so a second cell adds no polling load
+			// and needs no second timer. That is what makes multi-entry cheap on the client. Re-polling on an
+			// additional join is still right: it re-arms from the ladder position of the OLDEST entry.
 			Self->PollMatchStatus();
 		});
 }
@@ -492,7 +600,7 @@ void UAFLMatchmakingSubsystem::CancelQueue(const FString& QueueId)
 
 	TWeakObjectPtr<UAFLMatchmakingSubsystem> WeakThis(this);
 	Online->PostPlayerApi(TEXT("/cancel-ticket"), Body,
-		[WeakThis](bool bOk, const FString& Resp)
+		[WeakThis, QueueId](bool bOk, const FString& Resp)
 		{
 			UAFLMatchmakingSubsystem* Self = WeakThis.Get();
 			if (!Self)
@@ -527,10 +635,12 @@ void UAFLMatchmakingSubsystem::CancelQueue(const FString& QueueId)
 			{
 				Root->TryGetNumberField(TEXT("cancelled"), Cancelled);
 				Root->TryGetNumberField(TEXT("stillQueued"), StillQueued);
-				const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
-				if (Root->TryGetArrayField(TEXT("entries"), Entries) && Entries)
+				// Renamed off `Entries` -- the subsystem now HAS a member by that name and shadowing the live
+				// entry list with a JSON array inside its own cancel handler is a trap waiting for an edit.
+				const TArray<TSharedPtr<FJsonValue>>* EntryArray = nullptr;
+				if (Root->TryGetArrayField(TEXT("entries"), EntryArray) && EntryArray)
 				{
-					for (const TSharedPtr<FJsonValue>& E : *Entries)
+					for (const TSharedPtr<FJsonValue>& E : *EntryArray)
 					{
 						const TSharedPtr<FJsonObject>* Obj = nullptr;
 						bool bUnaddressable = false;
@@ -546,6 +656,34 @@ void UAFLMatchmakingSubsystem::CancelQueue(const FString& QueueId)
 			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: /cancel-ticket OK -- %d entr(ies) withdrawn%s, %d still live"),
 				Cancelled, bAnyUnaddressable ? TEXT(", EXPOSURE NOT RELEASED") : TEXT(""), StillQueued);
 
+			// DROP WHAT WAS WITHDRAWN. A named cell removes that entry; an empty QueueId was a bare Cancel and
+			// takes every one. Done from the SERVER's answer rather than optimistically at the call site: the
+			// entry is not gone until it says so, and a cancel that fails leaves the list untouched below.
+			if (QueueId.IsEmpty())
+			{
+				Self->Entries.Reset();
+			}
+			else
+			{
+				Self->Entries.RemoveAll([&QueueId](const FEntry& E) { return E.QueueId == QueueId; });
+			}
+
+			// ⚠ THE SERVER'S COUNT IS THE ONE THAT DECIDES, NOT OUR LIST. They can disagree: an entry that timed
+			// out or was swept is gone server-side while the client still lists it, and the client cannot see
+			// either event. Trusting `stillQueued` means a stale local entry cannot keep the player in a
+			// Queued state with nothing behind it -- the direction that matters, because the opposite mistake
+			// leaves someone believing they are searching when they are not.
+			if (StillQueued != Self->Entries.Num())
+			{
+				UE_LOG(LogAFLMatchmaking, Warning,
+					TEXT("AFL_MM: entry list disagreed with the server after cancel -- local %d, server %d. ")
+					TEXT("Trusting the server."), Self->Entries.Num(), StillQueued);
+				if (StillQueued <= 0)
+				{
+					Self->Entries.Reset();
+				}
+			}
+
 			// ⚠ STILL QUEUED IS NOT IDLE, AND POLLING MUST NOT STOP. Cancelling one cell out of three leaves a
 			// player matchable in two, and going Idle here would be the same lie this whole endpoint was built
 			// to delete -- just aimed at the cells the player deliberately kept. The clock keeps running too:
@@ -553,7 +691,7 @@ void UAFLMatchmakingSubsystem::CancelQueue(const FString& QueueId)
 			// estimate that never paused.
 			if (StillQueued > 0)
 			{
-				Self->SetState(EAFLMatchmakingState::Queued, bAnyUnaddressable
+				Self->RederiveState(bAnyUnaddressable
 					? NSLOCTEXT("AFL", "MMCancelledOneHeld",
 						"Left that queue. Your stake hold could not be released automatically -- it clears within 24 hours.")
 					: NSLOCTEXT("AFL", "MMCancelledOne", "Left that queue -- still searching the others."));

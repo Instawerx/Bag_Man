@@ -98,25 +98,25 @@ public:
 	EAFLMatchmakingState GetState() const { return State; }
 	const FText& GetLastReason() const { return LastReason; }
 
-	/**
-	 * The cell this attempt is in, or EMPTY when nothing of ours is live.
-	 *
-	 * The lobby needs it to know which ROW should offer a cancel, which it could not previously ask: this
-	 * subsystem tracked a state and never a cell, so "are you queued" was answerable and "queued in WHAT" was
-	 * not.
-	 *
-	 * ⚠ ONE CELL, BECAUSE THE CLIENT CURRENTLY PERMITS ONE. StartMatchmaking refuses outright while Requesting
-	 * or Queued, so multi-entry is unreachable from the UI even though the backend and /cancel-ticket both
-	 * support it. When that guard is lifted this becomes a SET and the lobby's per-row lookup below is already
-	 * shaped for it -- the row asks "is this cell mine", not "what is my one cell".
-	 */
-	const FString& GetQueuedQueueId() const { return QueuedQueueId; }
+	/** Whether THIS cell is one we hold a live entry in. The shape the lobby asks in, and the only one that
+	 *  stays meaningful with several entries live at once. */
+	bool IsQueuedIn(const FString& InQueueId) const;
 
-	/** Whether THIS cell is one we hold a live entry in. The shape the lobby actually asks in. */
-	bool IsQueuedIn(const FString& InQueueId) const
-	{
-		return !QueuedQueueId.IsEmpty() && QueuedQueueId == InQueueId;
-	}
+	/** How many cells we hold a live entry in. 0 when idle. */
+	int32 GetQueuedCount() const { return Entries.Num(); }
+
+	/** Every cell we are live in, oldest entry first. */
+	TArray<FString> GetQueuedQueueIds() const;
+
+	/**
+	 * The OLDEST live entry's cell, or empty.
+	 *
+	 * ⚠ NOT "THE" QUEUE -- there may be several, and any caller that treats this as the whole answer is wrong
+	 * the moment a player enters a second cell. Kept because the oldest entry is the one that governs the poll
+	 * ladder and the give-up clock, which is a real question with a single answer. Ask `IsQueuedIn` to test
+	 * membership and `GetQueuedQueueIds` to enumerate; this is deliberately not named `GetCurrentQueue`.
+	 */
+	FString GetOldestQueuedQueueId() const;
 
 	/** Fires on every transition, including Failed. The front end binds this to drive the PLAY button. */
 	FAFLOnMatchmakingState OnStateChanged;
@@ -184,19 +184,44 @@ private:
 	EAFLMatchmakingState State = EAFLMatchmakingState::Idle;
 	FText LastReason;
 
-	/** Set when an attempt commits, cleared by SetState on Idle/Failed. See GetQueuedQueueId. */
-	FString QueuedQueueId;
+	/**
+	 * ONE LIVE ENTRY. A player may hold several at once; the first cell to fill wins and the backend withdraws
+	 * the rest (match-allocator's supersede pass).
+	 */
+	struct FEntry
+	{
+		FString QueueId;
+		int32 Stake = 0;
+		/** Real-time stamp, per entry -- the ladder runs off the OLDEST, matching the server's
+		 *  `expansionAgeSelection: 'oldest'`, so the longest waiter governs. */
+		double StartRealSeconds = 0.0;
+	};
+
+	/** Accepted entries, in the order they were accepted. Small by construction; an array beats a map. */
+	TArray<FEntry> Entries;
+
+	/**
+	 * /create-ticket calls outstanding.
+	 *
+	 * ⚠ A COUNT, NOT A BOOL, and it is what lets Requesting mean something with several entries live. Two
+	 * simultaneous joins are ordinary now -- a player can press two rows quickly -- and a bool would be
+	 * cleared by whichever answered first, leaving the second in flight while the subsystem reported nothing
+	 * pending.
+	 */
+	int32 RequestsInFlight = 0;
+
+	/** Recompute State from Entries/RequestsInFlight and broadcast. THE ONLY WRITER of State outside the
+	 *  terminal Joining/Failed paths -- see the .cpp for why a derived state beats an assigned one here. */
+	void RederiveState(const FText& Reason);
 
 	FTimerHandle PollTimer;
 
-	/**
-	 * When this queue attempt started, on the world's REAL-time clock -- not accumulated per tick.
-	 *
-	 * Real time rather than game time because a paused or dilated front end must not distort a queue clock
-	 * the server is keeping in wall seconds. A stamp rather than an accumulator because an accumulator drifts
-	 * by one interval per step and has to be corrected in two places; subtraction cannot.
-	 */
-	double QueueStartRealSeconds = 0.0;
+	// The queue clock used to be a single scalar here. It now lives per-entry on FEntry::StartRealSeconds, for
+	// the reason multi-entry forces: two cells entered ten minutes apart have two different waits, and one
+	// scalar can only describe the newer of them. Still REAL time rather than game time -- a paused or dilated
+	// front end must not distort a clock the server keeps in wall seconds -- and still a stamp rather than an
+	// accumulator, which would drift by one interval per step. ElapsedQueuedSeconds() reduces them to the
+	// oldest, which is the one the server's own expansion fires on.
 
 	/**
 	 * The client's own give-up, matched to the LONGEST a ticket can live server-side: staked configurations
