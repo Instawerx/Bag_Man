@@ -762,7 +762,24 @@ namespace AFLMultiQueueCanary
 		double StepStarted = 0.0;
 		int32 Failures = 0;
 
+		/**
+		 * SUPERSEDE MODE: do not cancel anything -- sit on both entries until one of them FILLS, and prove the
+		 * other is withdrawn by the allocator rather than by us.
+		 *
+		 * ⚠ THIS IS THE ONE CLAIM THE LEAVE TEST CANNOT MAKE. Per-cell cancel proves the client can drop an
+		 * entry; first-to-fill-wins is the server doing it unprompted, and it is the path that decides whether
+		 * a player already in a match stays matchable somewhere else.
+		 */
+		bool bSupersede = false;
+
 		static constexpr double StepTimeout = 25.0;
+
+		/**
+		 * A bot-permitted cell commits by expansion at FLEX_COMMIT_DEADLINE_SECONDS = 300s, and then has to be
+		 * placed. 420s is that plus room for a cold server; anything shorter would report a timeout for a
+		 * system that was working, which is the most expensive kind of wrong answer a harness can give.
+		 */
+		static constexpr double FillTimeout = 420.0;
 
 		void Fail(const TCHAR* What)
 		{
@@ -849,8 +866,21 @@ namespace AFLMultiQueueCanary
 					LogState(M, TEXT("both-live"));
 					UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MQ_CANARY PASS-1 two entries live at once"));
 					if (M->GetQueuedCount() != 2) { Fail(TEXT("both cells report live but count != 2")); }
-					M->CancelQueue(A);
-					Advance(Now);
+					if (bSupersede)
+					{
+						// Touch NOTHING from here. Anything this client does to the entries would be the thing
+						// under test doing itself, and the whole point is that the SERVER withdraws the loser.
+						UE_LOG(LogAFLMatchmaking, Log,
+							TEXT("AFL_MQ_CANARY waiting up to %.0fs for a cell to FILL -- client will not touch the entries"),
+							FillTimeout);
+						Step = 5;
+						StepStarted = Now;
+					}
+					else
+					{
+						M->CancelQueue(A);
+						Advance(Now);
+					}
 				}
 				else if (bTimedOut)
 				{
@@ -877,6 +907,38 @@ namespace AFLMultiQueueCanary
 				}
 				else if (bTimedOut) { Fail(TEXT("cell A never cleared")); Finish(M); return false; }
 				break;
+
+			case 5:   // SUPERSEDE: one cell fills, the server withdraws the other
+			{
+				const int32 Count = M->GetQueuedCount();
+				const EAFLMatchmakingState S = M->GetState();
+
+				// Joining means a match formed and travel was issued -- the strongest possible outcome, and the
+				// point at which the loser must already be gone.
+				if (S == EAFLMatchmakingState::Joining || Count == 0)
+				{
+					LogState(M, TEXT("after-fill"));
+					UE_LOG(LogAFLMatchmaking, Log,
+						TEXT("AFL_MQ_CANARY PASS-3 a cell filled and the entry list collapsed (state=%d count=%d)"),
+						static_cast<int32>(S), Count);
+					Advance(Now);
+					break;
+				}
+				if (Count == 1)
+				{
+					// One withdrawn while the other still searches. Consistent with a supersede that landed
+					// before this client noticed the match, so report it and keep waiting for the resolution.
+					UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MQ dropped-to-one [%s]"),
+						*FString::Join(M->GetQueuedQueueIds(), TEXT(", ")));
+				}
+				if ((Now - StepStarted) > FillTimeout)
+				{
+					Fail(TEXT("no cell filled within the window -- supersede was never exercised (NOT proof it is broken)"));
+					Finish(M);
+					return false;
+				}
+				break;
+			}
 
 			default:
 				Finish(M);
@@ -962,6 +1024,39 @@ FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMQueueCmd(TEXT("afl.MM.Queu
 FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMLeaveCmd(TEXT("afl.MM.Leave"),
 	TEXT("Leave ONE cell: afl.MM.Leave <queueId>. No argument leaves every cell."),
 	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMLeave));
+
+static void HandleAFLMMVerifySupersede(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+{
+	UAFLMatchmakingSubsystem* MM = AFLMultiQueueCanary::Get(World);
+	if (!MM) { Ar.Log(TEXT("afl.MM.VerifySupersede - no matchmaking subsystem.")); return; }
+
+	using namespace AFLMultiQueueCanary;
+	if (ActiveRun.IsValid()) { Ar.Log(TEXT("afl.MM.VerifySupersede - a run is already in progress.")); return; }
+
+	TSharedPtr<FRun> Run = MakeShared<FRun>();
+	Run->MM = MM;
+	Run->A = (Args.Num() > 0 && !Args[0].IsEmpty()) ? Args[0] : DefaultQueueA;
+	Run->B = (Args.Num() > 1 && !Args[1].IsEmpty()) ? Args[1] : DefaultQueueB;
+	Run->bSupersede = true;
+	Run->StepStarted = FPlatformTime::Seconds();
+
+	if (Run->A == Run->B) { Ar.Log(TEXT("afl.MM.VerifySupersede - A and B must be DIFFERENT cells.")); return; }
+
+	ActiveRun = Run;
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+		[Run](float Dt) -> bool
+		{
+			const bool bContinue = Run->Tick(Dt);
+			if (!bContinue) { AFLMultiQueueCanary::ActiveRun.Reset(); }
+			return bContinue;
+		}), 1.0f);
+
+	Ar.Logf(TEXT("afl.MM.VerifySupersede started -- A=%s B=%s. This waits up to 420s for a bot commit."), *Run->A, *Run->B);
+}
+
+FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMVerifySupersedeCmd(TEXT("afl.MM.VerifySupersede"),
+	TEXT("Queue A and B, then DO NOTHING and wait for one to fill -- proving the ALLOCATOR withdraws the other (first-to-fill-wins). Waits up to 420s for the 300s bot commit. Logs AFL_MQ_CANARY PASS-3."),
+	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMVerifySupersede));
 
 FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMVerifyCmd(TEXT("afl.MM.VerifyMultiQueue"),
 	TEXT("Scripted canary: queue A, queue B alongside it, assert BOTH are live, leave A only, assert B survives. Args: [queueA] [queueB], defaulting to two free LeaguePlay cells. Logs AFL_MQ_CANARY PASS-1/PASS-2 and a final RESULT line."),
