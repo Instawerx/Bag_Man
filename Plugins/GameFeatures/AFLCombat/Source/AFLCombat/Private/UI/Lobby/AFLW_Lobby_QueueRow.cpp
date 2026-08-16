@@ -57,6 +57,19 @@ void UAFLW_Lobby_QueueRow::RequestLeave()
 	Matchmaking->CancelQueue(Queue.QueueId);
 }
 
+void UAFLW_Lobby_QueueRow::EstablishQueuedVisual()
+{
+	// ⚠ FIRED UNCONDITIONALLY, UNLIKE SetIsQueued, AND THE ASSET IS WHY. The LEAVE control's resting state
+	// cannot be authored into the WBP: the editor bridge reports success on a Visibility write and changes
+	// nothing (it cannot set typed/enum properties -- measured, `0 changes` with the value still `Visible`),
+	// so a row would spawn showing LEAVE on a cell nobody is queued in.
+	//
+	// Rather than depend on a default we cannot write, every row states its own initial state here. Called
+	// from SetQueue, which every row gets exactly once per spawn, so this is an initialise -- not a repeat of
+	// the edge-triggered path below.
+	BP_OnQueuedStateChanged(bIsQueued);
+}
+
 void UAFLW_Lobby_QueueRow::SetIsQueued(bool bInIsQueued)
 {
 	// ⚠ EDGE-TRIGGERED. The root re-derives queued state on EVERY matchmaking transition and every row rebuild,
@@ -97,6 +110,10 @@ void UAFLW_Lobby_QueueRow::SetQueue(const FAFLLobbyQueue& InQueue, const FText& 
 	SetIsEnabled(Queue.IsSelectable());
 
 	BP_OnQueueSet(Queue, Queue.State);
+
+	// AFTER BP_OnQueueSet, so a WBP that builds its row layout in that hook has already run before it is asked
+	// to show or hide the LEAVE control.
+	EstablishQueuedVisual();
 }
 
 void UAFLW_Lobby_QueueRow::NativePreConstruct()

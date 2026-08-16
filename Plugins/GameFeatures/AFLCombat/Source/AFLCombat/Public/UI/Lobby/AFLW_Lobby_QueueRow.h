@@ -88,6 +88,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Lobby")
 	void RequestLeave();
 
+private:
+	/** State the LEAVE control's resting appearance on a freshly-spawned row. See the .cpp -- the WBP default
+	 *  cannot be authored, so the row asserts it instead of inheriting it. */
+	void EstablishQueuedVisual();
+
+public:
+
 	/**
 	 * The strings, as static functions so a test can hold the honesty rules without a widget tree -- the same
 	 * pattern as `UAFLW_HomeScreen::IsStakeLegalForDoor`.
