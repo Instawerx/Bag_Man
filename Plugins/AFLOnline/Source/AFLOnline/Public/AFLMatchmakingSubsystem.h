@@ -98,6 +98,26 @@ public:
 	EAFLMatchmakingState GetState() const { return State; }
 	const FText& GetLastReason() const { return LastReason; }
 
+	/**
+	 * The cell this attempt is in, or EMPTY when nothing of ours is live.
+	 *
+	 * The lobby needs it to know which ROW should offer a cancel, which it could not previously ask: this
+	 * subsystem tracked a state and never a cell, so "are you queued" was answerable and "queued in WHAT" was
+	 * not.
+	 *
+	 * ⚠ ONE CELL, BECAUSE THE CLIENT CURRENTLY PERMITS ONE. StartMatchmaking refuses outright while Requesting
+	 * or Queued, so multi-entry is unreachable from the UI even though the backend and /cancel-ticket both
+	 * support it. When that guard is lifted this becomes a SET and the lobby's per-row lookup below is already
+	 * shaped for it -- the row asks "is this cell mine", not "what is my one cell".
+	 */
+	const FString& GetQueuedQueueId() const { return QueuedQueueId; }
+
+	/** Whether THIS cell is one we hold a live entry in. The shape the lobby actually asks in. */
+	bool IsQueuedIn(const FString& InQueueId) const
+	{
+		return !QueuedQueueId.IsEmpty() && QueuedQueueId == InQueueId;
+	}
+
 	/** Fires on every transition, including Failed. The front end binds this to drive the PLAY button. */
 	FAFLOnMatchmakingState OnStateChanged;
 
@@ -163,6 +183,9 @@ private:
 
 	EAFLMatchmakingState State = EAFLMatchmakingState::Idle;
 	FText LastReason;
+
+	/** Set when an attempt commits, cleared by SetState on Idle/Failed. See GetQueuedQueueId. */
+	FString QueuedQueueId;
 
 	FTimerHandle PollTimer;
 

@@ -2,7 +2,10 @@
 
 #include "UI/Lobby/AFLW_Lobby_QueueRow.h"
 
+#include "AFLCombat.h"                 // LogAFLCombat
+#include "AFLMatchmakingSubsystem.h"
 #include "CommonTextBlock.h"
+#include "Engine/GameInstance.h"
 
 #define LOCTEXT_NAMESPACE "AFLLobby"
 
@@ -23,6 +26,49 @@ namespace
 		const int32 Hours = FMath::Max(1, FMath::RoundToInt(Seconds / 3600.0f));
 		return FText::Format(LOCTEXT("WaitHours", "~{0}h"), FText::AsNumber(Hours));
 	}
+}
+
+void UAFLW_Lobby_QueueRow::RequestLeave()
+{
+	if (!bIsQueued)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_LOBBY: LEAVE pressed on %s, which is not the queued cell -- refused. The WBP is showing "
+			     "the control on a row it should not."),
+			Queue.QueueId.IsEmpty() ? TEXT("<no queue>") : *Queue.QueueId);
+		return;
+	}
+
+	UGameInstance* GameInstance = GetGameInstance();
+	UAFLMatchmakingSubsystem* Matchmaking =
+		GameInstance ? GameInstance->GetSubsystem<UAFLMatchmakingSubsystem>() : nullptr;
+	if (!Matchmaking)
+	{
+		UE_LOG(LogAFLCombat, Error, TEXT("AFL_LOBBY: LEAVE on %s -- no matchmaking subsystem."), *Queue.QueueId);
+		return;
+	}
+
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOBBY: leaving %s (this cell only)."), *Queue.QueueId);
+
+	// ⚠ THE ROW DOES NOT CLEAR ITS OWN QUEUED FLAG. The entry is not withdrawn until the SERVER says so, and a
+	// cancel that fails returns the player to Queued with the ticket still live. Clearing here would show
+	// "left" for a cell they are still in and still matchable in -- the precise lie /cancel-ticket exists to
+	// stop the client telling. The root re-derives the flag from the state transition that follows.
+	Matchmaking->CancelQueue(Queue.QueueId);
+}
+
+void UAFLW_Lobby_QueueRow::SetIsQueued(bool bInIsQueued)
+{
+	// ⚠ EDGE-TRIGGERED. The root re-derives queued state on EVERY matchmaking transition and every row rebuild,
+	// so an unguarded call would fire BP_OnQueuedStateChanged repeatedly with the same value -- and the WBP
+	// hook is where a designer will reasonably put a one-shot: a flash, a sound, a motion. Making the C++ side
+	// idempotent means that animation cannot be re-triggered by an unrelated state change somewhere else.
+	if (bIsQueued == bInIsQueued)
+	{
+		return;
+	}
+	bIsQueued = bInIsQueued;
+	BP_OnQueuedStateChanged(bIsQueued);
 }
 
 void UAFLW_Lobby_QueueRow::SetQueue(const FAFLLobbyQueue& InQueue, const FText& BandLabel)

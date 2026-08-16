@@ -102,6 +102,18 @@ void UAFLW_Lobby_Root::NativeOnInitialized()
 		StakeNumericField->OnTextChanged.AddDynamic(this, &UAFLW_Lobby_Root::HandleStakeTextChanged);
 	}
 
+	// THE ROWS FOLLOW MATCHMAKING STATE, so the LEAVE affordance appears and disappears without anyone
+	// pressing anything. That is the point: a ticket ends by timeout, by sweep, or by becoming a match far
+	// more often than by a player cancelling it, and in all three the row has no other way to find out.
+	if (UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (UAFLMatchmakingSubsystem* Matchmaking = GameInstance->GetSubsystem<UAFLMatchmakingSubsystem>())
+		{
+			MatchmakingHandle = Matchmaking->OnStateChanged.AddWeakLambda(this,
+				[this](EAFLMatchmakingState, const FText&) { RefreshQueuedRows(); });
+		}
+	}
+
 	if (VenueNote)
 	{
 		// R18 §2.2: the venue is disclosed as an OUTCOME, stated up front rather than framed as a
@@ -236,6 +248,21 @@ void UAFLW_Lobby_Root::NativeDestruct()
 			Directory->OnPresenceUpdated.Remove(PresenceHandle);
 		}
 		PresenceHandle.Reset();
+	}
+
+	// The matchmaking subsystem is a GameInstanceSubsystem and outlives this screen, so the same reasoning as
+	// the directory above applies: a weak lambda will not fire into a dead widget, but the entry would sit on
+	// the invocation list once per lobby visit for the life of the process.
+	if (MatchmakingHandle.IsValid())
+	{
+		if (UGameInstance* GameInstance = GetGameInstance())
+		{
+			if (UAFLMatchmakingSubsystem* Matchmaking = GameInstance->GetSubsystem<UAFLMatchmakingSubsystem>())
+			{
+				Matchmaking->OnStateChanged.Remove(MatchmakingHandle);
+			}
+		}
+		MatchmakingHandle.Reset();
 	}
 
 	// The wallet lives on the PlayerState, which outlives this screen. RemoveDynamic is a no-op when the
@@ -1080,6 +1107,11 @@ void UAFLW_Lobby_Root::RebuildQueueList()
 		if (Queue->State == EAFLPopulationState::Cold) { ++ColdCount; }
 	}
 
+	// A REBUILD DESTROYS THE ROWS AND THEIR FLAGS WITH THEM. Every filter change respawns this list, so
+	// without this a player who queued, then switched ruleset and switched back, would find their live cell
+	// rendering as an ordinary unqueued row -- entry still live, no way to leave it from the lobby.
+	RefreshQueuedRows();
+
 	if (ListFooter)
 	{
 		if (OpenCount == 0)
@@ -1235,6 +1267,26 @@ bool UAFLW_Lobby_Root::RequiresTicketReview() const
 	// per-entry cap and the session meter -- must be legible BEFORE they bind, so a staked entry cannot
 	// skip the screen that shows them. The league route has neither, because it has no stake.
 	return AFLLobby::IsStaked(ResolveTier(Door, Denomination));
+}
+
+void UAFLW_Lobby_Root::RefreshQueuedRows()
+{
+	UGameInstance* GameInstance = GetGameInstance();
+	const UAFLMatchmakingSubsystem* Matchmaking =
+		GameInstance ? GameInstance->GetSubsystem<UAFLMatchmakingSubsystem>() : nullptr;
+
+	// ⚠ NO SUBSYSTEM MEANS NO ENTRY, NOT "LEAVE IT AS IT WAS". Bailing out early here would freeze whatever the
+	// rows last showed, and the value they would freeze at is "queued" -- a LEAVE button wired to nothing.
+	const auto Mark = [Matchmaking](UAFLW_Lobby_QueueRow* Row)
+	{
+		if (Row)
+		{
+			Row->SetIsQueued(Matchmaking && Matchmaking->IsQueuedIn(Row->GetQueueId()));
+		}
+	};
+
+	for (const TObjectPtr<UAFLW_Lobby_QueueRow>& Row  : SpawnedRows)  { Mark(Row); }
+	for (const TObjectPtr<UAFLW_Lobby_QueueRow>& Tile : SpawnedTiles) { Mark(Tile); }
 }
 
 void UAFLW_Lobby_Root::CommitQueue()

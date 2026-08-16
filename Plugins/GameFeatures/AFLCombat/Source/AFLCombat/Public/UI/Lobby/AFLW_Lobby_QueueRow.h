@@ -61,6 +61,34 @@ public:
 	const FString& GetQueueId() const { return Queue.QueueId; }
 
 	/**
+	 * Mark this row as the cell the player currently holds an entry in, so the WBP can offer LEAVE instead of
+	 * a bare selection.
+	 *
+	 * ⚠ SET FROM MATCHMAKING STATE, NOT FROM THE CLICK THAT COMMITTED. A row that latched "queued" on its own
+	 * press would keep saying so after a refusal, a timeout, or the sweeper releasing the entry -- the four
+	 * cases where the label matters most and where the row has no idea anything happened. The root re-derives
+	 * it from UAFLMatchmakingSubsystem on every state transition, so the row is a renderer here exactly as it
+	 * is for population: the subsystem classifies, the row displays.
+	 */
+	void SetIsQueued(bool bInIsQueued);
+
+	bool IsQueued() const { return bIsQueued; }
+
+	/**
+	 * LEAVE THIS CELL AND STAY IN ANY OTHERS. What the row's LEAVE button calls.
+	 *
+	 * Named for what it does rather than "Cancel": cancel is the whole search, and this is one cell. The
+	 * distinction is the entire reason /cancel-ticket grew a selector.
+	 *
+	 * ⚠ REFUSES WHEN THE ROW IS NOT THE QUEUED ONE, rather than sending the request and letting the server
+	 * answer `noSuchEntry`. A row that is not queued has no business withdrawing anything, and the guard means
+	 * a WBP that leaves the button visible by mistake cannot pull a player out of a DIFFERENT cell -- the
+	 * failure a bare "cancel everything" call would produce from exactly this bug.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Lobby")
+	void RequestLeave();
+
+	/**
 	 * The strings, as static functions so a test can hold the honesty rules without a widget tree -- the same
 	 * pattern as `UAFLW_HomeScreen::IsStakeLegalForDoor`.
 	 */
@@ -107,6 +135,17 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Lobby", meta = (DisplayName = "On Queue Set"))
 	void BP_OnQueueSet(const FAFLLobbyQueue& InQueue, EAFLPopulationState State);
 
+	/**
+	 * WBP hook: this row is (or is no longer) the cell the player is queued in. The WBP shows or hides its
+	 * LEAVE affordance and any "searching" treatment.
+	 *
+	 * ⚠ THE WBP MUST NOT INVENT A SECOND SOURCE OF TRUTH HERE. It renders what this says; if it also tracked
+	 * its own idea of "queued" from button presses, the two would disagree the first time a ticket ended
+	 * without a press -- which is every timeout, every sweep, and every match that forms.
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Lobby", meta = (DisplayName = "On Queued State Changed"))
+	void BP_OnQueuedStateChanged(bool bInIsQueued);
+
 	// -- Bindings. Only what a QUEUE has. There is deliberately no venue slot here; see the class comment.
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget), Category = "AFL|Lobby")
@@ -130,4 +169,6 @@ protected:
 private:
 	UPROPERTY()
 	FAFLLobbyQueue Queue;
+
+	bool bIsQueued = false;
 };

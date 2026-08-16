@@ -55,6 +55,17 @@ void UAFLMatchmakingSubsystem::SetState(EAFLMatchmakingState NewState, const FTe
 {
 	State = NewState;
 	LastReason = Reason;
+
+	// ⚠ CLEARED ON THE WAY OUT OF QUEUING, NOT IN EVERY CALLER. Idle and Failed are the only states that mean
+	// "no ticket of ours is live"; Cancelling still has one until the server answers, and a cancel that FAILS
+	// deliberately returns to Queued with the ticket intact. Clearing at each call site would need five
+	// correct decisions instead of one, and the failure mode is a lobby row offering to cancel a cell the
+	// player is not in -- or worse, not offering it for one they are.
+	if (NewState == EAFLMatchmakingState::Idle || NewState == EAFLMatchmakingState::Failed)
+	{
+		QueuedQueueId.Reset();
+	}
+
 	OnStateChanged.Broadcast(NewState, Reason);
 }
 
@@ -163,6 +174,12 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 		SetState(EAFLMatchmakingState::Failed, NSLOCTEXT("AFL", "MMNotSignedIn", "Sign in to play."));
 		return;
 	}
+
+	// BEFORE the state change, because SetState broadcasts and a listener that asks "which cell?" during the
+	// Requesting transition must not be told "none". Set here rather than on the response for the same reason
+	// the state is: the attempt exists the moment we commit to it, and a cancel arriving mid-flight needs a
+	// cell to name.
+	QueuedQueueId = QueueId;
 
 	SetState(EAFLMatchmakingState::Requesting, NSLOCTEXT("AFL", "MMRequesting", "Joining queue..."));
 

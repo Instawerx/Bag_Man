@@ -405,6 +405,16 @@ private:
 	 */
 	void RefreshRowsInPlace();
 
+	/**
+	 * Tell every row and tile whether IT is the cell the player holds an entry in.
+	 *
+	 * ⚠ RE-DERIVED, NEVER REMEMBERED. Called on every matchmaking transition and after every rebuild, because
+	 * a row can stop being the queued one without any press: the ticket times out, the sweeper releases it, or
+	 * it becomes a match. A flag latched at commit time would survive all three and leave a LEAVE button on a
+	 * cell the player is no longer in.
+	 */
+	void RefreshQueuedRows();
+
 	/** Light the preset matching the current stake. Separate beat from selection, so separate function. */
 	void RefreshPresetSelection();
 
@@ -463,4 +473,5 @@ private:
 	/** Held so the subscription is released in NativeDestruct -- the directory outlives every lobby screen. */
 	FDelegateHandle DirectoryHandle;
 	FDelegateHandle PresenceHandle;
+	FDelegateHandle MatchmakingHandle;
 };
