@@ -429,6 +429,12 @@ void UAFLMatchmakingSubsystem::TravelToMatch(const FString& IpAddress, int32 Por
 
 void UAFLMatchmakingSubsystem::CancelMatchmaking()
 {
+	// EMPTY = EVERY CELL, which is what a bare Cancel button has always meant and must keep meaning.
+	CancelQueue(FString());
+}
+
+void UAFLMatchmakingSubsystem::CancelQueue(const FString& QueueId)
+{
 	if (State != EAFLMatchmakingState::Requesting && State != EAFLMatchmakingState::Queued)
 	{
 		return;
@@ -456,11 +462,19 @@ void UAFLMatchmakingSubsystem::CancelMatchmaking()
 	// NOT Idle YET. The player is out of the queue when the SERVER says so, not when we stop asking.
 	SetState(EAFLMatchmakingState::Cancelling, NSLOCTEXT("AFL", "MMCancelling", "Stopping search..."));
 
-	// AN EMPTY BODY, AND THAT IS THE CONTRACT. /cancel-ticket takes NOTHING from the request -- it resolves
-	// the player from the session ticket and finds their live entries through the byPlayerEntry index. There
-	// is no queueId or ticketId to send, and sending one would not change what gets cancelled.
+	// THE BODY CARRIES A SELECTOR AND NEVER AN IDENTITY. /cancel-ticket still resolves WHO from the session
+	// ticket and finds their entries through the byPlayerEntry index; `queueId` only narrows that set to one
+	// cell. An empty body means every cell, which is the shipped behaviour and the bare Cancel button.
+	//
+	// Sending no field at all rather than `"queueId":""` on the all-path: the endpoint treats both as "all",
+	// but an absent key is the request a build predating this made, and keeping them byte-identical means the
+	// common path is the one already proven in the gate.
+	const FString Body = QueueId.IsEmpty()
+		? FString(TEXT("{}"))
+		: FString::Printf(TEXT("{\"queueId\":\"%s\"}"), *QueueId);
+
 	TWeakObjectPtr<UAFLMatchmakingSubsystem> WeakThis(this);
-	Online->PostPlayerApi(TEXT("/cancel-ticket"), TEXT("{}"),
+	Online->PostPlayerApi(TEXT("/cancel-ticket"), Body,
 		[WeakThis](bool bOk, const FString& Resp)
 		{
 			UAFLMatchmakingSubsystem* Self = WeakThis.Get();
@@ -487,10 +501,15 @@ void UAFLMatchmakingSubsystem::CancelMatchmaking()
 			// is the case where it did not. Folding it into a plain "Search stopped." would tell the player
 			// their stake was freed when it was not.
 			int32 Cancelled = 0;
+			// HOW MANY ENTRIES ARE STILL LIVE AFTER THIS CALL. Zero on a bare Cancel by construction; non-zero
+			// only when one cell was named and the player remains in others. The server reports it because the
+			// client cannot infer it -- it never knew how many cells the player was in.
+			int32 StillQueued = 0;
 			bool bAnyUnaddressable = false;
 			if (const TSharedPtr<FJsonObject> Root = ParseJson(Resp))
 			{
 				Root->TryGetNumberField(TEXT("cancelled"), Cancelled);
+				Root->TryGetNumberField(TEXT("stillQueued"), StillQueued);
 				const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
 				if (Root->TryGetArrayField(TEXT("entries"), Entries) && Entries)
 				{
@@ -507,8 +526,23 @@ void UAFLMatchmakingSubsystem::CancelMatchmaking()
 				}
 			}
 
-			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: /cancel-ticket OK -- %d entr(ies) withdrawn%s"),
-				Cancelled, bAnyUnaddressable ? TEXT(", EXPOSURE NOT RELEASED") : TEXT(""));
+			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: /cancel-ticket OK -- %d entr(ies) withdrawn%s, %d still live"),
+				Cancelled, bAnyUnaddressable ? TEXT(", EXPOSURE NOT RELEASED") : TEXT(""), StillQueued);
+
+			// ⚠ STILL QUEUED IS NOT IDLE, AND POLLING MUST NOT STOP. Cancelling one cell out of three leaves a
+			// player matchable in two, and going Idle here would be the same lie this whole endpoint was built
+			// to delete -- just aimed at the cells the player deliberately kept. The clock keeps running too:
+			// they have been waiting in those cells the whole time, so resetting the ladder would restart an
+			// estimate that never paused.
+			if (StillQueued > 0)
+			{
+				Self->SetState(EAFLMatchmakingState::Queued, bAnyUnaddressable
+					? NSLOCTEXT("AFL", "MMCancelledOneHeld",
+						"Left that queue. Your stake hold could not be released automatically -- it clears within 24 hours.")
+					: NSLOCTEXT("AFL", "MMCancelledOne", "Left that queue -- still searching the others."));
+				Self->ArmNextPoll();
+				return;
+			}
 
 			// The attempt is genuinely over now, so the clock goes with it.
 			Self->ResetPollProgress();

@@ -82,6 +82,19 @@ public:
 	 */
 	void CancelMatchmaking();
 
+	/**
+	 * Leave ONE cell and stay in the rest. `QueueId` empty is identical to CancelMatchmaking().
+	 *
+	 * ⚠ THE STATE AFTER THIS IS NOT NECESSARILY Idle. The server answers with `stillQueued`, and while that is
+	 * non-zero the player remains Queued and polling CONTINUES -- they are still matchable in the cells they
+	 * kept. Only a cancel that empties every cell reaches Idle.
+	 *
+	 * Exists because entries hold their own play-limit reservation under the per-entry exposure ruling: a
+	 * player in three cells is holding three reservations, and "get me out of the expensive one" is a real
+	 * request that a single all-or-nothing Cancel cannot express.
+	 */
+	void CancelQueue(const FString& QueueId);
+
 	EAFLMatchmakingState GetState() const { return State; }
 	const FText& GetLastReason() const { return LastReason; }
 
