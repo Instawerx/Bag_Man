@@ -3,6 +3,7 @@
 #include "Loot/AFLLootDirectorComponent.h"
 
 #include "AFLCombat.h"                  // LogAFLCombat
+#include "Cook/AFLCookedAssetRegistry.h"
 #include "Loot/AFLLootConfig.h"
 #include "Loot/AFLLootSpawnPoint.h"     // the tagged markers the spawn-loop queries
 #include "Engine/World.h"               // SpawnActor + FActorSpawnParameters
@@ -10,6 +11,13 @@
 #include "Kismet/GameplayStatics.h"     // GetAllActorsOfClass
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLLootDirectorComponent)
+
+// Declared AND enrolled for cook validation in one statement. MEASURED 2026-08-09: this asset was
+// ABSENT from the cooked build -- the cooked tree had no /AFLBagMan/Loot folder at all, so
+// BP_AFL_LootCacheCarry went with it. Same defect as the results board and the FBIK stack, third
+// site, found by Tools/AFL_Lint/cook_soft_refs.py rather than by reading a log.
+AFL_COOKED_ASSET(GAFLLootConfigAsset,
+	TEXT("/AFLBagMan/Loot/DA_AFL_LootConfig.DA_AFL_LootConfig"));
 
 UAFLLootDirectorComponent::UAFLLootDirectorComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -22,7 +30,7 @@ UAFLLootDirectorComponent::UAFLLootDirectorComponent(const FObjectInitializer& O
 	// AFLBagMan migration: DA_AFL_LootConfig was relocated out of /Game into the AFLBagMan GameFeature (resolves
 	// the /Game-references-GameFeature-content illegal refs). FOLLOW-UP (post-migration cleanup): replace this
 	// hardcoded string literal with a data-driven/EditDefaultsOnly default -- a path literal is fragile to renames.
-	LootConfig = TSoftObjectPtr<UAFLLootConfig>(FSoftObjectPath(TEXT("/AFLBagMan/Loot/DA_AFL_LootConfig.DA_AFL_LootConfig")));
+	LootConfig = GAFLLootConfigAsset.ToSoftObjectPtr<UAFLLootConfig>();
 }
 
 void UAFLLootDirectorComponent::BeginPlay()

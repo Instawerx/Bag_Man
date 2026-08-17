@@ -5,6 +5,7 @@
 #include "AFLCombat.h"
 #include "CommonActivatableWidget.h"
 #include "CommonUIExtensions.h"
+#include "Cook/AFLCookedAssetRegistry.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -21,6 +22,14 @@ namespace
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Event_Match_Ended_Presenter, "Event.Match.Ended");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Presenter, "UI.Layer.Menu");
 }
+
+// Declared AND enrolled for cook validation in one statement. This widget was absent from every
+// packaged build until 07ff32d8 -- named only by a literal here, so the cooker never packaged it.
+// A finished match then had no results board, no CONTINUE button and no way back to the lobby,
+// and sat in PostGame indefinitely; one instance held a GameLift session for 6.5 hours. The load
+// below happens at MATCH END, minutes into a session -- enrolling it moves detection to startup.
+AFL_COOKED_ASSET(GMatchScoreboardWidget,
+	TEXT("/AFLBagMan/UI/WBP_AFL_MatchScoreboard.WBP_AFL_MatchScoreboard_C"));
 
 UAFLMatchEndPresenter::UAFLMatchEndPresenter()
 {
@@ -39,8 +48,7 @@ void UAFLMatchEndPresenter::BeginPlay()
 	}
 
 	// The AFL results takeover WBP (styled child of UAFLW_MatchScoreboard). Soft ref -> lazy-loaded on match-end.
-	ResultsWidgetClass = TSoftClassPtr<UAFLW_MatchScoreboard>(
-		FSoftObjectPath(TEXT("/AFLBagMan/UI/WBP_AFL_MatchScoreboard.WBP_AFL_MatchScoreboard_C")));
+	ResultsWidgetClass = GMatchScoreboardWidget.ToSoftClassPtr<UAFLW_MatchScoreboard>();
 
 	// Reuse the proven trigger: the per-player Event.Match.Ended broadcast (fires once per player at PostGame).
 	if (UWorld* World = GetWorld())
