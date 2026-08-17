@@ -170,3 +170,6 @@ Tools/*.zip
 
 # Marketplace parkour anim pack (staging for retarget; keep only retargeted outputs)
 /Content/ParkourAnimations/
+
+# Accidental Git-LFS hook stubs (Windows has no /dev/null)
+/dev/null/
