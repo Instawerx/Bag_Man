@@ -7,6 +7,7 @@
 #   - afl-build/win64-dev
 #   - afl-naming-lint
 #   - afl-skill-registry
+#   - afl-cook-soft-refs
 #
 # Runner: self-hosted Windows box with UE 5.6 installed (label `ue5`).
 # See Docs/_archive/AFL_YOLO_PLAYBOOK.md for runner provisioning notes (YOLO concept abandoned 2026-08-05).
@@ -100,6 +101,44 @@ jobs:
             echo "::error::Docs/SKILLS_REGISTRY.md is stale. Run \`python Tools/AFL_Lint/skill_registry.py --generate\` locally and commit the result."
             exit 1
           fi
+
+  # ----------------------------------------------------------------------
+  # AFL-COOK string-referenced asset lint. The cooker packages what
+  # something REFERENCES; an FSoftObjectPath built from a C++ literal is
+  # not a reference it can follow, so the asset is silently dropped and
+  # the failure CANNOT reproduce in PIE -- it appears only as a
+  # LogStreaming Warning in a cooked run. That shipped three times, and
+  # both known instances were found only by reading a cooked client log
+  # line by line.
+  #
+  # This gate exists because a runtime check still requires someone to
+  # cook a build and read its log, which is precisely the step that
+  # failed. Pure-Python, no engine and no cook needed, so it runs on
+  # ubuntu-latest in seconds and does not contend with the UE runner.
+  # Required status check on main.
+  # ----------------------------------------------------------------------
+  afl-cook-soft-refs:
+    name: afl-cook-soft-refs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false   # reads .cpp/.h and Config/*.ini only - no LFS payload needed
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: AFL-COOK self-test (regression guard)
+        run: python Tools/AFL_Lint/cook_soft_refs.py --self-test
+
+      - name: AFL-COOK cook-coverage scan
+        run: python Tools/AFL_Lint/cook_soft_refs.py --root .
 
   win64-dev:
     name: afl-build/win64-dev

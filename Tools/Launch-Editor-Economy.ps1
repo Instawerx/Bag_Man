@@ -99,6 +99,8 @@ $ProjectPath = 'C:\Dev\Bag_Man\Bag_Man.uproject'
 # Opening with the launcher engine silently uses a different binary set from every LyraGame/LyraServer
 # artifact we cook, which is the kind of mismatch that surfaces later as an unexplained content or module
 # error rather than an honest "wrong engine" message.
+# RATIFIED DOCTRINE 2026-08-11, not an incidental choice: D:\UE5.6-source is the SINGLE engine for
+# editor, PIE, AIK, dedicated servers and cooks. This line was right before the ruling existed.
 $EditorPath  = 'D:\UE5.6-source\Engine\Binaries\Win64\UnrealEditor.exe'
 
 # Engine env var  <-  CloudFormation output key

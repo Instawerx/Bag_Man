@@ -12,6 +12,44 @@ reorg). The agent's last report shows that's already done — the skill is assem
 
 ---
 
+## ⚙ THE ENGINE — ONE ENGINE, BY EXPLICIT PATH  *(ruling 2026-08-11)*
+
+**`D:\UE5.6-source` is the single engine for everything:** editor, PIE, AIK, dedicated-server
+targets and shipping cooks. **The two-engine partition is RETIRED.** `C:\Program Files\Epic
+Games\UE_5.6` is dead weight — retained, unused, and not to be built against until a full cycle
+is proven clean on D: alone.
+
+**The build command, qualified:**
+
+```powershell
+& "D:\UE5.6-source\Engine\Build\BatchFiles\Build.bat" LyraEditor Win64 Development `
+    -Project="C:\Dev\Bag_Man\Bag_Man.uproject" -WaitMutex
+```
+
+Every command below that says a bare `Build.bat` means THIS. The unqualified form predates the
+ruling and is left in place only so the prompt text still matches what an agent pastes.
+
+**INVOKE BY EXPLICIT PATH, NEVER VIA `EngineAssociation`.** The `.uproject` carries the GUID
+`{5066982E-439C-2993-A6CB-F48A14DE2492}`, which resolves through
+`HKCU\Software\Epic Games\Unreal Engine\Builds` to `D:/UE5.6-source` today — **that is not the
+reason we use D:, it is a coincidence that currently agrees with the ruling.** A bare `Build.bat`
+inherits whichever engine the shell PATH or the association hands it, so the drive it lands on is
+a property of the machine rather than of the doctrine. Name the engine.
+
+**Why the partition was retired.** Splitting editor/PIE onto the launcher and servers/cooks onto
+source means one project tree is built by two engines with different `Changelist` stamps
+(launcher `CL=44394996`, source `CL=0`; both 5.6.1, both `CompatibleChangelist 43139311`). They
+**clobber each other in `Binaries\Win64`** — whichever built last owns the tree — and the other
+engine then refuses to load it, prompting *"The following modules are missing or built with a
+different engine version… rebuild?"* across ~60 modules. Answering yes is a full rebuild tax
+charged every time you cross the partition; answering no leaves you unable to open the project.
+The split bought nothing that one engine does not already do, and cost a rebuild per crossing.
+
+**Verifying which engine wrote the current binaries:** read `Changelist` in
+`Binaries\Win64\LyraEditor.target` — `0` is D: source, `44394996` is the C: launcher.
+
+---
+
 ## Phase 1 — Place the files you downloaded  **[you, then TERMINAL verifies]**
 
 Drop into the repo:

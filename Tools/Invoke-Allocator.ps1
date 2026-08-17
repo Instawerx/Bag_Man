@@ -35,13 +35,23 @@ param(
     [Parameter(Mandatory = $true)]
     [string[]] $PlayFabId,
 
+    # MANDATORY, AND IT USED TO DEFAULT TO VoltsPlay. That default silently minted a STAKED roster on every
+    # bare invocation, and on 2026-08-13 it fed one into every LEAGUE PLAY run of the session -- the server
+    # dutifully logged "economics from MATCHMAKER -- tier=VoltsPlay stake=10 VO" under a door whose own UI
+    # reads "No buy-in / Loot and Watts", then failed to escrow, and the failure was read as a product defect
+    # for hours. The shipping client is careful here (AFLMatchmakingSubsystem.cpp:113-121 OMITS stake when
+    # zero, because "sending 'stake':0 would turn a valid free match into a 400"); the harness was not.
+    # A tier is a property of the match being simulated. It must be stated, never inherited from a default.
+    [Parameter(Mandatory = $true)]
     [ValidateSet('WattsPlay', 'VoltsPlay', 'LeaguePlay')]
-    [string] $Tier = 'VoltsPlay',
+    [string] $Tier,
 
     [ValidateSet('ProMod', 'Haywire')]
     [string] $League = 'ProMod',
 
-    [int] $Stake = 10,
+    # DEFAULTS TO 0 -- the unstaked form. A stake is now opted INTO, so the failure mode of forgetting the
+    # argument is a free match (harmless, and what LEAGUE PLAY wants) rather than a phantom buy-in.
+    [int] $Stake = 0,
 
     [ValidateSet('VO', 'WA')]
     [string] $Currency = 'VO',
@@ -57,6 +67,21 @@ $ErrorActionPreference = 'Stop'
 if ($PlayFabId.Count -lt 2) {
     throw "Need at least 2 PlayFabIds: MATCH PLAY resolves over exactly 2 finishing positions, so a staked match needs two teams with a human in each."
 }
+
+# R85 ENFORCED HERE, NOT JUST AT THE WIRE. resolveEconomics() in the allocator rejects both of these with a
+# 400, so this adds no safety the backend lacks -- what it adds is the failure landing HERE, naming the
+# contradiction, instead of arriving as an HTTP error three layers away from the argument that caused it.
+# The whole reason today's mis-tiered runs went unnoticed is that a wrong tier produced a VALID allocation.
+if ($Tier -eq 'LeaguePlay' -and $Stake -gt 0) {
+    throw "LEAGUE PLAY has NO buy-in (R85): -Tier LeaguePlay is incompatible with -Stake $Stake. Drop -Stake, or pick a staked tier (VoltsPlay=VO / WattsPlay=WA)."
+}
+if ($Tier -ne 'LeaguePlay' -and $Stake -le 0) {
+    throw "-Tier $Tier is a STAKED tier and requires a positive -Stake (R85). Pass e.g. -Stake 10, or use -Tier LeaguePlay for a free match."
+}
+# The currency a tier stakes in is not a free choice -- the pools are SEALED (R78/R81), so a Watts tier
+# cannot hold a Volts pot. Mirrors currencyForTier() in the backend registry.
+if ($Tier -eq 'VoltsPlay' -and $Currency -ne 'VO') { throw "VoltsPlay stakes in VO, not $Currency (R78/R81: the pools are sealed)." }
+if ($Tier -eq 'WattsPlay' -and $Currency -ne 'WA') { throw "WattsPlay stakes in WA, not $Currency (R78/R81: the pools are sealed)." }
 
 Write-Host ''
 Write-Host 'Allocator capture' -ForegroundColor Cyan

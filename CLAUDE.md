@@ -31,9 +31,19 @@ detail lives in the skills referenced below — open those on demand, don't inli
 
 ## Build / verify
 
-```bat
-:: Generate project files / build a plugin (pattern used across AFL modules)
-Build.bat LyraEditor Win64 Development -Project="C:\Dev\Bag_Man\Bag_Man.uproject" -Plugin=AFLCombat.uplugin
+**ONE ENGINE: `D:\UE5.6-source`** — editor, PIE, AIK, dedicated servers and shipping cooks.
+Ratified 2026-08-11; the old C:-launcher / D:-source split is RETIRED. The `C:\Program Files\Epic
+Games\UE_5.6` install is dead weight, retained but unused.
+
+**Invoke the engine by EXPLICIT PATH, never by `EngineAssociation`.** The `.uproject` GUID happens
+to resolve to D: today; that is not why we use D:, and a bare `Build.bat` inherits whichever engine
+the shell or the association hands it.
+
+```powershell
+:: Build a plugin / the editor target (pattern used across AFL modules)
+& "D:\UE5.6-source\Engine\Build\BatchFiles\Build.bat" LyraEditor Win64 Development `
+    -Project="C:\Dev\Bag_Man\Bag_Man.uproject" -WaitMutex
+:: append -Plugin=AFLCombat.uplugin to scope it to one plugin
 ```
 Never mark work done off a successful build alone — open PIE (listen server + 2 clients for
 anything networked) and watch it.
