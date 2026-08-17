@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "Delegates/IDelegateInstance.h"
 #include "Modules/ModuleInterface.h"
 #include "Logging/LogMacros.h"
 
@@ -12,4 +13,8 @@ class FAFLCoreModule : public IModuleInterface
 public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
+
+private:
+	/** Set only when this module started before engine init and had to defer the cook sweep. */
+	FDelegateHandle PostEngineInitHandle;
 };

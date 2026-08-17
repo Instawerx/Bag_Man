@@ -29,7 +29,17 @@
 #include "UI/AFLW_LoadoutTileBase.h"   // UAFLW_LoadoutTileBase + UAFLMarketLoadoutItem
 #include "UObject/UnrealType.h"        // FNameProperty / CastField -- read CosmeticId off the store's BP item
 
+#include "Cook/AFLCookedAssetRegistry.h"
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_FrontEndMarket)
+
+// Declared AND enrolled for cook validation in one statement. MEASURED 2026-08-09: both were
+// absent from the cooked build (/Game/BagMan/UI/Loadout was uncooked entirely), so on a cooked
+// client LoadoutTileClass and SectionHeaderClass both resolved null and the LOADOUT list fell
+// back to the store's BP tiles. Same defect class as the match-end results board.
+AFL_COOKED_ASSET(GAFLLoadoutTileWidget,
+	TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_LoadoutTile.WBP_AFL_LoadoutTile_C"));
+AFL_COOKED_ASSET(GAFLLoadoutSectionHeaderWidget,
+	TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_LoadoutSectionHeader.WBP_AFL_LoadoutSectionHeader_C"));
 
 TOptional<FUIInputConfig> UAFLW_FrontEndMarket::GetDesiredInputConfig() const
 {
@@ -201,8 +211,7 @@ void UAFLW_FrontEndMarket::EnterStoreMode()
 		// BP ITEMS stay the list data, so the BP detail panel + buy read them exactly as before -- zero buy-spine risk.
 		if (!LoadoutTileClass)
 		{
-			LoadoutTileClass = LoadClass<UAFLW_LoadoutTileBase>(nullptr,
-				TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_LoadoutTile.WBP_AFL_LoadoutTile_C"));
+			LoadoutTileClass = LoadClass<UAFLW_LoadoutTileBase>(nullptr, GAFLLoadoutTileWidget.Path);
 		}
 		List->OnGetEntryClassForItem().BindUObject(this, &UAFLW_FrontEndMarket::GetLoadoutEntryClass);
 		List->OnEntryWidgetGenerated().AddUObject(this, &UAFLW_FrontEndMarket::OnStoreTileGenerated);
@@ -649,10 +658,8 @@ void UAFLW_FrontEndMarket::EnterLoadoutMode()
 
 	// Point the store's ListView at OUR tile (per-item override -> the store's default EntryWidgetClass is never
 	// modified, so STORE mode is untouched), and bind each generated tile's own click delegate. Then feed owned.
-	LoadoutTileClass = LoadClass<UAFLW_LoadoutTileBase>(nullptr,
-		TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_LoadoutTile.WBP_AFL_LoadoutTile_C"));
-	SectionHeaderClass = LoadClass<UAFLW_LoadoutSectionHeader>(nullptr,
-		TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_LoadoutSectionHeader.WBP_AFL_LoadoutSectionHeader_C"));
+	LoadoutTileClass = LoadClass<UAFLW_LoadoutTileBase>(nullptr, GAFLLoadoutTileWidget.Path);
+	SectionHeaderClass = LoadClass<UAFLW_LoadoutSectionHeader>(nullptr, GAFLLoadoutSectionHeaderWidget.Path);
 	if (UListView* List = Cast<UListView>(GetWidgetFromName(TEXT("ShopListView"))))
 	{
 		List->OnGetEntryClassForItem().BindUObject(this, &UAFLW_FrontEndMarket::GetLoadoutEntryClass);

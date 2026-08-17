@@ -4,6 +4,7 @@
 
 #include "AbilitySystemGlobals.h"                    // Block 44: spawn-race probe (ASC-not-ready Warning)
 #include "Components/ChildActorComponent.h"
+#include "Cook/AFLCookedAssetRegistry.h"
 #include "Cosmetics/AFLBrandEdgeMap.h"
 #include "Cosmetics/AFLCharacterPartActor.h"
 #include "AFLCosmeticCatalogSubsystem.h"  // S-ECON-CAT (AFLCosmeticCore module): id->asset registry (replaces ResolveEdgeById stopgap)
@@ -967,6 +968,12 @@ void UAFLSkinColorControllerComponent::RefreshWeaponSkinForPawn(APawn* Pawn) con
 			const FString MIPath = FString::Printf(
 				TEXT("/Game/Weapons/AFL/Skins/MI_AFL_WeaponSkin_%s_%s.MI_AFL_WeaponSkin_%s_%s"),
 				*Pattern, *Color, *Pattern, *Color);
+			// Composed at runtime from the skin id, so Tools/AFL_Lint/cook_soft_refs.py cannot
+			// resolve it -- it can only see the "MI_AFL_WeaponSkin_%s_%s" stem. Enrol the
+			// concrete path so the next validation sweep reports it by name if the cook dropped
+			// it. This is the case the build-time gate structurally cannot cover.
+			FAFLCookedAssetRegistry::RegisterDynamic(
+				MIPath, TEXT("AFLSkinColorControllerComponent::RefreshWeaponSkin"));
 			SkinMIC = Cast<UMaterialInstanceConstant>(FSoftObjectPath(MIPath).TryLoad());
 		}
 	}

@@ -35,7 +35,16 @@
 #include "GameplayTagContainer.h"
 #endif
 
+#include "Cook/AFLCookedAssetRegistry.h"
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_LoadoutBase)
+
+// Declared AND enrolled for cook validation in one statement. MEASURED 2026-08-09: absent from
+// the cooked build -- the whole /Game/BagMan/UI/Loadout folder was uncooked, so afl.Loadout.Open
+// took its "author it first" early-out on every cooked client. Declared at FILE scope on purpose:
+// the load below lives in a console-command lambda, and a function-scope static would not register
+// until that command ran, which would defeat the startup sweep entirely.
+AFL_COOKED_ASSET(GAFLLoadoutRootWidget,
+	TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_Loadout.WBP_AFL_Loadout_C"));
 
 // Live-tunable preview framing (afl.Loadout.Preview* -> tune at the prove without a rebuild). Defaults match
 // the UPROPERTY seeds; RepositionPreviewCamera reads them per-tick.
@@ -761,7 +770,7 @@ static FAutoConsoleCommandWithWorld GAFLLoadoutOpenCmd(
 			UE_LOG(LogTemp, Warning, TEXT("[AFLLoadout] afl.Loadout.Open: no PrimaryGameLayout."));
 			return;
 		}
-		const FSoftClassPath WbpPath(TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_Loadout.WBP_AFL_Loadout_C"));
+		const FSoftClassPath WbpPath(GAFLLoadoutRootWidget.Path);
 		UClass* WbpClass = WbpPath.TryLoadClass<UAFLW_LoadoutBase>();
 		if (!WbpClass)
 		{

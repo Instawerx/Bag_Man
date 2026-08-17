@@ -3,6 +3,7 @@
 #include "UI/AFLW_LoadoutTileBase.h"
 
 #include "Components/Button.h"
+#include "Cook/AFLCookedAssetRegistry.h"
 #include "Components/TextBlock.h"
 #include "Components/RichTextBlock.h" // dual-COLOR price -> tagged runs styled by DT_AFL_PriceStyles
 #include "Components/Widget.h"
@@ -23,7 +24,10 @@ namespace
 {
 	// The RichText style set (Default=white, volts=#1E5AFF, watts=#FF2D9E, sep=grey), authored + verified in the
 	// editor. Loaded once and pushed onto PriceRichText so the tagged runs colorize.
-	const TCHAR* GAFLPriceStyleSetPath = TEXT("/Game/BagMan/UI/Store/DT_AFL_PriceStyles.DT_AFL_PriceStyles");
+	// MEASURED 2026-08-09: absent from the cooked build -- named only by this literal, so the cooker
+	// never packaged it and every cooked tile rendered its price unstyled. Enrolled for validation.
+	AFL_COOKED_ASSET(GAFLPriceStyleSet,
+		TEXT("/Game/BagMan/UI/Store/DT_AFL_PriceStyles.DT_AFL_PriceStyles"));
 
 	// Build the color-tagged price markup from the raw catalog numbers (grouped thousands via FText::AsNumber):
 	//   dual  -> "3,990 <volts>V</>  <sep>/</>  39,900 <watts>W</>"   (amounts untagged -> Default/white)
@@ -52,7 +56,7 @@ void UAFLW_LoadoutTileBase::NativeOnInitialized()
 	if (PriceRichText)
 	{
 		// Style set drives the per-run colors; set it before any SetText so the markup colorizes on first fill.
-		if (UDataTable* Styles = LoadObject<UDataTable>(nullptr, GAFLPriceStyleSetPath))
+		if (UDataTable* Styles = LoadObject<UDataTable>(nullptr, GAFLPriceStyleSet.Path))
 		{
 			PriceRichText->SetTextStyleSet(Styles);
 		}
