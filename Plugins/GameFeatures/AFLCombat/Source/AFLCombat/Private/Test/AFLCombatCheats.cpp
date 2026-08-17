@@ -17,6 +17,8 @@
 #include "Engine/GameInstance.h"                      // A1.1: GetSubsystem<UAFLEconomyPersistenceSubsystem>()
 #include "Teams/LyraTeamSubsystem.h"                 // afl.Cosmetic.Test.Readability: opposing gameplay-team assignment
 #include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
+#include "Cosmetics/AFLCharacterPartMap.h"            // CC-1.2-P EmblemProbe: identity id -> body class (part-map resolver)
+#include "Components/DecalComponent.h"                // CC-1.2-P EmblemProbe: the chest-emblem decal readback
 #include "Cosmetics/AFLBrandEdgeMap.h"                 // RosterTest: brand -> authored finish (the identity sweep source)
 #include "Cosmetics/AFLSkinColorAsset.h"               // RosterTest: the preset type ApplySkinColor consumes
 #include "TimerManager.h"                              // RosterTest: the self-cycling FSM step timer
@@ -3099,6 +3101,151 @@ namespace
 			}
 		}
 	}
+
+	// ---- CC-1.2-P · CHASSIS EMBLEM PROBE (log-only verdict) ------------------------------------------
+	// One command, four AFL_TEST markers, no visual observation. Spawns a body through the PART-MAP RESOLVER
+	// (not a hardcoded path), applies a KNOWN TAGGED colour preset, then READS THE DECAL MATERIAL BACK.
+	// P4 is the verdict line: the write log (AFLCharacterPartActor.cpp:322) proves only that the write was
+	// ISSUED -- it cannot distinguish "wrote and stuck" from "wrote then something overwrote it" or "the MID
+	// we wrote is not the instance the decal renders". A readback distinguishes all three.
+	//
+	// Why the 1s timer: AFLPossessAs_Apply swaps the body through the CharacterParts fast-array and the part is
+	// a CHILD ACTOR that does not exist on the same frame. Probing inline would report P3=0 for a purely timing
+	// reason and send the verdict down the "decal never attached" branch.
+	static const TCHAR* kEmblemProbePreset =
+		TEXT("/Game/BagMan/Characters/Cosmetics/Finishes/DA_AFL_Finish_Blue_Ironics.DA_AFL_Finish_Blue_Ironics");
+
+	void AFLEmblemProbe_Run(UWorld* World, const FString& PresetPath)
+	{
+		static const FName NeonColorParam(TEXT("NeonColor"));
+
+		TArray<AAFLCharacterPartActor*> Parts;
+		GatherPlayerPartActors(World, Parts);
+		if (Parts.Num() == 0)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P2] preset applied: <none> tag=<none> valid=false  (NO PART ACTOR on pawn -- probe aborted)"));
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P3] decal component count on spawned actor = 0  (no part actor)"));
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P4] readback DecalMID NeonColor = <no part actor>"));
+			return;
+		}
+
+		// P2 -- the preset, EXPLICIT and TAGGED. Never DA_AFL_Finish_GlossBlack (deliberately untagged,
+		// AFLCharacterPartActor.cpp:158-159) -- an untagged preset leaves bIdentityResolved false and the
+		// emblem block at :291 is skipped, which would look identical to a failed write.
+		UAFLSkinColorAsset* Preset = LoadObject<UAFLSkinColorAsset>(nullptr, *PresetPath);
+		const FGameplayTag PresetTag = Preset ? Preset->GetColorIdentityTag() : FGameplayTag();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P2] preset applied: %s tag=%s valid=%s"),
+			*GetNameSafe(Preset),
+			PresetTag.IsValid() ? *PresetTag.ToString() : TEXT("<invalid>"),
+			PresetTag.IsValid() ? TEXT("true") : TEXT("false"));
+
+		for (AAFLCharacterPartActor* Part : Parts)
+		{
+			if (!IsValid(Part))
+			{
+				continue;
+			}
+
+			if (Preset)
+			{
+				Part->ApplySkinColor(Preset); // the write under test -- the :291 emblem block runs inside this
+			}
+
+			// P3 -- decals on the SPAWNED actor (the runtime instance, not the CDO/SCS template).
+			TArray<UDecalComponent*> Decals;
+			Part->GetComponents<UDecalComponent>(Decals);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P3] decal component count on spawned actor = %d  (part=%s)"),
+				Decals.Num(), *Part->GetName());
+
+			// P4 -- THE VERDICT LINE.
+			for (UDecalComponent* Decal : Decals)
+			{
+				if (!IsValid(Decal))
+				{
+					continue;
+				}
+				UMaterialInterface* Mat = Decal->GetDecalMaterial();
+				FLinearColor Tone(-1.f, -1.f, -1.f, -1.f);
+				bool bRead = false;
+				if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Mat))
+				{
+					Tone = MID->K2_GetVectorParameterValue(NeonColorParam);
+					bRead = true;
+				}
+				else if (Mat)
+				{
+					// Not a MID -> the part never re-created one for this decal; report the MIC's baked value.
+					bRead = Mat->GetVectorParameterValue(FMaterialParameterInfo(NeonColorParam), Tone);
+				}
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[P4] readback DecalMID NeonColor = %s  (decal=%s mat=%s class=%s read=%s)"),
+					*Tone.ToString(), *Decal->GetName(), *GetNameSafe(Mat),
+					Mat ? *Mat->GetClass()->GetName() : TEXT("null"),
+					bRead ? TEXT("ok") : TEXT("FAILED"));
+			}
+		}
+	}
+
+	void HandleAFLChassisEmblemProbe(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Chassis.EmblemProbe - run inside PIE."));
+			return;
+		}
+
+		const FName IdentityId = (Args.Num() >= 1) ? FName(*Args[0].TrimStartAndEnd()) : FName(TEXT("AFL.Chassis.Creator"));
+		const FString PresetPath = (Args.Num() >= 2) ? Args[1].TrimStartAndEnd() : FString(kEmblemProbePreset);
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P1] chassis spawn requested  (identity=%s preset=%s)"),
+			*IdentityId.ToString(), *PresetPath);
+
+		// PART-MAP RESOLVER -- identity id -> robot body CharacterPart class. Deliberately NOT a hardcoded body
+		// path: if the chassis is unmapped, that is itself the finding and must surface as a P1 failure.
+		UAFLCharacterPartMap* PartMap = LoadObject<UAFLCharacterPartMap>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/SkinColors/DA_AFL_CharacterPartMap.DA_AFL_CharacterPartMap"));
+		if (!PartMap)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P1] FAILED - DA_AFL_CharacterPartMap did not load"));
+			Ar.Log(TEXT("afl.Chassis.EmblemProbe - part map failed to load."));
+			return;
+		}
+
+		const TSoftClassPtr<AActor> SoftPart = PartMap->ResolveCharacterPart(IdentityId);
+		UClass* PartClass = SoftPart.IsNull() ? nullptr : SoftPart.LoadSynchronous();
+		if (!PartClass)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P1] FAILED - '%s' unmapped in the part map, or its class failed to load"),
+				*IdentityId.ToString());
+			Ar.Logf(TEXT("afl.Chassis.EmblemProbe - '%s' has no part-map row."), *IdentityId.ToString());
+			return;
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P1] resolved class=%s"), *GetNameSafe(PartClass));
+
+		FString Err;
+		if (!AFLPossessAs_Apply(World, PartClass, Err))
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[P1] FAILED - possess/apply: %s"), *Err);
+			Ar.Logf(TEXT("afl.Chassis.EmblemProbe - %s"), *Err);
+			return;
+		}
+
+		FTimerHandle ProbeTimer;
+		const FString CapturedPreset = PresetPath;
+		World->GetTimerManager().SetTimer(ProbeTimer,
+			FTimerDelegate::CreateLambda([World, CapturedPreset]()
+			{
+				AFLEmblemProbe_Run(World, CapturedPreset);
+			}),
+			1.0f, false);
+
+		Ar.Log(TEXT("afl.Chassis.EmblemProbe - armed; P2-P4 emit in ~1s. Then close PIE and read Saved/Logs for AFL_TEST[P1..P4]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLChassisEmblemProbeCmd(
+		TEXT("afl.Chassis.EmblemProbe"),
+		TEXT("CC-1.2-P log-only probe: spawn an identity's body via the PART-MAP resolver, apply a TAGGED colour preset, then READ BACK the chest-emblem decal's NeonColor. Emits AFL_TEST[P1..P4]. Usage: afl.Chassis.EmblemProbe [IdentityId] [PresetObjectPath] (defaults: AFL.Chassis.Creator + DA_AFL_Finish_Blue_Ironics)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChassisEmblemProbe));
 
 	void HandleAFLCosmeticSetParam(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
