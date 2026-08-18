@@ -3403,6 +3403,168 @@ namespace
 		TEXT("CC-1.1-P log-only probe: spawn a body via the PART-MAP resolver, then DIRECTLY read back Mesh->GetMaterial(1) across un-equip / equip / un-equip to prove what slot 1 restores to. Emits AFL_TEST[Q1..Q4]; Q4 is the verdict. Usage: afl.Chassis.Slot1Probe [IdentityId] [FacemaskMICPath] (defaults: AFL.Chassis.Creator + MI_AFL_FaceMask_JollyRoger)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChassisSlot1Probe));
 
+	// ---- CC-2.1-P · CREATOR COLOUR OVERLAY PROOF (dedicated server + 2 clients) -----------------------
+	// Drives the REAL funnel: ServerSetCosmeticSelection (client->server RPC), never SetSkinColor -- so the
+	// server-side ClampToNeon (AFLCosmeticLoadoutComponent.cpp:125) and the commit are both exercised.
+	//
+	// R3/R4 read the MID on whichever machine the command runs on, and iterate EVERY AAFLCharacterPartActor in
+	// the world (not just the local player's), logging each one's owning PlayerState -- that is how client B
+	// reads client A's robot. ActiveColorOverride is protected, so the MID params ARE the proof, not the struct.
+	//
+	// Colours: Body is DELIBERATELY out of the neon gamut (desaturated + near-black: S~0.09 < 0.55 floor,
+	// V~0.22 < 0.45 floor) so BOTH clamp floors fire and R2 != R1 is a real measurement, not an assumption.
+	// Edge/Glow are already in gamut (S=1, V=1) and should pass through hue-preserved.
+	static const FLinearColor kCreatorBody(0.20f, 0.20f, 0.22f, 1.0f); // OUT OF GAMUT -> clamp must change it
+	static const FLinearColor kCreatorEdge(1.00f, 0.35f, 0.00f, 1.0f); // vivid orange, in gamut
+	static const FLinearColor kCreatorGlow(0.00f, 1.00f, 0.55f, 1.0f); // vivid spring green, in gamut
+
+	static FString AFLCreator_NetTag(UWorld* World)
+	{
+		if (!World) { return TEXT("?"); }
+		switch (World->GetNetMode())
+		{
+		case NM_DedicatedServer: return TEXT("DEDSRV");
+		case NM_ListenServer:    return TEXT("LISTEN");
+		case NM_Client:          return TEXT("CLIENT");
+		case NM_Standalone:      return TEXT("STANDALONE");
+		default:                 return TEXT("?");
+		}
+	}
+
+	static FString AFLCreator_C(const FLinearColor& C)
+	{
+		return FString::Printf(TEXT("(%.4f,%.4f,%.4f,%.4f)"), C.R, C.G, C.B, C.A);
+	}
+
+	// Read the three creator channels off every MID on every part actor in THIS world.
+	static void AFLCreator_ReadMIDs(UWorld* World, const TCHAR* Marker)
+	{
+		static const FName NTeam(TEXT("TeamColor"));
+		static const FName NEdge(TEXT("EdgeGlowColor"));
+		static const FName NEmis(TEXT("EmissiveColor"));
+
+		int32 PartCount = 0;
+		for (TActorIterator<AAFLCharacterPartActor> It(World); It; ++It)
+		{
+			AAFLCharacterPartActor* Part = *It;
+			if (!IsValid(Part)) { continue; }
+			++PartCount;
+
+			// Whose robot is this? On client B, A's part is owned by A's PlayerState.
+			FString Owner = TEXT("<no-owner>");
+			if (AActor* Outer = Part->GetOwner())
+			{
+				Owner = Outer->GetName();
+				if (APawn* P = Cast<APawn>(Outer))
+				{
+					if (APlayerState* PS = P->GetPlayerState()) { Owner += TEXT("/PS=") + PS->GetPlayerName(); }
+				}
+			}
+
+			TArray<USkeletalMeshComponent*> Meshes;
+			Part->GetComponents<USkeletalMeshComponent>(Meshes);
+			for (USkeletalMeshComponent* Mesh : Meshes)
+			{
+				if (!IsValid(Mesh)) { continue; }
+				for (int32 Slot = 0; Slot < Mesh->GetNumMaterials(); ++Slot)
+				{
+					UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Mesh->GetMaterial(Slot));
+					if (!MID) { continue; } // not a MID -> nothing was pushed onto this slot
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[%s] [%s] part=%s owner=%s slot=%d mid=%s TeamColor=%s EdgeGlowColor=%s EmissiveColor=%s"),
+						Marker, *AFLCreator_NetTag(World), *Part->GetName(), *Owner, Slot, *MID->GetName(),
+						*AFLCreator_C(MID->K2_GetVectorParameterValue(NTeam)),
+						*AFLCreator_C(MID->K2_GetVectorParameterValue(NEdge)),
+						*AFLCreator_C(MID->K2_GetVectorParameterValue(NEmis)));
+				}
+			}
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[%s] [%s] part actors iterated = %d"),
+			Marker, *AFLCreator_NetTag(World), PartCount);
+	}
+
+	// Read the COMMITTED (post-clamp) creator fields back off the replicated Selection.
+	static void AFLCreator_ReadCommitted(UWorld* World, const TCHAR* Marker)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[%s] [%s] NO loadout component -- committed read unavailable"),
+				Marker, *AFLCreator_NetTag(World));
+			return;
+		}
+		const FAFLCosmeticSelection Sel = Loadout->GetSelection();
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[%s] [%s] committed colours after clamp: bUseCreatorColors=%d Body=%s Edge=%s Glow=%s"),
+			Marker, *AFLCreator_NetTag(World), (int32)Sel.bUseCreatorColors,
+			*AFLCreator_C(Sel.CreatorBodyColor), *AFLCreator_C(Sel.CreatorEdgeColor), *AFLCreator_C(Sel.CreatorGlowColor));
+	}
+
+	void HandleAFLCreatorColorProbe(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Creator.ColorProbe - run inside PIE."));
+			return;
+		}
+
+		const bool bReadOnly = (Args.Num() >= 1 && Args[0].TrimStartAndEnd().Equals(TEXT("read"), ESearchCase::IgnoreCase));
+
+		if (bReadOnly)
+		{
+			// READ mode (run on client B, and again on A after respawn): NO commit, pure readback.
+			AFLCreator_ReadCommitted(World, TEXT("R2"));
+			AFLCreator_ReadMIDs(World, TEXT("R4"));
+			Ar.Log(TEXT("afl.Creator.ColorProbe read - R2/R4 emitted (no commit)."));
+			return;
+		}
+
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout)
+		{
+			Ar.Log(TEXT("afl.Creator.ColorProbe - no UAFLCosmeticLoadoutComponent on the local PlayerState."));
+			return;
+		}
+
+		// R1 -- the RAW request, before the server sees it.
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[R1] [%s] requested colours = Body%s Edge%s Glow%s"),
+			*AFLCreator_NetTag(World), *AFLCreator_C(kCreatorBody), *AFLCreator_C(kCreatorEdge), *AFLCreator_C(kCreatorGlow));
+
+		// PURE CALLER of the real funnel: copy the current selection, set ONLY the creator fields, hand to the
+		// server. Seed the free identity if unset so _Validate passes (same shape as the other Set* cheats).
+		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		if (Request.GetActiveIdentityId() == NAME_None)
+		{
+			Request.IdentityType = EAFLIdentityType::Team;
+			Request.TeamId = FName(TEXT("AFL.Team.IRONICS"));
+		}
+		Request.bUseCreatorColors = 1;
+		Request.CreatorBodyColor  = kCreatorBody;
+		Request.CreatorEdgeColor  = kCreatorEdge;
+		Request.CreatorGlowColor  = kCreatorGlow;
+
+		Loadout->ServerSetCosmeticSelection(Request); // client -> server; clamp + commit happen there
+
+		// Give the RPC + the Selection OnRep + the push a couple of seconds to land, then read back locally.
+		FTimerHandle T;
+		World->GetTimerManager().SetTimer(T, FTimerDelegate::CreateLambda([World]()
+		{
+			AFLCreator_ReadCommitted(World, TEXT("R2"));
+			AFLCreator_ReadMIDs(World, TEXT("R3"));
+		}), 2.0f, false);
+
+		Ar.Log(TEXT("afl.Creator.ColorProbe - request sent; R2/R3 emit in ~2s. Run 'afl.Creator.ColorProbe read' on the OTHER client, and again after respawn for R4."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorColorProbeCmd(
+		TEXT("afl.Creator.ColorProbe"),
+		TEXT("CC-2.1-P: set the creator colour overlay through the REAL funnel (ServerSetCosmeticSelection -> server ClampToNeon -> commit -> replicate), then read the CLIENT-side MID params back. No arg = set + R1/R2/R3. 'read' = readback only (R2/R4), for the other client and for after respawn. Body colour is deliberately out-of-gamut so the clamp is measured, not assumed."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorColorProbe));
+
 	void HandleAFLCosmeticSetParam(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
 		if (Args.Num() < 4)
