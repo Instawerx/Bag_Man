@@ -19,6 +19,8 @@
 #include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
 #include "Cosmetics/AFLCharacterPartMap.h"            // CC-1.2-P EmblemProbe: identity id -> body class (part-map resolver)
 #include "Components/DecalComponent.h"                // CC-1.2-P EmblemProbe: the chest-emblem decal readback
+#include "Components/SkeletalMeshComponent.h"         // CC-1.1-P Slot1Probe: direct Mesh->GetMaterial(1) readback
+#include "Materials/MaterialInstanceConstant.h"       // CC-1.1-P Slot1Probe: the facemask MIC passed to ApplyFacemask
 #include "Cosmetics/AFLBrandEdgeMap.h"                 // RosterTest: brand -> authored finish (the identity sweep source)
 #include "Cosmetics/AFLSkinColorAsset.h"               // RosterTest: the preset type ApplySkinColor consumes
 #include "TimerManager.h"                              // RosterTest: the self-cycling FSM step timer
@@ -3246,6 +3248,160 @@ namespace
 		TEXT("afl.Chassis.EmblemProbe"),
 		TEXT("CC-1.2-P log-only probe: spawn an identity's body via the PART-MAP resolver, apply a TAGGED colour preset, then READ BACK the chest-emblem decal's NeonColor. Emits AFL_TEST[P1..P4]. Usage: afl.Chassis.EmblemProbe [IdentityId] [PresetObjectPath] (defaults: AFL.Chassis.Creator + DA_AFL_Finish_Blue_Ironics)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChassisEmblemProbe));
+
+	// ---- CC-1.1-P · SLOT-1 RESTORE PROOF ------------------------------------------------------------
+	// Q1..Q4 are ALL direct readbacks of Mesh->GetMaterial(1) -- never a log of what was passed in.
+	//
+	// Q2 without touching the class: AuthoredSlot1Material is PROTECTED (AFLCharacterPartActor.h:177), so a
+	// cheat cannot read it. It does not need to. ApplyFacemask(nullptr) RESTORES that captured value into
+	// slot 1 (:390-394), so a readback taken immediately after an un-equip IS the capture -- observed, not
+	// inferred. That is exactly what Q2 reports, and it is why Q2 runs BEFORE anything is equipped.
+	//
+	// The capture itself (:380) already happened during BeginPlay -- ApplyFacemask runs at :89, before
+	// ApplySkinColor at :95 -- so this probe cannot disturb it; it can only observe what was captured.
+	//
+	// Calling ApplyFacemask directly is the faithful exercise: the replicated path
+	// (SetFacemask -> OnRep -> ReapplyFacemaskToAllParts) funnels into this same call, and the capture/restore
+	// under test lives entirely inside it.
+	static const TCHAR* kSlot1ProbeFacemask =
+		TEXT("/Game/BagMan/Materials/Instances/MI_AFL_FaceMask_JollyRoger.MI_AFL_FaceMask_JollyRoger");
+
+	static USkeletalMeshComponent* AFLSlot1_FindVisorMesh(AAFLCharacterPartActor* Part)
+	{
+		// Mirror ApplyFacemask's own filter (:370): the mesh must actually HAVE a slot 1.
+		TArray<USkeletalMeshComponent*> Meshes;
+		Part->GetComponents<USkeletalMeshComponent>(Meshes);
+		for (USkeletalMeshComponent* M : Meshes)
+		{
+			if (IsValid(M) && M->GetNumMaterials() > 1)
+			{
+				return M;
+			}
+		}
+		return nullptr;
+	}
+
+	static FString AFLSlot1_Read(USkeletalMeshComponent* Mesh)
+	{
+		if (!IsValid(Mesh)) { return TEXT("<no-mesh>"); }
+		UMaterialInterface* M = Mesh->GetMaterial(1);
+		if (!M) { return TEXT("null"); }
+		// A MID name alone hides which base it wraps -- report the parent too, since the whole question is
+		// WHICH base slot 1 resolves to.
+		if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(M))
+		{
+			return FString::Printf(TEXT("%s [MID parent=%s]"), *M->GetName(), *GetNameSafe(MID->Parent));
+		}
+		return FString::Printf(TEXT("%s [%s]"), *M->GetName(), *M->GetClass()->GetName());
+	}
+
+	void AFLSlot1Probe_Run(UWorld* World, const FString& FacemaskPath)
+	{
+		TArray<AAFLCharacterPartActor*> Parts;
+		GatherPlayerPartActors(World, Parts);
+		if (Parts.Num() == 0)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q1] NO PART ACTOR on pawn -- probe aborted"));
+			return;
+		}
+
+		UMaterialInstanceConstant* Mask = LoadObject<UMaterialInstanceConstant>(nullptr, *FacemaskPath);
+		if (!Mask)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q3] FACEMASK FAILED TO LOAD: %s"), *FacemaskPath);
+		}
+
+		for (AAFLCharacterPartActor* Part : Parts)
+		{
+			if (!IsValid(Part)) { continue; }
+
+			USkeletalMeshComponent* Mesh = AFLSlot1_FindVisorMesh(Part);
+			if (!Mesh)
+			{
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q1] part=%s has NO slot-1 mesh -- skipped"), *Part->GetName());
+				continue;
+			}
+
+			// Q1 -- the as-spawned state (BeginPlay's ApplyFacemask + ApplySkinColor have already run).
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q1] chassis spawned, slot[1] material at BeginPlay = %s  (part=%s)"),
+				*AFLSlot1_Read(Mesh), *Part->GetName());
+
+			// Q2 -- un-equip FIRST: restores AuthoredSlot1Material into slot 1, so this readback IS the capture.
+			Part->ApplyFacemask(nullptr, nullptr);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q2] AuthoredSlot1Material captured = %s"),
+				*AFLSlot1_Read(Mesh));
+
+			// Q3 -- equip the probe facemask (unique-body parts auto-derive the _V visor variant internally).
+			Part->ApplyFacemask(Mask, nullptr);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q3] facemask equipped: slot[1] = %s  (requested=%s)"),
+				*AFLSlot1_Read(Mesh), *GetNameSafe(Mask));
+
+			// Q4 -- THE VERDICT. Un-equip, then read the MESH back.
+			Part->ApplyFacemask(nullptr, nullptr);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q4] facemask UNEQUIPPED: slot[1] = %s"),
+				*AFLSlot1_Read(Mesh));
+		}
+	}
+
+	void HandleAFLChassisSlot1Probe(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Chassis.Slot1Probe - run inside PIE."));
+			return;
+		}
+
+		const FName IdentityId = (Args.Num() >= 1) ? FName(*Args[0].TrimStartAndEnd()) : FName(TEXT("AFL.Chassis.Creator"));
+		const FString MaskPath = (Args.Num() >= 2) ? Args[1].TrimStartAndEnd() : FString(kSlot1ProbeFacemask);
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q0] slot-1 probe requested  (identity=%s facemask=%s)"),
+			*IdentityId.ToString(), *MaskPath);
+
+		UAFLCharacterPartMap* PartMap = LoadObject<UAFLCharacterPartMap>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/SkinColors/DA_AFL_CharacterPartMap.DA_AFL_CharacterPartMap"));
+		if (!PartMap)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q0] FAILED - DA_AFL_CharacterPartMap did not load"));
+			Ar.Log(TEXT("afl.Chassis.Slot1Probe - part map failed to load."));
+			return;
+		}
+
+		const TSoftClassPtr<AActor> SoftPart = PartMap->ResolveCharacterPart(IdentityId);
+		UClass* PartClass = SoftPart.IsNull() ? nullptr : SoftPart.LoadSynchronous();
+		if (!PartClass)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q0] FAILED - '%s' unmapped or class failed to load"),
+				*IdentityId.ToString());
+			Ar.Logf(TEXT("afl.Chassis.Slot1Probe - '%s' has no part-map row."), *IdentityId.ToString());
+			return;
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q0] resolved class=%s"), *GetNameSafe(PartClass));
+
+		FString Err;
+		if (!AFLPossessAs_Apply(World, PartClass, Err))
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[Q0] FAILED - possess/apply: %s"), *Err);
+			Ar.Logf(TEXT("afl.Chassis.Slot1Probe - %s"), *Err);
+			return;
+		}
+
+		// Same 1s delay as the emblem probe: the part is a CHILD ACTOR that does not exist on the possess frame.
+		FTimerHandle ProbeTimer;
+		const FString CapturedMask = MaskPath;
+		World->GetTimerManager().SetTimer(ProbeTimer,
+			FTimerDelegate::CreateLambda([World, CapturedMask]()
+			{
+				AFLSlot1Probe_Run(World, CapturedMask);
+			}),
+			1.0f, false);
+
+		Ar.Log(TEXT("afl.Chassis.Slot1Probe - armed; Q1-Q4 emit in ~1s. Then close PIE and read Saved/Logs for AFL_TEST[Q1..Q4]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLChassisSlot1ProbeCmd(
+		TEXT("afl.Chassis.Slot1Probe"),
+		TEXT("CC-1.1-P log-only probe: spawn a body via the PART-MAP resolver, then DIRECTLY read back Mesh->GetMaterial(1) across un-equip / equip / un-equip to prove what slot 1 restores to. Emits AFL_TEST[Q1..Q4]; Q4 is the verdict. Usage: afl.Chassis.Slot1Probe [IdentityId] [FacemaskMICPath] (defaults: AFL.Chassis.Creator + MI_AFL_FaceMask_JollyRoger)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChassisSlot1Probe));
 
 	void HandleAFLCosmeticSetParam(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
