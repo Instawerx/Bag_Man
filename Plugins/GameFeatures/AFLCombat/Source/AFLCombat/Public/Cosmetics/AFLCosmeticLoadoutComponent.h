@@ -5,6 +5,7 @@
 #include "Components/PlayerStateComponent.h"
 
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"
+#include "Cosmetics/AFLCosmeticTypes.h"   // FAFLColorOverride (CC-2.1: BuildColorOverride return type)
 // FAFLPlayerId (returned BY VALUE from MakePlayerId below) + the two seam interfaces are defined here,
 // so the header needs the full include, not a forward declaration.
 #include "Cosmetics/AFLCosmeticServices.h"
@@ -48,6 +49,10 @@ public:
 	/** Read the current replicated selection (any client; remote-visible). */
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
 	const FAFLCosmeticSelection& GetSelection() const { return Selection; }
+
+	/** CC-2.1: the ONE construction of the creator colour overlay (invalid unless bUseCreatorColors). Shared by the
+	 *  server push (RefreshSkinForPawn, step 5) and the client OnRep_Selection populate (step 6) -- two copies drift. */
+	static FAFLColorOverride BuildColorOverride(const FAFLCosmeticSelection& Sel);
 
 	/**
 	 * The ONE server-authoritative write path. The wallet UI AND the dev cheat both call THIS -- the

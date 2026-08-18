@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Components/ActorComponent.h"
+#include "Cosmetics/AFLCosmeticTypes.h"   // FAFLColorOverride (CC-2.1 creator colour overlay)
 
 #include "AFLSkinColorComponent.generated.h"
 
@@ -46,9 +47,11 @@ class AFLCOMBAT_API UAFLSkinColorComponent : public UActorComponent
 public:
 	UAFLSkinColorComponent();
 
-	/** AUTHORITY-ONLY: set the active color on the server. Replicates to all clients. */
+	/** AUTHORITY-ONLY: set the active color on the server. Replicates to all clients.
+	 *  ColorOverride (CC-2.1): optional creator overlay, cached + passed through to the parts. Default invalid
+	 *  -> existing callers compile unchanged and behave byte-identically. */
 	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
-	void SetSkinColor(UAFLSkinColorAsset* NewColor);
+	void SetSkinColor(UAFLSkinColorAsset* NewColor, const FAFLColorOverride& ColorOverride = FAFLColorOverride());
 
 	/** Read by the part actor on its BeginPlay (PATH 1). */
 	UAFLSkinColorAsset* GetSkinColor() const { return SkinColor; }
@@ -57,10 +60,16 @@ public:
 	 *  SkinColor (the edge axis) -- same two-path race-safe spine. The body Finish drives the TeamColor; the
 	 *  edge (SkinColor) overlays its emissive on top (composition: body first, edge wins the shared keys). */
 	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
-	void SetBodyColor(UAFLSkinColorAsset* NewColor);
+	void SetBodyColor(UAFLSkinColorAsset* NewColor, const FAFLColorOverride& ColorOverride = FAFLColorOverride());
 
 	/** Read by the part actor on its BeginPlay (PATH 1) -- the body finish (TeamColor axis). nullptr = none. */
 	UAFLSkinColorAsset* GetBodyColor() const { return BodyColor; }
+
+	/** CC-2.1 CLIENT CONVERGENCE: cache the creator overlay (rebuilt from the replicated FAFLCosmeticSelection in
+	 *  UAFLCosmeticLoadoutComponent::OnRep_Selection) and re-apply locally, so a DEDICATED-SERVER client -- where the
+	 *  authority-only SetSkinColor never runs -- still renders it. NOT authority-gated (that is the point); reads the
+	 *  already-replicated Body/SkinColor. Invalid override -> stores invalid + a guarded re-apply (byte-identical). */
+	void ApplyCreatorOverride(const FAFLColorOverride& ColorOverride);
 
 	/** AUTHORITY-ONLY: set the equipped facemask MIC on the server. Replicates to all clients (mirrors
 	 *  SetSkinColor exactly). The facemask is a slot-1 base-MATERIAL swap (the proven MI_AFL_FaceMask_Pink
@@ -115,6 +124,12 @@ protected:
 	 *  Drives the TeamColor axis. A content asset (UAFLSkinColorAsset) -> safe to replicate by pointer. nullptr = none. */
 	UPROPERTY(ReplicatedUsing = OnRep_BodyColor)
 	TObjectPtr<UAFLSkinColorAsset> BodyColor = nullptr;
+
+	// CC-2.1 creator overlay bridge: cached by SetSkinColor/SetBodyColor (authority), read by the Reapply* path
+	// (incl. OnRep re-apply) so the unchanged Reapply signatures still reach the parts with it. DELIBERATELY a
+	// plain (non-UPROPERTY) member -> it NEVER replicates; the overlay travels only via the replicated
+	// FAFLCosmeticSelection, resolved in RefreshSkinForPawn. Default invalid -> no effect until a creator push sets it.
+	FAFLColorOverride ActiveColorOverride;
 
 	UFUNCTION()
 	void OnRep_BodyColor();

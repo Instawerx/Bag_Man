@@ -97,7 +97,7 @@ void AAFLCharacterPartActor::BeginPlay()
 	}
 }
 
-void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset)
+void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset, const FAFLColorOverride& ColorOverride)
 {
 	const bool bDiag = AFLSkinDiag::IsOn();
 	if (bDiag)
@@ -268,8 +268,12 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 				{
 					continue;
 				}
+				// CREATOR OVERLAY (CC-2.1): highest-precedence value source, INSIDE the EmissiveColor2/3 skip guards
+				// above -> a skipped key stays skipped. Invalid override -> nullptr -> the expression below is
+				// byte-identical to before (regression guarantee, by construction). Precedence: override > registry > baked.
+				const FLinearColor* OverrideTone = ColorOverride.FindOverrideForParam(KV.Key);
 				const FLinearColor* RegistryTone = bIdentityResolved ? ResolvedIdentity.SkinFinish.FindToneForParam(KV.Key) : nullptr;
-				MID->SetVectorParameterValue(KV.Key, FVector(RegistryTone ? *RegistryTone : KV.Value));
+				MID->SetVectorParameterValue(KV.Key, FVector(OverrideTone ? *OverrideTone : (RegistryTone ? *RegistryTone : KV.Value)));
 			}
 			for (const TPair<FName, TObjectPtr<UTexture>>& KV : ColorAsset->GetTextures())
 			{

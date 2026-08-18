@@ -111,6 +111,28 @@ void UAFLCosmeticLoadoutComponent::BeginPlay()
 	}
 }
 
+namespace AFLCreatorGamut
+{
+	// CC-2.1 neon gamut bounds -- the SINGLE source (tune here, never scatter magic numbers at call sites). The
+	// X-body master (M_AFL_Character) is emissive-heavy, so a low-saturation / low-value pick reads as muddy
+	// "no colour"; these floors keep a creator choice legibly neon. Value is also ceiling-clamped to full neon.
+	static constexpr float MinSaturation = 0.55f;  // saturation floor: no washed-out greys
+	static constexpr float MinValue      = 0.45f;  // value floor: no near-black
+	static constexpr float MaxValue      = 1.00f;  // value ceiling: full neon brightness
+
+	// Server-authoritative clamp of a requested colour into the neon gamut. HSV via FLinearColor helpers
+	// (R=Hue[deg], G=Saturation[0-1], B=Value[0-1]); hue is preserved, S/V are floored/ceilinged.
+	static FLinearColor ClampToNeon(const FLinearColor& In)
+	{
+		FLinearColor HSV = In.LinearRGBToHSV();
+		HSV.G = FMath::Max(HSV.G, MinSaturation);
+		HSV.B = FMath::Clamp(HSV.B, MinValue, MaxValue);
+		FLinearColor Out = HSV.HSVToLinearRGB();
+		Out.A = 1.0f;
+		return Out;
+	}
+}
+
 bool UAFLCosmeticLoadoutComponent::IsSelectionEditable() const
 {
 	// D6 STUB-OPEN for #43: the match<->hub boundary that would raise bSelectionLocked at match-start is
@@ -174,6 +196,13 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 		// None = "no change requested for this axis" -> treat as allowed (it just won't overwrite).
 		return (Id == NAME_None) || (!Entitlement || Entitlement->IsEntitled(PS, Id));
 	};
+	// CC-2.1 CREATOR COLOUR entitlement -- shaped like AxisEntitled/IdentityOwned above.
+	// TODO(Stage B): real gate (creator-colour subscription/tier via the entitlement source). STUB-OPEN now; the
+	// CLAMP below is the LIVE, non-stubbed server protection -- ownership gating lands in Stage B, not the clamp.
+	auto CreatorColorsEntitled = [&]() -> bool
+	{
+		return true; // STUB-OPEN (Stage B)
+	};
 
 	// Identity slot (either/or, resolved by type).
 	if (IdentityOwned(Requested.IdentityType, Requested.GetActiveIdentityId()))
@@ -208,6 +237,26 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	// path was missing: without it, FacemaskId never left the current value -> the server committed <none>.
 	if (Requested.FacemaskId == NAME_None || AxisEntitled(Requested.FacemaskId)) { NewSelection.FacemaskId = Requested.FacemaskId; }
 
+	// Step 3b -- CREATOR COLOUR OVERLAY (CC-2.1). Clamp each supplied colour into the neon gamut SERVER-SIDE and
+	// commit the CLAMPED values, NEVER the raw request. Entitlement-gated exactly as the axis ids are (Stage-B
+	// stub). bUseCreatorColors==false clears the overlay; an unentitled request leaves the prior committed overlay
+	// untouched (same shape as an unentitled axis id). NewSelection started from the current committed Selection.
+	if (Requested.bUseCreatorColors)
+	{
+		if (CreatorColorsEntitled())
+		{
+			NewSelection.bUseCreatorColors = 1;
+			NewSelection.CreatorBodyColor  = AFLCreatorGamut::ClampToNeon(Requested.CreatorBodyColor);
+			NewSelection.CreatorEdgeColor  = AFLCreatorGamut::ClampToNeon(Requested.CreatorEdgeColor);
+			NewSelection.CreatorGlowColor  = AFLCreatorGamut::ClampToNeon(Requested.CreatorGlowColor);
+		}
+		// unentitled + requested -> leave the prior committed overlay as-is (do not clear, do not write raw).
+	}
+	else
+	{
+		NewSelection.bUseCreatorColors = 0; // explicit "creator colours off" -> drop the overlay (back to preset).
+	}
+
 	// Step 4 -- commit -> replicate (OnRep fires on clients; authority applies via the nudge below).
 	Selection = NewSelection;
 
@@ -232,12 +281,28 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	NudgeControllerReapply();
 }
 
+FAFLColorOverride UAFLCosmeticLoadoutComponent::BuildColorOverride(const FAFLCosmeticSelection& Sel)
+{
+	// CC-2.1: the ONE construction of the creator overlay -- shared by RefreshSkinForPawn (step 5, server push) and
+	// OnRep_Selection (step 6, client populate). Invalid unless bUseCreatorColors -> non-creator = no overlay.
+	return Sel.bUseCreatorColors
+		? FAFLColorOverride(Sel.CreatorBodyColor, Sel.CreatorEdgeColor, Sel.CreatorGlowColor)
+		: FAFLColorOverride();
+}
+
 void UAFLCosmeticLoadoutComponent::OnRep_Selection()
 {
 	// Remote clients: the selection value replicated in. The controller component is the authoritative
-	// driver of the visual push (server-side at possess); this OnRep exists so client-side UI (wallet
-	// preview, nameplates) can react to a selection change. No visual push from here -- cosmetics apply
-	// through the proven server-authority SetSkinColor path, never client-side.
+	// driver of the ASSET push (which preset/mask is equipped -- server-side at possess); this OnRep lets
+	// client-side UI (wallet preview, nameplates) react to a selection change.
+	//
+	// ⚠ UPDATED CC-2.1 (was: "No visual push from here ... never client-side"). That is no longer true, and
+	// deliberately so: the CREATOR COLOUR overlay is a per-channel VALUE that rides this replicated Selection,
+	// not an asset pointer. On a dedicated-server client the authority-only SetSkinColor never runs, so without
+	// a client-side populate the pawn would re-apply PRESET colours (CC-2.0-R §3). The populate below is
+	// therefore local-only CONVERGENCE onto already-replicated, already-server-CLAMPED values -- it never
+	// originates or alters a selection, so the server stays the sole authority. Asset equips are unchanged:
+	// they still flow exclusively through the proven server-authority SetSkinColor path.
 	if (AFLSkinDiag::IsOn())
 	{
 		// Firing on a remote client proves the selection crossed the wire (the 2-client replication check).
@@ -252,6 +317,29 @@ void UAFLCosmeticLoadoutComponent::OnRep_Selection()
 	// push now that we have the value. The push is authority-guarded, so this is a no-op on a pure remote
 	// client (which converges via the pawn component's SkinColor OnRep) and meaningful on the listen-host.
 	// Pairs with the OnPawnSet hook (the pawn half): whichever lands last fires the correct push.
+	//
+	// CC-2.1 CLIENT CONVERGENCE (step 6): the creator colours ride THIS replicated Selection. On a DEDICATED-SERVER
+	// client the authority-only SetSkinColor never runs, so the pawn component's ActiveColorOverride would stay
+	// invalid and the pawn's OnRep_SkinColor/BodyColor would re-apply PRESET colours. Rebuild the override from the
+	// just-replicated data (shared BuildColorOverride -- same as step 5) and hand it to the pawn component, which
+	// stores it and re-applies locally. Done BEFORE NudgeControllerReapply and synchronously (ApplyCreatorOverride
+	// sets the member THEN re-applies -> the override is populated before the re-apply it feeds).
+	//
+	// ORDERING: this covers the DOCUMENTED remote-client race (CC-2.0-R §3: pawn resident, Selection arrives second).
+	// If PS->GetPawn() is null here -- the value-BEFORE-pawn ordering -- there is NO PATH to the pawn component from
+	// the loadout component at this instant; only the PlayerState is reachable. That ordering is out of this step's
+	// scope (it would need a pawn-arrival hook, a second mechanism the block forbids) -- reported, not improvised.
+	if (const ALyraPlayerState* PS = GetLyraPlayerState())
+	{
+		if (APawn* Pawn = PS->GetPawn())
+		{
+			if (UAFLSkinColorComponent* PawnComp = Pawn->FindComponentByClass<UAFLSkinColorComponent>())
+			{
+				PawnComp->ApplyCreatorOverride(BuildColorOverride(Selection));
+			}
+		}
+	}
+
 	NudgeControllerReapply();
 }
 

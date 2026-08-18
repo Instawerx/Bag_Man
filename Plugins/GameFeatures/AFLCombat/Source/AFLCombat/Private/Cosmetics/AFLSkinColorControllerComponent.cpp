@@ -330,13 +330,20 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 				PersistentSkinColor ? *PersistentSkinColor->GetName() : TEXT("null"));
 		}
 
+		// CREATOR COLOUR OVERLAY (CC-2.1): build the per-channel override from the effective selection's creator
+		// fields and PASS IT INTO the push (never pulled inside ApplySkinColor). Invalid unless bUseCreatorColors ->
+		// every non-creator push is byte-identical. Rides the SAME re-driven resolve path as the edge/body axes,
+		// so the OnRep_Selection -> NudgeControllerReapply re-drive covers the late-Selection race for it too.
+		const FAFLColorOverride ColorOverride =
+			EffSel ? UAFLCosmeticLoadoutComponent::BuildColorOverride(*EffSel) : FAFLColorOverride();
+
 		if (UAFLSkinColorComponent* PawnComp = Pawn->FindComponentByClass<UAFLSkinColorComponent>())
 		{
 			// Authority -> sets the replicated BodyColor + SkinColor (two DOREPLIFETIME props) -> all clients
 			// re-apply via OnRep (PATH 2) + the new pawn's parts self-color on their BeginPlay (PATH 1). The body
 			// rides DOREPLIFETIME BodyColor exactly as the edge rides DOREPLIFETIME SkinColor (parallel axes).
-			PawnComp->SetBodyColor(EffectiveBody);   // body finish (TeamColor)
-			PawnComp->SetSkinColor(EffectiveEdge);   // edge overlay (emissive); null = no edge
+			PawnComp->SetBodyColor(EffectiveBody, ColorOverride);   // body finish (TeamColor) [+ CC-2.1 overlay]
+			PawnComp->SetSkinColor(EffectiveEdge, ColorOverride);   // edge overlay (emissive); null = no edge [+ CC-2.1 overlay]
 		}
 	}
 }

@@ -33,3 +33,53 @@ enum class EAFLCosmeticAxis : uint8
 	// brand MI the same way Axis==Edge wraps an edge preset and the Facemask asset wraps the slot-1 mask MIC.
 	Emblem  UMETA(DisplayName = "Emblem (chest brand decal)")
 };
+
+/**
+ * FAFLColorOverride -- the CREATOR per-channel colour overlay (CC-2.1). Three colours that, when bValid, override
+ * the resolved tone for exactly the three body colour params written on a unique-body chassis:
+ *   BodyColor -> "TeamColor",  EdgeColor -> "EdgeGlowColor",  GlowColor -> "EmissiveColor".
+ * PASSED IN through the controller push (never pulled inside ApplySkinColor). Default-constructs INVALID, so every
+ * non-creator call path is byte-identical -- the regression guarantee is BY CONSTRUCTION (FindOverrideForParam
+ * returns nullptr when !bValid, leaving the loop's value expression unchanged). NOT replicated: it is built from the
+ * replicated FAFLCosmeticSelection creator fields in RefreshSkinForPawn. Mirrors FAFLSkinFinish::FindToneForParam so
+ * it slots into the SAME in-loop precedence expression.
+ */
+USTRUCT(BlueprintType)
+struct FAFLColorOverride
+{
+	GENERATED_BODY()
+
+	/** FALSE (default) = no overlay; every consumer behaves exactly as before. TRUE = the three colours below win. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Cosmetic|Creator")
+	bool bValid = false;
+
+	/** -> "TeamColor" (body finish base shade). */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Cosmetic|Creator")
+	FLinearColor BodyColor = FLinearColor::White;
+
+	/** -> "EdgeGlowColor" (rim glow). */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Cosmetic|Creator")
+	FLinearColor EdgeColor = FLinearColor::White;
+
+	/** -> "EmissiveColor" (emissive base tone). */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Cosmetic|Creator")
+	FLinearColor GlowColor = FLinearColor::White;
+
+	FAFLColorOverride() = default;
+	FAFLColorOverride(const FLinearColor& InBody, const FLinearColor& InEdge, const FLinearColor& InGlow)
+		: bValid(true), BodyColor(InBody), EdgeColor(InEdge), GlowColor(InGlow) {}
+
+	/** Colour param KEY -> the override tone, or nullptr if invalid / not one of the three creator channels.
+	 *  Same shape + precedence slot as FAFLSkinFinish::FindToneForParam. */
+	const FLinearColor* FindOverrideForParam(const FName& ParamName) const
+	{
+		if (!bValid) { return nullptr; }
+		static const FName NTeam(TEXT("TeamColor"));
+		static const FName NEdgeGlow(TEXT("EdgeGlowColor"));
+		static const FName NEmissive(TEXT("EmissiveColor"));
+		if (ParamName == NTeam)     { return &BodyColor; }
+		if (ParamName == NEdgeGlow) { return &EdgeColor; }
+		if (ParamName == NEmissive) { return &GlowColor; }
+		return nullptr;
+	}
+};

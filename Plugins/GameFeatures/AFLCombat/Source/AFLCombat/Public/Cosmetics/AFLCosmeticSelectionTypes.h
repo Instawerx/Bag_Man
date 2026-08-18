@@ -101,6 +101,32 @@ struct FAFLCosmeticSelection
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
 	FName FacemaskId = NAME_None;
 
+	// --- CREATOR COLOUR OVERLAY (CC-2.1) -----------------------------------------------------------------
+	// ADDITIVE, appended after the existing 11 fields. Plain replicated members -> NO custom NetSerialize
+	// (this struct stays a plain ReplicatedUsing UPROPERTY). The colours are server-clamped into the neon
+	// gamut in ServerSetCosmeticSelection before commit; consumers ignore them unless bUseCreatorColors.
+
+	/** TRUE = the three creator colours below override the resolved body tone. FALSE (default, guaranteed by the
+	 *  ctor) = preset/registry tone, byte-identical to before -- the regression guarantee. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
+	uint8 bUseCreatorColors : 1;
+
+	/** -> "TeamColor" (body finish base). Ignored unless bUseCreatorColors; server-clamped before commit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
+	FLinearColor CreatorBodyColor = FLinearColor::White;
+
+	/** -> "EdgeGlowColor" (rim glow). Ignored unless bUseCreatorColors; server-clamped before commit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
+	FLinearColor CreatorEdgeColor = FLinearColor::White;
+
+	/** -> "EmissiveColor" (emissive base). Ignored unless bUseCreatorColors; server-clamped before commit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
+	FLinearColor CreatorGlowColor = FLinearColor::White;
+
+	/** Zeroes the creator bitfield (a UPROPERTY bitfield cannot carry an inline initializer). All other members
+	 *  keep their default-member-initializers, so the struct's default is byte-identical to before + overlay OFF. */
+	FAFLCosmeticSelection() : bUseCreatorColors(0) {}
+
 	/** The active identity key for the current type (TeamId or CharacterId). NAME_None if unset. */
 	FName GetActiveIdentityId() const
 	{

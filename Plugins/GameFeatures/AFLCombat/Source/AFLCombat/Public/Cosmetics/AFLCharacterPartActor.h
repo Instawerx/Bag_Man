@@ -6,6 +6,7 @@
 #include "GameFramework/CheatManagerDefines.h"   // UE_WITH_CHEAT_MANAGER guard for the panel-watch DebugSetMID* decls (must match the .cpp + cheats gate)
 #include "GameplayTagAssetInterface.h"
 #include "GameplayTagContainer.h"
+#include "Cosmetics/AFLCosmeticTypes.h"   // FAFLColorOverride (CC-2.1 creator colour overlay param)
 
 #include "AFLCharacterPartActor.generated.h"
 
@@ -63,7 +64,9 @@ public:
 	 * write-only-ours), null-safe. Public so the pawn component's OnRep-push (PATH 2) can also call it
 	 * on already-spawned parts. Idempotent: re-fire (PATH 1 + PATH 2) reuses our cached MIDs.
 	 */
-	void ApplySkinColor(const UAFLSkinColorAsset* ColorAsset);
+	// ColorOverride (CC-2.1): optional creator per-channel overlay, PASSED IN by the caller (never pulled here).
+	// Default = invalid -> every existing caller compiles unchanged and renders byte-identically.
+	void ApplySkinColor(const UAFLSkinColorAsset* ColorAsset, const FAFLColorOverride& ColorOverride = FAFLColorOverride());
 
 	/**
 	 * Equip a FACEMASK on THIS part: swap the SLOT-1 base material (M_HeadLegs, the head/visor region) to the
