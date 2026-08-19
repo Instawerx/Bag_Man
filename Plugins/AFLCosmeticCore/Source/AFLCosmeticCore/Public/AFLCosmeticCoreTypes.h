@@ -158,7 +158,12 @@ struct FAFLCatalogEntry
 	/** What KIND this is -- the catalog discriminator. Selects which propagation path consumes it
 	 *  (skin/part vs equipment vs identity). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Identity")
-	EAFLCosmeticType Type = EAFLCosmeticType::SkinColor_Edge;
+	// CC-X17 EXPERIMENT 2026-08-19: was SkinColor_Edge -- a real, wrong value that silently absorbed
+	// any row authored without setting Type (27 facemasks + 27 _X identities, both batches of 27).
+	// RISK BEING MEASURED: UE delta-serializes struct fields against this default, so rows equal to
+	// the OLD default may never have been written to disk. If so, they load as Invalid under this
+	// change and the census moves. Falsification: SKIN_COLOR_EDGE != 67 after a fresh load.
+	EAFLCosmeticType Type = EAFLCosmeticType::Invalid;
 
 	/** The cosmetic asset this id resolves to (SOFT -- resolved/loaded on demand by the registry). The
 	 *  concrete type depends on Type (UAFLSkinColorAsset for skin axes, a part/equipment asset otherwise). */
