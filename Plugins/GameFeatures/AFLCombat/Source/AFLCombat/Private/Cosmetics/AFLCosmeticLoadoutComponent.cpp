@@ -38,6 +38,7 @@ void UAFLCosmeticLoadoutComponent::GetLifetimeReplicatedProps(TArray<FLifetimePr
 	// proof: client B read builds=0 from its OWN component, correctly, which is exactly why sending
 	// A's set to B is bandwidth for data nobody reads.
 	DOREPLIFETIME_CONDITION(UAFLCosmeticLoadoutComponent, BuildSet, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UAFLCosmeticLoadoutComponent, bContinuumEditingLocked, COND_OwnerOnly);
 }
 
 void UAFLCosmeticLoadoutComponent::CopyProperties(UPlayerStateComponent* TargetPlayerStateComponent)
@@ -497,6 +498,14 @@ void UAFLCosmeticLoadoutComponent::ServerSaveBuild_Implementation(FAFLCreatorBui
 		return;
 	}
 
+	// CC-4.2: a lapse locks CONTINUUM authoring specifically. A build made only of catalog SKUs the
+	// player owns outright is still editable -- the lapse took the creator, not their purchases.
+	if (bContinuumEditingLocked && Build.UsesContinuum())
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Creator] ServerSaveBuild REFUSED: continuum editing locked (lapsed)."));
+		return;
+	}
+
 	// VALIDATE ONCE, HERE. A continuum channel carries a client-chosen colour, so clamp it into the
 	// neon gamut before storing -- the same server-authoritative clamp CC-2.1 proved. A catalog channel
 	// carries an id instead; its ownership gate is Stage B policy and is NOT applied here, because
@@ -557,5 +566,42 @@ void UAFLCosmeticLoadoutComponent::ServerSetActiveBuild_Implementation(int32 Ind
 	// direct edit are indistinguishable downstream.
 	OnRep_Selection();
 	NudgeControllerReapply();
+}
+
+// --- CC-4.2 LAPSE RULE ----------------------------------------------------------------------------
+
+void UAFLCosmeticLoadoutComponent::ApplyLapseRule(int32 EffectiveSlotCap, bool bContinuumEditingHeld)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	// NEGATIVE CAP IS A CALLER BUG, NOT A LOCKOUT. Clamping to 0 rather than trusting it keeps a bad
+	// entitlement read from silently read-only-ing every build a player owns.
+	const int32 Cap = FMath::Max(0, EffectiveSlotCap);
+
+	int32 Locked = 0, Unlocked = 0;
+	for (int32 i = 0; i < BuildSet.Builds.Num(); ++i)
+	{
+		// INDEX ORDER, deliberately. "Beyond the cap" needs a rule that is STABLE and predictable: the
+		// same cap must always produce the same locked set. Recency would reshuffle which build locks
+		// every time a player touched one, so a lapse would feel arbitrary.
+		const bool bShouldBeReadOnly = (i >= Cap);
+		if (BuildSet.Builds[i].bReadOnly != bShouldBeReadOnly)
+		{
+			BuildSet.Builds[i].bReadOnly = bShouldBeReadOnly;
+			if (bShouldBeReadOnly) { ++Locked; } else { ++Unlocked; }
+		}
+	}
+
+	const bool bWasLocked = bContinuumEditingLocked;
+	bContinuumEditingLocked = !bContinuumEditingHeld;
+
+	// NOTHING IS DELETED AND NOTHING IS RE-RESOLVED. The active build keeps rendering exactly what it
+	// rendered before -- including a build now read-only. That is the whole promise: a lapsed player
+	// still LOOKS like the robot they built, they simply cannot change it. Re-resolving here, or
+	// dropping builds past the cap, would be the two obvious ways to break it.
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("AFL_TEST[LAPSE] cap=%d builds=%d newlyLocked=%d newlyUnlocked=%d editingLocked=%d->%d active=%d"),
+		Cap, BuildSet.Builds.Num(), Locked, Unlocked, bWasLocked ? 1 : 0,
+		bContinuumEditingLocked ? 1 : 0, BuildSet.ActiveBuildIndex);
 }
 

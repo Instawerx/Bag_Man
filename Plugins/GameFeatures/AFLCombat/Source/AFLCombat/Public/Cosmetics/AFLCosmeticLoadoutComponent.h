@@ -91,6 +91,26 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Creator")
 	void ServerSetActiveBuild(int32 Index);
 
+	// --- CC-4.2 LAPSE RULE ---------------------------------------------------------------------
+	// FREEZE, NEVER MUTATE. What a lapse takes away is the ABILITY TO CHANGE, never the work already
+	// done. Applied colours stay applied (ResolveInto reads values frozen at save and never
+	// recomputes), builds beyond the effective cap go READ-ONLY rather than being deleted, and
+	// anything PURCHASED outright is untouched -- a counted entitlement has no condition to lapse.
+	//
+	// AUTHORITY-ONLY and IDEMPOTENT: re-running with the same inputs must not accumulate state, so a
+	// repeated entitlement refresh cannot progressively lock a player out.
+	//
+	// THE CAP IS A PARAMETER, NOT A CONSTANT. How many slots a subscription or a purchase confers is
+	// product intent (the pricing SSOT still flags the $3 robot-vs-slot collision as unresolved).
+	// This applies whatever cap it is handed; it does not choose one.
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Creator")
+	void ApplyLapseRule(int32 EffectiveSlotCap, bool bContinuumEditingHeld);
+
+	/** True when creator EDITING is locked by a lapse. Applied colours are unaffected -- this gates
+	 *  authoring only. Replicated so the UI can show the lock rather than silently rejecting input. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator")
+	bool IsContinuumEditingLocked() const { return bContinuumEditingLocked; }
+
 	/**
 	 * Change-timing gate (D6). STUB-OPEN for #43: returns true (always editable) because the match<->hub
 	 * boundary that would set the lock isn't built yet -- wiring a lock now would build ahead of its
@@ -121,6 +141,10 @@ protected:
 	 *  it reads Selection, which the server resolves from the active build. */
 	UPROPERTY(ReplicatedUsing = OnRep_BuildSet)
 	FAFLCreatorBuildSet BuildSet;
+
+	/** CC-4.2: creator authoring locked by a lapse. Owner-only -- no other client needs it. */
+	UPROPERTY(Replicated)
+	bool bContinuumEditingLocked = false;
 
 	UFUNCTION()
 	void OnRep_BuildSet();
