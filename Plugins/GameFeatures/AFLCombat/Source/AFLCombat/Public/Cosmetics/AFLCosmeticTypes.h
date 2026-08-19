@@ -77,7 +77,21 @@ struct FAFLColorOverride
 		static const FName NTeam(TEXT("TeamColor"));
 		static const FName NEdgeGlow(TEXT("EdgeGlowColor"));
 		static const FName NEmissive(TEXT("EmissiveColor"));
+		// CC-2.2: the VISOR base tint. Both slot-1 masters (M_AFL_Visor_Clean, M_AFL_FaceMask_Visor) expose the
+		// same vector pair BaseTint + EmissiveColor, so ONE mapping serves both and no branch on which is bound is
+		// needed. EmissiveColor already reached the visor for free -- the colour loop writes every preset key to
+		// EVERY slot MID (measured: 88 writes per key on slot 1, identical to slot 0), so the visor glow has
+		// followed the creator since CC-2.1. BaseTint is the one visor channel the creator could not reach.
+		// DELIBERATELY THE SAME VALUE AS TeamColor (operator ruling): the visor base tracks the chassis body
+		// colour rather than being an independent choice. No new field on this struct -- adding one would drag in
+		// a clamp axis, a persistence field and an entitlement surface for what is currently one mapping. Splitting
+		// BaseTint onto its own creator channel later is a strict superset of this and costs nothing now.
+		// SAFE ON THE BODY BY CONSTRUCTION: M_AFL_Character exposes NO BaseTint parameter (verified: 0 matches,
+		// any case, in its T3D export), so the loop's blanket write of this key to slot 0 is an inert no-op --
+		// SetVectorParameterValue on an absent parameter is ignored. The body cannot be tinted by this.
+		static const FName NBaseTint(TEXT("BaseTint"));
 		if (ParamName == NTeam)     { return &BodyColor; }
+		if (ParamName == NBaseTint) { return &BodyColor; }
 		if (ParamName == NEdgeGlow) { return &EdgeColor; }
 		if (ParamName == NEmissive) { return &GlowColor; }
 		return nullptr;
