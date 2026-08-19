@@ -84,6 +84,21 @@ enum class EAFLCosmeticType : uint8
 	// separate decision with separate risk -- see FAFLCatalogEntry::Type.
 	Invalid           UMETA(DisplayName = "Invalid / unset"),   // never a valid catalog row
 
+	// CC-6.1 CREATOR SLOT / ROBOT PACK. NOT a cosmetic: it grants a COUNTED entitlement
+	// (FAFLCatalogEntry -> CountedEntitlements, CC-3.3), not an item on a cosmetic axis. Bundle was the
+	// near-miss and is deliberately NOT reused -- Bundle grants a SET of child CosmeticIds, a different
+	// shape, and reusing it would make the type-vs-id-prefix lint meaningless for these rows.
+	//
+	// APPENDED AFTER Invalid ON PURPOSE, despite reading oddly. Inserting an enumerator anywhere earlier
+	// renumbers every value after it, and stored .uasset values are raw ints. Inserting Unclassified at
+	// position 0 of EAFLColorEntryKind cost a full no-regression run today (cc-6-4-done); this is that
+	// lesson applied. Ugly ordering, stable data.
+	//
+	// ONE MECHANISM for robots AND slots (PRICING_SSOT 5.4): a $3 purchase increments the counted slot
+	// entitlement and grants creator rights to that slot; the x3 and x8 packs increment by 3 and 8.
+	// Address AFL.CreatorSlot.<N>.
+	CreatorSlot       UMETA(DisplayName = "Creator Slot / Robot Pack")
+
 };
 
 /**
