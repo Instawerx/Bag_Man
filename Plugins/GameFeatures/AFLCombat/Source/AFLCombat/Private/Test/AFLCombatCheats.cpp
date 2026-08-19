@@ -2917,7 +2917,7 @@ namespace
 	{
 		if (Args.Num() < 1)
 		{
-			Ar.Log(TEXT("afl.Cosmetic.SetFacemask — usage: afl.Cosmetic.SetFacemask <JapanSolar|Kawaii|...|none> (or full AFL.Facemask.<Name>; 'none' to un-equip)."));
+			Ar.Log(TEXT("afl.Cosmetic.SetFacemask - usage: <full row id | unique bare name | none | verify>. e.g. AFL.Facemask.Flag.Japan, AFL.Facemask.IroVisor, or bare Japan. Ids resolve against the CATALOG; 31 of 60 rows are namespaced, so a bare guess may not exist."));
 			return;
 		}
 		if (!World || !World->IsGameWorld())
@@ -2935,17 +2935,136 @@ namespace
 			return;
 		}
 
+		// CATALOG-BACKED RESOLUTION (CC-X15). The old code RECONSTRUCTED an id by string --
+		// "AFL.Facemask." + <Name> -- which assumes every row is FLAT. Measured: 31 of the 60 catalog rows are
+		// NAMESPACED (AFL.Facemask.Basic.Visor, .Tech.Circuit, .Flag.Japan), so the command silently failed on
+		// half the catalog, and the ids its own help text advertised (JapanSolar, Kawaii) do not resolve at all.
+		// A non-resolving id equipped NOTHING and the run then reported whatever the default state was --
+		// indistinguishable from a pass. Resolve against the catalog instead of inventing the id.
+		UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Catalog)
+		{
+			Ar.Log(TEXT("afl.Cosmetic.SetFacemask - no catalog subsystem; NOTHING EQUIPPED."));
+			return;
+		}
+		// GATHER BY ID PREFIX, NOT BY TYPE (CC-X15b). GetEntriesByType(Facemask) returned only 33 of the 60
+		// AFL.Facemask.* rows: 27 of them are typed SkinColor_Edge, left behind by the migration to the dedicated
+		// Facemask type (see the enum comment in AFLCosmeticCoreTypes.h). Filtering by type therefore hides half
+		// the catalog from this command. Matching AFLCosmeticBrowserLibrary:99, address rows by their id
+		// namespace instead -- an id prefix is what actually defines the axis here.
+		// Union over EVERY type rather than the two seen, so a row mistyped to a THIRD type is still reached;
+		// there is no get-all accessor on the subsystem.
+		TArray<const FAFLCatalogEntry*> FaceRows;
+		{
+			TSet<FName> Seen;
+			const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
+			const int32 NumTypes = TypeEnum ? TypeEnum->NumEnums() : 0;
+			for (int32 T = 0; T < NumTypes; ++T)
+			{
+				TArray<const FAFLCatalogEntry*> OfType;
+				Catalog->GetEntriesByType(static_cast<EAFLCosmeticType>(TypeEnum->GetValueByIndex(T)), OfType);
+				for (const FAFLCatalogEntry* R : OfType)
+				{
+					if (!R) { continue; }
+					if (!R->CosmeticId.ToString().StartsWith(TEXT("AFL.Facemask."), ESearchCase::IgnoreCase)) { continue; }
+					bool bDup = false;
+					Seen.Add(R->CosmeticId, &bDup);
+					if (!bDup) { FaceRows.Add(R); }
+				}
+			}
+		}
+		// TYPE DISTRIBUTION on every invocation. The prefix gather makes the command work DESPITE the data
+		// defect; emitting the split keeps the defect visible instead of papering over it. Expect this to read
+		// FACEMASK=33 SKIN_COLOR_EDGE=27 until the 27 rows are retyped.
+		{
+			TMap<FString, int32> ByType;
+			const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
+			for (const FAFLCatalogEntry* R : FaceRows)
+			{
+				const FString TName = TypeEnum ? TypeEnum->GetNameStringByValue((int64)R->Type) : TEXT("?");
+				ByType.FindOrAdd(TName)++;
+			}
+			FString Split;
+			for (const TPair<FString, int32>& KV : ByType) { Split += FString::Printf(TEXT("%s=%d "), *KV.Key, KV.Value); }
+			Ar.Logf(TEXT("AFL_TEST[FACEMASKTYPES] rows=%d %s"), FaceRows.Num(), *Split);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[FACEMASKTYPES] rows=%d %s"), FaceRows.Num(), *Split);
+		}
+
+		// Last dot-segment of a row id, e.g. AFL.Facemask.Flag.Japan -> Japan.
+		auto BareOf = [](const FName& Id)
+		{
+			const FString Full = Id.ToString();
+			int32 Dot = INDEX_NONE;
+			return Full.FindLastChar(TCHAR(0x2E), Dot) ? Full.RightChop(Dot + 1) : Full;
+		};
+
 		FString IdStr = Args[0].TrimStartAndEnd();
+
+		// VERIFY MODE (step 4): push EVERY catalog row id, and every row bare suffix, through the same
+		// resolution rules used below. Proves the command can reach the whole catalog rather than asserting it.
+		if (IdStr.Equals(TEXT("verify"), ESearchCase::IgnoreCase))
+		{
+			int32 FullOk = 0, BareUnique = 0, BareAmbig = 0;
+			for (const FAFLCatalogEntry* R : FaceRows)
+			{
+				if (!R) { continue; }
+				if (Catalog->FindEntry(R->CosmeticId)) { ++FullOk; }
+				const FString Bare = BareOf(R->CosmeticId);
+				int32 Hits = 0;
+				for (const FAFLCatalogEntry* S : FaceRows)
+				{
+					if (S && BareOf(S->CosmeticId).Equals(Bare, ESearchCase::IgnoreCase)) { ++Hits; }
+				}
+				if (Hits == 1) { ++BareUnique; } else if (Hits > 1) { ++BareAmbig; }
+				Ar.Logf(TEXT("  row=%s bare=%s bareHits=%d"), *R->CosmeticId.ToString(), *Bare, Hits);
+			}
+			Ar.Logf(TEXT("AFL_TEST[FACEMASKVERIFY] rows=%d fullIdResolves=%d bareUnique=%d bareAmbiguous=%d"),
+				FaceRows.Num(), FullOk, BareUnique, BareAmbig);
+			return;
+		}
+
 		FName FacemaskId = NAME_None; // un-equip default for none/off/clear
 		if (!IdStr.Equals(TEXT("none"), ESearchCase::IgnoreCase)
 			&& !IdStr.Equals(TEXT("off"), ESearchCase::IgnoreCase)
 			&& !IdStr.Equals(TEXT("clear"), ESearchCase::IgnoreCase))
 		{
-			if (!IdStr.StartsWith(TEXT("AFL.Facemask."), ESearchCase::IgnoreCase))
+			// 1. EXACT row id.
+			for (const FAFLCatalogEntry* R : FaceRows)
 			{
-				IdStr = FString::Printf(TEXT("AFL.Facemask.%s"), *IdStr);
+				if (R && R->CosmeticId.ToString().Equals(IdStr, ESearchCase::IgnoreCase)) { FacemaskId = R->CosmeticId; break; }
 			}
-			FacemaskId = FName(*IdStr);
+			// 2. BARE NAME matching exactly one row last segment. AMBIGUOUS -> ERROR, never a guess: silently
+			//    picking one would recreate "equipped something, reported a pass" in a new place.
+			if (FacemaskId == NAME_None)
+			{
+				TArray<FName> Matches;
+				for (const FAFLCatalogEntry* R : FaceRows)
+				{
+					if (R && BareOf(R->CosmeticId).Equals(IdStr, ESearchCase::IgnoreCase)) { Matches.Add(R->CosmeticId); }
+				}
+				if (Matches.Num() == 1)
+				{
+					FacemaskId = Matches[0];
+				}
+				else if (Matches.Num() > 1)
+				{
+					Ar.Logf(TEXT("afl.Cosmetic.SetFacemask - AMBIGUOUS bare name %s matches %d rows; NOTHING EQUIPPED. Use the full row id:"), *IdStr, Matches.Num());
+					for (const FName& M : Matches) { Ar.Logf(TEXT("    %s"), *M.ToString()); }
+					return;
+				}
+			}
+			// 3. LOUD FAILURE. Never fall through to a request the server drops in silence -- that is the exact
+			//    shape that makes a run report the default state and read as a pass.
+			if (FacemaskId == NAME_None)
+			{
+				Ar.Logf(TEXT("afl.Cosmetic.SetFacemask - %s DOES NOT RESOLVE to any of the %d catalog Facemask rows; NOTHING EQUIPPED."), *IdStr, FaceRows.Num());
+				Ar.Log(TEXT("  valid ids (first 8; run `afl.Cosmetic.SetFacemask verify` for all):"));
+				for (int32 i = 0; i < FMath::Min(8, FaceRows.Num()); ++i)
+				{
+					if (FaceRows[i]) { Ar.Logf(TEXT("    %s"), *FaceRows[i]->CosmeticId.ToString()); }
+				}
+				return;
+			}
 		}
 
 		FAFLCosmeticSelection Request = Loadout->GetSelection();
@@ -2964,7 +3083,7 @@ namespace
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetFacemaskCmd(
 		TEXT("afl.Cosmetic.SetFacemask"),
-		TEXT("Facemask selection seam: client-issued PURE caller of ServerSetCosmeticSelection (sets FacemaskId). Runtime equip path -> slot-1 material swap + finish re-layer. Usage: afl.Cosmetic.SetFacemask <Name|none> (e.g. JapanSolar, Kawaii; 'none' to un-equip; or full AFL.Facemask.<Name>)."),
+		TEXT("Facemask selection seam: client-issued PURE caller of ServerSetCosmeticSelection (sets FacemaskId). Runtime equip path -> slot-1 material swap + finish re-layer. Ids resolve against the CATALOG (exact row id, or a bare name unique to one row; ambiguous or unknown = loud error, nothing equipped). Usage: afl.Cosmetic.SetFacemask <AFL.Facemask.Flag.Japan | AFL.Facemask.IroVisor | none | verify>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCosmeticSetFacemask));
 
 	// ─── Phase 0 identity seam: afl.Cosmetic.SetIdentity <TeamName> ──────────────
