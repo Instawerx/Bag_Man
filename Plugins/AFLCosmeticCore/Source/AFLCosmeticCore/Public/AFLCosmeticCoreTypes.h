@@ -158,11 +158,18 @@ struct FAFLCatalogEntry
 	/** What KIND this is -- the catalog discriminator. Selects which propagation path consumes it
 	 *  (skin/part vs equipment vs identity). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Identity")
-	// CC-X17 EXPERIMENT 2026-08-19: was SkinColor_Edge -- a real, wrong value that silently absorbed
-	// any row authored without setting Type (27 facemasks + 27 _X identities, both batches of 27).
-	// RISK BEING MEASURED: UE delta-serializes struct fields against this default, so rows equal to
-	// the OLD default may never have been written to disk. If so, they load as Invalid under this
-	// change and the census moves. Falsification: SKIN_COLOR_EDGE != 67 after a fresh load.
+	// CC-X17 2026-08-19: was SkinColor_Edge -- a REAL, WRONG value, so any row authored without
+	// setting Type was silently absorbed into the Edge axis. It caught two separate batches of 27:
+	// the AFL.Facemask.* rows (retyped, cc-x16-done) and the AFL.Character.*_X rows (CC-X18, left
+	// as-is because the roster cut retires them). Now Invalid, so an untyped row is DETECTABLE
+	// rather than plausible.
+	//
+	// MEASURED SAFE, not assumed. The risk was that UE delta-serializes struct fields against this
+	// default, which would mean rows equal to the OLD default were never written to disk and would
+	// load as Invalid under this change -- silently retyping all 67, including the live Edge axis.
+	// Tested by flipping the default, rebuilding, and censusing a fresh load WITHOUT saving:
+	// SKIN_COLOR_EDGE stayed 67, INVALID was 0, all 581 rows matched the pre-change census exactly.
+	// The values are explicitly serialized; the hypothesis was wrong and the flip moves nothing.
 	EAFLCosmeticType Type = EAFLCosmeticType::Invalid;
 
 	/** The cosmetic asset this id resolves to (SOFT -- resolved/loaded on demand by the registry). The
