@@ -32,6 +32,11 @@ struct FAFLEconomyRecord
 	 *  save so "never granted" and "granted then spent to zero" cannot drift apart in the blob. */
 	UPROPERTY() TMap<FName, int32> CountedEntitlements;
 
+	/** CC-4.1: conditional grants keyed by ConditionId. Unlike the counted map, a Lapsed entry is
+	 *  KEPT, never pruned -- "had it and lost it" must stay distinguishable from "never had it",
+	 *  because the CC-4.2 lapse rule treats those two players completely differently. */
+	UPROPERTY() TMap<FName, FAFLConditionalGrant> ConditionalGrants;
+
 	UPROPERTY() FAFLCosmeticSelection Selection;
 	UPROPERTY() bool  bHasSelection = false;
 };
@@ -93,6 +98,8 @@ public:
 	virtual void SaveOwnedSet(const FAFLPlayerId& Player, const TArray<FName>& OwnedCosmeticIds) override;
 	virtual void LoadCountedSet(const FAFLPlayerId& Player, FAFLOnCountedSetLoaded OnLoaded) override;
 	virtual void SaveCountedSet(const FAFLPlayerId& Player, const FAFLCountedEntitlementMap& Counts) override;
+	virtual void LoadConditionalSet(const FAFLPlayerId& Player, FAFLOnConditionalSetLoaded OnLoaded) override;
+	virtual void SaveConditionalSet(const FAFLPlayerId& Player, const FAFLConditionalGrantMap& Grants) override;
 	virtual void LoadBalance(const FAFLPlayerId& Player, FAFLOnBalanceLoaded OnLoaded) override;
 	virtual void SaveBalance(const FAFLPlayerId& Player, int32 Volts, int32 Watts) override;
 

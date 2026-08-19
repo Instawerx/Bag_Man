@@ -456,3 +456,45 @@ void UAFLEconomyPersistenceSubsystem::SaveSelection(const FAFLPlayerId& Player, 
 	UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] SaveSelection"));
 	Flush();
 }
+
+// --- CC-4.1 CONDITIONAL ENTITLEMENT ---------------------------------------------------------------
+// Mirrors the CountedSet pair. DELIBERATE DIVERGENCE: zero-pruning does NOT apply here. A Lapsed
+// grant is meaningful state -- the CC-4.2 lapse rule must be able to tell a lapsed subscriber from
+// someone who never subscribed, and dropping the entry would erase exactly that distinction.
+
+void UAFLEconomyPersistenceSubsystem::LoadConditionalSet(const FAFLPlayerId& Player, FAFLOnConditionalSetLoaded OnLoaded)
+{
+	EnsureLoaded();
+	if (const FAFLEconomyRecord* Rec = SaveData->Records.Find(ResolveKey(Player)))
+	{
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadConditionalSet cache HIT conditions=%d"), Rec->ConditionalGrants.Num());
+		OnLoaded.ExecuteIfBound(true, Rec->ConditionalGrants);
+	}
+	else
+	{
+		// bOk=false means NEW PLAYER, not "lapsed". The caller must leave every condition Unknown --
+		// treating a miss as Lapsed would apply the penalty path to someone who never had anything.
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadConditionalSet cache MISS (new player)"));
+		OnLoaded.ExecuteIfBound(false, FAFLConditionalGrantMap());
+	}
+}
+
+void UAFLEconomyPersistenceSubsystem::SaveConditionalSet(const FAFLPlayerId& Player, const FAFLConditionalGrantMap& Grants)
+{
+	FAFLEconomyRecord& Rec = RecordFor(Player);
+	Rec.ConditionalGrants = Grants;
+	int32 Held = 0, Lapsed = 0, Unknown = 0;
+	for (const TPair<FName, FAFLConditionalGrant>& KV : Grants)
+	{
+		switch (KV.Value.State)
+		{
+		case EAFLConditionState::Held:   ++Held;   break;
+		case EAFLConditionState::Lapsed: ++Lapsed; break;
+		default:                         ++Unknown; break;
+		}
+	}
+	UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] SaveConditionalSet conditions=%d held=%d lapsed=%d unknown=%d"),
+		Grants.Num(), Held, Lapsed, Unknown);
+	Flush();
+}
+

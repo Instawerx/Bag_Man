@@ -87,6 +87,74 @@ DECLARE_DELEGATE_OneParam(FAFLOnPurchaseComplete, bool /*bAccepted*/);
 // policy. Permissive impl now (everyone owns the basics); S-ECON-WALLET implements it against the
 // owned-set later. ALWAYS CALLED, so the call site is proven from day one.
 // ---------------------------------------------------------------------------------------------------
+/**
+ * CC-4.1 -- CONDITIONAL ENTITLEMENT. The THIRD entitlement shape, and the first with a lifetime.
+ *
+ * The two that existed are both PERMANENT once granted: a boolean owned-set answers "do you own it"
+ * and a counted entitlement answers "how many". Neither can express "you have this WHILE something
+ * else is true" -- a subscription perk, a season pass, a trial. There is no revoke, expire, or
+ * subscription-derived grant anywhere in the codebase to conform to; this is new construction.
+ *
+ * THREE STATES, NOT A BOOLEAN, AND THE THIRD IS THE POINT.
+ *   Held    -- the condition is true; the grants apply.
+ *   Lapsed  -- the condition WAS true and is not now. The player had this and lost it.
+ *   Unknown -- we have not established either. NOT the same as Lapsed.
+ *
+ * A boolean would collapse Unknown into Lapsed, and that collapse is the dangerous one: a server that
+ * has not yet reached the entitlement source would treat every player as freshly lapsed and start
+ * locking their builds. The same absent-versus-negative ambiguity that has cost this programme
+ * repeatedly -- a parameter reading (0,0,0) could not say "absent", a Type reading SkinColor_Edge
+ * could not say "authored". Unknown exists so the system can say "I do not know yet" out loud.
+ *
+ * THE TWO FAILURE DIRECTIONS ARE DELIBERATELY ASYMMETRIC:
+ *   * GRANTS fail CLOSED on Unknown -- never hand out a perk we cannot prove is held.
+ *   * PENALTIES fail OPEN on Unknown -- never apply the lapse rule to someone we simply have not
+ *     checked. Locking a paying subscriber's builds because a lookup was slow is worse than briefly
+ *     withholding a cosmetic, and it is the failure a player would actually notice and resent.
+ */
+UENUM(BlueprintType)
+enum class EAFLConditionState : uint8
+{
+	/** Never established. Fail CLOSED for grants, fail OPEN for penalties. */
+	Unknown  UMETA(DisplayName = "Unknown / not yet checked"),
+	/** Condition currently true -- grants apply. */
+	Held     UMETA(DisplayName = "Held"),
+	/** Condition was true and is no longer -- grants revoked, CC-4.2 lapse rule applies. */
+	Lapsed   UMETA(DisplayName = "Lapsed")
+};
+
+USTRUCT(BlueprintType)
+struct FAFLConditionalGrant
+{
+	GENERATED_BODY()
+
+	/** What holds the grant, e.g. AFL.Sub.League. NOT a cosmetic id -- a condition can confer many. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Entitlement")
+	FName ConditionId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Entitlement")
+	EAFLConditionState State = EAFLConditionState::Unknown;
+
+	/** Unix seconds when State was last ESTABLISHED -- not when it was last read. Lets a caller decide
+	 *  a state is too stale to act on, which a bare bool could never support. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Entitlement")
+	int64 StateAsOfUnix = 0;
+
+	/** What this condition confers WHILE Held. Empty is legal: a condition can gate capability
+	 *  (creator editing, slot count) rather than confer specific cosmetic ids. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Entitlement")
+	TArray<FName> GrantedCosmeticIds;
+
+	bool IsHeld() const { return State == EAFLConditionState::Held; }
+
+	/** True only for a CONFIRMED lapse. Unknown deliberately returns false -- see the asymmetry above. */
+	bool IsConfirmedLapsed() const { return State == EAFLConditionState::Lapsed; }
+};
+
+/** Alias so the TMap comma cannot split a delegate macro's argument list (the CC-3.3 lesson). */
+using FAFLConditionalGrantMap = TMap<FName, FAFLConditionalGrant>;
+DECLARE_DELEGATE_TwoParams(FAFLOnConditionalSetLoaded, bool /*bOk*/, const FAFLConditionalGrantMap& /*Grants*/);
+
 UINTERFACE(MinimalAPI, meta = (CannotImplementInterfaceInBlueprint))
 class UAFLEntitlementSource : public UInterface
 {
@@ -147,6 +215,16 @@ public:
 	// NOT WIRED TO PLAYFAB. The cache/SaveGame path is complete and authoritative locally; the backend
 	// blob is CC-3.4 in the SEPARATE Bag_Man_Backend repo. This is honest scoping, not a stub: the data
 	// is real and round-trips, only the remote transport is staged.
+	// --- CC-4.1 CONDITIONAL ENTITLEMENT ---------------------------------------------------------
+	// Keyed by ConditionId, NOT by cosmetic id: one condition confers many grants, and the state
+	// belongs to the condition. Keying by cosmetic would duplicate the state per grant and let two
+	// copies of the same subscription's status disagree.
+	/** Load the player's conditional grants. bOk=false for a new player. */
+	virtual void LoadConditionalSet(const FAFLPlayerId& Player, FAFLOnConditionalSetLoaded OnLoaded) = 0;
+
+	/** Persist the player's conditional grants. Fire-and-forget, mirroring SaveOwnedSet. */
+	virtual void SaveConditionalSet(const FAFLPlayerId& Player, const FAFLConditionalGrantMap& Grants) = 0;
+
 	/** Load the player's counted entitlements (id -> count). bOk=false for a new player. */
 	virtual void LoadCountedSet(const FAFLPlayerId& Player, FAFLOnCountedSetLoaded OnLoaded) = 0;
 
