@@ -3157,6 +3157,75 @@ namespace
 			Checked, Mismatch, Unmapped, InvalidRows, *Split);
 	}
 
+	// --- CC-3 BUILD PROOF -----------------------------------------------------------------------------
+	// Drives the SAVED-BUILD path through the real RPCs, never by writing state directly: the point is to
+	// prove that a build resolves INTO the one FAFLCosmeticSelection gameplay reads, and a direct write
+	// would prove nothing about the resolve.
+	//
+	// WHAT WOULD FALSIFY THIS: after activating build N, the committed selection must carry build N's
+	// colour. If both builds report the same colour, or the colour matches neither, the resolve is broken.
+	// The two builds are deliberately FAR APART in colour so "wrong build active" and "no build active"
+	// are distinguishable from each other, not merely from success.
+	void HandleAFLCreatorBuildProbe(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Creator.BuildProbe - run inside PIE.")); return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!Loadout) { Ar.Log(TEXT("afl.Creator.BuildProbe - no loadout component.")); return; }
+
+		const FString Mode = Args.Num() > 0 ? Args[0].ToLower() : FString();
+
+		if (Mode == TEXT("seed"))
+		{
+			// Two builds, far apart. Both continuum, so neither needs an entitlement the stub would fake.
+			auto MakeBuild = [Loadout](const TCHAR* Name, const FLinearColor& Body, const FLinearColor& Edge, const FLinearColor& Glow)
+			{
+				FAFLCreatorBuild B;
+				B.DisplayName  = Name;
+				B.BaseSelection = Loadout->GetSelection();
+				B.BodyChannel  = FAFLChannelValue::MakeContinuum(Body);
+				B.EdgeChannel  = FAFLChannelValue::MakeContinuum(Edge);
+				B.GlowChannel  = FAFLChannelValue::MakeContinuum(Glow);
+				return B;
+			};
+			Loadout->ServerSaveBuild(MakeBuild(TEXT("ProbeA"),
+				FLinearColor(0.90f, 0.05f, 0.60f), FLinearColor(1.00f, 0.35f, 0.00f), FLinearColor(0.00f, 1.00f, 0.55f)), INDEX_NONE);
+			Loadout->ServerSaveBuild(MakeBuild(TEXT("ProbeB"),
+				FLinearColor(0.05f, 0.90f, 0.80f), FLinearColor(0.20f, 0.20f, 1.00f), FLinearColor(1.00f, 1.00f, 0.10f)), INDEX_NONE);
+			Ar.Log(TEXT("afl.Creator.BuildProbe - seeded 2 builds via ServerSaveBuild."));
+			return;
+		}
+		if (Mode == TEXT("use") && Args.Num() > 1)
+		{
+			Loadout->ServerSetActiveBuild(FCString::Atoi(*Args[1]));
+			return;
+		}
+
+		// READ: report the build set AND the committed selection together, so "which build is active" and
+		// "what actually got committed" can be compared rather than assumed equal.
+		const FAFLCreatorBuildSet& Set = Loadout->GetBuildSet();
+		const FAFLCosmeticSelection& Sel = Loadout->GetSelection();
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[BUILDPROBE] builds=%d active=%d creatorOn=%d selBody=(%.4f,%.4f,%.4f)"),
+			Set.Builds.Num(), Set.ActiveBuildIndex, Sel.bUseCreatorColors ? 1 : 0,
+			Sel.CreatorBodyColor.R, Sel.CreatorBodyColor.G, Sel.CreatorBodyColor.B);
+		for (int32 i = 0; i < Set.Builds.Num(); ++i)
+		{
+			const FAFLCreatorBuild& B = Set.Builds[i];
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[BUILDPROBE]   [%d] %s bodySrc=%d body=(%.4f,%.4f,%.4f) readOnly=%d"),
+				i, *B.DisplayName, (int32)B.BodyChannel.Source,
+				B.BodyChannel.Resolved.R, B.BodyChannel.Resolved.G, B.BodyChannel.Resolved.B,
+				B.bReadOnly ? 1 : 0);
+		}
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorBuildProbeCmd(
+		TEXT("afl.Creator.BuildProbe"),
+		TEXT("CC-3 proof: 'seed' saves two far-apart continuum builds through ServerSaveBuild; 'use <n>' activates one through ServerSetActiveBuild; no args reports the build set AND the committed selection so the resolve can be compared, not assumed."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorBuildProbe));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCatalogTypeLintCmd(
 		TEXT("afl.Catalog.TypeLint"),
 		TEXT("CC-X17: report catalog rows whose Type disagrees with their id namespace -- the detectable subset of the Type-default trap. Catches disagreement, NOT wrongness: a row genuinely mistyped within its own namespace is a provenance question no value read answers."),
@@ -3972,6 +4041,13 @@ namespace
 		// it is a pure read and must not perturb the colour timeline that follows.
 		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
+		// CC-3 build proof. Sequenced BEFORE the colour timeline so a build activation cannot be
+		// confused with a direct colour set: the two write the same field by different routes.
+		if (RoleIndex == 0) { FireCmd(4.0f,  TEXT("afl.Creator.BuildProbe seed"),  TEXT("b1-seed")); }
+		if (RoleIndex == 0) { FireCmd(6.0f,  TEXT("afl.Creator.BuildProbe use 0"), TEXT("b2-use0")); }
+		FireCmd(7.5f,  TEXT("afl.Creator.BuildProbe"), TEXT("b3-read-after-0"));
+		if (RoleIndex == 0) { FireCmd(9.0f,  TEXT("afl.Creator.BuildProbe use 1"), TEXT("b4-use1")); }
+		FireCmd(10.5f, TEXT("afl.Creator.BuildProbe"), TEXT("b5-read-after-1"));
 
 		TArray<FString> Read;  Read.Add(TEXT("read"));
 		TArray<FString> Clear; Clear.Add(TEXT("clear"));
