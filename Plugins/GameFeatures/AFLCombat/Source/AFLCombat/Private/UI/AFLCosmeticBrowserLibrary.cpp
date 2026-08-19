@@ -98,13 +98,21 @@ void UAFLCosmeticBrowserLibrary::GetOwnedEntriesForAxis(const UObject* WorldCont
 		// EAFLCosmeticType::Weapon is overloaded (weapons AND weapon-skins) -> filter to the axis's namespace.
 		//
 		// LOAD-BEARING -- DO NOT DELETE AS REDUNDANT. The type query above is NOT sufficient on its own.
-		// FAFLCatalogEntry::Type DEFAULTS to EAFLCosmeticType::SkinColor_Edge, so any catalog row added
-		// without explicitly setting Type silently becomes an Edge row. That is not hypothetical: 27
-		// AFL.Facemask.* rows shipped that way and were invisible on every surface -- excluded from the
-		// Facemask tab by the type query, and kept out of the EDGE tab only by THIS prefix check
-		// (their ids start AFL.Facemask., not AFL.Edge.). Retyped in CC-X16, but the DEFAULT is unchanged,
-		// so the next untyped row lands in exactly the same hole and this line is again the only thing
-		// keeping it out of the Edge axis. Remove this and mistyped rows surface in the wrong tab.
+		// HISTORICAL: FAFLCatalogEntry::Type USED TO default to EAFLCosmeticType::SkinColor_Edge, so a row
+		// added without explicitly setting Type silently became an Edge row. Not hypothetical -- 27
+		// AFL.Facemask.* rows shipped that way, invisible on every surface: excluded from the Facemask tab
+		// by the type query, and kept out of the EDGE tab only by THIS prefix check (their ids start
+		// AFL.Facemask., not AFL.Edge.). Retyped at cc-x16-done.
+		//
+		// CURRENT: the default is now EAFLCosmeticType::Invalid (4eb4e1c9, 2026-08-18), so a NEW untyped
+		// row is DETECTABLE rather than silently absorbed -- afl.Catalog.TypeLint reports invalid=0 today.
+		// An earlier revision of this comment claimed the default was unchanged and that the next untyped
+		// row would land in the same hole. That was already false when it was written.
+		//
+		// THE LINE STILL STAYS. Fixing the default did not retype the rows that already carry the old one:
+		// five AFL.Character.*_X rows still hold SkinColor_Edge as a STORED value, and this prefix check is
+		// what keeps those five out of the Edge tab. The hazard is now finite and enumerable instead of
+		// open-ended -- but it is not zero, and removing this surfaces character rows in a colour picker.
 		//
 		// SECOND REASON, INDEPENDENT OF THE FIRST (CC-X18): 5 AFL.Character.*_X identity rows carry the
 		// SAME SkinColor_Edge default and are NOT being retyped -- the pivot retires identity SKUs, so
@@ -112,8 +120,8 @@ void UAFLCosmeticBrowserLibrary::GetOwnedEntriesForAxis(const UObject* WorldCont
 		// is the only thing keeping those 5 identities out of the Edge tab. Deleting it would surface
 		// character rows in a colour picker.
 		// WAS 27 before cc-6-3 retired 22 identities. Six _X rows remain; FANATICS_X is correctly typed
-		// Character, so five carry the default. The count shrank -- the hazard did not, because the
-		// DEFAULT is unchanged and one untyped row is enough to put a character in a colour picker.
+		// Character, so five carry the OLD default as a stored value. Those five are the whole of the
+		// remaining hazard -- new rows now default to Invalid and are caught by the lint.
 		if (!AxisPrefix.IsEmpty() && !Entry->CosmeticId.ToString().StartsWith(AxisPrefix, ESearchCase::IgnoreCase))
 		{
 			continue;

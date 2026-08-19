@@ -2952,9 +2952,16 @@ namespace
 		// migration to the dedicated Facemask type. Filtering by type hid half the catalog.
 		// CURRENT (measured after cc-6-3): 38 AFL.Facemask.* rows, ALL typed Facemask, none SkinColor_Edge --
 		// the 27 were retyped at cc-x16-done and the retired identities' facemask rows went with the roster
-		// cut (60 - 22 = 38). The prefix gather STAYS: the Type default is still SkinColor_Edge, so the next
-		// untyped row lands in the same hole. The defect is fixed; the trap that produced it is not. Matching AFLCosmeticBrowserLibrary:99, address rows by their id
-		// namespace instead -- an id prefix is what actually defines the axis here.
+		// cut (60 - 22 = 38).
+		//
+		// THE PREFIX GATHER STAYS, but NOT for the reason an earlier revision of this comment gave. It
+		// claimed "the Type default is still SkinColor_Edge, so the next untyped row lands in the same
+		// hole" -- already false when written: 4eb4e1c9 (2026-08-18) changed the default to Invalid, so a
+		// new untyped row is detectable and the lint reports invalid=0. See the CC-X17 lint comment below,
+		// which had this right. The real reason to keep the prefix gather is that fixing the default did
+		// not retype rows already holding the old one, and a row can still be mistyped BY HAND to any
+		// value -- an id prefix is what actually defines the axis here.
+		// Matching AFLCosmeticBrowserLibrary:99, address rows by their id namespace instead.
 		// Union over EVERY type rather than the two seen, so a row mistyped to a THIRD type is still reached;
 		// there is no get-all accessor on the subsystem.
 		TArray<const FAFLCatalogEntry*> FaceRows;
