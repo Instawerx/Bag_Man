@@ -524,6 +524,21 @@ void UAFLCosmeticLoadoutComponent::ServerSaveBuild_Implementation(FAFLCreatorBui
 	ClampChannel(Build.BodyChannel);
 	ClampChannel(Build.EdgeChannel);
 	ClampChannel(Build.GlowChannel);
+	// CC-5.4: validate the NAME before storing. A refused name refuses the SAVE rather than being
+	// silently corrected -- a player who typed something must be told, not quietly overridden.
+	FString Sanitised;
+	const EAFLNameVerdict Verdict = ValidateBuildName(Build.DisplayName, BuildSet.Builds, Index, Sanitised);
+	if (Verdict != EAFLNameVerdict::Ok)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[NAME] REFUSED verdict=%d name='%s'"),
+			(int32)Verdict, *Build.DisplayName);
+		return;
+	}
+	Build.DisplayName = Sanitised;
+	// Any edit returns the name to Pending: an approved name must not be a token that lets later
+	// text ride in behind it.
+	Build.NameState = EAFLNameState::Pending;
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[NAME] accepted '%s' state=Pending"), *Sanitised);
 	Build.bReadOnly = false;
 
 	if (BuildSet.Builds.IsValidIndex(Index))
@@ -716,5 +731,62 @@ FString UAFLCosmeticLoadoutComponent::ResolvePlayFabIdForOwner() const
 			"(A1.4 resolve has not completed -- needs AFL_RESOLVE_URL + a PlayFab login)"));
 	}
 	return Id;
+}
+
+// --- CC-5.4 BUILD NAMING --------------------------------------------------------------------------
+
+EAFLNameVerdict UAFLCosmeticLoadoutComponent::ValidateBuildName(const FString& Raw,
+	const TArray<FAFLCreatorBuild>& Existing, int32 IgnoreIndex, FString& OutSanitised)
+{
+	// TRIM AND COLLAPSE FIRST. "  Ripper  " and "Ripper" are the same name to a reader, so treating
+	// them as different would make the uniqueness check trivially bypassable with a leading space.
+	FString S = Raw;
+	S.TrimStartAndEndInline();
+	while (S.ReplaceInline(TEXT("  "), TEXT(" ")) > 0) {}
+
+	// Reject control and zero-width characters rather than stripping them. Stripping would silently
+	// turn a name built to impersonate another into a near-duplicate that passes -- refusing says why.
+	for (const TCHAR C : S)
+	{
+		const bool bControl = (C < 0x20) || (C == 0x7F);
+		const bool bZeroWidth = (C == 0x200B || C == 0x200C || C == 0x200D || C == 0xFEFF);
+		if (bControl || bZeroWidth)
+		{
+			return EAFLNameVerdict::IllegalCharacter;
+		}
+	}
+
+	if (S.Len() < 1)  { return EAFLNameVerdict::TooShort; }
+	if (S.Len() > 24) { return EAFLNameVerdict::TooLong; }
+
+	// UNIQUENESS IS PER PLAYER, case-insensitively. Two builds a player cannot tell apart in their own
+	// slot list is a usability bug, not a safety one -- global uniqueness would be a policy decision
+	// about namespace ownership and is not made here.
+	for (int32 i = 0; i < Existing.Num(); ++i)
+	{
+		if (i == IgnoreIndex) { continue; }
+		if (Existing[i].DisplayName.Equals(S, ESearchCase::IgnoreCase))
+		{
+			return EAFLNameVerdict::Duplicate;
+		}
+	}
+
+	OutSanitised = S;
+	return EAFLNameVerdict::Ok;
+}
+
+bool UAFLCosmeticLoadoutComponent::ServerReportBuildName_Validate(int32) { return true; }
+
+void UAFLCosmeticLoadoutComponent::ServerReportBuildName_Implementation(int32 Index)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+	if (!BuildSet.Builds.IsValidIndex(Index)) { return; }
+
+	// HIDE FIRST, REVIEW LATER. A reported name stops being shown immediately; the cost of hiding a
+	// harmless name for a while is far below the cost of showing an abusive one while a queue drains.
+	// The BUILD itself is untouched -- only the name is gated, so the player keeps their robot.
+	BuildSet.Builds[Index].NameState = EAFLNameState::Rejected;
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[NAME] reported index=%d -> Rejected (build intact)"), Index);
+	PushBuildsToPersistence();
 }
 

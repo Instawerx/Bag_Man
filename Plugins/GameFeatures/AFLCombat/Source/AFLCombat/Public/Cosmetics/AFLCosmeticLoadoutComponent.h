@@ -86,6 +86,18 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Creator")
 	void ServerSaveBuild(FAFLCreatorBuild Build, int32 Index);
 
+	// --- CC-5.4 BUILD NAMING -------------------------------------------------------------------
+	/** STRUCTURAL validation only -- length, control characters, whitespace, and uniqueness within
+	 *  this player's own set. Policy (which words are allowed) is deliberately NOT decided here.
+	 *  OutSanitised receives the trimmed/collapsed form actually worth storing. */
+	static EAFLNameVerdict ValidateBuildName(const FString& Raw, const TArray<FAFLCreatorBuild>& Existing,
+		int32 IgnoreIndex, FString& OutSanitised);
+
+	/** Report a build name for review. Sets Rejected immediately -- an unreviewed report should hide
+	 *  the name rather than leave it visible while a queue drains. Reversible by policy, not here. */
+	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, Category = "AFL|Creator")
+	void ServerReportBuildName(int32 Index);
+
 	/** Activate a saved build BY INDEX into the server's own BuildSet -- never from a client
 	 *  payload, so there is nothing to re-validate and nothing a client can smuggle in. */
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Creator")

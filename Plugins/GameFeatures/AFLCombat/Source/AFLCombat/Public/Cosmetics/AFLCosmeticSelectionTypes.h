@@ -215,6 +215,47 @@ struct FAFLCosmeticSelection
 };
 
 /**
+ * CC-5.4 -- BUILD NAME MODERATION STATE.
+ *
+ * The requirement is a VISIBILITY GATE, not a word list: a name must not reach another player until it
+ * has been cleared. So the state is what matters, and it is three-valued for the same reason
+ * EAFLConditionState is -- "not yet checked" must be distinguishable from "checked and rejected".
+ *
+ * FAILS CLOSED FOR EXPOSURE. Pending is treated as NOT SHOWABLE. That is the opposite asymmetry to
+ * CC-4.1, deliberately: there, withholding a perk from a paying subscriber was the worse error, so
+ * penalties failed open. Here the worse error is showing an unvetted name to a stranger, so exposure
+ * fails closed. The owner always sees their own name regardless -- withholding it from the person who
+ * typed it protects nobody.
+ *
+ * WHAT THIS DOES NOT DECIDE. Which WORDS are disallowed is product policy, not engineering, and no
+ * word list is hardcoded here. This provides structural validation (length, control characters,
+ * whitespace, uniqueness) plus the state machine and the report path that a policy filter plugs into.
+ * A build whose name has not been through a policy check stays Pending, which is safe by construction.
+ */
+UENUM(BlueprintType)
+enum class EAFLNameState : uint8
+{
+	/** Structurally valid, not policy-checked. NOT showable to other players. */
+	Pending   UMETA(DisplayName = "Pending review"),
+	/** Cleared for cross-player display. */
+	Approved  UMETA(DisplayName = "Approved"),
+	/** Rejected by policy or by a report. Owner still sees it; nobody else does. */
+	Rejected  UMETA(DisplayName = "Rejected")
+};
+
+/** Structural verdicts, separate from policy. Returned by the validator so a caller can tell the
+ *  player WHY a name was refused rather than silently dropping it. */
+UENUM(BlueprintType)
+enum class EAFLNameVerdict : uint8
+{
+	Ok              UMETA(DisplayName = "Ok"),
+	TooShort        UMETA(DisplayName = "Too short"),
+	TooLong         UMETA(DisplayName = "Too long"),
+	IllegalCharacter UMETA(DisplayName = "Illegal character"),
+	Duplicate       UMETA(DisplayName = "Duplicate name")
+};
+
+/**
  * CC-3.2 -- A SAVED CREATOR BUILD.
  *
  * THE INVARIANT THIS EXISTS TO PROTECT: the gameplay spawn path keeps reading ONE
@@ -236,6 +277,20 @@ struct FAFLCreatorBuild
 	/** Player-authored label. Cosmetic only -- never a key, never resolved against. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
 	FString DisplayName;
+
+	/** CC-5.4 moderation state for DisplayName. Pending is NOT showable to other players. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Build")
+	EAFLNameState NameState = EAFLNameState::Pending;
+
+	/** True only when this name may be shown to someone who is not its author. */
+	bool IsNameShowableToOthers() const { return NameState == EAFLNameState::Approved; }
+
+	/** What a stranger sees. NEVER the raw string unless approved -- the gate lives here, at the one
+	 *  place that answers "what do others see", so a new call site cannot forget to check the state. */
+	FString GetPublicDisplayName() const
+	{
+		return IsNameShowableToOthers() ? DisplayName : FString(TEXT("Unnamed Robot"));
+	}
 
 	/** The identity and non-colour axes. Always discrete SKUs, so always plain ids. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
