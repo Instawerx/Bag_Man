@@ -213,3 +213,112 @@ struct FAFLCosmeticSelection
 		return (IdentityType == EAFLIdentityType::Character) ? CharacterId : TeamId;
 	}
 };
+
+/**
+ * CC-3.2 -- A SAVED CREATOR BUILD.
+ *
+ * THE INVARIANT THIS EXISTS TO PROTECT: the gameplay spawn path keeps reading ONE
+ * FAFLCosmeticSelection, at the same read site, with the same shape. A build is not a second thing
+ * gameplay learns to read -- it RESOLVES INTO the selection before any gameplay read happens
+ * (ResolveInto below). Nothing downstream of UAFLCosmeticLoadoutComponent::GetSelection() changes,
+ * so every proof from CC-1 and CC-2 keeps its meaning.
+ *
+ * A build is the player-facing unit -- "my robot" -- and it is what a save slot holds. The identity
+ * and non-colour axes stay FNames, exactly as the selection stores them, because those are always
+ * discrete SKUs. Only the three creator colour channels become FAFLChannelValue, because only they
+ * can be either a SKU or a continuum pick.
+ */
+USTRUCT(BlueprintType)
+struct FAFLCreatorBuild
+{
+	GENERATED_BODY()
+
+	/** Player-authored label. Cosmetic only -- never a key, never resolved against. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
+	FString DisplayName;
+
+	/** The identity and non-colour axes. Always discrete SKUs, so always plain ids. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
+	FAFLCosmeticSelection BaseSelection;
+
+	/** The three creator colour channels, each id-or-continuum with provenance (CC-3.1). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
+	FAFLChannelValue BodyChannel;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
+	FAFLChannelValue EdgeChannel;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
+	FAFLChannelValue GlowChannel;
+
+	/** CC-4.2 LAPSE RULE, at the data level: a build beyond the effective slot cap goes READ-ONLY.
+	 *  It is never deleted and never mutated -- it renders exactly as saved and refuses edits. Set by
+	 *  the server when the cap shrinks; cleared when entitlement restores it. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Build")
+	bool bReadOnly = false;
+
+	/** True iff any colour channel is a continuum pick -- i.e. this build needed creator rights to
+	 *  author. Used by the lapse rule to decide what locks, WITHOUT re-deriving it from colours. */
+	bool UsesContinuum() const
+	{
+		return BodyChannel.Source == EAFLChannelSource::Continuum
+			|| EdgeChannel.Source == EAFLChannelSource::Continuum
+			|| GlowChannel.Source == EAFLChannelSource::Continuum;
+	}
+
+	/**
+	 * RESOLVE INTO THE ONE SELECTION GAMEPLAY READS. Additive by construction: a build whose channels
+	 * are all Unset produces a selection byte-identical to BaseSelection, with the creator overlay
+	 * OFF -- so a player who never opened the creator is unaffected, and the guarantee is "no write
+	 * occurs", not "an identical value is written".
+	 *
+	 * The resolved colours are copied VERBATIM from the channels. They are NOT recomputed, NOT
+	 * re-clamped, and NOT re-looked-up in the catalog: the values were validated when they were
+	 * chosen, and CC-4.2 requires a saved build to render identically afterwards regardless of what
+	 * happened to the player's entitlements or to the catalog since.
+	 */
+	FAFLCosmeticSelection ResolveInto() const
+	{
+		FAFLCosmeticSelection Out = BaseSelection;
+		const bool bAnyColour = BodyChannel.IsSet() || EdgeChannel.IsSet() || GlowChannel.IsSet();
+		if (!bAnyColour)
+		{
+			return Out; // untouched -- the never-opened-the-creator path
+		}
+		Out.bUseCreatorColors = 1;
+		if (BodyChannel.IsSet()) { Out.CreatorBodyColor = BodyChannel.Resolved; }
+		if (EdgeChannel.IsSet()) { Out.CreatorEdgeColor = EdgeChannel.Resolved; }
+		if (GlowChannel.IsSet()) { Out.CreatorGlowColor = GlowChannel.Resolved; }
+		// A channel sourced from a catalog SKU also carries its id onto the matching axis, so the
+		// existing preset/registry path still sees the SKU it expects.
+		if (BodyChannel.Source == EAFLChannelSource::CatalogId) { Out.BodyId = BodyChannel.CosmeticId; }
+		if (EdgeChannel.Source == EAFLChannelSource::CatalogId) { Out.EdgeId = EdgeChannel.CosmeticId; }
+		return Out;
+	}
+};
+
+/**
+ * CC-3.2 -- THE SAVED SET. Builds plus which one is live.
+ *
+ * ActiveBuildIndex is an INDEX, not a copy: there is exactly one live build and no way for the
+ * active build to drift from the saved one. INDEX_NONE means no build is active, in which case the
+ * player's plain FAFLCosmeticSelection is used unchanged -- the pre-Stage-B behaviour, preserved.
+ */
+USTRUCT(BlueprintType)
+struct FAFLCreatorBuildSet
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Build")
+	TArray<FAFLCreatorBuild> Builds;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Build")
+	int32 ActiveBuildIndex = INDEX_NONE;
+
+	bool HasActive() const { return Builds.IsValidIndex(ActiveBuildIndex); }
+
+	const FAFLCreatorBuild* GetActive() const
+	{
+		return HasActive() ? &Builds[ActiveBuildIndex] : nullptr;
+	}
+};
