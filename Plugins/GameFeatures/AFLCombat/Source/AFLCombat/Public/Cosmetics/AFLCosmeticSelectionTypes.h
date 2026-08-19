@@ -218,6 +218,26 @@ struct FAFLCosmeticSelection
 	 *  keep their default-member-initializers, so the struct's default is byte-identical to before + overlay OFF. */
 	FAFLCosmeticSelection() : bUseCreatorColors(0), bVisorColorSet(0) {}
 
+	/**
+	 * THE VISOR COLOUR THAT ACTUALLY RENDERS -- always call this, never read CreatorVisorColor raw.
+	 *
+	 * MEASURED DEFECT THIS FIXES. CC-6.4 first implemented the mirror inside ResolveInto() and again
+	 * inside ServerSetCosmeticSelection() -- once per path that builds a selection. The pull-only
+	 * migration proof then measured a THIRD path nobody had mirrored: AFLCosmeticLoadoutComponent.cpp
+	 * :136 assigns `Self->Selection = Loaded` straight from persistence and never calls ResolveInto,
+	 * so a selection saved before this field existed deserialised at the struct default WHITE. The
+	 * probe read (1.0000,1.0000,1.0000) on exactly that world while the authority worlds read correctly.
+	 *
+	 * A per-path rule is only as good as the enumeration of paths, and that enumeration was wrong on
+	 * the first attempt. So the rule lives on the TYPE: CreatorVisorColor means "the explicit choice,
+	 * meaningful only while bVisorColorSet", and this accessor is the single place the fallback is
+	 * decided. Any future path that materialises a selection inherits the migration for free.
+	 */
+	FLinearColor EffectiveVisorColor() const
+	{
+		return bVisorColorSet ? CreatorVisorColor : CreatorBodyColor;
+	}
+
 	/** The active identity key for the current type (TeamId or CharacterId). NAME_None if unset. */
 	FName GetActiveIdentityId() const
 	{
@@ -459,18 +479,14 @@ struct FAFLCreatorBuild
 		if (BodyChannel.IsSet()) { Out.CreatorBodyColor = BodyChannel.Resolved; }
 		if (EdgeChannel.IsSet()) { Out.CreatorEdgeColor = EdgeChannel.Resolved; }
 		if (GlowChannel.IsSet()) { Out.CreatorGlowColor = GlowChannel.Resolved; }
-		// VISOR: an explicit choice wins; otherwise MIRROR THE BODY so a build authored before the split
-		// renders exactly as it did. Leaving it at White would restyle every existing robot's visor --
-		// a shipped-visual change nobody asked for, triggered by a field appearing.
+		// VISOR: record an EXPLICIT choice only. The mirror is deliberately NOT applied here -- it lives
+		// on the type (EffectiveVisorColor) so every path that materialises a selection gets it, including
+		// the persistence load that never calls this function. Mirroring in both places would be two
+		// mechanisms for one rule, and it was the un-mirrored third path that actually shipped White.
 		if (VisorChannel.IsSet())
 		{
 			Out.CreatorVisorColor = VisorChannel.Resolved;
 			Out.bVisorColorSet = 1;
-		}
-		else
-		{
-			Out.CreatorVisorColor = Out.CreatorBodyColor;
-			Out.bVisorColorSet = 0;
 		}
 		// A channel sourced from a catalog SKU also carries its id onto the matching axis, so the
 		// existing preset/registry path still sees the SKU it expects.

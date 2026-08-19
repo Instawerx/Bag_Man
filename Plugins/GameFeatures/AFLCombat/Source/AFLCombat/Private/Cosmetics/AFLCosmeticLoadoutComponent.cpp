@@ -283,10 +283,13 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 			// CC-6.4 visor: clamped like every other creator colour -- it is client-supplied and must not
 			// escape the neon gamut. bVisorColorSet is carried verbatim: if the player never chose one we
 			// keep it FALSE so BuildColorOverride mirrors the body and pre-split rendering is preserved.
-			NewSelection.bVisorColorSet    = Requested.bVisorColorSet;
-			NewSelection.CreatorVisorColor = Requested.bVisorColorSet
-				? AFLCreatorGamut::ClampToNeon(Requested.CreatorVisorColor)
-				: NewSelection.CreatorBodyColor;
+			NewSelection.bVisorColorSet = Requested.bVisorColorSet;
+			if (Requested.bVisorColorSet)
+			{
+				NewSelection.CreatorVisorColor = AFLCreatorGamut::ClampToNeon(Requested.CreatorVisorColor);
+			}
+			// No else: an unchosen visor is NOT written to body here. EffectiveVisorColor() decides the
+			// fallback for every path at once -- writing it here as well would be a second mechanism.
 		}
 		// unentitled + requested -> leave the prior committed overlay as-is (do not clear, do not write raw).
 	}
@@ -337,9 +340,10 @@ FAFLColorOverride UAFLCosmeticLoadoutComponent::BuildColorOverride(const FAFLCos
 	// OnRep_Selection (step 6, client populate). Invalid unless bUseCreatorColors -> non-creator = no overlay.
 	return Sel.bUseCreatorColors
 		? FAFLColorOverride(Sel.CreatorBodyColor, Sel.CreatorEdgeColor, Sel.CreatorGlowColor,
-			// MIRROR WHEN UNSET -- the single place the migration rule lives. A selection saved before
-			// CC-6.4 has bVisorColorSet == 0, so its visor keeps taking the body colour exactly as it did.
-			Sel.bVisorColorSet ? Sel.CreatorVisorColor : Sel.CreatorBodyColor)
+			// EffectiveVisorColor() applies the migration mirror regardless of HOW Sel was produced --
+			// resolved from a build, replicated, clamped through the server RPC, or loaded from
+			// persistence written before the field existed. That last path is the one that read White.
+			Sel.EffectiveVisorColor())
 		: FAFLColorOverride();
 }
 
