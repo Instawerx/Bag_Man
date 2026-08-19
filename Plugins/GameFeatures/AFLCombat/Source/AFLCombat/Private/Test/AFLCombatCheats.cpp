@@ -3204,6 +3204,34 @@ namespace
 			Loadout->ServerSetActiveBuild(FCString::Atoi(*Args[1]));
 			return;
 		}
+		if (Mode == TEXT("pull"))
+		{
+			// CC-3.5 RELAUNCH PROOF. Pull must run SERVER-SIDE (authority-only, and only the server holds
+			// the signer), so reach this player's component in the in-process dedicated-server world by
+			// PlayerId -- the same route the kill and the lapse rule needed, for the same reason.
+			int32 MyId = PS ? PS->GetPlayerId() : -1;
+			UAFLCosmeticLoadoutComponent* SrvLoadout = nullptr;
+			if (GEngine && MyId >= 0)
+			{
+				for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+				{
+					UWorld* CW = Ctx.World();
+					if (!CW || !CW->IsGameWorld() || CW->GetNetMode() != NM_DedicatedServer) { continue; }
+					for (FConstPlayerControllerIterator It = CW->GetPlayerControllerIterator(); It; ++It)
+					{
+						APlayerController* SrvPC = It->Get();
+						APlayerState* SrvPS = SrvPC ? SrvPC->PlayerState : nullptr;
+						if (SrvPS && SrvPS->GetPlayerId() == MyId)
+						{ SrvLoadout = SrvPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>(); break; }
+					}
+					if (SrvLoadout) { break; }
+				}
+			}
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILDSYNC] pull request myPid=%d srvLoadout=%s"),
+				MyId, SrvLoadout ? TEXT("FOUND") : TEXT("MISSING"));
+			if (SrvLoadout) { SrvLoadout->PullBuildsFromPersistence(); }
+			return;
+		}
 		if (Mode == TEXT("lapse") && Args.Num() > 2)
 		{
 			// CC-4.2: drive the lapse rule with an explicit cap. The cap is a PARAMETER by design
@@ -3953,6 +3981,9 @@ namespace
 	// a loadout, then reads back. #if-guarded because an unguarded static-init ticker would run at 1 Hz forever
 	// in any config that compiles this TU.
 	static int32 GAFLCreatorAutoProbe = 0;
+static int32 GAFLCreatorPullOnly = 0;
+static FAutoConsoleVariableRef CVarAFLCreatorPullOnly(TEXT("afl.Creator.PullOnly"),
+	GAFLCreatorPullOnly, TEXT("CC-3.5 relaunch proof: 1 = pull builds from the backend instead of seeding."));
 	static FAutoConsoleVariableRef GAFLCreatorAutoProbeCVar(
 		TEXT("afl.Creator.AutoProbe"),
 		GAFLCreatorAutoProbe,
@@ -4086,7 +4117,13 @@ namespace
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
 		// CC-3 build proof. Sequenced BEFORE the colour timeline so a build activation cannot be
 		// confused with a direct colour set: the two write the same field by different routes.
-		if (RoleIndex == 0) { FireCmd(4.0f,  TEXT("afl.Creator.BuildProbe seed"),  TEXT("b1-seed")); }
+		// RELAUNCH PROOF: pull from the remote WITHOUT seeding. If builds appear, they came from the
+		// backend row written by a PREVIOUS process -- the definition of surviving a relaunch. Gated on
+		// afl.Creator.PullOnly so the normal harness still seeds.
+		static const auto* CVarPullOnly = IConsoleManager::Get().FindConsoleVariable(TEXT("afl.Creator.PullOnly"));
+		const bool bPullOnly = CVarPullOnly && CVarPullOnly->GetInt() != 0;
+		if (RoleIndex == 0 && bPullOnly) { FireCmd(4.0f, TEXT("afl.Creator.BuildProbe pull"), TEXT("R1-pull")); }
+		if (RoleIndex == 0 && !bPullOnly) { FireCmd(4.0f,  TEXT("afl.Creator.BuildProbe seed"),  TEXT("b1-seed")); }
 		if (RoleIndex == 0) { FireCmd(6.0f,  TEXT("afl.Creator.BuildProbe use 0"), TEXT("b2-use0")); }
 		FireCmd(7.5f,  TEXT("afl.Creator.BuildProbe"), TEXT("b3-read-after-0"));
 		if (RoleIndex == 0) { FireCmd(9.0f,  TEXT("afl.Creator.BuildProbe use 1"), TEXT("b4-use1")); }
