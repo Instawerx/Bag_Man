@@ -3081,6 +3081,87 @@ namespace
 			(FacemaskId != NAME_None) ? *FacemaskId.ToString() : TEXT("<none/un-equip>"));
 	}
 
+	// CC-X17 LINT: catch the DETECTABLE subset of the Type-default trap -- rows whose Type
+	// disagrees with their id namespace. FAFLCatalogEntry::Type defaulted to SkinColor_Edge (a real,
+	// wrong value) until 2026-08-19, and silently absorbed two separate batches of 27: the
+	// AFL.Facemask.* rows and the AFL.Character.*_X rows. The default is now Invalid, so NEW untyped
+	// rows are categorically detectable -- but rows authored under the old default are not, and this
+	// lint is what finds them.
+	//
+	// LIMIT, stated so nobody over-trusts it: this compares Type against the ID PREFIX. It cannot
+	// catch a row that is genuinely and wrongly SkinColor_Edge with an AFL.Edge.* id -- that is a
+	// provenance question and no value read answers it. It catches disagreement, not wrongness.
+	//
+	// KNOWN POSITIVES it must reproduce or it is broken before it is used:
+	//   27x AFL.Character.*_X  typed SkinColor_Edge  (CC-X18, deliberately NOT retyped)
+	//    0x AFL.Facemask.*                            (retyped at cc-x16-done)
+	void HandleAFLCatalogTypeLint(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		UAFLCosmeticCatalogSubsystem* Catalog = World ? UAFLCosmeticCatalogSubsystem::Get(World) : nullptr;
+		if (!Catalog)
+		{
+			Ar.Log(TEXT("afl.Catalog.TypeLint - no catalog subsystem (run inside PIE)."));
+			return;
+		}
+		struct FRule { const TCHAR* Prefix; EAFLCosmeticType A; EAFLCosmeticType B; };
+		// B == A where the namespace maps to exactly one type; AFL.Weapon.* is genuinely overloaded.
+		static const FRule Rules[] = {
+			{ TEXT("AFL.Edge."),      EAFLCosmeticType::SkinColor_Edge,  EAFLCosmeticType::SkinColor_Edge },
+			{ TEXT("AFL.Body."),      EAFLCosmeticType::SkinColor_Body,  EAFLCosmeticType::SkinColor_Body },
+			{ TEXT("AFL.Facemask."),  EAFLCosmeticType::Facemask,        EAFLCosmeticType::Facemask },
+			{ TEXT("AFL.Character."), EAFLCosmeticType::Character,       EAFLCosmeticType::Character },
+			{ TEXT("AFL.Team."),      EAFLCosmeticType::Team,            EAFLCosmeticType::Team },
+			{ TEXT("AFL.Beam."),      EAFLCosmeticType::Beam,            EAFLCosmeticType::Beam },
+			{ TEXT("AFL.Finish."),    EAFLCosmeticType::Finish,          EAFLCosmeticType::Finish },
+			{ TEXT("AFL.Bundle."),    EAFLCosmeticType::Bundle,          EAFLCosmeticType::Bundle },
+			{ TEXT("AFL.Emblem."),    EAFLCosmeticType::Emblem,          EAFLCosmeticType::Emblem },
+			{ TEXT("AFL.Helmet."),    EAFLCosmeticType::Helmet,          EAFLCosmeticType::Helmet },
+			{ TEXT("AFL.Ability."),   EAFLCosmeticType::AbilityCosmetic, EAFLCosmeticType::AbilityCosmetic },
+			{ TEXT("AFL.Weapon."),    EAFLCosmeticType::Weapon,          EAFLCosmeticType::WeaponAccessory },
+		};
+		const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
+		int32 Checked = 0, Mismatch = 0, Unmapped = 0, InvalidRows = 0;
+		TMap<FString, int32> ByPrefix;
+		for (int32 T = 0; T < (TypeEnum ? TypeEnum->NumEnums() : 0); ++T)
+		{
+			TArray<const FAFLCatalogEntry*> OfType;
+			Catalog->GetEntriesByType(static_cast<EAFLCosmeticType>(TypeEnum->GetValueByIndex(T)), OfType);
+			for (const FAFLCatalogEntry* R : OfType)
+			{
+				if (!R) { continue; }
+				const FString Id = R->CosmeticId.ToString();
+				const FRule* Hit = nullptr;
+				for (const FRule& Rule : Rules)
+				{
+					if (Id.StartsWith(Rule.Prefix, ESearchCase::IgnoreCase)) { Hit = &Rule; break; }
+				}
+				++Checked;
+				if (R->Type == EAFLCosmeticType::Invalid) { ++InvalidRows; }
+				if (!Hit) { ++Unmapped; continue; }
+				if (R->Type != Hit->A && R->Type != Hit->B)
+				{
+					++Mismatch;
+					FString Pfx(Hit->Prefix);
+					ByPrefix.FindOrAdd(Pfx)++;
+					Ar.Logf(TEXT("  MISMATCH %s  type=%s  expected=%s"), *Id,
+						*TypeEnum->GetNameStringByValue((int64)R->Type),
+						*TypeEnum->GetNameStringByValue((int64)Hit->A));
+				}
+			}
+		}
+		FString Split;
+		for (const TPair<FString, int32>& KV : ByPrefix) { Split += FString::Printf(TEXT("%s=%d "), *KV.Key, KV.Value); }
+		Ar.Logf(TEXT("AFL_TEST[TYPELINT] checked=%d mismatch=%d unmapped=%d invalid=%d  %s"),
+			Checked, Mismatch, Unmapped, InvalidRows, *Split);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[TYPELINT] checked=%d mismatch=%d unmapped=%d invalid=%d  %s"),
+			Checked, Mismatch, Unmapped, InvalidRows, *Split);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCatalogTypeLintCmd(
+		TEXT("afl.Catalog.TypeLint"),
+		TEXT("CC-X17: report catalog rows whose Type disagrees with their id namespace -- the detectable subset of the Type-default trap. Catches disagreement, NOT wrongness: a row genuinely mistyped within its own namespace is a provenance question no value read answers."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCatalogTypeLint));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCosmeticSetFacemaskCmd(
 		TEXT("afl.Cosmetic.SetFacemask"),
 		TEXT("Facemask selection seam: client-issued PURE caller of ServerSetCosmeticSelection (sets FacemaskId). Runtime equip path -> slot-1 material swap + finish re-layer. Ids resolve against the CATALOG (exact row id, or a bare name unique to one row; ambiguous or unknown = loud error, nothing equipped). Usage: afl.Cosmetic.SetFacemask <AFL.Facemask.Flag.Japan | AFL.Facemask.IroVisor | none | verify>."),
@@ -3890,6 +3971,7 @@ namespace
 		// CC-X15 step 4: assert the facemask command can reach EVERY catalog row. Role A only, once, early --
 		// it is a pure read and must not perturb the colour timeline that follows.
 		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
+		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
 
 		TArray<FString> Read;  Read.Add(TEXT("read"));
 		TArray<FString> Clear; Clear.Add(TEXT("clear"));
