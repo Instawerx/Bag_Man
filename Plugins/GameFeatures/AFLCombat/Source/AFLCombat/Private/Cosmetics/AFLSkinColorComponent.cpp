@@ -218,10 +218,14 @@ void UAFLSkinColorComponent::SetColorOverride(const FAFLColorOverride& NewOverri
 	// OnRep_ColorOverride; they never write it.
 	if (AFLSkinDiag::IsOn())
 	{
-		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : SetColorOverride auth=%d inBValid=%d Body=(%.4f,%.4f,%.4f)"),
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : SetColorOverride auth=%d inBValid=%d "
+			"Body=(%.4f,%.4f,%.4f) Visor=(%.4f,%.4f,%.4f)"),
 			*AFLSkinDiag::Prefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
 			(GetOwner() && GetOwner()->HasAuthority()) ? 1 : 0, NewOverride.bValid ? 1 : 0,
-			NewOverride.BodyColor.R, NewOverride.BodyColor.G, NewOverride.BodyColor.B);
+			NewOverride.BodyColor.R, NewOverride.BodyColor.G, NewOverride.BodyColor.B,
+			// CC-6.4: this is the value BaseTint receives. For any selection with bVisorColorSet == 0 it
+			// MUST equal Body. White here is the migration failure reaching the material.
+			NewOverride.VisorColor.R, NewOverride.VisorColor.G, NewOverride.VisorColor.B);
 	}
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{

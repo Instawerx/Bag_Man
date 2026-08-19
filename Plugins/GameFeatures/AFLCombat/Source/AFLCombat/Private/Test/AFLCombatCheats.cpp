@@ -3277,10 +3277,20 @@ namespace
 		const FAFLCreatorBuildSet& Set = Loadout->GetBuildSet();
 		const FAFLCosmeticSelection& Sel = Loadout->GetSelection();
 		UE_LOG(LogAFLCombat, Display,
-			TEXT("AFL_TEST[BUILDPROBE] builds=%d active=%d creatorOn=%d editLocked=%d selBody=(%.4f,%.4f,%.4f)"),
+			TEXT("AFL_TEST[BUILDPROBE] builds=%d active=%d creatorOn=%d editLocked=%d selBody=(%.4f,%.4f,%.4f) "
+				"visorSet=%d rawVisor=(%.4f,%.4f,%.4f) effVisor=(%.4f,%.4f,%.4f)"),
 			Set.Builds.Num(), Set.ActiveBuildIndex, Sel.bUseCreatorColors ? 1 : 0,
 			Loadout->IsContinuumEditingLocked() ? 1 : 0,
-			Sel.CreatorBodyColor.R, Sel.CreatorBodyColor.G, Sel.CreatorBodyColor.B);
+			Sel.CreatorBodyColor.R, Sel.CreatorBodyColor.G, Sel.CreatorBodyColor.B,
+			// CC-6.4 MIGRATION ARM: for a build authored BEFORE the split, visorSet must be 0 and
+			// selVisor must EQUAL selBody. selVisor at White (1,1,1) means the mirror failed and every
+			// existing robot just had its visor restyled.
+			Sel.bVisorColorSet ? 1 : 0,
+			// rawVisor is PROVENANCE: White + visorSet=0 means "no choice was ever made", which is the
+			// correct reading of a pre-split record -- it is NOT a defect on its own.
+			Sel.CreatorVisorColor.R, Sel.CreatorVisorColor.G, Sel.CreatorVisorColor.B,
+			// effVisor is the VALUE that renders. THIS is the one that must equal selBody when unset.
+			Sel.EffectiveVisorColor().R, Sel.EffectiveVisorColor().G, Sel.EffectiveVisorColor().B);
 		for (int32 i = 0; i < Set.Builds.Num(); ++i)
 		{
 			const FAFLCreatorBuild& B = Set.Builds[i];
