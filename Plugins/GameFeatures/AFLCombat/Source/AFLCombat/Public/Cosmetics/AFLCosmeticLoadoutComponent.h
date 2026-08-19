@@ -111,6 +111,22 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator")
 	bool IsContinuumEditingLocked() const { return bContinuumEditingLocked; }
 
+	// --- CC-3.5 BUILD PERSISTENCE --------------------------------------------------------------
+	// The set is serialised WHOLE, as one JSON blob, matching how the backend stores it and how this
+	// component replicates it. Serialising per-build would let a partial push leave the remote set
+	// disagreeing with the local one, with nothing to detect the divergence.
+
+	/** Push the current BuildSet to the persistence seam. Authority-only; called after any mutation. */
+	void PushBuildsToPersistence();
+
+	/** Pull the saved BuildSet from the persistence seam and adopt it. Authority-only. */
+	void PullBuildsFromPersistence();
+
+private:
+	FAFLPlayerId MakePlayerKey() const;
+	FString ResolvePlayFabIdForOwner() const;
+public:
+
 	/**
 	 * Change-timing gate (D6). STUB-OPEN for #43: returns true (always editable) because the match<->hub
 	 * boundary that would set the lock isn't built yet -- wiring a lock now would build ahead of its

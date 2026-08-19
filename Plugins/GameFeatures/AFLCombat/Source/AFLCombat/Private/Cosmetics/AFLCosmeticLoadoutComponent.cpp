@@ -6,7 +6,11 @@
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
 #include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
 #include "Cosmetics/AFLWalletComponent.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
-#include "AFLCombat.h"                                   // LogAFLCombat (the AFL_TEST emit category)
+#include "AFLCombat.h"
+#include "Cosmetics/AFLEconomyPersistenceSubsystem.h"   // CC-3.5 build blob load/save
+#include "Cosmetics/AFLPlayerIdentityComponent.h"       // GetResolvedPlayFabId (A1.4 verified id)
+#include "JsonObjectConverter.h"                        // BuildSet <-> JSON blob
+#include "Engine/GameInstance.h"                                   // LogAFLCombat (the AFL_TEST emit category)
 #include "Cosmetics/AFLSkinColorComponent.h"          // AFLSkinDiag (shared cvar-gated diag: LogAFLSkinDiag / IsOn / Prefix)
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
 #include "Components/ActorComponent.h"
@@ -536,6 +540,7 @@ void UAFLCosmeticLoadoutComponent::ServerSaveBuild_Implementation(FAFLCreatorBui
 	}
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILD] saved index=%d builds=%d continuum=%d"),
 		Index, BuildSet.Builds.Num(), Build.UsesContinuum() ? 1 : 0);
+	PushBuildsToPersistence();
 }
 
 bool UAFLCosmeticLoadoutComponent::ServerSetActiveBuild_Validate(int32) { return true; }
@@ -603,5 +608,96 @@ void UAFLCosmeticLoadoutComponent::ApplyLapseRule(int32 EffectiveSlotCap, bool b
 		TEXT("AFL_TEST[LAPSE] cap=%d builds=%d newlyLocked=%d newlyUnlocked=%d editingLocked=%d->%d active=%d"),
 		Cap, BuildSet.Builds.Num(), Locked, Unlocked, bWasLocked ? 1 : 0,
 		bContinuumEditingLocked ? 1 : 0, BuildSet.ActiveBuildIndex);
+}
+
+// --- CC-3.5 BUILD PERSISTENCE ---------------------------------------------------------------------
+
+void UAFLCosmeticLoadoutComponent::PushBuildsToPersistence()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+	UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	UAFLEconomyPersistenceSubsystem* Persist = GI ? GI->GetSubsystem<UAFLEconomyPersistenceSubsystem>() : nullptr;
+	if (!Persist) { return; }
+
+	FString Json;
+	if (!FJsonObjectConverter::UStructToJsonObjectString(BuildSet, Json, 0, 0))
+	{
+		// Refuse to push a blob we could not serialise. Pushing "{}" here would overwrite the player's
+		// saved robots with an empty set on the remote -- a silent data loss triggered by a local bug.
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUILDSYNC] push ABORTED: serialise failed (nothing sent)."));
+		return;
+	}
+	const FString PlayFabId = ResolvePlayFabIdForOwner();
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILDSYNC] push builds=%d bytes=%d pid=%s"),
+		BuildSet.Builds.Num(), Json.Len(), PlayFabId.IsEmpty() ? TEXT("<none>") : *PlayFabId);
+	Persist->SaveCreatorBuilds(MakePlayerKey(), PlayFabId, Json);
+}
+
+void UAFLCosmeticLoadoutComponent::PullBuildsFromPersistence()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+	UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	UAFLEconomyPersistenceSubsystem* Persist = GI ? GI->GetSubsystem<UAFLEconomyPersistenceSubsystem>() : nullptr;
+	if (!Persist) { return; }
+
+	TWeakObjectPtr<UAFLCosmeticLoadoutComponent> WeakThis(this);
+	Persist->LoadCreatorBuilds(MakePlayerKey(), ResolvePlayFabIdForOwner(),
+		FAFLOnCreatorBuildsLoaded::CreateLambda([WeakThis](bool bFound, const FString& BuildsJson)
+	{
+		UAFLCosmeticLoadoutComponent* Self = WeakThis.Get();
+		if (!Self) { return; }
+		if (!bFound || BuildsJson.IsEmpty())
+		{
+			// NEW PLAYER, not a failure. Leave BuildSet alone -- overwriting it with an empty set here
+			// would discard anything authored in this session before the load landed.
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILDSYNC] pull found=0 (new player, set untouched)"));
+			return;
+		}
+		// The remote wraps the blob as {"found":..,"builds":{..}}. Take the inner object when present so
+		// the same handler works against a bare cached blob and against the endpoint envelope.
+		FString Inner = BuildsJson;
+		TSharedPtr<FJsonObject> Root;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(BuildsJson);
+		if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+		{
+			const TSharedPtr<FJsonObject>* BuildsObj = nullptr;
+			if (Root->TryGetObjectField(TEXT("builds"), BuildsObj) && BuildsObj)
+			{
+				Inner.Empty();
+				const TSharedRef<TJsonWriter<>> W = TJsonWriterFactory<>::Create(&Inner);
+				FJsonSerializer::Serialize(BuildsObj->ToSharedRef(), W);
+			}
+		}
+		FAFLCreatorBuildSet Loaded;
+		if (!FJsonObjectConverter::JsonObjectStringToUStruct(Inner, &Loaded, 0, 0))
+		{
+			// Refuse rather than adopt a half-parsed set. A partially-populated BuildSet would look like a
+			// player who lost builds, and nothing downstream could tell that apart from a real deletion.
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUILDSYNC] pull PARSE FAILED (set untouched)"));
+			return;
+		}
+		Self->BuildSet = Loaded;
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILDSYNC] pull found=1 builds=%d active=%d"),
+			Self->BuildSet.Builds.Num(), Self->BuildSet.ActiveBuildIndex);
+	}));
+}
+
+FAFLPlayerId UAFLCosmeticLoadoutComponent::MakePlayerKey() const
+{
+	// Mirrors how the wallet keys the same cache -- the wrapper is opaque, so build it the one way
+	// the seam sanctions rather than inventing a second key format that would silently miss.
+	return FAFLPlayerId::MakeFromBacking(ResolvePlayFabIdForOwner());
+}
+
+FString UAFLCosmeticLoadoutComponent::ResolvePlayFabIdForOwner() const
+{
+	if (const AActor* Owner = GetOwner())
+	{
+		if (const UAFLPlayerIdentityComponent* Identity = Owner->FindComponentByClass<UAFLPlayerIdentityComponent>())
+		{
+			return Identity->GetResolvedPlayFabId();
+		}
+	}
+	return FString();
 }
 

@@ -93,6 +93,9 @@ public class AFLCombat : ModuleRules
 				// always-loaded AFLOnline is the correct load-order direction (login resident before BeginPlay).
 				"AFLOnline",
 				"Json",
+				// CC-3.5: FJsonObjectConverter (FAFLCreatorBuildSet <-> the saved-build blob). Json alone
+				// gives FJsonObject parsing; USTRUCT round-tripping lives in JsonUtilities.
+				"JsonUtilities",
 				// Thumbnail batch (#1/#7): afl.Thumbnail.Batch creates + saves T_Thumb_<SKU> Texture2D assets
 				// (RT->ConstructTexture2D + UPackage::SavePackage) and registers them via
 				// FAssetRegistryModule::AssetCreated. Editor-asset authoring lives behind WITH_EDITOR in the dev
