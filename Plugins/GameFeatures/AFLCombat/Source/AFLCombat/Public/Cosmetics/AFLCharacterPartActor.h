@@ -80,7 +80,12 @@ public:
 	 * top. Order: material swap, then param re-push -> the facemask and the finish coexist (the exact failure
 	 * mode if you swapped without re-applying: a facemask would strand the finish). Idempotent.
 	 */
-	void ApplyFacemask(class UMaterialInstanceConstant* FacemaskMIC, const UAFLSkinColorAsset* ColorToReapply);
+	// ColorOverride: the facemask swap DROPS the slot-1 MID and re-layers the finish via ApplySkinColor. That
+	// re-layer MUST carry the creator overlay or it re-writes registry/brand tones over the player's colours --
+	// MEASURED: 48 writes with override=miss produced brand red on top of 96 correct override=HIT writes.
+	// A DEFAULTED param is the trap: every un-updated call site compiles and silently drops what it carries.
+	void ApplyFacemask(class UMaterialInstanceConstant* FacemaskMIC, const UAFLSkinColorAsset* ColorToReapply,
+		const FAFLColorOverride& ColorOverride = FAFLColorOverride());
 
 	/**
 	 * DEFECT-2: the exact UAFLSkinColorAsset this part last painted its MIDs with in ApplySkinColor -- the finish

@@ -3,6 +3,8 @@
 #include "Test/AFLCombatCheats.h"
 
 #include "AFLCombat.h"
+#include "Containers/Ticker.h"          // acceptance harness: arm-and-wait poll
+#include "Misc/OutputDeviceNull.h"      // acceptance harness: calls the console handler headlessly
 #include "Abilities/AFLAG_Laser_Beam.h"
 #include "Abilities/AFLAG_Laser_Pulse.h"
 #include "AbilitySystemComponent.h"
@@ -3510,14 +3512,43 @@ namespace
 			return;
 		}
 
-		const bool bReadOnly = (Args.Num() >= 1 && Args[0].TrimStartAndEnd().Equals(TEXT("read"), ESearchCase::IgnoreCase));
-
-		if (bReadOnly)
+		// CC-2.1-I2 MODES. The old probe hardcoded one triple, so once persistence restored it the set wrote
+		// IDENTICAL values -> no replication delta -> no OnRep -> nothing applied. The
+		// instrument could not exercise the path it exists to test. Colours are now ARGUMENTS, and 'clear' gives
+		// a guaranteed delta for the next set while exercising the turn-off path. Randomising instead would have
+		// manufactured a delta every run and never tested the ALREADY-SET case -- which is the shipping case.
+		// NO SILENT DEFAULT. This command previously ran SET with no args; I2 briefly made bare = READ, which
+		// silently reinterpreted an invocation the operator already had muscle memory for -- the exact class of
+		// change that costs a session. A bare command is now a USAGE ERROR that does nothing.
+		if (Args.Num() == 0)
 		{
-			// READ mode (run on client B, and again on A after respawn): NO commit, pure readback.
+			Ar.Log(TEXT("afl.Creator.ColorProbe requires a MODE (no default -- nothing was done)."));
+			Ar.Log(TEXT("  read                                  -- readback only: R2 (+PROVENANCE) / R4"));
+			Ar.Log(TEXT("  clear                                 -- bUseCreatorColors->0 via the real funnel; guarantees the NEXT set is a delta"));
+			Ar.Log(TEXT("  set <bR> <bG> <bB> [eR eG eB gR gG gB] -- colours from args; body low-S/V measures the clamp"));
+			return;
+		}
+		const FString Mode = Args[0].TrimStartAndEnd().ToLower();
+
+		if (Mode == TEXT("read"))
+		{
+			// READ mode: NO commit, pure readback.
 			AFLCreator_ReadCommitted(World, TEXT("R2"));
 			AFLCreator_ReadMIDs(World, TEXT("R4"));
 			Ar.Log(TEXT("afl.Creator.ColorProbe read - R2/R4 emitted (no commit)."));
+			return;
+		}
+
+		const bool bClear = (Mode == TEXT("clear"));
+		const bool bSet   = (Mode == TEXT("set"));
+		if (!bClear && !bSet)
+		{
+			Ar.Log(TEXT("usage: afl.Creator.ColorProbe read | clear | set <bR> <bG> <bB> [eR eG eB gR gG gB]"));
+			return;
+		}
+		if (bSet && Args.Num() < 4)
+		{
+			Ar.Log(TEXT("usage: afl.Creator.ColorProbe set <bR> <bG> <bB> [eR eG eB gR gG gB]  (values 0..1; body deliberately out-of-gamut measures the clamp)"));
 			return;
 		}
 
@@ -3530,22 +3561,65 @@ namespace
 			return;
 		}
 
-		// R1 -- the RAW request, before the server sees it.
-		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[R1] [%s] requested colours = Body%s Edge%s Glow%s"),
-			*AFLCreator_NetTag(World), *AFLCreator_C(kCreatorBody), *AFLCreator_C(kCreatorEdge), *AFLCreator_C(kCreatorGlow));
+		// Colours come from ARGS (no hardcoded triple). Supplying only the body triple leaves edge/glow at the
+		// in-gamut control values, so the pass-through control is preserved; the log states which were defaulted.
+		FLinearColor ReqBody = kCreatorBody, ReqEdge = kCreatorEdge, ReqGlow = kCreatorGlow;
+		bool bEdgeGlowDefaulted = true;
+		if (bSet)
+		{
+			ReqBody = FLinearColor(FCString::Atof(*Args[1]), FCString::Atof(*Args[2]), FCString::Atof(*Args[3]), 1.0f);
+			if (Args.Num() >= 10)
+			{
+				ReqEdge = FLinearColor(FCString::Atof(*Args[4]), FCString::Atof(*Args[5]), FCString::Atof(*Args[6]), 1.0f);
+				ReqGlow = FLinearColor(FCString::Atof(*Args[7]), FCString::Atof(*Args[8]), FCString::Atof(*Args[9]), 1.0f);
+				bEdgeGlowDefaulted = false;
+			}
+		}
 
-		// PURE CALLER of the real funnel: copy the current selection, set ONLY the creator fields, hand to the
-		// server. Seed the free identity if unset so _Validate passes (same shape as the other Set* cheats).
-		FAFLCosmeticSelection Request = Loadout->GetSelection();
+		// R0 -- what this run INHERITED, so a no-delta run is self-evident instead of being mistaken for a failure.
+		const FAFLCosmeticSelection Prev = Loadout->GetSelection();
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[R0] [%s] mode=%s INHERITED: bUse=%d Body=%s Edge=%s Glow=%s"),
+			*AFLCreator_NetTag(World), *Mode, (int32)Prev.bUseCreatorColors,
+			*AFLCreator_C(Prev.CreatorBodyColor), *AFLCreator_C(Prev.CreatorEdgeColor), *AFLCreator_C(Prev.CreatorGlowColor));
+
+		// R1 -- the RAW request, before the server sees it, plus whether it can possibly be a delta.
+		if (bClear)
+		{
+			const bool bWouldDelta = (Prev.bUseCreatorColors != 0);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[R1] [%s] CLEAR requested (bUseCreatorColors -> 0) expectDelta=%d"),
+				*AFLCreator_NetTag(World), bWouldDelta ? 1 : 0);
+		}
+		else
+		{
+			const bool bWouldDelta =
+				(Prev.bUseCreatorColors == 0) ||
+				!Prev.CreatorBodyColor.Equals(ReqBody) || !Prev.CreatorEdgeColor.Equals(ReqEdge) || !Prev.CreatorGlowColor.Equals(ReqGlow);
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[R1] [%s] requested colours = Body%s Edge%s Glow%s (edge/glow defaulted=%d) expectDelta-preClamp=%d"),
+				*AFLCreator_NetTag(World), *AFLCreator_C(ReqBody), *AFLCreator_C(ReqEdge), *AFLCreator_C(ReqGlow),
+				bEdgeGlowDefaulted ? 1 : 0, bWouldDelta ? 1 : 0);
+		}
+
+		// PURE CALLER of the real funnel (clear included -- it goes through ServerSetCosmeticSelection, never a
+		// direct write). Seed the free identity if unset so _Validate passes (same shape as the other Set* cheats).
+		FAFLCosmeticSelection Request = Prev;
 		if (Request.GetActiveIdentityId() == NAME_None)
 		{
 			Request.IdentityType = EAFLIdentityType::Team;
 			Request.TeamId = FName(TEXT("AFL.Team.IRONICS"));
 		}
-		Request.bUseCreatorColors = 1;
-		Request.CreatorBodyColor  = kCreatorBody;
-		Request.CreatorEdgeColor  = kCreatorEdge;
-		Request.CreatorGlowColor  = kCreatorGlow;
+		if (bClear)
+		{
+			Request.bUseCreatorColors = 0;
+		}
+		else
+		{
+			Request.bUseCreatorColors = 1;
+			Request.CreatorBodyColor  = ReqBody;
+			Request.CreatorEdgeColor  = ReqEdge;
+			Request.CreatorGlowColor  = ReqGlow;
+		}
 
 		Loadout->ServerSetCosmeticSelection(Request); // client -> server; clamp + commit happen there
 
@@ -3557,12 +3631,75 @@ namespace
 			AFLCreator_ReadMIDs(World, TEXT("R3"));
 		}), 2.0f, false);
 
-		Ar.Log(TEXT("afl.Creator.ColorProbe - request sent; R2/R3 emit in ~2s. Run 'afl.Creator.ColorProbe read' on the OTHER client, and again after respawn for R4."));
+		Ar.Log(TEXT("afl.Creator.ColorProbe - request sent; R0/R1 now, R2/R3 in ~2s. Run 'afl.Creator.ColorProbe read' on the OTHER client, and again after respawn for R4."));
 	}
+
+#if !UE_BUILD_SHIPPING
+	// ---- ACCEPTANCE HARNESS (dev-only; NEVER compiled into shipping) ------------------------------------
+	// The bridge cannot inject console commands mid-PIE, so an unattended acceptance run needs the sequence to
+	// drive itself. Arm `afl.Creator.AutoProbe 1` BEFORE starting PIE; the ticker waits for a CLIENT world with
+	// a loadout, then reads back. #if-guarded because an unguarded static-init ticker would run at 1 Hz forever
+	// in any config that compiles this TU.
+	static int32 GAFLCreatorAutoProbe = 0;
+	static FAutoConsoleVariableRef GAFLCreatorAutoProbeCVar(
+		TEXT("afl.Creator.AutoProbe"),
+		GAFLCreatorAutoProbe,
+		TEXT("Dev acceptance: 1 = on the first ready CLIENT world, auto-run the creator-overlay readback. Set BEFORE starting PIE. Self-disarms."),
+		ECVF_Default);
+
+	static bool GAFLCreatorAutoFired = false;
+
+	static void AFLCreator_RunArgs(UWorld* World, const TArray<FString>& Args)
+	{
+		FOutputDeviceNull Null;
+		HandleAFLCreatorColorProbe(Args, World, Null);
+	}
+
+	// REJOIN-CASE ACCEPTANCE: read only. Persistence already supplies bUseCreatorColors=1, so a fresh PIE IS the
+	// rejoin case -- if PATH 1/PATH 2 work, the MIDs carry the creator colours with no set/clear needed.
+	static void AFLCreator_AutoSequence(UWorld* World)
+	{
+		if (!World) { return; }
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[AUTO] [%s] rejoin-case readback START"), *AFLCreator_NetTag(World));
+		TWeakObjectPtr<UWorld> W = World;
+		FTimerHandle T1, T2;
+		World->GetTimerManager().SetTimer(T1, FTimerDelegate::CreateLambda([W]()
+		{
+			if (!W.IsValid()) { return; }
+			TArray<FString> A; A.Add(TEXT("read")); AFLCreator_RunArgs(W.Get(), A);
+		}), 2.0f, false);
+		World->GetTimerManager().SetTimer(T2, FTimerDelegate::CreateLambda([W]()
+		{
+			if (!W.IsValid()) { return; }
+			TArray<FString> A; A.Add(TEXT("read")); AFLCreator_RunArgs(W.Get(), A);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[AUTO] rejoin-case readback END"));
+		}), 8.0f, false);
+	}
+
+	static FTSTicker::FDelegateHandle GAFLCreatorAutoTicker = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateLambda([](float) -> bool
+		{
+			if (GAFLCreatorAutoProbe == 0 || GAFLCreatorAutoFired || !GEngine) { return true; }
+			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+			{
+				UWorld* W = Ctx.World();
+				if (!W || !W->IsGameWorld() || W->GetNetMode() != NM_Client) { continue; }
+				APlayerController* PC = W->GetFirstPlayerController();
+				APlayerState* PS = PC ? PC->PlayerState : nullptr;
+				if (PS && PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
+				{
+					GAFLCreatorAutoFired = true;
+					AFLCreator_AutoSequence(W);
+					break;
+				}
+			}
+			return true;
+		}), 1.0f);
+#endif // !UE_BUILD_SHIPPING
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorColorProbeCmd(
 		TEXT("afl.Creator.ColorProbe"),
-		TEXT("CC-2.1-P: set the creator colour overlay through the REAL funnel (ServerSetCosmeticSelection -> server ClampToNeon -> commit -> replicate), then read the CLIENT-side MID params back. No arg = set + R1/R2/R3. 'read' = readback only (R2/R4), for the other client and for after respawn. Body colour is deliberately out-of-gamut so the clamp is measured, not assumed."),
+		TEXT("CC-2.1-P/I2: drive the creator colour overlay through the REAL funnel (ServerSetCosmeticSelection -> server ClampToNeon -> commit -> replicate), then read the CLIENT-side MID params back. Modes: 'read' = readback only (R2/R4); 'clear' = bUseCreatorColors->0 through the funnel (guarantees the NEXT set is a delta, and exercises the turn-off path); 'set <bR> <bG> <bB> [eR eG eB gR gG gB]' = colours from ARGS. Every mode emits R0 (what the run INHERITED) so a no-delta run is self-evident. Pick a body colour outside the neon gamut (low S/V) to measure the clamp."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorColorProbe));
 
 	void HandleAFLCosmeticSetParam(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)

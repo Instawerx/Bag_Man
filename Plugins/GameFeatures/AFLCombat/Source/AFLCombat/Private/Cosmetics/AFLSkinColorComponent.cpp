@@ -75,6 +75,9 @@ void UAFLSkinColorComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	DOREPLIFETIME(UAFLSkinColorComponent, Facemask);
 	DOREPLIFETIME(UAFLSkinColorComponent, WeaponSkinMaterial);
 	DOREPLIFETIME(UAFLSkinColorComponent, BeamColorAsset);
+	// Creator overlay rides the SAME pawn-side replication spine as the five above -- that is what lets the
+	// part self-apply it at BeginPlay (PATH 1) instead of depending on PlayerState ordering.
+	DOREPLIFETIME(UAFLSkinColorComponent, ActiveColorOverride);
 }
 
 void UAFLSkinColorComponent::BeginPlay()
@@ -99,12 +102,11 @@ void UAFLSkinColorComponent::BeginPlay()
 	ApplyBeamColorToEquipped();
 }
 
-void UAFLSkinColorComponent::SetSkinColor(UAFLSkinColorAsset* NewColor, const FAFLColorOverride& ColorOverride)
+void UAFLSkinColorComponent::SetSkinColor(UAFLSkinColorAsset* NewColor)
 {
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
 		SkinColor = NewColor;
-		ActiveColorOverride = ColorOverride; // CC-2.1: cache for the Reapply path (incl. OnRep). Invalid = no overlay.
 
 		// Listen-host: the authority is also a client, but OnRep does NOT fire on the authority --
 		// apply locally now so the host's own view updates immediately.
@@ -171,40 +173,34 @@ void UAFLSkinColorComponent::ReapplyColorToAllParts()
 
 // ---- BODY FINISH (replicated PARALLEL to SkinColor; the TeamColor axis of the unified identity) ---
 
-void UAFLSkinColorComponent::SetBodyColor(UAFLSkinColorAsset* NewColor, const FAFLColorOverride& ColorOverride)
+void UAFLSkinColorComponent::SetBodyColor(UAFLSkinColorAsset* NewColor)
 {
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
 		BodyColor = NewColor;
-		ActiveColorOverride = ColorOverride; // CC-2.1: same cache as SetSkinColor (both push arms carry the same overlay).
 		// Listen-host: OnRep does NOT fire on authority -> apply locally now (mirrors SetSkinColor).
 		ReapplyBodyColorToAllParts();
 	}
 }
 
-void UAFLSkinColorComponent::ApplyCreatorOverride(const FAFLColorOverride& ColorOverride)
+void UAFLSkinColorComponent::SetColorOverride(const FAFLColorOverride& NewOverride)
 {
-	// CC-2.1 CLIENT CONVERGENCE (step 6): NOT authority-gated -- runs on a dedicated-server client where SetSkinColor
-	// never fires. UNCHANGED-EARLY-OUT: if the override is identical to what's already applied, do NOTHING. This makes
-	// the NEVER-creator path (invalid==invalid, fired on every OnRep_Selection) do ZERO extra work -> byte-identical
-	// by construction; while a REAL change -- creator ON (invalid->valid) or OFF (valid->invalid, the client-side
-	// clear) or a colour edit -- falls through to re-apply.
-	const bool bUnchanged =
-		(!ActiveColorOverride.bValid && !ColorOverride.bValid) ||
-		(ActiveColorOverride.bValid == ColorOverride.bValid &&
-		 ActiveColorOverride.BodyColor == ColorOverride.BodyColor &&
-		 ActiveColorOverride.EdgeColor == ColorOverride.EdgeColor &&
-		 ActiveColorOverride.GlowColor == ColorOverride.GlowColor);
-	if (bUnchanged)
+	// AUTHORITY-ONLY, mirroring SetSkinColor/SetBodyColor. The SERVER owns this write because it is the only
+	// side that reliably holds BOTH the PlayerState (carrying the selection) and the pawn at once --
+	// RefreshSkinForPawn runs off OnPossessedPawnChanged, exactly that moment. Clients receive it via
+	// OnRep_ColorOverride; they never write it.
+	if (GetOwner() && GetOwner()->HasAuthority())
 	{
-		return;
+		ActiveColorOverride = NewOverride;
+		// Listen-host: OnRep does NOT fire on the authority -> apply locally now (mirrors SetSkinColor).
+		ReapplyBodyColorToAllParts();
 	}
+}
 
-	// Store the overlay FIRST, then re-apply so the override is populated before the re-apply it feeds.
-	ActiveColorOverride = ColorOverride;
-	// ReapplyBodyColorToAllParts applies BodyColor (TeamColor) THEN SkinColor (edge) in composition order, covering
-	// both axes off the ALREADY-replicated pointers. If a colour hasn't replicated yet -> guarded no-op; when it
-	// does, that axis's OnRep_* Reapply reads the override we just stored.
+void UAFLSkinColorComponent::OnRep_ColorOverride()
+{
+	// PATH 2 for the overlay (covers OVERRIDE-ARRIVES-SECOND): re-apply to parts that read an invalid override
+	// at their BeginPlay. Pairs with the part's PATH 1 self-apply; BOTH required, as for SkinColor/BodyColor.
 	ReapplyBodyColorToAllParts();
 }
 
@@ -310,8 +306,8 @@ void UAFLSkinColorComponent::ReapplyFacemaskToAllParts()
 			// AFTER the body reapply on a machine. That order differs server (BeginPlay) vs client (OnRep arrival),
 			// which was the host/client HEAD SPLIT. Compose facemask -> BODY (TeamColor + emissive) -> EDGE (emissive
 			// wins the shared keys). Each null -> ApplySkinColor early-returns (guard), so an unset axis is a no-op.
-			Part->ApplyFacemask(Facemask, BodyColor); // swap slot 1 + re-layer the body finish
-			Part->ApplySkinColor(SkinColor);          // edge overlays on top (emissive wins)
+			Part->ApplyFacemask(Facemask, BodyColor, ActiveColorOverride); // swap slot 1 + re-layer finish [+ overlay]
+			Part->ApplySkinColor(SkinColor, ActiveColorOverride); // edge overlays on top (emissive wins) [+ overlay]
 		}
 	}
 

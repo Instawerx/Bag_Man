@@ -317,28 +317,6 @@ void UAFLCosmeticLoadoutComponent::OnRep_Selection()
 	// push now that we have the value. The push is authority-guarded, so this is a no-op on a pure remote
 	// client (which converges via the pawn component's SkinColor OnRep) and meaningful on the listen-host.
 	// Pairs with the OnPawnSet hook (the pawn half): whichever lands last fires the correct push.
-	//
-	// CC-2.1 CLIENT CONVERGENCE (step 6): the creator colours ride THIS replicated Selection. On a DEDICATED-SERVER
-	// client the authority-only SetSkinColor never runs, so the pawn component's ActiveColorOverride would stay
-	// invalid and the pawn's OnRep_SkinColor/BodyColor would re-apply PRESET colours. Rebuild the override from the
-	// just-replicated data (shared BuildColorOverride -- same as step 5) and hand it to the pawn component, which
-	// stores it and re-applies locally. Done BEFORE NudgeControllerReapply and synchronously (ApplyCreatorOverride
-	// sets the member THEN re-applies -> the override is populated before the re-apply it feeds).
-	//
-	// ORDERING: this covers the DOCUMENTED remote-client race (CC-2.0-R §3: pawn resident, Selection arrives second).
-	// If PS->GetPawn() is null here -- the value-BEFORE-pawn ordering -- there is NO PATH to the pawn component from
-	// the loadout component at this instant; only the PlayerState is reachable. That ordering is out of this step's
-	// scope (it would need a pawn-arrival hook, a second mechanism the block forbids) -- reported, not improvised.
-	if (const ALyraPlayerState* PS = GetLyraPlayerState())
-	{
-		if (APawn* Pawn = PS->GetPawn())
-		{
-			if (UAFLSkinColorComponent* PawnComp = Pawn->FindComponentByClass<UAFLSkinColorComponent>())
-			{
-				PawnComp->ApplyCreatorOverride(BuildColorOverride(Selection));
-			}
-		}
-	}
 
 	NudgeControllerReapply();
 }

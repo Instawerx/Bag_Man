@@ -342,8 +342,11 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 			// Authority -> sets the replicated BodyColor + SkinColor (two DOREPLIFETIME props) -> all clients
 			// re-apply via OnRep (PATH 2) + the new pawn's parts self-color on their BeginPlay (PATH 1). The body
 			// rides DOREPLIFETIME BodyColor exactly as the edge rides DOREPLIFETIME SkinColor (parallel axes).
-			PawnComp->SetBodyColor(EffectiveBody, ColorOverride);   // body finish (TeamColor) [+ CC-2.1 overlay]
-			PawnComp->SetSkinColor(EffectiveEdge, ColorOverride);   // edge overlay (emissive); null = no edge [+ CC-2.1 overlay]
+			// SERVER-SIDE write of the pawn-side replicated overlay -- the one moment holding BOTH the PlayerState
+			// (carrying the selection) and the pawn. Set BEFORE the colour pushes so the listen-host re-apply sees it.
+			PawnComp->SetColorOverride(ColorOverride);
+			PawnComp->SetBodyColor(EffectiveBody);   // body finish (TeamColor)
+			PawnComp->SetSkinColor(EffectiveEdge);   // edge overlay (emissive); null = no edge
 		}
 	}
 }

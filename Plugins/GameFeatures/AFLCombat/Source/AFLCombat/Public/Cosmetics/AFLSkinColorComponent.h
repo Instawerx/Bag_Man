@@ -47,11 +47,9 @@ class AFLCOMBAT_API UAFLSkinColorComponent : public UActorComponent
 public:
 	UAFLSkinColorComponent();
 
-	/** AUTHORITY-ONLY: set the active color on the server. Replicates to all clients.
-	 *  ColorOverride (CC-2.1): optional creator overlay, cached + passed through to the parts. Default invalid
-	 *  -> existing callers compile unchanged and behave byte-identically. */
+	/** AUTHORITY-ONLY: set the active color on the server. Replicates to all clients. */
 	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
-	void SetSkinColor(UAFLSkinColorAsset* NewColor, const FAFLColorOverride& ColorOverride = FAFLColorOverride());
+	void SetSkinColor(UAFLSkinColorAsset* NewColor);
 
 	/** Read by the part actor on its BeginPlay (PATH 1). */
 	UAFLSkinColorAsset* GetSkinColor() const { return SkinColor; }
@@ -60,16 +58,22 @@ public:
 	 *  SkinColor (the edge axis) -- same two-path race-safe spine. The body Finish drives the TeamColor; the
 	 *  edge (SkinColor) overlays its emissive on top (composition: body first, edge wins the shared keys). */
 	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
-	void SetBodyColor(UAFLSkinColorAsset* NewColor, const FAFLColorOverride& ColorOverride = FAFLColorOverride());
+	void SetBodyColor(UAFLSkinColorAsset* NewColor);
 
 	/** Read by the part actor on its BeginPlay (PATH 1) -- the body finish (TeamColor axis). nullptr = none. */
 	UAFLSkinColorAsset* GetBodyColor() const { return BodyColor; }
 
-	/** CC-2.1 CLIENT CONVERGENCE: cache the creator overlay (rebuilt from the replicated FAFLCosmeticSelection in
-	 *  UAFLCosmeticLoadoutComponent::OnRep_Selection) and re-apply locally, so a DEDICATED-SERVER client -- where the
-	 *  authority-only SetSkinColor never runs -- still renders it. NOT authority-gated (that is the point); reads the
-	 *  already-replicated Body/SkinColor. Invalid override -> stores invalid + a guarded re-apply (byte-identical). */
-	void ApplyCreatorOverride(const FAFLColorOverride& ColorOverride);
+	/** AUTHORITY-ONLY: set the creator colour overlay on the server. Replicates to all clients, exactly like
+	 *  SkinColor/BodyColor beside it. WRITTEN SERVER-SIDE ONLY, from UAFLSkinColorControllerComponent::
+	 *  RefreshSkinForPawn -- the one place holding BOTH the PlayerState (carrying the selection) and the pawn.
+	 *  DO NOT re-add a client-side populate: a client cannot meaningfully write replicated state, and the old
+	 *  client populate had to find the pawn off the PlayerState when PlayerState ordering is unreliable
+	 *  (measured pawn=<null> on most OnRep_Selection dispatches). */
+	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "AFL|Cosmetics")
+	void SetColorOverride(const FAFLColorOverride& NewOverride);
+
+	/** Read by the part actor on its BeginPlay (PATH 1) -- mirrors GetSkinColor()/GetBodyColor(). */
+	const FAFLColorOverride& GetColorOverride() const { return ActiveColorOverride; }
 
 	/** AUTHORITY-ONLY: set the equipped facemask MIC on the server. Replicates to all clients (mirrors
 	 *  SetSkinColor exactly). The facemask is a slot-1 base-MATERIAL swap (the proven MI_AFL_FaceMask_Pink
@@ -125,11 +129,20 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_BodyColor)
 	TObjectPtr<UAFLSkinColorAsset> BodyColor = nullptr;
 
-	// CC-2.1 creator overlay bridge: cached by SetSkinColor/SetBodyColor (authority), read by the Reapply* path
-	// (incl. OnRep re-apply) so the unchanged Reapply signatures still reach the parts with it. DELIBERATELY a
-	// plain (non-UPROPERTY) member -> it NEVER replicates; the overlay travels only via the replicated
-	// FAFLCosmeticSelection, resolved in RefreshSkinForPawn. Default invalid -> no effect until a creator push sets it.
+	// CREATOR COLOUR OVERLAY -- replicated onto the PAWN so the part can self-apply it at BeginPlay (PATH 1) and
+	// re-apply on arrival (PATH 2): the covering pair SkinColor/BodyColor/Facemask already use.
+	//
+	// DELIBERATE DIVERGENCE FROM ITS NEIGHBOURS: those are ONE PROPERTY PER AXIS because they are genuinely
+	// independent -- a facemask change must not disturb the body finish. The overlay is the opposite: its three
+	// colours are ONE selection edit (set all three, or clear all three), so a single struct is ATOMIC BY
+	// CONSTRUCTION. Three properties would carry three dirty-bits that can land in three frames -> a partially
+	// applied overlay (body recoloured, edge still preset) = visible tearing. Plain USTRUCT, no NetSerialize.
+	UPROPERTY(ReplicatedUsing = OnRep_ColorOverride)
 	FAFLColorOverride ActiveColorOverride;
+
+	/** PATH 2 for the overlay: the value replicated in -> re-apply to already-spawned parts. */
+	UFUNCTION()
+	void OnRep_ColorOverride();
 
 	UFUNCTION()
 	void OnRep_BodyColor();

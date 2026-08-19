@@ -86,14 +86,26 @@ void AAFLCharacterPartActor::BeginPlay()
 		// (the per-window asymmetry: the visor is on the head where it shows, and drops with the severed head).
 		// This closes the race exactly as the color PATH 1 below does for SkinColor. GetFacemask() null (not set
 		// yet) -> ApplyFacemask restores authored slot-1; the later OnRep (PATH 2) swaps the visor in.
-		ApplyFacemask(ColorComp->GetFacemask(), ResolvedColor);
+		ApplyFacemask(ColorComp->GetFacemask(), ResolvedColor, ColorComp->GetColorOverride());
 
 		// PATH 1 (composition, Option B): body Finish FIRST (TeamColor + emissive), then the edge (emissive
 		// overlays -> edge wins the shared emissive keys; the Finish supplies the TeamColor). Each axis null ->
 		// ApplySkinColor early-returns (guard), so an unset axis is a safe no-op. Mirrors the pawn component's
 		// ReapplyBodyColorToAllParts apply order so PATH 1 (part-second) and PATH 2 (color-second) agree.
-		ApplySkinColor(ColorComp->GetBodyColor()); // body finish (TeamColor axis); null -> guarded no-op
-		ApplySkinColor(ResolvedColor);             // edge overlays (emissive); null -> guarded no-op
+		// PATH 1 (creator overlay): read the pawn-side REPLICATED override, exactly as the two axes below read
+		// their replicated assets. Not yet replicated -> invalid -> byte-identical to pre-overlay behaviour;
+		// OnRep_ColorOverride (PATH 2) covers the override-arrives-second ordering.
+		const FAFLColorOverride& CreatorOverride = ColorComp->GetColorOverride();
+		if (AFLSkinDiag::IsOn())
+		{
+			UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : PATH1 overlay bValid=%d Body=(%.4f,%.4f,%.4f) body=%s edge=%s"),
+				*AFLSkinDiag::Prefix(this), *GetName(), CreatorOverride.bValid ? 1 : 0,
+				CreatorOverride.BodyColor.R, CreatorOverride.BodyColor.G, CreatorOverride.BodyColor.B,
+				ColorComp->GetBodyColor() ? TEXT("set") : TEXT("null"), ResolvedColor ? TEXT("set") : TEXT("null"));
+		}
+
+		ApplySkinColor(ColorComp->GetBodyColor(), CreatorOverride); // body finish (TeamColor axis); null -> no-op
+		ApplySkinColor(ResolvedColor, CreatorOverride);             // edge overlays (emissive); null -> no-op
 	}
 }
 
@@ -273,7 +285,17 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 				// byte-identical to before (regression guarantee, by construction). Precedence: override > registry > baked.
 				const FLinearColor* OverrideTone = ColorOverride.FindOverrideForParam(KV.Key);
 				const FLinearColor* RegistryTone = bIdentityResolved ? ResolvedIdentity.SkinFinish.FindToneForParam(KV.Key) : nullptr;
-				MID->SetVectorParameterValue(KV.Key, FVector(OverrideTone ? *OverrideTone : (RegistryTone ? *RegistryTone : KV.Value)));
+				const FLinearColor FinalVal = OverrideTone ? *OverrideTone : (RegistryTone ? *RegistryTone : KV.Value);
+				MID->SetVectorParameterValue(KV.Key, FVector(FinalVal));
+				if (bDiag)
+				{
+					// PER-KEY PRECEDENCE PROOF. override=miss on a key the player set means some call site dropped the
+					// overlay (the CC-2.1 facemask-re-layer defect); this line is what localised it.
+					UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s slot=%d mid=%s : key=%s override=%s registry=%s FINAL=(%.4f,%.4f,%.4f)"),
+						*AFLSkinDiag::Prefix(this), *GetName(), SlotIndex, *MID->GetName(), *KV.Key.ToString(),
+						OverrideTone ? TEXT("HIT") : TEXT("miss"), RegistryTone ? TEXT("HIT") : TEXT("miss"),
+						FinalVal.R, FinalVal.G, FinalVal.B);
+				}
 			}
 			for (const TPair<FName, TObjectPtr<UTexture>>& KV : ColorAsset->GetTextures())
 			{
@@ -331,7 +353,8 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 	}
 }
 
-void AAFLCharacterPartActor::ApplyFacemask(UMaterialInstanceConstant* FacemaskMIC, const UAFLSkinColorAsset* ColorToReapply)
+void AAFLCharacterPartActor::ApplyFacemask(UMaterialInstanceConstant* FacemaskMIC, const UAFLSkinColorAsset* ColorToReapply,
+	const FAFLColorOverride& ColorOverride)
 {
 	const bool bDiag = AFLSkinDiag::IsOn();
 
@@ -419,7 +442,9 @@ void AAFLCharacterPartActor::ApplyFacemask(UMaterialInstanceConstant* FacemaskMI
 	// we just dropped + re-pushes). Null color -> ApplySkinColor early-returns (the facemask MIC still shows raw).
 	if (ColorToReapply)
 	{
-		ApplySkinColor(ColorToReapply);
+		// THE FIX: carry the overlay into the re-layer. Without it this call wrote registry/brand tones LAST and
+		// undid PATH 1 / PATH 2 (measured: override=miss -> FINAL=(0.03,0.03,0.035)).
+		ApplySkinColor(ColorToReapply, ColorOverride);
 	}
 }
 
