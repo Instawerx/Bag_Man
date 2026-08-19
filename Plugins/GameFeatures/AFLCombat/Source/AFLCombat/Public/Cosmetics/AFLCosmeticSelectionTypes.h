@@ -7,6 +7,86 @@
 #include "AFLCosmeticSelectionTypes.generated.h"
 
 /**
+ * CC-3.1 -- A CREATOR CHANNEL VALUE: an id OR a continuum value, with its PROVENANCE recorded.
+ *
+ * The creator and the store express colour two different ways and the server must validate them
+ * differently. A discrete SKU is an ID: it is validated by catalog lookup plus an entitlement check
+ * -- does this row exist, and does the player own it. A continuum pick is a VALUE: there is no row
+ * to own, so it is validated by clamping into the neon gamut (AFLCreatorGamut::ClampToNeon) exactly
+ * as the CC-2 overlay already is. Collapsing the two into one field would force the server to guess
+ * which rule applies, and guessing is how an unowned SKU gets equipped.
+ *
+ * WHY PROVENANCE IS A FIELD AND NOT AN INFERENCE. Given only a colour you cannot tell whether it was
+ * bought or picked -- the same ambiguity that has cost this programme repeatedly (a material
+ * parameter reading (0,0,0) could not say "absent"; a Type reading SkinColor_Edge could not say
+ * "authored"). Source makes the question answerable by reading one field instead of reconstructing
+ * history. Never infer Source from whether CosmeticId is set.
+ *
+ * WHY Resolved IS ALWAYS POPULATED. It is the colour that RENDERS, cached at the moment of choice
+ * for BOTH sources. A saved build must render identically after a subscription lapses, after the
+ * catalog reprices, and after a row is retired -- with no recomputation and no catalog round-trip.
+ * This is the data-level form of the CC-4.2 lapse rule: freeze, never mutate. Re-resolving a build
+ * at load time would make a lapsed player's saved robot change appearance underneath them, which is
+ * precisely what that rule forbids.
+ */
+UENUM(BlueprintType)
+enum class EAFLChannelSource : uint8
+{
+	/** Nothing chosen on this channel. Resolved is meaningless; consumers must fall through to preset/baked. */
+	Unset       UMETA(DisplayName = "Unset"),
+	/** A discrete catalog SKU. CosmeticId is authoritative; server validates existence + entitlement. */
+	CatalogId   UMETA(DisplayName = "Catalog SKU"),
+	/** A creator continuum pick. There is no row to own; server validates by gamut clamp only. */
+	Continuum   UMETA(DisplayName = "Creator continuum")
+};
+
+USTRUCT(BlueprintType)
+struct FAFLChannelValue
+{
+	GENERATED_BODY()
+
+	/** WHERE this value came from. The discriminator the server switches its validation rule on. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Channel")
+	EAFLChannelSource Source = EAFLChannelSource::Unset;
+
+	/** Valid IFF Source == CatalogId. The immutable catalog key, e.g. AFL.Finish.Crimson. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Channel")
+	FName CosmeticId = NAME_None;
+
+	/** The colour that RENDERS, for BOTH sources. Cached at choice time; never recomputed on load. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Channel")
+	FLinearColor Resolved = FLinearColor::White;
+
+	bool IsSet() const { return Source != EAFLChannelSource::Unset; }
+
+	/** True iff this channel needs an ownership check. A continuum pick owns nothing by construction. */
+	bool RequiresEntitlement() const { return Source == EAFLChannelSource::CatalogId; }
+
+	static FAFLChannelValue MakeCatalog(FName InId, const FLinearColor& InResolved)
+	{
+		FAFLChannelValue V;
+		V.Source = EAFLChannelSource::CatalogId;
+		V.CosmeticId = InId;
+		V.Resolved = InResolved;
+		return V;
+	}
+
+	static FAFLChannelValue MakeContinuum(const FLinearColor& InResolved)
+	{
+		FAFLChannelValue V;
+		V.Source = EAFLChannelSource::Continuum;
+		V.Resolved = InResolved;
+		return V;
+	}
+
+	bool operator==(const FAFLChannelValue& O) const
+	{
+		return Source == O.Source && CosmeticId == O.CosmeticId && Resolved.Equals(O.Resolved, 0.0f);
+	}
+	bool operator!=(const FAFLChannelValue& O) const { return !(*this == O); }
+};
+
+/**
  * The identity slot is EITHER/OR (D5/D5b): a player is a Team or a Character, never both, never
  * combined. This discriminator is resolved by TYPE at spawn -- the matching id field is the only
  * one read. (#43)
