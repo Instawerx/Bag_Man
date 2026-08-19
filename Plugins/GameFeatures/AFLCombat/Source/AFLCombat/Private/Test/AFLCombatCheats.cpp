@@ -3192,7 +3192,10 @@ namespace
 			Loadout->ServerSaveBuild(MakeBuild(TEXT("ProbeA"),
 				FLinearColor(0.90f, 0.05f, 0.60f), FLinearColor(1.00f, 0.35f, 0.00f), FLinearColor(0.00f, 1.00f, 0.55f)), INDEX_NONE);
 			Loadout->ServerSaveBuild(MakeBuild(TEXT("ProbeB"),
-				FLinearColor(0.05f, 0.90f, 0.80f), FLinearColor(0.20f, 0.20f, 1.00f), FLinearColor(1.00f, 1.00f, 0.10f)), INDEX_NONE);
+				// NOT (0.05,0.90,0.80): that cyan is ALREADY a persisted selection value, so a client
+				// reporting it could be echoing its own inherited state rather than this build -- the read
+				// could not tell the two apart. Orange appears nowhere in persistence or the preset set.
+				FLinearColor(1.00f, 0.45f, 0.00f), FLinearColor(0.20f, 0.20f, 1.00f), FLinearColor(1.00f, 1.00f, 0.10f)), INDEX_NONE);
 			Ar.Log(TEXT("afl.Creator.BuildProbe - seeded 2 builds via ServerSaveBuild."));
 			return;
 		}
@@ -4048,6 +4051,10 @@ namespace
 		FireCmd(7.5f,  TEXT("afl.Creator.BuildProbe"), TEXT("b3-read-after-0"));
 		if (RoleIndex == 0) { FireCmd(9.0f,  TEXT("afl.Creator.BuildProbe use 1"), TEXT("b4-use1")); }
 		FireCmd(10.5f, TEXT("afl.Creator.BuildProbe"), TEXT("b5-read-after-1"));
+		// AFTER the 20s kill: does BuildSet survive the PlayerState swap (CopyProperties)? Untested
+		// until now -- the earlier run had no post-respawn build read, so an emptied set would have
+		// gone unnoticed while the resolved Selection kept rendering.
+		FireCmd(30.0f, TEXT("afl.Creator.BuildProbe"), TEXT("b6-read-post-respawn"));
 
 		TArray<FString> Read;  Read.Add(TEXT("read"));
 		TArray<FString> Clear; Clear.Add(TEXT("clear"));
