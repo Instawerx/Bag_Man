@@ -3297,6 +3297,41 @@ namespace
 		TEXT("CC-3 proof: 'seed' saves two far-apart continuum builds through ServerSaveBuild; 'use <n>' activates one through ServerSetActiveBuild; no args reports the build set AND the committed selection so the resolve can be compared, not assumed."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorBuildProbe));
 
+	// CC-5.1 VERIFICATION: prove the schema's existence check can return NOT-FOUND, at runtime.
+	// Engine source shows UMaterialInterface::GetVectorParameterValue returns false when the parameter is
+	// absent -- but source reading is an argument, not a measurement, and the PYTHON sibling
+	// (get_material_default_vector_parameter_value) was measured returning PRESENT(0,0,0) for parameters
+	// that do not exist. This runs the EXACT call the schema uses, against a master where the answer is
+	// known both ways: M_Mannequin genuinely lacks BaseTint (0 string occurrences in its T3D export) and
+	// genuinely HAS EdgeGlowColor (1 occurrence; get_vector_parameter_names lists it).
+	// FALSIFICATION: if BaseTint reports found=1 the check cannot distinguish absent from default and the
+	// whole schema is void.
+	void HandleAFLSchemaProbe(const TArray<FString>& Args, UWorld*, FOutputDevice& Ar)
+	{
+		const FString Path = Args.Num() > 0 ? Args[0]
+			: FString(TEXT("/Game/Characters/Heroes/Mannequin/Materials/M_Mannequin"));
+		UMaterialInterface* Mat = LoadObject<UMaterialInterface>(nullptr, *Path);
+		if (!Mat) { Ar.Logf(TEXT("afl.Creator.SchemaProbe - could not load %s"), *Path); return; }
+		static const TCHAR* Params[] = { TEXT("BaseTint"), TEXT("EdgeGlowColor"), TEXT("TeamColor"),
+			TEXT("EmissiveColor"), TEXT("NeonColor"), TEXT("CarbonfiberTint") };
+		for (const TCHAR* P : Params)
+		{
+			FLinearColor V(ForceInit);
+			const bool bFound = Mat->GetVectorParameterValue(FMaterialParameterInfo(FName(P)), V);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCHEMAPROBE] %s param=%-16s found=%d value=(%.3f,%.3f,%.3f)"),
+				*Mat->GetName(), P, bFound ? 1 : 0, V.R, V.G, V.B);
+		}
+		const FAFLCreatorChannelSchema Sch = FAFLCreatorChannelSchema::DeriveFromMaterial(Mat);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCHEMAPROBE] DERIVED master=%s body=%d edge=%d glow=%d"),
+			*Sch.ResolvedFromMaster.ToString(), Sch.bBodyAvailable ? 1 : 0, Sch.bEdgeAvailable ? 1 : 0,
+			Sch.bGlowAvailable ? 1 : 0);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLSchemaProbeCmd(
+		TEXT("afl.Creator.SchemaProbe"),
+		TEXT("CC-5.1: run the schema's own existence check against a material path and report found= per parameter. Proves the check can return NOT-FOUND rather than manufacturing a default."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLSchemaProbe));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCatalogTypeLintCmd(
 		TEXT("afl.Catalog.TypeLint"),
 		TEXT("CC-X17: report catalog rows whose Type disagrees with their id namespace -- the detectable subset of the Type-default trap. Catches disagreement, NOT wrongness: a row genuinely mistyped within its own namespace is a provenance question no value read answers."),
@@ -4115,6 +4150,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorPullOnly(TEXT("afl.Creator.PullOnly
 		// it is a pure read and must not perturb the colour timeline that follows.
 		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
+		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
 		// CC-3 build proof. Sequenced BEFORE the colour timeline so a build activation cannot be
 		// confused with a direct colour set: the two write the same field by different routes.
 		// RELAUNCH PROOF: pull from the remote WITHOUT seeding. If builds appear, they came from the
