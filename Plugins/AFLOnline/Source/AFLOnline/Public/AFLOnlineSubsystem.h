@@ -119,6 +119,12 @@ public:
 	void PostServerSettle(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
 	void PostServerRating(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
 
+	/** CC-3.5: POST a signed body to /creator-builds (saved creator builds, load and save).
+	 *  The SIXTH sibling of PostServerEarn -- same signer, same HMAC key, same server-only gate; only
+	 *  the URL differs. The backend deliberately REUSES the earn inbound key rather than minting a
+	 *  second, because the design intent recorded here is one game-server caller, one inbound key. */
+	void PostServerCreatorBuilds(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
+
 	/** True when the server signer is configured (key + all three match URLs present). Lets a caller log a
 	 *  single clear "economy not wired" line instead of three identical per-endpoint skips. */
 	bool IsMatchReportingConfigured() const;
@@ -180,6 +186,7 @@ private:
 	FString EscrowUrl;
 	FString SettleUrl;
 	FString RatingUrl;
+	FString CreatorBuildsUrl;
 
 	/** Shared signed-POST transport for the server-authoritative endpoints (A1.3b earn + A1.4 resolve): sign the
 	 *  EXACT Body with EarnHmacKey, POST it to Url with X-Signature, plain-HTTP-200 completion. Server-only

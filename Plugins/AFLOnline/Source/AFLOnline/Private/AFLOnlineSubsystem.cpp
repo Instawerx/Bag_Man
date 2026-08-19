@@ -155,6 +155,7 @@ void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		EscrowUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_ESCROW_URL"));   // match lifecycle, same key
 		SettleUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_SETTLE_URL"));
 		RatingUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_RATING_URL"));
+		CreatorBuildsUrl = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_CREATOR_BUILDS_URL")); // CC-3.5, same key
 		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer (%s): key=%s earnUrl=%s resolveUrl=%s escrowUrl=%s settleUrl=%s ratingUrl=%s"),
 			IsRunningDedicatedServer() ? TEXT("dedicated server") : TEXT("editor"),
 			EarnHmacKey.IsEmpty() ? TEXT("MISSING") : TEXT("held"),
@@ -761,6 +762,12 @@ void UAFLOnlineSubsystem::PostServerSettle(const FString& JsonBody, TFunction<vo
 void UAFLOnlineSubsystem::PostServerRating(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
 {
 	PostServerSigned(RatingUrl, JsonBody, MoveTemp(OnComplete));
+}
+
+// CC-3.5 saved creator builds. One line for the same reason the three above are one line each.
+void UAFLOnlineSubsystem::PostServerCreatorBuilds(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
+{
+	PostServerSigned(CreatorBuildsUrl, JsonBody, MoveTemp(OnComplete));
 }
 
 bool UAFLOnlineSubsystem::IsMatchReportingConfigured() const
