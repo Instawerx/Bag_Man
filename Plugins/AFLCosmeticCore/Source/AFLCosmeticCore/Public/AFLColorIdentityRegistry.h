@@ -100,14 +100,24 @@ struct FAFLSkinFinish
  * (AFLCharacterPartActor, AFLCosmeticCatalogSubsystem, AFLW_LoadoutBase, AFLCombatCheats) narrow to
  * FindIdentity(tag) and then read SkinFinish, so adding a field changes nothing they do.
  *
- * ON THE DEFAULT: Identity is first, and existing entries are being typed from EVIDENCE rather than
- * left to inherit it. Contrast FAFLCatalogEntry::Type, whose SkinColor_Edge default was a real, wrong
- * value that silently absorbed two batches of 27 rows -- the trap there was that the default looked
- * like a deliberate answer. Here the cut's own cross-reference supplies every value explicitly.
+ * ON THE DEFAULT (CORRECTED): an earlier revision of this comment argued Identity was a safe default
+ * because "the cut's own cross-reference supplies every value explicitly". That makes correctness
+ * depend on CC-6.3 being exhaustive, and any entry it misses reads Identity silently -- which is the
+ * FAFLCatalogEntry::Type trap exactly, reproduced inside the field written to prevent it. 19 of the
+ * 47 entries are NOT identities, so that default was wrong for all of them, and "never typed" could
+ * not be told apart from "typed as Identity" by any read.
+ *
+ * The default is now Unclassified. That classifies nothing; it makes the ABSENCE of a classification
+ * answerable by a read rather than by an assumption. It also fails in the safe direction: until the
+ * entries are typed, GetEntriesOfKind(Identity) returns NOTHING, so a roster cut sees an empty keep
+ * list and stops -- instead of seeing all 47 and preserving weapon tints as brands.
  */
 UENUM(BlueprintType)
 enum class EAFLColorEntryKind : uint8
 {
+	/** NOT YET CLASSIFIED -- the zero value and the default, so an untyped entry reads as untyped
+	 *  instead of masquerading as a brand. Every entry starts here and must be moved deliberately. */
+	Unclassified UMETA(DisplayName = "Unclassified"),
 	/** A brand identity with a matching AFL.Character.* or AFL.Team.* catalog row. 28 of 47. */
 	Identity   UMETA(DisplayName = "Brand identity"),
 	/** A named palette colour -- NeonBlue/Green/Pink/Purple/Red, Magenta, Crimson, Indigo, Lime.
@@ -133,7 +143,7 @@ struct FAFLColorIdentity
 	/** CC-6.4: which of the four jobs this entry does. Typed from evidence, never from the tag name --
 	 *  name-matching classified IronicsVisor as the IRONICS identity. Read this; do not infer. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity")
-	EAFLColorEntryKind EntryKind = EAFLColorEntryKind::Identity;
+	EAFLColorEntryKind EntryKind = EAFLColorEntryKind::Unclassified;
 
 	/** Player-facing identity name (e.g. "Neon Edge"). Editor/debug + a possible future "collection" header. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity")
