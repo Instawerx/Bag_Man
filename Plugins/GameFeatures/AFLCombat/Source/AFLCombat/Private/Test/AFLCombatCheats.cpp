@@ -4037,6 +4037,13 @@ namespace
 		FTickerDelegate::CreateLambda([](float) -> bool
 		{
 			if (GAFLCreatorAutoProbe == 0 || !GEngine) { return true; }
+			// STALE-ENTRY PURGE. GAFLCreatorFiredWorlds is a file-static that OUTLIVES a PIE session, and
+			// RoleIndex is just its Num(). Without this, the SECOND PIE run in one editor process starts at
+			// RoleIndex 2 -- so no world is RoleIndex 0 and EVERY role-A-only arm (clear, set, kill, the
+			// verify/lint execs) is skipped in silence, with no error and a timeline that looks half-run.
+			// Measured: a second run emitted idx=2 and idx=3, both B-OBSERVER. Worlds from an ended session
+			// go stale, so dropping invalid entries re-bases the next session at 0.
+			GAFLCreatorFiredWorlds.RemoveAll([](const TWeakObjectPtr<UWorld>& P) { return !P.IsValid(); });
 			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
 			{
 				UWorld* W = Ctx.World();
