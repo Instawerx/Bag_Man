@@ -83,6 +83,43 @@ struct FAFLSkinFinish
  * (edge accent, inner detail). Rarity is a SEPARATE axis (FAFLCatalogEntry.RarityTag) and never shares a
  * slot with these.
  */
+/**
+ * CC-6.4 -- WHAT KIND OF ENTRY THIS IS.
+ *
+ * MEASURED DEFECT THIS FIXES: the registry holds 47 entries doing FOUR different jobs -- 28 brand
+ * identities, named palette colours, weapon/FX tints, and visor/edge entries -- and NOTHING in the
+ * asset says which is which. The only way to tell was to cross-reference an ENTIRELY DIFFERENT asset
+ * (the catalog's AFL.Character.* / AFL.Team.* rows) and match on a normalised tag leaf.
+ *
+ * That is not a theoretical risk. Matching by NAME classified `Cosmetic.Identity.IronicsVisor` as the
+ * IRONICS identity, because the string contains it. Under the roster cut that one mis-classification
+ * is a visor entry preserved as an identity, or an identity deleted as a visor -- and the error only
+ * becomes visible after the deletion that caused it.
+ *
+ * ADDITIVE BY CONSTRUCTION: no consumer enumerates Identities. All four read paths
+ * (AFLCharacterPartActor, AFLCosmeticCatalogSubsystem, AFLW_LoadoutBase, AFLCombatCheats) narrow to
+ * FindIdentity(tag) and then read SkinFinish, so adding a field changes nothing they do.
+ *
+ * ON THE DEFAULT: Identity is first, and existing entries are being typed from EVIDENCE rather than
+ * left to inherit it. Contrast FAFLCatalogEntry::Type, whose SkinColor_Edge default was a real, wrong
+ * value that silently absorbed two batches of 27 rows -- the trap there was that the default looked
+ * like a deliberate answer. Here the cut's own cross-reference supplies every value explicitly.
+ */
+UENUM(BlueprintType)
+enum class EAFLColorEntryKind : uint8
+{
+	/** A brand identity with a matching AFL.Character.* or AFL.Team.* catalog row. 28 of 47. */
+	Identity   UMETA(DisplayName = "Brand identity"),
+	/** A named palette colour -- NeonBlue/Green/Pink/Purple/Red, Magenta, Crimson, Indigo, Lime.
+	 *  Ownable-discrete colour, NOT a brand: the creator's named-colour vocabulary. */
+	Palette    UMETA(DisplayName = "Palette colour"),
+	/** A weapon or FX tint -- EMP, DRAGONSOUL, FUTUREWARRIOR, JAGUARNEON. Not a selectable finish. */
+	WeaponFX   UMETA(DisplayName = "Weapon / FX tint"),
+	/** A visor or edge entry -- IronicsVisor, NeonEdge. The enumerator whose ABSENCE caused the
+	 *  IronicsVisor mis-classification. */
+	VisorEdge  UMETA(DisplayName = "Visor / edge")
+};
+
 USTRUCT(BlueprintType)
 struct FAFLColorIdentity
 {
@@ -92,6 +129,11 @@ struct FAFLColorIdentity
 	 *  this via FAFLCatalogEntry.ColorIdentityTag; the registry resolves it to the colors below. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity", meta = (Categories = "Cosmetic.Identity"))
 	FGameplayTag IdentityTag;
+
+	/** CC-6.4: which of the four jobs this entry does. Typed from evidence, never from the tag name --
+	 *  name-matching classified IronicsVisor as the IRONICS identity. Read this; do not infer. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity")
+	EAFLColorEntryKind EntryKind = EAFLColorEntryKind::Identity;
 
 	/** Player-facing identity name (e.g. "Neon Edge"). Editor/debug + a possible future "collection" header. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity")
@@ -166,5 +208,17 @@ public:
 			}
 		}
 		return nullptr;
+	}
+
+	/** CC-6.4: every entry of one kind. Exists so callers filter by DATA rather than repeating the
+	 *  catalog cross-reference -- the roster cut needs "the identities" and the creator needs "the
+	 *  palette", and both previously had to derive that from a different asset. */
+	void GetEntriesOfKind(EAFLColorEntryKind Kind, TArray<const FAFLColorIdentity*>& Out) const
+	{
+		Out.Reset();
+		for (const FAFLColorIdentity& Id : Identities)
+		{
+			if (Id.EntryKind == Kind) { Out.Add(&Id); }
+		}
 	}
 };
