@@ -280,6 +280,13 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 			NewSelection.CreatorBodyColor  = AFLCreatorGamut::ClampToNeon(Requested.CreatorBodyColor);
 			NewSelection.CreatorEdgeColor  = AFLCreatorGamut::ClampToNeon(Requested.CreatorEdgeColor);
 			NewSelection.CreatorGlowColor  = AFLCreatorGamut::ClampToNeon(Requested.CreatorGlowColor);
+			// CC-6.4 visor: clamped like every other creator colour -- it is client-supplied and must not
+			// escape the neon gamut. bVisorColorSet is carried verbatim: if the player never chose one we
+			// keep it FALSE so BuildColorOverride mirrors the body and pre-split rendering is preserved.
+			NewSelection.bVisorColorSet    = Requested.bVisorColorSet;
+			NewSelection.CreatorVisorColor = Requested.bVisorColorSet
+				? AFLCreatorGamut::ClampToNeon(Requested.CreatorVisorColor)
+				: NewSelection.CreatorBodyColor;
 		}
 		// unentitled + requested -> leave the prior committed overlay as-is (do not clear, do not write raw).
 	}
@@ -329,7 +336,10 @@ FAFLColorOverride UAFLCosmeticLoadoutComponent::BuildColorOverride(const FAFLCos
 	// CC-2.1: the ONE construction of the creator overlay -- shared by RefreshSkinForPawn (step 5, server push) and
 	// OnRep_Selection (step 6, client populate). Invalid unless bUseCreatorColors -> non-creator = no overlay.
 	return Sel.bUseCreatorColors
-		? FAFLColorOverride(Sel.CreatorBodyColor, Sel.CreatorEdgeColor, Sel.CreatorGlowColor)
+		? FAFLColorOverride(Sel.CreatorBodyColor, Sel.CreatorEdgeColor, Sel.CreatorGlowColor,
+			// MIRROR WHEN UNSET -- the single place the migration rule lives. A selection saved before
+			// CC-6.4 has bVisorColorSet == 0, so its visor keeps taking the body colour exactly as it did.
+			Sel.bVisorColorSet ? Sel.CreatorVisorColor : Sel.CreatorBodyColor)
 		: FAFLColorOverride();
 }
 

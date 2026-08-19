@@ -65,9 +65,21 @@ struct FAFLColorOverride
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Cosmetic|Creator")
 	FLinearColor GlowColor = FLinearColor::White;
 
+	/** CC-6.4 -> "BaseTint" (visor base). Seeded FROM BodyColor whenever the player has not chosen a
+	 *  visor colour, so the un-split case resolves to an identical value and the migration is
+	 *  invisible -- an existing robot does not restyle itself because a field appeared. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Cosmetic|Creator")
+	FLinearColor VisorColor = FLinearColor::White;
+
 	FAFLColorOverride() = default;
 	FAFLColorOverride(const FLinearColor& InBody, const FLinearColor& InEdge, const FLinearColor& InGlow)
-		: bValid(true), BodyColor(InBody), EdgeColor(InEdge), GlowColor(InGlow) {}
+		: bValid(true), BodyColor(InBody), EdgeColor(InEdge), GlowColor(InGlow), VisorColor(InBody) {}
+
+	/** CC-6.4 four-channel ctor. The 3-arg form above SEEDS VisorColor FROM BodyColor deliberately, so
+	 *  every existing call site keeps producing pre-split rendering without being touched. */
+	FAFLColorOverride(const FLinearColor& InBody, const FLinearColor& InEdge, const FLinearColor& InGlow,
+		const FLinearColor& InVisor)
+		: bValid(true), BodyColor(InBody), EdgeColor(InEdge), GlowColor(InGlow), VisorColor(InVisor) {}
 
 	/** Colour param KEY -> the override tone, or nullptr if invalid / not one of the three creator channels.
 	 *  Same shape + precedence slot as FAFLSkinFinish::FindToneForParam. */
@@ -91,7 +103,10 @@ struct FAFLColorOverride
 		// SetVectorParameterValue on an absent parameter is ignored. The body cannot be tinted by this.
 		static const FName NBaseTint(TEXT("BaseTint"));
 		if (ParamName == NTeam)     { return &BodyColor; }
-		if (ParamName == NBaseTint) { return &BodyColor; }
+		// CC-6.4: BaseTint resolves to the VISOR colour now, not the body colour -- the split deferred
+		// at CC-2.2. VisorColor is seeded from BodyColor when unset, so this returns the same value in
+		// the un-split case and nothing that renders today changes.
+		if (ParamName == NBaseTint) { return &VisorColor; }
 		if (ParamName == NEdgeGlow) { return &EdgeColor; }
 		if (ParamName == NEmissive) { return &GlowColor; }
 		return nullptr;

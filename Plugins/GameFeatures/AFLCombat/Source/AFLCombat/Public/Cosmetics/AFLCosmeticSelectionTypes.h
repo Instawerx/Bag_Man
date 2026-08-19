@@ -203,9 +203,20 @@ struct FAFLCosmeticSelection
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
 	FLinearColor CreatorGlowColor = FLinearColor::White;
 
+	/** CC-6.4 -> "BaseTint" (visor base). THE SPLIT DEFERRED AT CC-2.2: mask design and visor colour
+	 *  are separate choices, so BaseTint stops tracking body colour and becomes its own channel.
+	 *  MIGRATION IS ADDITIVE. While bVisorColorSet is FALSE the visor mirrors CreatorBodyColor exactly
+	 *  as before; the split takes effect only when a player actually picks a visor colour. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
+	FLinearColor CreatorVisorColor = FLinearColor::White;
+
+	/** FALSE = visor mirrors body (pre-CC-6.4 rendering). TRUE = the player chose a visor colour. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
+	uint8 bVisorColorSet : 1;
+
 	/** Zeroes the creator bitfield (a UPROPERTY bitfield cannot carry an inline initializer). All other members
 	 *  keep their default-member-initializers, so the struct's default is byte-identical to before + overlay OFF. */
-	FAFLCosmeticSelection() : bUseCreatorColors(0) {}
+	FAFLCosmeticSelection() : bUseCreatorColors(0), bVisorColorSet(0) {}
 
 	/** The active identity key for the current type (TeamId or CharacterId). NAME_None if unset. */
 	FName GetActiveIdentityId() const
@@ -223,8 +234,10 @@ struct FAFLCosmeticSelection
  *
  * WHY THIS TYPE EXISTS AT ALL, and it is not cosmetic tidiness: coverage is master-dependent and was
  * measured, not assumed (SSOT 3.4.1). M_AFL_Visor_Clean and M_AFL_FaceMask_Visor expose BaseTint +
- * EmissiveColor. M_Mannequin exposes TeamColor + EmissiveColor and NEITHER BaseTint NOR EdgeGlowColor,
- * so for the 32 facemask presets that bind it the creator's EDGE channel is silently inert.
+ * EmissiveColor. M_Mannequin exposes SEVEN vectors including EdgeGlowColor and TeamColor, but NOT
+ * BaseTint -- so for the 32 facemask presets that bind it the creator's VISOR channel is the one that
+ * cannot land. (CORRECTED 2026-08-19: an earlier revision of this comment claimed EDGE was inert
+ * there. It is not. SchemaProbe measured EdgeGlowColor found=1, BaseTint found=0 on that master.)
  *
  * A UI that offered an Edge control there would be LYING TO THE PLAYER -- they would drag a slider,
  * see nothing change, and have no way to learn why. SetVectorParameterValue on an absent parameter is
@@ -240,9 +253,15 @@ struct FAFLCreatorChannelSchema
 {
 	GENERATED_BODY()
 
-	/** Body colour reaches this chassis (via BaseTint on a visor master, or TeamColor on M_Mannequin). */
+	/** Body colour reaches this chassis. CC-6.4: TeamColor ONLY -- BaseTint moved to the visor channel. */
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
 	bool bBodyAvailable = false;
+
+	/** Visor base tint reaches this chassis (BaseTint). FALSE on M_Mannequin, which does not expose it,
+	 *  so its 32 facemask presets report the visor control UNAVAILABLE rather than offering one that
+	 *  writes nowhere. ResolvedFromMaster is what lets a UI say why. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	bool bVisorAvailable = false;
 
 	/** Edge colour reaches this chassis. FALSE on M_Mannequin -- it has no EdgeGlowColor parameter. */
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
@@ -259,7 +278,8 @@ struct FAFLCreatorChannelSchema
 
 	int32 AvailableCount() const
 	{
-		return (bBodyAvailable ? 1 : 0) + (bEdgeAvailable ? 1 : 0) + (bGlowAvailable ? 1 : 0);
+		return (bBodyAvailable ? 1 : 0) + (bEdgeAvailable ? 1 : 0) + (bGlowAvailable ? 1 : 0)
+			+ (bVisorAvailable ? 1 : 0);
 	}
 
 	/**
@@ -292,7 +312,11 @@ struct FAFLCreatorChannelSchema
 		// Body reaches the chassis EITHER way a master can carry it -- BaseTint on the visor masters or
 		// TeamColor on M_Mannequin. One channel, two parameter names, because the creator's body colour
 		// is written to both (CC-2.2) and only one of them exists on any given master.
-		Out.bBodyAvailable = HasVector(TEXT("BaseTint")) || HasVector(TEXT("TeamColor"));
+		// CC-6.4 SPLIT: body and visor write different parameters, so the schema stops ORing them.
+		// Measured: M_Mannequin has TeamColor but NOT BaseTint (SchemaProbe found=1 / found=0), so it
+		// reports body available and visor UNAVAILABLE -- the honest answer for its 32 presets.
+		Out.bBodyAvailable  = HasVector(TEXT("TeamColor"));
+		Out.bVisorAvailable = HasVector(TEXT("BaseTint"));
 		Out.bEdgeAvailable = HasVector(TEXT("EdgeGlowColor"));
 		Out.bGlowAvailable = HasVector(TEXT("EmissiveColor"));
 		return Out;
@@ -391,6 +415,10 @@ struct FAFLCreatorBuild
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
 	FAFLChannelValue GlowChannel;
 
+	/** CC-6.4 visor base tint. Unset = mirrors the body channel, preserving pre-split rendering. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
+	FAFLChannelValue VisorChannel;
+
 	/** CC-4.2 LAPSE RULE, at the data level: a build beyond the effective slot cap goes READ-ONLY.
 	 *  It is never deleted and never mutated -- it renders exactly as saved and refuses edits. Set by
 	 *  the server when the cap shrinks; cleared when entitlement restores it. */
@@ -403,7 +431,8 @@ struct FAFLCreatorBuild
 	{
 		return BodyChannel.Source == EAFLChannelSource::Continuum
 			|| EdgeChannel.Source == EAFLChannelSource::Continuum
-			|| GlowChannel.Source == EAFLChannelSource::Continuum;
+			|| GlowChannel.Source == EAFLChannelSource::Continuum
+			|| VisorChannel.Source == EAFLChannelSource::Continuum;
 	}
 
 	/**
@@ -420,7 +449,8 @@ struct FAFLCreatorBuild
 	FAFLCosmeticSelection ResolveInto() const
 	{
 		FAFLCosmeticSelection Out = BaseSelection;
-		const bool bAnyColour = BodyChannel.IsSet() || EdgeChannel.IsSet() || GlowChannel.IsSet();
+		const bool bAnyColour = BodyChannel.IsSet() || EdgeChannel.IsSet() || GlowChannel.IsSet()
+			|| VisorChannel.IsSet();
 		if (!bAnyColour)
 		{
 			return Out; // untouched -- the never-opened-the-creator path
@@ -429,6 +459,19 @@ struct FAFLCreatorBuild
 		if (BodyChannel.IsSet()) { Out.CreatorBodyColor = BodyChannel.Resolved; }
 		if (EdgeChannel.IsSet()) { Out.CreatorEdgeColor = EdgeChannel.Resolved; }
 		if (GlowChannel.IsSet()) { Out.CreatorGlowColor = GlowChannel.Resolved; }
+		// VISOR: an explicit choice wins; otherwise MIRROR THE BODY so a build authored before the split
+		// renders exactly as it did. Leaving it at White would restyle every existing robot's visor --
+		// a shipped-visual change nobody asked for, triggered by a field appearing.
+		if (VisorChannel.IsSet())
+		{
+			Out.CreatorVisorColor = VisorChannel.Resolved;
+			Out.bVisorColorSet = 1;
+		}
+		else
+		{
+			Out.CreatorVisorColor = Out.CreatorBodyColor;
+			Out.bVisorColorSet = 0;
+		}
 		// A channel sourced from a catalog SKU also carries its id onto the matching axis, so the
 		// existing preset/registry path still sees the SKU it expects.
 		if (BodyChannel.Source == EAFLChannelSource::CatalogId) { Out.BodyId = BodyChannel.CosmeticId; }
