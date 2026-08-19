@@ -3135,6 +3135,9 @@ namespace
 			{ TEXT("AFL.Helmet."),    EAFLCosmeticType::Helmet,          EAFLCosmeticType::Helmet },
 			{ TEXT("AFL.Ability."),   EAFLCosmeticType::AbilityCosmetic, EAFLCosmeticType::AbilityCosmetic },
 			{ TEXT("AFL.Weapon."),    EAFLCosmeticType::Weapon,          EAFLCosmeticType::WeaponAccessory },
+			// CC-6.1: without this rule the robot/slot rows land in `unmapped` and the lint reports a
+			// growing blind spot as if it were a clean result.
+			{ TEXT("AFL.CreatorSlot."), EAFLCosmeticType::CreatorSlot,  EAFLCosmeticType::CreatorSlot },
 		};
 		const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
 		int32 Checked = 0, Mismatch = 0, Unmapped = 0, InvalidRows = 0;
