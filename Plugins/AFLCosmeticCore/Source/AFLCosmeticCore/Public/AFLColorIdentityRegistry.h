@@ -24,7 +24,22 @@ struct FAFLSkinFinish
 {
 	GENERATED_BODY()
 
-	/** BODY axis: body base shade (Finish presets write this; Edge presets have no TeamColor param). */
+	/** BODY axis: body base shade (Finish presets write this; Edge presets have no TeamColor param).
+	 *
+	 * THIS IS THE IDENTITY COLOUR. Any census, dedup or fold across entries must key on THIS band,
+	 * never on EdgeGlowColor. EdgeGlow is the BRIGHTEST band, not the identifying one, and keying
+	 * on it silently merges entries that are not the same colour.
+	 *
+	 * MEASURED (CC-6.3): keying on EdgeGlowColor gives 42 distinct colours across the 47 entries,
+	 * TeamColor gives 41, the full tuple gives 44 -- so BOTH single-band keys under-count. Under the
+	 * EdgeGlow key, RIFTONE collided with Magenta and was ruled a duplicate; their TeamColors are
+	 * (0.0000,0.5500,0.5000) teal versus (0.8960,0.1000,0.5520) magenta, and the fold would have
+	 * replaced one with the other. NeonRed collides with FANATICS the same way -- and FANATICS is a
+	 * KEPT, colour-locked sponsor brand, so a dedup on that key could have touched it.
+	 *
+	 * The doctrine already existed (read the identity colour from the primary band); the harvest
+	 * scripts contradicted it. This comment sits here so the next census reads the rule where it
+	 * reads the value. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|ColorIdentity|SkinFinish", meta = (HideAlphaChannel = "false"))
 	FLinearColor TeamColor = FLinearColor(0.05f, 0.25f, 0.85f, 1.0f);
 
@@ -120,13 +135,19 @@ enum class EAFLColorEntryKind : uint8
 	Unclassified UMETA(DisplayName = "Unclassified"),
 	/** A brand identity with a matching AFL.Character.* or AFL.Team.* catalog row. 28 of 47. */
 	Identity   UMETA(DisplayName = "Brand identity"),
-	/** A named palette colour -- NeonBlue/Green/Pink/Purple/Red, Magenta, Crimson, Indigo, Lime.
-	 *  Ownable-discrete colour, NOT a brand: the creator's named-colour vocabulary. */
+	/** A named palette colour. 11 of 47, MEASURED: NeonBlue/Green/Pink/Purple/Red/Yellow, Magenta,
+	 *  Crimson, Indigo, Lime, Solar. Ownable-discrete colour, NOT a brand -- the creator's
+	 *  named-colour vocabulary. Evidence: the entry carries a colour axis (Body/Edge/Finish).
+	 *  (An earlier revision of this list named 9 and omitted NeonYellow and Solar.) */
 	Palette    UMETA(DisplayName = "Palette colour"),
-	/** A weapon or FX tint -- EMP, DRAGONSOUL, FUTUREWARRIOR, JAGUARNEON. Not a selectable finish. */
+	/** A weapon or FX tint. 6 of 47, MEASURED: DRAGONSOUL, EMP, FUTUREWARRIOR, JAGUARNEON,
+	 *  RUNITBACK, SIMULARENT. Not a selectable finish. Evidence: sold ONLY on Weapon/Ability --
+	 *  RUNITBACK and SIMULARENT resolve to AFL.Weapon.HandCannon.* rows, EMP to AFL.Ability.*.
+	 *  (An earlier revision named 4 and omitted RUNITBACK and SIMULARENT.) */
 	WeaponFX   UMETA(DisplayName = "Weapon / FX tint"),
-	/** A visor or edge entry -- IronicsVisor, NeonEdge. The enumerator whose ABSENCE caused the
-	 *  IronicsVisor mis-classification. */
+	/** A visor or edge entry. 2 of 47: IronicsVisor, NeonEdge. The enumerator whose ABSENCE caused
+	 *  the IronicsVisor mis-classification. Evidence: these two have NO catalog row on ANY axis --
+	 *  they are internal, not sold, which is what distinguishes them from a palette colour. */
 	VisorEdge  UMETA(DisplayName = "Visor / edge")
 };
 
