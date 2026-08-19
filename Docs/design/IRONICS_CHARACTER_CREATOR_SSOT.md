@@ -144,21 +144,122 @@ identity decals do not use that capability.
 
 ### 3.4 The creator's channel set
 
-| # | Channel | Writes to | Master | Status |
-|---|---|---|---|---|
-| 1 | Neon | `NeonColor` + `NeonIntensity` | `M_AFL_Character` | LIVE |
-| 2 | Edge | `EdgeGlowColor` + `EdgeGlowMagnitude` | `M_AFL_Character` | LIVE |
-| 3 | Chassis | `AlbedoRecolor` | `M_AFL_Character` | LIVE, graph-wired, undriven |
-| 4 | Visor | `EmissiveColor` + `BaseTint` | `M_AFL_Visor_Clean` | LIVE |
-| 5 | Emblem | `NeonColor` | `M_AFL_Branding_Decal` | LIVE |
+> **CORRECTED 2026-08-19 from measurement (TASK 0).** This table previously claimed four
+> channels and named `NeonColor` as the body channel. Both were wrong, and a third error was
+> found while correcting them. Every claim below cites a measurement.
 
-**Four solid channels plus one graph-wired, undriven.** Not the five equal channels earlier
-design assumed. `AlbedoRecolor` is registered on `M_AFL_Character` (1 of 13 scalars, default
-`0.0`), graph-wired into `MaterialExpressionMultiply_16.B` alongside `Saturate_0`, matching the
-wiring pattern of the functional sibling scalars. Zero code writes it — no
-`SetScalarParameterValue("AlbedoRecolor")` anywhere in `Plugins/`. The plumbing is real and has no
-driver; default `0.0` zeroes its own branch, so wiring a driver is visually inert until exposed.
-Chassis is a real channel — CC-2.4 stops being conditional (§3.4 verified `cc-0-done`).
+**The creator drives THREE colour channels**, carried as one replicated `FAFLColorOverride`
+(3 x `FLinearColor` + `bValid`), server-clamped by `AFLCreatorGamut::ClampToNeon`:
+
+| # | Creator field | Material parameter | Renders on `M_AFL_Character` (slot 0)? |
+|---|---|---|---|
+| 1 | `CreatorBodyColor` | `TeamColor` | **NO - graph-disconnected** |
+| 2 | `CreatorEdgeColor` | `EdgeGlowColor` | YES |
+| 3 | `CreatorGlowColor` | `EmissiveColor` | YES |
+
+`CreatorBodyColor` also drives `BaseTint` on slot 1 (CC-2.2, `8ca41998`) - the same value
+reaching a second parameter, not a fourth channel.
+
+**Written is not rendered.** A dedicated-server two-client run emits exactly three colour keys
+per MID - `key=TeamColor`, `key=EdgeGlowColor`, `key=EmissiveColor`, 172 writes each
+(`cc-2-colour-core-done` @ `a9222049`). That proves the values are WRITTEN. It does not prove
+they render, and for one of them they do not.
+
+**`NeonColor` is not written by the creator at all**, so the earlier claim that CC-2.1 drives
+"NeonColor + EdgeGlowColor" is contradicted by every emit in that run.
+
+#### Graph-connectivity audit of `M_AFL_Character` (T3D export, consumers per parameter)
+
+| Vector parameter | Downstream consumers | Verdict |
+|---|---|---|
+| `NeonColor` (7 nodes) | 1 | LIVE - and the actual body colour source |
+| `EmissiveColor` | 1 | LIVE |
+| `EdgeGlowColor` | 1 | LIVE |
+| `TeamColor` | **0** | INERT - declared, never consumed |
+| `EmissiveColor2` | **0** | INERT |
+| `EmissiveColor3` | **0** | INERT |
+
+Counted by classifying every reference to each `MaterialExpressionVectorParameter` as
+self-declaration, `ExpressionCollection` listing, or a real `B=(Expression=...)` consumer.
+`TeamColor`, `EmissiveColor2` and `EmissiveColor3` have only the first two.
+
+**Consequence, and it is a design question not a bug:** the creator's *body* colour writes to a
+parameter the chassis master does not consume, so **choosing a body colour does not tint the
+chassis body**. It has effect only where the bound master consumes `TeamColor` - `M_Mannequin`
+on slot 1 - and via `BaseTint` on the visor masters. Edge and glow render on the body; body
+does not. This corroborates the standing note in `IRONICS_PRICING_SSOT.md` that `TeamColor` is
+inert on `M_AFL_Character`, and the in-code observation at `AFLCharacterPartActor.cpp:251` that
+`EmissiveColor2/3` "were all ruled out by probe". **Unresolved - needs a ruling.**
+
+**`AlbedoRecolor` is NOT a channel - it is a treatment scalar.** It is a
+`MaterialExpressionScalarParameter` (`ScalarParameter_13`, no `DefaultValue` line, so `0.0`)
+whose sole consumer is `Multiply_16.B`, feeding `LinearInterpolate_0.Alpha`:
+
+```
+BaseColor <- LinearInterpolate_0
+               A     = BaseColorTex
+               B     = Desaturation_0 x NeonColor
+               Alpha = Saturate_0 x AlbedoRecolor
+```
+
+It carries no colour of its own; it is a blend weight fading the albedo toward a desaturated
+tint sourced from `NeonColor` - which the creator does not drive. Raising it today tints the
+chassis toward `NeonColor`'s default `(0.5, 0.04, 1.0)`, a fixed purple, not toward the
+player's choice. **CC-2.4 is RECLASSIFIED, not implemented**: exposing it needs a material
+decision (retarget `Multiply_15.B`, or drive `NeonColor`) plus a scalar write path the
+vector-only overlay does not have.
+
+**`EmissiveColor2/3` are a separate axis, not a reduction of the count.** They are held neutral
+on unique bodies by the `bUniqueBodyUVs` guard (`AFLCharacterPartActor.cpp:279`) under an
+operator ruling, and they are independently graph-disconnected (table above). They were never
+among the four this section claimed, so suppressing them does not explain four becoming three.
+
+### 3.4.1 Channel coverage is MASTER-DEPENDENT
+
+A creator channel reaches a slot only if that slot's bound master exposes AND consumes the
+parameter. Parameter *names* were enumerated from T3D exports - a value read cannot distinguish
+absent from black, which is why `M_Mannequin`'s `BaseTint` reading `(0,0,0)` proved nothing
+until the names were listed. Both visor masters served as controls.
+
+| Slot-1 master | Facemask presets binding it | Exposes | Creator channels reaching it |
+|---|---|---|---|
+| `M_AFL_Visor_Clean` | 28 | `BaseTint`, `EmissiveColor` | Body (via `BaseTint`), Glow |
+| `M_AFL_FaceMask_Visor` | 0 (mesh default, unequipped state) | `BaseTint`, `EmissiveColor` | Body (via `BaseTint`), Glow |
+| `M_Mannequin` | 32 | `CarbonfiberTint`, `EmissiveColor`, `EmissiveColor2/3`, `TeamColor` | Body (via `TeamColor`), Glow |
+
+**`M_Mannequin` exposes neither `BaseTint` nor `EdgeGlowColor`**, so the 32 facemask presets
+binding it receive no creator edge colour and no visor base tint. `SetVectorParameterValue` on
+an absent parameter is ignored by design - no error, and no instrument reports it: `WROTEKEYS`
+records the call, never the receipt.
+
+This is a pre-existing CC-2.1 limit, not something CC-2.2 introduced, and it is why the stage's
+"four visibly different channels each" proof criterion was never achievable as written.
+
+### 3.4.2 Facemask axis - RESOLVED
+
+The facemask axis was **33 of 60 live**: 27 `AFL.Facemask.*` catalog rows carried
+`Type = SkinColor_Edge`, so every type-driven consumer (locker, browser, store) excluded them,
+while the `AFL.Edge.` prefix narrowing kept them out of the Edge tab as well - invisible on
+every surface. **Retyped in CC-X16 (`1f842979`, tag `cc-x16-done`); the axis is now 60 of 60**,
+verified on a fresh editor load reading the catalog off disk: `FACEMASKTYPES rows=60
+Facemask=60`, edge axis unchanged at 40.
+
+Root cause: `FAFLCatalogEntry::Type` **defaults to `SkinColor_Edge`**, a real and wrong value,
+so any row authored without setting `Type` is silently absorbed. The default is unchanged -
+see CC-X17.
+
+### 3.4.3 KNOWN STATE - the `_X` identity rows (CC-X18)
+
+27 of 56 `AFL.Character.*` catalog rows - the entire `_X` line (`ARIA_X`, `AKUMA_X`, `ASTRA_X`,
+...) - carry the same `Type = SkinColor_Edge` default and are likewise invisible to the
+type-driven character picker. **This is documented state, not a defect to fix.** The pivot
+retires identity SKUs: the store sells no characters, the creator replaces them, and the roster
+cut keeps six identities. Retyping would surface 27 identities the design is removing. All 27
+are bundle-coupled and their bundles carry `bTransactable=false`.
+
+Their invisibility currently matches the intended end state **by accident**, and is held there
+only by the `AFL.Edge.` prefix narrowing in `AFLCosmeticBrowserLibrary.cpp:99`. That line is
+load-bearing for two separate reasons and is commented as such.
 
 **Treatment scalars stay product, not player-facing.** `NeonIntensity`, `EmissiveFloor`,
 `BrandIntensity` are what make a finish a *recipe* rather than a colour. They are set by
@@ -253,7 +354,7 @@ Empty state is an invitation: no builds yet, one action, "Start a build".
 first-class choice, not a hidden variant. Selecting a chassis determines which channel
 schema the panel renders (§7).
 
-**BUILD** — the four live channels plus visor, emblem, and finish. Live preview is the
+**BUILD** — the three creator channels (body/edge/glow) plus visor, emblem, and finish. Live preview is the
 spawned pawn, not a stand-in. Preview infrastructure already exists: `PreviewRT`
 SceneCapture at `AFLW_LoadoutBase.cpp:481`.
 

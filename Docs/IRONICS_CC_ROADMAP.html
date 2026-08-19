@@ -203,15 +203,20 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
   <div class="stage-hd">
     <span class="stage-id">CC-2</span>
     <span class="stage-nm">Colour channels</span>
-    <span class="stage-goal">Four live channels driven from the selection. No new material,
-    no mesh work, no Blender dependency.</span>
+    <span class="stage-goal">THREE creator channels driven from the selection (body/edge/glow).
+    CORRECTED 2026-08-19 - see SSOT 3.4: this said "four", counting AlbedoRecolor, which is a
+    treatment scalar and not a channel. Coverage is master-dependent, and the body channel writes
+    a parameter M_AFL_Character does not consume. No new material, no mesh work.</span>
   </div>
   <div class="row">
     <span class="rid">CC-2.1</span>
-    <span class="rt">Neon and Edge from selection
-      <span class="d"><code>NeonColor</code> + <code>EdgeGlowColor</code> on
-      <code>M_AFL_Character</code>. Push via the existing
-      <code>CreateAndSetMaterialInstanceDynamic</code> path.</span></span>
+    <span class="rt">Body, edge and glow from selection
+      <span class="d">CORRECTED 2026-08-19: drives <code>TeamColor</code> +
+      <code>EdgeGlowColor</code> + <code>EmissiveColor</code> - NOT <code>NeonColor</code>, which
+      the creator never writes (measured, <code>cc-2-colour-core-done</code>). Pushed via
+      <code>CreateAndSetMaterialInstanceDynamic</code>. NOTE: <code>TeamColor</code> is
+      graph-disconnected on <code>M_AFL_Character</code>, so the body channel does not tint the
+      chassis body - SSOT 3.4.</span></span>
     <span class="pill lane">AIK</span><span class="pill st-open">CODE</span>
   </div>
   <div class="row">
@@ -235,8 +240,11 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
       <code>EdgeGlowColor</code>; needs a driver, default <code>0.0</code> is inert.</span></span>
     <span class="pill lane">AIK</span><span class="pill st-open">CODE</span>
   </div>
-  <div class="gate"><b>PROOF</b> &nbsp;Two clients: two players, same chassis, four visibly
-  different channels each, correct on both windows, respawn-durable.
+  <div class="gate"><b>PROOF</b> &nbsp;Two clients: two players, same chassis, the THREE creator
+  channels correct on both windows, respawn-durable. CORRECTED 2026-08-19 - "four visibly
+  different channels" was never achievable: coverage is master-dependent and the body channel is
+  inert on the chassis master (SSOT 3.4/3.4.1). Colour core achieved at
+  <code>cc-2-colour-core-done</code>; visor BaseTint at <code>cc-2-2-done</code>.
   <br><b>MILESTONE</b> &nbsp;This satisfies the shipped public promise — "finish and mask today".</div>
 </div>
 
@@ -527,8 +535,9 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
 
 <table>
 <tr><th>Stage</th><th>Delivers</th><th>Risk</th><th>Depends on</th></tr>
-<tr><td>A · CC-0→2</td><td>A working chassis with four live colour channels, visor and emblem
-  driven by selection</td><td>Low — no new material, no mesh, no Blender</td><td>Clean tree</td></tr>
+<tr><td>A · CC-0→2</td><td>A working chassis with THREE creator colour channels (corrected
+  2026-08-19), visor and emblem driven by selection</td><td>Low — no new material, no mesh, no
+  Blender</td><td>Clean tree</td></tr>
 <tr><td>B · CC-3→4</td><td>Saved builds, slots, subscription</td>
   <td><b>High — two entitlement shapes have no precedent</b></td><td>Stage A</td></tr>
 <tr><td>C · CC-5→6</td><td>Creator UI and store integration</td><td>Medium — UI volume</td>

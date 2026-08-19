@@ -277,14 +277,22 @@ Grounded in CC-READ-3 §7 (live/inert channel audit).
 
 | Channel | Params | Status |
 |---|---|---|
-| Neon | `NeonColor`, `NeonIntensity` | LIVE |
-| Edge | `EdgeGlowColor`, `EdgeGlowMagnitude` | LIVE |
-| Chassis albedo | `AlbedoRecolor` (scalar, live but 0) | PARTIAL |
-| Visor (`M_AFL_Visor_Clean`) | `EmissiveColor`, `BaseTint` + 3 scalars | FULLY LIVE |
+| Neon | `NeonColor`, `NeonIntensity` | LIVE - but NOT driven by the creator |
+| Edge | `EdgeGlowColor`, `EdgeGlowMagnitude` | LIVE, creator-driven |
+| Chassis albedo | `AlbedoRecolor` (scalar) | NOT A CHANNEL - treatment scalar, see SSOT 3.4 |
+| Visor (`M_AFL_Visor_Clean`) | `EmissiveColor`, `BaseTint` + 3 scalars | FULLY LIVE, creator-driven |
 | Emblem (`M_AFL_Branding_Decal`) | `NeonColor` | LIVE, proven variable |
 
-`TeamColor` and `EmissiveColor1-3` are **inert** on `M_AFL_Character` — the inverse of
-`M_Mannequin`, where they are the colour axis. Four solid channels, not five.
+`TeamColor`, `EmissiveColor2` and `EmissiveColor3` are **inert** on `M_AFL_Character` - the
+inverse of `M_Mannequin`, where `TeamColor` is the colour axis. **CONFIRMED 2026-08-19 by a
+graph-connectivity audit** (TASK 0; see SSOT 3.4): each has zero downstream consumers in the
+T3D export. `EmissiveColor` (unnumbered) IS consumed and is live - the old "`EmissiveColor1-3`"
+phrasing wrongly grouped it with the inert pair.
+
+**THREE creator channels, not four and not five.** Note the consequence for pricing: the
+creator's body colour writes `TeamColor`, which this master does not consume, so body colour
+does not tint the chassis body. Any pricing model that sells "body colour" as a chassis-visible
+channel is pricing something that currently renders only on slot 1. See SSOT 3.4.
 
 **The model:**
 

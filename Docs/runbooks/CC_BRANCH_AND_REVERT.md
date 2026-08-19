@@ -118,8 +118,28 @@ git commit -m "CC-1 content: 28 X BPs, visor literal removed from UCS"
 | `Bag_Man` (UE) | `personal/main` |
 | `Bag_Man_Backend` | `origin/master` |
 
-`origin` / `origin-ssh` on the UE repo point at the dead C12-Ai-Gaming org. **Nothing
-pushes there.**
+**CORRECTED 2026-08-19:** the UE repo has **no `origin` remote at all**. `git remote -v`
+returns only `personal` and `personal-ssh`, both `github.com/Instawerx/Bag_Man`. The earlier
+wording said `origin`/`origin-ssh` "point at the dead C12-Ai-Gaming org", which sends a reader
+hunting for a remote that does not exist. The accurate rule: **no `origin` exists on the UE repo
+and none should ever be added.** (`Bag_Man_Backend` is a separate repo and does use
+`origin/master`.)
+
+---
+
+## 3.1 Engine association - there is ONE engine for this project
+
+**CORRECTED 2026-08-19 from the registry.** `Bag_Man.uproject` declares
+`EngineAssociation = {5066982E-439C-2993-A6CB-F48A14DE2492}`, which resolves in
+`HKCU\SOFTWARE\Epic Games\Unreal Engine\Builds` to **`D:/UE5.6-source`**.
+
+A previously-circulated mechanic held that every D: source build must be followed by a
+"C: launcher `LyraEditor` rebuild" before reopening the editor. **That is not true of this
+project and must not be done.** The C: launcher engine exists on disk, but this project is not
+associated with it; building `LyraEditor` against it would require re-association and would
+produce binaries the D: source editor cannot load. Build and launch from `D:/UE5.6-source`
+only. Believed to originate in an older two-engine partition (C: editor / D: server targets)
+that no longer describes this repo.
 
 ---
 
