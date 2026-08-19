@@ -64,6 +64,12 @@ private:
  */
 DECLARE_DELEGATE_TwoParams(FAFLOnSelectionLoaded, bool /*bFound*/, const FAFLCosmeticSelection& /*Selection*/);
 DECLARE_DELEGATE_TwoParams(FAFLOnOwnedSetLoaded, bool /*bOk*/, const TArray<FName>& /*OwnedCosmeticIds*/);
+/** CC-3.3 -- COUNTED entitlement. Distinct from the boolean owned-set above: this carries HOW MANY.
+ *  A boolean set can only answer "does the player own X"; a slot ladder needs "how many X", and there
+ *  was no shape on this seam that could hold it. */
+/** Alias so the TMap comma does not split the delegate macro's argument list. */
+using FAFLCountedEntitlementMap = TMap<FName, int32>;
+DECLARE_DELEGATE_TwoParams(FAFLOnCountedSetLoaded, bool /*bOk*/, const FAFLCountedEntitlementMap& /*Counts*/);
 // S-ECON-WALLET (Fork A): balance rides the SAME persistence seam (one interface for all of a player's
 // economic state -- selection + owned-set + balance -- behind one PlayFab-ready store). Async-shaped like
 // the others. Volts + Watts are INTEGER (peg discipline; IRONICS economy LOCKED). bFound=false on a new
@@ -127,6 +133,25 @@ public:
 	// --- S-ECON-WALLET (Fork A): the player's economic state on the SAME seam -------------------------
 	/** Persist the player's owned cosmetic-id set (after a purchase grants ownership). */
 	virtual void SaveOwnedSet(const FAFLPlayerId& Player, const TArray<FName>& OwnedCosmeticIds) = 0;
+
+	// --- CC-3.3 COUNTED ENTITLEMENT ------------------------------------------------------------------
+	// The THIRD entitlement shape. Before this the seam could express exactly two things: a boolean
+	// owned-set (TArray<FName> -- do you own it) and counted CURRENCY (int32 Volts/Watts -- a balance,
+	// not an entitlement). Neither can say "this player is entitled to N of X". Health packs are NOT a
+	// precedent: they ride Lyra inventory, are match-scoped, and never touch this interface.
+	//
+	// The motivating case is save slots -- a $3 purchase increments a slot count, packs increment by 3
+	// and 8 -- but the shape is deliberately generic (FName -> int32), because a counted entitlement is
+	// a general capability and hard-coding "slots" here would force a fourth shape for the next one.
+	//
+	// NOT WIRED TO PLAYFAB. The cache/SaveGame path is complete and authoritative locally; the backend
+	// blob is CC-3.4 in the SEPARATE Bag_Man_Backend repo. This is honest scoping, not a stub: the data
+	// is real and round-trips, only the remote transport is staged.
+	/** Load the player's counted entitlements (id -> count). bOk=false for a new player. */
+	virtual void LoadCountedSet(const FAFLPlayerId& Player, FAFLOnCountedSetLoaded OnLoaded) = 0;
+
+	/** Persist the player's counted entitlements. Fire-and-forget, mirroring SaveOwnedSet. */
+	virtual void SaveCountedSet(const FAFLPlayerId& Player, const FAFLCountedEntitlementMap& Counts) = 0;
 
 	/** Load the player's Volts/Watts balance (async-shaped; stub fires synchronously). bFound=false for a
 	 *  new player -> the wallet seeds starting balances. */

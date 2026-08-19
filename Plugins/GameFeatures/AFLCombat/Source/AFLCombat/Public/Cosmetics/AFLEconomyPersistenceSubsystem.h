@@ -28,6 +28,10 @@ struct FAFLEconomyRecord
 
 	UPROPERTY() TArray<FName> OwnedCosmeticIds;
 
+	/** CC-3.3: counted entitlements, id -> how many. Absent key == zero; a zero-valued key is pruned on
+	 *  save so "never granted" and "granted then spent to zero" cannot drift apart in the blob. */
+	UPROPERTY() TMap<FName, int32> CountedEntitlements;
+
 	UPROPERTY() FAFLCosmeticSelection Selection;
 	UPROPERTY() bool  bHasSelection = false;
 };
@@ -87,6 +91,8 @@ public:
 	virtual void SaveSelection(const FAFLPlayerId& Player, const FAFLCosmeticSelection& Selection) override;
 	virtual void LoadOwnedSet(const FAFLPlayerId& Player, FAFLOnOwnedSetLoaded OnLoaded) override;
 	virtual void SaveOwnedSet(const FAFLPlayerId& Player, const TArray<FName>& OwnedCosmeticIds) override;
+	virtual void LoadCountedSet(const FAFLPlayerId& Player, FAFLOnCountedSetLoaded OnLoaded) override;
+	virtual void SaveCountedSet(const FAFLPlayerId& Player, const FAFLCountedEntitlementMap& Counts) override;
 	virtual void LoadBalance(const FAFLPlayerId& Player, FAFLOnBalanceLoaded OnLoaded) override;
 	virtual void SaveBalance(const FAFLPlayerId& Player, int32 Volts, int32 Watts) override;
 

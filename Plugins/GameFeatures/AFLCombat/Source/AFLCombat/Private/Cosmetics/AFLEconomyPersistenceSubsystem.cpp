@@ -333,6 +333,45 @@ void UAFLEconomyPersistenceSubsystem::SaveOwnedSet(const FAFLPlayerId& Player, c
 	Flush();
 }
 
+// --- CC-3.3 COUNTED ENTITLEMENT -------------------------------------------------------------------
+// Mirrors the OwnedSet pair exactly (RecordFor -> assign -> Flush; cache read fires the delegate with
+// bOk=false on a miss) so the counted shape has the same failure modes as the proven boolean one.
+// DELIBERATELY CACHE-ONLY: no PlayFab branch, unlike LoadOwnedSet. The remote blob is CC-3.4 in the
+// separate Bag_Man_Backend repo, and inventing a transport here would be a backend write this lane
+// does not own. A local round-trip is real and testable; a fabricated remote one is not.
+
+void UAFLEconomyPersistenceSubsystem::LoadCountedSet(const FAFLPlayerId& Player, FAFLOnCountedSetLoaded OnLoaded)
+{
+	EnsureLoaded();
+	if (const FAFLEconomyRecord* Rec = SaveData->Records.Find(ResolveKey(Player)))
+	{
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadCountedSet cache HIT keys=%d"), Rec->CountedEntitlements.Num());
+		OnLoaded.ExecuteIfBound(true, Rec->CountedEntitlements);
+	}
+	else
+	{
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadCountedSet cache MISS (new player)"));
+		OnLoaded.ExecuteIfBound(false, FAFLCountedEntitlementMap());
+	}
+}
+
+void UAFLEconomyPersistenceSubsystem::SaveCountedSet(const FAFLPlayerId& Player, const FAFLCountedEntitlementMap& Counts)
+{
+	FAFLEconomyRecord& Rec = RecordFor(Player);
+	// PRUNE ZEROES. A key at 0 and a key that was never granted must be indistinguishable, or the blob
+	// grows a history of spent entitlements that later reads could mistake for a grant.
+	Rec.CountedEntitlements.Reset();
+	int32 Pruned = 0;
+	for (const TPair<FName, int32>& KV : Counts)
+	{
+		if (KV.Value > 0) { Rec.CountedEntitlements.Add(KV.Key, KV.Value); }
+		else { ++Pruned; }
+	}
+	UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] SaveCountedSet keys=%d pruned=%d"),
+		Rec.CountedEntitlements.Num(), Pruned);
+	Flush();
+}
+
 //~ S-ECON WRITE-SIDE (Phase 1): the two authoritative PlayFab TRANSACTIONS behind the seam ---------------------
 // Refactor-behind-interface: the transport (body build + the /earn and Client/PurchaseItem calls) is MOVED here
 // VERBATIM from the wallet's former inline path -- same endpoint, same body, same completion contract, same
