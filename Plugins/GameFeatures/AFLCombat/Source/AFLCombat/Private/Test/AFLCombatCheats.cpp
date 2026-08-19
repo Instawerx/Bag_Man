@@ -2947,10 +2947,13 @@ namespace
 			Ar.Log(TEXT("afl.Cosmetic.SetFacemask - no catalog subsystem; NOTHING EQUIPPED."));
 			return;
 		}
-		// GATHER BY ID PREFIX, NOT BY TYPE (CC-X15b). GetEntriesByType(Facemask) returned only 33 of the 60
-		// AFL.Facemask.* rows: 27 of them are typed SkinColor_Edge, left behind by the migration to the dedicated
-		// Facemask type (see the enum comment in AFLCosmeticCoreTypes.h). Filtering by type therefore hides half
-		// the catalog from this command. Matching AFLCosmeticBrowserLibrary:99, address rows by their id
+		// GATHER BY ID PREFIX, NOT BY TYPE (CC-X15b). HISTORICAL REASON: GetEntriesByType(Facemask) once
+		// returned only 33 of the 60 AFL.Facemask.* rows -- 27 were typed SkinColor_Edge, left behind by the
+		// migration to the dedicated Facemask type. Filtering by type hid half the catalog.
+		// CURRENT (measured after cc-6-3): 38 AFL.Facemask.* rows, ALL typed Facemask, none SkinColor_Edge --
+		// the 27 were retyped at cc-x16-done and the retired identities' facemask rows went with the roster
+		// cut (60 - 22 = 38). The prefix gather STAYS: the Type default is still SkinColor_Edge, so the next
+		// untyped row lands in the same hole. The defect is fixed; the trap that produced it is not. Matching AFLCosmeticBrowserLibrary:99, address rows by their id
 		// namespace instead -- an id prefix is what actually defines the axis here.
 		// Union over EVERY type rather than the two seen, so a row mistyped to a THIRD type is still reached;
 		// there is no get-all accessor on the subsystem.
@@ -2974,8 +2977,11 @@ namespace
 			}
 		}
 		// TYPE DISTRIBUTION on every invocation. The prefix gather makes the command work DESPITE the data
-		// defect; emitting the split keeps the defect visible instead of papering over it. Expect this to read
-		// FACEMASK=33 SKIN_COLOR_EDGE=27 until the 27 rows are retyped.
+		// defect; emitting the split keeps the defect visible instead of papering over it.
+		// EXPECT FACEMASK=38 SKIN_COLOR_EDGE=0 (measured after cc-6-3). This line previously said to expect
+		// FACEMASK=33 SKIN_COLOR_EDGE=27, which was true before the cc-x16 retype -- a reader seeing the
+		// healthy 38/0 would have concluded the command was broken. Any SKIN_COLOR_EDGE > 0 here is a new
+		// untyped row, not the old defect.
 		{
 			TMap<FString, int32> ByType;
 			const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
@@ -3093,8 +3099,12 @@ namespace
 	// provenance question and no value read answers it. It catches disagreement, not wrongness.
 	//
 	// KNOWN POSITIVES it must reproduce or it is broken before it is used:
-	//   27x AFL.Character.*_X  typed SkinColor_Edge  (CC-X18, deliberately NOT retyped)
+	//    5x AFL.Character.*_X  typed SkinColor_Edge  (CC-X18, deliberately NOT retyped)
 	//    0x AFL.Facemask.*                            (retyped at cc-x16-done)
+	// WAS 27x before cc-6-3 retired 22 identities. Six _X rows remain and FANATICS_X is correctly typed
+	// Character, so five carry the default -- MEASURED, not inherited. This is the lint's positive
+	// control: leaving it at 27 would make the instrument fail its own self-check against a CORRECT
+	// catalog, which is worse than not checking.
 	void HandleAFLCatalogTypeLint(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
 		UAFLCosmeticCatalogSubsystem* Catalog = World ? UAFLCosmeticCatalogSubsystem::Get(World) : nullptr;

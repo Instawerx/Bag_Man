@@ -106,11 +106,14 @@ void UAFLCosmeticBrowserLibrary::GetOwnedEntriesForAxis(const UObject* WorldCont
 		// so the next untyped row lands in exactly the same hole and this line is again the only thing
 		// keeping it out of the Edge axis. Remove this and mistyped rows surface in the wrong tab.
 		//
-		// SECOND REASON, INDEPENDENT OF THE FIRST (CC-X18): 27 AFL.Character.*_X identity rows carry
-		// the SAME SkinColor_Edge default and are NOT being retyped -- the pivot retires identity SKUs,
-		// so their invisibility matches the intended end state. But that match is ACCIDENTAL, and this
-		// line is the only thing keeping 27 identities out of the Edge tab. Deleting it would surface
+		// SECOND REASON, INDEPENDENT OF THE FIRST (CC-X18): 5 AFL.Character.*_X identity rows carry the
+		// SAME SkinColor_Edge default and are NOT being retyped -- the pivot retires identity SKUs, so
+		// their invisibility matches the intended end state. But that match is ACCIDENTAL, and this line
+		// is the only thing keeping those 5 identities out of the Edge tab. Deleting it would surface
 		// character rows in a colour picker.
+		// WAS 27 before cc-6-3 retired 22 identities. Six _X rows remain; FANATICS_X is correctly typed
+		// Character, so five carry the default. The count shrank -- the hazard did not, because the
+		// DEFAULT is unchanged and one untyped row is enough to put a character in a colour picker.
 		if (!AxisPrefix.IsEmpty() && !Entry->CosmeticId.ToString().StartsWith(AxisPrefix, ESearchCase::IgnoreCase))
 		{
 			continue;
