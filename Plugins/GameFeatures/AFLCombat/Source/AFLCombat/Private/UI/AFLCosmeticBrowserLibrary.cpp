@@ -105,6 +105,12 @@ void UAFLCosmeticBrowserLibrary::GetOwnedEntriesForAxis(const UObject* WorldCont
 		// (their ids start AFL.Facemask., not AFL.Edge.). Retyped in CC-X16, but the DEFAULT is unchanged,
 		// so the next untyped row lands in exactly the same hole and this line is again the only thing
 		// keeping it out of the Edge axis. Remove this and mistyped rows surface in the wrong tab.
+		//
+		// SECOND REASON, INDEPENDENT OF THE FIRST (CC-X18): 27 AFL.Character.*_X identity rows carry
+		// the SAME SkinColor_Edge default and are NOT being retyped -- the pivot retires identity SKUs,
+		// so their invisibility matches the intended end state. But that match is ACCIDENTAL, and this
+		// line is the only thing keeping 27 identities out of the Edge tab. Deleting it would surface
+		// character rows in a colour picker.
 		if (!AxisPrefix.IsEmpty() && !Entry->CosmeticId.ToString().StartsWith(AxisPrefix, ESearchCase::IgnoreCase))
 		{
 			continue;
