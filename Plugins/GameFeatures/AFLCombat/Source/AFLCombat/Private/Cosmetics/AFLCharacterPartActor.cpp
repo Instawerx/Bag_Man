@@ -297,6 +297,23 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 						FinalVal.R, FinalVal.G, FinalVal.B);
 				}
 			}
+			// CC-2.2 -- VISOR BaseTint, OVERRIDE-ONLY. Deliberately NOT a key in the preset's ColorParameters map,
+			// which is where this was first specified. Measured why not: BaseTint is authored PER MATERIAL INSTANCE
+			// and the 71 visor/facemask instances hold THREE distinct values -- (0.006,0.006,0.008) x3 (IRONICS),
+			// (0,0,0) x37, (0.040,0.040,0.050) x32 (facemask). A preset key is written on EVERY apply, creator ON or
+			// OFF, so seeding the presets to any single value would have changed 69 of 71 instances with
+			// bUseCreatorColors == false -- every black visor lifted off black, every facemask darkened. BaseTint is
+			// a per-visor-IDENTITY property; the Finish preset is per-body-COLOUR. Putting it in the map moves
+			// authorship from the instance to the preset and flattens three authored values into one.
+			// Writing it ONLY when the override is valid keeps OFF byte-identical BY CONSTRUCTION (no write at all,
+			// so the instance's authored tint stands) rather than by seeding a value that is wrong for most of them.
+			// Both slot-1 masters (M_AFL_Visor_Clean, M_AFL_FaceMask_Visor) expose BaseTint, so no branch is needed;
+			// M_AFL_Character does NOT expose it, so the same call on slot 0 is an inert no-op.
+			static const FName NBaseTint(TEXT("BaseTint"));
+			if (const FLinearColor* BaseTintOverride = ColorOverride.FindOverrideForParam(NBaseTint))
+			{
+				MID->SetVectorParameterValue(NBaseTint, FVector(*BaseTintOverride));
+			}
 			for (const TPair<FName, TObjectPtr<UTexture>>& KV : ColorAsset->GetTextures())
 			{
 				MID->SetTextureParameterValue(KV.Key, KV.Value);
