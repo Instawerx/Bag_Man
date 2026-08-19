@@ -33,7 +33,11 @@ void UAFLCosmeticLoadoutComponent::GetLifetimeReplicatedProps(TArray<FLifetimePr
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UAFLCosmeticLoadoutComponent, Selection);
 	DOREPLIFETIME(UAFLCosmeticLoadoutComponent, bSelectionLocked);
-	DOREPLIFETIME(UAFLCosmeticLoadoutComponent, BuildSet);
+	// OWNER-ONLY. A build set is the player's own creator authoring data -- no other client renders
+	// from it (they render from the resolved Selection, which stays broadcast). Measured in the CC-3
+	// proof: client B read builds=0 from its OWN component, correctly, which is exactly why sending
+	// A's set to B is bandwidth for data nobody reads.
+	DOREPLIFETIME_CONDITION(UAFLCosmeticLoadoutComponent, BuildSet, COND_OwnerOnly);
 }
 
 void UAFLCosmeticLoadoutComponent::CopyProperties(UPlayerStateComponent* TargetPlayerStateComponent)
@@ -55,6 +59,17 @@ void UAFLCosmeticLoadoutComponent::CopyProperties(UPlayerStateComponent* TargetP
 		// empties the saved set while the resolved Selection keeps rendering -- the set and what is
 		// on screen would disagree, with no error anywhere to say so.
 		Target->BuildSet = BuildSet;
+		// AN ACTIVE BUILD IS THE SOURCE OF TRUTH ACROSS THE SWAP. MEASURED DEFECT: without this, the
+		// build set survived a respawn (builds=2 active=1) while Selection was restored from
+		// persistence -- so ActiveBuildIndex claimed build 1 and the pawn rendered the pre-build
+		// persisted colour instead. The set and the screen disagreed and nothing reported it.
+		// Re-resolve rather than trusting the copied Selection: ResolveInto() is pure and uses the
+		// values frozen at save, so this re-derives what the build ALREADY meant -- it does not
+		// recompute or re-clamp them, and CC-4.2's freeze-never-mutate promise is untouched.
+		if (const FAFLCreatorBuild* ActiveBuild = Target->BuildSet.GetActive())
+		{
+			Target->Selection = ActiveBuild->ResolveInto();
+		}
 
 		if (AFLSkinDiag::IsOn())
 		{
@@ -264,6 +279,18 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	}
 
 	// Step 4 -- commit -> replicate (OnRep fires on clients; authority applies via the nudge below).
+	// A DIRECT EDIT LEAVES THE ACTIVE BUILD. Otherwise ActiveBuildIndex keeps naming a build whose
+	// colours are no longer what is rendering, and the creator UI would highlight a slot that does
+	// not match the pawn. MEASURED: a direct colour set after activating build 1 left active=1 while
+	// the pawn rendered the directly-set colour -- the index lied, and nothing reported it.
+	// INVARIANT ESTABLISHED HERE: ActiveBuildIndex != INDEX_NONE IMPLIES Selection equals that
+	// build's ResolveInto(). Saved builds are untouched -- only the pointer to the live one clears.
+	if (BuildSet.ActiveBuildIndex != INDEX_NONE)
+	{
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILD] direct edit -> leaving active build %d"),
+			BuildSet.ActiveBuildIndex);
+		BuildSet.ActiveBuildIndex = INDEX_NONE;
+	}
 	Selection = NewSelection;
 
 	if (bDiag)
