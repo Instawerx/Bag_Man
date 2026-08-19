@@ -3869,6 +3869,28 @@ namespace
 			}), Delay, false);
 		};
 
+		// CONSOLE-EXEC ARM. Fire() routes ColorProbe ARGS; this runs an arbitrary console command on THIS
+		// window own PC. Needed because a game world is required for catalog-backed commands, and bridge calls
+		// are forbidden while PIE runs -- so anything needing a live world has to be fired from in here.
+		auto FireCmd = [W, Role](float Delay, const TCHAR* Cmd, const TCHAR* Step)
+		{
+			if (!W.IsValid()) { return; }
+			FTimerHandle T;
+			const FString StepStr(Step); const FString RoleStr(Role); const FString CmdStr(Cmd);
+			W->GetTimerManager().SetTimer(T, FTimerDelegate::CreateLambda([W, CmdStr, StepStr, RoleStr]()
+			{
+				if (!W.IsValid()) { return; }
+				APlayerController* StepPC = W->GetFirstPlayerController();
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[STEP] [%s] role=%s step=%s cmd=%s"),
+					*AFLCreator_NetTag(W.Get()), *RoleStr, *StepStr, *CmdStr);
+				if (StepPC) { StepPC->ConsoleCommand(CmdStr, /*bWriteToLog=*/true); }
+			}), Delay, false);
+		};
+
+		// CC-X15 step 4: assert the facemask command can reach EVERY catalog row. Role A only, once, early --
+		// it is a pure read and must not perturb the colour timeline that follows.
+		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
+
 		TArray<FString> Read;  Read.Add(TEXT("read"));
 		TArray<FString> Clear; Clear.Add(TEXT("clear"));
 		// COLOUR CHOICE -- must be a REAL delta and must be UNIQUE TO A. Two defects made the last run
