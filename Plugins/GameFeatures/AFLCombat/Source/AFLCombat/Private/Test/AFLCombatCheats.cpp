@@ -3691,19 +3691,121 @@ namespace
 			}), Delay, false);
 		};
 
+		// SERVER-SIDE KILL. The client-side cheat was a MEASURED no-op: SuicidePawn ran, logged success, and
+		// nothing died -- because health is SERVER-AUTHORITATIVE and DamageSelfDestruct on a CLIENT ASC applies
+		// nothing that survives. run_under_one_process (required anyway, since the harness discovers roles by
+		// walking GetWorldContexts of THIS process) puts the dedicated-server world in reach, so drive the death
+		// there directly. PlayerId is the join key: it is server-assigned and replicated, so it is the only
+		// stable handle that means the same player in both worlds -- world/PlayerState/pawn names all collide.
+		auto FireServerKill = [W, Role](float Delay, const TCHAR* Step)
+		{
+			if (!W.IsValid()) { return; }
+			FTimerHandle T;
+			const FString StepStr(Step); const FString RoleStr(Role);
+			W->GetTimerManager().SetTimer(T, FTimerDelegate::CreateLambda([W, StepStr, RoleStr]()
+			{
+				if (!W.IsValid()) { return; }
+				int32 MyId = -1;
+				if (APlayerController* MyPC = W->GetFirstPlayerController())
+				{
+					if (APlayerState* MyPS = MyPC->PlayerState) { MyId = MyPS->GetPlayerId(); }
+				}
+				UWorld* SrvWorld = nullptr;
+				if (GEngine)
+				{
+					for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+					{
+						UWorld* CW = Ctx.World();
+						if (CW && CW->IsGameWorld() && CW->GetNetMode() == NM_DedicatedServer) { SrvWorld = CW; break; }
+					}
+				}
+				APawn* KilledPawn = nullptr;
+				bool bFoundPC = false;
+				if (SrvWorld && MyId >= 0)
+				{
+					for (FConstPlayerControllerIterator It = SrvWorld->GetPlayerControllerIterator(); It; ++It)
+					{
+						APlayerController* SrvPC = It->Get();
+						APlayerState* SrvPS = SrvPC ? SrvPC->PlayerState : nullptr;
+						if (!SrvPS || SrvPS->GetPlayerId() != MyId) { continue; }
+						bFoundPC = true;
+						if (APawn* SrvPawn = SrvPC->GetPawn())
+						{
+							// Same canonical path the cheat uses -- the SetByCaller damage GE execution, so
+							// OnOutOfHealth actually fires (a base-value override would not).
+							if (ULyraHealthComponent* HC = ULyraHealthComponent::FindHealthComponent(SrvPawn))
+							{
+								KilledPawn = SrvPawn;
+								HC->DamageSelfDestruct();
+							}
+						}
+						break;
+					}
+				}
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[STEP] [%s] role=%s step=%s myPid=%d srvWorld=%s srvPC=%s killedPawn=%s"),
+					*AFLCreator_NetTag(W.Get()), *RoleStr, *StepStr, MyId,
+					SrvWorld ? TEXT("FOUND") : TEXT("MISSING"), bFoundPC ? TEXT("FOUND") : TEXT("MISSING"),
+					KilledPawn ? *KilledPawn->GetName() : TEXT("<none>"));
+			}), Delay, false);
+		};
+
 		TArray<FString> Read;  Read.Add(TEXT("read"));
 		TArray<FString> Clear; Clear.Add(TEXT("clear"));
-		TArray<FString> Set;   Set.Add(TEXT("set")); Set.Add(TEXT("0.2")); Set.Add(TEXT("0.2")); Set.Add(TEXT("0.22"));
+		// COLOUR CHOICE -- must be a REAL delta and must be UNIQUE TO A. Two defects made the last run
+		// inconclusive and both are fixed here:
+		//  (a) NO DELTA. The old hardcoded 0.2/0.2/0.22 clamps to (0.2025,0.2025,0.4500) -- EXACTLY the value
+		//      persistence had already stored (it was that same clamp's output from an earlier run). So the
+		//      "set" moved only bUseCreatorColors; the colour itself never changed. A fixed literal cannot fix
+		//      this, because whatever we pick becomes NEXT run's inherited value and the trap reappears. So
+		//      CHOOSE AGAINST WHAT WAS INHERITED: two well-separated candidates, take the farther one. Delta by
+		//      construction, every run, regardless of what persistence restored.
+		//  (b) NOT DISCRIMINABLE. Both players load the SAME persisted selection, so A's colour appearing in
+		//      B's log proved nothing -- B's own pawn already rendered it. Only A sets, and it sets to a colour
+		//      far from the shared inherited one, so a FINAL= carrying it in B's log can ONLY be A's pawn.
+		//      That is what makes the REMOTE leg readable at all.
+		// Both candidates are inside the neon gamut (S>=0.55, V in [0.45,1]) so ClampToNeon passes them through
+		// and the value we assert on is the value we asked for.
+		const FLinearColor CandP(0.90f, 0.05f, 0.60f);   // magenta
+		const FLinearColor CandQ(0.05f, 0.90f, 0.80f);   // cyan
+		FLinearColor Inherited(ForceInit);
+		if (const UAFLCosmeticLoadoutComponent* L0 = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr)
+		{
+			Inherited = L0->GetSelection().CreatorBodyColor;
+		}
+		auto Dist2 = [](const FLinearColor& X, const FLinearColor& Y)
+		{
+			return FMath::Square(X.R - Y.R) + FMath::Square(X.G - Y.G) + FMath::Square(X.B - Y.B);
+		};
+		const FLinearColor Chosen = (Dist2(CandP, Inherited) >= Dist2(CandQ, Inherited)) ? CandP : CandQ;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[PICK] [%s] role=%s inherited=(%.4f,%.4f,%.4f) chosen=(%.4f,%.4f,%.4f) d2=%.4f"),
+			*AFLCreator_NetTag(World), Role, Inherited.R, Inherited.G, Inherited.B,
+			Chosen.R, Chosen.G, Chosen.B, Dist2(Chosen, Inherited));
+		TArray<FString> Set;   Set.Add(TEXT("set"));
+		Set.Add(FString::SanitizeFloat(Chosen.R));
+		Set.Add(FString::SanitizeFloat(Chosen.G));
+		Set.Add(FString::SanitizeFloat(Chosen.B));
 
 		Fire(1.0f,  Read,  TEXT("1-inherited"));
 		if (RoleIndex == 0) { Fire(4.0f, Clear, TEXT("2-clear-delta1")); }
 		Fire(8.0f,  Read,  TEXT("3-after-clear"));
 		if (RoleIndex == 0) { Fire(12.0f, Set,  TEXT("4-set-delta2")); }
 		Fire(16.0f, Read,  TEXT("5-after-set"));
-		// STEP 6 -- RESPAWN DURABILITY via a REAL death: bots are live in this map, so A dies on its own. No
-		// synthetic kill invented. Genuine death->respawn->re-possess exercises OnPossessedPawnChanged on a
-		// BRAND-NEW pawn, which is a stronger test than a self-destruct. Verified by the pawn= field changing.
-		Fire(75.0f, Read,  TEXT("6-late-respawn-check"));
+		// STEP 6 -- RESPAWN DURABILITY via a DETERMINISTIC death. This previously waited 75s for a bot to kill
+		// A and reported NOT EXERCISED when none did: a test whose null result costs a whole session to
+		// discover. SuicidePawn drives DamageSelfDestruct -> the genuine Lyra OnOutOfHealth flow (NOT Destroy),
+		// so respawn/re-possession/OnPossessedPawnChanged fire exactly as in a real death -- deterministic
+		// WITHOUT weakening what is exercised. Only A dies; B stays alive as the remote observer.
+		if (RoleIndex == 0) { FireServerKill(20.0f, TEXT("6a-kill-A-serverside")); }
+		// BOTH roles read at 28s (8s for death->respawn->re-possess->part re-spawn).
+		//   On A: pawn= must DIFFER from step 5 -- that difference IS the respawn. Unchanged -> NOT EXERCISED.
+		//   On B: this read reports B's OWN selection (AFLCreator_ReadCommitted resolves the LOCAL PlayerState,
+		//   it cannot read a remote pawn). The REMOTE leg is therefore proven from the per-key FINAL= emits in
+		//   B's log instead: A's respawn spawns NEW part actors on B too, whose PATH 1 BeginPlay read must
+		//   re-apply the overlay. Attributable now that the SkinDiag prefix carries pid (= the OBSERVING
+		//   client), with the fresh pawn appearing in B's world right after 20s being A's -- B does not die.
+		Fire(28.0f, Read,  TEXT("6b-post-respawn"));
 	}
 
 	static TArray<TWeakObjectPtr<UWorld>> GAFLCreatorFiredWorlds;

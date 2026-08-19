@@ -8,6 +8,8 @@
 #include "Materials/MaterialInstanceConstant.h"   // the equipped facemask MIC (replication-safe content asset)
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/PlayerController.h"   // SkinDiag prefix: resolve the LOCAL player
+#include "GameFramework/PlayerState.h"        //  -> its replicated PlayerId, the two-client discriminator
 #include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
 #include "Equipment/LyraEquipmentManagerComponent.h"   // weapon-skin: find the equipped weapon instance
@@ -53,7 +55,32 @@ namespace AFLSkinDiag
 				}
 			}
 		}
-		return FString::Printf(TEXT("[SkinDiag][%s][f=%llu] "), Role, (uint64)GFrameCounter);
+		// PIE NAMESPACE COLLISION -- the reason this tag carries a player id at all. Two PIE clients share
+		// EVERY identity field: same world name (L_Arena_04), same PlayerState name (LyraPlayerState_0), same
+		// pawn instance name. Net mode does not separate them either -- BOTH are NM_Client, so both tag [CLI].
+		// Without a per-client discriminator, two-client logs interleave INDISTINGUISHABLY, and a reader
+		// attributing an emit to the wrong client gets a confident wrong answer rather than an obvious failure.
+		// PlayerId is server-assigned and replicated -> stable and distinct per client. Resolved off the
+		// world's FIRST PlayerController, which on a CLIENT is the LOCAL player (a client holds no PCs for
+		// remote players). So this id answers "WHOSE LOG IS THIS", not "whose pawn is this": in B's world an
+		// emit for A's part still tags B. That is the intended pairing -- id identifies the OBSERVER, the
+		// owner name in each emit identifies the OBSERVED actor, and within one client's log the two pawns
+		// have distinct names even though those names collide ACROSS worlds.
+		int32 LocalId = -1;
+		if (const UObject* Ctx = WorldContext)
+		{
+			if (const UWorld* World = Ctx->GetWorld())
+			{
+				if (const APlayerController* PC = World->GetFirstPlayerController())
+				{
+					if (const APlayerState* PS = PC->PlayerState)
+					{
+						LocalId = PS->GetPlayerId();
+					}
+				}
+			}
+		}
+		return FString::Printf(TEXT("[SkinDiag][%s][pid=%d][f=%llu] "), Role, LocalId, (uint64)GFrameCounter);
 	}
 }
 // -------------------------------------------------------------------------------------------------
