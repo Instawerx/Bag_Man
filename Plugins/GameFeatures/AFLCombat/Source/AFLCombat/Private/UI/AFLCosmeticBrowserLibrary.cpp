@@ -96,6 +96,15 @@ void UAFLCosmeticBrowserLibrary::GetOwnedEntriesForAxis(const UObject* WorldCont
 			continue;
 		}
 		// EAFLCosmeticType::Weapon is overloaded (weapons AND weapon-skins) -> filter to the axis's namespace.
+		//
+		// LOAD-BEARING -- DO NOT DELETE AS REDUNDANT. The type query above is NOT sufficient on its own.
+		// FAFLCatalogEntry::Type DEFAULTS to EAFLCosmeticType::SkinColor_Edge, so any catalog row added
+		// without explicitly setting Type silently becomes an Edge row. That is not hypothetical: 27
+		// AFL.Facemask.* rows shipped that way and were invisible on every surface -- excluded from the
+		// Facemask tab by the type query, and kept out of the EDGE tab only by THIS prefix check
+		// (their ids start AFL.Facemask., not AFL.Edge.). Retyped in CC-X16, but the DEFAULT is unchanged,
+		// so the next untyped row lands in exactly the same hole and this line is again the only thing
+		// keeping it out of the Edge axis. Remove this and mistyped rows surface in the wrong tab.
 		if (!AxisPrefix.IsEmpty() && !Entry->CosmeticId.ToString().StartsWith(AxisPrefix, ESearchCase::IgnoreCase))
 		{
 			continue;
