@@ -3272,6 +3272,30 @@ namespace
 			return;
 		}
 
+		if (Mode == TEXT("visor") && Args.Num() > 3)
+		{
+			// CC-6.4 FEATURE ARM. Both migration runs left bVisorColorSet at 0, which exercises only the
+			// mirror -- a split that silently did nothing would produce identical logs. This is the arm that
+			// can tell those apart: it makes an EXPLICIT visor choice and the visor must then diverge from
+			// the body. Goes through ServerSetCosmeticSelection so the clamp and the commit are the real ones.
+			const FLinearColor Want(FCString::Atof(*Args[1]), FCString::Atof(*Args[2]), FCString::Atof(*Args[3]), 1.0f);
+			FAFLCosmeticSelection Request = Loadout->GetSelection();
+			if (Request.GetActiveIdentityId() == NAME_None)
+			{
+				Request.IdentityType = EAFLIdentityType::Team;
+				Request.TeamId = FName(TEXT("AFL.Team.IRONICS"));
+			}
+			Request.bUseCreatorColors = 1;
+			Request.bVisorColorSet    = 1;
+			Request.CreatorVisorColor = Want;
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[VISORSET] request=(%.4f,%.4f,%.4f) priorBody=(%.4f,%.4f,%.4f)"),
+				Want.R, Want.G, Want.B,
+				Request.CreatorBodyColor.R, Request.CreatorBodyColor.G, Request.CreatorBodyColor.B);
+			Loadout->ServerSetCosmeticSelection(Request);
+			return;
+		}
+
 		// READ: report the build set AND the committed selection together, so "which build is active" and
 		// "what actually got committed" can be compared rather than assumed equal.
 		const FAFLCreatorBuildSet& Set = Loadout->GetBuildSet();
@@ -3332,9 +3356,15 @@ namespace
 				*Mat->GetName(), P, bFound ? 1 : 0, V.R, V.G, V.B);
 		}
 		const FAFLCreatorChannelSchema Sch = FAFLCreatorChannelSchema::DeriveFromMaterial(Mat);
-		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCHEMAPROBE] DERIVED master=%s body=%d edge=%d glow=%d"),
+		// CC-6.4: visor= and count= are NOT decoration. Before the split bBodyAvailable was
+		// (BaseTint || TeamColor); it is now TeamColor alone. On M_Mannequin that reads 1 EITHER WAY,
+		// so the old emit was byte-identical before and after the change and could never falsify it.
+		// visor= is the field that actually moved, and it must read 0 here: this master has no BaseTint,
+		// so a visor control offered on its 32 facemask presets would write nowhere.
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SCHEMAPROBE] DERIVED master=%s body=%d edge=%d glow=%d visor=%d count=%d"),
 			*Sch.ResolvedFromMaster.ToString(), Sch.bBodyAvailable ? 1 : 0, Sch.bEdgeAvailable ? 1 : 0,
-			Sch.bGlowAvailable ? 1 : 0);
+			Sch.bGlowAvailable ? 1 : 0, Sch.bVisorAvailable ? 1 : 0, Sch.AvailableCount());
 	}
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLSchemaProbeCmd(
@@ -4182,6 +4212,12 @@ static FAutoConsoleVariableRef CVarAFLCreatorPullOnly(TEXT("afl.Creator.PullOnly
 		FireCmd(13.5f, TEXT("afl.Creator.BuildProbe"), TEXT("L2-read-lapsed"));
 		if (RoleIndex == 0) { FireCmd(15.0f, TEXT("afl.Creator.BuildProbe lapse 2 1"), TEXT("L3-restore-cap2")); }
 		FireCmd(16.0f, TEXT("afl.Creator.BuildProbe"), TEXT("L4-read-restored"));
+		// CC-6.4 feature arm: choose a visor colour that appears in NO body, edge, glow or persisted
+		// value in this run (bodies 0.90/0.05/0.60, 1.00/0.45/0.00, 0.05/0.90/0.80; edges 1.00/0.35/0.00,
+		// 0.20/0.20/1.00; glows 0.00/1.00/0.55, 1.00/1.00/0.10). A read echoing inherited state cannot
+		// be mistaken for this one -- the same collision that spoiled two earlier probe colours.
+		if (RoleIndex == 0) { FireCmd(18.0f, TEXT("afl.Creator.BuildProbe visor 0.15 0.55 1.0"), TEXT("V1-set-visor")); }
+		FireCmd(20.5f, TEXT("afl.Creator.BuildProbe"), TEXT("V2-read-visor"));
 		// AFTER the 20s kill: does BuildSet survive the PlayerState swap (CopyProperties)? Untested
 		// until now -- the earlier run had no post-respawn build read, so an emptied set would have
 		// gone unnoticed while the resolved Selection kept rendering.
