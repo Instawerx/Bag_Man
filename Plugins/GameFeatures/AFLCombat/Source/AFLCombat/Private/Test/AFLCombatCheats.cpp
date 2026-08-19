@@ -3206,10 +3206,41 @@ namespace
 		}
 		if (Mode == TEXT("lapse") && Args.Num() > 2)
 		{
-			// CC-4.2: drive the lapse rule directly with an explicit cap. The cap is a PARAMETER by
-			// design (product intent owns the number), so the probe supplies it rather than deriving
-			// one -- deriving it here would test a number nobody chose.
-			Loadout->ApplyLapseRule(FCString::Atoi(*Args[1]), FCString::Atoi(*Args[2]) != 0);
+			// CC-4.2: drive the lapse rule with an explicit cap. The cap is a PARAMETER by design
+			// (product intent owns the number), so the probe supplies it rather than deriving one.
+			//
+			// MUST RUN SERVER-SIDE. ApplyLapseRule is authority-only, so calling it on this client is a
+			// SILENT no-op -- measured: zero LAPSE emits and readOnly=0 everywhere, which reads exactly
+			// like "nothing needed locking". Same defect shape as the CC-2.2 client-side kill. Reach the
+			// dedicated-server world in-process and act on THIS player's server-side component, matched
+			// by replicated PlayerId -- deliberately NOT a Server RPC, which would let a client hand
+			// itself a slot cap.
+			const int32 Cap = FCString::Atoi(*Args[1]);
+			const bool bHeld = FCString::Atoi(*Args[2]) != 0;
+			int32 MyId = PS ? PS->GetPlayerId() : -1;
+			UAFLCosmeticLoadoutComponent* SrvLoadout = nullptr;
+			if (GEngine && MyId >= 0)
+			{
+				for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+				{
+					UWorld* CW = Ctx.World();
+					if (!CW || !CW->IsGameWorld() || CW->GetNetMode() != NM_DedicatedServer) { continue; }
+					for (FConstPlayerControllerIterator It = CW->GetPlayerControllerIterator(); It; ++It)
+					{
+						APlayerController* SrvPC = It->Get();
+						APlayerState* SrvPS = SrvPC ? SrvPC->PlayerState : nullptr;
+						if (SrvPS && SrvPS->GetPlayerId() == MyId)
+						{
+							SrvLoadout = SrvPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>();
+							break;
+						}
+					}
+					if (SrvLoadout) { break; }
+				}
+			}
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LAPSE] request cap=%d held=%d myPid=%d srvLoadout=%s"),
+				Cap, bHeld ? 1 : 0, MyId, SrvLoadout ? TEXT("FOUND") : TEXT("MISSING"));
+			if (SrvLoadout) { SrvLoadout->ApplyLapseRule(Cap, bHeld); }
 			return;
 		}
 
