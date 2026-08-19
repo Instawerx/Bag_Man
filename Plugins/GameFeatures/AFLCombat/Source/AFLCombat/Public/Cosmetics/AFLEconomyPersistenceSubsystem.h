@@ -37,6 +37,11 @@ struct FAFLEconomyRecord
 	 *  because the CC-4.2 lapse rule treats those two players completely differently. */
 	UPROPERTY() TMap<FName, FAFLConditionalGrant> ConditionalGrants;
 
+	/** CC-3.5: last-known saved-build blob. Written on every remote save AND on a remote load, so an
+	 *  offline or pre-configuration session still round-trips locally instead of losing the player's
+	 *  robots. The remote is authoritative when reachable; this is the fallback, not a second truth. */
+	UPROPERTY() FString CreatorBuildsJson;
+
 	UPROPERTY() FAFLCosmeticSelection Selection;
 	UPROPERTY() bool  bHasSelection = false;
 };
@@ -98,6 +103,10 @@ public:
 	virtual void SaveOwnedSet(const FAFLPlayerId& Player, const TArray<FName>& OwnedCosmeticIds) override;
 	virtual void LoadCountedSet(const FAFLPlayerId& Player, FAFLOnCountedSetLoaded OnLoaded) override;
 	virtual void SaveCountedSet(const FAFLPlayerId& Player, const FAFLCountedEntitlementMap& Counts) override;
+	virtual void LoadCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, FAFLOnCreatorBuildsLoaded OnLoaded) override;
+	virtual void SaveCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, const FString& BuildsJson) override;
+	void ReadBuildsFromCache(const FAFLPlayerId& Player, FAFLOnCreatorBuildsLoaded OnLoaded);
+	void CacheBuildsFor(const FAFLPlayerId& Player, const FString& BuildsJson);
 	virtual void LoadConditionalSet(const FAFLPlayerId& Player, FAFLOnConditionalSetLoaded OnLoaded) override;
 	virtual void SaveConditionalSet(const FAFLPlayerId& Player, const FAFLConditionalGrantMap& Grants) override;
 	virtual void LoadBalance(const FAFLPlayerId& Player, FAFLOnBalanceLoaded OnLoaded) override;

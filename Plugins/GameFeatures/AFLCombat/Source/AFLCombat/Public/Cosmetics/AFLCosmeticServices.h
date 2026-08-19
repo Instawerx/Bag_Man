@@ -154,6 +154,9 @@ struct FAFLConditionalGrant
 /** Alias so the TMap comma cannot split a delegate macro's argument list (the CC-3.3 lesson). */
 using FAFLConditionalGrantMap = TMap<FName, FAFLConditionalGrant>;
 DECLARE_DELEGATE_TwoParams(FAFLOnConditionalSetLoaded, bool /*bOk*/, const FAFLConditionalGrantMap& /*Grants*/);
+/** CC-3.5: the saved-build blob as raw JSON. Kept opaque at this seam on purpose -- the persistence
+ *  layer moves the blob, it does not interpret it; only the loadout component knows the shape. */
+DECLARE_DELEGATE_TwoParams(FAFLOnCreatorBuildsLoaded, bool /*bFound*/, const FString& /*BuildsJson*/);
 
 UINTERFACE(MinimalAPI, meta = (CannotImplementInterfaceInBlueprint))
 class UAFLEntitlementSource : public UInterface
@@ -219,6 +222,21 @@ public:
 	// Keyed by ConditionId, NOT by cosmetic id: one condition confers many grants, and the state
 	// belongs to the condition. Keying by cosmetic would duplicate the state per grant and let two
 	// copies of the same subscription's status disagree.
+	// --- CC-3.5 SAVED BUILDS, THROUGH THE BACKEND ------------------------------------------------
+	// The FIRST cosmetic data on this seam with a real remote store: selection/owned/balance ride
+	// PlayFab, and the counted/conditional sets are cache-only pending their own backend work. Builds
+	// go to POST /creator-builds (deployed and live-verified, tag cc-3-4-done).
+	// TWO IDS, DELIBERATELY. Player keys the local cache; PlayFabId names the REMOTE target and is the
+	// caller's server-VERIFIED id (AFLPlayerIdentityComponent::GetResolvedPlayFabId, A1.4) -- exactly as
+	// EarnThroughBackend takes it. FAFLPlayerId's backing string is private ON PURPOSE, so deriving the
+	// remote target from it would both crack that wrapper open and lose the anti-spoof property that
+	// naming the player explicitly provides.
+	/** Load the player's saved-build blob. bFound=false for a new player -- NOT an error. */
+	virtual void LoadCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, FAFLOnCreatorBuildsLoaded OnLoaded) = 0;
+
+	/** Persist the player's saved-build blob. Fire-and-forget. */
+	virtual void SaveCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, const FString& BuildsJson) = 0;
+
 	/** Load the player's conditional grants. bOk=false for a new player. */
 	virtual void LoadConditionalSet(const FAFLPlayerId& Player, FAFLOnConditionalSetLoaded OnLoaded) = 0;
 

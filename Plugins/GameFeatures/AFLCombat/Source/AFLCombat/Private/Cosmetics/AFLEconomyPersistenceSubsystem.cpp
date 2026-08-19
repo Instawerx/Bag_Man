@@ -498,3 +498,84 @@ void UAFLEconomyPersistenceSubsystem::SaveConditionalSet(const FAFLPlayerId& Pla
 	Flush();
 }
 
+// --- CC-3.5 SAVED BUILDS THROUGH THE BACKEND ------------------------------------------------------
+// REMOTE-FIRST, CACHE-FALLBACK -- the same shape LoadOwnedSet already uses for PlayFab, so builds fail
+// the way the proven path fails. If the signer is not configured (not a dedicated server, or the URL
+// env is unset) PostServerCreatorBuilds skips and reports failure, and we fall back to cache rather
+// than telling the player they have no robots.
+
+void UAFLEconomyPersistenceSubsystem::LoadCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, FAFLOnCreatorBuildsLoaded OnLoaded)
+{
+	EnsureLoaded();
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (Online && !PlayFabId.IsEmpty())
+	{
+		const int64 Ts = FDateTime::UtcNow().ToUnixTimestamp();
+		const FString Body = FString::Printf(
+			TEXT("{\"playFabId\":\"%s\",\"op\":\"load\",\"ts\":%lld}"),
+			*PlayFabId, static_cast<long long>(Ts));
+		TWeakObjectPtr<UAFLEconomyPersistenceSubsystem> WeakThis(this);
+		Online->PostServerCreatorBuilds(Body, [WeakThis, Player, OnLoaded](bool bOk, const FString& Resp)
+		{
+			UAFLEconomyPersistenceSubsystem* Self = WeakThis.Get();
+			if (!Self) { return; }
+			if (bOk)
+			{
+				// The handler answers found:false for a NEW PLAYER with HTTP 200. That is not a failure and
+				// must not fall back to cache -- the remote authoritatively said "no builds yet".
+				const bool bFound = Resp.Contains(TEXT("\"found\":true"));
+				UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadCreatorBuilds remote OK found=%d bytes=%d"),
+					bFound ? 1 : 0, Resp.Len());
+				if (bFound) { Self->CacheBuildsFor(Player, Resp); }
+				OnLoaded.ExecuteIfBound(bFound, Resp);
+				return;
+			}
+			UE_LOG(LogAFLEconPersist, Warning, TEXT("[EconPersist] LoadCreatorBuilds remote FAILED -> cache"));
+			Self->ReadBuildsFromCache(Player, OnLoaded);
+		});
+		return;
+	}
+	ReadBuildsFromCache(Player, OnLoaded);
+}
+
+void UAFLEconomyPersistenceSubsystem::ReadBuildsFromCache(const FAFLPlayerId& Player, FAFLOnCreatorBuildsLoaded OnLoaded)
+{
+	EnsureLoaded();
+	if (const FAFLEconomyRecord* Rec = SaveData->Records.Find(ResolveKey(Player)))
+	{
+		const bool bHas = !Rec->CreatorBuildsJson.IsEmpty();
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadCreatorBuilds cache %s"), bHas ? TEXT("HIT") : TEXT("EMPTY"));
+		OnLoaded.ExecuteIfBound(bHas, Rec->CreatorBuildsJson);
+		return;
+	}
+	UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadCreatorBuilds cache MISS (new player)"));
+	OnLoaded.ExecuteIfBound(false, FString());
+}
+
+void UAFLEconomyPersistenceSubsystem::CacheBuildsFor(const FAFLPlayerId& Player, const FString& BuildsJson)
+{
+	FAFLEconomyRecord& Rec = RecordFor(Player);
+	Rec.CreatorBuildsJson = BuildsJson;
+	Flush();
+}
+
+void UAFLEconomyPersistenceSubsystem::SaveCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, const FString& BuildsJson)
+{
+	// Cache FIRST, then push. If the remote call fails the player still has their robots locally, which
+	// is the whole reason the cache exists -- ordering it the other way would lose the save on a timeout.
+	CacheBuildsFor(Player, BuildsJson);
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || PlayFabId.IsEmpty()) { return; }
+
+	const int64 Ts = FDateTime::UtcNow().ToUnixTimestamp();
+	const FString Body = FString::Printf(
+		TEXT("{\"playFabId\":\"%s\",\"op\":\"save\",\"ts\":%lld,\"builds\":%s}"),
+		*PlayFabId, static_cast<long long>(Ts), *BuildsJson);
+	Online->PostServerCreatorBuilds(Body, [](bool bOk, const FString& Resp)
+	{
+		UE_LOG(LogAFLEconPersist, Log, TEXT("AFL_TEST[BUILDSYNC] save remote ok=%d resp=%s"),
+			bOk ? 1 : 0, *Resp.Left(120));
+	});
+}
+
