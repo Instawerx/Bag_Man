@@ -7,6 +7,11 @@
 #include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
 #include "Cosmetics/AFLWalletComponent.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
 #include "AFLCombat.h"
+#include "Cosmetics/AFLCharacterPartActor.h"           // CC-5.1: slot-1 master lookup
+#include "Components/MeshComponent.h"
+#include "Components/ChildActorComponent.h"
+#include "Materials/MaterialInterface.h"
+#include "GameFramework/Pawn.h"
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"   // CC-3.5 build blob load/save
 #include "Cosmetics/AFLPlayerIdentityComponent.h"       // GetResolvedPlayFabId (A1.4 verified id)
 #include "JsonObjectConverter.h"                        // BuildSet <-> JSON blob
@@ -788,5 +793,43 @@ void UAFLCosmeticLoadoutComponent::ServerReportBuildName_Implementation(int32 In
 	BuildSet.Builds[Index].NameState = EAFLNameState::Rejected;
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[NAME] reported index=%d -> Rejected (build intact)"), Index);
 	PushBuildsToPersistence();
+}
+
+// --- CC-5.1 CHANNEL SCHEMA ------------------------------------------------------------------------
+
+FAFLCreatorChannelSchema UAFLCosmeticLoadoutComponent::GetChannelSchemaForPawn(APawn* Pawn) const
+{
+	FAFLCreatorChannelSchema Out;
+	if (!Pawn) { return Out; }
+
+	// Find the slot-1 material on the first part actor that has one. Slot 1 is the visor/facemask slot
+	// whose master determines coverage; slot 0 is the body master and is the same for every chassis.
+	TArray<UChildActorComponent*> CACs;
+	Pawn->GetComponents<UChildActorComponent>(CACs);
+	for (const UChildActorComponent* CAC : CACs)
+	{
+		AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr);
+		if (!Part) { continue; }
+		TArray<UMeshComponent*> Meshes;
+		Part->GetComponents<UMeshComponent>(Meshes);
+		for (UMeshComponent* Mesh : Meshes)
+		{
+			if (!Mesh || Mesh->GetNumMaterials() < 2) { continue; }
+			if (UMaterialInterface* Slot1 = Mesh->GetMaterial(1))
+			{
+				Out = FAFLCreatorChannelSchema::DeriveFromMaterial(Slot1);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCHEMA] master=%s body=%d edge=%d glow=%d available=%d"),
+					*Out.ResolvedFromMaster.ToString(), Out.bBodyAvailable ? 1 : 0,
+					Out.bEdgeAvailable ? 1 : 0, Out.bGlowAvailable ? 1 : 0, Out.AvailableCount());
+				return Out;
+			}
+		}
+	}
+	// No slot-1 material found. Claim nothing rather than guessing a default schema -- a creator that
+	// offers controls it cannot honour is worse than one that offers none until it knows.
+	UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SCHEMA] no slot-1 master found on %s -- no channels claimed"),
+		*Pawn->GetName());
+	return Out;
 }
 

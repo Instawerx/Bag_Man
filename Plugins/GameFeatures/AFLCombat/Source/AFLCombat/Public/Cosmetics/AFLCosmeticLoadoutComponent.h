@@ -80,6 +80,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator")
 	const FAFLCreatorBuildSet& GetBuildSet() const { return BuildSet; }
 
+	/** CC-5.1: which creator channels this pawn's chassis actually renders. Derived by asking the
+	 *  bound slot-1 master, so a rewired or new master is handled without editing code. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator")
+	FAFLCreatorChannelSchema GetChannelSchemaForPawn(APawn* Pawn) const;
+
 	/** VALIDATE ONCE, AT SAVE. The payload is client-supplied, so continuum channels are gamut-
 	 *  clamped HERE and the clamped value is what is stored. Activation never re-clamps, which is
 	 *  what lets CC-4.2 promise a saved build renders identically forever. Invalid Index appends. */

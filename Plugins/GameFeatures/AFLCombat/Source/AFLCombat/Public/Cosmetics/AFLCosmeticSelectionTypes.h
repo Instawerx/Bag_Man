@@ -215,6 +215,91 @@ struct FAFLCosmeticSelection
 };
 
 /**
+ * CC-5.1 -- THE CREATOR CHANNEL SCHEMA.
+ *
+ * ONE SHELL, TWO SCHEMAS. The creator shows a control per channel; which channels a chassis actually
+ * HAS depends on the material master its slot-1 visor resolves to. Two screens would double the
+ * maintenance for one differing column, so the difference is DATA, not a second UI.
+ *
+ * WHY THIS TYPE EXISTS AT ALL, and it is not cosmetic tidiness: coverage is master-dependent and was
+ * measured, not assumed (SSOT 3.4.1). M_AFL_Visor_Clean and M_AFL_FaceMask_Visor expose BaseTint +
+ * EmissiveColor. M_Mannequin exposes TeamColor + EmissiveColor and NEITHER BaseTint NOR EdgeGlowColor,
+ * so for the 32 facemask presets that bind it the creator's EDGE channel is silently inert.
+ *
+ * A UI that offered an Edge control there would be LYING TO THE PLAYER -- they would drag a slider,
+ * see nothing change, and have no way to learn why. SetVectorParameterValue on an absent parameter is
+ * ignored with no error, so nothing downstream can catch it either. Presenting only the channels that
+ * render is the difference between a creator that is honest about its own limits and one that is not.
+ *
+ * WHAT THIS DOES NOT DO. It does not decide layout, colour, or control style -- those are visual design
+ * and belong to IRONICS_UI_STYLE_SSOT.md. It answers exactly one question: for this chassis, which
+ * channels are real?
+ */
+USTRUCT(BlueprintType)
+struct FAFLCreatorChannelSchema
+{
+	GENERATED_BODY()
+
+	/** Body colour reaches this chassis (via BaseTint on a visor master, or TeamColor on M_Mannequin). */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	bool bBodyAvailable = false;
+
+	/** Edge colour reaches this chassis. FALSE on M_Mannequin -- it has no EdgeGlowColor parameter. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	bool bEdgeAvailable = false;
+
+	/** Glow/emissive reaches this chassis. Every master measured so far exposes EmissiveColor. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	bool bGlowAvailable = false;
+
+	/** The master this schema was derived FROM. Carried so a UI can say WHY a channel is missing
+	 *  instead of just hiding it -- an unexplained absent control is indistinguishable from a bug. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	FName ResolvedFromMaster = NAME_None;
+
+	int32 AvailableCount() const
+	{
+		return (bBodyAvailable ? 1 : 0) + (bEdgeAvailable ? 1 : 0) + (bGlowAvailable ? 1 : 0);
+	}
+
+	/**
+	 * DERIVE FROM THE MATERIAL, NOT FROM A HARDCODED LIST OF MASTER NAMES.
+	 *
+	 * Asking the material whether it has the parameter means a master that is rewired, renamed, or added
+	 * later is handled without touching this code -- and a name-keyed table would silently mis-answer for
+	 * any master not in it, which is the same class of defect as the catalog Type default.
+	 *
+	 * Absence and presence are distinguished by the ENGINE's own parameter lookup rather than by reading
+	 * a value: a parameter that is present-but-black and one that is absent both read (0,0,0), and that
+	 * ambiguity has already cost this programme twice.
+	 */
+	static FAFLCreatorChannelSchema DeriveFromMaterial(const UMaterialInterface* Slot1Master)
+	{
+		FAFLCreatorChannelSchema Out;
+		if (!Slot1Master)
+		{
+			return Out; // nothing bound -> no channels claimed. Fails closed.
+		}
+		Out.ResolvedFromMaster = FName(*Slot1Master->GetName());
+
+		auto HasVector = [Slot1Master](const TCHAR* ParamName)
+		{
+			FLinearColor Unused;
+			return Slot1Master->GetVectorParameterValue(
+				FMaterialParameterInfo(FName(ParamName)), Unused);
+		};
+
+		// Body reaches the chassis EITHER way a master can carry it -- BaseTint on the visor masters or
+		// TeamColor on M_Mannequin. One channel, two parameter names, because the creator's body colour
+		// is written to both (CC-2.2) and only one of them exists on any given master.
+		Out.bBodyAvailable = HasVector(TEXT("BaseTint")) || HasVector(TEXT("TeamColor"));
+		Out.bEdgeAvailable = HasVector(TEXT("EdgeGlowColor"));
+		Out.bGlowAvailable = HasVector(TEXT("EmissiveColor"));
+		return Out;
+	}
+};
+
+/**
  * CC-5.4 -- BUILD NAME MODERATION STATE.
  *
  * The requirement is a VISIBILITY GATE, not a word list: a name must not reach another player until it
