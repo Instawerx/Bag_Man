@@ -235,7 +235,10 @@ public:
 	virtual void LoadCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, FAFLOnCreatorBuildsLoaded OnLoaded) = 0;
 
 	/** Persist the player's saved-build blob. Fire-and-forget. */
-	virtual void SaveCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, const FString& BuildsJson) = 0;
+	/** Rev is STRICTLY INCREASING per player. Saves are fire-and-forget and can be in flight together,
+	 *  so the store rejects any write whose rev is not newer -- MEASURED: two pushes raced and the older
+	 *  blob landed last, silently discarding the newer set. */
+	virtual void SaveCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, const FString& BuildsJson, int32 Rev) = 0;
 
 	/** Load the player's conditional grants. bOk=false for a new player. */
 	virtual void LoadConditionalSet(const FAFLPlayerId& Player, FAFLOnConditionalSetLoaded OnLoaded) = 0;

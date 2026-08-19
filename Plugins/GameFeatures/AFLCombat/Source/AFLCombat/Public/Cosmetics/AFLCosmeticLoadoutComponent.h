@@ -125,6 +125,8 @@ public:
 private:
 	FAFLPlayerId MakePlayerKey() const;
 	FString ResolvePlayFabIdForOwner() const;
+	/** Strictly increasing per push. Guards against two in-flight saves landing out of order. */
+	int32 BuildsRevision = 0;
 public:
 
 	/**

@@ -559,7 +559,7 @@ void UAFLEconomyPersistenceSubsystem::CacheBuildsFor(const FAFLPlayerId& Player,
 	Flush();
 }
 
-void UAFLEconomyPersistenceSubsystem::SaveCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, const FString& BuildsJson)
+void UAFLEconomyPersistenceSubsystem::SaveCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, const FString& BuildsJson, int32 Rev)
 {
 	// Cache FIRST, then push. If the remote call fails the player still has their robots locally, which
 	// is the whole reason the cache exists -- ordering it the other way would lose the save on a timeout.
@@ -570,12 +570,14 @@ void UAFLEconomyPersistenceSubsystem::SaveCreatorBuilds(const FAFLPlayerId& Play
 
 	const int64 Ts = FDateTime::UtcNow().ToUnixTimestamp();
 	const FString Body = FString::Printf(
-		TEXT("{\"playFabId\":\"%s\",\"op\":\"save\",\"ts\":%lld,\"builds\":%s}"),
-		*PlayFabId, static_cast<long long>(Ts), *BuildsJson);
+		TEXT("{\"playFabId\":\"%s\",\"op\":\"save\",\"ts\":%lld,\"rev\":%d,\"builds\":%s}"),
+		*PlayFabId, static_cast<long long>(Ts), Rev, *BuildsJson);
 	Online->PostServerCreatorBuilds(Body, [](bool bOk, const FString& Resp)
 	{
+		// A 409 superseded is a CORRECT rejection of a stale write, not a failure -- report it distinctly
+		// so a race that the guard handled cannot be mistaken for the store being down.
 		UE_LOG(LogAFLEconPersist, Log, TEXT("AFL_TEST[BUILDSYNC] save remote ok=%d resp=%s"),
-			bOk ? 1 : 0, *Resp.Left(120));
+			bOk ? 1 : 0, *Resp.Left(140));
 	});
 }
 

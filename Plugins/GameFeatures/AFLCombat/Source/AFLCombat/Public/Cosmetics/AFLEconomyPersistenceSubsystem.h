@@ -104,7 +104,7 @@ public:
 	virtual void LoadCountedSet(const FAFLPlayerId& Player, FAFLOnCountedSetLoaded OnLoaded) override;
 	virtual void SaveCountedSet(const FAFLPlayerId& Player, const FAFLCountedEntitlementMap& Counts) override;
 	virtual void LoadCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, FAFLOnCreatorBuildsLoaded OnLoaded) override;
-	virtual void SaveCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, const FString& BuildsJson) override;
+	virtual void SaveCreatorBuilds(const FAFLPlayerId& Player, const FString& PlayFabId, const FString& BuildsJson, int32 Rev) override;
 	void ReadBuildsFromCache(const FAFLPlayerId& Player, FAFLOnCreatorBuildsLoaded OnLoaded);
 	void CacheBuildsFor(const FAFLPlayerId& Player, const FString& BuildsJson);
 	virtual void LoadConditionalSet(const FAFLPlayerId& Player, FAFLOnConditionalSetLoaded OnLoaded) override;

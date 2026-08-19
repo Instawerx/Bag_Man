@@ -628,9 +628,10 @@ void UAFLCosmeticLoadoutComponent::PushBuildsToPersistence()
 		return;
 	}
 	const FString PlayFabId = ResolvePlayFabIdForOwner();
-	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILDSYNC] push builds=%d bytes=%d pid=%s"),
-		BuildSet.Builds.Num(), Json.Len(), PlayFabId.IsEmpty() ? TEXT("<none>") : *PlayFabId);
-	Persist->SaveCreatorBuilds(MakePlayerKey(), PlayFabId, Json);
+	++BuildsRevision;
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILDSYNC] push builds=%d bytes=%d rev=%d pid=%s"),
+		BuildSet.Builds.Num(), Json.Len(), BuildsRevision, PlayFabId.IsEmpty() ? TEXT("<none>") : *PlayFabId);
+	Persist->SaveCreatorBuilds(MakePlayerKey(), PlayFabId, Json, BuildsRevision);
 }
 
 void UAFLCosmeticLoadoutComponent::PullBuildsFromPersistence()
@@ -691,13 +692,29 @@ FAFLPlayerId UAFLCosmeticLoadoutComponent::MakePlayerKey() const
 
 FString UAFLCosmeticLoadoutComponent::ResolvePlayFabIdForOwner() const
 {
-	if (const AActor* Owner = GetOwner())
+	// DISTINGUISH THE TWO EMPTIES. An empty return meant both "no identity component" and "component
+	// present but the id is unresolved", which are different problems with different fixes -- the same
+	// absent-versus-default ambiguity this programme keeps paying for. The caller logs pid=<none>
+	// either way, so the reason has to be emitted HERE or it is unrecoverable from the log.
+	const AActor* Owner = GetOwner();
+	if (!Owner)
 	{
-		if (const UAFLPlayerIdentityComponent* Identity = Owner->FindComponentByClass<UAFLPlayerIdentityComponent>())
-		{
-			return Identity->GetResolvedPlayFabId();
-		}
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUILDSYNC] pid unresolved: NO OWNER"));
+		return FString();
 	}
-	return FString();
+	const UAFLPlayerIdentityComponent* Identity = Owner->FindComponentByClass<UAFLPlayerIdentityComponent>();
+	if (!Identity)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUILDSYNC] pid unresolved: NO IDENTITY COMPONENT on %s"),
+			*Owner->GetName());
+		return FString();
+	}
+	const FString Id = Identity->GetResolvedPlayFabId();
+	if (Id.IsEmpty())
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUILDSYNC] pid unresolved: COMPONENT PRESENT, id empty "
+			"(A1.4 resolve has not completed -- needs AFL_RESOLVE_URL + a PlayFab login)"));
+	}
+	return Id;
 }
 
