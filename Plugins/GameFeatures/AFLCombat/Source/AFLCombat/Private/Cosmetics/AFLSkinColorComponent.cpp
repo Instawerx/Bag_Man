@@ -198,6 +198,29 @@ void UAFLSkinColorComponent::SetColorOverride(const FAFLColorOverride& NewOverri
 	}
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
+		// UNCHANGED-EARLY-OUT (restored; mirrors the one deleted with ApplyCreatorOverride in d68bccbe). If the
+		// override is identical to what is already stored, do NOTHING. This is what keeps the NEVER-creator path --
+		// invalid == invalid, written on every RefreshSkinForPawn -- doing ZERO WORK, not merely zero VISIBLE work.
+		// The bUseCreatorColors == false regression guarantee has to hold structurally, not just observationally:
+		// "nothing renders differently" is a testable claim, "nothing happens differently" is the one that lets
+		// CC-2.1 ship without re-proving the shipped colour path, and that Stage B inherits when it touches this seam.
+		// An unconditional re-apply for players who have never opened the creator broadens blast radius for no benefit.
+		// A REAL change still falls through: creator ON (invalid->valid), OFF (valid->invalid -- the clear arm the P2
+		// round-trip exercises), or a colour edit. The assignment is skipped with it: when equal it is a no-op, and an
+		// equal assignment never marks the property dirty anyway (replication diffs against shadow state), so the
+		// replicated value is unaffected either way. Late-arriving PARTS are NOT this function's job -- they self-apply
+		// at BeginPlay via GetColorOverride() (PATH 1), which is precisely why skipping the re-apply here is safe.
+		const bool bUnchanged =
+			(!ActiveColorOverride.bValid && !NewOverride.bValid) ||
+			(ActiveColorOverride.bValid == NewOverride.bValid &&
+			 ActiveColorOverride.BodyColor == NewOverride.BodyColor &&
+			 ActiveColorOverride.EdgeColor == NewOverride.EdgeColor &&
+			 ActiveColorOverride.GlowColor == NewOverride.GlowColor);
+		if (bUnchanged)
+		{
+			return;
+		}
+
 		ActiveColorOverride = NewOverride;
 		// Listen-host: OnRep does NOT fire on the authority -> apply locally now (mirrors SetSkinColor).
 		ReapplyBodyColorToAllParts();
