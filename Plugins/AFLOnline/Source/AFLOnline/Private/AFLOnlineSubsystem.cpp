@@ -164,6 +164,8 @@ void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 			EscrowUrl.IsEmpty() ? TEXT("MISSING") : *EscrowUrl,
 			SettleUrl.IsEmpty() ? TEXT("MISSING") : *SettleUrl,
 			RatingUrl.IsEmpty() ? TEXT("MISSING") : *RatingUrl);
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer: creatorBuildsUrl=%s"),
+			CreatorBuildsUrl.IsEmpty() ? TEXT("MISSING") : *CreatorBuildsUrl);
 	}
 }
 
@@ -581,7 +583,11 @@ void UAFLOnlineSubsystem::PostServerSigned(const FString& Url, const FString& Bo
 	// => not a server (or env unset) => refuse to sign. No client process ever signs a server-authoritative call.
 	if (EarnHmacKey.IsEmpty() || Url.IsEmpty())
 	{
-		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerSigned SKIP -- key/URL unavailable (server/editor only; set AFL_EARN_HMAC_KEY + the endpoint URL env). IsRunningDedicatedServer()=%d GIsEditor=%d."),
+		// NAME WHICH LEG SKIPPED. Without the URL this message is identical for every endpoint, so a skip
+		// on one leg is indistinguishable from a skip on another -- measured: two skips that could not be
+		// attributed to earn or to creator-builds, leaving the run inconclusive rather than failed.
+		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerSigned SKIP url=%s keyHeld=%d -- (server/editor only; set AFL_EARN_HMAC_KEY + the endpoint URL env). IsRunningDedicatedServer()=%d GIsEditor=%d."),
+			Url.IsEmpty() ? TEXT("<EMPTY>") : *Url, EarnHmacKey.IsEmpty() ? 0 : 1,
 			IsRunningDedicatedServer() ? 1 : 0, GIsEditor ? 1 : 0);
 		OnComplete(false, TEXT("skip: key/URL unavailable (server-only)"));
 		return;
