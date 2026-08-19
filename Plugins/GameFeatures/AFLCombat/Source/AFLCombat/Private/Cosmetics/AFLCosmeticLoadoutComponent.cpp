@@ -6,6 +6,7 @@
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
 #include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
 #include "Cosmetics/AFLWalletComponent.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
+#include "AFLCombat.h"                                   // LogAFLCombat (the AFL_TEST emit category)
 #include "Cosmetics/AFLSkinColorComponent.h"          // AFLSkinDiag (shared cvar-gated diag: LogAFLSkinDiag / IsOn / Prefix)
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
 #include "Components/ActorComponent.h"
@@ -32,6 +33,7 @@ void UAFLCosmeticLoadoutComponent::GetLifetimeReplicatedProps(TArray<FLifetimePr
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UAFLCosmeticLoadoutComponent, Selection);
 	DOREPLIFETIME(UAFLCosmeticLoadoutComponent, bSelectionLocked);
+	DOREPLIFETIME(UAFLCosmeticLoadoutComponent, BuildSet);
 }
 
 void UAFLCosmeticLoadoutComponent::CopyProperties(UPlayerStateComponent* TargetPlayerStateComponent)
@@ -49,6 +51,10 @@ void UAFLCosmeticLoadoutComponent::CopyProperties(UPlayerStateComponent* TargetP
 	{
 		Target->Selection = Selection;
 		Target->bSelectionLocked = bSelectionLocked;
+		// CC-3.2: builds must survive the PlayerState swap too. Without this a respawn silently
+		// empties the saved set while the resolved Selection keeps rendering -- the set and what is
+		// on screen would disagree, with no error anywhere to say so.
+		Target->BuildSet = BuildSet;
 
 		if (AFLSkinDiag::IsOn())
 		{
@@ -435,3 +441,94 @@ void UAFLCosmeticLoadoutComponent::OnPlayerStatePawnSet(APlayerState* /*Player*/
 		}
 	}
 }
+
+// --- CC-3.2 SAVED BUILDS -------------------------------------------------------------------------
+
+void UAFLCosmeticLoadoutComponent::OnRep_BuildSet()
+{
+	// Creator-UI notify only. Gameplay reads Selection, which arrives via OnRep_Selection exactly as
+	// before -- deliberately NOT re-resolved here: a client re-resolving would be a second source of
+	// truth for what renders, and the two would drift with nothing to catch it.
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s[Loadout] OnRep_BuildSet builds=%d active=%d"),
+			*AFLSkinDiag::Prefix(this), BuildSet.Builds.Num(), BuildSet.ActiveBuildIndex);
+	}
+}
+
+bool UAFLCosmeticLoadoutComponent::ServerSaveBuild_Validate(FAFLCreatorBuild, int32) { return true; }
+
+void UAFLCosmeticLoadoutComponent::ServerSaveBuild_Implementation(FAFLCreatorBuild Build, int32 Index)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	// CC-4.2: a read-only build refuses EDITS. It is never deleted and never mutated -- a shrinking
+	// cap must not cost a player work they already did.
+	if (BuildSet.Builds.IsValidIndex(Index) && BuildSet.Builds[Index].bReadOnly)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Creator] ServerSaveBuild REFUSED: build %d is read-only."), Index);
+		return;
+	}
+
+	// VALIDATE ONCE, HERE. A continuum channel carries a client-chosen colour, so clamp it into the
+	// neon gamut before storing -- the same server-authoritative clamp CC-2.1 proved. A catalog channel
+	// carries an id instead; its ownership gate is Stage B policy and is NOT applied here, because
+	// CreatorColorsEntitled() is still a stub returning true and un-stubbing it needs a ruling.
+	auto ClampChannel = [](FAFLChannelValue& Ch)
+	{
+		if (Ch.Source == EAFLChannelSource::Continuum)
+		{
+			Ch.Resolved = AFLCreatorGamut::ClampToNeon(Ch.Resolved);
+		}
+	};
+	ClampChannel(Build.BodyChannel);
+	ClampChannel(Build.EdgeChannel);
+	ClampChannel(Build.GlowChannel);
+	Build.bReadOnly = false;
+
+	if (BuildSet.Builds.IsValidIndex(Index))
+	{
+		BuildSet.Builds[Index] = Build;
+	}
+	else
+	{
+		// SLOT CAP DELIBERATELY NOT ENFORCED. How many slots a player gets is product intent -- the
+		// pricing SSOT flags the $3 robot/slot collision as unresolved -- and the counted entitlement
+		// that will carry it landed in CC-3.3. Enforcement arrives with that ruling; inventing a number
+		// here would ship a cap nobody chose.
+		Index = BuildSet.Builds.Add(Build);
+	}
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILD] saved index=%d builds=%d continuum=%d"),
+		Index, BuildSet.Builds.Num(), Build.UsesContinuum() ? 1 : 0);
+}
+
+bool UAFLCosmeticLoadoutComponent::ServerSetActiveBuild_Validate(int32) { return true; }
+
+void UAFLCosmeticLoadoutComponent::ServerSetActiveBuild_Implementation(int32 Index)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+	if (!BuildSet.Builds.IsValidIndex(Index))
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Creator] ServerSetActiveBuild REFUSED: index %d of %d."),
+			Index, BuildSet.Builds.Num());
+		return;
+	}
+
+	BuildSet.ActiveBuildIndex = Index;
+
+	// RESOLVE INTO THE ONE SELECTION. No re-clamp, no catalog re-lookup: the values were validated at
+	// save, and CC-4.2 requires the build to render identically afterwards whatever has happened to
+	// the player's entitlements or to the catalog since. Re-validating here is exactly what would
+	// break that promise. The index is server-side state, so there is no client payload to distrust.
+	Selection = BuildSet.Builds[Index].ResolveInto();
+
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILD] active=%d creatorOn=%d body=(%.4f,%.4f,%.4f)"),
+		Index, Selection.bUseCreatorColors ? 1 : 0,
+		Selection.CreatorBodyColor.R, Selection.CreatorBodyColor.G, Selection.CreatorBodyColor.B);
+
+	// Drive the same post-commit path a direct selection change uses, so a build activation and a
+	// direct edit are indistinguishable downstream.
+	OnRep_Selection();
+	NudgeControllerReapply();
+}
+

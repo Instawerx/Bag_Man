@@ -70,6 +70,27 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Cosmetics")
 	void ServerSetCosmeticSelection(FAFLCosmeticSelection Requested);
 
+	// --- CC-3.2 SAVED BUILDS -------------------------------------------------------------------
+	// A build is an AUTHORING layer ABOVE the proven seam, never a second thing gameplay reads.
+	// The server resolves the active build INTO Selection and the existing commit path then runs
+	// unchanged, so replication, OnRep, persistence and every CC-1/CC-2 proof keep their meaning.
+	// GetSelection() is untouched DELIBERATELY: routing gameplay through a build-aware accessor
+	// would invalidate the read-site shape this programme has spent its whole length protecting.
+
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator")
+	const FAFLCreatorBuildSet& GetBuildSet() const { return BuildSet; }
+
+	/** VALIDATE ONCE, AT SAVE. The payload is client-supplied, so continuum channels are gamut-
+	 *  clamped HERE and the clamped value is what is stored. Activation never re-clamps, which is
+	 *  what lets CC-4.2 promise a saved build renders identically forever. Invalid Index appends. */
+	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Creator")
+	void ServerSaveBuild(FAFLCreatorBuild Build, int32 Index);
+
+	/** Activate a saved build BY INDEX into the server's own BuildSet -- never from a client
+	 *  payload, so there is nothing to re-validate and nothing a client can smuggle in. */
+	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Creator")
+	void ServerSetActiveBuild(int32 Index);
+
 	/**
 	 * Change-timing gate (D6). STUB-OPEN for #43: returns true (always editable) because the match<->hub
 	 * boundary that would set the lock isn't built yet -- wiring a lock now would build ahead of its
@@ -96,6 +117,14 @@ protected:
 	//~End
 
 	/** The replicated selection. Single OnRep -- selection changes are menu-rare, not per-tick. */
+	/** CC-3.2: the player's saved builds. Replicated for the creator UI; gameplay never reads it --
+	 *  it reads Selection, which the server resolves from the active build. */
+	UPROPERTY(ReplicatedUsing = OnRep_BuildSet)
+	FAFLCreatorBuildSet BuildSet;
+
+	UFUNCTION()
+	void OnRep_BuildSet();
+
 	UPROPERTY(ReplicatedUsing = OnRep_Selection)
 	FAFLCosmeticSelection Selection;
 
