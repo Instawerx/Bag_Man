@@ -225,15 +225,41 @@ until the names were listed. Both visor masters served as controls.
 |---|---|---|---|
 | `M_AFL_Visor_Clean` | 28 | `BaseTint`, `EmissiveColor` | Body (via `BaseTint`), Glow |
 | `M_AFL_FaceMask_Visor` | 0 (mesh default, unequipped state) | `BaseTint`, `EmissiveColor` | Body (via `BaseTint`), Glow |
-| `M_Mannequin` | 32 | `CarbonfiberTint`, `EmissiveColor`, `EmissiveColor2/3`, `TeamColor` | Body (via `TeamColor`), Glow |
+| `M_Mannequin` | 32 | `CarbonfiberTint`, **`EdgeGlowColor`**, `EmissiveColor`, `EmissiveColor2/3`, `HitPosition0`, `TeamColor` | Body (via `TeamColor`), **Edge**, Glow |
 
-**`M_Mannequin` exposes neither `BaseTint` nor `EdgeGlowColor`**, so the 32 facemask presets
-binding it receive no creator edge colour and no visor base tint. `SetVectorParameterValue` on
-an absent parameter is ignored by design - no error, and no instrument reports it: `WROTEKEYS`
-records the call, never the receipt.
+> **CORRECTED 2026-08-19.** An earlier revision of this row claimed `M_Mannequin` exposes
+> **neither** `BaseTint` **nor** `EdgeGlowColor`. The second half was **wrong**, and the error is
+> instructive enough to record rather than quietly fix.
 
-This is a pre-existing CC-2.1 limit, not something CC-2.2 introduced, and it is why the stage's
-"four visibly different channels each" proof criterion was never achievable as written.
+**`M_Mannequin` exposes `EdgeGlowColor`. Only `BaseTint` is absent.** Enumerating the master's
+vector parameters returns seven: `CarbonfiberTint`, `EdgeGlowColor`, `EmissiveColor`,
+`EmissiveColor2`, `EmissiveColor3`, `HitPosition0`, `TeamColor`.
+
+**Practical consequence, corrected:** the 32 facemask presets binding `M_Mannequin` **do** receive
+the creator's edge colour. They receive body colour (via `TeamColor`), edge, and glow - three of
+three. The only channel that does not reach them is the visor **base tint**, because `BaseTint`
+genuinely is absent (0 occurrences anywhere in the master's T3D export, including inside its 36
+material-function calls). Creator coverage on those presets is **better** than this document
+previously recorded, not worse.
+
+**How the wrong claim happened, and the rule it produced.** Two lanes disagreed: CC-READ-2 §F1
+enumerated the parameter names and reported seven including `EdgeGlowColor`; CC-X12 parsed the T3D
+export counting `MaterialExpressionVectorParameter` nodes and reported five, missing it. CC-READ-2
+was right. The node-regex parse could only see parameters whose declaring node it managed to map
+back to a class line, and it silently dropped one. A whole-file string search was run for
+`BaseTint` (correctly finding zero) but **not** symmetrically for `EdgeGlowColor` - a gap in
+coverage, not in method.
+
+**THE RULE: when the question is EXISTENCE, use an API that can return "not found."** Enumeration
+(`GetAllVectorParameterInfo`, `get_vector_parameter_names`) answers it. A value lookup that
+manufactures a default cannot - `MaterialEditingLibrary.get_material_default_vector_parameter_value`
+was measured returning `PRESENT (0,0,0)` for `BaseTint` and `NeonColor` on this very master, where
+both are genuinely absent. Names are provenance; values are not. (C++
+`UMaterialInterface::GetVectorParameterValue` *does* honour a found-flag - it returns `false` when
+`GetParameterValue` fails, `MaterialInterface.cpp:841-850` - so it is safe; its Python-helper
+sibling is not. Conflating the two is what produced this correction.)
+
+The `BaseTint` limit remains a pre-existing CC-2.1 scope note, not something CC-2.2 introduced.
 
 ### 3.4.2 Facemask axis - RESOLVED
 
