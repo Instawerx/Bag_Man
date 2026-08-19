@@ -189,6 +189,13 @@ void UAFLSkinColorComponent::SetColorOverride(const FAFLColorOverride& NewOverri
 	// side that reliably holds BOTH the PlayerState (carrying the selection) and the pawn at once --
 	// RefreshSkinForPawn runs off OnPossessedPawnChanged, exactly that moment. Clients receive it via
 	// OnRep_ColorOverride; they never write it.
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : SetColorOverride auth=%d inBValid=%d Body=(%.4f,%.4f,%.4f)"),
+			*AFLSkinDiag::Prefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
+			(GetOwner() && GetOwner()->HasAuthority()) ? 1 : 0, NewOverride.bValid ? 1 : 0,
+			NewOverride.BodyColor.R, NewOverride.BodyColor.G, NewOverride.BodyColor.B);
+	}
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
 		ActiveColorOverride = NewOverride;
@@ -201,6 +208,21 @@ void UAFLSkinColorComponent::OnRep_ColorOverride()
 {
 	// PATH 2 for the overlay (covers OVERRIDE-ARRIVES-SECOND): re-apply to parts that read an invalid override
 	// at their BeginPlay. Pairs with the part's PATH 1 self-apply; BOTH required, as for SkinColor/BodyColor.
+	if (AFLSkinDiag::IsOn())
+	{
+		// parts= is load-bearing: a correct dispatch that finds ZERO parts lands nowhere, and without this a clean
+		// OnRep followed by unchanged MIDs is ambiguous (it was the server's structural condition).
+		int32 DiagParts = 0;
+		if (const AActor* O = GetOwner())
+		{
+			TArray<UChildActorComponent*> CACs; O->GetComponents<UChildActorComponent>(CACs);
+			for (const UChildActorComponent* C : CACs) { if (Cast<AAFLCharacterPartActor>(C ? C->GetChildActor() : nullptr)) { ++DiagParts; } }
+		}
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : OnRep_ColorOverride netmode=%d bValid=%d parts=%d Body=(%.4f,%.4f,%.4f)"),
+			*AFLSkinDiag::Prefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
+			GetWorld() ? (int32)GetWorld()->GetNetMode() : -1, ActiveColorOverride.bValid ? 1 : 0, DiagParts,
+			ActiveColorOverride.BodyColor.R, ActiveColorOverride.BodyColor.G, ActiveColorOverride.BodyColor.B);
+	}
 	ReapplyBodyColorToAllParts();
 }
 

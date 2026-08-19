@@ -393,7 +393,13 @@ void UAFLEconomyPersistenceSubsystem::LoadSelection(const FAFLPlayerId& Player, 
 	EnsureLoaded();
 	if (const FAFLEconomyRecord* Rec = SaveData->Records.Find(ResolveKey(Player)))
 	{
-		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadSelection HIT (bHasSelection=%d)"), Rec->bHasSelection ? 1 : 0);
+		// Every run states what it INHERITED before anything is touched -- a restored overlay makes an identical
+		// set a no-op (no delta -> no OnRep), which cost a full session to surface once already.
+		UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] LoadSelection HIT (bHasSelection=%d) INHERITED-CREATOR: bUse=%d Body=(%.4f,%.4f,%.4f) Edge=(%.4f,%.4f,%.4f) Glow=(%.4f,%.4f,%.4f)"),
+			Rec->bHasSelection ? 1 : 0, (int32)Rec->Selection.bUseCreatorColors,
+			Rec->Selection.CreatorBodyColor.R, Rec->Selection.CreatorBodyColor.G, Rec->Selection.CreatorBodyColor.B,
+			Rec->Selection.CreatorEdgeColor.R, Rec->Selection.CreatorEdgeColor.G, Rec->Selection.CreatorEdgeColor.B,
+			Rec->Selection.CreatorGlowColor.R, Rec->Selection.CreatorGlowColor.G, Rec->Selection.CreatorGlowColor.B);
 		OnLoaded.ExecuteIfBound(Rec->bHasSelection, Rec->Selection);
 	}
 	else

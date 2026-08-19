@@ -3655,42 +3655,77 @@ namespace
 		HandleAFLCreatorColorProbe(Args, World, Null);
 	}
 
-	// REJOIN-CASE ACCEPTANCE: read only. Persistence already supplies bUseCreatorColors=1, so a fresh PIE IS the
-	// rejoin case -- if PATH 1/PATH 2 work, the MIDs carry the creator colours with no set/clear needed.
-	static void AFLCreator_AutoSequence(UWorld* World)
+	// CC-2.1-P2 A/B SEQUENCE. Roles by DISCOVERY ORDER, and the role assignment is LOGGED with the world +
+	// PlayerState identity -- if discovery order is not stable across runs, a writer/observer mix-up would read
+	// as an observer-leg failure. Cheap to state, expensive to misread.
+	//   A (writer):   t=0 read | t=4 clear | t=8 read | t=12 set 0.2 0.2 0.22 | t=16 read
+	//   B (observer): t=0 read |           | t=8 read |                       | t=16 read
+	// Shared clock, so each read on B lines up with the read on A after the same delta.
+	static void AFLCreator_AutoSequence(UWorld* World, int32 RoleIndex)
 	{
 		if (!World) { return; }
-		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[AUTO] [%s] rejoin-case readback START"), *AFLCreator_NetTag(World));
+		const TCHAR* Role = (RoleIndex == 0) ? TEXT("A-WRITER") : TEXT("B-OBSERVER");
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[ROLE] [%s] role=%s idx=%d world=%s PS=%s"),
+			*AFLCreator_NetTag(World), Role, RoleIndex, *World->GetName(),
+			PS ? *PS->GetName() : TEXT("<null>"));
+
 		TWeakObjectPtr<UWorld> W = World;
-		FTimerHandle T1, T2;
-		World->GetTimerManager().SetTimer(T1, FTimerDelegate::CreateLambda([W]()
+		auto Fire = [W, Role](float Delay, TArray<FString> Args, const TCHAR* Step)
 		{
 			if (!W.IsValid()) { return; }
-			TArray<FString> A; A.Add(TEXT("read")); AFLCreator_RunArgs(W.Get(), A);
-		}), 2.0f, false);
-		World->GetTimerManager().SetTimer(T2, FTimerDelegate::CreateLambda([W]()
-		{
-			if (!W.IsValid()) { return; }
-			TArray<FString> A; A.Add(TEXT("read")); AFLCreator_RunArgs(W.Get(), A);
-			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[AUTO] rejoin-case readback END"));
-		}), 8.0f, false);
+			FTimerHandle T;
+			const FString StepStr(Step); const FString RoleStr(Role);
+			W->GetTimerManager().SetTimer(T, FTimerDelegate::CreateLambda([W, Args, StepStr, RoleStr]()
+			{
+				if (!W.IsValid()) { return; }
+				// PAWN IDENTITY is the RESPAWN DETECTOR: a changed pawn name between step 5 and step 6 IS the
+				// respawn. Unchanged -> no death occurred in the window -> step 6 is NOT EXERCISED, not passed.
+				APlayerController* StepPC = W->GetFirstPlayerController();
+				APawn* StepPawn = StepPC ? StepPC->GetPawn() : nullptr;
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[STEP] [%s] role=%s step=%s pawn=%s"),
+					*AFLCreator_NetTag(W.Get()), *RoleStr, *StepStr,
+					StepPawn ? *StepPawn->GetName() : TEXT("<null>"));
+				AFLCreator_RunArgs(W.Get(), Args);
+			}), Delay, false);
+		};
+
+		TArray<FString> Read;  Read.Add(TEXT("read"));
+		TArray<FString> Clear; Clear.Add(TEXT("clear"));
+		TArray<FString> Set;   Set.Add(TEXT("set")); Set.Add(TEXT("0.2")); Set.Add(TEXT("0.2")); Set.Add(TEXT("0.22"));
+
+		Fire(1.0f,  Read,  TEXT("1-inherited"));
+		if (RoleIndex == 0) { Fire(4.0f, Clear, TEXT("2-clear-delta1")); }
+		Fire(8.0f,  Read,  TEXT("3-after-clear"));
+		if (RoleIndex == 0) { Fire(12.0f, Set,  TEXT("4-set-delta2")); }
+		Fire(16.0f, Read,  TEXT("5-after-set"));
+		// STEP 6 -- RESPAWN DURABILITY via a REAL death: bots are live in this map, so A dies on its own. No
+		// synthetic kill invented. Genuine death->respawn->re-possess exercises OnPossessedPawnChanged on a
+		// BRAND-NEW pawn, which is a stronger test than a self-destruct. Verified by the pawn= field changing.
+		Fire(75.0f, Read,  TEXT("6-late-respawn-check"));
 	}
+
+	static TArray<TWeakObjectPtr<UWorld>> GAFLCreatorFiredWorlds;
 
 	static FTSTicker::FDelegateHandle GAFLCreatorAutoTicker = FTSTicker::GetCoreTicker().AddTicker(
 		FTickerDelegate::CreateLambda([](float) -> bool
 		{
-			if (GAFLCreatorAutoProbe == 0 || GAFLCreatorAutoFired || !GEngine) { return true; }
+			if (GAFLCreatorAutoProbe == 0 || !GEngine) { return true; }
 			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
 			{
 				UWorld* W = Ctx.World();
 				if (!W || !W->IsGameWorld() || W->GetNetMode() != NM_Client) { continue; }
+				bool bAlready = false;
+				for (const TWeakObjectPtr<UWorld>& Seen : GAFLCreatorFiredWorlds) { if (Seen.Get() == W) { bAlready = true; break; } }
+				if (bAlready) { continue; }
 				APlayerController* PC = W->GetFirstPlayerController();
 				APlayerState* PS = PC ? PC->PlayerState : nullptr;
 				if (PS && PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
 				{
-					GAFLCreatorAutoFired = true;
-					AFLCreator_AutoSequence(W);
-					break;
+					const int32 RoleIndex = GAFLCreatorFiredWorlds.Num();
+					GAFLCreatorFiredWorlds.Add(W);
+					AFLCreator_AutoSequence(W, RoleIndex);
 				}
 			}
 			return true;
