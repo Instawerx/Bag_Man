@@ -272,6 +272,7 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 			// and because a future master rewire could make them live; skipping keeps that future change from
 			// silently re-introducing a wash. Stock bodies (M_Mannequin) still get 2/3 -- there they are the
 			// genuine secondary/tertiary ramp.
+			bool bWroteBaseTint = false;
 			static const FName NEmissive2(TEXT("EmissiveColor2"));
 			static const FName NEmissive3(TEXT("EmissiveColor3"));
 			for (const TPair<FName, FLinearColor>& KV : ColorAsset->GetColors())
@@ -313,6 +314,18 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 			if (const FLinearColor* BaseTintOverride = ColorOverride.FindOverrideForParam(NBaseTint))
 			{
 				MID->SetVectorParameterValue(NBaseTint, FVector(*BaseTintOverride));
+				bWroteBaseTint = true;
+			}
+			if (bDiag)
+			{
+				// WRITTEN-KEY LIST, not just values. ABSENT and PRESENT-AT-SEED are different outcomes that a value
+				// read alone cannot distinguish -- that ambiguity is exactly what would have let the preset-key
+				// approach pass its own regression arm while clobbering 69 instances. Emitting whether the key was
+				// written at all makes the creator-OFF arm capable of FAILING, which is the only thing that makes it
+				// evidence. Expected: OFF -> baseTintWritten=0 ; ON -> baseTintWritten=1 on slot 1.
+				UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s slot=%d mid=%s : WROTEKEYS baseTintWritten=%d overrideValid=%d"),
+					*AFLSkinDiag::Prefix(this), *GetName(), SlotIndex, *MID->GetName(),
+					bWroteBaseTint ? 1 : 0, ColorOverride.bValid ? 1 : 0);
 			}
 			for (const TPair<FName, TObjectPtr<UTexture>>& KV : ColorAsset->GetTextures())
 			{
