@@ -76,7 +76,14 @@ enum class EAFLCosmeticType : uint8
 	// mask texture, NeonColor = the identity tint) -- see AAFLCharacterPartActor's ChestEmblemDecal, bone-attached
 	// to spine_04. DISTINCT from Facemask (slot-1 material) and SkinColor_*/Finish (param push): the emblem owns no
 	// material slot, it projects onto the body. Catalogued independently so the logo layer is a-la-carte sellable.
-	Emblem            UMETA(DisplayName = "Emblem")                // AFL.Emblem.<Brand>  -> chest brand decal (per-brand MI + mask texture)
+	Emblem            UMETA(DisplayName = "Emblem"),               // AFL.Emblem.<Brand>  -> chest brand decal (per-brand MI + mask texture)
+
+	// APPENDED 2026-08-19 (CC-X17). A row that is never explicitly typed must be DETECTABLE.
+	// Appended at the END so no existing enumerator's numeric value shifts. This value is a NAME to
+	// check against and to author future rows against; whether it becomes the struct default is a
+	// separate decision with separate risk -- see FAFLCatalogEntry::Type.
+	Invalid           UMETA(DisplayName = "Invalid / unset"),   // never a valid catalog row
+
 };
 
 /**
