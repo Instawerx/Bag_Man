@@ -3204,14 +3204,23 @@ namespace
 			Loadout->ServerSetActiveBuild(FCString::Atoi(*Args[1]));
 			return;
 		}
+		if (Mode == TEXT("lapse") && Args.Num() > 2)
+		{
+			// CC-4.2: drive the lapse rule directly with an explicit cap. The cap is a PARAMETER by
+			// design (product intent owns the number), so the probe supplies it rather than deriving
+			// one -- deriving it here would test a number nobody chose.
+			Loadout->ApplyLapseRule(FCString::Atoi(*Args[1]), FCString::Atoi(*Args[2]) != 0);
+			return;
+		}
 
 		// READ: report the build set AND the committed selection together, so "which build is active" and
 		// "what actually got committed" can be compared rather than assumed equal.
 		const FAFLCreatorBuildSet& Set = Loadout->GetBuildSet();
 		const FAFLCosmeticSelection& Sel = Loadout->GetSelection();
 		UE_LOG(LogAFLCombat, Display,
-			TEXT("AFL_TEST[BUILDPROBE] builds=%d active=%d creatorOn=%d selBody=(%.4f,%.4f,%.4f)"),
+			TEXT("AFL_TEST[BUILDPROBE] builds=%d active=%d creatorOn=%d editLocked=%d selBody=(%.4f,%.4f,%.4f)"),
 			Set.Builds.Num(), Set.ActiveBuildIndex, Sel.bUseCreatorColors ? 1 : 0,
+			Loadout->IsContinuumEditingLocked() ? 1 : 0,
 			Sel.CreatorBodyColor.R, Sel.CreatorBodyColor.G, Sel.CreatorBodyColor.B);
 		for (int32 i = 0; i < Set.Builds.Num(); ++i)
 		{
@@ -4051,6 +4060,14 @@ namespace
 		FireCmd(7.5f,  TEXT("afl.Creator.BuildProbe"), TEXT("b3-read-after-0"));
 		if (RoleIndex == 0) { FireCmd(9.0f,  TEXT("afl.Creator.BuildProbe use 1"), TEXT("b4-use1")); }
 		FireCmd(10.5f, TEXT("afl.Creator.BuildProbe"), TEXT("b5-read-after-1"));
+		// CC-4.2 LAPSE. Cap 1 with 2 builds saved: build 1 must go read-only while build 0 stays
+		// editable, the ACTIVE build must keep rendering exactly what it rendered, and the build
+		// COUNT must not move. Then restore cap 2 and the lock must clear -- a rule that only ever
+		// locks would pass the first half and strand every player who resubscribed.
+		if (RoleIndex == 0) { FireCmd(12.5f, TEXT("afl.Creator.BuildProbe lapse 1 0"), TEXT("L1-lapse-cap1")); }
+		FireCmd(13.5f, TEXT("afl.Creator.BuildProbe"), TEXT("L2-read-lapsed"));
+		if (RoleIndex == 0) { FireCmd(15.0f, TEXT("afl.Creator.BuildProbe lapse 2 1"), TEXT("L3-restore-cap2")); }
+		FireCmd(16.0f, TEXT("afl.Creator.BuildProbe"), TEXT("L4-read-restored"));
 		// AFTER the 20s kill: does BuildSet survive the PlayerState swap (CopyProperties)? Untested
 		// until now -- the earlier run had no post-respawn build read, so an emptied set would have
 		// gone unnoticed while the resolved Selection kept rendering.
