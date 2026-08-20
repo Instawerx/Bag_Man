@@ -3382,10 +3382,26 @@ namespace
 		// so the old emit was byte-identical before and after the change and could never falsify it.
 		// visor= is the field that actually moved, and it must read 0 here: this master has no BaseTint,
 		// so a visor control offered on its 32 facemask presets would write nowhere.
+		// CC-5.2: the BOOLS say "can I use it"; the STATES say why not. Emitting only the bools would
+		// make PresentButInert and Absent look identical in the log -- the exact collapse the three
+		// states exist to prevent -- and the reason is what a UI renders beside a disabled control.
+		auto StateStr = [](EAFLChannelAvailability S)
+		{
+			switch (S)
+			{
+				case EAFLChannelAvailability::Connected:       return TEXT("Connected");
+				case EAFLChannelAvailability::PresentButInert: return TEXT("PresentButInert");
+				default:                                      return TEXT("Absent");
+			}
+		};
 		UE_LOG(LogAFLCombat, Display,
-			TEXT("AFL_TEST[SCHEMAPROBE] DERIVED master=%s body=%d edge=%d glow=%d visor=%d count=%d"),
+			TEXT("AFL_TEST[SCHEMAPROBE] DERIVED master=%s body=%d edge=%d glow=%d visor=%d count=%d "
+				"audited=%d | bodyState=%s edgeState=%s glowState=%s visorState=%s"),
 			*Sch.ResolvedFromMaster.ToString(), Sch.bBodyAvailable ? 1 : 0, Sch.bEdgeAvailable ? 1 : 0,
-			Sch.bGlowAvailable ? 1 : 0, Sch.bVisorAvailable ? 1 : 0, Sch.AvailableCount());
+			Sch.bGlowAvailable ? 1 : 0, Sch.bVisorAvailable ? 1 : 0, Sch.AvailableCount(),
+			Sch.bMasterAudited ? 1 : 0,
+			StateStr(Sch.BodyState), StateStr(Sch.EdgeState),
+			StateStr(Sch.GlowState), StateStr(Sch.VisorState));
 	}
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLSchemaProbeCmd(
@@ -4220,6 +4236,10 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
+		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
+		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
+		// (master, parameter) PAIR rather than the parameter name.
+		if (RoleIndex == 0) { FireCmd(4.2f, TEXT("afl.Creator.SchemaProbe /Game/BagMan/Materials/M_AFL_Character"), TEXT("0-schema-xline")); }
 		// CC-6.1 SHIPPING-PURCHASE PROOF, cvar-gated so it never runs during an ordinary creator probe
 		// (it SPENDS Volts on a live PlayFab account and would otherwise perturb every later run).
 		//
