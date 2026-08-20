@@ -3404,6 +3404,72 @@ namespace
 			StateStr(Sch.GlowState), StateStr(Sch.VisorState));
 	}
 
+	// ─── CC-5.2 hue-arc invariant: afl.Creator.ArcProbe ──────────────────────────────────────────
+	// THE FAILURE THIS CATCHES: a hue drag that produces an OUT-OF-GAMUT colour. The player would see
+	// it in the preview, commit it, and the server clamp would hand back something visibly different --
+	// the control lying about its own result. Since CC-5.2 the preview and the server share ONE clamp,
+	// so this asserts the property that makes sharing safe: WithHue's output is ALWAYS in gamut, for
+	// adversarial inputs, not just tidy ones.
+	//
+	// Adversarial by construction: near-black, pure grey (hue is undefined there), fully saturated, and
+	// out-of-range hue values that must wrap rather than clip.
+	void HandleAFLCreatorArcProbe(const TArray<FString>& /*Args*/, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		const TArray<TPair<FString, FLinearColor>> Inputs = {
+			{ TEXT("near-black"),   FLinearColor(0.01f, 0.01f, 0.01f) },
+			{ TEXT("pure-grey"),    FLinearColor(0.50f, 0.50f, 0.50f) },
+			{ TEXT("near-white"),   FLinearColor(0.98f, 0.98f, 0.98f) },
+			{ TEXT("in-gamut-cyan"),FLinearColor(0.05f, 0.90f, 0.80f) },
+		};
+		const float Hues[] = { 0.0f, 90.0f, 200.0f, 359.9f, -30.0f, 420.0f };
+
+		int32 Checked = 0, Bad = 0;
+		for (const TPair<FString, FLinearColor>& In : Inputs)
+		{
+			for (const float H : Hues)
+			{
+				const FLinearColor Out = AFLCreatorGamut::WithHue(In.Value, H);
+				const FLinearColor HSV = Out.LinearRGBToHSV();
+				++Checked;
+				// tolerance: HSV<->RGB round-trips are lossy at the last bit; 1e-3 is far below anything visible
+				const bool bSatOk = HSV.G >= AFLCreatorGamut::MinSaturation - 1e-3f;
+				const bool bValOk = HSV.B >= AFLCreatorGamut::MinValue - 1e-3f
+				                 && HSV.B <= AFLCreatorGamut::MaxValue + 1e-3f;
+				const float WantHue = FMath::Fmod(FMath::Fmod(H, 360.0f) + 360.0f, 360.0f);
+				const float HueErr  = FMath::Abs(FMath::UnwindDegrees(HSV.R - WantHue));
+				const bool bHueOk   = HueErr < 1.0f;
+				if (!bSatOk || !bValOk || !bHueOk)
+				{
+					++Bad;
+					UE_LOG(LogAFLCombat, Warning,
+						TEXT("AFL_TEST[ARC] OUT-OF-GAMUT in=%s hue=%.1f -> S=%.3f V=%.3f hue=%.1f (satOk=%d valOk=%d hueOk=%d)"),
+						*In.Key, H, HSV.G, HSV.B, HSV.R, bSatOk ? 1 : 0, bValOk ? 1 : 0, bHueOk ? 1 : 0);
+				}
+			}
+		}
+
+		// S/V PRESERVATION on an already-valid pick: dragging hue must not quietly restyle the rest.
+		const FLinearColor Valid(0.05f, 0.90f, 0.80f);
+		const FLinearColor ValidHSV = Valid.LinearRGBToHSV();
+		const FLinearColor Rehued   = AFLCreatorGamut::WithHue(Valid, 300.0f).LinearRGBToHSV();
+		const bool bKeptSV = FMath::IsNearlyEqual(Rehued.G, FMath::Max(ValidHSV.G, AFLCreatorGamut::MinSaturation), 1e-2f)
+		                  && FMath::IsNearlyEqual(Rehued.B, FMath::Clamp(ValidHSV.B, AFLCreatorGamut::MinValue, AFLCreatorGamut::MaxValue), 1e-2f);
+
+		// LINKS DEFAULT OFF -- the shipped state until a pairing is ruled (CC-X24 killed the roadmap's).
+		const FAFLCreatorChannelLinks Links;
+		const bool bUnlinked = (Links.LinkedMask == 0) && (Links.LinkedCount() == 0);
+
+		const bool bPass = (Bad == 0) && bKeptSV && bUnlinked;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[ARC] %s -- checked=%d outOfGamut=%d keptSV=%d linksDefaultOff=%d"),
+			bPass ? TEXT("PASS") : TEXT("FAIL"), Checked, Bad, bKeptSV ? 1 : 0, bUnlinked ? 1 : 0);
+		Ar.Logf(TEXT("afl.Creator.ArcProbe - checked=%d outOfGamut=%d"), Checked, Bad);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorArcProbeCmd(TEXT("afl.Creator.ArcProbe"),
+		TEXT("CC-5.2: assert the hue arc's output is ALWAYS inside the neon gamut for adversarial inputs (near-black, grey, near-white, out-of-range hue), that re-hueing preserves S/V, and that channel links default OFF. AFL_TEST[ARC] PASS = all."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorArcProbe));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLSchemaProbeCmd(
 		TEXT("afl.Creator.SchemaProbe"),
 		TEXT("CC-5.1: run the schema's own existence check against a material path and report found= per parameter. Proves the check can return NOT-FOUND rather than manufacturing a default."),
@@ -4235,6 +4301,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		// it is a pure read and must not perturb the colour timeline that follows.
 		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
+		if (RoleIndex == 0) { FireCmd(3.2f, TEXT("afl.Creator.ArcProbe"), TEXT("0-arc-probe")); }
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
 		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
 		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
