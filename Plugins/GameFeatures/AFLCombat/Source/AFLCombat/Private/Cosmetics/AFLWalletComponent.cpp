@@ -135,7 +135,43 @@ void UAFLWalletComponent::BeginPlay()
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
 		LoadFromPersistence();
+
+		// CC-X23: ...AND SUBSCRIBE, because the load above cannot succeed before there is a session.
+		// Subscribing ONLY when not yet logged in is deliberate: if auth already resolved, the load above
+		// went to PlayFab and a second fetch would be a redundant round-trip, not a correction.
+		if (UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+		{
+			if (!Online->IsLoggedIn())
+			{
+				LoginHandle = Online->OnLoggedIn.AddUObject(this, &UAFLWalletComponent::HandleLoggedIn);
+			}
+		}
 	}
+}
+
+void UAFLWalletComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (LoginHandle.IsValid())
+	{
+		if (UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+		{
+			Online->OnLoggedIn.Remove(LoginHandle);
+		}
+		LoginHandle.Reset();
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+void UAFLWalletComponent::HandleLoggedIn()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	// Emitted BEFORE the re-read and carrying the pre-values, so a reconcile that changes nothing is
+	// still visible. A silent no-op and a reconcile that never ran must not look alike.
+	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCC-X23 login resolved -> re-reading balance (mirror was volts=%d watts=%d)"),
+		*WalletPrefix(this), Volts, Watts);
+
+	LoadFromPersistence();
 }
 
 // =====================================================================================================

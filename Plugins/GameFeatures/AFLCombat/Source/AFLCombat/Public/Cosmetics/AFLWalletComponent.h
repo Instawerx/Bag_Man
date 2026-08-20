@@ -233,6 +233,20 @@ public:
 protected:
 	//~UActorComponent
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	/**
+	 * CC-X23 -- re-read the balance once PlayFab auth resolves.
+	 *
+	 * The BeginPlay load is ONE SHOT. If the session had not authenticated at that instant it took the
+	 * local cache, and nothing ever read again -- so the mirror stayed stale for the whole session. That
+	 * is how a wallet displayed 200,179 VO while PlayFab held the authoritative 4,008. Not async lag:
+	 * a single load that missed its window and had no second chance.
+	 */
+	void HandleLoggedIn();
+
+	/** Handle for the OnLoggedIn subscription, so EndPlay can detach it. */
+	FDelegateHandle LoginHandle;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	//~End
 

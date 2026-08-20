@@ -131,7 +131,13 @@ FAFLEconomyRecord& UAFLEconomyPersistenceSubsystem::RecordFor(const FAFLPlayerId
 bool UAFLEconomyPersistenceSubsystem::ShouldUsePlayFab() const
 {
 	if (CVarEconUsePlayFab.GetValueOnGameThread() == 0) { return false; }
-	return UAFLOnlineSubsystem::Get(this) != nullptr;
+	// CC-X23: THE SUBSYSTEM EXISTING IS NOT THE PLAYER BEING LOGGED IN. This returned true whenever the
+	// object was constructed, so LoadBalance would take the PlayFab branch, issue a GetUserInventory that
+	// could not authenticate, and fall through to the cache. The decision and the outcome disagreed, and
+	// only the outcome was logged -- the same shape as every other value-read-cannot-answer-provenance
+	// finding in this programme. Ask the question that was meant: is there a session?
+	const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	return Online != nullptr && Online->IsLoggedIn();
 }
 
 void UAFLEconomyPersistenceSubsystem::FetchInventoryFromPlayFab(const FAFLPlayerId& Player,
