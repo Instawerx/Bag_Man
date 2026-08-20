@@ -160,6 +160,34 @@ enum class EAFLContentTier : uint8
  * registry resolves+loads on demand. AssetManager primary-asset rules keep the soft-referenced
  * cosmetics in the cook set (the catalog asset is the label that pulls them in).
  */
+
+/**
+ * CC-4.2 -- EFFECTIVE SLOT CAP. Every input is a PARAMETER; there are no numbers in this function.
+ *
+ * PRICING_SSOT 5.2 states the rule and then says "All four values are data. No number is hardcoded."
+ * Writing 2, 5 or 10 in here would make the ladder a code change -- and the ladder is a product lever
+ * that moves with subscription tiers and promotions.
+ *
+ *   MaxUpgrade ? HardCap : clamp(Baseline + Purchased, Baseline, TierCeiling)
+ *
+ * Baseline is CONDITIONAL (derived from sub state: 2 free, 5 League), Purchased is COUNTED (permanent,
+ * $3 each), MaxUpgrade is BOOLEAN OWNED (permanent, $10). Keeping the three shapes separate is what
+ * makes lapse tractable -- a lapsed subscriber keeps what they BOUGHT and loses only the baseline.
+ *
+ * Purchased is clamped at zero: a negative count is meaningless and would silently reduce a cap below
+ * the baseline the player is entitled to regardless.
+ */
+inline int32 AFLResolveEffectiveSlotCap(const int32 Baseline, const int32 Purchased,
+	const int32 TierCeiling, const bool bMaxUpgradeOwned, const int32 HardCap)
+{
+	if (bMaxUpgradeOwned)
+	{
+		return HardCap;
+	}
+	const int32 Safe = FMath::Max(0, Purchased);
+	return FMath::Clamp(Baseline + Safe, Baseline, TierCeiling);
+}
+
 USTRUCT(BlueprintType)
 struct FAFLCatalogEntry
 {
@@ -244,6 +272,33 @@ struct FAFLCatalogEntry
 	/** How it's obtained -- Direct / BattlePass / GrantedFree. The entitlement gate keys off this. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
 	EAFLAcquisition Acquisition = EAFLAcquisition::Direct;
+
+	/**
+	 * CC-4.2 -- WHICH COUNTED ENTITLEMENT THIS SKU FEEDS, and HOW MANY UNITS.
+	 *
+	 * A robot/slot pack does not grant an ITEM, it increments a COUNT. OwnedCosmeticIds is a boolean set
+	 * and cannot express "three of these" -- buying x3 twice must reach six, not stay owned=true.
+	 *
+	 * THE QUANTITY IS DATA, NOT PARSED FROM THE ID. Reading 3 out of "AFL.CreatorSlot.x3" would be taking
+	 * a VALUE from a NAME, which is the provenance error this programme has paid for repeatedly (a
+	 * material parameter reading (0,0,0) could not say "absent"; a Type reading SkinColor_Edge could not
+	 * say "authored"; matching by name classified IronicsVisor as the IRONICS identity). A renamed SKU
+	 * must not silently change what it grants.
+	 *
+	 * ONE MECHANISM. x1, x3 and x8 all carry the SAME CountedKey, so they accumulate into ONE counter --
+	 * PRICING_SSOT 5.4's ruling that a $3 robot and a $3 slot are the same transaction, expressed as data
+	 * rather than as three parallel ladders that would double-grant or double-charge.
+	 *
+	 * FAILS CLOSED. Default NAME_None / 0: a SKU nobody configured grants nothing. The alternative --
+	 * defaulting to a real key with quantity 1 -- is the FAFLCatalogEntry::Type trap again, where a
+	 * plausible default silently absorbs rows nobody typed.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
+	FName CountedKey = NAME_None;
+
+	/** Units granted per purchase into CountedKey. 0 = grants no counted entitlement. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
+	int32 GrantQuantity = 0;
 
 	/** Season / set grouping (e.g. Founders, Season_1). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")

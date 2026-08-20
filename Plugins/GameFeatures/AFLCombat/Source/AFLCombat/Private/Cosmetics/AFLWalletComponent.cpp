@@ -113,6 +113,10 @@ void UAFLWalletComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	// by looking at the number, and on a wagering surface those are opposite claims.
 	DOREPLIFETIME(UAFLWalletComponent, bBalanceKnown);
 	DOREPLIFETIME(UAFLWalletComponent, OwnedCosmeticIds);
+	// CC-4.2: OWNER ONLY, unlike OwnedCosmeticIds above. A slot count is nobody else's business -- no
+	// other player's UI reads it, so replicating it to everyone would spend bandwidth to widen what a
+	// modified client can learn about someone else's account.
+	DOREPLIFETIME_CONDITION(UAFLWalletComponent, CountedEntitlements, COND_OwnerOnly);
 }
 
 void UAFLWalletComponent::BeginPlay()
@@ -764,6 +768,31 @@ void UAFLWalletComponent::CommitMutation(int32 DeltaVolts, int32 DeltaWatts, FNa
 		bGranted = true;
 	}
 
+	// CC-4.2 -- A PURCHASE MAY ALSO INCREMENT A COUNTED ENTITLEMENT.
+	// Placed HERE, in the single authority commit point, so BOTH purchase entries get it from one seam:
+	// ServerPurchaseCosmetic (dev, compiled out of shipping) and ApplyPurchaseResult (shipping, after
+	// PlayFab accepts). Two call sites would drift, and the one that drifted would be the shipping one.
+	//
+	// DELIBERATELY NOT GATED ON bGranted. The owned-set add is idempotent -- you cannot own a thing twice --
+	// but a COUNT is exactly the thing you can buy again: x3 bought twice must reach six, not stay at three.
+	// Gating this on bGranted would make the second purchase take the money and grant nothing.
+	//
+	// Data-driven: the ROW says which counter and how many (CountedKey / GrantQuantity). Nothing here parses
+	// a quantity out of an id, and a SKU nobody configured grants nothing.
+	if (GrantId != NAME_None)
+	{
+		if (const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog())
+		{
+			if (const FAFLCatalogEntry* Entry = Catalog->FindEntry(GrantId))
+			{
+				if (!Entry->CountedKey.IsNone() && Entry->GrantQuantity > 0)
+				{
+					GrantCountedEntitlement(Entry->CountedKey, Entry->GrantQuantity);
+				}
+			}
+		}
+	}
+
 	if (WalletDiagOn())
 	{
 		UE_LOG(LogAFLWalletDiag, Log, TEXT("%s[c] %s COMMIT: volts %d->%d watts %d->%d%s"),
@@ -900,6 +929,72 @@ void UAFLWalletComponent::LoadFromPersistence()
 			}
 		}
 	}));
+}
+
+
+int32 UAFLWalletComponent::GetCountedEntitlement(const FName Key) const
+{
+	for (const FAFLCountedEntitlement& E : CountedEntitlements)
+	{
+		if (E.Key == Key) { return E.Count; }
+	}
+	return 0;
+}
+
+void UAFLWalletComponent::OnRep_CountedSet()
+{
+	// Same shape as OnRep_OwnedSet: the owner's UI reacts to a counted grant without a round-trip.
+	OnWalletChanged.Broadcast(Volts, Watts);
+}
+
+void UAFLWalletComponent::GrantCountedEntitlement(const FName Key, const int32 Quantity)
+{
+	// AUTHORITY ONLY. A client-callable counted grant is a free slot for anyone with a packet editor --
+	// the same reason ServerEarnWatts is compiled out of shipping.
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+	if (Key.IsNone() || Quantity <= 0) { return; }
+
+	int32 NewCount = 0;
+	bool bFound = false;
+	for (FAFLCountedEntitlement& E : CountedEntitlements)
+	{
+		if (E.Key == Key)
+		{
+			E.Count += Quantity;
+			NewCount = E.Count;
+			bFound = true;
+			break;
+		}
+	}
+	if (!bFound)
+	{
+		FAFLCountedEntitlement Added;
+		Added.Key = Key;
+		Added.Count = Quantity;
+		CountedEntitlements.Add(Added);
+		NewCount = Quantity;
+	}
+
+	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCOUNTED GRANT %s += %d -> %d"),
+		*WalletPrefix(this), *Key.ToString(), Quantity, NewCount);
+
+	PersistCountedState();
+	OnWalletChanged.Broadcast(Volts, Watts);
+}
+
+void UAFLWalletComponent::PersistCountedState() const
+{
+	if (IAFLCosmeticPersistence* Persistence = GetPersistence())
+	{
+		// The CC-3.3 seam, finally connected. It has existed and gone uncalled since it was built --
+		// SaveCountedSet had no caller anywhere outside its own subsystem.
+		FAFLCountedEntitlementMap Map;
+		for (const FAFLCountedEntitlement& E : CountedEntitlements)
+		{
+			if (E.Count > 0) { Map.Add(E.Key, E.Count); }
+		}
+		Persistence->SaveCountedSet(MakePlayerId(), Map);
+	}
 }
 
 void UAFLWalletComponent::PersistState() const

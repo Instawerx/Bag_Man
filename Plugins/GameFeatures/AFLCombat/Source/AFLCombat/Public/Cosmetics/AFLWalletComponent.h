@@ -72,6 +72,24 @@ struct FAFLPurchaseVerifyResult
  *   (a) balance replication logs; (b) the gate logs entitled=Y/N + why; (c) earn/spend log the server-side
  *       validation + before/after balance.
  */
+
+/**
+ * CC-4.2 -- one counted entitlement. A TMap cannot be a replicated UPROPERTY, so the wire form is an
+ * array of pairs; the component exposes it as a lookup. Kept minimal on purpose: the KEY says what is
+ * being counted and the COUNT says how many, and nothing else rides along.
+ */
+USTRUCT(BlueprintType)
+struct FAFLCountedEntitlement
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Wallet")
+	FName Key = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Wallet")
+	int32 Count = 0;
+};
+
 UCLASS(meta = (BlueprintSpawnableComponent))
 class AFLCOMBAT_API UAFLWalletComponent : public UPlayerStateComponent, public IAFLEntitlementSource
 {
@@ -118,6 +136,24 @@ public:
 	 *  the catalog Acquisition check inside the gate, not here. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Wallet")
 	bool OwnsCosmetic(FName CosmeticId) const { return OwnedCosmeticIds.Contains(CosmeticId); }
+
+	/** CC-4.2: how many units of a counted entitlement this player holds. 0 = none.
+	 *  NOTE this answers "how many", NOT "was it ever granted" -- a key pruned to zero and a key never
+	 *  granted both read 0 here, deliberately: for a CAP the two are the same, and inventing a
+	 *  distinction nobody needs is how absent-vs-default ambiguity gets built in. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Wallet")
+	int32 GetCountedEntitlement(FName Key) const;
+
+	/** CC-4.2: AUTHORITY-ONLY counted grant. Called from the purchase commit when the bought row carries
+	 *  a CountedKey and a GrantQuantity. Not a Server RPC: a client-callable counted grant would be a
+	 *  free slot for anyone with a packet editor. */
+	void GrantCountedEntitlement(FName Key, int32 Quantity);
+
+protected:
+	/** Writes the counted map through the CC-3.3 persistence seam. */
+	void PersistCountedState() const;
+
+public:
 
 	//~ IAFLEntitlementSource (the REAL impl; the loadout's gate resolves this instead of the null stub) -
 	virtual bool IsEntitled(const ALyraPlayerState* Player, FName CosmeticId) const override;
@@ -217,11 +253,26 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_OwnedSet)
 	TArray<FName> OwnedCosmeticIds;
 
+	/**
+	 * CC-4.2 -- (c) COUNTED entitlements: key -> how many. The THIRD entitlement shape, and the one
+	 * OwnedCosmeticIds cannot express. A boolean set says "owns a slot pack"; it cannot say "owns
+	 * eleven slots", so buying x3 twice would read identically to buying it once.
+	 *
+	 * Replicated to the owner so the creator can show a live n/cap without a round-trip. Parallel to
+	 * OwnedCosmeticIds rather than folded into it, because the two answer different questions and
+	 * collapsing them would force every reader to guess which rule applies.
+	 */
+	UPROPERTY(ReplicatedUsing = OnRep_CountedSet)
+	TArray<FAFLCountedEntitlement> CountedEntitlements;
+
 	UFUNCTION()
 	void OnRep_Balance();
 
 	UFUNCTION()
 	void OnRep_OwnedSet();
+
+	UFUNCTION()
+	void OnRep_CountedSet();
 
 private:
 	//~ Server RPC validation bodies (the _Implementation live in the .cpp) -----------------------------
