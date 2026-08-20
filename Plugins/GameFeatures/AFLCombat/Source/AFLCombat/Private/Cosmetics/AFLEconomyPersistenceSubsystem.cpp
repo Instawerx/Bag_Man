@@ -197,7 +197,12 @@ void UAFLEconomyPersistenceSubsystem::FetchInventoryFromPlayFab(const FAFLPlayer
 				Rec.OwnedCosmeticIds = Owned;
 				S->Flush();
 
-				UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] PlayFab GetUserInventory OK VO=%d WA=%d owned=%d (mirrored to cache)"), VO, WA, Owned.Num());
+				// pfid= IS PART OF THE READING. Without it a balance is a number with no owner, and PIE holds
+				// three accounts at once (client GameInstances + the server each log in separately). Every
+				// balance claim in this programme was unfalsifiable until this line named an account.
+				const UAFLOnlineSubsystem* ReadAs = UAFLOnlineSubsystem::Get(S);
+				UE_LOG(LogAFLEconPersist, Log, TEXT("[EconPersist] PlayFab GetUserInventory OK pfid=%s VO=%d WA=%d owned=%d (mirrored to cache)"),
+					ReadAs ? *ReadAs->GetPlayFabId() : TEXT("<no-online>"), VO, WA, Owned.Num());
 				OnDone(true, VO, WA, Owned);
 			}, /*bRequireAuth*/ true);
 	}, /*TimeoutSeconds*/ 6.0f);

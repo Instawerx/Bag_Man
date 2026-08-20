@@ -476,7 +476,11 @@ void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrenc
 			if (!bOk)
 			{
 				// PlayFab REJECTED (insufficient PlayFab funds / price mismatch) -- the anti-spoof wall.
-				UE_LOG(LogAFLWalletDiag, Log, TEXT("[Wallet] PurchaseItem(%s) REJECTED by PlayFab (funds/price)."), *CosmeticId.ToString());
+				// Same rule as the balance read: name the account that was CHARGED. A rejection with no pfid
+				// cannot be told apart from a rejection on a different account entirely.
+				const UAFLOnlineSubsystem* BuyAs = UAFLOnlineSubsystem::Get(Self);
+				UE_LOG(LogAFLWalletDiag, Log, TEXT("[Wallet] PurchaseItem(%s) REJECTED by PlayFab (funds/price) pfid=%s."),
+					*CosmeticId.ToString(), BuyAs ? *BuyAs->GetPlayFabId() : TEXT("<no-online>"));
 				if (OnComplete) { OnComplete(false); }
 				return;
 			}
@@ -499,6 +503,32 @@ void UAFLWalletComponent::ApplyPurchaseResult(FName CosmeticId, int32 CostVolts,
 		//   authoritative -- that reintroduces the spend spoof this layer closes.
 		Volts = FMath::Max(0, Volts - CostVolts);
 		Watts = FMath::Max(0, Watts - CostWatts);
+
+		// THE JOIN. Identical in shape to the CommitMutation hook, deliberately: two spellings of the
+		// same rule drift, and this seam is where a divergence costs a player money.
+		//
+		// WHY IT IS NEEDED HERE AT ALL: this is the SHIPPING post-commit point. The CommitMutation hook
+		// added for CC-4.2 is unreachable in shipping -- its only GrantId-passing caller is inside
+		// ServerPurchaseCosmetic_Implementation, which is compiled out (#if !UE_BUILD_SHIPPING), and the
+		// dev DebugGrant. So before this hook, buying AFL.CreatorSlot.x3 through the real path took
+		// 4,990 VO and incremented nothing. The CC-4.2 proof could not see it: its arm granted through
+		// DebugGrantOwnership, which routes through CommitMutation -- the one caller that worked.
+		//
+		// SAFE AGAINST DOUBLE-GRANT: ApplyPurchaseResult runs once per accepted purchase, on the accept
+		// path only. It is not the rejection path (which logs and returns) and not the re-read path.
+		if (CosmeticId != NAME_None)
+		{
+			if (const UAFLCosmeticCatalogSubsystem* PurchaseCatalog = GetCatalog())
+			{
+				if (const FAFLCatalogEntry* PurchasedEntry = PurchaseCatalog->FindEntry(CosmeticId))
+				{
+					if (!PurchasedEntry->CountedKey.IsNone() && PurchasedEntry->GrantQuantity > 0)
+					{
+						GrantCountedEntitlement(PurchasedEntry->CountedKey, PurchasedEntry->GrantQuantity);
+					}
+				}
+			}
+		}
 	}
 
 	IAFLCosmeticPersistence* Persistence = GetPersistence();
