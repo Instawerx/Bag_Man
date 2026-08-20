@@ -238,12 +238,30 @@ protected:
 	/**
 	 * CC-X23 -- re-read the balance once PlayFab auth resolves.
 	 *
-	 * The BeginPlay load is ONE SHOT. If the session had not authenticated at that instant it took the
-	 * local cache, and nothing ever read again -- so the mirror stayed stale for the whole session. That
-	 * is how a wallet displayed 200,179 VO while PlayFab held the authoritative 4,008. Not async lag:
-	 * a single load that missed its window and had no second chance.
+	 * The BeginPlay load is ONE SHOT. Login is an ASYNC HTTP round-trip kicked off at subsystem init, so
+	 * BeginPlay can and does run before it resolves. In that window ShouldUsePlayFab() answered yes, the
+	 * fetch could not authenticate, the cache answered instead -- and nothing ever read again.
+	 *
+	 * CORRECTED 2026-08-20. This was first justified by an observed 200,179 VO mirror against a PlayFab
+	 * reading of 4,008. THAT JUSTIFICATION DOES NOT HOLD: measured on 2026-08-20, PlayFab's authoritative
+	 * balance IS 200,179 (GetUserInventory OK VO=200179 WA=5653 owned=10), so the number called stale was
+	 * the true one. PIE logs in three distinct PlayFabIds per session, one per DevCustomId, which makes
+	 * cross-client attribution a likelier reading of the original 4,008 -- but that is not proven either
+	 * and is not claimed here.
+	 *
+	 * The RACE is still real and is read from the code, not inferred from those numbers: existence is not
+	 * authentication, and a one-shot load cannot correct itself. The fix stands on that. What was wrong
+	 * was the evidence offered for it -- kept visible here rather than quietly deleted.
 	 */
-	void HandleLoggedIn();
+	void HandleLoggedIn(const TCHAR* Source);
+
+public:
+#if !UE_BUILD_SHIPPING
+	/** CC-X23 proof entry. Calls HandleLoggedIn -- the SAME function the OnLoggedIn delegate calls --
+	 *  so the arm exercises the shipping reconcile, not a parallel path written to be testable. */
+	void DebugForceReconcile() { HandleLoggedIn(TEXT("probe")); }
+#endif
+private:
 
 	/** Handle for the OnLoggedIn subscription, so EndPlay can detach it. */
 	FDelegateHandle LoginHandle;

@@ -143,7 +143,22 @@ void UAFLWalletComponent::BeginPlay()
 		{
 			if (!Online->IsLoggedIn())
 			{
-				LoginHandle = Online->OnLoggedIn.AddUObject(this, &UAFLWalletComponent::HandleLoggedIn);
+				TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+				LoginHandle = Online->OnLoggedIn.AddLambda([WeakThis]()
+				{
+					if (UAFLWalletComponent* Self = WeakThis.Get()) { Self->HandleLoggedIn(TEXT("delegate")); }
+				});
+				// Logged AT SUBSCRIPTION TIME so "the delegate never fired" is distinguishable from
+				// "nobody ever subscribed". Without this, both look like silence.
+				UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCC-X23 not yet logged in at BeginPlay -> SUBSCRIBED to OnLoggedIn"),
+					*WalletPrefix(this));
+			}
+			else
+			{
+				// The other branch is ALSO a result worth seeing: the BeginPlay load already went to
+				// PlayFab, so no second read is owed. Reported, not assumed.
+				UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCC-X23 already logged in at BeginPlay -> no subscription needed"),
+					*WalletPrefix(this));
 			}
 		}
 	}
@@ -162,14 +177,16 @@ void UAFLWalletComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
-void UAFLWalletComponent::HandleLoggedIn()
+void UAFLWalletComponent::HandleLoggedIn(const TCHAR* Source)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 
 	// Emitted BEFORE the re-read and carrying the pre-values, so a reconcile that changes nothing is
 	// still visible. A silent no-op and a reconcile that never ran must not look alike.
-	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCC-X23 login resolved -> re-reading balance (mirror was volts=%d watts=%d)"),
-		*WalletPrefix(this), Volts, Watts);
+	// SOURCE IS PART OF THE MEASUREMENT. The probe reaches this function deliberately, so without a
+	// caller tag one line served two causes and could not tell a fired delegate from a forced call.
+	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCC-X23 reconcile src=%s -> re-reading balance (mirror was volts=%d watts=%d)"),
+		*WalletPrefix(this), Source, Volts, Watts);
 
 	LoadFromPersistence();
 }
