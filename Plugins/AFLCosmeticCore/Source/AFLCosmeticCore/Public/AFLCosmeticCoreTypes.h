@@ -300,6 +300,23 @@ struct FAFLCatalogEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
 	int32 GrantQuantity = 0;
 
+	/**
+	 * CAN A WEAPON CREDIT REDEEM THIS ROW? Default FALSE, and the default is the whole point.
+	 *
+	 * FAILS CLOSED: an unmarked row is REFUSED, not redeemed. The alternative -- defaulting true and
+	 * marking exclusions -- means every row authored from now on is silently redeemable until someone
+	 * remembers to exclude it, which is the FAFLCatalogEntry::Type trap that cost 27 invisible facemask
+	 * rows (CC-X17). A forgotten mark here costs a player one refused redemption; a forgotten mark the
+	 * other way costs a $1.49 set for a third of a credit.
+	 *
+	 * NOT DERIVED FROM Type OR FROM THE ID. Hand cannons live under AFL.Weapon.* exactly like ordinary
+	 * weapons and share Type=Weapon, so neither separates them -- measured: every candidate
+	 * discriminator (Type, Tier, ContentTier, Rarity, bTransactable, CollectionId) OVERLAPS between the
+	 * two groups. This is an explicit, authored fact, which is why it is a field and not a rule.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
+	bool bCreditRedeemable = false;
+
 	/** Season / set grouping (e.g. Founders, Season_1). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
 	FName CollectionId;
