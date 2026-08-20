@@ -96,7 +96,7 @@ Ordered by how likely the UI lane is to trip over it.
 |---|---|
 | The creator widget | UI lane — spec is written and current |
 | `CC-X22` — register 263 SKUs, or rule them not-for-sale | **Product intent**: are weapon cosmetics sold for real money? That is 151 of the 263 |
-| `CC-X25` — restore X-line body colour | **Art direction**: it changes the shipped look of every X-line robot, and partially reverses CC-X24 |
+| `CC-X25` — restore X-line body colour | **Art direction**, and now with a number attached. Measured 2026-08-20: the master has 8 vector / 13 scalar params (`NeonColor` and `AlbedoRecolor` both present, corroborating SSOT 3.1's "2 of 8" and "7 of 13"). Chain is `M_AFL_Character` -> **one** direct child `MI_AFL_IRONICS_Body` -> 4 variants (`_Crimson`, `_FANATICS`, `_Violet`, `_Viridian`), referenced by 6/2/1/1/1 assets. They are bound on the **skeletal mesh material slots** (`SKM_IRONICS_Blank`), not per-robot in Blueprints — which is why "every X body binds it" is true through a shared mesh. So the edit is small in ASSET count and total in VISUAL reach: it moves every X-line robot at once, and partially reverses CC-X24. |
 | `CC-X20`, `CC-X21`, `CC-X27` | **Undefined.** These appear nowhere in the repo and `git log -S` across all refs shows they were never committed. They exist only in block text |
 | `CC-X26` | Named in conversation as preview/match **lighting parity**; never written to disk. Gates nothing |
 
