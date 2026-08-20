@@ -3853,6 +3853,126 @@ namespace
 		TEXT("without one it reports VOID, not PASS. AFL_TEST[RECON] PASS = corrected."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLReconcileProbe));
 
+	// --- THE JOIN PROOF: afl.Online.VerifySlotBuyJoin ------------------------------------------
+	// Buys AFL.CreatorSlot.x3 through ClientRequestPurchase -- the PRODUCTION entry, real Volts, live
+	// PlayFab -- and asserts the counted slot entitlement moves. This is the join neither cc-4-2-done
+	// (which granted through the dev path) nor cc-6-1-done (which never looked at the counter) covers.
+	//
+	// ARM3 BUYS AGAIN. CC-4.2's decisive arm was that buying x3 twice reaches 6; that has to hold
+	// through ApplyPurchaseResult too, or the counter is a boolean again by a different route.
+	//
+	// SPENDS REAL BALANCE, so it is cvar-gated and checks funds BEFORE spending any: an arm that runs
+	// out of Volts halfway reports FAIL for a reason that has nothing to do with the join.
+	void HandleAFLVerifySlotBuyJoin(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifySlotBuyJoin - run inside PIE.")); return; }
+
+		const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(World);
+		const bool bLoggedIn = Online && Online->IsLoggedIn();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JOIN] ARM0 precondition loggedIn=%d"), bLoggedIn ? 1 : 0);
+		if (!bLoggedIn)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[JOIN] VOID -- no PlayFab session; the production purchase entry cannot run. NOT a FAIL."));
+			return;
+		}
+
+		UAFLWalletComponent* ClientWallet = GetPlayerWallet(World);
+		FString Why;
+		UAFLWalletComponent* SrvWallet = GetServerWalletForLocalPlayer(World, Why);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JOIN] RESOLVE client=%s | server=%s"),
+			ClientWallet ? TEXT("found") : TEXT("MISSING"), *Why);
+		if (!ClientWallet || !SrvWallet)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[JOIN] VOID -- need the CLIENT wallet to drive the production entry and the SERVER wallet to read the counter."));
+			return;
+		}
+
+		static const FName SlotKey(TEXT("AFL.CreatorSlot"));
+		static const FName SkuX3(TEXT("AFL.CreatorSlot.x3"));
+		const int32 Price = 4990;
+		const int32 VoBefore = SrvWallet->GetVolts();
+		const int32 Base = SrvWallet->GetCountedEntitlement(SlotKey);
+		// THE MIRROR IS NOT THE SPENDABLE BALANCE, and it is not necessarily even the same ACCOUNT.
+		// The first run of this probe passed its funds check on a mirror reading 200,179 and was then
+		// refused by PlayFab for InsufficientFunds on a 4,990 item. Report the account so the next
+		// failure is attributable instead of merely surprising.
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JOIN] ARM1 baseline counter=%d mirrorVo=%d (need %d) pfid=%s"),
+			Base, VoBefore, Price * 2, *Online->GetPlayFabId());
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[JOIN] ARM1 NOTE mirrorVo is a DISPLAY value; PlayFab decides. A rejection here is a FUNDS result, not a join result."));
+		if (VoBefore < Price * 2)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[JOIN] VOID -- insufficient Volts (%d < %d). Top up before running; a half-run proves nothing."), VoBefore, Price * 2);
+			return;
+		}
+
+		TWeakObjectPtr<UAFLWalletComponent> WeakSrv(SrvWallet);
+		TWeakObjectPtr<UAFLWalletComponent> WeakCli(ClientWallet);
+		TWeakObjectPtr<UWorld> WeakWorld(World);
+
+		// ARM2 -- first production buy. The counter is read on a LATER FRAME: the grant lands server-side
+		// after a PlayFab round-trip, and reading inside the callback samples before the answer arrives.
+		ClientWallet->ClientRequestPurchase(SkuX3, EAFLPayCurrency::Volts,
+			[WeakSrv, WeakCli, WeakWorld, Base, VoBefore, Price](bool bBuy1)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JOIN] ARM2 buy#1 accepted=%d"), bBuy1 ? 1 : 0);
+			const bool bBuy1Outer = bBuy1;
+			if (!WeakWorld.IsValid()) { return; }
+			FTimerHandle T1;
+			WeakWorld->GetTimerManager().SetTimer(T1, FTimerDelegate::CreateLambda(
+				[WeakSrv, WeakCli, WeakWorld, Base, VoBefore, Price, bBuy1Outer]()
+			{
+				UAFLWalletComponent* S = WeakSrv.Get();
+				UAFLWalletComponent* C = WeakCli.Get();
+				if (!S || !C || !WeakWorld.IsValid())
+				{
+					UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[JOIN] VOID -- wallet or world gone before the ARM2 settle read."));
+					return;
+				}
+				static const FName K(TEXT("AFL.CreatorSlot"));
+				static const FName Sku(TEXT("AFL.CreatorSlot.x3"));
+				const int32 After1 = S->GetCountedEntitlement(K);
+				const bool bArm2 = (After1 - Base) == 3;
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[JOIN] ARM2 counter %d -> %d (delta %d, want 3) vo %d -> %d -> %s"),
+					Base, After1, After1 - Base, VoBefore, S->GetVolts(), bArm2 ? TEXT("PASS") : TEXT("FAIL"));
+
+				// ARM3 -- DECISIVE: buy the SAME pack again through the SAME production entry.
+				C->ClientRequestPurchase(Sku, EAFLPayCurrency::Volts,
+					[WeakSrv, WeakWorld, Base, After1, bArm2, bBuy1Outer](bool bBuy2)
+				{
+					UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JOIN] ARM3 buy#2 accepted=%d"), bBuy2 ? 1 : 0);
+					if (!WeakWorld.IsValid()) { return; }
+					FTimerHandle T2;
+					WeakWorld->GetTimerManager().SetTimer(T2, FTimerDelegate::CreateLambda(
+						[WeakSrv, Base, After1, bArm2, bBuy2, bBuy1Outer]()
+					{
+						UAFLWalletComponent* S2 = WeakSrv.Get();
+						if (!S2) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[JOIN] VOID -- server wallet gone before ARM3.")); return; }
+						static const FName K2(TEXT("AFL.CreatorSlot"));
+						const int32 After2 = S2->GetCountedEntitlement(K2);
+						const bool bArm3 = (After2 - Base) == 6;
+						UE_LOG(LogAFLCombat, Display,
+							TEXT("AFL_TEST[JOIN] ARM3 counter %d -> %d (delta from baseline %d, want 6) -> %s  [a one-shot SKU or a boolean would sit at %d]"),
+							After1, After2, After2 - Base, bArm3 ? TEXT("PASS") : TEXT("FAIL"), After1);
+						UE_LOG(LogAFLCombat, Display,
+							TEXT("AFL_TEST[JOIN] %s -- production purchase reaches the counted grant (buy1Accepted=%d buy2Accepted=%d grantLands=%d accumulates=%d)"),
+							(bArm2 && bArm3) ? TEXT("PASS") : TEXT("FAIL"),
+							bBuy1Outer ? 1 : 0, bBuy2 ? 1 : 0, bArm2 ? 1 : 0, bArm3 ? 1 : 0);
+					}), 5.0f, false);
+				});
+			}), 5.0f, false);
+		});
+
+		Ar.Logf(TEXT("afl.Online.VerifySlotBuyJoin - two production buys queued; ARM3 lands in ~12s. See AFL_TEST[JOIN]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifySlotBuyJoinCmd(TEXT("afl.Online.VerifySlotBuyJoin"),
+		TEXT("Buys AFL.CreatorSlot.x3 TWICE through ClientRequestPurchase (production entry, real Volts) and ")
+		TEXT("asserts the counted slot entitlement reaches +3 then +6. The join neither cc-4-2-done nor ")
+		TEXT("cc-6-1-done covers. AFL_TEST[JOIN] PASS = a real purchase grants a real slot."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifySlotBuyJoin));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorSlotProbeCmd(TEXT("afl.Creator.SlotProbe"),
 		TEXT("CC-4.2: prove buying a slot grants a slot -- x3 increments by 3, buying it AGAIN reaches 6 (a boolean entitlement would not), x8 adds to the SAME counter, and AFLResolveEffectiveSlotCap resolves the ladder including ceiling clamp and max-upgrade. AFL_TEST[SLOT] PASS = all."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorSlotProbe));
@@ -4565,6 +4685,9 @@ static int32 GAFLCreatorBuyProbe = 0;
 
 // CC-X23: separate from BuyProbe on purpose. BuyProbe SPENDS Volts against live PlayFab; this one
 // only needs a SESSION. Folding them would make proving a READ cost money.
+static int32 GAFLSlotJoinProbe = 0;
+static FAutoConsoleVariableRef CVarAFLSlotJoinProbe(TEXT("afl.Online.SlotJoinProbe.Enable"),
+	GAFLSlotJoinProbe, TEXT("1 = buy AFL.CreatorSlot.x3 TWICE through the production entry and assert the counter reaches +6. SPENDS 9980 real Volts."), ECVF_Default);
 static int32 GAFLReconcileProbe = 0;
 static FAutoConsoleVariableRef CVarAFLReconcileProbe(TEXT("afl.Online.ReconcileProbe.Enable"),
 	GAFLReconcileProbe, TEXT("CC-X23: 1 = run the wallet-mirror reconcile proof. Needs afl.Online.ForceEosLogin 1."), ECVF_Default);
@@ -4706,6 +4829,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0) { FireCmd(6.5f, TEXT("afl.Creator.PreviewProbe"), TEXT("0-cc53-preview")); }
 		if (RoleIndex == 0) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
 		if (RoleIndex == 0 && GAFLReconcileProbe != 0) { FireCmd(14.0f, TEXT("afl.Online.ReconcileProbe"), TEXT("0-ccx23-reconcile")); }
+		if (RoleIndex == 0 && GAFLSlotJoinProbe != 0) { FireCmd(18.0f, TEXT("afl.Online.VerifySlotBuyJoin"), TEXT("0-join-slotbuy")); }
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
 		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
 		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
