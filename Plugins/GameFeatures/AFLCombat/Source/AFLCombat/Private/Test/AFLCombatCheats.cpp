@@ -15,6 +15,7 @@
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
 #include "Cosmetics/AFLWalletComponent.h"            // S-ECON-WALLET: balance/gate/earn-spend cheats
+#include "Player/LyraPlayerState.h" // CC-6.1 VerifyNewSkuBuy: IsEntitled takes a ALyraPlayerState* and the wallet header only forward-declares it
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h" // A1.1: afl.Online.VerifyA11 (wipe-local -> load -> assert PlayFab)
 #include "Engine/GameInstance.h"                      // A1.1: GetSubsystem<UAFLEconomyPersistenceSubsystem>()
 #include "Teams/LyraTeamSubsystem.h"                 // afl.Cosmetic.Test.Readability: opposing gameplay-team assignment
@@ -4079,6 +4080,14 @@ namespace
 static int32 GAFLCreatorPullOnly = 0;
 static FAutoConsoleVariableRef CVarAFLCreatorPullOnly(TEXT("afl.Creator.PullOnly"),
 	GAFLCreatorPullOnly, TEXT("CC-3.5 relaunch proof: 1 = pull builds from the backend instead of seeding."));
+
+// CC-6.1 shipping-purchase proof. Fired from the AutoProbe TIMER, not from the bridge: the standing
+// rule is ZERO bridge calls while PIE runs, so a console command that must execute mid-session has
+// to be scheduled in-process before PIE starts. Same mechanism the creator probes already use.
+static int32 GAFLCreatorBuyProbe = 0;
+static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe"),
+	GAFLCreatorBuyProbe, TEXT("CC-6.1: 1 = buy a registered SKU through the SHIPPING entry, then a "
+	"deliberately UNREGISTERED one as the negative control. Set BEFORE starting PIE."));
 	static FAutoConsoleVariableRef GAFLCreatorAutoProbeCVar(
 		TEXT("afl.Creator.AutoProbe"),
 		GAFLCreatorAutoProbe,
@@ -4211,6 +4220,21 @@ static FAutoConsoleVariableRef CVarAFLCreatorPullOnly(TEXT("afl.Creator.PullOnly
 		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
+		// CC-6.1 SHIPPING-PURCHASE PROOF, cvar-gated so it never runs during an ordinary creator probe
+		// (it SPENDS Volts on a live PlayFab account and would otherwise perturb every later run).
+		//
+		// POSITIVE then NEGATIVE, in that order and far apart. AFL.CreatorSlot.x1 is registered in the
+		// PlayFab manifest and must succeed; AFL.Ability.EMP is priced in the UE catalog but is NOT in
+		// the manifest -- one of the 263 CC-X22 rows -- and must FAIL. Without the negative arm a pass
+		// proves only that SOME buy works, not that registration is what makes the difference.
+		if (RoleIndex == 0 && GAFLCreatorBuyProbe != 0)
+		{
+			// POSITIVE uses an UNOWNED registered SKU. AFL.CreatorSlot.x1 was bought in the 02.35 run and is
+			// non-stackable, so re-buying it would fail as ALREADY OWNED and contaminate the arm -- a failure
+			// that looks identical to "unregistered" in the result line. ARIA is registered, unowned, 990 VO.
+			FireCmd(12.0f, TEXT("afl.Online.VerifyNewSkuBuy AFL.Emblem.ARIA"), TEXT("BUY-positive"));
+			FireCmd(26.0f, TEXT("afl.Online.VerifyNewSkuBuy AFL.Ability.EMP"),   TEXT("BUY-negative-control"));
+		}
 		// CC-3 build proof. Sequenced BEFORE the colour timeline so a build activation cannot be
 		// confused with a direct colour set: the two write the same field by different routes.
 		// RELAUNCH PROOF: pull from the remote WITHOUT seeding. If builds appear, they came from the
@@ -4882,6 +4906,80 @@ static FAutoConsoleVariableRef CVarAFLCreatorPullOnly(TEXT("afl.Creator.PullOnly
 			}
 		});
 	}
+
+	// ─── CC-6.1 NEW-SKU shipping proof: afl.Online.VerifyNewSkuBuy <CosmeticId> ──────────────────
+	// VerifyPurchaseSeam proves the seam works, but it only ever buys AFL.Test.Token -- a transient
+	// fixture that is ALWAYS in the PlayFab catalog. It therefore cannot show that a row authored in the
+	// UE catalog and seeded to PlayFab is actually purchasable. That gap is the whole subject of CC-X22:
+	// a UE catalog row does NOT make a SKU sellable, and until it is in the PlayFab manifest every real
+	// cosmetic returns ItemNotFound in shipping while passing in PIE via the dev grant.
+	//
+	// DRIVES THE PRODUCTION ENTRY DELIBERATELY. ServerPurchaseCosmetic is the dev grant and is compiled
+	// out of shipping; a proof that runs through it proves nothing about shipping. This calls
+	// ClientRequestPurchase -> PurchaseThroughBackend -> PlayFab, the path real money-equivalent spend
+	// takes, and reports the Volts delta and the entitlement flip.
+	//
+	// FALSIFIABLE: a SKU that is NOT registered in PlayFab fails here with the seam refusing the buy --
+	// which is exactly what every unseeded row would do. Run it against an unseeded id to see the
+	// negative, and against AFL.CreatorSlot.x1 to see the positive.
+	void HandleAFLVerifyNewSkuBuy(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifyNewSkuBuy - run inside PIE.")); return; }
+		UAFLWalletComponent* Wallet = GetPlayerWallet(World);
+		if (!Wallet) { Ar.Log(TEXT("afl.Online.VerifyNewSkuBuy - no wallet on the local PlayerState.")); return; }
+
+		const FString IdStr = Args.Num() > 0 ? Args[0] : FString(TEXT("AFL.CreatorSlot.x1"));
+		const FName Id(*IdStr);
+		APlayerController* PC = World->GetFirstPlayerController();
+		const ALyraPlayerState* PS = PC ? Cast<ALyraPlayerState>(PC->PlayerState) : nullptr;
+
+		const int32 VoBefore = Wallet->GetVolts();
+		const bool bOwnedBefore = PS ? Wallet->IsEntitled(PS, Id) : false;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[NEWSKU] start id=%s voBefore=%d ownedBefore=%d -> ClientRequestPurchase (PRODUCTION entry -> PlayFab)"),
+			*IdStr, VoBefore, bOwnedBefore ? 1 : 0);
+
+		Wallet->ClientRequestPurchase(Id, EAFLPayCurrency::Volts,
+			[Wallet, Id, IdStr, VoBefore, bOwnedBefore, PS](bool bSuccess)
+		{
+			const int32 VoAfter = Wallet->GetVolts();
+			const bool bOwnedAfter = PS ? Wallet->IsEntitled(PS, Id) : false;
+			const int32 Spent = VoBefore - VoAfter;
+			// bOwnedBefore is reported so a row the account ALREADY owned cannot read as a fresh purchase --
+			// owned-before + no spend is a no-op, not a pass.
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[NEWSKU] id=%s success=%d vo %d->%d spent=%d owned %d->%d"),
+				*IdStr, bSuccess ? 1 : 0, VoBefore, VoAfter, Spent, bOwnedBefore ? 1 : 0, bOwnedAfter ? 1 : 0);
+			// PASS IS THE SERVER'S ANSWER, NOT THE LOCAL MIRROR'S.
+			// An earlier revision required Spent > 0 and an entitlement flip read from GetVolts()/IsEntitled
+			// SYNCHRONOUSLY inside this callback -- and printed FAIL on a purchase PlayFab had accepted
+			// (http=200 ok=1, GetUserInventory VO=4008 owned=1) while the local read still showed a stale
+			// 200179. The local wallet is a DISPLAY MIRROR that refreshes asynchronously; economy-store
+			// SS8.1 is explicit that the client requests and the SERVER decides, and a client-side cache
+			// "never decides ownership". Asserting against it measured the wrong side of the seam.
+			//
+			// bSuccess IS the PlayFab result carried back through PurchaseThroughBackend. The mirror values
+			// are still emitted, as INFORMATION -- a mirror that never catches up is worth seeing, but it
+			// is a separate defect from whether the purchase committed.
+			const bool bPass = bSuccess;
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[NEWSKU] %s -- %s (mirror: spent=%d ownedFlip=%d; "
+				"mirror is async + display-only, NOT the pass criterion)"),
+				bPass ? TEXT("PASS") : TEXT("FAIL"),
+				bPass ? TEXT("PlayFab ACCEPTED the buy -- SKU is registered and purchasable on the shipping path")
+				      : TEXT("PlayFab REFUSED -- unregistered (ItemNotFound) / insufficient funds / no price"),
+				Spent, (bOwnedAfter && !bOwnedBefore) ? 1 : 0);
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 15.f, bPass ? FColor::Green : FColor::Red,
+					FString::Printf(TEXT("[NEWSKU] %s %s spent=%d"), bPass ? TEXT("PASS") : TEXT("FAIL"), *IdStr, Spent));
+			}
+		});
+		Ar.Logf(TEXT("afl.Online.VerifyNewSkuBuy - requested %s through ClientRequestPurchase; watch AFL_TEST[NEWSKU]."), *IdStr);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyNewSkuBuyCmd(TEXT("afl.Online.VerifyNewSkuBuy"),
+		TEXT("CC-6.1 shipping proof: buy <CosmeticId> (default AFL.CreatorSlot.x1) through the PRODUCTION entry ClientRequestPurchase -> PurchaseThroughBackend -> PlayFab. Proves a newly REGISTERED SKU is purchasable on the path shipping actually uses, not the dev grant. AFL_TEST[NEWSKU] PASS = spent > 0 and entitlement flipped."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyNewSkuBuy));
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLOnlineVerifyPurchaseSeamCmd(TEXT("afl.Online.VerifyPurchaseSeam"),
 		TEXT("Phase-1 PRODUCTION-seam purchase proof: drive the REAL entry ClientRequestPurchase -> PurchaseThroughBackend (the relocated transport) to buy the transient-injected AFL.Test.Token (10 VO) via PlayFab, then over-buy Premium -> assert seam fired + PlayFab deduct+grant + local mirror + spend-spoof rejected THROUGH the seam. AFL_TEST[SEAM] PASS = all."),
