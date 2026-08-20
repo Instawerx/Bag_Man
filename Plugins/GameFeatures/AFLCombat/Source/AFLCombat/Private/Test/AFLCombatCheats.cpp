@@ -3607,6 +3607,149 @@ namespace
 		Ar.Logf(TEXT("afl.Creator.PreviewProbe - 4 arms run; see AFL_TEST[CC53]."));
 	}
 
+	// Defined further down this file (the online-seam helpers); forward-declared so the CC-4.2 probe can
+	// sit beside the other creator probes rather than being exiled to the bottom for a lookup order.
+	UAFLWalletComponent* GetPlayerWallet(UWorld* World);
+
+	// ─── CC-4.2 slot wiring proof: afl.Creator.SlotProbe ─────────────────────────────────────────
+	// FIVE ARMS.
+	//   1 BASELINE        the counter starts where it starts, recorded so every later delta is real
+	//   2 GRANT LANDS     buying x3 increments by exactly 3, not by 1 and not by "owned"
+	//   3 ACCUMULATES     buying x3 AGAIN reaches 6 -- THE decisive arm
+	//   4 DIFFERENT PACK  x8 adds 8 to the SAME counter, so one mechanism not two ladders
+	//   5 CAP RESOLVES    AFLResolveEffectiveSlotCap over the ladder, including the clamp
+	//
+	// ARM 3 IS WHY THIS PROBE EXISTS. The owned-set add is idempotent, and if the counted grant were
+	// gated on it the second purchase would take the money and grant nothing -- silent theft that every
+	// single-purchase test passes. Buying twice is the only way to tell an incrementing counter from a
+	// boolean wearing one.
+	//
+	// Uses the DEV grant path deliberately: this proves the WIRING (row data -> counter -> persistence),
+	// not the payment transport, which cc-6-1-done already proved end-to-end against live PlayFab.
+	// CC-4.2 -- the SERVER-side wallet for the local player.
+	//
+	// A console command in PIE executes in the CLIENT world, so GetPlayerWallet() returns the client's
+	// REPLICA. GrantCountedEntitlement is authority-only, so granting against that replica would have
+	// incremented nothing and every arm would have measured a counter that cannot move -- five PASSes
+	// against a number that was never the number. The probe's authority guard caught exactly that.
+	//
+	// MATCHED BY REPLICATED PlayerId, NOT BY NAME. Both PIE clients share pawn and PlayerState NAMES
+	// (the two-client attribution trap), so a name match would silently pick either player.
+	//
+	// Same world-context walk the STEP self-destruct arm above uses, which reported srvWorld=FOUND
+	// srvPC=FOUND in this very session -- this is a proven path here, not an assumed one.
+	UAFLWalletComponent* GetServerWalletForLocalPlayer(UWorld* ClientWorld, FString& OutWhy)
+	{
+		int32 MyId = -1;
+		if (APlayerController* MyPC = ClientWorld ? ClientWorld->GetFirstPlayerController() : nullptr)
+		{
+			if (APlayerState* MyPS = MyPC->PlayerState) { MyId = MyPS->GetPlayerId(); }
+		}
+		if (MyId < 0) { OutWhy = TEXT("no local PlayerId"); return nullptr; }
+
+		UWorld* SrvWorld = nullptr;
+		if (GEngine)
+		{
+			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+			{
+				UWorld* CW = Ctx.World();
+				if (CW && CW->IsGameWorld() && CW->GetNetMode() == NM_DedicatedServer) { SrvWorld = CW; break; }
+			}
+		}
+		if (!SrvWorld) { OutWhy = FString::Printf(TEXT("no dedicated-server world (pid=%d)"), MyId); return nullptr; }
+
+		for (FConstPlayerControllerIterator It = SrvWorld->GetPlayerControllerIterator(); It; ++It)
+		{
+			APlayerController* SrvPC = It->Get();
+			APlayerState* SrvPS = SrvPC ? SrvPC->PlayerState : nullptr;
+			if (!SrvPS || SrvPS->GetPlayerId() != MyId) { continue; }
+			if (UAFLWalletComponent* SrvWallet = SrvPS->FindComponentByClass<UAFLWalletComponent>())
+			{
+				OutWhy = FString::Printf(TEXT("server wallet pid=%d ps=%s hasAuthority=%d"),
+					MyId, *SrvPS->GetName(), SrvPS->HasAuthority() ? 1 : 0);
+				return SrvWallet;
+			}
+			OutWhy = FString::Printf(TEXT("server PS pid=%d carries no wallet component"), MyId);
+			return nullptr;
+		}
+		OutWhy = FString::Printf(TEXT("no server PC with pid=%d"), MyId);
+		return nullptr;
+	}
+
+	void HandleAFLCreatorSlotProbe(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Creator.SlotProbe - run inside PIE.")); return; }
+		// RESOLVE is emitted unconditionally, pass or fail: which wallet, on which PlayerState, with
+		// what authority. A later run that grants nothing must say WHICH wallet it touched, or the
+		// arms cannot be told apart from arms that measured the wrong object.
+		FString Why;
+		UAFLWalletComponent* Wallet = GetServerWalletForLocalPlayer(World, Why);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SLOT] RESOLVE %s"), *Why);
+		if (!Wallet)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SLOT] ABORT -- no server wallet reached: %s"), *Why);
+			return;
+		}
+		// KEPT, not removed. It is the falsifier: if the resolve above ever returns a replica again,
+		// this refuses rather than producing five PASSes against a counter that cannot move.
+		if (!Wallet->GetOwner() || !Wallet->GetOwner()->HasAuthority())
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SLOT] ABORT -- resolved wallet still lacks authority (%s); the counted grant is authority-only, so this would prove nothing."), *Why);
+			return;
+		}
+
+		static const FName Key(TEXT("AFL.CreatorSlot"));
+		const int32 Base = Wallet->GetCountedEntitlement(Key);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SLOT] ARM1 baseline %s = %d"), *Key.ToString(), Base);
+
+		// ARM 2 -- x3 lands as 3
+		Wallet->DebugGrantOwnership(FName(TEXT("AFL.CreatorSlot.x3")));
+		const int32 After1 = Wallet->GetCountedEntitlement(Key);
+		const bool bArm2 = (After1 - Base) == 3;
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SLOT] ARM2 buy x3  %d -> %d (delta %d, want 3) -> %s"),
+			Base, After1, After1 - Base, bArm2 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ARM 3 -- DECISIVE: buy the SAME pack again, must reach +6 total
+		Wallet->DebugGrantOwnership(FName(TEXT("AFL.CreatorSlot.x3")));
+		const int32 After2 = Wallet->GetCountedEntitlement(Key);
+		const bool bArm3 = (After2 - Base) == 6;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SLOT] ARM3 buy x3 AGAIN %d -> %d (delta from baseline %d, want 6) -> %s  [a boolean would sit at %d]"),
+			After1, After2, After2 - Base, bArm3 ? TEXT("PASS") : TEXT("FAIL"), After1);
+
+		// ARM 4 -- a different pack, same counter
+		Wallet->DebugGrantOwnership(FName(TEXT("AFL.CreatorSlot.x8")));
+		const int32 After3 = Wallet->GetCountedEntitlement(Key);
+		const bool bArm4 = (After3 - After2) == 8;
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SLOT] ARM4 buy x8  %d -> %d (delta %d, want 8; ONE counter) -> %s"),
+			After2, After3, After3 - After2, bArm4 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ARM 5 -- the cap resolver, every input a parameter. Values from PRICING_SSOT 5.1's ladder, passed
+		// in rather than baked: free baseline 2 / ceiling 5, League baseline 5 / ceiling 10, hard cap 10.
+		const int32 FreeNone   = AFLResolveEffectiveSlotCap(2, 0,  5, false, 10);  // want 2
+		const int32 FreeThree  = AFLResolveEffectiveSlotCap(2, 3,  5, false, 10);  // want 5
+		const int32 FreeClamp  = AFLResolveEffectiveSlotCap(2, 99, 5, false, 10);  // want 5 -- ceiling holds
+		const int32 LeagueFive = AFLResolveEffectiveSlotCap(5, 5, 10, false, 10);  // want 10
+		const int32 Upgraded   = AFLResolveEffectiveSlotCap(2, 0,  5, true,  10);  // want 10 -- upgrade wins
+		const int32 NegSafe    = AFLResolveEffectiveSlotCap(2, -7, 5, false, 10);  // want 2 -- never below baseline
+		const bool bArm5 = FreeNone == 2 && FreeThree == 5 && FreeClamp == 5
+		                && LeagueFive == 10 && Upgraded == 10 && NegSafe == 2;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SLOT] ARM5 cap free0=%d(2) free3=%d(5) clamp=%d(5) league5=%d(10) upgrade=%d(10) neg=%d(2) -> %s"),
+			FreeNone, FreeThree, FreeClamp, LeagueFive, Upgraded, NegSafe, bArm5 ? TEXT("PASS") : TEXT("FAIL"));
+
+		const bool bPass = bArm2 && bArm3 && bArm4 && bArm5;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SLOT] %s -- arms=5 baseline=%d final=%d grantLands=%d accumulates=%d oneCounter=%d capResolves=%d"),
+			bPass ? TEXT("PASS") : TEXT("FAIL"), Base, After3,
+			bArm2 ? 1 : 0, bArm3 ? 1 : 0, bArm4 ? 1 : 0, bArm5 ? 1 : 0);
+		Ar.Logf(TEXT("afl.Creator.SlotProbe - 5 arms run; see AFL_TEST[SLOT]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorSlotProbeCmd(TEXT("afl.Creator.SlotProbe"),
+		TEXT("CC-4.2: prove buying a slot grants a slot -- x3 increments by 3, buying it AGAIN reaches 6 (a boolean entitlement would not), x8 adds to the SAME counter, and AFLResolveEffectiveSlotCap resolves the ladder including ceiling clamp and max-upgrade. AFL_TEST[SLOT] PASS = all."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorSlotProbe));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorPreviewProbeCmd(TEXT("afl.Creator.PreviewProbe"),
 		TEXT("CC-5.3: prove the creator loop -- apply lands on the preview MIDs, rotation holds colour measured on the far side, a change while rotated does not revert the rotation, and the preview value EQUALS what BuildColorOverride hands the gameplay pawn. AFL_TEST[CC53] PASS = all four."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorPreviewProbe));
@@ -4448,6 +4591,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
 		if (RoleIndex == 0) { FireCmd(3.2f, TEXT("afl.Creator.ArcProbe"), TEXT("0-arc-probe")); }
 		if (RoleIndex == 0) { FireCmd(6.5f, TEXT("afl.Creator.PreviewProbe"), TEXT("0-cc53-preview")); }
+		if (RoleIndex == 0) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
 		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
 		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
