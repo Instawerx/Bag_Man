@@ -3648,6 +3648,27 @@ namespace
 		}
 		if (MyId < 0) { OutWhy = TEXT("no local PlayerId"); return nullptr; }
 
+		// LISTEN HOST FIRST: the caller's own world already HAS authority, so there is no separate
+		// server world to go find. Searching for NM_DedicatedServer here would return nullptr and VOID
+		// the probe on exactly the configuration chosen to make the proof possible.
+		if (ClientWorld && ClientWorld->GetNetMode() == NM_ListenServer)
+		{
+			if (APlayerController* HostPC = ClientWorld->GetFirstPlayerController())
+			{
+				if (APlayerState* HostPS = HostPC->PlayerState)
+				{
+					if (UAFLWalletComponent* HostWallet = HostPS->FindComponentByClass<UAFLWalletComponent>())
+					{
+						OutWhy = FString::Printf(TEXT("LISTEN host wallet pid=%d ps=%s hasAuthority=%d (client and authority are ONE world)"),
+							MyId, *HostPS->GetName(), HostPS->HasAuthority() ? 1 : 0);
+						return HostWallet;
+					}
+				}
+			}
+			OutWhy = FString::Printf(TEXT("listen host but no wallet on the local PlayerState (pid=%d)"), MyId);
+			return nullptr;
+		}
+
 		UWorld* SrvWorld = nullptr;
 		if (GEngine)
 		{
@@ -3863,6 +3884,23 @@ namespace
 	//
 	// SPENDS REAL BALANCE, so it is cvar-gated and checks funds BEFORE spending any: an arm that runs
 	// out of Volts halfway reports FAIL for a reason that has nothing to do with the join.
+	//
+	// ============================ RUN THIS ON A LISTEN SERVER ============================
+	// AND UNDERSTAND WHY THAT IS AN EXCEPTION, NOT A STANDARD.
+	//
+	// LISTEN SERVER WAS REJECTED FOR THIS PROGRAMME'S PROOFS ON PURPOSE -- CC-2.1 step 6 exists
+	// precisely because listen-host exercises IN-PROCESS authority and therefore PASSES legs that do
+	// not exist in a shipped dedicated-server build. Anything about REPLICATION or CLIENT CONVERGENCE
+	// must still be proven on dedicated, two clients. That rule is unchanged.
+	//
+	// The exception is narrow and mechanical: in dedicated PIE each GameInstance logs into PlayFab
+	// SEPARATELY with its own DevCustomId, so the authority side and the client side are DIFFERENT
+	// ACCOUNTS. An economy proof needs the account that PAYS and the account that is WATCHED to be one
+	// account. Listen server is the only PIE configuration that gives that.
+	//
+	// So: ECONOMY proofs that must span authority and client on ONE PlayFab account -> listen server.
+	// Everything else -> dedicated. Do not read "proven on listen server" here as a general standard.
+	// ====================================================================================
 	void HandleAFLVerifySlotBuyJoin(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
 	{
 		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifySlotBuyJoin - run inside PIE.")); return; }
@@ -3887,6 +3925,26 @@ namespace
 			return;
 		}
 
+		// THE GUARD THAT WOULD HAVE CAUGHT THE v1 RUN IN ITS FIRST SECOND.
+		// Three accounts must be one: the one whose balance is READ, the one that is CHARGED, and the
+		// one whose COUNTER is watched. A mismatch is VOID -- a split-account run cannot say anything
+		// about the join, so grading it FAIL would be reporting a verdict the evidence cannot support.
+		const UAFLOnlineSubsystem* CliOnline = UAFLOnlineSubsystem::Get(ClientWallet);
+		const UAFLOnlineSubsystem* SrvOnline = UAFLOnlineSubsystem::Get(SrvWallet);
+		const FString CliPf = CliOnline ? CliOnline->GetPlayFabId() : TEXT("<none>");
+		const FString SrvPf = SrvOnline ? SrvOnline->GetPlayFabId() : TEXT("<none>");
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[JOIN] ARM0b accounts charged/read=%s counterWatched=%s same=%d"),
+			*CliPf, *SrvPf, (CliPf == SrvPf && !CliPf.IsEmpty()) ? 1 : 0);
+		if (CliPf != SrvPf || CliPf.IsEmpty())
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[JOIN] VOID -- the account being CHARGED (%s) is not the account whose COUNTER is watched (%s). ")
+				TEXT("Dedicated PIE logs each GameInstance in separately; run this on a LISTEN SERVER. NOT a FAIL: nothing about the join was tested."),
+				*CliPf, *SrvPf);
+			return;
+		}
+
 		static const FName SlotKey(TEXT("AFL.CreatorSlot"));
 		static const FName SkuX3(TEXT("AFL.CreatorSlot.x3"));
 		const int32 Price = 4990;
@@ -3896,8 +3954,11 @@ namespace
 		// The first run of this probe passed its funds check on a mirror reading 200,179 and was then
 		// refused by PlayFab for InsufficientFunds on a 4,990 item. Report the account so the next
 		// failure is attributable instead of merely surprising.
-		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JOIN] ARM1 baseline counter=%d mirrorVo=%d (need %d) pfid=%s"),
-			Base, VoBefore, Price * 2, *Online->GetPlayFabId());
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JOIN] ARM1 baseline counter=%d mirrorVo=%d (need %d) pfid=%s (counter read on the SAME account, asserted above)"),
+			Base, VoBefore, Price * 2, *CliPf);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[JOIN] ARM1 NOTE ARM3 also exercises the backend fix: AFL.CreatorSlot.x3 carried IsStackable=false until 7452fdc, ")
+			TEXT("so buy#2 would have been refused ALREADY OWNED regardless of the game-side join. buy2Accepted=1 proves BOTH halves."));
 		UE_LOG(LogAFLCombat, Display,
 			TEXT("AFL_TEST[JOIN] ARM1 NOTE mirrorVo is a DISPLAY value; PlayFab decides. A rejection here is a FUNDS result, not a join result."));
 		if (VoBefore < Price * 2)
@@ -4956,7 +5017,14 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
 			{
 				UWorld* W = Ctx.World();
-				if (!W || !W->IsGameWorld() || W->GetNetMode() != NM_Client) { continue; }
+				// NM_ListenServer is accepted alongside NM_Client because on a listen host the local
+				// player's world IS the authority -- there is no separate client world to find. Without
+				// this the entire probe block is skipped on listen and the run reports NOTHING, which
+				// reads identically to "the probes ran and found nothing" (it cost one full run).
+				// Dedicated behaviour is untouched: NM_Client still matches exactly as before.
+				if (!W || !W->IsGameWorld()) { continue; }
+				const ENetMode ProbeNetMode = W->GetNetMode();
+				if (ProbeNetMode != NM_Client && ProbeNetMode != NM_ListenServer) { continue; }
 				bool bAlready = false;
 				for (const TWeakObjectPtr<UWorld>& Seen : GAFLCreatorFiredWorlds) { if (Seen.Get() == W) { bAlready = true; break; } }
 				if (bAlready) { continue; }
