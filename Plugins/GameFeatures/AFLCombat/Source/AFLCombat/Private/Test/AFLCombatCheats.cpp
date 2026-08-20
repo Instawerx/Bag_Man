@@ -4060,16 +4060,24 @@ namespace
 		// GetEntriesByType, NOT GetPurchasableEntries: the latter drops GrantedFree rows, so the free arm
 		// could never find its bundle and that absence would read as a missing row rather than a filter
 		// excluding it by design.
-		FName SoldId = NAME_None, FreeId = NAME_None;
-		TArray<FName> SoldKids, FreeKids;
+		FName SoldId = NAME_None, FreeId = NAME_None, OwnedId = NAME_None;
+		TArray<FName> SoldKids, FreeKids, OwnedKids;
 		TArray<const FAFLCatalogEntry*> All;
 		Catalog->GetEntriesByType(EAFLCosmeticType::Bundle, All);
 		for (const FAFLCatalogEntry* Ptr : All)
 		{
 			const FAFLCatalogEntry& E = *Ptr;
 			if (!E.CosmeticId.ToString().Contains(TEXT("HandCannon"))) { continue; }
-			if (E.Acquisition == EAFLAcquisition::Direct && SoldId.IsNone())
-			{ SoldId = E.CosmeticId; SoldKids = E.ContainedEntitlementIds; }
+			if (E.Acquisition == EAFLAcquisition::Direct && E.ContainedEntitlementIds.Num() == 2)
+			{
+				// Split by LIVE OWNERSHIP, not by id. The buy arm needs a pair nobody owns yet; the
+				// re-buy arm needs one already owned. Previous runs bought DRAGONSOUL.XT, so a fixed
+				// pick would silently turn the buy arm into a second re-buy.
+				const bool bHave = Wallet->OwnsCosmetic(E.ContainedEntitlementIds[0])
+					&& Wallet->OwnsCosmetic(E.ContainedEntitlementIds[1]);
+				if (!bHave && SoldId.IsNone())      { SoldId = E.CosmeticId; SoldKids = E.ContainedEntitlementIds; }
+				else if (bHave && OwnedId.IsNone()) { OwnedId = E.CosmeticId; OwnedKids = E.ContainedEntitlementIds; }
+			}
 			else if (E.Acquisition == EAFLAcquisition::GrantedFree && FreeId.IsNone())
 			{ FreeId = E.CosmeticId; FreeKids = E.ContainedEntitlementIds; }
 		}
@@ -4093,8 +4101,49 @@ namespace
 		// one line before it reaches /purchase-bundle, and that refusal is CORRECT.
 		if (!FreeId.IsNone() && FreeKids.Num() == 2)
 		{
-			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] ARM4 free=%s kid0=%d kid1=%d (entitlement, no charge expected)"),
+			// ARM4 read OWNERSHIP. ARM4b reads ENTITLEMENT -- the actual gate. IsEntitled auto-passes
+			// GrantedFree from the catalog ('owned by everyone -- the catalog says so'), so an empty
+			// owned SET is BY DESIGN for a sponsor item, not a missing grant. Reporting only ownership
+			// made a working design look like the slot defect.
+			// IsEntitled IGNORES its Player parameter -- the signature is `const ALyraPlayerState*
+			// /*Player*/` -- so nullptr is honest here. GetLyraPlayerState() is private and was not
+			// going to be reached; inventing GetLyraPlayerStateForTest was the second invented accessor
+			// in this probe.
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] ARM4 free=%s OWNED kid0=%d kid1=%d"),
 				*FreeId.ToString(), Wallet->OwnsCosmetic(FreeKids[0]) ? 1 : 0, Wallet->OwnsCosmetic(FreeKids[1]) ? 1 : 0);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] ARM4b free ENTITLED kid0=%d kid1=%d  <- the gate that decides equip"),
+				Wallet->IsEntitled(nullptr, FreeKids[0]) ? 1 : 0, Wallet->IsEntitled(nullptr, FreeKids[1]) ? 1 : 0);
+		}
+
+		// ARM5 -- CC-X29 RE-BUY REFUSAL. Fires FIRST so its VO reading is not contaminated by ARM2's
+		// legitimate purchase. Expect: refused, VO unchanged, nothing granted.
+		if (!OwnedId.IsNone())
+		{
+			const int32 VoPreRebuy = Wallet->GetVolts();
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] ARM5 re-buy OWNED pair %s vo=%d -- expect REFUSED, vo UNCHANGED"),
+				*OwnedId.ToString(), VoPreRebuy);
+			Client->ClientRequestPurchase(OwnedId, EAFLPayCurrency::Volts, TFunction<void(bool)>());
+			TWeakObjectPtr<UAFLWalletComponent> WeakReb(Wallet);
+			FTimerHandle TR;
+			World->GetTimerManager().SetTimer(TR, FTimerDelegate::CreateLambda([WeakReb, VoPreRebuy, OwnedId]()
+			{
+				UAFLWalletComponent* R = WeakReb.Get();
+				if (!R) { return; }
+				const int32 VoNow = R->GetVolts();
+				// DO NOT ASSERT ON VO. The wallet balance is SHARED: any other probe spending in the same
+				// window corrupts the delta, and a previous run reported FAIL on a 7970 delta that was
+				// three probes' spending added together, not a re-buy charge. Assert instead on signals
+				// this bundle owns exclusively: the refusal line in the wallet diag, and MintedCount for
+				// THIS bundleId read back from DynamoDB after the run.
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[BUN] ARM5 result %s -- vo %d -> %d (INFORMATIONAL ONLY; other probes spend concurrently). ")
+					TEXT("The verdict is the BUNDLE ALREADY-OWNED line and MintedCount, not this delta."),
+					*OwnedId.ToString(), VoPreRebuy, VoNow);
+			}), 7.0f, false);
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUN] ARM5 SKIPPED -- no already-owned pair to re-buy. NOT a pass."));
 		}
 
 		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] ARM2 buying %s through ClientRequestPurchase (production entry)"), *SoldId.ToString());
