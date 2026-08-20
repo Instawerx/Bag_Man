@@ -443,6 +443,20 @@ void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrenc
 	if (!Entry) { Fail(TEXT("not in catalog")); return; }
 	if (!Entry->bTransactable) { Fail(TEXT("not yet available (backend-gated)")); return; } // B1 INERT GATE: author-now-inert SKU cannot transact until B2 de-inerts it.
 	if (Entry->Acquisition == EAFLAcquisition::GrantedFree) { Fail(TEXT("GrantedFree (no price)")); return; }
+
+	// BUNDLE ROUTE. Type==Bundle does NOT go to PlayFab PurchaseItem: PurchaseItem would grant the
+	// BUNDLE ID ALONE and none of its children -- the slot-join defect exactly. /purchase-bundle does
+	// MINT -> DEDUCT -> GRANT children -> REFUND-on-fail atomically, reading the children from the
+	// mint-ledger row. Note a GrantedFree bundle never reaches here: it is refused one line above,
+	// which is correct -- sponsor pairs are GRANTED, not bought.
+	if (Entry->Type == EAFLCosmeticType::Bundle)
+	{
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%s[Wallet] BUNDLE route %s -> ServerRequestBundlePurchase (NOT PurchaseItem)"),
+			*WalletPrefix(this), *CosmeticId.ToString());
+		ServerRequestBundlePurchase(CosmeticId);
+		if (OnComplete) { OnComplete(true); }   // request accepted; the GRANT is asserted server-side
+		return;
+	}
 	// NOTE: no local already-owned guard -- PlayFab is the authority (it rejects a non-stackable double-buy,
 	// allows a stackable re-buy). The store greys out owned items for DISPLAY only, never as the gate.
 
@@ -486,6 +500,73 @@ void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrenc
 			}
 			Self->ApplyPurchaseResult(CosmeticId, CostV, CostW, OnComplete);
 		}));
+}
+
+void UAFLWalletComponent::ServerRequestBundlePurchase_Implementation(FName BundleId)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	// FAIL CLOSED ON EVERY BRANCH, and each refusal NAMES ITSELF -- a handled refusal must never read
+	// as an outage, the distinction the creator-builds revision guard exists to preserve.
+	const UAFLCosmeticCatalogSubsystem* BundleCatalog = GetCatalog();
+	const FAFLCatalogEntry* Entry = BundleCatalog ? BundleCatalog->FindEntry(BundleId) : nullptr;
+	if (!Entry)                                  { UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- not in catalog"), *WalletPrefix(this), *BundleId.ToString()); return; }
+	if (Entry->Type != EAFLCosmeticType::Bundle) { UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- not a Bundle row"), *WalletPrefix(this), *BundleId.ToString()); return; }
+	if (!Entry->bTransactable)                   { UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- not transactable"), *WalletPrefix(this), *BundleId.ToString()); return; }
+	if (Entry->Acquisition == EAFLAcquisition::GrantedFree) { UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- GrantedFree is granted, not bought"), *WalletPrefix(this), *BundleId.ToString()); return; }
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || !Online->IsBundlePurchaseConfigured())
+	{
+		// NAMES THE MISSING LEG. 'not configured' and 'the Lambda said no' are different worlds and must
+		// not share a message -- an unattributable skip left a run inconclusive once already.
+		UE_LOG(LogAFLWalletDiag, Warning,
+			TEXT("%sBUNDLE REFUSED %s -- signer NOT CONFIGURED (needs AFL_BUNDLE_URL + AFL_EARN_HMAC_KEY, server/editor only). This is NOT a purchase failure."),
+			*WalletPrefix(this), *BundleId.ToString());
+		return;
+	}
+
+	// FAFLPlayerId keeps its backing PRIVATE on purpose -- 'callers get a hash, never the string' --
+	// so it is deliberately NOT the source for a request body. The online subsystem holds the id
+	// legitimately, and it is the same value MakePlayerId() derives from when logged in.
+	const FString PlayFabId = Online->GetPlayFabId();
+	if (PlayFabId.IsEmpty()) { UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- no PlayFabId"), *WalletPrefix(this), *BundleId.ToString()); return; }
+
+	// ONLY the bundle id travels. Price, children and cap are read server-side from the ledger, so a
+	// tampered request cannot change what is charged or what is granted.
+	const FString Body = FString::Printf(
+		TEXT("{\"playFabId\":\"%s\",\"bundleId\":\"%s\",\"nonce\":\"%s\",\"ts\":%lld}"),
+		*PlayFabId, *BundleId.ToString(),
+		*FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens),
+		static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
+
+	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sBUNDLE POST %s pfid=%s -> /purchase-bundle"),
+		*WalletPrefix(this), *BundleId.ToString(), *PlayFabId);
+
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+	Online->PostServerPurchaseBundle(Body, [WeakThis, BundleId](bool bOk, const FString& Resp)
+	{
+		UAFLWalletComponent* Self = WeakThis.Get();
+		if (!Self) { return; }
+		// A HANDLED REFUSAL IS NOT AN OUTAGE. 409 SOLD OUT and the refund path are the Lambda WORKING;
+		// only a transport failure is an outage. Logged distinctly so a run can tell them apart.
+		const bool bSoldOut  = Resp.Contains(TEXT("SOLD OUT")) || Resp.Contains(TEXT("409"));
+		const bool bRefunded = Resp.Contains(TEXT("refund"));
+		if (bOk)
+		{
+			UE_LOG(LogAFLWalletDiag, Log, TEXT("%sBUNDLE GRANTED %s resp=%s"), *WalletPrefix(Self), *BundleId.ToString(), *Resp);
+			Self->LoadFromPersistence();   // pull the granted children + new balance from the authority
+		}
+		else if (bSoldOut || bRefunded)
+		{
+			UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED-BY-LEDGER %s (%s) resp=%s -- handled, NOT an outage"),
+				*WalletPrefix(Self), *BundleId.ToString(), bSoldOut ? TEXT("sold out") : TEXT("refunded"), *Resp);
+		}
+		else
+		{
+			UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE TRANSPORT-FAILED %s resp=%s"), *WalletPrefix(Self), *BundleId.ToString(), *Resp);
+		}
+	});
 }
 
 void UAFLWalletComponent::ApplyPurchaseResult(FName CosmeticId, int32 CostVolts, int32 CostWatts, TFunction<void(bool)> OnComplete)

@@ -256,6 +256,20 @@ protected:
 	void HandleLoggedIn(const TCHAR* Source);
 
 public:
+	/**
+	 * BUNDLE PURCHASE -- Type==Bundle routes here instead of PlayFab PurchaseItem.
+	 *
+	 * A Server RPC because the HMAC signer is server-only. The client sends ONE field, the bundle id;
+	 * price, children and cap come from the mint-ledger row. A client-side grant after PurchaseItem was
+	 * considered and rejected: it puts the grant where the ledger's atomicity and refund cannot reach it,
+	 * so a mid-flight failure would charge without granting -- the defect cc-join-done closed.
+	 */
+	UFUNCTION(Server, Reliable)
+	void ServerRequestBundlePurchase(FName BundleId);
+
+private:
+
+public:
 #if !UE_BUILD_SHIPPING
 	/** CC-X23 proof entry. Calls HandleLoggedIn -- the SAME function the OnLoggedIn delegate calls --
 	 *  so the arm exercises the shipping reconcile, not a parallel path written to be testable. */

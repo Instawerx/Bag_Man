@@ -187,11 +187,30 @@ private:
 	FString SettleUrl;
 	FString RatingUrl;
 	FString CreatorBuildsUrl;
+	/** /purchase-bundle. Same HMAC key as earn. The bundle SSOT is the mint-ledger row, not this URL. */
+	FString BundleUrl;
 
 	/** Shared signed-POST transport for the server-authoritative endpoints (A1.3b earn + A1.4 resolve): sign the
 	 *  EXACT Body with EarnHmacKey, POST it to Url with X-Signature, plain-HTTP-200 completion. Server-only
 	 *  (empty key/URL -> logged skip). PostServerEarn/PostServerResolve are thin wrappers over this. */
 	void PostServerSigned(const FString& Url, const FString& Body, TFunction<void(bool, const FString&)> OnComplete);
+
+public:
+	/**
+	 * POST a signed purchase to /purchase-bundle. The body carries ONLY {playFabId, bundleId, nonce, ts}:
+	 * price, children and cap are read server-side from the mint-ledger row and are never sent, so a
+	 * tampered request cannot change what is charged or what is granted.
+	 *
+	 * Server-only by construction -- PostServerSigned refuses to sign without the HMAC key, which no
+	 * client process holds. A client attempt fails closed rather than granting.
+	 */
+	void PostServerPurchaseBundle(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
+
+	/** True when /purchase-bundle can actually be signed. Lets a caller say 'not configured' rather
+	 *  than reporting a purchase failure for an unwired endpoint. */
+	bool IsBundlePurchaseConfigured() const { return !BundleUrl.IsEmpty() && !EarnHmacKey.IsEmpty(); }
+
+private:
 
 	/** Queued one-shot login waiters (fired on resolve). */
 	TArray<TFunction<void(bool)>> PendingLoginCallbacks;
