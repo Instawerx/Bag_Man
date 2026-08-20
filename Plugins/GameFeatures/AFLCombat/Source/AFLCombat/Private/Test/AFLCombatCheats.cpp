@@ -4028,6 +4028,114 @@ namespace
 		Ar.Logf(TEXT("afl.Online.VerifySlotBuyJoin - two production buys queued; ARM3 lands in ~12s. See AFL_TEST[JOIN]."));
 	}
 
+	// --- THE BUNDLE PROOF: afl.Online.VerifyBundleBuy --------------------------------------------
+	// Catalog rows (149948f3), ledger rows (backend 3d5af6a) and routing (1cca35ef) each look right
+	// alone. That is exactly the configuration that produced the slot-join defect: two proven halves
+	// described as meeting, that never touched. This arm is the seam.
+	void HandleAFLVerifyBundleBuy(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifyBundleBuy - run inside PIE.")); return; }
+
+		const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(World);
+		const bool bLoggedIn = Online && Online->IsLoggedIn();
+		const bool bSigner   = Online && Online->IsBundlePurchaseConfigured();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] ARM0 loggedIn=%d signerConfigured=%d"),
+			bLoggedIn ? 1 : 0, bSigner ? 1 : 0);
+		if (!bLoggedIn || !bSigner)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUN] VOID -- need a session AND AFL_BUNDLE_URL + AFL_EARN_HMAC_KEY. NOT a FAIL: the route was never exercised."));
+			return;
+		}
+
+		FString Why;
+		UAFLWalletComponent* Wallet = GetServerWalletForLocalPlayer(World, Why);
+		UAFLWalletComponent* Client = GetPlayerWallet(World);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] RESOLVE %s"), *Why);
+		if (!Wallet || !Client) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUN] VOID -- no wallet.")); return; }
+
+		UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Catalog) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUN] VOID -- no catalog.")); return; }
+
+		// DISCOVER the ids. Hardcoding one would be the sixth name-guess of this session.
+		// GetEntriesByType, NOT GetPurchasableEntries: the latter drops GrantedFree rows, so the free arm
+		// could never find its bundle and that absence would read as a missing row rather than a filter
+		// excluding it by design.
+		FName SoldId = NAME_None, FreeId = NAME_None;
+		TArray<FName> SoldKids, FreeKids;
+		TArray<const FAFLCatalogEntry*> All;
+		Catalog->GetEntriesByType(EAFLCosmeticType::Bundle, All);
+		for (const FAFLCatalogEntry* Ptr : All)
+		{
+			const FAFLCatalogEntry& E = *Ptr;
+			if (!E.CosmeticId.ToString().Contains(TEXT("HandCannon"))) { continue; }
+			if (E.Acquisition == EAFLAcquisition::Direct && SoldId.IsNone())
+			{ SoldId = E.CosmeticId; SoldKids = E.ContainedEntitlementIds; }
+			else if (E.Acquisition == EAFLAcquisition::GrantedFree && FreeId.IsNone())
+			{ FreeId = E.CosmeticId; FreeKids = E.ContainedEntitlementIds; }
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] discovered sold=%s (%d kids) free=%s (%d kids)"),
+			*SoldId.ToString(), SoldKids.Num(), *FreeId.ToString(), FreeKids.Num());
+		if (SoldId.IsNone() || SoldKids.Num() != 2)
+		{ UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUN] VOID -- no sold pair with 2 children found.")); return; }
+
+		const int32 VoBefore = Wallet->GetVolts();
+		const bool bKid0Before = Wallet->OwnsCosmetic(SoldKids[0]);
+		const bool bKid1Before = Wallet->OwnsCosmetic(SoldKids[1]);
+		const bool bBundleBefore = Wallet->OwnsCosmetic(SoldId);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[BUN] ARM1 baseline vo=%d bundleOwned=%d kid0(%s)=%d kid1(%s)=%d"),
+			VoBefore, bBundleBefore ? 1 : 0, *SoldKids[0].ToString(), bKid0Before ? 1 : 0,
+			*SoldKids[1].ToString(), bKid1Before ? 1 : 0);
+		if (VoBefore < 1490)
+		{ UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUN] VOID -- insufficient Volts (%d < 1490)."), VoBefore); return; }
+
+		// FREE ARM -- an ENTITLEMENT check, not a purchase. A GrantedFree bundle is refused by the route
+		// one line before it reaches /purchase-bundle, and that refusal is CORRECT.
+		if (!FreeId.IsNone() && FreeKids.Num() == 2)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] ARM4 free=%s kid0=%d kid1=%d (entitlement, no charge expected)"),
+				*FreeId.ToString(), Wallet->OwnsCosmetic(FreeKids[0]) ? 1 : 0, Wallet->OwnsCosmetic(FreeKids[1]) ? 1 : 0);
+		}
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] ARM2 buying %s through ClientRequestPurchase (production entry)"), *SoldId.ToString());
+		Client->ClientRequestPurchase(SoldId, EAFLPayCurrency::Volts, TFunction<void(bool)>());
+
+		TWeakObjectPtr<UAFLWalletComponent> WeakSrv(Wallet);
+		TWeakObjectPtr<UWorld> WeakWorld(World);
+		const FName K0 = SoldKids[0], K1 = SoldKids[1], BId = SoldId;
+		FTimerHandle T;
+		World->GetTimerManager().SetTimer(T, FTimerDelegate::CreateLambda([WeakSrv, K0, K1, BId, VoBefore]()
+		{
+			UAFLWalletComponent* S = WeakSrv.Get();
+			if (!S) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BUN] VOID -- wallet gone before the settle read.")); return; }
+			const int32 VoAfter = S->GetVolts();
+			const bool bK0 = S->OwnsCosmetic(K0);
+			const bool bK1 = S->OwnsCosmetic(K1);
+			const bool bBundle = S->OwnsCosmetic(BId);
+			const int32 Spent = VoBefore - VoAfter;
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[BUN] ARM3 vo %d -> %d (spent %d, want 1490) bundleOwned=%d kid0=%d kid1=%d"),
+				VoBefore, VoAfter, Spent, bBundle ? 1 : 0, bK0 ? 1 : 0, bK1 ? 1 : 0);
+			const bool bBothKids = bK0 && bK1;
+			if (!bBothKids && bBundle)
+			{
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("AFL_TEST[BUN] FAIL -- THE SLOT DEFECT REPRODUCED: the bundle id landed and the children did not. The player paid and received nothing usable."));
+				return;
+			}
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUN] %s -- bothChildren=%d charged1490=%d"),
+				(bBothKids && Spent == 1490) ? TEXT("PASS") : TEXT("FAIL"),
+				bBothKids ? 1 : 0, (Spent == 1490) ? 1 : 0);
+		}), 10.0f, false);
+
+		Ar.Logf(TEXT("afl.Online.VerifyBundleBuy - purchase issued; ARM3 lands in ~10s. See AFL_TEST[BUN]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
+		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
+		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyBundleBuy));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifySlotBuyJoinCmd(TEXT("afl.Online.VerifySlotBuyJoin"),
 		TEXT("Buys AFL.CreatorSlot.x3 TWICE through ClientRequestPurchase (production entry, real Volts) and ")
 		TEXT("asserts the counted slot entitlement reaches +3 then +6. The join neither cc-4-2-done nor ")
@@ -4746,6 +4854,9 @@ static int32 GAFLCreatorBuyProbe = 0;
 
 // CC-X23: separate from BuyProbe on purpose. BuyProbe SPENDS Volts against live PlayFab; this one
 // only needs a SESSION. Folding them would make proving a READ cost money.
+static int32 GAFLBundleProbe = 0;
+static FAutoConsoleVariableRef CVarAFLBundleProbe(TEXT("afl.Online.BundleProbe.Enable"),
+	GAFLBundleProbe, TEXT("1 = buy a hand cannon pair through the production entry and assert both children land. SPENDS 1490 real Volts."), ECVF_Default);
 static int32 GAFLSlotJoinProbe = 0;
 static FAutoConsoleVariableRef CVarAFLSlotJoinProbe(TEXT("afl.Online.SlotJoinProbe.Enable"),
 	GAFLSlotJoinProbe, TEXT("1 = buy AFL.CreatorSlot.x3 TWICE through the production entry and assert the counter reaches +6. SPENDS 9980 real Volts."), ECVF_Default);
@@ -4891,6 +5002,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
 		if (RoleIndex == 0 && GAFLReconcileProbe != 0) { FireCmd(14.0f, TEXT("afl.Online.ReconcileProbe"), TEXT("0-ccx23-reconcile")); }
 		if (RoleIndex == 0 && GAFLSlotJoinProbe != 0) { FireCmd(18.0f, TEXT("afl.Online.VerifySlotBuyJoin"), TEXT("0-join-slotbuy")); }
+		if (RoleIndex == 0 && GAFLBundleProbe != 0) { FireCmd(20.0f, TEXT("afl.Online.VerifyBundleBuy"), TEXT("0-bundle-buy")); }
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
 		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
 		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
