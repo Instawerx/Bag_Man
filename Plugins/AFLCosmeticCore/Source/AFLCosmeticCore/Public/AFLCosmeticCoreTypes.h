@@ -97,7 +97,18 @@ enum class EAFLCosmeticType : uint8
 	// ONE MECHANISM for robots AND slots (PRICING_SSOT 5.4): a $3 purchase increments the counted slot
 	// entitlement and grants creator rights to that slot; the x3 and x8 packs increment by 3 and 8.
 	// Address AFL.CreatorSlot.<N>.
-	CreatorSlot       UMETA(DisplayName = "Creator Slot / Robot Pack")
+	CreatorSlot       UMETA(DisplayName = "Creator Slot / Robot Pack"),
+
+	// APPENDED AFTER CreatorSlot, which is itself appended after Invalid -- same reason. Stored
+	// .uasset values are raw ints, so inserting anywhere earlier renumbers every value after it.
+	// Inserting Unclassified at position 0 of EAFLColorEntryKind cost a full no-regression run
+	// (cc-6-4-done). Ugly ordering, stable data.
+	//
+	// A COUNTED entitlement like CreatorSlot, not an item: AFL.WeaponCredit.x3 increments
+	// CountedKey=AFL.WeaponCredit by 3, and the credits are later redeemed against rows carrying
+	// bCreditRedeemable. The redemption is what grants a weapon; the credit itself grants nothing
+	// wearable, which is why it needs its own Type rather than borrowing Weapon.
+	WeaponCredit      UMETA(DisplayName = "Weapon Credit")
 
 };
 
