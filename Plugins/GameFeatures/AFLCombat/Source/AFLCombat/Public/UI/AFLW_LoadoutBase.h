@@ -204,6 +204,64 @@ private:
 	void RepositionPreviewPod();
 
 	/** Destroy the SceneCapture rig (on deactivate). */
+
+public:
+	// ─── CC-5.3 · CREATOR PREVIEW INTERFACE ──────────────────────────────────────────────────────
+	// THE INTERFACE THE WIDGET CALLS. The widget itself is the UI lane's; this is the behaviour it
+	// binds to, so nothing has to be authored blind. Three verbs: set a channel, apply, rotate --
+	// plus reads for state.
+	//
+	// NO SEPARATE PREVIEW COLOUR PATH, AND THAT IS THE POINT. CreatorApplyPreview pushes a preview
+	// SELECTION through UAFLSkinColorControllerComponent::SetPreviewSelection, and every
+	// Refresh*ForPawn reads it via GetEffectiveSelection. RefreshSkinForPawn then builds the overlay
+	// with UAFLCosmeticLoadoutComponent::BuildColorOverride and calls SetColorOverride -- the SAME
+	// functions the gameplay pawn goes through on possession. A preview that resolved colour its own
+	// way would be a bait-and-switch waiting to happen (CREATOR_SSOT 5.3: "the preview is the
+	// product"), so the creator drives the shipping path rather than a parallel one.
+
+	/** Set one creator channel on the working selection. Clamped to the neon gamut immediately, so what
+	 *  the preview shows is what the server would commit -- the clamp is shared, not re-implemented. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
+	void CreatorSetChannel(EAFLCreatorChannel Channel, FLinearColor Colour);
+
+	/** Push the working selection to the display pawn through the shipping resolve path. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
+	void CreatorApplyPreview();
+
+	/** Spin the model. Rotates the MESH, not the actor: the scene capture is ATTACHED to the actor, so
+	 *  rotating the actor would carry the camera around with it and the view would never change -- a
+	 *  rotate control that looks wired and does nothing. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
+	void CreatorRotatePreview(float DeltaYawDegrees);
+
+	/** Current preview yaw in degrees. Read state for the widget, and the far-side check for a proof. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Preview")
+	float CreatorGetPreviewYaw() const;
+
+	/** The working selection the preview is showing. Not committed -- CC-3 save is a separate act. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Preview")
+	FAFLCosmeticSelection CreatorGetWorkingSelection() const { return CreatorWorking; }
+
+	/** Which channels are real on the bound chassis, and why each is not. Straight from the measured
+	 *  schema so the widget disables rather than hides (CC-X24). */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Preview")
+	FAFLCreatorChannelSchema CreatorGetSchema() const;
+
+	/** Channel link state. Defaults fully unlinked; the pairing is unruled (CC-X24). */
+	UPROPERTY(BlueprintReadWrite, Category = "AFL|Creator|Preview")
+	FAFLCreatorChannelLinks CreatorLinks;
+
+protected:
+	/** The uncommitted selection the creator is editing. Seeded from the committed one on first touch. */
+	UPROPERTY()
+	FAFLCosmeticSelection CreatorWorking;
+
+	/** Whether CreatorWorking has been seeded yet -- absent-vs-default made readable rather than
+	 *  inferred from whether the struct "looks empty". */
+	UPROPERTY()
+	bool bCreatorWorkingSeeded = false;
+
+private:
 	void TeardownPreviewCapture();
 
 	/** The scene-capture actor framing the pawn (attached to it; captures every frame -> live). */

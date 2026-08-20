@@ -466,6 +466,103 @@ void UAFLW_LoadoutBase::ApplySelectionToDisplayPawn()
 		SkinCtrl ? TEXT("FOUND") : TEXT("NULL"));
 }
 
+
+// ─── CC-5.3 · CREATOR PREVIEW ────────────────────────────────────────────────────────────────────
+
+void UAFLW_LoadoutBase::CreatorSetChannel(const EAFLCreatorChannel Channel, const FLinearColor Colour)
+{
+	// Seed from the COMMITTED selection the first time, so the creator opens showing what the player
+	// already has rather than a blank. Seeded-ness is a flag, not an inference from the contents.
+	if (!bCreatorWorkingSeeded)
+	{
+		if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+		{
+			CreatorWorking = Loadout->GetSelection();
+		}
+		bCreatorWorkingSeeded = true;
+	}
+
+	// Clamp HERE, with the shared gamut. The server clamps on commit; if the preview did not, the
+	// player would pick a colour, see it, and be handed a different one on save.
+	const FLinearColor Clamped = AFLCreatorGamut::ClampToNeon(Colour);
+	CreatorWorking.bUseCreatorColors = 1;
+
+	auto Assign = [&](const EAFLCreatorChannel Ch)
+	{
+		switch (Ch)
+		{
+			case EAFLCreatorChannel::Body:  CreatorWorking.CreatorBodyColor  = Clamped; break;
+			case EAFLCreatorChannel::Edge:  CreatorWorking.CreatorEdgeColor  = Clamped; break;
+			case EAFLCreatorChannel::Glow:  CreatorWorking.CreatorGlowColor  = Clamped; break;
+			case EAFLCreatorChannel::Visor:
+				CreatorWorking.CreatorVisorColor = Clamped;
+				CreatorWorking.bVisorColorSet    = 1; // an EXPLICIT choice; stops the body mirror
+				break;
+		}
+	};
+
+	Assign(Channel);
+	// Linked channels follow. Default is UNLINKED (CC-X24), so this is a no-op until a pairing is ruled.
+	if (CreatorLinks.IsLinked(Channel))
+	{
+		for (const EAFLCreatorChannel Other : { EAFLCreatorChannel::Body, EAFLCreatorChannel::Edge,
+		                                        EAFLCreatorChannel::Glow, EAFLCreatorChannel::Visor })
+		{
+			if (Other != Channel && CreatorLinks.IsLinked(Other)) { Assign(Other); }
+		}
+	}
+}
+
+void UAFLW_LoadoutBase::CreatorApplyPreview()
+{
+	APawn* Pawn = GetPreviewPawn();
+	APlayerController* PC = GetOwningPlayer();
+	UAFLSkinColorControllerComponent* SkinCtrl =
+		PC ? PC->FindComponentByClass<UAFLSkinColorControllerComponent>() : nullptr;
+	if (!Pawn || !SkinCtrl)
+	{
+		return;
+	}
+	if (!bCreatorWorkingSeeded)
+	{
+		if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+		{
+			CreatorWorking = Loadout->GetSelection();
+		}
+		bCreatorWorkingSeeded = true;
+	}
+	// The shipping path, deliberately: preview selection -> GetEffectiveSelection -> RefreshSkinForPawn
+	// -> BuildColorOverride -> SetColorOverride. Identical to what the gameplay pawn receives.
+	SkinCtrl->SetPreviewSelection(CreatorWorking);
+	ApplySelectionToDisplayPawn();
+}
+
+void UAFLW_LoadoutBase::CreatorRotatePreview(const float DeltaYawDegrees)
+{
+	AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get();
+	if (!Pawn || !Pawn->GetMesh())
+	{
+		return;
+	}
+	// MESH, not actor -- see the header note: the capture is attached to the actor.
+	Pawn->GetMesh()->AddRelativeRotation(FRotator(0.f, DeltaYawDegrees, 0.f));
+}
+
+float UAFLW_LoadoutBase::CreatorGetPreviewYaw() const
+{
+	const AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get();
+	return (Pawn && Pawn->GetMesh()) ? Pawn->GetMesh()->GetRelativeRotation().Yaw : 0.f;
+}
+
+FAFLCreatorChannelSchema UAFLW_LoadoutBase::CreatorGetSchema() const
+{
+	if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+	{
+		return Loadout->GetChannelSchemaForPawn(DisplayPawn.Get());
+	}
+	return FAFLCreatorChannelSchema();
+}
+
 void UAFLW_LoadoutBase::SetupPreviewCapture()
 {
 	APawn* Pawn = GetPreviewPawn(); // the ASC-less display pawn (NOT the gameplay pawn) -> works with no live pawn
