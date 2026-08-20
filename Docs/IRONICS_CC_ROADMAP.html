@@ -93,9 +93,30 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
   <p class="sub">Build order for the player character creator, derived from the CC-READ-1
   through CC-READ-4 forensic passes. Each phase carries an entry gate; no phase starts
   until its gate is green. Status reflects what disk proves, not what documents assert.</p>
-  <div class="meta">2026-08-17 · basis HEAD 7e79535f · companions IRONICS_CHARACTER_CREATOR_SSOT.md ·
-  IRONICS_PRICING_SSOT.md</div>
+  <div class="meta">2026-08-20 · basis HEAD 6c4e6301 · companions IRONICS_CHARACTER_CREATOR_SSOT.md ·
+  IRONICS_PRICING_SSOT.md · <em>status column corrected 2026-08-20; previously accurate at 7e79535f</em></div>
 </header>
+
+<div class="note blue">
+  <strong>NUMBERING DIVERGENCE — read this before matching a tag to a row.</strong>
+  Operator block numbering and this roadmap’s row numbering are <em>not</em> the same scheme,
+  and one pair collides outright:
+  <ul>
+    <li>The block called “CC-4.2 · SLOT WIRING” is <strong>this roadmap’s CC-6.2</strong>
+        (“Slot SKUs + max-slot upgrade”). The tag <code>cc-4-2-done</code> follows the block
+        number, so it closes CC-6.2 below.</li>
+    <li><strong>This roadmap’s CC-4.2 is the lapse rule</strong> (“freeze, never mutate”).
+        <code>cc-4-2-done</code> does <strong>not</strong> close it. Its state is unverified in this
+        pass and its pill is deliberately left untouched — the <code>BuildProbe</code> carries lapse
+        arms (<code>L1-lapse-cap1</code> … <code>L4-read-restored</code>), so it may well be
+        implemented, but no tag asserts it and nothing here will assert it either.</li>
+  </ul>
+  Rows below were flipped to DONE only where a row maps 1:1 onto a tag that exists. Rows with an
+  ambiguous mapping keep their 2026-08-17 pill rather than gaining a status nobody measured.
+  <br><br>
+  <strong>CC-5.2 is deliberately still open.</strong> <code>cc-5-2-done</code> was withheld by
+  ruling; the hue-arc work is banked but the tag was not cut. That is an accurate open, not a gap.
+</div>
 
 <div class="legend">
   <span class="lg"><span class="dot" style="background:var(--green)"></span>Data only — no build</span>
@@ -284,7 +305,7 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
     <span class="rt">Counted entitlement on the cosmetic persistence seam
       <span class="d">The seam stores counted currency and a boolean owned-set. No
       per-cosmetic quantity exists.</span></span>
-    <span class="pill lane">Claude Code</span><span class="pill st-new">NEW</span>
+    <span class="pill lane">Claude Code</span><span class="pill st-done">DONE</span><span class="d">cc-3-done · seam built here, and finally CALLED by cc-4-2-done</span>
   </div>
   <div class="row">
     <span class="rid">CC-3.4</span>
@@ -351,7 +372,7 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
     <span class="rt">Shell + chassis picker + data-driven channel schema
       <span class="d">Schema selected by which master the chassis resolves to. Two screens
       would double maintenance for one differing column.</span></span>
-    <span class="pill lane">AIK</span><span class="pill st-open">UI</span>
+    <span class="pill lane">AIK</span><span class="pill st-done">DONE</span><span class="d">cc-5-1-done</span>
   </div>
   <div class="row">
     <span class="rid">CC-5.2</span>
@@ -365,13 +386,13 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
       <span class="d">Preview infrastructure exists — <code>PreviewRT</code> SceneCapture at
       <code>AFLW_LoadoutBase.cpp:481</code>. Combat-range zoom is mandatory: the banked
       lesson <em>distinctness is by emblem</em> came from exactly this failure.</span></span>
-    <span class="pill lane">AIK</span><span class="pill st-open">UI</span>
+    <span class="pill lane">AIK</span><span class="pill st-done">DONE</span><span class="d">cc-5-3-done</span>
   </div>
   <div class="row">
     <span class="rid">CC-5.4</span>
     <span class="rt">Build naming — filter, uniqueness, report path
       <span class="d">Required before any player sees another player's build name.</span></span>
-    <span class="pill lane">Claude Code</span><span class="pill st-new">NEW</span>
+    <span class="pill lane">Claude Code</span><span class="pill st-done">DONE</span><span class="d">banked inside cc-5-1-done (ruling: do not rebuild)</span>
   </div>
   <div class="gate"><b>PROOF</b> &nbsp;Full loop through the UI with zero cheat commands.</div>
 </div>
@@ -387,12 +408,12 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
     <span class="rid">CC-6.1</span>
     <span class="rt">Robot pack SKUs — $3 ×1 · $4.99 ×3 · $10 ×8, all <code>PriceWatts = 0</code>
       <span class="d">Earnability is one integer. No code change needed.</span></span>
-    <span class="pill lane">AIK</span><span class="pill st-data">DATA</span>
+    <span class="pill lane">AIK</span><span class="pill st-done">DONE</span><span class="d">cc-6-1-done</span>
   </div>
   <div class="row">
     <span class="rid">CC-6.2</span>
     <span class="rt">Slot SKUs + max-slot upgrade</span>
-    <span class="pill lane">AIK</span><span class="pill st-data">DATA</span>
+    <span class="pill lane">AIK</span><span class="pill st-done">DONE</span><span class="d">cc-4-2-done — tag follows BLOCK numbering, see banner</span>
   </div>
   <div class="row">
     <span class="rid">CC-6.3</span>
@@ -402,7 +423,7 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
       couple 55 of 57 identity ids are themselves being retired, and all carry
       <code>bTransactable = false</code> — no player can buy one today. Weapons are fully
       decoupled: 247 rows, zero identity ids in any field.</span></span>
-    <span class="pill lane">AIK</span><span class="pill st-data">DATA</span>
+    <span class="pill lane">AIK</span><span class="pill st-done">DONE</span><span class="d">cc-6-3-done</span>
   </div>
   <div class="row">
     <span class="rid">CC-6.4</span>
@@ -410,7 +431,7 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
       <span class="d"><code>BundleMintLedgerTable.MintCap</code>,
       <code>purchase-bundle/index.ts:159-168</code>. Separate repo, separate commit. The UE
       <code>MintCap</code> is a different field and is never read.</span></span>
-    <span class="pill lane">Claude Code</span><span class="pill st-open">BACKEND</span>
+    <span class="pill lane">Claude Code</span><span class="pill st-done">DONE</span><span class="d">cc-6-4-done</span>
   </div>
   <div class="row">
     <span class="rid">CC-6.5</span>

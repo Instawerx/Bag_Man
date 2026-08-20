@@ -291,22 +291,49 @@ The `BaseTint` limit remains a pre-existing CC-2.1 scope note, not something CC-
 The facemask axis was **33 of 60 live**: 27 `AFL.Facemask.*` catalog rows carried
 `Type = SkinColor_Edge`, so every type-driven consumer (locker, browser, store) excluded them,
 while the `AFL.Edge.` prefix narrowing kept them out of the Edge tab as well - invisible on
-every surface. **Retyped in CC-X16 (`1f842979`, tag `cc-x16-done`); the axis is now 60 of 60**,
-verified on a fresh editor load reading the catalog off disk: `FACEMASKTYPES rows=60
-Facemask=60`, edge axis unchanged at 40.
+every surface. **Retyped in CC-X16 (`1f842979`, tag `cc-x16-done`).**
 
-Root cause: `FAFLCatalogEntry::Type` **defaults to `SkinColor_Edge`**, a real and wrong value,
-so any row authored without setting `Type` is silently absorbed. The default is unchanged -
-see CC-X17.
+**CORRECTED 2026-08-20 - the axis is 38 of 38, not 60 of 60.** Measured on a fresh editor load
+reading the catalog off disk: `AFL_TEST[DOCS] FACEMASK prefix 'AFL.Facemask.' = 38 rows | typed
+correctly = 38 | rows carrying that Type anywhere = 38`, corroborated in the same run by
+`AFL_TEST[FACEMASKTYPES] rows=38 Facemask=38`.
+
+**The axis did not lose typing - it lost ROWS.** All 38 that remain are correctly typed, which is
+what "resolved" meant and still means. The count fell by exactly 22 between the CC-X16 reading and
+this one, and CC-6.3 (`82fac4d7`) retired 22 identities in between. That arithmetic is CONSISTENT
+with the retirement having taken 22 facemask rows with it; it is **not verified** - the catalog is
+a binary `.uasset`, so the deletion diff cannot be read row-wise - and it is recorded here as an
+open correspondence rather than a cause.
+
+**The edge axis is likewise not 40.** Measured: `AFL.Edge.` prefix = **37 rows**, while **42** rows
+carry `Type = SkinColor_Edge`. The 5-row difference is not a discrepancy: it is exactly the 5
+`AFL.Character.*` rows described in §3.4.3, which carry the edge type under a character id. 37 + 5
+= 42, and the two readings agree.
+
+Root cause, and **CLOSED**: `FAFLCatalogEntry::Type` used to default to `SkinColor_Edge`, a real and
+wrong value, so any row authored without setting `Type` was silently absorbed. **The default is now
+`Invalid`** (`4eb4e1c9`, verified an ancestor of HEAD). Both halves of CC-X17 have shipped - the
+`CreatorSlot` enumerator appended after `Invalid` so nothing renumbers, and the default changed,
+which is the half that actually closes the trap. Verified still closed 2026-08-20, AFTER CC-6.3's
+deletions and CC-4.2's three new SKUs: `AFL_TEST[TYPELINT] checked=427 mismatch=15 unmapped=50
+invalid=0` and `AFL_TEST[DOCS] INVALID = 0`. No row rides the default.
 
 ### 3.4.3 KNOWN STATE - the `_X` identity rows (CC-X18)
 
-27 of 56 `AFL.Character.*` catalog rows - the entire `_X` line (`ARIA_X`, `AKUMA_X`, `ASTRA_X`,
-...) - carry the same `Type = SkinColor_Edge` default and are likewise invisible to the
-type-driven character picker. **This is documented state, not a defect to fix.** The pivot
-retires identity SKUs: the store sells no characters, the creator replaces them, and the roster
-cut keeps six identities. Retyping would surface 27 identities the design is removing. All 27
-are bundle-coupled and their bundles carry `bTransactable=false`.
+**CORRECTED 2026-08-20: 5 of 12, not 27 of 56.** Measured: `AFL_TEST[DOCS] CHARACTER prefix
+'AFL.Character.' = 12 rows | typed correctly = 7`, with the off-type remainder reported as
+`{'SKIN_COLOR_EDGE': 5}`. Independently corroborated the same run by
+`AFL_TEST[TYPELINT] ... AFL.Character.=5`. Both figures in the original claim are stale: the
+prefix holds 12 rows, not 56, and 5 of them ride the old `SkinColor_Edge` default, not 27.
+
+Both numbers moved for the same reason the facemask count did - CC-6.3 (`82fac4d7`) retired 22
+identities and CC-6.4 re-typed the colour registry. The DIRECTION of the original finding is
+unchanged: some `AFL.Character.*` rows carry the edge type and are invisible to the type-driven
+character picker.
+
+**This remains documented state, not a defect to fix.** The pivot retires identity SKUs: the store
+sells no characters, the creator replaces them, and the roster cut keeps six identities. Retyping
+would surface identities the design is removing. Their bundles carry `bTransactable=false`.
 
 Their invisibility currently matches the intended end state **by accident**, and is held there
 only by the `AFL.Edge.` prefix narrowing in `AFLCosmeticBrowserLibrary.cpp:99`. That line is
@@ -365,8 +392,8 @@ FAFLCreatorBuild
     FString               DisplayName     // profanity-filtered, see §8
     FName                 ChassisId       // AFL.Character.<NAME>_X
     FAFLChannelValue      Neon, Edge, Chassis, Visor, Emblem
-    FName                 FacemaskId      // existing axis, 33 rows
-    FName                 EmblemId        // existing axis, 28 rows
+    FName                 FacemaskId      // existing axis, 38 rows (measured 2026-08-20)
+    FName                 EmblemId        // existing axis, 6 rows  (measured 2026-08-20)
     FName                 FinishId        // treatment recipe
 ```
 
@@ -573,6 +600,10 @@ compact-reference indirection.
 | 2 | Is `AlbedoRecolor` functional | RESOLVED `cc-0-done` — graph-wired, undriven. See §3.4. |
 | 3 | Team-readability signal once body colour stops carrying it | Team-mode ship |
 | 4 | "League" naming collision with the free `LeaguePlay` tier | Entitlement build |
-| 5 | Robots and slots — one product or two (`IRONICS_PRICING_SSOT.md` §5.4) | Slot implementation |
+| 5 | Robots and slots — one product or two (`IRONICS_PRICING_SSOT.md` §5.4) | **RESOLVED `cc-4-2-done`** — ONE mechanism, measured. `AFL.CreatorSlot.x1/.x3/.x8` all carry the same `CountedKey` and accumulate into one counter: baseline 0 → x3 → 3 → x3 again → 6 → x8 → 14. The second x3 is the decisive arm; a boolean entitlement would have sat at 3 and the player would have paid twice for one slot. Cap is a parameter (`AFLResolveEffectiveSlotCap`, no literal in the resolver): 2/5/5/10/10/2. |
+| 8 | **CC-X17** — `FAFLCatalogEntry::Type` defaulting to a real-and-wrong value | **RESOLVED** — default is now `Invalid` (`4eb4e1c9`). Verified still closed 2026-08-20 after CC-6.3's deletions and CC-4.2's new SKUs: `TYPELINT invalid=0`, `DOCS INVALID = 0`. See §3.4.2. |
+| 9 | **CC-X22** — UE catalog rows with no PlayFab manifest entry | **SCOPED, DELIBERATELY UNREGISTERED.** Measured 2026-08-20: 427 catalog rows, 11 manifest items, 9 overlapping, so the gap is **263** priced-and-`Direct` rows — reproducing the independently-known "9 of 272". By prefix: Weapon 108, WeaponSkin 43, Beam 43, Finish 27, Facemask 21, Body 10, Edge 5, Bundle 5, Ability 1. **Weapons are 151 of 263 by Type**, so the ruling is mostly "are weapon cosmetics sold for real money" — product intent, not an engineering call. The 155 `GRANTED_FREE` rows are unpriced and correctly absent; priced and `Direct` coincide exactly in the data. Registering nothing until that intent is ruled. |
+| 10 | **CC-X23** — wallet mirror loaded once at BeginPlay, never re-read | **DONE `cc-x23-done`** with a stated exclusion. Mechanism proven: a mirror poisoned to 323,635 corrected back to PlayFab's authoritative 200,179 through the shipping path. `ShouldUsePlayFab()` now tests `IsLoggedIn()` rather than object existence. **The `OnLoggedIn` delegate branch is NOT exercised in PIE** — the dev CustomID login always resolves before wallet BeginPlay (all 8 wallets logged "already logged in at BeginPlay -> no subscription needed"), and shipping's EOS/OIDC path is not reproducible here. A login-delay harness was considered and rejected: it would prove the delegate fires when delayed, not that it fires in shipping. |
+| 11 | **`SkinColor_Body` has ZERO catalog rows** | Measured 2026-08-20 — the Type histogram sums to exactly 427 and contains no `SKIN_COLOR_BODY` entry. The 10 `AFL.Body.*` rows carry `Type = Finish`, which `TYPELINT` independently flags (`AFL.Body.=10`, part of `mismatch=15`). Consistent with §3.4.1: body colour is `PresentButInert` on the X-line master, so there has been nothing for a body-colour row to drive. Coupled to CC-X25 — if the retarget lands, this axis needs rows. Recorded as known state, not scheduled. |
 | 6 | Original-line neutralization sweep — ~54 MIs | Original-line creator |
 | 7 | **CC-X25** — material retarget: rewire `Multiply_15.B` on `M_AFL_Character` so `NeonColor` reaches `BaseColor` ungated by `AlbedoRecolor`. **Restores body colour on the X-line** (returns it to three channels). Cost: content change to the master every X body binds, so it alters the shipped look of every X-line robot and needs a regression check on an untouched identity. Real future capability, not a dead end. | X-line body colour |
