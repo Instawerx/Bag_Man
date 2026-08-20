@@ -170,26 +170,51 @@ they render, and for one of them they do not.
 
 #### Graph-connectivity audit of `M_AFL_Character` (T3D export, consumers per parameter)
 
-| Vector parameter | Downstream consumers | Verdict |
-|---|---|---|
-| `NeonColor` (7 nodes) | 1 | LIVE - and the actual body colour source |
-| `EmissiveColor` | 1 | LIVE |
-| `EdgeGlowColor` | 1 | LIVE |
-| `TeamColor` | **0** | INERT - declared, never consumed |
-| `EmissiveColor2` | **0** | INERT |
-| `EmissiveColor3` | **0** | INERT |
+> **COLUMN SPLIT 2026-08-20 (CC-X24).** This table used one column headed "Verdict" whose values
+> read `LIVE`. `LIVE` meant *has a consumer* - it did NOT mean *carries signal to an output*. That
+> single word caused a wrong ruling: `NeonColor` was read as a working body-colour source and a
+> re-point of the body channel onto it was authorised, when its only path to `BaseColor` is gated by
+> a weight measured at zero. A column heading is an instrument, and an ambiguous one produces
+> confident wrong readings at every future use. The two questions are now separate columns.
+
+| Vector parameter | Consumers | Connected? | Carries signal? |
+|---|---|---|---|
+| `NeonColor` (7 nodes) | 1 | YES - `Desaturation_0` -> `LinearInterpolate_0.B` | **NO** - that lerp's `Alpha` is `Saturate_0 x AlbedoRecolor`, and `AlbedoRecolor` measures **0.0**, so `B` contributes nothing |
+| `EmissiveColor` | 1 | YES | YES |
+| `EdgeGlowColor` | 1 | YES | YES |
+| `TeamColor` | **0** | **NO** - declared, never consumed | NO |
+| `EmissiveColor2` | **0** | **NO** | NO |
+| `EmissiveColor3` | **0** | **NO** | NO |
+
+**Measured 2026-08-20:** `get_material_default_scalar_parameter_value(M_AFL_Character,
+AlbedoRecolor)` returns `0.0`. So `NeonColor` is connected-but-silent, which is a THIRD state and
+not the same as either `EdgeGlowColor` (connected and carrying) or `TeamColor` (never connected).
 
 Counted by classifying every reference to each `MaterialExpressionVectorParameter` as
 self-declaration, `ExpressionCollection` listing, or a real `B=(Expression=...)` consumer.
 `TeamColor`, `EmissiveColor2` and `EmissiveColor3` have only the first two.
 
-**Consequence, and it is a design question not a bug:** the creator's *body* colour writes to a
-parameter the chassis master does not consume, so **choosing a body colour does not tint the
-chassis body**. It has effect only where the bound master consumes `TeamColor` - `M_Mannequin`
-on slot 1 - and via `BaseTint` on the visor masters. Edge and glow render on the body; body
-does not. This corroborates the standing note in `IRONICS_PRICING_SSOT.md` that `TeamColor` is
-inert on `M_AFL_Character`, and the in-code observation at `AFLCharacterPartActor.cpp:251` that
-`EmissiveColor2/3` "were all ruled out by probe". **Unresolved - needs a ruling.**
+**Consequence:** the creator's *body* colour writes to a parameter the chassis master does not
+consume, so **choosing a body colour does not tint the chassis body**. It has effect only where the
+bound master consumes `TeamColor` - `M_Mannequin` on slot 1 - and via `BaseTint` on the visor
+masters. Edge and glow render on the body; body does not. This corroborates the standing note in
+`IRONICS_PRICING_SSOT.md` and the in-code observation at `AFLCharacterPartActor.cpp:251` that
+`EmissiveColor2/3` "were all ruled out by probe".
+
+**RULED 2026-08-20 (CC-X24): body colour is DISABLED on the X-line chassis** - shown, not hidden,
+with the reason. `FAFLCreatorChannelSchema` reports it as `PresentButInert` rather than collapsing
+it into "unavailable", because hiding the control would make an absent channel indistinguishable
+from one that was never designed. **The X-line offers TWO creator channels: edge and glow.**
+Measured: `DERIVED master=M_AFL_Character body=0 edge=1 glow=1 visor=0 count=2 audited=1`, against
+`M_Mannequin body=1 ... count=3` - the same `TeamColor` reading `found=1` on both and yielding
+opposite verdicts, because inertness is keyed on the (master, parameter) pair.
+
+**Two remedies were considered and rejected**, recorded so they are not re-proposed as new ideas:
+re-pointing body onto `NeonColor` (rejected - it is connected-but-silent, so this moves from one
+inert parameter to another), and adding a scalar axis to the overlay to drive `AlbedoRecolor`
+(rejected as a phase, not a fix - `FAFLColorOverride` is vector-only, so this is a replicated
+struct change plus clamp plus apply path plus a default-weight decision). The material retarget
+that WOULD restore the channel is logged as **CC-X25** in section 11.
 
 **`AlbedoRecolor` is NOT a channel - it is a treatment scalar.** It is a
 `MaterialExpressionScalarParameter` (`ScalarParameter_13`, no `DefaultValue` line, so `0.0`)
@@ -550,3 +575,4 @@ compact-reference indirection.
 | 4 | "League" naming collision with the free `LeaguePlay` tier | Entitlement build |
 | 5 | Robots and slots — one product or two (`IRONICS_PRICING_SSOT.md` §5.4) | Slot implementation |
 | 6 | Original-line neutralization sweep — ~54 MIs | Original-line creator |
+| 7 | **CC-X25** — material retarget: rewire `Multiply_15.B` on `M_AFL_Character` so `NeonColor` reaches `BaseColor` ungated by `AlbedoRecolor`. **Restores body colour on the X-line** (returns it to three channels). Cost: content change to the master every X body binds, so it alters the shipped look of every X-line robot and needs a regression check on an untouched identity. Real future capability, not a dead end. | X-line body colour |

@@ -289,10 +289,19 @@ graph-connectivity audit** (TASK 0; see SSOT 3.4): each has zero downstream cons
 T3D export. `EmissiveColor` (unnumbered) IS consumed and is live - the old "`EmissiveColor1-3`"
 phrasing wrongly grouped it with the inert pair.
 
-**THREE creator channels, not four and not five.** Note the consequence for pricing: the
-creator's body colour writes `TeamColor`, which this master does not consume, so body colour
-does not tint the chassis body. Any pricing model that sells "body colour" as a chassis-visible
-channel is pricing something that currently renders only on slot 1. See SSOT 3.4.
+**THREE creator channels, not four and not five** - and on the X-line chassis, **TWO**.
+
+**RULED 2026-08-20 (CC-X24), and this is no longer a caution but a fact:** the creator's body
+colour writes `TeamColor`, which `M_AFL_Character` does not consume, so body colour does not tint
+the chassis body. **The creator does not sell body colour on the flagship chassis.** It is shown
+disabled with the reason (`FAFLCreatorChannelSchema` reports `PresentButInert`), and the X-line
+offers edge and glow only - measured `count=2`.
+
+The obvious escape was checked and does not work: `NeonColor` IS the parameter that would tint the
+body, but its only path to `BaseColor` is weighted by `AlbedoRecolor`, measured at `0.0`, so it is
+connected-but-silent. Restoring the channel needs the material retarget logged as CC-X25.
+Body colour retains value on `M_Mannequin` slot 1 and via `BaseTint` on the visor masters, so it is
+not worthless - it is simply not a flagship-chassis body channel. See CREATOR_SSOT 3.4.
 
 **The model:**
 
