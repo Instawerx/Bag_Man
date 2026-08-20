@@ -550,12 +550,29 @@ void UAFLWalletComponent::ServerRequestBundlePurchase_Implementation(FName Bundl
 		if (!Self) { return; }
 		// A HANDLED REFUSAL IS NOT AN OUTAGE. 409 SOLD OUT and the refund path are the Lambda WORKING;
 		// only a transport failure is an outage. Logged distinctly so a run can tell them apart.
-		const bool bSoldOut  = Resp.Contains(TEXT("SOLD OUT")) || Resp.Contains(TEXT("409"));
+		// THREE HANDLED REFUSALS, each distinguishable. ALREADY OWNED and SOLD OUT are BOTH 409, so
+		// matching on the status code alone would conflate 'you own this' with 'none left' -- two
+		// different things to tell a player. Match the explicit error text first.
+		const bool bAlreadyOwned = Resp.Contains(TEXT("ALREADY OWNED"));
+		const bool bUnverifiable = Resp.Contains(TEXT("ownership check unavailable"));
+		const bool bSoldOut  = !bAlreadyOwned && (Resp.Contains(TEXT("SOLD OUT")) || Resp.Contains(TEXT("409")));
 		const bool bRefunded = Resp.Contains(TEXT("refund"));
 		if (bOk)
 		{
 			UE_LOG(LogAFLWalletDiag, Log, TEXT("%sBUNDLE GRANTED %s resp=%s"), *WalletPrefix(Self), *BundleId.ToString(), *Resp);
 			Self->LoadFromPersistence();   // pull the granted children + new balance from the authority
+		}
+		else if (bAlreadyOwned)
+		{
+			// CC-X29. Not an outage and not a failure -- the player already has it. No charge was taken:
+			// the guard sits ahead of both the mint and the deduct.
+			UE_LOG(LogAFLWalletDiag, Log, TEXT("%sBUNDLE ALREADY-OWNED %s -- refused before any charge, resp=%s"),
+				*WalletPrefix(Self), *BundleId.ToString(), *Resp);
+		}
+		else if (bUnverifiable)
+		{
+			UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE OWNERSHIP-UNVERIFIABLE %s -- refused fail-closed, no charge, resp=%s"),
+				*WalletPrefix(Self), *BundleId.ToString(), *Resp);
 		}
 		else if (bSoldOut || bRefunded)
 		{
