@@ -22,6 +22,7 @@
 #include "Player/LyraPlayerState.h" // CC-6.1 VerifyNewSkuBuy: IsEntitled takes a ALyraPlayerState* and the wallet header only forward-declares it
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h" // A1.1: afl.Online.VerifyA11 (wipe-local -> load -> assert PlayFab)
 #include "Engine/GameInstance.h"                      // A1.1: GetSubsystem<UAFLEconomyPersistenceSubsystem>()
+#include "AFLOnlineSubsystem.h"                   // CC-X23: IsLoggedIn() -- the probe precondition. The module was already a dependency; the header was never included, because every other online probe reached PlayFab THROUGH the wallet rather than asking the session directly.
 #include "Teams/LyraTeamSubsystem.h"                 // afl.Cosmetic.Test.Readability: opposing gameplay-team assignment
 #include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
 #include "Cosmetics/AFLCharacterPartMap.h"            // CC-1.2-P EmblemProbe: identity id -> body class (part-map resolver)
@@ -3746,6 +3747,112 @@ namespace
 		Ar.Logf(TEXT("afl.Creator.SlotProbe - 5 arms run; see AFL_TEST[SLOT]."));
 	}
 
+	// --- CC-X23 reconcile proof: afl.Online.ReconcileProbe -------------------------------------
+	// What this proves: a mirror deliberately set WRONG is corrected back to PlayFab's number by the
+	// shipping reconcile. That is the mechanism, and it is measured.
+	//
+	// What it does NOT prove, stated because the run makes it easy to believe otherwise: that the
+	// OnLoggedIn subscription fires in the real ordering. In PIE the dev CustomID login resolves BEFORE
+	// wallet BeginPlay -- all 8 wallets logged "already logged in at BeginPlay -> no subscription
+	// needed" -- so the delegate branch is never exercised here. Shipping uses EOS/OIDC over the
+	// network, which is slower, so the race is MORE likely there and less testable here.
+	//
+	// The earlier framing of this defect (a 200,179 mirror against an authoritative 4,008) does not
+	// hold: PlayFab reads 200,179. See AFLWalletComponent.h for the correction.
+	//
+	// ARM 2 IS WHY THIS PROBE EXISTS. Observing that the mirror matches PlayFab proves nothing -- the
+	// two numbers can agree because the reconcile works, OR because they were never going to differ in
+	// this session. So the probe DELIBERATELY POISONS the mirror to a known-wrong value first. A wallet
+	// with no second read sits on the poison; only a working reconcile moves off it. Without the poison
+	// this instrument cannot fail, and an instrument that cannot fail is not evidence.
+	//
+	// Routes through DebugForceReconcile -> HandleLoggedIn, the SAME function the OnLoggedIn delegate
+	// calls, so the arm exercises the shipping reconcile rather than a parallel path written to pass.
+	void HandleAFLReconcileProbe(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.ReconcileProbe - run inside PIE.")); return; }
+
+		// PRECONDITION, emitted whether it holds or not. Without a session there is no authoritative number
+		// to reconcile TO, so a run here is VOID -- not a pass, and emphatically not a failure of the fix.
+		const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(World);
+		const bool bLoggedIn = Online && Online->IsLoggedIn();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RECON] ARM0 precondition loggedIn=%d"), bLoggedIn ? 1 : 0);
+		if (!bLoggedIn)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[RECON] VOID -- no PlayFab session, so there is no authoritative balance to reconcile to. ")
+				TEXT("Re-run with afl.Online.ForceEosLogin 1. This is NOT a FAIL: the fix is untested here, not disproved."));
+			return;
+		}
+
+		FString Why;
+		UAFLWalletComponent* Wallet = GetServerWalletForLocalPlayer(World, Why);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RECON] RESOLVE %s"), *Why);
+		if (!Wallet)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RECON] VOID -- no server wallet reached: %s"), *Why);
+			return;
+		}
+
+		const int32 Before = Wallet->GetVolts();
+		const int32 WattsBefore = Wallet->GetWatts();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RECON] ARM1 mirror before volts=%d watts=%d known=%d"),
+			Before, WattsBefore, Wallet->IsBalanceKnown() ? 1 : 0);
+
+		// ARM 2 -- POISON. Offset by a value no real balance would coincide with, and read back to prove the
+		// poison actually landed; a poison that silently failed would make ARM 3 pass for the wrong reason.
+		const int32 PoisonOffset = 123456;
+		const int32 Poisoned = Before + PoisonOffset;
+		Wallet->DebugSetBalance(Poisoned, WattsBefore);
+		const int32 PoisonReadBack = Wallet->GetVolts();
+		const bool bPoisonLanded = (PoisonReadBack == Poisoned);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RECON] ARM2 poison %d -> %d (readback %d, landed=%d)"),
+			Before, Poisoned, PoisonReadBack, bPoisonLanded ? 1 : 0);
+		if (!bPoisonLanded)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RECON] VOID -- the poison did not land, so ARM3 would prove nothing."));
+			return;
+		}
+
+		// ARM 3 -- RECONCILE, then read on a LATER FRAME. LoadBalance round-trips PlayFab, so reading
+		// synchronously here would sample before the answer arrives and report a false FAIL -- exactly the
+		// mistake VerifyNewSkuBuy made when it asserted on the mirror inside its own callback.
+		Wallet->DebugForceReconcile();
+
+		TWeakObjectPtr<UAFLWalletComponent> WeakWallet(Wallet);
+		TWeakObjectPtr<UWorld> WeakWorld(World);
+		FTimerHandle T;
+		World->GetTimerManager().SetTimer(T, FTimerDelegate::CreateLambda([WeakWallet, WeakWorld, Before, Poisoned]()
+		{
+			UAFLWalletComponent* W = WeakWallet.Get();
+			if (!W || !WeakWorld.IsValid())
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RECON] VOID -- wallet or world gone before the settle read."));
+				return;
+			}
+			const int32 After = W->GetVolts();
+			const bool bMovedOffPoison = (After != Poisoned);
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[RECON] ARM3 after reconcile volts=%d (poison was %d, pre-poison was %d) movedOffPoison=%d backToPrePoison=%d"),
+				After, Poisoned, Before, bMovedOffPoison ? 1 : 0, (After == Before) ? 1 : 0);
+
+			// PASS keys on MOVED-OFF-POISON, not on equality with the pre-poison value. If the pre-poison
+			// mirror was ITSELF stale -- the very defect under test -- a correct reconcile lands on a
+			// DIFFERENT number, and demanding equality would fail the fix precisely when it worked.
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RECON] %s -- the mirror %s a deliberately wrong value"),
+				bMovedOffPoison ? TEXT("PASS") : TEXT("FAIL"),
+				bMovedOffPoison ? TEXT("corrected") : TEXT("SAT ON"));
+		}), 5.0f, false);
+
+		Ar.Logf(TEXT("afl.Online.ReconcileProbe - poisoned and reconciling; ARM3 lands in ~5s. See AFL_TEST[RECON]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLReconcileProbeCmd(TEXT("afl.Online.ReconcileProbe"),
+		TEXT("CC-X23: prove the wallet mirror re-reads after login. Poisons the mirror to a known-wrong value, ")
+		TEXT("forces the SHIPPING reconcile, and checks it moved off the poison. Requires a PlayFab session; ")
+		TEXT("without one it reports VOID, not PASS. AFL_TEST[RECON] PASS = corrected."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLReconcileProbe));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorSlotProbeCmd(TEXT("afl.Creator.SlotProbe"),
 		TEXT("CC-4.2: prove buying a slot grants a slot -- x3 increments by 3, buying it AGAIN reaches 6 (a boolean entitlement would not), x8 adds to the SAME counter, and AFLResolveEffectiveSlotCap resolves the ladder including ceiling clamp and max-upgrade. AFL_TEST[SLOT] PASS = all."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorSlotProbe));
@@ -4455,6 +4562,12 @@ static FAutoConsoleVariableRef CVarAFLCreatorPullOnly(TEXT("afl.Creator.PullOnly
 // rule is ZERO bridge calls while PIE runs, so a console command that must execute mid-session has
 // to be scheduled in-process before PIE starts. Same mechanism the creator probes already use.
 static int32 GAFLCreatorBuyProbe = 0;
+
+// CC-X23: separate from BuyProbe on purpose. BuyProbe SPENDS Volts against live PlayFab; this one
+// only needs a SESSION. Folding them would make proving a READ cost money.
+static int32 GAFLReconcileProbe = 0;
+static FAutoConsoleVariableRef CVarAFLReconcileProbe(TEXT("afl.Online.ReconcileProbe.Enable"),
+	GAFLReconcileProbe, TEXT("CC-X23: 1 = run the wallet-mirror reconcile proof. Needs afl.Online.ForceEosLogin 1."), ECVF_Default);
 static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe"),
 	GAFLCreatorBuyProbe, TEXT("CC-6.1: 1 = buy a registered SKU through the SHIPPING entry, then a "
 	"deliberately UNREGISTERED one as the negative control. Set BEFORE starting PIE."));
@@ -4592,6 +4705,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0) { FireCmd(3.2f, TEXT("afl.Creator.ArcProbe"), TEXT("0-arc-probe")); }
 		if (RoleIndex == 0) { FireCmd(6.5f, TEXT("afl.Creator.PreviewProbe"), TEXT("0-cc53-preview")); }
 		if (RoleIndex == 0) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
+		if (RoleIndex == 0 && GAFLReconcileProbe != 0) { FireCmd(14.0f, TEXT("afl.Online.ReconcileProbe"), TEXT("0-ccx23-reconcile")); }
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
 		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
 		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
@@ -5330,7 +5444,11 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			// PASS IS THE SERVER'S ANSWER, NOT THE LOCAL MIRROR'S.
 			// An earlier revision required Spent > 0 and an entitlement flip read from GetVolts()/IsEntitled
 			// SYNCHRONOUSLY inside this callback -- and printed FAIL on a purchase PlayFab had accepted
-			// (http=200 ok=1, GetUserInventory VO=4008 owned=1) while the local read still showed a stale
+			// (http=200 ok=1, GetUserInventory VO=4008 owned=1) while the local read still showed a
+			// [CORRECTED 2026-08-20: calling that 200179 STALE was an inference, not a measurement. PlayFab
+			//  now reads VO=200179 WA=5653 owned=10 for this account, and owned=1 vs owned=10 suggests the
+			//  4008 reading belonged to a different PIE client's PlayFab account. The ruling below -- that
+			//  the SERVER decides and a client mirror never does -- is unaffected and remains correct.]
 			// 200179. The local wallet is a DISPLAY MIRROR that refreshes asynchronously; economy-store
 			// SS8.1 is explicit that the client requests and the SERVER decides, and a client-side cache
 			// "never decides ownership". Asserting against it measured the wrong side of the seam.
