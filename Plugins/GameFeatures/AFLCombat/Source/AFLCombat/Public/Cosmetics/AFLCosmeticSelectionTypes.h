@@ -268,6 +268,99 @@ struct FAFLCosmeticSelection
  * and belong to IRONICS_UI_STYLE_SSOT.md. It answers exactly one question: for this chassis, which
  * channels are real?
  */
+/**
+ * CC-5.2 -- IS A CHANNEL REAL ON THIS CHASSIS? THREE ANSWERS, NOT TWO.
+ *
+ * MEASURED DEFECT THIS FIXES. FAFLCreatorChannelSchema decided availability by asking the master
+ * whether the parameter EXISTS. That catches absence, and CC-6.4 proved it (BaseTint absent on
+ * M_Mannequin -> visor correctly unavailable). It does NOT catch a parameter that exists and drives
+ * nothing: on M_AFL_Character -- the X-line flagship chassis -- TeamColor is present and INERT, with
+ * zero downstream consumers. A body control built on "exists" would be offered there and would write
+ * to a dead parameter. Same "control that writes nowhere" failure, arriving by the other route.
+ *
+ * Absent and PresentButInert must stay DISTINCT because the reason is what the UI shows. Collapsing
+ * them into "unavailable" loses it, and an unexplained missing control is indistinguishable from a bug
+ * -- to the player and to the next developer.
+ */
+UENUM(BlueprintType)
+enum class EAFLChannelAvailability : uint8
+{
+	/** The master has no such parameter. Measured by the ENGINE's own lookup, so it is correct for any
+	 *  master, audited or not. Zero value: an unresolved schema fails closed. */
+	Absent           UMETA(DisplayName = "Absent (no such parameter)"),
+	/** The parameter EXISTS but is measured to have zero downstream consumers on THIS master. Show the
+	 *  control DISABLED with the reason -- never hide it, never let it write. */
+	PresentButInert  UMETA(DisplayName = "Present but inert on this master"),
+	/** Present and driving visible output. */
+	Connected        UMETA(DisplayName = "Connected")
+};
+
+/**
+ * CC-5.2 -- MEASURED MATERIAL CONNECTIVITY.
+ *
+ * THIS IS A NAME-KEYED TABLE, AND THE SCHEMA COMMENT BELOW WARNS AGAINST EXACTLY THAT. The warning is
+ * right and is not waived: a name-keyed table silently mis-answers for any master not in it. So this
+ * table is bounded to the one question the engine CANNOT answer at runtime -- graph connectivity, which
+ * is editor-only data -- and its coverage is reported alongside its answers via bMasterAudited. A master
+ * that has never been audited does not get to look identical to one measured as fully connected.
+ *
+ * KEYED ON THE (MASTER, PARAMETER) PAIR, never on the parameter alone. TeamColor is INERT on
+ * M_AFL_Character and LIVE on M_Mannequin -- it is the colour axis there. Inertness is a property of the
+ * pairing, and a parameter-only table would be wrong for one of those two masters no matter which way
+ * it was written.
+ *
+ * PROVENANCE -- measured, not asserted. Source: the TASK 0 graph-connectivity audit (2026-08-19),
+ * recorded in IRONICS_PRICING_SSOT section 7. METHOD, stated so a NEW master is audited the same way
+ * rather than guessed at:
+ *   1. export the master to T3D;
+ *   2. for each vector-parameter expression, follow its output pins transitively;
+ *   3. a parameter with no path terminating at a material output is INERT on that master.
+ * Re-run that on any master added here, and add it to GAuditedMasters even when nothing is inert --
+ * "audited, all connected" and "never audited" are different facts.
+ */
+namespace AFLMaterialConnectivity
+{
+	struct FInertPair { const TCHAR* Master; const TCHAR* Parameter; };
+
+	/** Measured inert. ONLY what the audit actually established -- M_Mannequin is deliberately absent
+	 *  from this list except where measured, because recording an unmeasured guess here would be the
+	 *  very failure this table exists to prevent. */
+	static const FInertPair GInertPairs[] =
+	{
+		{ TEXT("M_AFL_Character"), TEXT("TeamColor")      },
+		{ TEXT("M_AFL_Character"), TEXT("EmissiveColor2") },
+		{ TEXT("M_AFL_Character"), TEXT("EmissiveColor3") },
+	};
+
+	/** Masters the audit has actually covered. Presence here is what licenses a Connected verdict. */
+	static const TCHAR* const GAuditedMasters[] =
+	{
+		TEXT("M_AFL_Character"),
+		TEXT("M_Mannequin"),
+	};
+
+	inline bool IsMasterAudited(const FName Master)
+	{
+		for (const TCHAR* M : GAuditedMasters)
+		{
+			if (Master == FName(M)) { return true; }
+		}
+		return false;
+	}
+
+	inline bool IsInert(const FName Master, const TCHAR* Parameter)
+	{
+		for (const FInertPair& Pair : GInertPairs)
+		{
+			if (Master == FName(Pair.Master) && FCString::Stricmp(Parameter, Pair.Parameter) == 0)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+}
+
 USTRUCT(BlueprintType)
 struct FAFLCreatorChannelSchema
 {
@@ -295,6 +388,26 @@ struct FAFLCreatorChannelSchema
 	 *  instead of just hiding it -- an unexplained absent control is indistinguishable from a bug. */
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
 	FName ResolvedFromMaster = NAME_None;
+
+	/** WHY each channel is or is not offered. The bools above answer "can I use it"; these answer
+	 *  "and if not, why" -- which is what the UI renders next to a disabled control. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	EAFLChannelAvailability BodyState = EAFLChannelAvailability::Absent;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	EAFLChannelAvailability EdgeState = EAFLChannelAvailability::Absent;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	EAFLChannelAvailability GlowState = EAFLChannelAvailability::Absent;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	EAFLChannelAvailability VisorState = EAFLChannelAvailability::Absent;
+
+	/** FALSE = this master has never been through the connectivity audit, so a Connected verdict on it
+	 *  means "present, and inertness UNKNOWN" rather than "measured to render". Carried separately so
+	 *  the three channel states stay three, while never letting unaudited pass as verified. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	bool bMasterAudited = false;
 
 	int32 AvailableCount() const
 	{
@@ -335,10 +448,30 @@ struct FAFLCreatorChannelSchema
 		// CC-6.4 SPLIT: body and visor write different parameters, so the schema stops ORing them.
 		// Measured: M_Mannequin has TeamColor but NOT BaseTint (SchemaProbe found=1 / found=0), so it
 		// reports body available and visor UNAVAILABLE -- the honest answer for its 32 presets.
-		Out.bBodyAvailable  = HasVector(TEXT("TeamColor"));
-		Out.bVisorAvailable = HasVector(TEXT("BaseTint"));
-		Out.bEdgeAvailable = HasVector(TEXT("EdgeGlowColor"));
-		Out.bGlowAvailable = HasVector(TEXT("EmissiveColor"));
+		// CC-5.2: existence is the ENGINE's answer and is right for any master; inertness is the
+		// AUDIT's answer and is only right for masters it has covered. Both are folded in here, and
+		// bMasterAudited reports which masters the second answer actually applies to.
+		Out.bMasterAudited = AFLMaterialConnectivity::IsMasterAudited(Out.ResolvedFromMaster);
+
+		auto Classify = [&Out, &HasVector](const TCHAR* ParamName)
+		{
+			if (!HasVector(ParamName)) { return EAFLChannelAvailability::Absent; }
+			return AFLMaterialConnectivity::IsInert(Out.ResolvedFromMaster, ParamName)
+				? EAFLChannelAvailability::PresentButInert
+				: EAFLChannelAvailability::Connected;
+		};
+
+		Out.BodyState  = Classify(TEXT("TeamColor"));
+		Out.VisorState = Classify(TEXT("BaseTint"));
+		Out.EdgeState  = Classify(TEXT("EdgeGlowColor"));
+		Out.GlowState  = Classify(TEXT("EmissiveColor"));
+
+		// USABLE means Connected. PresentButInert is deliberately NOT usable: the control is shown,
+		// disabled, with BodyState as the reason -- it must never be allowed to write.
+		Out.bBodyAvailable  = (Out.BodyState  == EAFLChannelAvailability::Connected);
+		Out.bVisorAvailable = (Out.VisorState == EAFLChannelAvailability::Connected);
+		Out.bEdgeAvailable  = (Out.EdgeState  == EAFLChannelAvailability::Connected);
+		Out.bGlowAvailable  = (Out.GlowState  == EAFLChannelAvailability::Connected);
 		return Out;
 	}
 };
