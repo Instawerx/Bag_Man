@@ -388,14 +388,24 @@ another.
 
 Recorded so the gaps are visible rather than discovered during authoring:
 
+> **UPDATED 2026-08-20 from the wireframe bundle** (`Ironics Creator Wireframes.dc.html`, five directions
+> 1a–1e at 1280×720, built from this spec). Direction **1e is a direction-agnostic state sheet** and settles
+> the items struck through below. The **layout direction itself is still open** — 1a right-rail, 1b full-bleed,
+> 1c three-column workbench, 1d console-first stepper — that is a choice, not a spec, and it is the operator's.
+>
+> **One value in the bundle is NOT adopted:** the slot upgrade reads "+5 SLOTS · 400 VOLTS". No SSOT carries
+> that price and it contradicts the shipped SKUs (`AFL.CreatorSlot.x1/x3/x8` at 3,000 / 4,990 / 10,000 Volts,
+> live in PlayFab as of `cc-6-1-done`). Treated as illustrative. A placeholder price that gets copied is how a
+> number nobody ruled becomes shipped.
+
 | Gap | Settled by |
 |---|---|
-| Layout grid, gutters, region proportions | A 1280×720 mock reviewed against the lobby horizontal budget |
-| All motion durations and easing | A motion token set added to the SSOT and emitted by `AFLTokenCompiler` |
-| `PresentButInert` vs `Absent` visual distinction | Visual pass, constrained by §8.1 (not hue-alone) |
-| Unaudited-master treatment | Product ruling: offer with caveat, or withhold |
+| ~~Layout grid, gutters, region proportions~~ | Wireframes 1a–1d supply four candidate layouts at 1280×720; **which one** remains an operator pick |
+| All motion durations and easing | **STILL OPEN.** The wireframes specify no timing values (checked, not assumed). Needs a `Motion.*` token set in the SSOT emitted by `AFLTokenCompiler` |
+| ~~`PresentButInert` vs `Absent` distinction~~ | **SETTLED (1e):** `◐` + dashed border + INERT badge vs `✕` + dotted border + ABSENT badge — *"told apart by fill, icon and text, never hue"* |
+| ~~Unaudited-master treatment~~ | **SETTLED (1a/1e):** chassis tile carries `unaudited ⚠`; the channel is offered with the caveat visible |
 | Link default pairing | Product ruling; roadmap's Neon+Edge does not map |
-| Hex vs HSV readout | Ruling; recommend HSV + hex |
+| ~~Hex vs HSV readout~~ | **SETTLED (1e):** BOTH — `#1E5AFF · H 226° S 0.55 V 0.90` |
 | Console safe-zone inset, touch target minimum | Platform TRC / platform guidance |
 | Whether preview apply can fail | Confirm `CreatorApplyPreview` has no failure mode post-pawn |
 
