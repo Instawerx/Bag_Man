@@ -15,6 +15,10 @@
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
 #include "Cosmetics/AFLWalletComponent.h"            // S-ECON-WALLET: balance/gate/earn-spend cheats
+#include "UI/AFLW_LoadoutBase.h" // CC-5.3 probe: the creator interface under test
+#include "UObject/UObjectIterator.h" // CC-5.3 probe: find an already-open loadout widget
+#include "UI/AFLLoadoutDisplayPawn.h" // CC-5.3 probe: the preview pawn whose MIDs are read
+#include "Blueprint/UserWidget.h" // CC-5.3 probe: CreateWidget for the concrete WBP subclass
 #include "Player/LyraPlayerState.h" // CC-6.1 VerifyNewSkuBuy: IsEntitled takes a ALyraPlayerState* and the wallet header only forward-declares it
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h" // A1.1: afl.Online.VerifyA11 (wipe-local -> load -> assert PlayFab)
 #include "Engine/GameInstance.h"                      // A1.1: GetSubsystem<UAFLEconomyPersistenceSubsystem>()
@@ -3466,6 +3470,147 @@ namespace
 		Ar.Logf(TEXT("afl.Creator.ArcProbe - checked=%d outOfGamut=%d"), Checked, Bad);
 	}
 
+	// ─── CC-5.3 creator loop proof: afl.Creator.PreviewProbe ─────────────────────────────────────
+	// FOUR ARMS, and the fourth is the one that matters.
+	//   1 APPLY LANDS      a channel change reaches the preview pawn's MIDs
+	//   2 ROTATE HOLDS     measured on the FAR SIDE of a rotation, not before it
+	//   3 CHANGE WHILE ROTATED   applies without reverting the rotation
+	//   4 PREVIEW == SPAWN the preview MID equals what BuildColorOverride yields for the same
+	//     selection -- the value the GAMEPLAY pawn receives. Reasoned equality is worthless here:
+	//     "they call the same function" is exactly the claim a refactor silently breaks. A preview
+	//     with its own path is a bait-and-switch waiting to happen (CREATOR_SSOT 5.3).
+	//
+	// PRESENCE OF OUTPUT IS THE SUCCESS SIGNAL. Every arm emits its measured numbers, and the summary
+	// carries checked= counts, so silence means the probe did not run -- never that it passed.
+	static bool AFLCC53_ReadPartParam(APawn* Pawn, const FName ParamName, FLinearColor& Out, int32& OutMIDs)
+	{
+		OutMIDs = 0;
+		bool bAny = false;
+		if (!Pawn) { return false; }
+		TArray<AActor*> Attached;
+		Pawn->GetAttachedActors(Attached);
+		Attached.Add(Pawn);
+		for (AActor* A : Attached)
+		{
+			if (!IsValid(A)) { continue; }
+			TArray<USkeletalMeshComponent*> Meshes;
+			A->GetComponents<USkeletalMeshComponent>(Meshes);
+			for (USkeletalMeshComponent* M : Meshes)
+			{
+				if (!M) { continue; }
+				const int32 N = M->GetNumMaterials();
+				for (int32 i = 0; i < N; ++i)
+				{
+					UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(M->GetMaterial(i));
+					if (!MID) { continue; }
+					FLinearColor V;
+					if (MID->GetVectorParameterValue(FMaterialParameterInfo(ParamName), V))
+					{
+						++OutMIDs;
+						if (!bAny) { Out = V; bAny = true; }
+					}
+				}
+			}
+		}
+		return bAny;
+	}
+
+	void HandleAFLCreatorPreviewProbe(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Creator.PreviewProbe - run inside PIE.")); return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		if (!PC) { Ar.Log(TEXT("afl.Creator.PreviewProbe - no PC.")); return; }
+
+		// Reuse an open loadout widget if there is one; otherwise construct the concrete WBP. The C++ base
+		// is UCLASS(Abstract) with a required BindWidget, so the WBP subclass is the only constructible form.
+		UAFLW_LoadoutBase* W = nullptr;
+		for (TObjectIterator<UAFLW_LoadoutBase> It; It; ++It)
+		{
+			if (IsValid(*It) && It->GetWorld() == World) { W = *It; break; }
+		}
+		const bool bReused = (W != nullptr);
+		if (!W)
+		{
+			UClass* Cls = LoadClass<UAFLW_LoadoutBase>(nullptr,
+				TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_Loadout.WBP_AFL_Loadout_C"));
+			if (Cls) { W = CreateWidget<UAFLW_LoadoutBase>(PC, Cls); }
+		}
+		if (!W)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[CC53] ABORT -- no loadout widget (reused=%d). Not a pass."), bReused ? 1 : 0);
+			return;
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CC53] widget=%s reused=%d"), *GetNameSafe(W), bReused ? 1 : 0);
+
+		// Two colours far apart in hue so a stale read cannot pass as a fresh one.
+		const FLinearColor C1(0.90f, 0.05f, 0.60f);   // magenta-ish
+		const FLinearColor C2(0.05f, 0.85f, 0.35f);   // green-ish
+		const FLinearColor Want1 = AFLCreatorGamut::ClampToNeon(C1);
+		const FLinearColor Want2 = AFLCreatorGamut::ClampToNeon(C2);
+		static const FName NEdge(TEXT("EdgeGlowColor"));
+		auto Near = [](const FLinearColor& A, const FLinearColor& B)
+		{ return A.Equals(B, 1e-3f); };
+
+		// ARM 1 -- apply lands
+		W->CreatorSetChannel(EAFLCreatorChannel::Edge, C1);
+		W->CreatorApplyPreview();
+		APawn* Preview = nullptr;
+		for (TActorIterator<AAFLLoadoutDisplayPawn> It(World); It; ++It) { Preview = *It; break; }
+		FLinearColor Got1(ForceInit); int32 M1 = 0;
+		const bool bRead1 = AFLCC53_ReadPartParam(Preview, NEdge, Got1, M1);
+		const bool bArm1 = bRead1 && Near(Got1, Want1);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CC53] ARM1 apply pawn=%s mids=%d want=(%.4f,%.4f,%.4f) got=(%.4f,%.4f,%.4f) -> %s"),
+			*GetNameSafe(Preview), M1, Want1.R, Want1.G, Want1.B, Got1.R, Got1.G, Got1.B,
+			bArm1 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ARM 2 -- rotate, then read on the FAR SIDE
+		const float Yaw0 = W->CreatorGetPreviewYaw();
+		W->CreatorRotatePreview(137.0f);
+		const float Yaw1 = W->CreatorGetPreviewYaw();
+		FLinearColor Got2(ForceInit); int32 M2 = 0;
+		const bool bRead2 = AFLCC53_ReadPartParam(Preview, NEdge, Got2, M2);
+		const bool bMoved = FMath::Abs(FMath::UnwindDegrees(Yaw1 - Yaw0) - 137.0f) < 1.0f;
+		const bool bArm2 = bRead2 && bMoved && Near(Got2, Want1);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CC53] ARM2 rotate yaw %.1f->%.1f moved=%d colour got=(%.4f,%.4f,%.4f) held=%d -> %s"),
+			Yaw0, Yaw1, bMoved ? 1 : 0, Got2.R, Got2.G, Got2.B, Near(Got2, Want1) ? 1 : 0,
+			bArm2 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ARM 3 -- change WHILE rotated; the rotation must not revert
+		W->CreatorSetChannel(EAFLCreatorChannel::Edge, C2);
+		W->CreatorApplyPreview();
+		const float Yaw2 = W->CreatorGetPreviewYaw();
+		FLinearColor Got3(ForceInit); int32 M3 = 0;
+		const bool bRead3 = AFLCC53_ReadPartParam(Preview, NEdge, Got3, M3);
+		const bool bYawKept = FMath::Abs(FMath::UnwindDegrees(Yaw2 - Yaw1)) < 1.0f;
+		const bool bArm3 = bRead3 && Near(Got3, Want2) && bYawKept;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CC53] ARM3 change-while-rotated want=(%.4f,%.4f,%.4f) got=(%.4f,%.4f,%.4f) yaw %.1f->%.1f kept=%d -> %s"),
+			Want2.R, Want2.G, Want2.B, Got3.R, Got3.G, Got3.B, Yaw1, Yaw2, bYawKept ? 1 : 0,
+			bArm3 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ARM 4 -- DECISIVE. What the gameplay pawn would receive, for the SAME selection.
+		const FAFLCosmeticSelection Working = W->CreatorGetWorkingSelection();
+		const FAFLColorOverride Spawned = UAFLCosmeticLoadoutComponent::BuildColorOverride(Working);
+		const bool bArm4 = Spawned.bValid && Near(Spawned.EdgeColor, Got3);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CC53] ARM4 preview-vs-spawn valid=%d spawnEdge=(%.4f,%.4f,%.4f) previewMID=(%.4f,%.4f,%.4f) -> %s"),
+			Spawned.bValid ? 1 : 0, Spawned.EdgeColor.R, Spawned.EdgeColor.G, Spawned.EdgeColor.B,
+			Got3.R, Got3.G, Got3.B, bArm4 ? TEXT("PASS") : TEXT("FAIL"));
+
+		const bool bPass = bArm1 && bArm2 && bArm3 && bArm4;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CC53] %s -- arms=4 midsRead=%d/%d/%d apply=%d rotate=%d changeWhileRotated=%d previewEqualsSpawn=%d"),
+			bPass ? TEXT("PASS") : TEXT("FAIL"), M1, M2, M3,
+			bArm1 ? 1 : 0, bArm2 ? 1 : 0, bArm3 ? 1 : 0, bArm4 ? 1 : 0);
+		Ar.Logf(TEXT("afl.Creator.PreviewProbe - 4 arms run; see AFL_TEST[CC53]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorPreviewProbeCmd(TEXT("afl.Creator.PreviewProbe"),
+		TEXT("CC-5.3: prove the creator loop -- apply lands on the preview MIDs, rotation holds colour measured on the far side, a change while rotated does not revert the rotation, and the preview value EQUALS what BuildColorOverride hands the gameplay pawn. AFL_TEST[CC53] PASS = all four."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorPreviewProbe));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorArcProbeCmd(TEXT("afl.Creator.ArcProbe"),
 		TEXT("CC-5.2: assert the hue arc's output is ALWAYS inside the neon gamut for adversarial inputs (near-black, grey, near-white, out-of-range hue), that re-hueing preserves S/V, and that channel links default OFF. AFL_TEST[ARC] PASS = all."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorArcProbe));
@@ -4302,6 +4447,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
 		if (RoleIndex == 0) { FireCmd(3.2f, TEXT("afl.Creator.ArcProbe"), TEXT("0-arc-probe")); }
+		if (RoleIndex == 0) { FireCmd(6.5f, TEXT("afl.Creator.PreviewProbe"), TEXT("0-cc53-preview")); }
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
 		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
 		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
