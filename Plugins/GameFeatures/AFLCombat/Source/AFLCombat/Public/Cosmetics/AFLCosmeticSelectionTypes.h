@@ -269,6 +269,133 @@ struct FAFLCosmeticSelection
  * channels are real?
  */
 /**
+ * CC-5.2 -- THE NEON GAMUT, AND THE HUE ARC BUILT ON IT.
+ *
+ * MOVED HERE FROM AFLCosmeticLoadoutComponent.cpp, where it was a private static. The server clamps
+ * every committed colour with it; a creator UI must preview with the SAME clamp or it shows the player
+ * one colour and commits another. Two implementations of one rule drift, and the drift is silent --
+ * the identical failure shape as a seed price disagreeing with a catalog price. ONE definition, used
+ * by both sides. The constants and the maths are unchanged from the server's original.
+ *
+ * WHY A HUE ARC AND NOT RGB SLIDERS. The clamp PRESERVES hue and floors saturation/value
+ * (S >= 0.55, V in [0.45, 1.0]). So hue is the only fully free axis: an RGB picker would let a player
+ * choose a muddy or near-black colour, show it, and then hand back something visibly different after
+ * the server clamped it. An arc over hue offers exactly the freedom that survives the clamp, which is
+ * why the roadmap specifies "clamped, not RGB sliders" -- it is honesty about the gamut, not a style
+ * preference. The clamp itself is a gameplay requirement (CREATOR_SSOT 6.3): near-black and near-white
+ * builds degrade match readability for every other player.
+ */
+namespace AFLCreatorGamut
+{
+	// CC-2.1 neon gamut bounds -- the SINGLE source (tune here, never scatter magic numbers at call
+	// sites). The X-body master is emissive-heavy, so a low-saturation / low-value pick reads as muddy
+	// "no colour"; these floors keep a creator choice legibly neon.
+	static constexpr float MinSaturation = 0.55f;
+	static constexpr float MinValue      = 0.45f;
+	static constexpr float MaxValue      = 1.00f;
+
+	/** Server-authoritative clamp into the neon gamut. Hue preserved; S/V floored and ceilinged. */
+	inline FLinearColor ClampToNeon(const FLinearColor& In)
+	{
+		FLinearColor HSV = In.LinearRGBToHSV();
+		HSV.G = FMath::Max(HSV.G, MinSaturation);
+		HSV.B = FMath::Clamp(HSV.B, MinValue, MaxValue);
+		FLinearColor Out = HSV.HSVToLinearRGB();
+		Out.A = 1.0f;
+		return Out;
+	}
+
+	/** Hue of a colour, in DEGREES [0,360). The arc's read direction: put an existing pick on the arc. */
+	inline float HueOf(const FLinearColor& In)
+	{
+		return In.LinearRGBToHSV().R;
+	}
+
+	/**
+	 * Re-hue a colour, keeping ITS saturation and value, then clamp. The arc's write direction.
+	 *
+	 * Deliberately NOT "build a fresh colour at full saturation": a player who has a valid in-gamut
+	 * pick and drags the arc expects the hue to move and nothing else. Rebuilding would silently
+	 * discard the S/V they already had, which reads as the control fighting them.
+	 */
+	inline FLinearColor WithHue(const FLinearColor& In, const float HueDegrees)
+	{
+		FLinearColor HSV = In.LinearRGBToHSV();
+		HSV.R = FMath::Fmod(FMath::Fmod(HueDegrees, 360.0f) + 360.0f, 360.0f);
+		// CLAMP IN HSV, BEFORE THE ROUND TRIP. The first revision set the hue and then handed the
+		// colour to ClampToNeon, which clamps in RGB. For an ACHROMATIC input (S == 0: grey, black,
+		// white) hue carries no information through HSV->RGB, so the requested hue was discarded and
+		// the saturation floor then produced hue 0 -- RED -- no matter where the player dragged.
+		// Measured by afl.Creator.ArcProbe: 12 of 24 cases, every achromatic input, hueOk=0.
+		// Applying the floor here keeps S > 0 while the hue is still present, so it survives.
+		HSV.G = FMath::Max(HSV.G, MinSaturation);
+		HSV.B = FMath::Clamp(HSV.B, MinValue, MaxValue);
+		FLinearColor Out = HSV.HSVToLinearRGB();
+		Out.A = 1.0f;
+		return Out;
+	}
+
+	/** A colour at this hue from nothing -- for a channel with no prior pick. Mid-gamut, not extreme. */
+	inline FLinearColor FromHue(const float HueDegrees)
+	{
+		const float H = FMath::Fmod(FMath::Fmod(HueDegrees, 360.0f) + 360.0f, 360.0f);
+		return ClampToNeon(FLinearColor(H, 1.0f, 1.0f).HSVToLinearRGB());
+	}
+}
+
+/** CC-5.2: the creator's four colour channels, as an addressable enum for the link model. */
+UENUM(BlueprintType)
+enum class EAFLCreatorChannel : uint8
+{
+	Body  UMETA(DisplayName = "Body"),
+	Edge  UMETA(DisplayName = "Edge"),
+	Glow  UMETA(DisplayName = "Glow"),
+	Visor UMETA(DisplayName = "Visor")
+};
+
+/**
+ * CC-5.2 -- CHANNEL LINKING. Generic, and DEFAULTED OFF.
+ *
+ * The roadmap specifies "Neon and Edge linked by default with an unlink toggle". That pairing no
+ * longer maps: measurement (CC-X24) established that NeonColor is not a creator channel at all -- it
+ * is connected-but-silent behind AlbedoRecolor at 0.0 -- and body colour is DISABLED on the X-line
+ * chassis, which leaves Edge and Glow as the two available there.
+ *
+ * SO THE MECHANISM IS BUILT AND THE PAIRING IS NOT INVENTED. Which channels should move together is a
+ * design question the roadmap answers for a channel set that does not exist; guessing a substitute
+ * pairing would bake a decision nobody made into shipped behaviour. Default is UNLINKED: every channel
+ * independent, no hidden coupling. When the pairing is ruled, it is a default value change here and
+ * nothing else.
+ */
+USTRUCT(BlueprintType)
+struct FAFLCreatorChannelLinks
+{
+	GENERATED_BODY()
+
+	/** Bitmask over EAFLCreatorChannel. 0 = fully unlinked, which is the default and the shipped state
+	 *  until a pairing is ruled. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Link")
+	uint8 LinkedMask = 0;
+
+	static uint8 Bit(const EAFLCreatorChannel Ch) { return static_cast<uint8>(1u << static_cast<uint8>(Ch)); }
+
+	bool IsLinked(const EAFLCreatorChannel Ch) const { return (LinkedMask & Bit(Ch)) != 0; }
+
+	void SetLinked(const EAFLCreatorChannel Ch, const bool bLinked)
+	{
+		if (bLinked) { LinkedMask |= Bit(Ch); }
+		else         { LinkedMask &= static_cast<uint8>(~Bit(Ch)); }
+	}
+
+	/** How many channels currently move together. 0 or 1 means dragging one moves only itself. */
+	int32 LinkedCount() const
+	{
+		return (IsLinked(EAFLCreatorChannel::Body)  ? 1 : 0) + (IsLinked(EAFLCreatorChannel::Edge)  ? 1 : 0)
+		     + (IsLinked(EAFLCreatorChannel::Glow)  ? 1 : 0) + (IsLinked(EAFLCreatorChannel::Visor) ? 1 : 0);
+	}
+};
+
+/**
  * CC-5.2 -- IS A CHANNEL REAL ON THIS CHASSIS? THREE ANSWERS, NOT TWO.
  *
  * MEASURED DEFECT THIS FIXES. FAFLCreatorChannelSchema decided availability by asking the master

@@ -142,27 +142,10 @@ void UAFLCosmeticLoadoutComponent::BeginPlay()
 	}
 }
 
-namespace AFLCreatorGamut
-{
-	// CC-2.1 neon gamut bounds -- the SINGLE source (tune here, never scatter magic numbers at call sites). The
-	// X-body master (M_AFL_Character) is emissive-heavy, so a low-saturation / low-value pick reads as muddy
-	// "no colour"; these floors keep a creator choice legibly neon. Value is also ceiling-clamped to full neon.
-	static constexpr float MinSaturation = 0.55f;  // saturation floor: no washed-out greys
-	static constexpr float MinValue      = 0.45f;  // value floor: no near-black
-	static constexpr float MaxValue      = 1.00f;  // value ceiling: full neon brightness
-
-	// Server-authoritative clamp of a requested colour into the neon gamut. HSV via FLinearColor helpers
-	// (R=Hue[deg], G=Saturation[0-1], B=Value[0-1]); hue is preserved, S/V are floored/ceilinged.
-	static FLinearColor ClampToNeon(const FLinearColor& In)
-	{
-		FLinearColor HSV = In.LinearRGBToHSV();
-		HSV.G = FMath::Max(HSV.G, MinSaturation);
-		HSV.B = FMath::Clamp(HSV.B, MinValue, MaxValue);
-		FLinearColor Out = HSV.HSVToLinearRGB();
-		Out.A = 1.0f;
-		return Out;
-	}
-}
+// CC-5.2: the AFLCreatorGamut namespace MOVED to AFLCosmeticSelectionTypes.h. It was private to
+// this file, so a creator UI could not preview with the same clamp the server commits with --
+// two implementations of one rule, drifting silently. The definition is unchanged; only its home
+// moved, so every ClampToNeon call site below resolves to the shared one.
 
 bool UAFLCosmeticLoadoutComponent::IsSelectionEditable() const
 {
