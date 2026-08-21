@@ -103,3 +103,40 @@ Ordered by how likely the UI lane is to trip over it.
 **The `CC-X20/21/26/27` gap is itself the lesson**: an item that lives only in block text is an item
 that cannot be worked, audited, or closed. Every CC-X item from here is written into
 `IRONICS_CHARACTER_CREATOR_SSOT.md` §11 at the moment it is raised.
+
+## WHAT REMAINS OF THE ACTUAL PLAN (2026-08-21)
+
+The `CC-X` list is debt from our own work. It is not the plan. Audited against
+`IRONICS_CC_ROADMAP.html`, here is every phase of the SCOPED plan that is not closed.
+
+| Phase | State | What it needs |
+|---|---|---|
+| **CC-5.2** — Hue arc control, clamped, not RGB sliders | **OPEN** (deliberately; the roadmap banner says so) | The UI lane. Neon and Edge linked by default with an unlink toggle. |
+| **CC-6.5** — the end-to-end proof | **VERIFY** | *"Buy a robot pack, receive slots, build in the creator, equip, spawn — no cheat path anywhere in the loop."* **This IS the done definition.** |
+| **CC-7 · Stickers** | **UNBUILT, whole phase** | 7.1 Blender zone UVs from FBX · 7.2 sticker axis — *"categorically absent today: no C++ symbol, no enum member, no rows, no textures"* · 7.3 placement UI |
+| **CC-8 · Accessories** | **UNBUILT, whole phase** | 8.1 hardpoint socket schema — only six sockets exist, all weapon or foot, none for accessories · 8.2 accessory rows + attach path |
+
+**CC-7 and CC-8 were not being tracked in the 2026-08-20/21 sessions at all.** Recorded here because
+an item that lives only in a roadmap nobody re-reads is the same failure as one that lives only in
+block text — the lesson this document already carries, applied to itself.
+
+### What the UI lane inherits (all of it measured, none of it assumed)
+
+- **The store surface is honest.** `GetPurchasableEntries` intersects with what the backend can
+  actually sell. 183 of 252 non-`GrantedFree` rows were previously offered as buyable and returned
+  `ItemNotFound`; they are now withheld. The set is THREE-STATE, so "not yet answered" shows NOTHING
+  rather than everything, and an offline start shows the last known set from cache.
+- **Counted entitlements are account-durable and atomic.** Slots survive a relaunch and any server;
+  concurrent grants compose (DynamoDB `ADD`), and redemption reserves → grants → refunds on failure.
+- **Weapon credits work end to end**, with four refusals proven: unmarked row, hand cannon, bundle,
+  and past-zero.
+- **The type lint tells the truth**: `unmapped=0 invalid=0`, and the only 5 mismatches are the
+  `AFL.Character.*_X` identity rows, left visible on purpose pending the pivot.
+- **Known traps, banked**: `AFL.Body.` is a legacy alias (canonical is `AFL.Finish.`) holding 10
+  unreachable duplicates — see CC-X32, a PRICE question; `Type==Weapon` is deliberately overloaded and
+  split by id PREFIX, and that filter is load-bearing.
+
+### The honest gap
+
+The economy half of the done definition is proven. The **"build in the creator, equip, spawn"** half
+is not, and cannot be until CC-5.2 exists. CC-6.5 is the arm that closes it.
