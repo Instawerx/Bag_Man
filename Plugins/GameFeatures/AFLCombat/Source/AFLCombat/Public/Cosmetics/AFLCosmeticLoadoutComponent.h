@@ -108,6 +108,21 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Creator")
 	void ServerSetActiveBuild(int32 Index);
 
+	// --- CC-7.2 STICKERS -----------------------------------------------------------------------
+	/**
+	 * Place one sticker in one zone. THE CLIENT NEVER DECIDES A FINAL POSITION.
+	 *
+	 * The server re-clamps through AFLStickerBounds on arrival, exactly as the colour path re-clamps
+	 * through AFLCreatorGamut: a UI that clamps on drag is a courtesy to the player, not a guarantee,
+	 * and a packet editor is not obliged to be courteous. Position is normalised ZONE space, so a
+	 * clamped placement cannot cross a seam by construction.
+	 */
+	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, Category = "AFL|Sticker")
+	void ServerSetStickerPlacement(EAFLStickerZone Zone, FAFLStickerPlacement Placement);
+
+	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, Category = "AFL|Sticker")
+	void ServerClearStickerZone(EAFLStickerZone Zone);
+
 	// --- CC-4.2 LAPSE RULE ---------------------------------------------------------------------
 	// FREEZE, NEVER MUTATE. What a lapse takes away is the ABILITY TO CHANGE, never the work already
 	// done. Applied colours stay applied (ResolveInto reads values frozen at save and never

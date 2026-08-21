@@ -108,7 +108,18 @@ enum class EAFLCosmeticType : uint8
 	// CountedKey=AFL.WeaponCredit by 3, and the credits are later redeemed against rows carrying
 	// bCreditRedeemable. The redemption is what grants a weapon; the credit itself grants nothing
 	// wearable, which is why it needs its own Type rather than borrowing Weapon.
-	WeaponCredit      UMETA(DisplayName = "Weapon Credit")
+	WeaponCredit      UMETA(DisplayName = "Weapon Credit"),
+
+	// CC-7.2 STICKERS. APPENDED, for the same reason every member above it was: stored .uasset
+	// values are raw ints and inserting earlier renumbers everything after.
+	//
+	// ONE ATLAS, NINE ZONES, ONE SAMPLER. A sticker row names an atlas TILE, not its own texture:
+	// M_AFL_Character already carries 5 texture parameters across 9 sample nodes, and nine
+	// dedicated sticker samplers would reach ~14 of the platform's 16 with no headroom -- the
+	// next texture anyone adds would break the master. The shipping BrandMaskTex + BrandUVScale +
+	// BrandVOffset + BrandIntensity decal in that same master is exactly this shape, so stickers
+	// conform to it rather than introducing a second decal path.
+	Sticker           UMETA(DisplayName = "Sticker")
 
 };
 

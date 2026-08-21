@@ -99,6 +99,180 @@ enum class EAFLIdentityType : uint8
 };
 
 /**
+ * CC-7.2 -- THE NINE STICKER ZONES. Fixed, ruled, and ordered so the enum's own order is the
+ * replication order and the UI's row order.
+ *
+ * WHY FIXED AND WHY NINE. A fixed-size set is DIRECTLY REPLICABLE -- nine optional placements ride in
+ * one struct with no compact-reference indirection, no array delta, and no ordering ambiguity between
+ * client and server. A variable-length sticker list would need all three, and every one of them is a
+ * place for the client's view and the server's to disagree about which sticker is where.
+ */
+UENUM(BlueprintType)
+enum class EAFLStickerZone : uint8
+{
+	ChestLeft    UMETA(DisplayName = "Chest (left)"),
+	ChestRight   UMETA(DisplayName = "Chest (right)"),
+	Stomach      UMETA(DisplayName = "Stomach"),
+	LegFrontLeft UMETA(DisplayName = "Front leg (left)"),
+	LegFrontRight UMETA(DisplayName = "Front leg (right)"),
+	LegBackLeft  UMETA(DisplayName = "Back leg (left)"),
+	LegBackRight UMETA(DisplayName = "Back leg (right)"),
+	Back         UMETA(DisplayName = "Back"),
+	Face         UMETA(DisplayName = "Face"),
+
+	/** Count sentinel. LAST, always -- anything appended before it renumbers stored values. */
+	MAX          UMETA(Hidden)
+};
+
+/**
+ * CC-7.2 -- ONE STICKER IN ONE ZONE.
+ *
+ * The placement is a POSITION WITHIN THE ZONE'S OWN UV RECT, expressed in normalised zone space
+ * [0,1]x[0,1], NOT in mesh UV space. That is deliberate: the zone rect is the seam boundary, so a
+ * placement that cannot leave [0,1] cannot cross a seam by construction. Clamping in mesh-UV space
+ * would require every caller to know where the seams are, and the first caller that did not would
+ * put a sticker across one.
+ */
+USTRUCT(BlueprintType)
+struct FAFLStickerPlacement
+{
+	GENERATED_BODY()
+
+	/** The catalog row (AFL.Sticker.*). NAME_None = this zone is empty. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Sticker")
+	FName StickerId = NAME_None;
+
+	/** Centre, in NORMALISED ZONE SPACE. Clamped to [0,1] so a sticker cannot cross the zone seam. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Sticker")
+	FVector2D Position = FVector2D(0.5, 0.5);
+
+	/** Degrees. Free -- rotation cannot move a sticker out of its rect. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Sticker")
+	float RotationDegrees = 0.0f;
+
+	/** Fraction of the zone rect. Clamped: below the floor a sticker is invisible and reads as a bug;
+	 *  at 1.0 it fills the rect exactly and any larger would spill across the seam. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Sticker")
+	float Scale = 0.5f;
+
+	bool IsSet() const { return !StickerId.IsNone(); }
+
+	bool operator==(const FAFLStickerPlacement& O) const
+	{
+		return StickerId == O.StickerId
+			&& Position.Equals(O.Position, 0.0001)
+			&& FMath::IsNearlyEqual(RotationDegrees, O.RotationDegrees, 0.01f)
+			&& FMath::IsNearlyEqual(Scale, O.Scale, 0.0001f);
+	}
+	bool operator!=(const FAFLStickerPlacement& O) const { return !(*this == O); }
+};
+
+/**
+ * CC-7.2 -- THE SHARED PLACEMENT CLAMP.
+ *
+ * ONE CLAMP, SHARED, exactly as AFLCreatorGamut is for colour. The server clamps on commit and the UI
+ * clamps on drag, and BOTH call these -- because two implementations of one rule drift silently, and
+ * the player is shown one placement and given another. THE CLIENT NEVER DECIDES A FINAL POSITION.
+ */
+namespace AFLStickerBounds
+{
+	/** Below this a sticker is a speck the player cannot see, which reads as a bug rather than a
+	 *  choice. Above 1.0 it would spill past the zone rect and cross a seam. */
+	static constexpr float MinScale = 0.05f;
+	static constexpr float MaxScale = 1.00f;
+
+	inline FVector2D ClampPosition(const FVector2D& In)
+	{
+		return FVector2D(FMath::Clamp(In.X, 0.0, 1.0), FMath::Clamp(In.Y, 0.0, 1.0));
+	}
+
+	inline float ClampScale(const float In)
+	{
+		return FMath::Clamp(In, MinScale, MaxScale);
+	}
+
+	/** Wrapped, not clamped: 370 degrees is 10 degrees, and refusing it would be surprising. */
+	inline float NormaliseRotation(const float Degrees)
+	{
+		const float W = FMath::Fmod(Degrees, 360.0f);
+		return W < 0.0f ? W + 360.0f : W;
+	}
+
+	/** The whole placement, through one door. */
+	inline FAFLStickerPlacement Clamp(const FAFLStickerPlacement& In)
+	{
+		FAFLStickerPlacement Out = In;
+		Out.Position        = ClampPosition(In.Position);
+		Out.Scale           = ClampScale(In.Scale);
+		Out.RotationDegrees = NormaliseRotation(In.RotationDegrees);
+		return Out;
+	}
+}
+
+/**
+ * CC-7.2 -- ALL NINE ZONES, FIXED SIZE, DIRECTLY REPLICABLE.
+ *
+ * A fixed TStaticArray-shaped set rather than a TArray: nine entries always exist, indexed by
+ * EAFLStickerZone, so there is no add/remove ordering to reconcile and an empty zone is a placement
+ * with StickerId == None rather than an absent element. Absent-vs-empty ambiguity is the exact trap
+ * this programme has paid for repeatedly.
+ */
+USTRUCT(BlueprintType)
+struct FAFLStickerSet
+{
+	GENERATED_BODY()
+
+	/** Indexed by EAFLStickerZone. Always ZoneCount long -- see EnsureSized. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Sticker")
+	TArray<FAFLStickerPlacement> Zones;
+
+	static constexpr int32 ZoneCount = static_cast<int32>(EAFLStickerZone::MAX);
+
+	/** Fixed size is an INVARIANT, restored rather than assumed: a set deserialised from an older
+	 *  save could be short, and a short array read by zone index would silently read the wrong zone. */
+	void EnsureSized()
+	{
+		if (Zones.Num() != ZoneCount) { Zones.SetNum(ZoneCount); }
+	}
+
+	const FAFLStickerPlacement* Find(const EAFLStickerZone Zone) const
+	{
+		const int32 I = static_cast<int32>(Zone);
+		return Zones.IsValidIndex(I) ? &Zones[I] : nullptr;
+	}
+
+	/** Writes ALWAYS go through the shared clamp. There is no unclamped setter, deliberately. */
+	void Set(const EAFLStickerZone Zone, const FAFLStickerPlacement& P)
+	{
+		EnsureSized();
+		const int32 I = static_cast<int32>(Zone);
+		if (Zones.IsValidIndex(I)) { Zones[I] = AFLStickerBounds::Clamp(P); }
+	}
+
+	void ClearZone(const EAFLStickerZone Zone)
+	{
+		EnsureSized();
+		const int32 I = static_cast<int32>(Zone);
+		if (Zones.IsValidIndex(I)) { Zones[I] = FAFLStickerPlacement(); }
+	}
+
+	int32 NumSet() const
+	{
+		int32 N = 0;
+		for (const FAFLStickerPlacement& P : Zones) { if (P.IsSet()) { ++N; } }
+		return N;
+	}
+
+	bool operator==(const FAFLStickerSet& O) const
+	{
+		if (Zones.Num() != O.Zones.Num()) { return false; }
+		for (int32 i = 0; i < Zones.Num(); ++i) { if (Zones[i] != O.Zones[i]) { return false; } }
+		return true;
+	}
+	bool operator!=(const FAFLStickerSet& O) const { return !(*this == O); }
+};
+
+/**
  * FAFLCosmeticSelection -- the server-authoritative cosmetic selection for one player (#43).
  *
  * A PLAIN replicated USTRUCT (replicated as a single ReplicatedUsing UPROPERTY on
@@ -180,6 +354,13 @@ struct FAFLCosmeticSelection
 	 *  swap never strands the finish). NAME_None = no facemask equipped (robot's BP-default slot-1). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
 	FName FacemaskId = NAME_None;
+
+	/** CC-7.2 -- the nine sticker zones. FIXED SIZE, so it replicates directly: no compact-reference
+	 *  indirection, no array delta, no ordering to reconcile between client and server. An empty zone
+	 *  is a placement with StickerId == None, NOT an absent element -- absent-vs-empty is the
+	 *  ambiguity this programme has paid for more than once. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
+	FAFLStickerSet StickerSet;
 
 	// --- CREATOR COLOUR OVERLAY (CC-2.1) -----------------------------------------------------------------
 	// ADDITIVE, appended after the existing 11 fields. Plain replicated members -> NO custom NetSerialize

@@ -3166,6 +3166,11 @@ namespace
 			// SAME blind spot CC-6.1 fixed for the slot rows, reintroduced by the next new SKU. Any new
 			// namespace needs a rule here in the same commit that creates it.
 			{ TEXT("AFL.WeaponCredit."), EAFLCosmeticType::WeaponCredit, EAFLCosmeticType::WeaponCredit },
+			// CC-7.2: THE RULE SHIPS WITH THE NAMESPACE THAT NEEDS IT. AFL.WeaponCredit.x3 was added
+			// earlier today WITHOUT one and landed straight in `unmapped` -- the same blind spot CC-6.1
+			// had already closed once for the slot rows. A namespace with no rule makes the lint report
+			// a growing hole as a clean result.
+			{ TEXT("AFL.Sticker."), EAFLCosmeticType::Sticker,     EAFLCosmeticType::Sticker },
 		};
 		const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
 		int32 Checked = 0, Mismatch = 0, Unmapped = 0, InvalidRows = 0;

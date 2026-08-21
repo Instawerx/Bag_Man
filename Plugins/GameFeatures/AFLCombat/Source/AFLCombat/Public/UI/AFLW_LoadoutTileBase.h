@@ -26,7 +26,9 @@ enum class EAFLLoadoutAxis : uint8
 	Identity    UMETA(DisplayName = "Identity"),    // AFL.Team.* + AFL.Character.* -> IdentityType + Team/CharacterId (dual-type)
 	BodyColor   UMETA(DisplayName = "Body Color"),  // AFL.Finish.*      -> BodyId          (BodyId resolves to a Finish; free base = 7 finishes)
 	EdgeColor   UMETA(DisplayName = "Edge Color"),  // AFL.Edge.*        -> EdgeId          (type=SkinColor_Edge)
-	Facemask    UMETA(DisplayName = "Facemask")     // AFL.Facemask.*    -> FacemaskId      (type=Facemask)
+	Facemask    UMETA(DisplayName = "Facemask"),     // AFL.Facemask.*    -> FacemaskId      (type=Facemask)
+	// CC-7.2: APPENDED. Nine fixed zones, addressed by AFL.Sticker.* rows.
+	Sticker     UMETA(DisplayName = "Sticker")      // AFL.Sticker.*    -> StickerPlacements (type=Sticker)
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAFLLoadoutTileClicked, EAFLLoadoutAxis, Axis, FName, CosmeticId);

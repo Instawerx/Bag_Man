@@ -830,3 +830,38 @@ FAFLCreatorChannelSchema UAFLCosmeticLoadoutComponent::GetChannelSchemaForPawn(A
 	return Out;
 }
 
+// --- CC-7.2 STICKERS ---------------------------------------------------------------------------
+bool UAFLCosmeticLoadoutComponent::ServerSetStickerPlacement_Validate(EAFLStickerZone Zone, FAFLStickerPlacement)
+{
+	// VALIDATION REFUSES THE IMPOSSIBLE, the clamp CORRECTS the merely out-of-range. A zone outside
+	// the enum is not a value to fix -- it is a malformed request, and dropping the connection is the
+	// documented response to one.
+	return static_cast<uint8>(Zone) < static_cast<uint8>(EAFLStickerZone::MAX);
+}
+
+void UAFLCosmeticLoadoutComponent::ServerSetStickerPlacement_Implementation(const EAFLStickerZone Zone, const FAFLStickerPlacement Placement)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	// RE-CLAMP ON THE SERVER, unconditionally. The UI clamps while dragging so the player sees the
+	// bound; this is what makes the bound TRUE. Set() routes through AFLStickerBounds::Clamp -- there
+	// is deliberately no unclamped setter on FAFLStickerSet for a caller to reach for.
+	Selection.StickerSet.EnsureSized();
+	Selection.StickerSet.Set(Zone, Placement);
+
+	// Same commit path the other axes use, so stickers cannot drift onto a private route.
+	ServerSetCosmeticSelection(Selection);
+}
+
+bool UAFLCosmeticLoadoutComponent::ServerClearStickerZone_Validate(EAFLStickerZone Zone)
+{
+	return static_cast<uint8>(Zone) < static_cast<uint8>(EAFLStickerZone::MAX);
+}
+
+void UAFLCosmeticLoadoutComponent::ServerClearStickerZone_Implementation(const EAFLStickerZone Zone)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+	Selection.StickerSet.EnsureSized();
+	Selection.StickerSet.ClearZone(Zone);
+	ServerSetCosmeticSelection(Selection);
+}
