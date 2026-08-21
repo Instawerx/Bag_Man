@@ -14,7 +14,8 @@
 #include "AbilitySystemGlobals.h"
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
-#include "Cosmetics/AFLWalletComponent.h"            // S-ECON-WALLET: balance/gate/earn-spend cheats
+#include "Cosmetics/AFLWalletComponent.h"
+#include "Kismet/GameplayStatics.h"   // CC-X30 relaunch arm: DoesSaveGameExist, the mirror-absent discriminator            // S-ECON-WALLET: balance/gate/earn-spend cheats
 #include "UI/AFLW_LoadoutBase.h" // CC-5.3 probe: the creator interface under test
 #include "UObject/UObjectIterator.h" // CC-5.3 probe: find an already-open loadout widget
 #include "UI/AFLLoadoutDisplayPawn.h" // CC-5.3 probe: the preview pawn whose MIDs are read
@@ -4180,6 +4181,158 @@ namespace
 		Ar.Logf(TEXT("afl.Online.VerifyBundleBuy - purchase issued; ARM3 lands in ~10s. See AFL_TEST[BUN]."));
 	}
 
+	// === CC-X30 DURABILITY: afl.Online.VerifyCountedDurable + afl.Online.VerifyCountedRelaunch ===
+	//
+	// THE DEFECT, MEASURED RATHER THAN ASSUMED. LoadCountedSet was declared, implemented, and had NO
+	// CALLER ANYWHERE in the programme. The counter was written to a local SaveGame and never read back
+	// -- so it did not merely fail to reach another server, it did not survive the process that wrote
+	// it. cc-join-done proved purchase -> counter -> persist and the read-back half did not exist.
+	//
+	// CORRECTION TO THE BLOCK'S PREMISE, stated because it changes what this proof means: an IN-SESSION
+	// reconcile did NOT previously lose the counter. LoadFromPersistence simply never touched the
+	// counted array, so the count survived by INACTION. It now survives because the reconcile actively
+	// re-reads it from PlayFab -- correct by construction instead of by omission. The loss was always
+	// on relaunch and on any other server, which is what ARM4 tests.
+	void HandleAFLVerifyCountedDurable(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifyCountedDurable - run inside PIE.")); return; }
+
+		FString Why;
+		UAFLWalletComponent* Wallet = GetServerWalletForLocalPlayer(World, Why);
+		const UAFLOnlineSubsystem* Online = Wallet ? UAFLOnlineSubsystem::Get(Wallet) : UAFLOnlineSubsystem::Get(World);
+		const FString Pf = Online ? Online->GetPlayFabId() : FString();
+		const bool bSigner = Online && Online->IsCountedEntitlementConfigured();
+
+		// WHY IS EMITTED. A null wallet with no reason attached is an unattributable skip, and one of
+		// those already left a run inconclusive.
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[DUR] ARM0 wallet=%d signerConfigured=%d pfid=%s why=%s"),
+			Wallet ? 1 : 0, bSigner ? 1 : 0, Pf.IsEmpty() ? TEXT("<none>") : *Pf, Why.IsEmpty() ? TEXT("ok") : *Why);
+
+		if (!Wallet) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DUR] VOID -- no server wallet")); return; }
+		if (!bSigner)
+		{
+			// VOID, NOT FAIL. With no signer the counted set never leaves the process, so the run cannot
+			// say anything about durability. Grading that FAIL would report a verdict on an untested thing.
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[DUR] VOID -- /counted-entitlement NOT CONFIGURED (needs AFL_COUNTED_URL + AFL_EARN_HMAC_KEY). Nothing about durability was tested."));
+			return;
+		}
+		if (Pf.IsEmpty()) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DUR] VOID -- no PlayFabId")); return; }
+
+		static const FName SlotKey(TEXT("AFL.CreatorSlot"));
+		static const FName SkuX3(TEXT("AFL.CreatorSlot.x3"));
+		const int32 Base = Wallet->GetCountedEntitlement(SlotKey);
+		const int32 VoBefore = Wallet->GetVolts();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DUR] ARM1 baseline counter=%d mirrorVo=%d (x3 costs 4990)"), Base, VoBefore);
+
+		TWeakObjectPtr<UAFLWalletComponent> WeakW(Wallet);
+		TWeakObjectPtr<UWorld> WeakWorld(World);
+
+		// ARM2 -- buy through the PRODUCTION entry, not a debug grant. A proof arm that exercises a
+		// convenience path validates the instrument, not the product.
+		// Volts named EXPLICITLY rather than left to Auto: a proof must not depend on which currency the
+		// resolver happened to pick.
+		Wallet->ClientRequestPurchase(SkuX3, EAFLPayCurrency::Volts, TFunction<void(bool)>());
+
+		FTimerHandle H1;
+		World->GetTimerManager().SetTimer(H1, FTimerDelegate::CreateLambda([WeakW, WeakWorld, Base]()
+		{
+			UAFLWalletComponent* W = WeakW.Get();
+			UWorld* Wd = WeakWorld.Get();
+			if (!W || !Wd) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DUR] VOID -- wallet/world gone before ARM2")); return; }
+
+			static const FName K(TEXT("AFL.CreatorSlot"));
+			const int32 After = W->GetCountedEntitlement(K);
+			const bool bArm2 = (After == Base + 3);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DUR] ARM2 buy x3 -> counter %d -> %d (want %d) %s"),
+				Base, After, Base + 3, bArm2 ? TEXT("PASS") : TEXT("FAIL"));
+
+			// ARM3 -- the SHIPPING reconcile. It now re-reads the counted set from PlayFab, so a count
+			// that survives here survived a real round-trip, not merely an untouched array.
+			W->DebugForceReconcile();
+
+			FTimerHandle H2;
+			Wd->GetTimerManager().SetTimer(H2, FTimerDelegate::CreateLambda([WeakW, After, bArm2]()
+			{
+				UAFLWalletComponent* W2 = WeakW.Get();
+				if (!W2) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DUR] VOID -- wallet gone before ARM3")); return; }
+
+				static const FName K2(TEXT("AFL.CreatorSlot"));
+				const int32 AfterRecon = W2->GetCountedEntitlement(K2);
+				const bool bArm3 = (AfterRecon == After) && (After > 0);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DUR] ARM3 reconcile -> counter %d -> %d (want unchanged) %s"),
+					After, AfterRecon, bArm3 ? TEXT("PASS") : TEXT("FAIL"));
+
+				// HANDED TO THE NEXT PROCESS. The relaunch arm needs a number that was decided BEFORE
+				// the process died, or run 2 would be checking a value against itself.
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DUR] RELAUNCH_EXPECT=%d"), AfterRecon);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DUR] RUN1 SUMMARY arm2=%d arm3=%d"),
+					bArm2 ? 1 : 0, bArm3 ? 1 : 0);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DUR] END"));
+			}), 6.0f, false);
+		}), 8.0f, false);
+	}
+
+	// Run 2. A FRESH PROCESS with the local mirror DELETED, so a surviving count has exactly one
+	// possible source: PlayFab.
+	void HandleAFLVerifyCountedRelaunch(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifyCountedRelaunch <expected> - run inside PIE.")); return; }
+		if (Args.Num() < 1) { Ar.Log(TEXT("afl.Online.VerifyCountedRelaunch <expected> - pass RELAUNCH_EXPECT from run 1.")); return; }
+		const int32 Expected = FCString::Atoi(*Args[0]);
+
+		// THE DISCRIMINATOR IS PROVENANCE, NOT FILE ABSENCE. The first version of this arm asserted
+		// AFLEconomy.sav was gone -- but the game REWRITES that file during startup, so it was back
+		// before the probe graded and the arm correctly VOIDed itself. File state cannot carry the
+		// claim. bCountedHydratedFromBackend can: it is raised in exactly one place, inside the
+		// /counted-entitlement response handler, where the array is replaced by the backend's reply.
+		// The .sav is still reported, now as CONTEXT rather than as the test.
+		const bool bLocalSavePresent = UGameplayStatics::DoesSaveGameExist(TEXT("AFLEconomy"), 0);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[REL] ARM4a context: local mirror present=%d (informational -- the game recreates it at startup, so it cannot be the discriminator)"),
+			bLocalSavePresent ? 1 : 0);
+
+		FString Why;
+		UAFLWalletComponent* Wallet = GetServerWalletForLocalPlayer(World, Why);
+		const UAFLOnlineSubsystem* Online = Wallet ? UAFLOnlineSubsystem::Get(Wallet) : UAFLOnlineSubsystem::Get(World);
+		const FString Pf = Online ? Online->GetPlayFabId() : FString();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[REL] ARM4a wallet=%d pfid=%s expected=%d why=%s"),
+			Wallet ? 1 : 0, Pf.IsEmpty() ? TEXT("<none>") : *Pf, Expected, Why.IsEmpty() ? TEXT("ok") : *Why);
+
+		if (!Wallet) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[REL] VOID -- no server wallet")); return; }
+
+		const bool bFromBackend = Wallet->WasCountedHydratedFromBackend();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[REL] ARM4a provenance: hydratedFromBackend=%d"), bFromBackend ? 1 : 0);
+		if (!bFromBackend)
+		{
+			// VOID, NOT FAIL. Without a backend hydration this process never asked the durable store,
+			// so whatever the counter reads says nothing about durability either way.
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[REL] VOID -- the counted set was never hydrated from /counted-entitlement in this process. Nothing about durability was tested."));
+			return;
+		}
+
+		static const FName SlotKey(TEXT("AFL.CreatorSlot"));
+		const int32 Now = Wallet->GetCountedEntitlement(SlotKey);
+		const bool bArm4 = (Now == Expected) && (Expected > 0);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[REL] ARM4 fresh process -> counter=%d (want %d) %s -- the array was REPLACED by the backend's reply, so the durable store is the only source"),
+			Now, Expected, bArm4 ? TEXT("PASS") : TEXT("FAIL"));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[REL] END"));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyCountedDurableCmd(TEXT("afl.Online.VerifyCountedDurable"),
+		TEXT("CC-X30 run 1: buy AFL.CreatorSlot.x3 through the production entry, then force the shipping ")
+		TEXT("reconcile, and assert the counted slot survives. Prints RELAUNCH_EXPECT=<n> for run 2. ")
+		TEXT("VOID (not FAIL) without a signer or a PlayFabId."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyCountedDurable));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyCountedRelaunchCmd(TEXT("afl.Online.VerifyCountedRelaunch"),
+		TEXT("CC-X30 run 2: in a FRESH process with AFLEconomy.sav deleted, assert the counted slot came ")
+		TEXT("back from PlayFab. VOID if the local mirror is present -- then the source is ambiguous."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyCountedRelaunch));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
 		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
@@ -4909,6 +5062,16 @@ static FAutoConsoleVariableRef CVarAFLBundleProbe(TEXT("afl.Online.BundleProbe.E
 static int32 GAFLSlotJoinProbe = 0;
 static FAutoConsoleVariableRef CVarAFLSlotJoinProbe(TEXT("afl.Online.SlotJoinProbe.Enable"),
 	GAFLSlotJoinProbe, TEXT("1 = buy AFL.CreatorSlot.x3 TWICE through the production entry and assert the counter reaches +6. SPENDS 9980 real Volts."), ECVF_Default);
+// CC-X30 durability gates. TWO cvars because the proof spans two PROCESSES: run 1 buys and reports
+// the count it left behind, run 2 asserts a FRESH process got that count back from PlayFab.
+// The relaunch EXPECTATION is the cvar's value, not a separate flag -- run 2 must check against a
+// number decided before the previous process died, or it is comparing a value with itself.
+static int32 GAFLCountedDurable = 0;
+static FAutoConsoleVariableRef CVarAFLCountedDurable(TEXT("afl.Online.CountedDurable.Enable"),
+	GAFLCountedDurable, TEXT("CC-X30 run 1: buy AFL.CreatorSlot.x3, reconcile, assert the counter survives. SPENDS 4990 real Volts."), ECVF_Default);
+static int32 GAFLCountedRelaunchExpect = 0;
+static FAutoConsoleVariableRef CVarAFLCountedRelaunchExpect(TEXT("afl.Online.CountedRelaunch.Expect"),
+	GAFLCountedRelaunchExpect, TEXT("CC-X30 run 2: >0 = assert a fresh process reads exactly this counted-slot count from PlayFab. 0 = off."), ECVF_Default);
 static int32 GAFLReconcileProbe = 0;
 static FAutoConsoleVariableRef CVarAFLReconcileProbe(TEXT("afl.Online.ReconcileProbe.Enable"),
 	GAFLReconcileProbe, TEXT("CC-X23: 1 = run the wallet-mirror reconcile proof. Needs afl.Online.ForceEosLogin 1."), ECVF_Default);
@@ -5048,10 +5211,24 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
 		if (RoleIndex == 0) { FireCmd(3.2f, TEXT("afl.Creator.ArcProbe"), TEXT("0-arc-probe")); }
 		if (RoleIndex == 0) { FireCmd(6.5f, TEXT("afl.Creator.PreviewProbe"), TEXT("0-cc53-preview")); }
-		if (RoleIndex == 0) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
+		// SUPPRESSED during the CC-X30 durability run: SlotProbe grants x3 and x8 through
+		// DebugGrantOwnership, which put 11 cheat-granted slots into run 1's baseline. Firing them on
+		// one frame is also what accidentally exposed the lost update -- worth keeping in mind, but a
+		// durability number must not be part cheat.
+		if (RoleIndex == 0 && GAFLCountedDurable == 0) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
 		if (RoleIndex == 0 && GAFLReconcileProbe != 0) { FireCmd(14.0f, TEXT("afl.Online.ReconcileProbe"), TEXT("0-ccx23-reconcile")); }
 		if (RoleIndex == 0 && GAFLSlotJoinProbe != 0) { FireCmd(18.0f, TEXT("afl.Online.VerifySlotBuyJoin"), TEXT("0-join-slotbuy")); }
 		if (RoleIndex == 0 && GAFLBundleProbe != 0) { FireCmd(20.0f, TEXT("afl.Online.VerifyBundleBuy"), TEXT("0-bundle-buy")); }
+		// CC-X30. Run 1 late (t=22) so it cannot collide with the other economy probes -- concurrent
+		// probes already contaminated one VO measurement, and a summed delta reads as a failure.
+		if (RoleIndex == 0 && GAFLCountedDurable != 0) { FireCmd(22.0f, TEXT("afl.Online.VerifyCountedDurable"), TEXT("0-ccx30-durable")); }
+		// Run 2 EARLY (t=6): it is a pure read, and it must land after hydration but before anything
+		// else can perturb the counted set.
+		if (RoleIndex == 0 && GAFLCountedRelaunchExpect > 0)
+		{
+			const FString RelCmd = FString::Printf(TEXT("afl.Online.VerifyCountedRelaunch %d"), GAFLCountedRelaunchExpect);
+			FireCmd(6.0f, *RelCmd, TEXT("0-ccx30-relaunch"));
+		}
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
 		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
 		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
