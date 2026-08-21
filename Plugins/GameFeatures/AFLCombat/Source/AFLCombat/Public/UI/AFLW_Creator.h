@@ -132,6 +132,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator")
 	void RotatePreview(float DeltaYawDegrees);
 
+#if !UE_BUILD_SHIPPING
+	/** TEST ONLY. Build the rail from a SUPPLIED schema instead of the bound loadout's.
+	 *
+	 *  WHY THIS EXISTS. CreatorGetSchema() resolves against the loadout's DisplayPawn, so a probe that
+	 *  constructs a loadout without opening it gets whatever material happens to be reachable -- one
+	 *  run resolved to MID_MI_AFL_FaceMask_Pink_2 and reported all four channels Connected on an
+	 *  UNAUDITED master. Every schema-dependent assertion then compared two values that came from the
+	 *  same wrong source and "passed" while testing nothing.
+	 *
+	 *  Driving the REAL row builder with a KNOWN schema (DeriveFromMaterial on M_AFL_Character vs
+	 *  M_Mannequin) makes "the rail varies by chassis" checkable on demand instead of dependent on
+	 *  whatever the preview rig happened to have loaded. Compiled out of shipping. */
+	void DebugBuildRowsFromSchema(const FAFLCreatorChannelSchema& InSchema);
+#endif
+
 	//~ Slot counter -------------------------------------------------------------------------------
 	/** Saved builds occupied. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Slots")
@@ -180,7 +195,11 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Creator")
 	void OnChannelRowsChanged();
 
+
 private:
+	/** The one row builder. RefreshFromSchema and the debug entry BOTH go through it, so the probe
+	 *  exercises shipping code rather than a copy that could diverge from it. */
+	void RebuildRows();
 	EAFLChannelAvailability StateFor(EAFLCreatorChannel Channel) const;
 	FLinearColor ColourFor(EAFLCreatorChannel Channel, bool& bOutHasValue) const;
 	FText ReasonFor(EAFLCreatorChannel Channel, EAFLChannelAvailability State) const;

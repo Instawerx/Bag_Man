@@ -153,6 +153,24 @@ void UAFLW_Creator::RefreshFromSchema()
 		return;
 	}
 	bSchemaResolved = true;
+	RebuildRows();
+}
+
+#if !UE_BUILD_SHIPPING
+void UAFLW_Creator::DebugBuildRowsFromSchema(const FAFLCreatorChannelSchema& InSchema)
+{
+	Schema = InSchema;
+	bSchemaResolved = !InSchema.ResolvedFromMaster.IsNone();
+	Rows.Reset();
+	if (bSchemaResolved) { RebuildRows(); }
+	else { OnChannelRowsChanged(); }
+}
+#endif
+
+void UAFLW_Creator::RebuildRows()
+{
+	Rows.Reset();
+	UAFLW_LoadoutBase* L = Loadout.Get();
 
 	for (const EAFLCreatorChannel Ch : GRailOrder)
 	{
@@ -167,7 +185,7 @@ void UAFLW_Creator::RefreshFromSchema()
 		Row.Colour        = ColourFor(Ch, Row.bHasValue);
 		Row.HueDegrees    = Row.bHasValue ? AFLCreatorGamut::HueOf(Row.Colour) : 0.0f;
 		Row.Readout       = BuildReadout(Row.Colour, Row.bHasValue);
-		Row.bLinked       = L->CreatorLinks.IsLinked(Ch);
+		Row.bLinked       = L ? L->CreatorLinks.IsLinked(Ch) : false;
 
 		// Connected on an unaudited master is "present, inertness unknown" -- NOT "measured to
 		// render". The caveat rides on the row so the UI cannot quietly upgrade it to a claim.
