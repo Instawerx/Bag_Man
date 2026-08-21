@@ -3171,6 +3171,8 @@ namespace
 			// had already closed once for the slot rows. A namespace with no rule makes the lint report
 			// a growing hole as a clean result.
 			{ TEXT("AFL.Sticker."), EAFLCosmeticType::Sticker,     EAFLCosmeticType::Sticker },
+			// CC-8: same rule, same commit as the namespace.
+			{ TEXT("AFL.Accessory."), EAFLCosmeticType::Accessory, EAFLCosmeticType::Accessory },
 		};
 		const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
 		int32 Checked = 0, Mismatch = 0, Unmapped = 0, InvalidRows = 0;

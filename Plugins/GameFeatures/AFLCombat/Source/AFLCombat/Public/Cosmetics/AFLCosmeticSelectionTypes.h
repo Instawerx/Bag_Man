@@ -273,6 +273,127 @@ struct FAFLStickerSet
 };
 
 /**
+ * CC-8 -- ACCESSORY HARDPOINTS. Fixed set, same shape and for the same reasons as the sticker zones.
+ *
+ * A slot names WHERE an accessory hangs, not what it is. The socket each slot maps to is authored on
+ * SK_Mannequin -- ONE skeleton, shared by the X line and the Original line alike (measured:
+ * SKM_IRONICS_Blank, SKM_Manny and SKM_Quinn all resolve to
+ * /Game/Characters/Heroes/Mannequin/Meshes/SK_Mannequin, and ABP_ProMod_FBIK_PP targets that same
+ * asset -- FBIK is layered ON it, not a separate skeleton). So slots are authored once and serve both.
+ */
+UENUM(BlueprintType)
+enum class EAFLAccessorySlot : uint8
+{
+	Head       UMETA(DisplayName = "Head"),
+	ShoulderL  UMETA(DisplayName = "Shoulder (left)"),
+	ShoulderR  UMETA(DisplayName = "Shoulder (right)"),
+
+	/** Count sentinel. LAST, always. */
+	MAX        UMETA(Hidden)
+};
+
+/**
+ * CC-8 -- ONE ACCESSORY IN ONE SLOT.
+ *
+ * NO TRANSFORM HERE, DELIBERATELY. The part attaches with SetupAttachment(component, SocketName) and
+ * inherits the socket's transform, so offset/rotation belong to the SOCKET, authored once on the
+ * skeleton, rather than to per-player data that every accessory would have to get right. Putting a
+ * transform here would also invite a bone-transform READ to place it -- and a read has an ordering
+ * against the FBIK post-process ABP, which attachment does not.
+ */
+USTRUCT(BlueprintType)
+struct FAFLAccessoryPlacement
+{
+	GENERATED_BODY()
+
+	/** Catalog row (AFL.Accessory.*). NAME_None = slot empty. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Accessory")
+	FName AccessoryId = NAME_None;
+
+	bool IsSet() const { return !AccessoryId.IsNone(); }
+	bool operator==(const FAFLAccessoryPlacement& O) const { return AccessoryId == O.AccessoryId; }
+	bool operator!=(const FAFLAccessoryPlacement& O) const { return !(*this == O); }
+};
+
+/** CC-8 -- all slots, fixed size, directly replicable. Empty slot = placement with None, never absent. */
+USTRUCT(BlueprintType)
+struct FAFLAccessorySet
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Accessory")
+	TArray<FAFLAccessoryPlacement> Slots;
+
+	static constexpr int32 SlotCount = static_cast<int32>(EAFLAccessorySlot::MAX);
+
+	/** Invariant RESTORED, not assumed -- an older save could deserialise short, and a slot-indexed
+	 *  read on a short array returns the WRONG SLOT rather than failing. */
+	void EnsureSized() { if (Slots.Num() != SlotCount) { Slots.SetNum(SlotCount); } }
+
+	const FAFLAccessoryPlacement* Find(const EAFLAccessorySlot Slot) const
+	{
+		const int32 I = static_cast<int32>(Slot);
+		return Slots.IsValidIndex(I) ? &Slots[I] : nullptr;
+	}
+
+	void Set(const EAFLAccessorySlot Slot, const FAFLAccessoryPlacement& P)
+	{
+		EnsureSized();
+		const int32 I = static_cast<int32>(Slot);
+		if (Slots.IsValidIndex(I)) { Slots[I] = P; }
+	}
+
+	void ClearSlot(const EAFLAccessorySlot Slot)
+	{
+		EnsureSized();
+		const int32 I = static_cast<int32>(Slot);
+		if (Slots.IsValidIndex(I)) { Slots[I] = FAFLAccessoryPlacement(); }
+	}
+
+	int32 NumSet() const
+	{
+		int32 N = 0;
+		for (const FAFLAccessoryPlacement& P : Slots) { if (P.IsSet()) { ++N; } }
+		return N;
+	}
+
+	bool operator==(const FAFLAccessorySet& O) const
+	{
+		if (Slots.Num() != O.Slots.Num()) { return false; }
+		for (int32 i = 0; i < Slots.Num(); ++i) { if (Slots[i] != O.Slots[i]) { return false; } }
+		return true;
+	}
+	bool operator!=(const FAFLAccessorySet& O) const { return !(*this == O); }
+};
+
+/**
+ * CC-8 -- SLOT -> SOCKET. The one place the mapping lives.
+ *
+ * NAMED, not derived from the enum, because a socket name is content the skeleton must actually carry
+ * and an enum member is not. ResolveSocket returns NAME_None for an unmapped slot so a caller FAILS
+ * CLOSED -- attaching to NAME_None would silently parent to the component root, putting an accessory
+ * at the pawn's feet rather than refusing.
+ *
+ * NOT YET AUTHORED ON THE SKELETON: see CC-X34. SkeletalMeshSocket::SocketName is read-only from
+ * Python and the Sockets array is protected, so these three need the Skeleton editor or a C++ path.
+ * The names are fixed here so the code and the eventual sockets cannot disagree.
+ */
+namespace AFLAccessorySockets
+{
+	inline FName ResolveSocket(const EAFLAccessorySlot Slot)
+	{
+		switch (Slot)
+		{
+			case EAFLAccessorySlot::Head:      return FName(TEXT("accessory_head"));
+			case EAFLAccessorySlot::ShoulderL: return FName(TEXT("accessory_clavicle_l"));
+			case EAFLAccessorySlot::ShoulderR: return FName(TEXT("accessory_clavicle_r"));
+			default: break;
+		}
+		return NAME_None;   // fails closed
+	}
+}
+
+/**
  * FAFLCosmeticSelection -- the server-authoritative cosmetic selection for one player (#43).
  *
  * A PLAIN replicated USTRUCT (replicated as a single ReplicatedUsing UPROPERTY on
@@ -361,6 +482,10 @@ struct FAFLCosmeticSelection
 	 *  ambiguity this programme has paid for more than once. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
 	FAFLStickerSet StickerSet;
+
+	/** CC-8 -- accessory hardpoints. Fixed size, same replication shape as StickerSet. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
+	FAFLAccessorySet AccessorySet;
 
 	// --- CREATOR COLOUR OVERLAY (CC-2.1) -----------------------------------------------------------------
 	// ADDITIVE, appended after the existing 11 fields. Plain replicated members -> NO custom NetSerialize

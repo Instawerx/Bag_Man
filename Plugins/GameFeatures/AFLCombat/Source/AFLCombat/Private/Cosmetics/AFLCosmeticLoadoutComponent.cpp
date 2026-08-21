@@ -865,3 +865,46 @@ void UAFLCosmeticLoadoutComponent::ServerClearStickerZone_Implementation(const E
 	Selection.StickerSet.ClearZone(Zone);
 	ServerSetCosmeticSelection(Selection);
 }
+
+// --- CC-8 ACCESSORIES --------------------------------------------------------------------------
+bool UAFLCosmeticLoadoutComponent::ServerSetAccessory_Validate(EAFLAccessorySlot Slot, FName)
+{
+	return static_cast<uint8>(Slot) < static_cast<uint8>(EAFLAccessorySlot::MAX);
+}
+
+void UAFLCosmeticLoadoutComponent::ServerSetAccessory_Implementation(const EAFLAccessorySlot Slot, const FName AccessoryId)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	// FAILS CLOSED on an unmapped slot. Attaching to NAME_None does NOT fail -- it parents to the
+	// component root, which would hang the accessory at the pawn's feet and look like an art bug
+	// rather than a wiring one. Refusing here is the difference between a visible refusal and a
+	// mystery.
+	if (AFLAccessorySockets::ResolveSocket(Slot).IsNone())
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[AFLAccessory] REFUSED slot=%d -- no socket mapping. Nothing equipped."), static_cast<int32>(Slot));
+		return;
+	}
+
+	FAFLAccessoryPlacement P;
+	P.AccessoryId = AccessoryId;
+	Selection.AccessorySet.EnsureSized();
+	Selection.AccessorySet.Set(Slot, P);
+
+	// Same commit path every other axis uses, so accessories cannot drift onto a private route.
+	ServerSetCosmeticSelection(Selection);
+}
+
+bool UAFLCosmeticLoadoutComponent::ServerClearAccessory_Validate(EAFLAccessorySlot Slot)
+{
+	return static_cast<uint8>(Slot) < static_cast<uint8>(EAFLAccessorySlot::MAX);
+}
+
+void UAFLCosmeticLoadoutComponent::ServerClearAccessory_Implementation(const EAFLAccessorySlot Slot)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+	Selection.AccessorySet.EnsureSized();
+	Selection.AccessorySet.ClearSlot(Slot);
+	ServerSetCosmeticSelection(Selection);
+}

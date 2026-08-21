@@ -123,6 +123,14 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, Category = "AFL|Sticker")
 	void ServerClearStickerZone(EAFLStickerZone Zone);
 
+	// --- CC-8 ACCESSORIES ----------------------------------------------------------------------
+	/** Equip an accessory in a slot. Server-authoritative and FAILS CLOSED on an unmapped slot. */
+	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, Category = "AFL|Accessory")
+	void ServerSetAccessory(EAFLAccessorySlot Slot, FName AccessoryId);
+
+	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, Category = "AFL|Accessory")
+	void ServerClearAccessory(EAFLAccessorySlot Slot);
+
 	// --- CC-4.2 LAPSE RULE ---------------------------------------------------------------------
 	// FREEZE, NEVER MUTATE. What a lapse takes away is the ABILITY TO CHANGE, never the work already
 	// done. Applied colours stay applied (ResolveInto reads values frozen at save and never
