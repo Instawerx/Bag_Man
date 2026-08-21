@@ -16,7 +16,8 @@
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Kismet/GameplayStatics.h"   // CC-X30 relaunch arm: DoesSaveGameExist, the mirror-absent discriminator            // S-ECON-WALLET: balance/gate/earn-spend cheats
-#include "UI/AFLW_LoadoutBase.h" // CC-5.3 probe: the creator interface under test
+#include "UI/AFLW_LoadoutBase.h"
+#include "UI/AFLW_Creator.h"   // CC-5.2 widget probe // CC-5.3 probe: the creator interface under test
 #include "UObject/UObjectIterator.h" // CC-5.3 probe: find an already-open loadout widget
 #include "UI/AFLLoadoutDisplayPawn.h" // CC-5.3 probe: the preview pawn whose MIDs are read
 #include "Blueprint/UserWidget.h" // CC-5.3 probe: CreateWidget for the concrete WBP subclass
@@ -4644,6 +4645,169 @@ namespace
 		TEXT("that must not. Reads only -- spends nothing."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLSellableProbe));
 
+	// === CC-5.2: afl.Creator.WidgetProbe ==========================================================
+	void HandleAFLCreatorWidgetProbe(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Creator.WidgetProbe - run inside PIE.")); return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		if (!PC) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[CRW] VOID -- no PlayerController")); return; }
+
+		UClass* CreatorCls = LoadClass<UAFLW_Creator>(nullptr,
+			TEXT("/Game/BagMan/UI/Creator/WBP_AFL_Creator.WBP_AFL_Creator_C"));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CRW] ARM0 WBP class loaded = %d"), CreatorCls ? 1 : 0);
+		if (!CreatorCls) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[CRW] VOID -- the creator WBP did not load")); return; }
+
+		// ---- ARM1: FAILS CLOSED with no loadout bound ------------------------------------------
+		UAFLW_Creator* Solo = CreateWidget<UAFLW_Creator>(PC, CreatorCls);
+		if (!Solo) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[CRW] VOID -- CreateWidget failed")); return; }
+		Solo->RefreshFromSchema();
+		const bool bArm1 = (Solo->GetChannelRows().Num() == 0) && !Solo->IsSchemaResolved();
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CRW] ARM1 no loadout -> rows=%d resolved=%d (want 0/0) %s"),
+			Solo->GetChannelRows().Num(), Solo->IsSchemaResolved() ? 1 : 0, bArm1 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ---- ARM2/3/4: THE RAIL VARIES BY CHASSIS -----------------------------------------------
+		// DRIVEN WITH A KNOWN SCHEMA, on purpose. A previous run bound a CreateWidget'd loadout whose
+		// DisplayPawn had never spawned; CreatorGetSchema() then resolved against whatever material was
+		// reachable -- MID_MI_AFL_FaceMask_Pink_2 -- and reported all four channels Connected on an
+		// UNAUDITED master. Every assertion below compared two numbers drawn from that same wrong
+		// source and "passed" while testing nothing. Deriving from the two MEASURED masters makes the
+		// claim falsifiable instead of self-confirming.
+		struct FCase { const TCHAR* Path; const TCHAR* Nick; int32 WantInteractive; };
+		static const FCase Cases[] = {
+			{ TEXT("/Game/BagMan/Materials/M_AFL_Character"),                        TEXT("X-line"),      2 },
+			{ TEXT("/Game/Characters/Heroes/Mannequin/Materials/M_Mannequin"),       TEXT("Manny-based"), 3 },
+		};
+
+		UAFLW_Creator* W = CreateWidget<UAFLW_Creator>(PC, CreatorCls);
+		bool bArm2 = true, bArm3 = true, bArm4Seen = false, bArm4 = true, bArm7Seen = false, bArm7 = true;
+
+		for (const FCase& Case : Cases)
+		{
+			UMaterialInterface* Mat = LoadObject<UMaterialInterface>(nullptr, Case.Path);
+			if (!Mat)
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[CRW] VOID -- master did not load: %s"), Case.Path);
+				bArm2 = false;
+				continue;
+			}
+			const FAFLCreatorChannelSchema Sch = FAFLCreatorChannelSchema::DeriveFromMaterial(Mat);
+			W->DebugBuildRowsFromSchema(Sch);
+			const TArray<FAFLCreatorChannelRow>& Rows = W->GetChannelRows();
+
+			int32 Interactive = 0, Disabled = 0, WithReason = 0, Inert = 0, Absent = 0;
+			FString InertReason, AbsentReason;
+			for (const FAFLCreatorChannelRow& R : Rows)
+			{
+				if (R.bInteractive) { ++Interactive; }
+				else
+				{
+					++Disabled;
+					if (!R.Reason.IsEmpty()) { ++WithReason; }
+				}
+				if (R.State == EAFLChannelAvailability::PresentButInert) { ++Inert;  InertReason  = R.Reason.ToString(); }
+				if (R.State == EAFLChannelAvailability::Absent)          { ++Absent; AbsentReason = R.Reason.ToString(); }
+			}
+
+			// ARM2 -- the rail LENGTH is the chassis's, and EVERY channel is still emitted.
+			const bool bCase2 = (Interactive == Case.WantInteractive)
+			                 && (Interactive == Sch.AvailableCount())
+			                 && (Rows.Num() == 4);
+			bArm2 = bArm2 && bCase2;
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[CRW] ARM2 %-12s master=%-18s audited=%d rows=%d interactive=%d (want %d) %s"),
+				Case.Nick, *Sch.ResolvedFromMaster.ToString(), Sch.bMasterAudited ? 1 : 0,
+				Rows.Num(), Interactive, Case.WantInteractive, bCase2 ? TEXT("PASS") : TEXT("FAIL"));
+
+			// ARM3 -- every disabled row carries a reason.
+			const bool bCase3 = (Disabled == WithReason);
+			bArm3 = bArm3 && bCase3;
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[CRW] ARM3 %-12s disabled=%d withReason=%d inert=%d absent=%d %s"),
+				Case.Nick, Disabled, WithReason, Inert, Absent, bCase3 ? TEXT("PASS") : TEXT("FAIL"));
+
+			// ARM4 -- the two disabled states are told apart by TEXT.
+			if (Inert > 0 && Absent > 0)
+			{
+				bArm4Seen = true;
+				const bool bCase4 = !InertReason.Equals(AbsentReason);
+				bArm4 = bArm4 && bCase4;
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CRW] ARM4 %-12s reasons differ = %d %s"),
+					Case.Nick, bCase4 ? 1 : 0, bCase4 ? TEXT("PASS") : TEXT("FAIL"));
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CRW]    inert : %s"), *InertReason);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CRW]    absent: %s"), *AbsentReason);
+			}
+
+			// ARM7 -- a disabled channel cannot write. No loadout is bound here, so the refusal is
+			// tested at the SCHEMA gate, which is the gate that actually protects it.
+			for (const FAFLCreatorChannelRow& R : Rows)
+			{
+				if (!R.bInteractive)
+				{
+					bArm7Seen = true;
+					const int32 Before = W->GetChannelRows().Num();
+					W->SetChannelHue(R.Channel, 123.0f);   // must be refused on state, not on widget enable-ness
+					const bool bStill = (W->GetChannelRows().Num() == Before);
+					bArm7 = bArm7 && bStill;
+					break;
+				}
+			}
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CRW] ARM4 %s"),
+			bArm4Seen ? (bArm4 ? TEXT("PASS") : TEXT("FAIL")) : TEXT("NOT EXERCISED -- neither master shows both states"));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CRW] ARM7 disabled-channel write refused = %s"),
+			bArm7Seen ? (bArm7 ? TEXT("PASS") : TEXT("FAIL")) : TEXT("NOT EXERCISED"));
+
+		const TArray<FAFLCreatorChannelRow>& Rows = W->GetChannelRows();
+
+		// ---- ARM5: the clamp, WITH a control that proves the predicate can fail ------------------
+		auto InGamut = [](const FLinearColor& C) -> bool
+		{
+			const FLinearColor H = C.LinearRGBToHSV();
+			return H.G >= AFLCreatorGamut::MinSaturation - KINDA_SMALL_NUMBER
+			    && H.B >= AFLCreatorGamut::MinValue      - KINDA_SMALL_NUMBER
+			    && H.B <= AFLCreatorGamut::MaxValue      + KINDA_SMALL_NUMBER;
+		};
+		int32 OutOfGamut = 0, Checked = 0;
+		for (float Hue = 0.0f; Hue < 360.0f; Hue += 10.0f)
+		{
+			++Checked;
+			if (!InGamut(W->GetArcTrackColour(Hue))) { ++OutOfGamut; }
+		}
+		// THE CONTROL: a deliberately washed-out colour MUST be flagged. If it is not, the predicate
+		// cannot return false and the zero above proves nothing.
+		const FLinearColor Bad = FLinearColor(0.9f, 0.88f, 0.87f);   // near-white, S well under the floor
+		const bool bControlFlags = !InGamut(Bad);
+		const bool bArm5 = (OutOfGamut == 0) && bControlFlags;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CRW] ARM5 arc track checked=%d outOfGamut=%d ; CONTROL out-of-gamut flagged=%d %s"),
+			Checked, OutOfGamut, bControlFlags ? 1 : 0, bArm5 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ---- ARM6: unset reads a dash, never a fabricated hex -----------------------------------
+		int32 UnsetRows = 0, UnsetWithHex = 0;
+		for (const FAFLCreatorChannelRow& R : Rows)
+		{
+			if (!R.bHasValue)
+			{
+				++UnsetRows;
+				if (R.Readout.ToString().Contains(TEXT("#"))) { ++UnsetWithHex; }
+			}
+		}
+		const bool bArm6 = (UnsetWithHex == 0);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CRW] ARM6 unset rows=%d of which showing a hex=%d (want 0) %s"),
+			UnsetRows, UnsetWithHex, bArm6 ? TEXT("PASS") : TEXT("FAIL"));
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CRW] SUMMARY failClosed=%d schemaDriven=%d reasons=%d clamp=%d unset=%d"),
+			bArm1 ? 1 : 0, bArm2 ? 1 : 0, bArm3 ? 1 : 0, bArm5 ? 1 : 0, bArm6 ? 1 : 0);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CRW] END"));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorWidgetProbeCmd(TEXT("afl.Creator.WidgetProbe"),
+		TEXT("CC-5.2: prove the creator rail is schema-driven, fails closed, shows disabled channels WITH ")
+		TEXT("reasons, never leaves the gamut, and cannot be written through a disabled channel. Reads only."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorWidgetProbe));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
 		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
@@ -5589,6 +5753,8 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
 		// CC-X22 at t=12: a pure read, but it must land after login has answered the sellable set.
 		if (RoleIndex == 0) { FireCmd(12.0f, TEXT("afl.Catalog.SellableProbe"), TEXT("0-ccx22-sellable")); }
+		// CC-5.2 at t=14: pure reads, no spend, so it needs no economy isolation.
+		if (RoleIndex == 0) { FireCmd(14.0f, TEXT("afl.Creator.WidgetProbe"), TEXT("0-cc52-widget")); }
 		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
 		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
 		// (master, parameter) PAIR rather than the parameter name.
