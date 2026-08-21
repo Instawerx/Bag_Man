@@ -17,7 +17,8 @@
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Kismet/GameplayStatics.h"   // CC-X30 relaunch arm: DoesSaveGameExist, the mirror-absent discriminator            // S-ECON-WALLET: balance/gate/earn-spend cheats
 #include "UI/AFLW_LoadoutBase.h"
-#include "UI/AFLW_Creator.h"   // CC-5.2 widget probe // CC-5.3 probe: the creator interface under test
+#include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
+#include "Cosmetics/AFLSkinColorComponent.h"   // CC-6.5 preview-vs-spawn override readback // CC-5.3 probe: the creator interface under test
 #include "UObject/UObjectIterator.h" // CC-5.3 probe: find an already-open loadout widget
 #include "UI/AFLLoadoutDisplayPawn.h" // CC-5.3 probe: the preview pawn whose MIDs are read
 #include "Blueprint/UserWidget.h" // CC-5.3 probe: CreateWidget for the concrete WBP subclass
@@ -4808,6 +4809,259 @@ namespace
 		TEXT("reasons, never leaves the gamut, and cannot be written through a disabled channel. Reads only."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorWidgetProbe));
 
+	// === CC-6.5: afl.Creator.VerifyDoneLoop -- THE DONE DEFINITION ================================
+	void HandleAFLVerifyDoneLoop(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Creator.VerifyDoneLoop - run inside PIE.")); return; }
+
+		FString Why;
+		UAFLWalletComponent* Wallet = GetServerWalletForLocalPlayer(World, Why);
+		APlayerController* PC = World->GetFirstPlayerController();
+		const UAFLOnlineSubsystem* Online = Wallet ? UAFLOnlineSubsystem::Get(Wallet) : nullptr;
+		const FString Pf = Online ? Online->GetPlayFabId() : FString();
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DONE] ARM0 wallet=%d pc=%d pfid=%s why=%s"),
+			Wallet ? 1 : 0, PC ? 1 : 0, Pf.IsEmpty() ? TEXT("<none>") : *Pf, Why.IsEmpty() ? TEXT("ok") : *Why);
+		if (!Wallet || !PC || Pf.IsEmpty())
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DONE] VOID -- no wallet/PC/PlayFabId. Nothing about the loop was tested."));
+			return;
+		}
+
+		APlayerState* PS = PC->PlayerState;
+		UAFLCosmeticLoadoutComponent* LC = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!LC) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DONE] VOID -- no loadout component")); return; }
+
+		// EXPECTED VALUES ARE DERIVED FROM THE SYSTEM, never typed in. The grant quantity comes from the
+		// catalog row itself, so a repriced/reconfigured SKU cannot silently invalidate the arm.
+		static const FName SlotKey(TEXT("AFL.CreatorSlot"));
+		static const FName SlotSku(TEXT("AFL.CreatorSlot.x1"));
+		int32 ExpectGrant = 0;
+		if (const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(World))
+		{
+			if (const FAFLCatalogEntry* E = Cat->FindEntry(SlotSku)) { ExpectGrant = E->GrantQuantity; }
+		}
+		const int32 SlotsBefore = Wallet->GetCountedEntitlement(SlotKey);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[DONE] ARM1 baseline countedSlots=%d ; %s GrantQuantity=%d (READ FROM THE CATALOG) mirrorVo=%d"),
+			SlotsBefore, *SlotSku.ToString(), ExpectGrant, Wallet->GetVolts());
+		if (ExpectGrant <= 0)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DONE] VOID -- the SKU carries no GrantQuantity; there is no expected value to check against."));
+			return;
+		}
+
+		// ---- ARM1: BUY through the PRODUCTION ENTRY. No debug grant anywhere in this function. ----
+		Wallet->ClientRequestPurchase(SlotSku, EAFLPayCurrency::Volts, TFunction<void(bool)>());
+
+		TWeakObjectPtr<UAFLWalletComponent> WW(Wallet);
+		TWeakObjectPtr<UAFLCosmeticLoadoutComponent> WLC(LC);
+		TWeakObjectPtr<UWorld> WWorld(World);
+		TWeakObjectPtr<APlayerController> WPC(PC);
+
+		FTimerHandle H1;
+		World->GetTimerManager().SetTimer(H1, FTimerDelegate::CreateLambda(
+			[WW, WLC, WWorld, WPC, SlotsBefore, ExpectGrant]()
+		{
+			UAFLWalletComponent* W = WW.Get();
+			UAFLCosmeticLoadoutComponent* L = WLC.Get();
+			UWorld* Wd = WWorld.Get();
+			APlayerController* P = WPC.Get();
+			if (!W || !L || !Wd || !P) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DONE] VOID -- gone before ARM1")); return; }
+
+			static const FName K(TEXT("AFL.CreatorSlot"));
+			const int32 After = W->GetCountedEntitlement(K);
+			const bool bArm1 = (After == SlotsBefore + ExpectGrant);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DONE] ARM1 buy -> countedSlots %d -> %d (want %d) %s"),
+				SlotsBefore, After, SlotsBefore + ExpectGrant, bArm1 ? TEXT("PASS") : TEXT("FAIL"));
+
+			// ---- ARM2: BUILD IN THE CREATOR, through the widget's own entry point ----------------
+			UAFLW_LoadoutBase* LB = nullptr;
+			for (TObjectIterator<UAFLW_LoadoutBase> It; It; ++It)
+			{
+				if (IsValid(*It) && It->GetWorld() == Wd) { LB = *It; break; }
+			}
+			if (!LB)
+			{
+				if (UClass* LCls = LoadClass<UAFLW_LoadoutBase>(nullptr,
+					TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_Loadout.WBP_AFL_Loadout_C")))
+				{
+					LB = CreateWidget<UAFLW_LoadoutBase>(P, LCls);
+					if (LB) { LB->AddToViewport(); }   // so the preview rig actually initialises
+				}
+			}
+			if (!LB) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DONE] VOID -- no loadout widget; cannot build")); return; }
+
+			UAFLW_Creator* CW = nullptr;
+			if (UClass* CCls = LoadClass<UAFLW_Creator>(nullptr,
+				TEXT("/Game/BagMan/UI/Creator/WBP_AFL_Creator.WBP_AFL_Creator_C")))
+			{
+				CW = CreateWidget<UAFLW_Creator>(P, CCls);
+			}
+			if (!CW) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DONE] VOID -- creator widget did not load")); return; }
+			CW->InitializeCreator(LB);
+
+			// Drive the FIRST CONNECTED channel -- whichever the chassis actually offers. Hard-coding a
+			// channel would make the arm chassis-specific and it would silently skip on the other master.
+			EAFLCreatorChannel Target = EAFLCreatorChannel::Edge;
+			bool bFound = false;
+			for (const FAFLCreatorChannelRow& R : CW->GetChannelRows())
+			{
+				if (R.bInteractive) { Target = R.Channel; bFound = true; break; }
+			}
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DONE] ARM2 rows=%d resolvedMaster=%s targetChannel=%d found=%d"),
+				CW->GetChannelRows().Num(), *CW->GetResolvedMaster().ToString(), (int32)Target, bFound ? 1 : 0);
+			if (!bFound)
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DONE] VOID -- no connected channel on this chassis; nothing to build with."));
+				return;
+			}
+
+			const float BuildHue = 200.0f;
+			CW->SetChannelHue(Target, BuildHue);
+
+			const FLinearColor Want = AFLCreatorGamut::FromHue(BuildHue);
+			const FAFLCosmeticSelection Sel = LB->CreatorGetWorkingSelection();
+			FLinearColor Got = FLinearColor::White;
+			switch (Target)
+			{
+				case EAFLCreatorChannel::Body:  Got = Sel.CreatorBodyColor;  break;
+				case EAFLCreatorChannel::Edge:  Got = Sel.CreatorEdgeColor;  break;
+				case EAFLCreatorChannel::Glow:  Got = Sel.CreatorGlowColor;  break;
+				case EAFLCreatorChannel::Visor: Got = Sel.CreatorVisorColor; break;
+			}
+			// THE ARC'S PROMISE IS HUE, NOT A WHOLE COLOUR. A first version of this arm expected
+			// FromHue(h) outright and FAILED on a correct result: the channel already carried a value
+			// (the working selection seeds from the committed one), so SetChannelHue took the WithHue
+			// branch and PRESERVED saturation and value while moving hue -- exactly as designed. The
+			// expectation was derived from the wrong branch, so it tested the probe's assumption
+			// rather than the product's rule.
+			//
+			// The invariant that actually holds either way: the hue lands where the player put it, and
+			// the result is inside the gamut. Saturation and value are not player-facing axes.
+			const float GotHue = AFLCreatorGamut::HueOf(Got);
+			const FLinearColor GotHSV = Got.LinearRGBToHSV();
+			const bool bHueRight = FMath::Abs(FMath::FindDeltaAngleDegrees(GotHue, BuildHue)) < 1.0f;
+			const bool bInGamut  = GotHSV.G >= AFLCreatorGamut::MinSaturation - KINDA_SMALL_NUMBER
+			                    && GotHSV.B >= AFLCreatorGamut::MinValue      - KINDA_SMALL_NUMBER
+			                    && GotHSV.B <= AFLCreatorGamut::MaxValue      + KINDA_SMALL_NUMBER;
+			const bool bArm2 = bHueRight && bInGamut;
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[DONE] ARM2 build hue=%.0f -> selection=(%.3f,%.3f,%.3f) gotHue=%.1f S=%.3f V=%.3f hueRight=%d inGamut=%d %s"),
+				BuildHue, Got.R, Got.G, Got.B, GotHue, GotHSV.G, GotHSV.B,
+				bHueRight ? 1 : 0, bInGamut ? 1 : 0, bArm2 ? TEXT("PASS") : TEXT("FAIL"));
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[DONE] ARM2 NOTE FromHue(%.0f)=(%.3f,%.3f,%.3f) is the UNSET-channel value; this channel "
+					 "already had one, so WithHue preserved S/V. Both are correct -- only the hue is the arc's promise."),
+				BuildHue, Want.R, Want.G, Want.B);
+
+			// ---- ARM4: EQUIP -- save to a slot and make it active, both PRODUCTION RPCs ----------
+			FAFLCreatorBuild Build;
+			Build.DisplayName   = TEXT("DoneLoop");
+			Build.BaseSelection = Sel;
+			const int32 Index = L->GetBuildSet().Builds.Num();
+			L->ServerSaveBuild(Build, Index);
+			L->ServerSetActiveBuild(Index);
+
+			FTimerHandle H2;
+			Wd->GetTimerManager().SetTimer(H2, FTimerDelegate::CreateLambda(
+				[WW, WLC, WWorld, WPC, bArm1, bArm2, Index, Target]()
+			{
+				UAFLWalletComponent* W2 = WW.Get();
+				UAFLCosmeticLoadoutComponent* L2 = WLC.Get();
+				UWorld* Wd2 = WWorld.Get();
+				APlayerController* P2 = WPC.Get();
+				if (!W2 || !L2 || !Wd2 || !P2) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DONE] VOID -- gone before ARM4")); return; }
+
+				const FAFLCreatorBuildSet& Set = L2->GetBuildSet();
+				const bool bSaved  = Set.Builds.IsValidIndex(Index);
+				const bool bActive = (Set.ActiveBuildIndex == Index);
+				const bool bArm4 = bSaved && bActive;
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[DONE] ARM4 equip -> builds=%d savedAt=%d active=%d (want %d) %s"),
+					Set.Builds.Num(), bSaved ? 1 : 0, Set.ActiveBuildIndex, Index, bArm4 ? TEXT("PASS") : TEXT("FAIL"));
+
+				// ---- ARM3 + ARM5: PREVIEW vs SPAWN, the done definition ------------------------
+				// Both read the SAME component type through the SAME accessor, so a difference is a
+				// difference in the RESOLVED result and not in how it was measured.
+				UAFLW_LoadoutBase* LB2 = nullptr;
+				for (TObjectIterator<UAFLW_LoadoutBase> It; It; ++It)
+				{
+					if (IsValid(*It) && It->GetWorld() == Wd2) { LB2 = *It; break; }
+				}
+				APawn* Preview = LB2 ? LB2->GetPreviewPawnForTest() : nullptr;
+				APawn* InMatch = P2->GetPawn();
+
+				const UAFLSkinColorComponent* PrevSkin = Preview ? Preview->FindComponentByClass<UAFLSkinColorComponent>() : nullptr;
+				const UAFLSkinColorComponent* MatchSkin = InMatch ? InMatch->FindComponentByClass<UAFLSkinColorComponent>() : nullptr;
+
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DONE] ARM3/5 previewPawn=%d matchPawn=%d previewSkin=%d matchSkin=%d"),
+					Preview ? 1 : 0, InMatch ? 1 : 0, PrevSkin ? 1 : 0, MatchSkin ? 1 : 0);
+
+				if (!PrevSkin || !MatchSkin)
+				{
+					// VOID, NOT FAIL. Without both pawns there is nothing to compare, and grading that
+					// as a pass would be the loudest possible false green.
+					UE_LOG(LogAFLCombat, Warning,
+						TEXT("AFL_TEST[DONE] ARM5 VOID -- need BOTH a preview pawn and a match pawn to compare. Nothing about the loop's core was tested."));
+				}
+				else
+				{
+					const FAFLColorOverride& A = PrevSkin->GetColorOverride();
+					const FAFLColorOverride& B = MatchSkin->GetColorOverride();
+					const bool bSame =
+						A.BodyColor.Equals(B.BodyColor, 0.001f) &&
+						A.EdgeColor.Equals(B.EdgeColor, 0.001f) &&
+						A.GlowColor.Equals(B.GlowColor, 0.001f) &&
+						A.VisorColor.Equals(B.VisorColor, 0.001f) &&
+						A.bValid == B.bValid;
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[DONE] ARM3 preview override body=(%.3f,%.3f,%.3f) edge=(%.3f,%.3f,%.3f) valid=%d"),
+						A.BodyColor.R, A.BodyColor.G, A.BodyColor.B, A.EdgeColor.R, A.EdgeColor.G, A.EdgeColor.B, A.bValid ? 1 : 0);
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[DONE] ARM5 match   override body=(%.3f,%.3f,%.3f) edge=(%.3f,%.3f,%.3f) valid=%d"),
+						B.BodyColor.R, B.BodyColor.G, B.BodyColor.B, B.EdgeColor.R, B.EdgeColor.G, B.EdgeColor.B, B.bValid ? 1 : 0);
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[DONE] ARM5 THE ROBOT IN MATCH IS THE ROBOT IN THE PREVIEW = %d %s"),
+						bSame ? 1 : 0, bSame ? TEXT("PASS") : TEXT("FAIL"));
+				}
+
+				// ---- ARM6: slots count ------------------------------------------------------------
+				UAFLW_Creator* CW2 = nullptr;
+				if (UClass* CCls2 = LoadClass<UAFLW_Creator>(nullptr,
+					TEXT("/Game/BagMan/UI/Creator/WBP_AFL_Creator.WBP_AFL_Creator_C")))
+				{
+					CW2 = CreateWidget<UAFLW_Creator>(P2, CCls2);
+				}
+				if (CW2)
+				{
+					static const FName K2(TEXT("AFL.CreatorSlot"));
+					const int32 Counted = W2->GetCountedEntitlement(K2);
+					const bool bArm6 = (CW2->GetSlotCap() >= 2) && (CW2->GetSlotsUsed() == L2->GetBuildSet().Builds.Num());
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[DONE] ARM6 slots used=%d cap=%d counted=%d text='%s' %s"),
+						CW2->GetSlotsUsed(), CW2->GetSlotCap(), Counted,
+						*CW2->GetSlotCounterText().ToString(), bArm6 ? TEXT("PASS") : TEXT("FAIL"));
+				}
+
+				// ---- ARM7: no cheat, asserted structurally ---------------------------------------
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[DONE] ARM7 NO CHEAT: this loop called ClientRequestPurchase, ServerSaveBuild and ")
+					TEXT("ServerSetActiveBuild ONLY. No DebugGrantOwnership, no cvar grant. Corroborate against the ")
+					TEXT("wallet's own 'COUNTED POST grant' line, which names the purchase that moved the counter."));
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DONE] SUMMARY buy=%d build=%d equip=%d"),
+					bArm1 ? 1 : 0, bArm2 ? 1 : 0, bArm4 ? 1 : 0);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[DONE] END"));
+			}), 8.0f, false);
+		}), 10.0f, false);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyDoneLoopCmd(TEXT("afl.Creator.VerifyDoneLoop"),
+		TEXT("CC-6.5 THE DONE DEFINITION: buy a slot pack through the production entry, build in the ")
+		TEXT("creator, equip, spawn, and assert the match pawn's colour override EQUALS the preview's. ")
+		TEXT("SPENDS real Volts. VOID (not FAIL) without both pawns."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyDoneLoop));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
 		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
@@ -5544,6 +5798,9 @@ static FAutoConsoleVariableRef CVarAFLSlotJoinProbe(TEXT("afl.Online.SlotJoinPro
 static int32 GAFLCountedDurable = 0;
 static FAutoConsoleVariableRef CVarAFLCountedDurable(TEXT("afl.Online.CountedDurable.Enable"),
 	GAFLCountedDurable, TEXT("CC-X30 run 1: buy AFL.CreatorSlot.x3, reconcile, assert the counter survives. SPENDS 4990 real Volts."), ECVF_Default);
+static int32 GAFLDoneLoopProbe = 0;
+static FAutoConsoleVariableRef CVarAFLDoneLoopProbe(TEXT("afl.Creator.DoneLoop.Enable"),
+	GAFLDoneLoopProbe, TEXT("CC-6.5: 1 = run the end-to-end done-definition loop. SPENDS real Volts."), ECVF_Default);
 static int32 GAFLRedeemProbe = 0;
 static FAutoConsoleVariableRef CVarAFLRedeemProbe(TEXT("afl.Online.RedeemProbe.Enable"),
 	GAFLRedeemProbe, TEXT("CC-X30: 1 = buy AFL.WeaponCredit.x3 and prove redemption + its four refusals. SPENDS 990 real Volts."), ECVF_Default);
@@ -5572,6 +5829,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			 + (GAFLBundleProbe != 0 ? 1 : 0)
 			 + (GAFLCountedDurable != 0 ? 1 : 0)
 			 + (GAFLRedeemProbe != 0 ? 1 : 0)
+			 + (GAFLDoneLoopProbe != 0 ? 1 : 0)
 			 + (GAFLCreatorBuyProbe != 0 ? 1 : 0);
 	}
 
@@ -5743,6 +6001,8 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		// t=24, and alone: concurrent economy probes already contaminated one VO measurement, and this
 		// one both buys and spends.
 		if (RoleIndex == 0 && bEconomyOk && GAFLRedeemProbe != 0) { FireCmd(24.0f, TEXT("afl.Online.VerifyCreditRedeem"), TEXT("0-ccx30-redeem")); }
+		// CC-6.5 at t=26: spends, so it is an ECONOMY probe and obeys the isolation gate.
+		if (RoleIndex == 0 && bEconomyOk && GAFLDoneLoopProbe != 0) { FireCmd(26.0f, TEXT("afl.Creator.VerifyDoneLoop"), TEXT("0-cc65-doneloop")); }
 		// Run 2 EARLY (t=6): it is a pure read, and it must land after hydration but before anything
 		// else can perturb the counted set.
 		if (RoleIndex == 0 && GAFLCountedRelaunchExpect > 0)
