@@ -18,6 +18,8 @@
 #include "Kismet/GameplayStatics.h"   // CC-X30 relaunch arm: DoesSaveGameExist, the mirror-absent discriminator            // S-ECON-WALLET: balance/gate/earn-spend cheats
 #include "UI/AFLW_LoadoutBase.h"
 #include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
+#include "Engine/SkeletalMeshSocket.h"   // CC-X34 socket authoring
+#include "Animation/Skeleton.h"   // CC-X34 socket authoring
 #include "Cosmetics/AFLSkinColorComponent.h"   // CC-6.5 preview-vs-spawn override readback // CC-5.3 probe: the creator interface under test
 #include "UObject/UObjectIterator.h" // CC-5.3 probe: find an already-open loadout widget
 #include "UI/AFLLoadoutDisplayPawn.h" // CC-5.3 probe: the preview pawn whose MIDs are read
@@ -5167,6 +5169,106 @@ namespace
 		TEXT("bound, that a VALID placement passes through unchanged, and that Set() has no unclamped ")
 		TEXT("door. Pure computation -- spends nothing, touches no asset."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerProbe));
+
+#if WITH_EDITOR
+	// === CC-X34: afl.Dev.AuthorAccessorySockets ===================================================
+	// EDITOR ONLY. Registers the three accessory hardpoints on the SKELETON both character lines
+	// share. Python cannot do this -- SocketName is read-only there and USkeleton::Sockets is
+	// protected -- but the same array is PUBLIC in C++.
+	void HandleAFLAuthorAccessorySockets(const TArray<FString>& /*Args*/, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		USkeleton* Skel = LoadObject<USkeleton>(nullptr,
+			TEXT("/Game/Characters/Heroes/Mannequin/Meshes/SK_Mannequin.SK_Mannequin"));
+		if (!Skel)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SOCKW] ABORT -- SK_Mannequin did not load. NOTHING WRITTEN."));
+			return;
+		}
+
+		const int32 Before = Skel->Sockets.Num();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SOCKW] skeleton=%s sockets BEFORE=%d"),
+			*Skel->GetPathName(), Before);
+
+		// The three ruled slots. Bone names are read from the enum-to-socket map's own intent, and each
+		// bone is verified to EXIST on this skeleton before a socket is hung on it -- a socket on a
+		// missing bone resolves to the component root, which puts an accessory at the pawn's feet.
+		struct FWanted { const TCHAR* Socket; const TCHAR* Bone; };
+		static const FWanted Wanted[] = {
+			{ TEXT("accessory_head"),       TEXT("head")       },
+			{ TEXT("accessory_clavicle_l"), TEXT("clavicle_l") },
+			{ TEXT("accessory_clavicle_r"), TEXT("clavicle_r") },
+		};
+
+		int32 Added = 0, Skipped = 0, Refused = 0;
+		for (const FWanted& W : Wanted)
+		{
+			const FName SocketName(W.Socket);
+			const FName BoneName(W.Bone);
+
+			// IDEMPOTENT: a re-run must add nothing. A duplicate socket name is not reported by the
+			// engine -- it silently resolves to whichever is found first.
+			if (Skel->FindSocket(SocketName))
+			{
+				++Skipped;
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SOCKW]   SKIP %s -- already present"), W.Socket);
+				continue;
+			}
+
+			// FAIL CLOSED on a missing bone rather than authoring a socket that resolves nowhere.
+			if (Skel->GetReferenceSkeleton().FindBoneIndex(BoneName) == INDEX_NONE)
+			{
+				++Refused;
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("AFL_TEST[SOCKW]   REFUSED %s -- bone '%s' not on this skeleton"), W.Socket, W.Bone);
+				continue;
+			}
+
+			USkeletalMeshSocket* NewSock = NewObject<USkeletalMeshSocket>(Skel);
+			NewSock->SocketName       = SocketName;
+			NewSock->BoneName         = BoneName;
+			NewSock->RelativeLocation = FVector::ZeroVector;
+			NewSock->RelativeRotation = FRotator::ZeroRotator;
+			NewSock->RelativeScale    = FVector::OneVector;
+			Skel->Sockets.Add(NewSock);
+			++Added;
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SOCKW]   ADDED %s on bone %s"), W.Socket, W.Bone);
+		}
+
+		Skel->MarkPackageDirty();
+
+		// READ BACK. The Add() returning is not the effect -- verify each name resolves through the
+		// skeleton's own lookup, and that the count moved by exactly what we added.
+		const int32 After = Skel->Sockets.Num();
+		int32 Resolvable = 0;
+		for (const FWanted& W : Wanted)
+		{
+			if (Skel->FindSocket(FName(W.Socket))) { ++Resolvable; }
+		}
+		const bool bOk = (After == Before + Added) && (Resolvable == UE_ARRAY_COUNT(Wanted));
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SOCKW] added=%d skipped=%d refused=%d ; sockets %d -> %d ; resolvable=%d/%d %s"),
+			Added, Skipped, Refused, Before, After, Resolvable, (int32)UE_ARRAY_COUNT(Wanted),
+			bOk ? TEXT("PASS") : TEXT("FAIL"));
+
+		// CONTROL: the six pre-existing sockets must be untouched. Authoring must not disturb what was
+		// already there, and a count alone would not notice a replacement.
+		static const TCHAR* Existing[] = { TEXT("weapon_r_muzzle"), TEXT("foot_r_Socket"), TEXT("foot_l_Socket"),
+			TEXT("weapon_lowerarm_l"), TEXT("weapon_lowerarm_r"), TEXT("weapon_holster_back") };
+		int32 StillThere = 0;
+		for (const TCHAR* E : Existing) { if (Skel->FindSocket(FName(E))) { ++StillThere; } }
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SOCKW] CONTROL pre-existing sockets still resolvable = %d/6 %s"),
+			StillThere, (StillThere == 6) ? TEXT("PASS") : TEXT("FAIL"));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SOCKW] package marked dirty -- SAVE AND VERIFY mtime/git externally."));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SOCKW] END"));
+		Ar.Log(TEXT("afl.Dev.AuthorAccessorySockets complete -- see AFL_TEST[SOCKW]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLAuthorSocketsCmd(TEXT("afl.Dev.AuthorAccessorySockets"),
+		TEXT("CC-X34 EDITOR ONLY: register accessory_head / accessory_clavicle_l / accessory_clavicle_r on ")
+		TEXT("SK_Mannequin. Idempotent -- a re-run adds nothing. Marks the package dirty; save separately."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLAuthorAccessorySockets));
+#endif // WITH_EDITOR
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
