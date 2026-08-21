@@ -3131,7 +3131,15 @@ namespace
 		// B == A where the namespace maps to exactly one type; AFL.Weapon.* is genuinely overloaded.
 		static const FRule Rules[] = {
 			{ TEXT("AFL.Edge."),      EAFLCosmeticType::SkinColor_Edge,  EAFLCosmeticType::SkinColor_Edge },
-			{ TEXT("AFL.Body."),      EAFLCosmeticType::SkinColor_Body,  EAFLCosmeticType::SkinColor_Body },
+			// CC-X20: was SkinColor_Body, which nothing in the game uses -- that enum value appears
+			// ONLY here and in its own declaration. The BodyColor axis queries Type==Finish
+			// (QueryTypeForAxis) and the 10 AFL.Body.* rows are STORED as Finish, so the old rule
+			// reported 10 mismatches against a type no surface asks for. AFL.Finish. is CANONICAL;
+			// AFL.Body. is a LEGACY ALIAS that only the store classifier still accepts
+			// (AFLW_FrontEndMarket::ClassifyStoreAxis maps BOTH to BodyColor). Its 10 occupants are
+			// unreachable duplicates of AFL.Finish.* rows -- same Asset, different price -- so their
+			// disposition is a PRICE call, not a type one.
+			{ TEXT("AFL.Body."),      EAFLCosmeticType::Finish,          EAFLCosmeticType::Finish },
 			{ TEXT("AFL.Facemask."),  EAFLCosmeticType::Facemask,        EAFLCosmeticType::Facemask },
 			{ TEXT("AFL.Character."), EAFLCosmeticType::Character,       EAFLCosmeticType::Character },
 			{ TEXT("AFL.Team."),      EAFLCosmeticType::Team,            EAFLCosmeticType::Team },
@@ -3142,9 +3150,20 @@ namespace
 			{ TEXT("AFL.Helmet."),    EAFLCosmeticType::Helmet,          EAFLCosmeticType::Helmet },
 			{ TEXT("AFL.Ability."),   EAFLCosmeticType::AbilityCosmetic, EAFLCosmeticType::AbilityCosmetic },
 			{ TEXT("AFL.Weapon."),    EAFLCosmeticType::Weapon,          EAFLCosmeticType::WeaponAccessory },
+			// CC-X20: THE 50 "unmapped" ROWS. AFL.WeaponSkin.* had no rule at all, so every camo row
+			// fell into `unmapped` and the lint reported a 50-row blind spot as if it were clean --
+			// the same failure CC-6.1 fixed for the slot rows. Weapon is CORRECT for them and is
+			// deliberately overloaded: QueryTypeForAxis sends BOTH the Weapon and WeaponSkin axes to
+			// Type==Weapon, then GetAxisIdPrefix splits them by namespace. Retyping them to
+			// WeaponAccessory would drop them out of GetEntriesByType(Weapon) and EMPTY the CAMOS tab.
+			{ TEXT("AFL.WeaponSkin."), EAFLCosmeticType::Weapon,       EAFLCosmeticType::Weapon },
 			// CC-6.1: without this rule the robot/slot rows land in `unmapped` and the lint reports a
 			// growing blind spot as if it were a clean result.
 			{ TEXT("AFL.CreatorSlot."), EAFLCosmeticType::CreatorSlot,  EAFLCosmeticType::CreatorSlot },
+			// CC-X20: AFL.WeaponCredit.x3 was added 2026-08-21 and landed straight in `unmapped` -- the
+			// SAME blind spot CC-6.1 fixed for the slot rows, reintroduced by the next new SKU. Any new
+			// namespace needs a rule here in the same commit that creates it.
+			{ TEXT("AFL.WeaponCredit."), EAFLCosmeticType::WeaponCredit, EAFLCosmeticType::WeaponCredit },
 		};
 		const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
 		int32 Checked = 0, Mismatch = 0, Unmapped = 0, InvalidRows = 0;
@@ -3164,6 +3183,25 @@ namespace
 				}
 				++Checked;
 				if (R->Type == EAFLCosmeticType::Invalid) { ++InvalidRows; }
+
+				// CC-X20: THE .XT PAIR BUNDLES -- SUFFIX WINS OVER PREFIX.
+				// 49 rows keep their AFL.Weapon.HandCannon.* namespace but were converted to
+				// Type==Bundle by 149948f3, because .XT IS the pair id (ruled; the pair has no actor of
+				// its own). The AFL.Weapon. prefix rule reads every one of them as a mismatch, so the
+				// lint reported 49 DELIBERATE rows as defects -- a lint that cries wolf on the healthy
+				// state trains everyone to ignore it, which is worse than no lint.
+				if (Id.EndsWith(TEXT(".XT"), ESearchCase::IgnoreCase))
+				{
+					if (R->Type != EAFLCosmeticType::Bundle)
+					{
+						++Mismatch;
+						ByPrefix.FindOrAdd(TEXT(".XT(pair)"))++;
+						Ar.Logf(TEXT("  MISMATCH %s  type=%s  expected=Bundle (.XT pair)"), *Id,
+							*TypeEnum->GetNameStringByValue((int64)R->Type));
+					}
+					continue;
+				}
+
 				if (!Hit) { ++Unmapped; continue; }
 				if (R->Type != Hit->A && R->Type != Hit->B)
 				{
