@@ -175,6 +175,12 @@ protected:
 	 *  somewhere to put the count. */
 	void PersistCountedState() const;
 
+	/** CC-X22: ask the backend which catalog ids it can actually sell, and hand the answer to the
+	 *  catalog subsystem so the store stops offering rows that return ItemNotFound. Loads the on-disk
+	 *  cache first so an offline start shows the last known set rather than an empty store. Runs at
+	 *  most once per GameInstance -- the set is global, the wallet is not. */
+	void RefreshSellableSet();
+
 	/** CC-X30: read the AUTHORITATIVE counted set from /counted-entitlement into the replicated array.
 	 *  Called from LoadFromPersistence alongside the balance and owned-set reads.
 	 *

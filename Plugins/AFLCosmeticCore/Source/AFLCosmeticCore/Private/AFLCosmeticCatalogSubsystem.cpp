@@ -1,6 +1,8 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "AFLCosmeticCatalogSubsystem.h"
+#include "Misc/FileHelper.h"   // CC-X22 sellable-set cache (no Json dep in this module)
+#include "Misc/Paths.h"
 
 #include "AFLCosmeticCatalog.h"
 #include "AFLColorIdentityRegistry.h"
@@ -174,6 +176,72 @@ void UAFLCosmeticCatalogSubsystem::GetEntriesByType(EAFLCosmeticType Type, TArra
 	}
 }
 
+FString UAFLCosmeticCatalogSubsystem::RegisteredCachePath()
+{
+	return FPaths::ProjectSavedDir() / TEXT("AFLRegisteredCatalog.txt");
+}
+
+void UAFLCosmeticCatalogSubsystem::SetRegisteredIds(const TSet<FName>& InIds)
+{
+	RegisteredIds = InIds;
+	// AN EMPTY REPLY IS AN ANSWER. If the backend genuinely sells nothing, the store shows nothing --
+	// which is correct, and is not the same state as never having asked.
+	bRegisteredKnown = true;
+	UE_LOG(LogTemp, Log, TEXT("[AFLCatalog] CC-X22 sellable set ANSWERED: %d id(s) from the backend."), RegisteredIds.Num());
+	SaveRegisteredCache();
+}
+
+void UAFLCosmeticCatalogSubsystem::SaveRegisteredCache() const
+{
+	TArray<FString> Lines;
+	Lines.Reserve(RegisteredIds.Num());
+	for (const FName& Id : RegisteredIds) { Lines.Add(Id.ToString()); }
+	Lines.Sort();   // stable on disk, so a diff between runs is readable
+	const FString Path = RegisteredCachePath();
+	if (FFileHelper::SaveStringArrayToFile(Lines, *Path))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[AFLCatalog] CC-X22 cache written: %d id(s) -> %s"), Lines.Num(), *Path);
+	}
+	else
+	{
+		// NOT FATAL, but said out loud: the next cold start will show an empty store instead of the
+		// last known one, and that should be attributable rather than mysterious.
+		UE_LOG(LogTemp, Warning, TEXT("[AFLCatalog] CC-X22 cache WRITE FAILED -> %s. Next offline start will show nothing."), *Path);
+	}
+}
+
+bool UAFLCosmeticCatalogSubsystem::LoadRegisteredCache()
+{
+	TArray<FString> Lines;
+	const FString Path = RegisteredCachePath();
+	if (!FFileHelper::LoadFileToStringArray(Lines, *Path))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[AFLCatalog] CC-X22 no cache at %s -- sellable set stays UNKNOWN (store shows nothing until the backend answers)."), *Path);
+		return false;
+	}
+	RegisteredIds.Reset();
+	for (const FString& L : Lines)
+	{
+		const FString T = L.TrimStartAndEnd();
+		if (!T.IsEmpty()) { RegisteredIds.Add(FName(*T)); }
+	}
+	bRegisteredKnown = true;
+	UE_LOG(LogTemp, Log, TEXT("[AFLCatalog] CC-X22 cache LOADED: %d id(s) from %s (offline-safe; the backend overwrites this when it answers)."),
+		RegisteredIds.Num(), *Path);
+	return true;
+}
+
+int32 UAFLCosmeticCatalogSubsystem::CountNonFreeRows() const
+{
+	if (!Catalog) { return 0; }
+	int32 N = 0;
+	for (const FAFLCatalogEntry& E : Catalog->Entries)
+	{
+		if (E.Acquisition != EAFLAcquisition::GrantedFree) { ++N; }
+	}
+	return N;
+}
+
 void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry>& OutEntries) const
 {
 	OutEntries.Reset();
@@ -181,14 +249,38 @@ void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry
 	{
 		return;
 	}
+
+	// NEVER SHOW ALL. An unanswered sellable set shows NOTHING rather than everything: a row PlayFab
+	// has never heard of becomes a shop button that returns ItemNotFound when tapped, and an empty
+	// store is recoverable where a store full of erroring buttons is not.
+	if (!bRegisteredKnown)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[AFLCatalog] CC-X22 purchasable set requested before the sellable set was ANSWERED -- returning NOTHING. ")
+			TEXT("This is deliberate: showing all would offer rows the backend cannot sell."));
+		return;
+	}
+
+	int32 Filtered = 0;
 	for (const FAFLCatalogEntry& Entry : Catalog->Entries)
 	{
 		// Purchasable = NOT GrantedFree (identity / free base / basic colors are owned by all, not shop items).
-		if (Entry.Acquisition != EAFLAcquisition::GrantedFree)
+		if (Entry.Acquisition == EAFLAcquisition::GrantedFree)
 		{
-			OutEntries.Add(Entry); // by value -- small BlueprintType struct for the store grid.
+			continue;
 		}
+		if (!RegisteredIds.Contains(Entry.CosmeticId))
+		{
+			++Filtered;   // priced in the UE catalog, absent from the backend: CC-X22's whole subject
+			continue;
+		}
+		OutEntries.Add(Entry); // by value -- small BlueprintType struct for the store grid.
 	}
+
+	// PRESENCE OF OUTPUT: the count that was WITHHELD is the measurement. A silent filter and a filter
+	// that had nothing to do would otherwise look identical.
+	UE_LOG(LogTemp, Log, TEXT("[AFLCatalog] CC-X22 purchasable: %d shown, %d withheld (priced here, not sellable by the backend)."),
+		OutEntries.Num(), Filtered);
 }
 
 bool UAFLCosmeticCatalogSubsystem::GetEntry(FName CosmeticId, FAFLCatalogEntry& OutEntry) const

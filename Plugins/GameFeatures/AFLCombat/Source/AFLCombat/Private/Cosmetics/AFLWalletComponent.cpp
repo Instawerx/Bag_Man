@@ -1111,6 +1111,10 @@ void UAFLWalletComponent::LoadFromPersistence()
 		}
 	}));
 
+	// CC-X22. What the STORE may show is economy state too, and it hydrates on the same login pass so
+	// it cannot drift out of step with the balance and owned-set reads.
+	RefreshSellableSet();
+
 	// CC-X30. The counted set hydrates from PlayFab, NOT from the local cache the other two read --
 	// deliberately, because that cache is exactly what made the counter non-durable. This is the read
 	// that never existed: LoadCountedSet was declared, implemented, and had no caller anywhere, so the
@@ -1356,6 +1360,85 @@ void UAFLWalletComponent::ServerRequestCreditRedemption_Implementation(const FNa
 			TEXT("%sREDEEM OK granted=%s credits -> %d (authoritative, from PlayFab)"),
 			*WalletPrefix(Self), Granted.IsEmpty() ? *CosmeticId.ToString() : *Granted, Remaining);
 	});
+}
+
+void UAFLWalletComponent::RefreshSellableSet()
+{
+	UAFLCosmeticCatalogSubsystem* Catalog = const_cast<UAFLCosmeticCatalogSubsystem*>(GetCatalog());
+	if (!Catalog) { return; }
+
+	// CACHE FIRST, so an offline start shows the last known sellable set rather than nothing. A
+	// successful fetch below replaces it; a failed one leaves the cached answer standing.
+	if (!Catalog->IsRegisteredSetKnown())
+	{
+		Catalog->LoadRegisteredCache();
+	}
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || !Online->IsLoggedIn())
+	{
+		UE_LOG(LogAFLWalletDiag, Log,
+			TEXT("%sCC-X22 sellable-set fetch SKIPPED -- not logged in. known=%d count=%d (cache only)"),
+			*WalletPrefix(this), Catalog->IsRegisteredSetKnown() ? 1 : 0, Catalog->GetRegisteredCount());
+		return;
+	}
+
+	// The set is GameInstance-scoped and this component is per-player; without this guard every wallet
+	// would re-ask the same question.
+	static bool bFetchInFlight = false;
+	if (bFetchInFlight) { return; }
+	bFetchInFlight = true;
+
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("CatalogVersion"), TEXT("AFL_Main"));
+
+	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCC-X22 GetCatalogItems -> asking the backend what it can sell"), *WalletPrefix(this));
+
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+	Online->PostClientApi(TEXT("GetCatalogItems"), Body, [WeakThis](bool bOk, TSharedPtr<FJsonObject> Data)
+	{
+		bFetchInFlight = false;
+		UAFLWalletComponent* Self = WeakThis.Get();
+		if (!Self) { return; }
+		UAFLCosmeticCatalogSubsystem* Cat = const_cast<UAFLCosmeticCatalogSubsystem*>(Self->GetCatalog());
+		if (!Cat) { return; }
+
+		// Data is ALREADY the envelope's `data` object -- PostClientApi runs ParseEnvelope for us.
+		// Reading Data->data->Catalog here would be a double-unwrap, which is precisely what made the
+		// CC-X29 ownership guard fail OPEN in production. Verified by reading PostClientApi, not assumed.
+		if (!bOk || !Data.IsValid())
+		{
+			// UNANSWERED IS NOT EMPTY. A failed fetch must not overwrite a cached answer with nothing,
+			// or one bad network moment empties the store until the next success.
+			UE_LOG(LogAFLWalletDiag, Warning,
+				TEXT("%sCC-X22 GetCatalogItems FAILED -- sellable set LEFT ALONE (known=%d count=%d)"),
+				*WalletPrefix(Self), Cat->IsRegisteredSetKnown() ? 1 : 0, Cat->GetRegisteredCount());
+			return;
+		}
+
+		const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+		if (!Data->TryGetArrayField(TEXT("Catalog"), Items) || !Items)
+		{
+			UE_LOG(LogAFLWalletDiag, Warning,
+				TEXT("%sCC-X22 GetCatalogItems reply has no 'Catalog' array -- LEFT ALONE"), *WalletPrefix(Self));
+			return;
+		}
+
+		TSet<FName> Ids;
+		for (const TSharedPtr<FJsonValue>& V : *Items)
+		{
+			const TSharedPtr<FJsonObject>* Obj = nullptr;
+			if (!V.IsValid() || !V->TryGetObject(Obj) || !Obj) { continue; }
+			FString ItemId;
+			if ((*Obj)->TryGetStringField(TEXT("ItemId"), ItemId) && !ItemId.IsEmpty())
+			{
+				Ids.Add(FName(*ItemId));
+			}
+		}
+
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCC-X22 GetCatalogItems ok -> %d sellable id(s)"), *WalletPrefix(Self), Ids.Num());
+		Cat->SetRegisteredIds(Ids);
+	}, /*bRequireAuth=*/true);
 }
 
 void UAFLWalletComponent::LoadCountedFromBackend()

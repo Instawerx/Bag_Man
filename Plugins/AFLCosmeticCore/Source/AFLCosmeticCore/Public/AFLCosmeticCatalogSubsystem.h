@@ -58,7 +58,41 @@ public:
 	 * id + price + tier + displayname) so the store ListView/grid can read id/price/tier/name with no UObject-
 	 * wrapper ceremony for the MVP. BlueprintCallable -- the store widget's grid feed. Pure read, no economy logic. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Cosmetics")
+	/**
+	 * Purchasable = not GrantedFree AND known to be sellable by the backend.
+	 *
+	 * CC-X22: the second half did not exist. Every priced row surfaced as buyable whether or not
+	 * PlayFab had ever heard of it, so a row with no manifest entry produced a shop button that
+	 * returned ItemNotFound on tap.
+	 */
 	void GetPurchasableEntries(TArray<FAFLCatalogEntry>& OutEntries) const;
+
+	/** CC-X22: adopt the set of ids the backend says it can actually sell, and cache it for the next
+	 *  cold start. Called after a successful GetCatalogItems. An EMPTY reply is still an ANSWER and is
+	 *  adopted as one -- "the backend sells nothing" is a fact, not a failure. */
+	void SetRegisteredIds(const TSet<FName>& InIds);
+
+	/** True once the sellable set has been ANSWERED -- by the backend or by the on-disk cache.
+	 *  False means the question is still open, which is NOT the same as the answer being empty. */
+	bool IsRegisteredSetKnown() const { return bRegisteredKnown; }
+
+	/** Load the last known sellable set from disk so an offline start shows what was sellable last
+	 *  time rather than showing everything. Returns true if a cache was found. */
+	bool LoadRegisteredCache();
+
+	/** Rows that are NOT GrantedFree -- i.e. what the store surface offered before CC-X22 filtered it.
+	 *  Diagnostic: the gap between this and GetPurchasableEntries().Num() IS the defect's size. */
+	int32 CountNonFreeRows() const;
+
+	/** How many ids the backend last reported. -1 when the set is not known. Diagnostic only. */
+	int32 GetRegisteredCount() const { return bRegisteredKnown ? RegisteredIds.Num() : -1; }
+
+#if !UE_BUILD_SHIPPING
+	/** TEST ONLY. Return the sellable set to UNANSWERED so a probe can measure the "unknown shows
+	 *  nothing" rule deterministically instead of racing login for the few seconds it is naturally
+	 *  true. Compiled out of shipping -- a shipped build must have no way to blank the store. */
+	void DebugClearRegisteredSet() { RegisteredIds.Reset(); bRegisteredKnown = false; }
+#endif
 
 	/** BP-callable single-entry lookup (the store reads price/tier/owned-affordable per id). Returns false on miss. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Cosmetics")
@@ -157,6 +191,19 @@ public:
 	static UAFLCosmeticCatalogSubsystem* Get(const UObject* WorldContext);
 
 private:
+	/** CC-X22. The ids the BACKEND says it can sell. Deliberately NOT the catalog's own ids: the whole
+	 *  point is that the two disagree. */
+	TSet<FName> RegisteredIds;
+
+	/** Has the sellable set been answered at all? Three-state matters here -- see the header comment
+	 *  on GetPurchasableEntries. Unknown must never behave like "everything". */
+	bool bRegisteredKnown = false;
+
+	/** Newline-delimited id cache under Saved/. Newline-delimited rather than JSON because this module
+	 *  does not link Json and 97 strings do not justify adding it. */
+	static FString RegisteredCachePath();
+	void SaveRegisteredCache() const;
+
 	/** Find + load the one catalog asset via AssetManager (primary-asset type "AFLCosmeticCatalog"). */
 	void LoadCatalog();
 
