@@ -5067,6 +5067,105 @@ namespace
 		TEXT("SPENDS real Volts. VOID (not FAIL) without both pawns."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyDoneLoop));
 
+	// === CC-7.2: afl.Sticker.Probe ================================================================
+	void HandleAFLStickerProbe(const TArray<FString>& /*Args*/, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		// ---- ARM1: nine zones, and the invariant is RESTORED rather than assumed -----------------
+		const int32 ZoneCount = FAFLStickerSet::ZoneCount;
+		FAFLStickerSet Set;
+		Set.EnsureSized();
+		const int32 AfterEnsure = Set.Zones.Num();
+		Set.Zones.SetNum(3);                 // deliberately corrupt it, as an old save might
+		Set.EnsureSized();
+		const int32 AfterRestore = Set.Zones.Num();
+		const bool bArm1 = (ZoneCount == 9) && (AfterEnsure == 9) && (AfterRestore == 9);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[STK] ARM1 ZoneCount=%d sized=%d shortenedTo3ThenRestored=%d (want 9/9/9) %s"),
+			ZoneCount, AfterEnsure, AfterRestore, bArm1 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ---- ARM2: the clamp holds every bound ---------------------------------------------------
+		const FVector2D PosClamped = AFLStickerBounds::ClampPosition(FVector2D(-5.0, 7.0));
+		const float ScaleHigh = AFLStickerBounds::ClampScale(99.0f);
+		const float ScaleLow  = AFLStickerBounds::ClampScale(0.001f);
+		const float Rot370    = AFLStickerBounds::NormaliseRotation(370.0f);
+		const float RotNeg30  = AFLStickerBounds::NormaliseRotation(-30.0f);
+		const bool bArm2 =
+			FMath::IsNearlyEqual(PosClamped.X, 0.0, 0.0001) && FMath::IsNearlyEqual(PosClamped.Y, 1.0, 0.0001) &&
+			FMath::IsNearlyEqual(ScaleHigh, AFLStickerBounds::MaxScale, 0.0001f) &&
+			FMath::IsNearlyEqual(ScaleLow,  AFLStickerBounds::MinScale, 0.0001f) &&
+			FMath::IsNearlyEqual(Rot370, 10.0f, 0.01f) && FMath::IsNearlyEqual(RotNeg30, 330.0f, 0.01f);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[STK] ARM2 pos(-5,7)->(%.3f,%.3f) scale99->%.3f scale0.001->%.3f rot370->%.1f rot-30->%.1f %s"),
+			PosClamped.X, PosClamped.Y, ScaleHigh, ScaleLow, Rot370, RotNeg30, bArm2 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ---- ARM3: THE CONTROL -- a valid placement is left ALONE --------------------------------
+		// Without this, a clamp that flattened every input to a constant would sail through ARM2.
+		FAFLStickerPlacement Valid;
+		Valid.StickerId = FName(TEXT("AFL.Sticker.Probe"));
+		Valid.Position = FVector2D(0.42, 0.66);
+		Valid.Scale = 0.5f;
+		Valid.RotationDegrees = 45.0f;
+		const FAFLStickerPlacement Passed = AFLStickerBounds::Clamp(Valid);
+		const bool bArm3 = (Passed == Valid);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[STK] ARM3 CONTROL valid (0.42,0.66) s=0.50 r=45 -> (%.3f,%.3f) s=%.2f r=%.1f unchanged=%d %s"),
+			Passed.Position.X, Passed.Position.Y, Passed.Scale, Passed.RotationDegrees,
+			bArm3 ? 1 : 0, bArm3 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ---- ARM4: there is no unclamped door into the set ---------------------------------------
+		FAFLStickerPlacement Rogue;
+		Rogue.StickerId = FName(TEXT("AFL.Sticker.Rogue"));
+		Rogue.Position = FVector2D(9.0, -9.0);   // way outside the zone rect -> would cross a seam
+		Rogue.Scale = 42.0f;
+		Set.Set(EAFLStickerZone::Back, Rogue);
+		const FAFLStickerPlacement* ReadBack = Set.Find(EAFLStickerZone::Back);
+		const bool bArm4 = ReadBack
+			&& FMath::IsNearlyEqual(ReadBack->Position.X, 1.0, 0.0001)
+			&& FMath::IsNearlyEqual(ReadBack->Position.Y, 0.0, 0.0001)
+			&& FMath::IsNearlyEqual(ReadBack->Scale, AFLStickerBounds::MaxScale, 0.0001f);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[STK] ARM4 Set() rogue(9,-9) s=42 -> readback (%.3f,%.3f) s=%.2f %s"),
+			ReadBack ? ReadBack->Position.X : -1.0, ReadBack ? ReadBack->Position.Y : -1.0,
+			ReadBack ? ReadBack->Scale : -1.0f, bArm4 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ---- ARM5: empty is not absent -----------------------------------------------------------
+		const int32 SetCount = Set.NumSet();
+		const FAFLStickerPlacement* EmptyZone = Set.Find(EAFLStickerZone::Face);
+		const bool bArm5 = (SetCount == 1) && (EmptyZone != nullptr) && !EmptyZone->IsSet()
+			&& (Set.Zones.Num() == 9);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[STK] ARM5 numSet=%d (want 1) emptyZoneStillIndexed=%d isSet=%d zones=%d %s"),
+			SetCount, EmptyZone ? 1 : 0, (EmptyZone && EmptyZone->IsSet()) ? 1 : 0, Set.Zones.Num(),
+			bArm5 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ---- ARM6: the zone enum is contiguous and nine long -------------------------------------
+		// Guards the replication assumption: zone index IS array index, so a gap would misaddress.
+		const UEnum* ZE = StaticEnum<EAFLStickerZone>();
+		int32 Contiguous = 0;
+		if (ZE)
+		{
+			for (int32 i = 0; i < ZoneCount; ++i)
+			{
+				if (ZE->GetValueByIndex(i) == (int64)i) { ++Contiguous; }
+			}
+		}
+		const bool bArm6 = (Contiguous == ZoneCount);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[STK] ARM6 zone enum contiguous 0..%d = %d/%d %s"),
+			ZoneCount - 1, Contiguous, ZoneCount, bArm6 ? TEXT("PASS") : TEXT("FAIL"));
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[STK] SUMMARY fixed9=%d clamp=%d control=%d noBackDoor=%d emptyNotAbsent=%d contiguous=%d"),
+			bArm1 ? 1 : 0, bArm2 ? 1 : 0, bArm3 ? 1 : 0, bArm4 ? 1 : 0, bArm5 ? 1 : 0, bArm6 ? 1 : 0);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[STK] END"));
+		Ar.Log(TEXT("afl.Sticker.Probe complete -- see AFL_TEST[STK] lines."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStickerProbeCmd(TEXT("afl.Sticker.Probe"),
+		TEXT("CC-7.2: prove the nine-zone sticker set is fixed-size, that the shared clamp holds every ")
+		TEXT("bound, that a VALID placement passes through unchanged, and that Set() has no unclamped ")
+		TEXT("door. Pure computation -- spends nothing, touches no asset."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerProbe));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
 		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
@@ -5990,6 +6089,8 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		// it is a pure read and must not perturb the colour timeline that follows.
 		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
+		// CC-7.2 at t=3.2: pure computation, no spend, no asset touched.
+		if (RoleIndex == 0) { FireCmd(3.2f, TEXT("afl.Sticker.Probe"), TEXT("0-cc72-sticker")); }
 		if (RoleIndex == 0) { FireCmd(3.2f, TEXT("afl.Creator.ArcProbe"), TEXT("0-arc-probe")); }
 		if (RoleIndex == 0) { FireCmd(6.5f, TEXT("afl.Creator.PreviewProbe"), TEXT("0-cc53-preview")); }
 		// SUPPRESSED during the CC-X30 durability run: SlotProbe grants x3 and x8 through
