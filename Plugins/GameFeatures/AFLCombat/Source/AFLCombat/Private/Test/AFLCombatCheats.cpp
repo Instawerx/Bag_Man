@@ -4333,6 +4333,203 @@ namespace
 		TEXT("back from PlayFab. VOID if the local mirror is present -- then the source is ambiguous."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyCountedRelaunch));
 
+	// === CC-X30 REDEMPTION: afl.Online.VerifyCreditRedeem ==========================================
+	void HandleAFLVerifyCreditRedeem(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Online.VerifyCreditRedeem - run inside PIE.")); return; }
+
+		FString Why;
+		UAFLWalletComponent* W = GetServerWalletForLocalPlayer(World, Why);
+		const UAFLOnlineSubsystem* Online = W ? UAFLOnlineSubsystem::Get(W) : UAFLOnlineSubsystem::Get(World);
+		const FString Pf = Online ? Online->GetPlayFabId() : FString();
+		const bool bSigner = Online && Online->IsCountedEntitlementConfigured();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RDM] ARM0 wallet=%d signer=%d pfid=%s why=%s"),
+			W ? 1 : 0, bSigner ? 1 : 0, Pf.IsEmpty() ? TEXT("<none>") : *Pf, Why.IsEmpty() ? TEXT("ok") : *Why);
+		if (!W) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RDM] VOID -- no server wallet")); return; }
+		if (!bSigner || Pf.IsEmpty())
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RDM] VOID -- no signer or no PlayFabId. Nothing about redemption was tested."));
+			return;
+		}
+
+		const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Cat) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RDM] VOID -- no catalog")); return; }
+
+		// ---- pick targets BY PROPERTY -----------------------------------------------------------
+		TArray<const FAFLCatalogEntry*> All;
+		Cat->GetEntriesByType(EAFLCosmeticType::Weapon, All);
+		TArray<const FAFLCatalogEntry*> Bundles;
+		Cat->GetEntriesByType(EAFLCosmeticType::Bundle, Bundles);
+
+		auto IsHandCannon = [](const FAFLCatalogEntry* E) -> bool
+		{
+			return E && !E->ItemDefClass.IsNull() && E->ItemDefClass.ToString().Contains(TEXT("HandCannon"));
+		};
+
+		TArray<FName> Pool;          // marked AND not already owned -- the positive targets
+		FName Unmarked = NAME_None;  // marked==false            -> must be refused
+		FName HandCannon = NAME_None;// resolves to a HandCannon -> must be refused
+		FName BundleRow = NAME_None; // Type==Bundle             -> must be refused
+		for (const FAFLCatalogEntry* E : All)
+		{
+			if (!E) { continue; }
+			if (E->bCreditRedeemable)
+			{
+				if (!W->OwnsCosmetic(E->CosmeticId)) { Pool.Add(E->CosmeticId); }
+			}
+			else
+			{
+				if (IsHandCannon(E)) { if (HandCannon.IsNone()) { HandCannon = E->CosmeticId; } }
+				else if (Unmarked.IsNone()) { Unmarked = E->CosmeticId; }
+			}
+		}
+		if (Bundles.Num() > 0 && Bundles[0]) { BundleRow = Bundles[0]->CosmeticId; }
+
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[RDM] ARM0b targets: pool(unowned)=%d unmarked=%s handcannon=%s bundle=%s"),
+			Pool.Num(), *Unmarked.ToString(), *HandCannon.ToString(), *BundleRow.ToString());
+		if (Pool.Num() < 3 || Unmarked.IsNone() || HandCannon.IsNone() || BundleRow.IsNone())
+		{
+			// VOID: without three unowned pool rows the drain arm cannot run, and without each negative
+			// target its refusal is untested. A partial run must not be graded.
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[RDM] VOID -- need 3 unowned pool rows and one of each negative target."));
+			return;
+		}
+
+		static const FName CreditKey(TEXT("AFL.WeaponCredit"));
+		static const FName CreditSku(TEXT("AFL.WeaponCredit.x3"));
+		const int32 Base = W->GetCountedEntitlement(CreditKey);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RDM] ARM1 baseline credits=%d mirrorVo=%d (x3 costs 990)"),
+			Base, W->GetVolts());
+
+		TWeakObjectPtr<UAFLWalletComponent> WW(W);
+		TWeakObjectPtr<UWorld> WWorld(World);
+		const FName Target = Pool[0], T2 = Pool[1], T3 = Pool[2];
+
+		W->ClientRequestPurchase(CreditSku, EAFLPayCurrency::Volts, TFunction<void(bool)>());
+
+		FTimerHandle H1;
+		World->GetTimerManager().SetTimer(H1, FTimerDelegate::CreateLambda(
+			[WW, WWorld, Base, Target, T2, T3, Unmarked, HandCannon, BundleRow]()
+		{
+			UAFLWalletComponent* A = WW.Get(); UWorld* Wd = WWorld.Get();
+			if (!A || !Wd) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RDM] VOID -- gone before ARM2")); return; }
+			static const FName K(TEXT("AFL.WeaponCredit"));
+
+			const int32 Bought = A->GetCountedEntitlement(K);
+			const bool bArm2 = (Bought == Base + 3);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RDM] ARM2 buy WeaponCredit.x3 -> %d -> %d (want %d) %s"),
+				Base, Bought, Base + 3, bArm2 ? TEXT("PASS") : TEXT("FAIL"));
+
+			// ---- THE THREE REFUSALS. Fired together; none may move the counter. ------------------
+			A->ServerRequestCreditRedemption(Unmarked);
+			A->ServerRequestCreditRedemption(HandCannon);
+			A->ServerRequestCreditRedemption(BundleRow);
+
+			FTimerHandle H2;
+			Wd->GetTimerManager().SetTimer(H2, FTimerDelegate::CreateLambda(
+				[WW, WWorld, Bought, bArm2, Target, T2, T3, Unmarked, HandCannon, BundleRow]()
+			{
+				UAFLWalletComponent* B = WW.Get(); UWorld* Wd2 = WWorld.Get();
+				if (!B || !Wd2) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RDM] VOID -- gone before ARM4")); return; }
+				static const FName K2(TEXT("AFL.WeaponCredit"));
+
+				const int32 AfterRefusals = B->GetCountedEntitlement(K2);
+				const bool bArm4 = (AfterRefusals == Bought);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[RDM] ARM4 three refusals (unmarked=%s handcannon=%s bundle=%s) -> credits %d -> %d (want unchanged) %s"),
+					*Unmarked.ToString(), *HandCannon.ToString(), *BundleRow.ToString(),
+					Bought, AfterRefusals, bArm4 ? TEXT("PASS") : TEXT("FAIL"));
+				const bool bNotOwned = !B->OwnsCosmetic(Unmarked) && !B->OwnsCosmetic(HandCannon) && !B->OwnsCosmetic(BundleRow);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RDM] ARM4b none of the refused targets became owned = %d"),
+					bNotOwned ? 1 : 0);
+
+				// ---- THE POSITIVE. One credit, one weapon. --------------------------------------
+				B->ServerRequestCreditRedemption(Target);
+
+				FTimerHandle H3;
+				Wd2->GetTimerManager().SetTimer(H3, FTimerDelegate::CreateLambda(
+					[WW, WWorld, AfterRefusals, bArm2, bArm4, Target, T2, T3]()
+				{
+					UAFLWalletComponent* C = WW.Get(); UWorld* Wd3 = WWorld.Get();
+					if (!C || !Wd3) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RDM] VOID -- gone before ARM3")); return; }
+					static const FName K3(TEXT("AFL.WeaponCredit"));
+
+					const int32 Spent = C->GetCountedEntitlement(K3);
+					const bool bOwned = C->OwnsCosmetic(Target);
+					const bool bArm3 = (Spent == AfterRefusals - 1) && bOwned;
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[RDM] ARM3 redeem %s -> credits %d -> %d (want %d), owned=%d %s"),
+						*Target.ToString(), AfterRefusals, Spent, AfterRefusals - 1, bOwned ? 1 : 0,
+						bArm3 ? TEXT("PASS") : TEXT("FAIL"));
+
+					// ---- durability of the SPEND, through the shipping reconcile ----------------
+					C->DebugForceReconcile();
+
+					FTimerHandle H4;
+					Wd3->GetTimerManager().SetTimer(H4, FTimerDelegate::CreateLambda(
+						[WW, WWorld, Spent, bArm2, bArm3, bArm4, Target, T2, T3]()
+					{
+						UAFLWalletComponent* D = WW.Get(); UWorld* Wd4 = WWorld.Get();
+						if (!D || !Wd4) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RDM] VOID -- gone before ARM5")); return; }
+						static const FName K4(TEXT("AFL.WeaponCredit"));
+
+						const int32 AfterRecon = D->GetCountedEntitlement(K4);
+						const bool bStillOwned = D->OwnsCosmetic(Target);
+						const bool bArm5 = (AfterRecon == Spent) && bStillOwned;
+						UE_LOG(LogAFLCombat, Display,
+							TEXT("AFL_TEST[RDM] ARM5 reconcile -> credits %d -> %d (want unchanged), stillOwned=%d %s"),
+							Spent, AfterRecon, bStillOwned ? 1 : 0, bArm5 ? TEXT("PASS") : TEXT("FAIL"));
+
+						// ---- drain the remaining two, then the FOURTH must be refused ------------
+						D->ServerRequestCreditRedemption(T2);
+						D->ServerRequestCreditRedemption(T3);
+
+						FTimerHandle H5;
+						Wd4->GetTimerManager().SetTimer(H5, FTimerDelegate::CreateLambda(
+							[WW, WWorld, bArm2, bArm3, bArm4, bArm5, T2, T3]()
+						{
+							UAFLWalletComponent* E = WW.Get(); UWorld* Wd5 = WWorld.Get();
+							if (!E || !Wd5) { return; }
+							static const FName K5(TEXT("AFL.WeaponCredit"));
+							const int32 Drained = E->GetCountedEntitlement(K5);
+							UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RDM] ARM6a drained to %d (want 0); both granted=%d/%d"),
+								Drained, E->OwnsCosmetic(T2) ? 1 : 0, E->OwnsCosmetic(T3) ? 1 : 0);
+
+							// THE FOURTH. Nothing left to spend, so it must be refused, not silently allowed.
+							E->ServerRequestCreditRedemption(T2);
+
+							FTimerHandle H6;
+							Wd5->GetTimerManager().SetTimer(H6, FTimerDelegate::CreateLambda(
+								[WW, bArm2, bArm3, bArm4, bArm5, Drained]()
+							{
+								UAFLWalletComponent* F = WW.Get();
+								if (!F) { return; }
+								static const FName K6(TEXT("AFL.WeaponCredit"));
+								const int32 Final = F->GetCountedEntitlement(K6);
+								const bool bArm6 = (Drained == 0) && (Final == 0);
+								UE_LOG(LogAFLCombat, Display,
+									TEXT("AFL_TEST[RDM] ARM6 FOURTH redemption past zero -> credits %d (want 0) %s"),
+									Final, bArm6 ? TEXT("PASS") : TEXT("FAIL"));
+								UE_LOG(LogAFLCombat, Display,
+									TEXT("AFL_TEST[RDM] SUMMARY buy=%d redeem=%d refusals=%d reconcile=%d fourth=%d"),
+									bArm2 ? 1 : 0, bArm3 ? 1 : 0, bArm4 ? 1 : 0, bArm5 ? 1 : 0, bArm6 ? 1 : 0);
+								UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RDM] END"));
+							}), 6.0f, false);
+						}), 8.0f, false);
+					}), 7.0f, false);
+				}), 7.0f, false);
+			}), 6.0f, false);
+		}), 8.0f, false);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyCreditRedeemCmd(TEXT("afl.Online.VerifyCreditRedeem"),
+		TEXT("CC-X30 redemption: buy AFL.WeaponCredit.x3 through the production entry, spend one on a pool ")
+		TEXT("weapon, and check the four refusals (unmarked / hand cannon / bundle / past zero). ")
+		TEXT("SPENDS 990 real Volts. VOID without a signer, a PlayFabId, or three unowned pool rows."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyCreditRedeem));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
 		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
@@ -5069,6 +5266,9 @@ static FAutoConsoleVariableRef CVarAFLSlotJoinProbe(TEXT("afl.Online.SlotJoinPro
 static int32 GAFLCountedDurable = 0;
 static FAutoConsoleVariableRef CVarAFLCountedDurable(TEXT("afl.Online.CountedDurable.Enable"),
 	GAFLCountedDurable, TEXT("CC-X30 run 1: buy AFL.CreatorSlot.x3, reconcile, assert the counter survives. SPENDS 4990 real Volts."), ECVF_Default);
+static int32 GAFLRedeemProbe = 0;
+static FAutoConsoleVariableRef CVarAFLRedeemProbe(TEXT("afl.Online.RedeemProbe.Enable"),
+	GAFLRedeemProbe, TEXT("CC-X30: 1 = buy AFL.WeaponCredit.x3 and prove redemption + its four refusals. SPENDS 990 real Volts."), ECVF_Default);
 static int32 GAFLCountedRelaunchExpect = 0;
 static FAutoConsoleVariableRef CVarAFLCountedRelaunchExpect(TEXT("afl.Online.CountedRelaunch.Expect"),
 	GAFLCountedRelaunchExpect, TEXT("CC-X30 run 2: >0 = assert a fresh process reads exactly this counted-slot count from PlayFab. 0 = off."), ECVF_Default);
@@ -5215,13 +5415,16 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		// DebugGrantOwnership, which put 11 cheat-granted slots into run 1's baseline. Firing them on
 		// one frame is also what accidentally exposed the lost update -- worth keeping in mind, but a
 		// durability number must not be part cheat.
-		if (RoleIndex == 0 && GAFLCountedDurable == 0) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
+		if (RoleIndex == 0 && GAFLCountedDurable == 0 && GAFLRedeemProbe == 0) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
 		if (RoleIndex == 0 && GAFLReconcileProbe != 0) { FireCmd(14.0f, TEXT("afl.Online.ReconcileProbe"), TEXT("0-ccx23-reconcile")); }
 		if (RoleIndex == 0 && GAFLSlotJoinProbe != 0) { FireCmd(18.0f, TEXT("afl.Online.VerifySlotBuyJoin"), TEXT("0-join-slotbuy")); }
 		if (RoleIndex == 0 && GAFLBundleProbe != 0) { FireCmd(20.0f, TEXT("afl.Online.VerifyBundleBuy"), TEXT("0-bundle-buy")); }
 		// CC-X30. Run 1 late (t=22) so it cannot collide with the other economy probes -- concurrent
 		// probes already contaminated one VO measurement, and a summed delta reads as a failure.
 		if (RoleIndex == 0 && GAFLCountedDurable != 0) { FireCmd(22.0f, TEXT("afl.Online.VerifyCountedDurable"), TEXT("0-ccx30-durable")); }
+		// t=24, and alone: concurrent economy probes already contaminated one VO measurement, and this
+		// one both buys and spends.
+		if (RoleIndex == 0 && GAFLRedeemProbe != 0) { FireCmd(24.0f, TEXT("afl.Online.VerifyCreditRedeem"), TEXT("0-ccx30-redeem")); }
 		// Run 2 EARLY (t=6): it is a pure read, and it must land after hydration but before anything
 		// else can perturb the counted set.
 		if (RoleIndex == 0 && GAFLCountedRelaunchExpect > 0)
