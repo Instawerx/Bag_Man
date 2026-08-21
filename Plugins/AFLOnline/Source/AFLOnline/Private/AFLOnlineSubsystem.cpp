@@ -157,6 +157,7 @@ void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		RatingUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_RATING_URL"));
 		CreatorBuildsUrl = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_CREATOR_BUILDS_URL")); // CC-3.5, same key
 		BundleUrl        = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_BUNDLE_URL"));        // /purchase-bundle, same key
+		CountedUrl       = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_COUNTED_URL"));       // CC-X30 /counted-entitlement, same key
 		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer (%s): key=%s earnUrl=%s resolveUrl=%s escrowUrl=%s settleUrl=%s ratingUrl=%s"),
 			IsRunningDedicatedServer() ? TEXT("dedicated server") : TEXT("editor"),
 			EarnHmacKey.IsEmpty() ? TEXT("MISSING") : TEXT("held"),
@@ -167,6 +168,11 @@ void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 			RatingUrl.IsEmpty() ? TEXT("MISSING") : *RatingUrl);
 		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer: creatorBuildsUrl=%s"),
 			CreatorBuildsUrl.IsEmpty() ? TEXT("MISSING") : *CreatorBuildsUrl);
+		// EMITTED, not inferred. An unconfigured counted endpoint silently degrades the slot counter back
+		// to the local-only behaviour CC-X30 exists to remove, so it has to be readable in the log.
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer: bundleUrl=%s countedUrl=%s"),
+			BundleUrl.IsEmpty() ? TEXT("MISSING") : *BundleUrl,
+			CountedUrl.IsEmpty() ? TEXT("MISSING") : *CountedUrl);
 	}
 }
 
@@ -782,6 +788,13 @@ void UAFLOnlineSubsystem::PostServerPurchaseBundle(const FString& JsonBody, TFun
 	// Thin wrapper, deliberately: ONE signed transport for every server-authoritative endpoint. A second
 	// transport would be a second place for the signing contract to drift.
 	PostServerSigned(BundleUrl, JsonBody, MoveTemp(OnComplete));
+}
+
+void UAFLOnlineSubsystem::PostServerCountedEntitlement(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
+{
+	// Same thin wrapper as PostServerPurchaseBundle, for the same reason: ONE signed transport, so the
+	// signing contract has exactly one place to drift.
+	PostServerSigned(CountedUrl, JsonBody, MoveTemp(OnComplete));
 }
 
 bool UAFLOnlineSubsystem::IsMatchReportingConfigured() const

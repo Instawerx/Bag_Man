@@ -189,6 +189,9 @@ private:
 	FString CreatorBuildsUrl;
 	/** /purchase-bundle. Same HMAC key as earn. The bundle SSOT is the mint-ledger row, not this URL. */
 	FString BundleUrl;
+	/** CC-X30 /counted-entitlement. Same HMAC key. The counted set's SSOT is PlayFab ReadOnlyData behind
+	 *  this endpoint -- NOT the local AFLEconomy SaveGame, which is now only a mirror. */
+	FString CountedUrl;
 
 	/** Shared signed-POST transport for the server-authoritative endpoints (A1.3b earn + A1.4 resolve): sign the
 	 *  EXACT Body with EarnHmacKey, POST it to Url with X-Signature, plain-HTTP-200 completion. Server-only
@@ -209,6 +212,22 @@ public:
 	/** True when /purchase-bundle can actually be signed. Lets a caller say 'not configured' rather
 	 *  than reporting a purchase failure for an unwired endpoint. */
 	bool IsBundlePurchaseConfigured() const { return !BundleUrl.IsEmpty() && !EarnHmacKey.IsEmpty(); }
+
+	/**
+	 * POST a signed counted-entitlement op to /counted-entitlement. Body is {playFabId, op, key, ...}:
+	 *   op:read   -> {counts:{key:n}}          the authoritative set
+	 *   op:grant  -> {key, count}              count is the NEW authoritative total, post-increment
+	 *   op:redeem -> {key, count, granted}     spends exactly one and grants targetId
+	 *
+	 * Same server-only construction as the bundle post: PostServerSigned refuses to sign without the
+	 * HMAC key, which no client process holds, so a client attempt fails closed rather than granting.
+	 */
+	void PostServerCountedEntitlement(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
+
+	/** True when /counted-entitlement can be signed. A caller that gets false is in bring-up with no
+	 *  backend, which is a DIFFERENT state from a call that was made and refused -- and the two must
+	 *  never collapse into one 'it didn't work'. */
+	bool IsCountedEntitlementConfigured() const { return !CountedUrl.IsEmpty() && !EarnHmacKey.IsEmpty(); }
 
 private:
 

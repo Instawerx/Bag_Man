@@ -1110,6 +1110,12 @@ void UAFLWalletComponent::LoadFromPersistence()
 			}
 		}
 	}));
+
+	// CC-X30. The counted set hydrates from PlayFab, NOT from the local cache the other two read --
+	// deliberately, because that cache is exactly what made the counter non-durable. This is the read
+	// that never existed: LoadCountedSet was declared, implemented, and had no caller anywhere, so the
+	// counter was written and never read back, and died with the process that wrote it.
+	LoadCountedFromBackend();
 }
 
 
@@ -1128,6 +1134,29 @@ void UAFLWalletComponent::OnRep_CountedSet()
 	OnWalletChanged.Broadcast(Volts, Watts);
 }
 
+void UAFLWalletComponent::ApplyAuthoritativeCounted(const FName Key, const int32 Count)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	bool bFound = false;
+	for (FAFLCountedEntitlement& E : CountedEntitlements)
+	{
+		if (E.Key == Key) { E.Count = Count; bFound = true; break; }
+	}
+	if (!bFound && Count > 0)
+	{
+		FAFLCountedEntitlement Added;
+		Added.Key = Key;
+		Added.Count = Count;
+		CountedEntitlements.Add(Added);
+	}
+
+	// MIRROR the authoritative value locally so a bring-up session still has somewhere to keep it. The
+	// local file is no longer consulted for truth, so this cannot resurrect a stale count.
+	PersistCountedState();
+	OnWalletChanged.Broadcast(Volts, Watts);
+}
+
 void UAFLWalletComponent::GrantCountedEntitlement(const FName Key, const int32 Quantity)
 {
 	// AUTHORITY ONLY. A client-callable counted grant is a free slot for anyone with a packet editor --
@@ -1135,32 +1164,290 @@ void UAFLWalletComponent::GrantCountedEntitlement(const FName Key, const int32 Q
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 	if (Key.IsNone() || Quantity <= 0) { return; }
 
-	int32 NewCount = 0;
-	bool bFound = false;
-	for (FAFLCountedEntitlement& E : CountedEntitlements)
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (Online && Online->IsCountedEntitlementConfigured())
 	{
-		if (E.Key == Key)
+		const FString PlayFabId = Online->GetPlayFabId();
+		if (PlayFabId.IsEmpty())
 		{
-			E.Count += Quantity;
-			NewCount = E.Count;
-			bFound = true;
-			break;
+			// NOT a silent local grant. With no account key there is nothing to durably credit, and
+			// crediting the session anyway is precisely the defect CC-X30 exists to remove.
+			UE_LOG(LogAFLWalletDiag, Warning,
+				TEXT("%sCOUNTED GRANT REFUSED %s += %d -- no PlayFabId, nothing to credit durably"),
+				*WalletPrefix(this), *Key.ToString(), Quantity);
+			return;
 		}
+
+		const FString Body = FString::Printf(
+			TEXT("{\"playFabId\":\"%s\",\"op\":\"grant\",\"key\":\"%s\",\"quantity\":%d,\"nonce\":\"%s\",\"ts\":%lld}"),
+			*PlayFabId, *Key.ToString(), Quantity,
+			*FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens),
+			static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
+
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCOUNTED POST grant %s += %d pfid=%s -> /counted-entitlement"),
+			*WalletPrefix(this), *Key.ToString(), Quantity, *PlayFabId);
+
+		TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+		Online->PostServerCountedEntitlement(Body, [WeakThis, Key, Quantity](bool bOk, const FString& Resp)
+		{
+			UAFLWalletComponent* Self = WeakThis.Get();
+			if (!Self) { return; }
+
+			// FAIL CLOSED. A failed durable grant must NOT increment the session counter: the player
+			// would see a slot they do not own, and the next hydration would silently take it away.
+			// Showing nothing granted is better than showing a slot that evaporates.
+			int32 Authoritative = -1;
+			if (bOk)
+			{
+				TSharedPtr<FJsonObject> Root;
+				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Resp);
+				if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+				{
+					int32 Parsed = 0;
+					if (Root->TryGetNumberField(TEXT("count"), Parsed)) { Authoritative = Parsed; }
+				}
+			}
+
+			if (Authoritative < 0)
+			{
+				UE_LOG(LogAFLWalletDiag, Warning,
+					TEXT("%sCOUNTED GRANT FAILED %s += %d -- counter UNCHANGED (ok=%d resp=%s)"),
+					*WalletPrefix(Self), *Key.ToString(), Quantity, bOk ? 1 : 0, *Resp);
+				return;
+			}
+
+			UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCOUNTED GRANT %s -> %d (authoritative, from PlayFab)"),
+				*WalletPrefix(Self), *Key.ToString(), Authoritative);
+			Self->ApplyAuthoritativeCounted(Key, Authoritative);
+		});
+		return;
 	}
-	if (!bFound)
+
+	// BRING-UP ONLY, AND SAID SO. With no signer there is no durable store to ask, so the session value
+	// is the only truth there is -- the same call LoadFromPersistence already makes for the balance.
+	// This is NOT a fallback for a configured-but-failing endpoint: that case returned above with the
+	// counter untouched.
+	const int32 Local = GetCountedEntitlement(Key) + Quantity;
+	UE_LOG(LogAFLWalletDiag, Log,
+		TEXT("%sCOUNTED GRANT %s += %d -> %d (LOCAL ONLY -- no signer; needs AFL_COUNTED_URL + AFL_EARN_HMAC_KEY)"),
+		*WalletPrefix(this), *Key.ToString(), Quantity, Local);
+	ApplyAuthoritativeCounted(Key, Local);
+}
+
+void UAFLWalletComponent::ServerRequestCreditRedemption_Implementation(const FName CosmeticId)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	static const FName CreditKey(TEXT("AFL.WeaponCredit"));
+
+	// ---- 1. the row must exist -------------------------------------------------------------------
+	const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog();
+	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
+	if (!Entry)
 	{
-		FAFLCountedEntitlement Added;
-		Added.Key = Key;
-		Added.Count = Quantity;
-		CountedEntitlements.Add(Added);
-		NewCount = Quantity;
+		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sREDEEM REFUSED %s -- no catalog row"),
+			*WalletPrefix(this), *CosmeticId.ToString());
+		return;
 	}
 
-	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCOUNTED GRANT %s += %d -> %d"),
-		*WalletPrefix(this), *Key.ToString(), Quantity, NewCount);
+	// ---- 2. the row must be IN THE POOL ----------------------------------------------------------
+	// DISCRIMINATED BY THE FIELD, never by the id string. An unmarked row is REFUSED, which is why the
+	// field defaults false: a weapon added later is outside the pool until someone deliberately puts
+	// it in, rather than silently inheriting redeemability from a naming pattern.
+	if (!Entry->bCreditRedeemable)
+	{
+		UE_LOG(LogAFLWalletDiag, Warning,
+			TEXT("%sREDEEM REFUSED %s -- bCreditRedeemable=false (not in the credit pool)"),
+			*WalletPrefix(this), *CosmeticId.ToString());
+		return;
+	}
 
-	PersistCountedState();
-	OnWalletChanged.Broadcast(Volts, Watts);
+	// ---- 3. do not spend a credit on something already owned --------------------------------------
+	if (OwnedCosmeticIds.Contains(CosmeticId))
+	{
+		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sREDEEM REFUSED %s -- ALREADY OWNED, credit not spent"),
+			*WalletPrefix(this), *CosmeticId.ToString());
+		return;
+	}
+
+	// ---- 4. local credit check, so an obvious no costs no round-trip ------------------------------
+	// NOT the authoritative check. The Lambda re-reads the count from PlayFab and refuses past zero on
+	// its own; this only avoids a pointless call. A stale replica erring high is caught there.
+	const int32 Have = GetCountedEntitlement(CreditKey);
+	if (Have <= 0)
+	{
+		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sREDEEM REFUSED %s -- NO CREDITS (mirror=%d)"),
+			*WalletPrefix(this), *CosmeticId.ToString(), Have);
+		return;
+	}
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || !Online->IsCountedEntitlementConfigured())
+	{
+		// NAMES THE MISSING LEG. 'not configured' is not 'the Lambda said no'.
+		UE_LOG(LogAFLWalletDiag, Warning,
+			TEXT("%sREDEEM REFUSED %s -- signer NOT CONFIGURED (needs AFL_COUNTED_URL + AFL_EARN_HMAC_KEY). This is NOT a refusal of the redemption."),
+			*WalletPrefix(this), *CosmeticId.ToString());
+		return;
+	}
+	const FString PlayFabId = Online->GetPlayFabId();
+	if (PlayFabId.IsEmpty())
+	{
+		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sREDEEM REFUSED %s -- no PlayFabId"),
+			*WalletPrefix(this), *CosmeticId.ToString());
+		return;
+	}
+
+	// ---- 5. spend it. The Lambda grants FIRST and decrements SECOND, and checks ItemGrantResults ---
+	// rather than the status code, because GrantItemsToUser answers 200 for an item that does not
+	// exist. The credit survives anything short of a delivered grant.
+	const FString Body = FString::Printf(
+		TEXT("{\"playFabId\":\"%s\",\"op\":\"redeem\",\"key\":\"%s\",\"targetId\":\"%s\",\"nonce\":\"%s\",\"ts\":%lld}"),
+		*PlayFabId, *CreditKey.ToString(), *CosmeticId.ToString(),
+		*FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens),
+		static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
+
+	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sREDEEM POST %s pfid=%s have=%d -> /counted-entitlement"),
+		*WalletPrefix(this), *CosmeticId.ToString(), *PlayFabId, Have);
+
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+	Online->PostServerCountedEntitlement(Body, [WeakThis, CosmeticId](bool bOk, const FString& Resp)
+	{
+		UAFLWalletComponent* Self = WeakThis.Get();
+		if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority()) { return; }
+
+		static const FName K(TEXT("AFL.WeaponCredit"));
+
+		int32 Remaining = -1;
+		FString Granted;
+		if (bOk)
+		{
+			TSharedPtr<FJsonObject> Root;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Resp);
+			if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+			{
+				int32 Parsed = 0;
+				if (Root->TryGetNumberField(TEXT("count"), Parsed)) { Remaining = Parsed; }
+				Root->TryGetStringField(TEXT("granted"), Granted);
+			}
+		}
+
+		// A HANDLED REFUSAL IS NOT AN OUTAGE. 409 NO CREDITS is the Lambda working; a transport failure
+		// is not. Logged apart so a run can tell them apart.
+		if (Remaining < 0)
+		{
+			const bool bNoCredits = Resp.Contains(TEXT("NO CREDITS"));
+			UE_LOG(LogAFLWalletDiag, Warning,
+				TEXT("%sREDEEM %s %s -- nothing granted, credit NOT spent (ok=%d resp=%s)"),
+				*WalletPrefix(Self), *CosmeticId.ToString(),
+				bNoCredits ? TEXT("REFUSED (no credits)") : TEXT("FAILED"), bOk ? 1 : 0, *Resp);
+			return;
+		}
+
+		// The item is granted in PlayFab; reflect it in the session's owned set so the loadout gate
+		// opens without waiting for the next hydration.
+		if (!Self->OwnedCosmeticIds.Contains(CosmeticId))
+		{
+			Self->OwnedCosmeticIds.Add(CosmeticId);
+		}
+		Self->ApplyAuthoritativeCounted(K, Remaining);
+
+		UE_LOG(LogAFLWalletDiag, Log,
+			TEXT("%sREDEEM OK granted=%s credits -> %d (authoritative, from PlayFab)"),
+			*WalletPrefix(Self), Granted.IsEmpty() ? *CosmeticId.ToString() : *Granted, Remaining);
+	});
+}
+
+void UAFLWalletComponent::LoadCountedFromBackend()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || !Online->IsCountedEntitlementConfigured())
+	{
+		UE_LOG(LogAFLWalletDiag, Log,
+			TEXT("%sCOUNTED READ skipped -- no signer (bring-up); counted set stays as replicated"),
+			*WalletPrefix(this));
+		return;
+	}
+	const FString PlayFabId = Online->GetPlayFabId();
+	if (PlayFabId.IsEmpty())
+	{
+		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sCOUNTED READ skipped -- no PlayFabId"), *WalletPrefix(this));
+		return;
+	}
+
+	const FString Body = FString::Printf(
+		TEXT("{\"playFabId\":\"%s\",\"op\":\"read\",\"key\":\"AFL.CreatorSlot\",\"nonce\":\"%s\",\"ts\":%lld}"),
+		*PlayFabId,
+		*FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens),
+		static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
+
+	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCOUNTED POST read pfid=%s -> /counted-entitlement"),
+		*WalletPrefix(this), *PlayFabId);
+
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+	Online->PostServerCountedEntitlement(Body, [WeakThis](bool bOk, const FString& Resp)
+	{
+		UAFLWalletComponent* Self = WeakThis.Get();
+		if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority()) { return; }
+
+		if (!bOk)
+		{
+			// UNANSWERED IS NOT EMPTY. Clearing the counter on a failed read would delete a paid
+			// entitlement because the network hiccuped. A read that says nothing changes nothing.
+			UE_LOG(LogAFLWalletDiag, Warning,
+				TEXT("%sCOUNTED READ FAILED -- counted set LEFT ALONE (resp=%s)"), *WalletPrefix(Self), *Resp);
+			return;
+		}
+
+		TSharedPtr<FJsonObject> Root;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Resp);
+		if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+		{
+			UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sCOUNTED READ unparseable -- LEFT ALONE (resp=%s)"),
+				*WalletPrefix(Self), *Resp);
+			return;
+		}
+
+		const TSharedPtr<FJsonObject>* Counts = nullptr;
+		if (!Root->TryGetObjectField(TEXT("counts"), Counts) || !Counts || !Counts->IsValid())
+		{
+			UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sCOUNTED READ has no 'counts' -- LEFT ALONE (resp=%s)"),
+				*WalletPrefix(Self), *Resp);
+			return;
+		}
+
+		// REPLACE, NOT MERGE. PlayFab is the whole truth for this set; merging would let a stale local
+		// key survive a redemption that already spent it.
+		Self->CountedEntitlements.Reset();
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& KV : (*Counts)->Values)
+		{
+			double N = 0.0;
+			if (!KV.Value.IsValid() || !KV.Value->TryGetNumber(N) || N <= 0.0) { continue; }
+			FAFLCountedEntitlement E;
+			E.Key = FName(*KV.Key);
+			E.Count = static_cast<int32>(N);
+			Self->CountedEntitlements.Add(E);
+		}
+
+		// RAISED HERE AND NOWHERE ELSE: the array has just been replaced by the backend's own reply.
+		Self->bCountedHydratedFromBackend = true;
+
+		// PRESENCE OF OUTPUT: an empty set still logs a line saying so, so "no counters" stays
+		// distinguishable from "the read never ran".
+		FString Dump;
+		for (const FAFLCountedEntitlement& E : Self->CountedEntitlements)
+		{
+			Dump += FString::Printf(TEXT("%s=%d "), *E.Key.ToString(), E.Count);
+		}
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCOUNTED READ ok keys=%d %s(from PlayFab, authoritative)"),
+			*WalletPrefix(Self), Self->CountedEntitlements.Num(),
+			Dump.IsEmpty() ? TEXT("(none) ") : *Dump);
+
+		Self->PersistCountedState();
+		Self->OnWalletChanged.Broadcast(Self->Volts, Self->Watts);
+	});
 }
 
 void UAFLWalletComponent::PersistCountedState() const

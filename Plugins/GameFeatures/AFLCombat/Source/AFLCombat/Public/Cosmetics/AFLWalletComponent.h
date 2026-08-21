@@ -144,14 +144,49 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Wallet")
 	int32 GetCountedEntitlement(FName Key) const;
 
+	/** CC-X30 PROVENANCE WITNESS. True once the counted array has been replaced by a parsed reply from
+	 *  /counted-entitlement. Set in exactly ONE place -- inside that response handler -- so no local
+	 *  cache read can raise it, and a probe asking "where did this number come from" gets an answer
+	 *  from the code path rather than from a filesystem check the game can invalidate behind it. */
+	bool WasCountedHydratedFromBackend() const { return bCountedHydratedFromBackend; }
+
 	/** CC-4.2: AUTHORITY-ONLY counted grant. Called from the purchase commit when the bought row carries
 	 *  a CountedKey and a GrantQuantity. Not a Server RPC: a client-callable counted grant would be a
 	 *  free slot for anyone with a packet editor. */
 	void GrantCountedEntitlement(FName Key, int32 Quantity);
 
+	/**
+	 * CC-X30: spend one AFL.WeaponCredit on CosmeticId.
+	 *
+	 * A Server RPC because the PLAYER initiates it -- unlike the counted GRANT, which is authority-only
+	 * because nobody should be able to ask for one. Asking to spend a credit you hold is a legitimate
+	 * client action; the server decides whether you hold it and whether the target is redeemable.
+	 *
+	 * FAILS CLOSED ON EVERY BRANCH: unknown row, row not flagged bCreditRedeemable, already owned, no
+	 * credits, no signer, no PlayFabId, grant delivered nothing. Each refusal is logged distinctly --
+	 * "you have no credits" and "that weapon is not in the pool" are different things to tell a player.
+	 */
+	UFUNCTION(Server, Reliable)
+	void ServerRequestCreditRedemption(FName CosmeticId);
+
 protected:
-	/** Writes the counted map through the CC-3.3 persistence seam. */
+	/** Writes the counted map through the CC-3.3 persistence seam. MIRROR ONLY since CC-X30: the local
+	 *  SaveGame is no longer the truth, PlayFab is. Kept so a bring-up session with no backend still has
+	 *  somewhere to put the count. */
 	void PersistCountedState() const;
+
+	/** CC-X30: read the AUTHORITATIVE counted set from /counted-entitlement into the replicated array.
+	 *  Called from LoadFromPersistence alongside the balance and owned-set reads.
+	 *
+	 *  This read is the half that never existed. LoadCountedSet was declared, implemented, and had NO
+	 *  CALLER anywhere in the programme -- so the counter was written and never read back, and died with
+	 *  the process even on the machine that wrote it. */
+	void LoadCountedFromBackend();
+
+	/** Set a key to an EXACT count that the server has already decided, and replicate it. Deliberately a
+	 *  SET and not an add: every authoritative path (read, grant, redeem) returns the resulting total, so
+	 *  applying a delta locally would let the client's arithmetic disagree with PlayFab's. */
+	void ApplyAuthoritativeCounted(FName Key, int32 Count);
 
 public:
 
@@ -310,6 +345,10 @@ private:
 	 */
 	UPROPERTY(ReplicatedUsing = OnRep_CountedSet)
 	TArray<FAFLCountedEntitlement> CountedEntitlements;
+
+	/** Server-side only, deliberately NOT replicated: it describes how THIS process obtained the set,
+	 *  which is not a fact about the player and would be meaningless on a client. */
+	bool bCountedHydratedFromBackend = false;
 
 	UFUNCTION()
 	void OnRep_Balance();
