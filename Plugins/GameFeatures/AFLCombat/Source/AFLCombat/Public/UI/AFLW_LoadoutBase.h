@@ -251,6 +251,15 @@ public:
 	UPROPERTY(BlueprintReadWrite, Category = "AFL|Creator|Preview")
 	FAFLCreatorChannelLinks CreatorLinks;
 
+#if !UE_BUILD_SHIPPING
+	/** TEST ONLY (CC-6.5). The display pawn, so a probe can read its RESOLVED colour override and
+	 *  compare it against the gameplay pawn's. That comparison IS the done definition -- "the robot in
+	 *  match is the robot in the preview" -- and it can only be made by reading BOTH pawns through the
+	 *  same accessor, or the difference measured would be a difference in method. Null before the rig
+	 *  has spawned one. */
+	APawn* GetPreviewPawnForTest() const { return Cast<APawn>(DisplayPawn.Get()); }
+#endif
+
 protected:
 	/** The uncommitted selection the creator is editing. Seeded from the committed one on first touch. */
 	UPROPERTY()
