@@ -1,6 +1,8 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
+#include "GameFramework/Character.h"      // CC-X34 socket-existence guard
+#include "Components/SkeletalMeshComponent.h"
 
 #include "Cosmetics/AFLCosmeticServices.h"
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
@@ -880,11 +882,34 @@ void UAFLCosmeticLoadoutComponent::ServerSetAccessory_Implementation(const EAFLA
 	// component root, which would hang the accessory at the pawn's feet and look like an art bug
 	// rather than a wiring one. Refusing here is the difference between a visible refusal and a
 	// mystery.
-	if (AFLAccessorySockets::ResolveSocket(Slot).IsNone())
+	const FName Socket = AFLAccessorySockets::ResolveSocket(Slot);
+	if (Socket.IsNone())
 	{
 		UE_LOG(LogTemp, Warning,
 			TEXT("[AFLAccessory] REFUSED slot=%d -- no socket mapping. Nothing equipped."), static_cast<int32>(Slot));
 		return;
+	}
+
+	// THE MAPPING IS NOT THE SOCKET. An earlier version stopped at the check above and was described as
+	// "refuses until the sockets exist" -- it was not: ResolveSocket returns a NAME whether or not the
+	// skeleton carries one, so the equip would have succeeded and the part would have attached to a
+	// socket that does not exist. UE does not fail that attach; it silently parents to the component
+	// ROOT, hanging the accessory at the pawn's feet. That reads as an art bug, and the wiring cause
+	// would be invisible.
+	//
+	// So the guard asks the MESH, which is the thing that will actually resolve the name at attach time.
+	if (const ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
+	{
+		if (const USkeletalMeshComponent* Mesh = OwnerChar->GetMesh())
+		{
+			if (!Mesh->DoesSocketExist(Socket))
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("[AFLAccessory] REFUSED slot=%d -- socket '%s' is not on this mesh's skeleton. Nothing equipped."),
+					static_cast<int32>(Slot), *Socket.ToString());
+				return;
+			}
+		}
 	}
 
 	FAFLAccessoryPlacement P;
