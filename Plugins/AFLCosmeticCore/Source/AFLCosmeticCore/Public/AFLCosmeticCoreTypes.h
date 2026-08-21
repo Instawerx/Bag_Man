@@ -259,13 +259,13 @@ struct FAFLCatalogEntry
 	// --- Economy (LOCKED IRONICS values; integer, never float) ---
 
 	/** Paid ladder rung. IGNORED when Acquisition == GrantedFree (identity / free base carry no tier). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
+	UPROPERTY(EditAnywhere, Category = "AFL|Catalog|Economy")
 	EAFLCosmeticTier Tier = EAFLCosmeticTier::SPARK;
 
 	/** Content tier (ADR Decision 6 / Ruling 2) -- EXPLICIT management metadata, NOT inferred. Descriptive
 	 *  (Base/Premium/Event/Seasonal) for filtering/merchandising; distinct from the paid Tier ladder and
 	 *  never part of CosmeticId. Defaults to Base; the 30-name premium identities stamp Premium. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
+	UPROPERTY(EditAnywhere, Category = "AFL|Catalog|Economy")
 	EAFLContentTier ContentTier = EAFLContentTier::Base;
 
 	/** Hard price in Volts. 0 for GrantedFree. */
@@ -354,12 +354,12 @@ struct FAFLCatalogEntry
 
 	/** Limited-edition mint cap (the 1-of-N). 0 = unlimited (default; every existing row). The 1-of-1 Singularity
 	 *  bundles set 1. FIELD ONLY here -- MintedCount + sold-out/never-reissue ENFORCEMENT is persistence-gated B2 (PSS §5.1). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Bundle")
+	UPROPERTY(EditAnywhere, Category = "AFL|Catalog|Bundle")
 	int32 MintCap = 0;
 
 	/** INTACT-ONLY trade (PSS E1). TRUE -> this bundle's child SKUs are container-locked: the grail trades ONLY
 	 *  as one atomic unit (no per-child transfer while bundled). FIELD ONLY -- the trade LOCKING enforcement is B2. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Bundle")
+	UPROPERTY(EditAnywhere, Category = "AFL|Catalog|Bundle")
 	bool bIntactOnlyBundle = false;
 
 	// --- Display (S-ECON-STORE / IRONICS Digital Market — the skill's display-row fields the tile + details
