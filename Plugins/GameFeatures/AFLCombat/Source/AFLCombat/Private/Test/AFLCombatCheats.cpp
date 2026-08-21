@@ -4530,6 +4530,82 @@ namespace
 		TEXT("SPENDS 990 real Volts. VOID without a signer, a PlayFabId, or three unowned pool rows."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyCreditRedeem));
 
+	// === CC-X22: afl.Catalog.SellableProbe =========================================================
+	void HandleAFLSellableProbe(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World) { Ar.Log(TEXT("afl.Catalog.SellableProbe - needs a world.")); return; }
+		UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Cat) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SELL] VOID -- no catalog subsystem")); return; }
+
+		// What the OLD surface offered, and the number ARM1 must NOT equal.
+		const int32 NotFree = Cat->CountNonFreeRows();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SELL] ARM0 non-GrantedFree rows = %d (what the OLD surface offered)"), NotFree);
+
+#if !UE_BUILD_SHIPPING
+		// ---- ARM1: UNKNOWN shows NOTHING ----------------------------------------------------------
+		Cat->DebugClearRegisteredSet();
+		TArray<FAFLCatalogEntry> WhenUnknown;
+		Cat->GetPurchasableEntries(WhenUnknown);
+		const bool bArm1 = (WhenUnknown.Num() == 0) && (NotFree > 0);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SELL] ARM1 sellable set UNKNOWN -> purchasable=%d (want 0, and NOT %d) %s"),
+			WhenUnknown.Num(), NotFree, bArm1 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// restore from the cache the live fetch already wrote
+		const bool bReloaded = Cat->LoadRegisteredCache();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SELL] ARM4 cache reload = %d, ids=%d"),
+			bReloaded ? 1 : 0, Cat->GetRegisteredCount());
+#else
+		const bool bArm1 = false;
+		const bool bReloaded = false;
+#endif
+
+		// ---- ARM2: KNOWN shows the intersection ---------------------------------------------------
+		if (!Cat->IsRegisteredSetKnown())
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[SELL] VOID after ARM1 -- no cache and no live answer, so the intersection cannot be measured. ")
+				TEXT("Run once while logged in to populate the cache."));
+			return;
+		}
+		TArray<FAFLCatalogEntry> Shown;
+		Cat->GetPurchasableEntries(Shown);
+		const int32 Withheld = NotFree - Shown.Num();
+		const bool bArm2 = (Shown.Num() > 0) && (Shown.Num() < NotFree);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SELL] ARM2 sellable set KNOWN (%d ids) -> shown=%d withheld=%d of %d %s"),
+			Cat->GetRegisteredCount(), Shown.Num(), Withheld, NotFree, bArm2 ? TEXT("PASS") : TEXT("FAIL"));
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SELL] ARM2 NOTE withheld = rows priced in the UE catalog that the backend cannot sell. ")
+			TEXT("Every one of those was a shop button returning ItemNotFound before this change."));
+
+		// ---- ARM3: the SHAPE, not just the count --------------------------------------------------
+		// A filter that returned nothing, or everything-once-known, would pass ARM1 and ARM2 both.
+		// Naming one id that must appear and one that must not is what makes the shape observable.
+		auto Offered = [&Shown](const TCHAR* Id) -> bool
+		{
+			const FName N(Id);
+			for (const FAFLCatalogEntry& E : Shown) { if (E.CosmeticId == N) { return true; } }
+			return false;
+		};
+		const bool bRegisteredOffered  = Offered(TEXT("AFL.Weapon.Arclight"));      // registered 2026-08-21
+		const bool bUnregisteredHidden = !Offered(TEXT("AFL.Ability.EMP"));         // priced here, never in the manifest
+		const bool bArm3 = bRegisteredOffered && bUnregisteredHidden;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SELL] ARM3 shape: registered AFL.Weapon.Arclight offered=%d ; unregistered AFL.Ability.EMP hidden=%d %s"),
+			bRegisteredOffered ? 1 : 0, bUnregisteredHidden ? 1 : 0, bArm3 ? TEXT("PASS") : TEXT("FAIL"));
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SELL] SUMMARY unknown=%d intersect=%d shape=%d cache=%d"),
+			bArm1 ? 1 : 0, bArm2 ? 1 : 0, bArm3 ? 1 : 0, bReloaded ? 1 : 0);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SELL] END"));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLSellableProbeCmd(TEXT("afl.Catalog.SellableProbe"),
+		TEXT("CC-X22: prove the store offers only what the backend can sell. Unknown -> nothing; known -> ")
+		TEXT("the intersection; plus a named registered id that must appear and a named unregistered id ")
+		TEXT("that must not. Reads only -- spends nothing."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLSellableProbe));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
 		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
@@ -5272,6 +5348,8 @@ static FAutoConsoleVariableRef CVarAFLRedeemProbe(TEXT("afl.Online.RedeemProbe.E
 static int32 GAFLCountedRelaunchExpect = 0;
 static FAutoConsoleVariableRef CVarAFLCountedRelaunchExpect(TEXT("afl.Online.CountedRelaunch.Expect"),
 	GAFLCountedRelaunchExpect, TEXT("CC-X30 run 2: >0 = assert a fresh process reads exactly this counted-slot count from PlayFab. 0 = off."), ECVF_Default);
+// ISOLATION. Counted in ONE place so a probe added later cannot forget to exclude the others.
+// Every economy probe -- anything that SPENDS or GRANTS -- must be listed here.
 static int32 GAFLReconcileProbe = 0;
 static FAutoConsoleVariableRef CVarAFLReconcileProbe(TEXT("afl.Online.ReconcileProbe.Enable"),
 	GAFLReconcileProbe, TEXT("CC-X23: 1 = run the wallet-mirror reconcile proof. Needs afl.Online.ForceEosLogin 1."), ECVF_Default);
@@ -5283,6 +5361,21 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		GAFLCreatorAutoProbe,
 		TEXT("Dev acceptance: 1 = on the first ready CLIENT world, auto-run the creator-overlay readback. Set BEFORE starting PIE. Self-disarms."),
 		ECVF_Default);
+
+	/** How many probes that SPEND or GRANT are armed. More than one and none may run: a balance delta
+	 *  with two spenders in flight cannot be attributed to either. */
+	static int32 AFLEconomyProbesArmed()
+	{
+		return (GAFLSlotJoinProbe != 0 ? 1 : 0)
+			 + (GAFLBundleProbe != 0 ? 1 : 0)
+			 + (GAFLCountedDurable != 0 ? 1 : 0)
+			 + (GAFLRedeemProbe != 0 ? 1 : 0)
+			 + (GAFLCreatorBuyProbe != 0 ? 1 : 0);
+	}
+
+	/** True when any economy probe is under test. The cheat/grant probes stand down: they do not spend,
+	 *  but they mutate the same counters, and an economy proof must not share its run with one. */
+	static bool AFLEconomyProbeUnderTest() { return AFLEconomyProbesArmed() > 0; }
 
 	static bool GAFLCreatorAutoFired = false;
 
@@ -5405,6 +5498,29 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			}), Delay, false);
 		};
 
+		// ISOLATION GATE, evaluated before any economy probe dispatches.
+		const int32 ArmedEconomy = AFLEconomyProbesArmed();
+		if (RoleIndex == 0 && ArmedEconomy > 1)
+		{
+			// LOUD REFUSAL. Silence here would be indistinguishable from "it ran and found nothing".
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[ISO] REFUSED -- %d economy probes armed at once (slotJoin=%d bundle=%d durable=%d redeem=%d creatorBuy=%d). ")
+				TEXT("NONE will dispatch: a balance delta with two spenders cannot be attributed to either. Arm exactly one."),
+				ArmedEconomy, GAFLSlotJoinProbe, GAFLBundleProbe, GAFLCountedDurable, GAFLRedeemProbe, GAFLCreatorBuyProbe);
+		}
+		else if (RoleIndex == 0 && ArmedEconomy == 1)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[ISO] isolated: exactly ONE economy probe armed; cheat/grant probes stood down."));
+		}
+		else if (RoleIndex == 0)
+		{
+			// EMITTED EVEN WHEN THERE IS NOTHING TO ISOLATE. Silence here would be indistinguishable
+			// from the guard not running at all, which is the failure mode this programme keeps finding
+			// in its own instruments.
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[ISO] no economy probe armed; nothing to isolate (cheat/grant probes may run)."));
+		}
+		const bool bEconomyOk = (ArmedEconomy == 1);
+
 		// CC-X15 step 4: assert the facemask command can reach EVERY catalog row. Role A only, once, early --
 		// it is a pure read and must not perturb the colour timeline that follows.
 		if (RoleIndex == 0) { FireCmd(2.0f, TEXT("afl.Cosmetic.SetFacemask verify"), TEXT("0-facemask-verify")); }
@@ -5415,16 +5531,16 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		// DebugGrantOwnership, which put 11 cheat-granted slots into run 1's baseline. Firing them on
 		// one frame is also what accidentally exposed the lost update -- worth keeping in mind, but a
 		// durability number must not be part cheat.
-		if (RoleIndex == 0 && GAFLCountedDurable == 0 && GAFLRedeemProbe == 0) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
+		if (RoleIndex == 0 && !AFLEconomyProbeUnderTest()) { FireCmd(8.0f, TEXT("afl.Creator.SlotProbe"), TEXT("0-cc42-slots")); }
 		if (RoleIndex == 0 && GAFLReconcileProbe != 0) { FireCmd(14.0f, TEXT("afl.Online.ReconcileProbe"), TEXT("0-ccx23-reconcile")); }
-		if (RoleIndex == 0 && GAFLSlotJoinProbe != 0) { FireCmd(18.0f, TEXT("afl.Online.VerifySlotBuyJoin"), TEXT("0-join-slotbuy")); }
-		if (RoleIndex == 0 && GAFLBundleProbe != 0) { FireCmd(20.0f, TEXT("afl.Online.VerifyBundleBuy"), TEXT("0-bundle-buy")); }
+		if (RoleIndex == 0 && bEconomyOk && GAFLSlotJoinProbe != 0) { FireCmd(18.0f, TEXT("afl.Online.VerifySlotBuyJoin"), TEXT("0-join-slotbuy")); }
+		if (RoleIndex == 0 && bEconomyOk && GAFLBundleProbe != 0) { FireCmd(20.0f, TEXT("afl.Online.VerifyBundleBuy"), TEXT("0-bundle-buy")); }
 		// CC-X30. Run 1 late (t=22) so it cannot collide with the other economy probes -- concurrent
 		// probes already contaminated one VO measurement, and a summed delta reads as a failure.
-		if (RoleIndex == 0 && GAFLCountedDurable != 0) { FireCmd(22.0f, TEXT("afl.Online.VerifyCountedDurable"), TEXT("0-ccx30-durable")); }
+		if (RoleIndex == 0 && bEconomyOk && GAFLCountedDurable != 0) { FireCmd(22.0f, TEXT("afl.Online.VerifyCountedDurable"), TEXT("0-ccx30-durable")); }
 		// t=24, and alone: concurrent economy probes already contaminated one VO measurement, and this
 		// one both buys and spends.
-		if (RoleIndex == 0 && GAFLRedeemProbe != 0) { FireCmd(24.0f, TEXT("afl.Online.VerifyCreditRedeem"), TEXT("0-ccx30-redeem")); }
+		if (RoleIndex == 0 && bEconomyOk && GAFLRedeemProbe != 0) { FireCmd(24.0f, TEXT("afl.Online.VerifyCreditRedeem"), TEXT("0-ccx30-redeem")); }
 		// Run 2 EARLY (t=6): it is a pure read, and it must land after hydration but before anything
 		// else can perturb the counted set.
 		if (RoleIndex == 0 && GAFLCountedRelaunchExpect > 0)
@@ -5433,6 +5549,8 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			FireCmd(6.0f, *RelCmd, TEXT("0-ccx30-relaunch"));
 		}
 		if (RoleIndex == 0) { FireCmd(3.5f, TEXT("afl.Creator.SchemaProbe"), TEXT("0-schema-probe")); }
+		// CC-X22 at t=12: a pure read, but it must land after login has answered the sellable set.
+		if (RoleIndex == 0) { FireCmd(12.0f, TEXT("afl.Catalog.SellableProbe"), TEXT("0-ccx22-sellable")); }
 		// CC-5.2 falsification needs BOTH masters. TeamColor is inert on M_AFL_Character and live on
 		// M_Mannequin, so a run against one master alone cannot show that the verdict is keyed on the
 		// (master, parameter) PAIR rather than the parameter name.
