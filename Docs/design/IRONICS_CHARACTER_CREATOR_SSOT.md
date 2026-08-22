@@ -890,7 +890,20 @@ compact-reference indirection.
 
 ---
 
-## 11 · Open items
+## 11 · CLOSED BY RULING — DO NOT RE-ASK
+
+These three were carried as open product questions across several blocks. They are **ruled and
+implemented**. They are recorded here so they cannot resurface as questions.
+
+| # | ruling (operator, verbatim) | state |
+|---|---|---|
+| 1 | **Sticker pricing: CREDIT PACKS ONLY. 5 for $0.99, 10 for $1.49.** Individual sticker rows carry no direct price and are `bTransactable=false` — that IS the ruling implemented, not a gap. | **CLOSED.** `AFL.StickerCredit.x5` = 990 VO, `.x10` = 1490 VO, live on title `1A2077`. The 14 sticker rows carry no price and `bTransactable=false`, and the store filter now excludes non-transactable rows, so they are neither listed nor buyable. |
+| 2 | **Zone layout: STANDS as projected. No re-run.** | **CLOSED.** The 3×3 UV2 projection authored on `symm_final.blend` is final. The chest cells reading taller than "chest" implies is accepted, not a defect. Do not re-project. |
+| 3 | **Tile 6: five stickers, each counting one credit.** | **CLOSED.** The pack is split; 14 individual sticker rows, each redeemable for exactly one credit. `AFL.Sticker.1776.Pack` is retired (tile −1, not redeemable, not transactable). |
+
+**Nothing else is open on CC-7 except the RT → screen render link** (see §8.16).
+
+## 11.1 · Open items
 
 | # | Item | Blocks |
 |---|---|---|
