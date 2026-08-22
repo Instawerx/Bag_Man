@@ -953,13 +953,35 @@ legs alone: `upper=7351  mid=378  lower=3`. After the second sticker: `upper=104
 `10487`. The observing client renders what the writer placed — cosmetic replication, dedicated, not
 the listen-server economy exception.
 
-⚠ **RESPAWN PERSISTENCE — FAILS. OPEN DEFECT.** The server-side kill fires
-(`killedPawn=B_Hero_BagMan_Pro_C_8`) and the respawned pawn comes back with **`stickerRT=<none>`** and
-`NO RT (nothing equipped)` on both roles. Stickers do not survive death. A controller-PlayerState
-fallback was added to the loadout lookup on the theory that a freshly possessed pawn has no
-PlayerState linked when the reapply runs — **it did not fix it**, so the cause is elsewhere (most
-likely the reapply runs before `Selection` replicates to the new parts, and nothing re-drives it
-afterwards). Colour survives respawn on the same loop, which is the thread to pull.
+⚠ **RESPAWN PERSISTENCE — STILL OPEN, but now precisely characterised.**
+
+Three fixes were aimed at it; none moved it. What the instrumentation finally showed is that the
+earlier readings were the wrong shape entirely.
+
+**`ApplyStickerSet` is NEVER CALLED after respawn** — not called with an empty set, not called with an
+unresolvable one. Timeline from the run:
+
+```
+20:19:30-31   PATH1 + applies on part _C_6, zonesSet=2      (pre-kill)
+20:19:36      RT dump: occupiedCells=2                       ✓
+20:19:43      THE KILL
+20:19:57      RT dump: NO RT      <- and ZERO SAP lines in between
+```
+
+Neither PATH 1 (the part actor's BeginPlay self-apply) nor PATH 2 (the pawn component's reapply loop)
+fires for the respawned pawn's parts.
+
+**THIS UNDERCUTS THE PREMISE THE FIXES WERE BUILT ON.** PATH 1 for stickers sits inside the same
+`if (ColorComp)` block that applies skin colour. If it never ran, **colour did not re-apply on those
+parts either** — so "colour survives respawn on the same loop" is an assumption that has never been
+measured this session, and it is the first thing to check. If colour also fails, this is not a sticker
+defect at all but a part-respawn defect that stickers merely exposed.
+
+**Fixes kept, all correct on their own merits and all labelled as NOT the fix:** a controller
+fallback in the loadout lookup (a null there is indistinguishable from "owns no stickers"), the PATH 1
+self-apply (stickers had only PATH 2, the exact race the facemask comment documents), and
+presence-of-output logging on every `ApplyStickerSet` entry — which is what finally produced a
+characterisation instead of a fourth guess.
 
 ### WHAT A PLAYER CAN AND CANNOT DO
 

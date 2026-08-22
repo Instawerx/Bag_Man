@@ -1,6 +1,37 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "Cosmetics/AFLCharacterPartActor.h"
+#include "Cosmetics/AFLCosmeticLoadoutComponent.h"
+#include "GameFramework/PlayerState.h"
+#include "GameFramework/Controller.h"
+#include "GameFramework/Pawn.h"
+
+namespace
+{
+	// The loadout lives on the PlayerState. On a freshly possessed pawn the PlayerState may not be
+	// linked yet, so the controller is consulted as well -- a null here is indistinguishable from
+	// "this player owns no stickers", which is how the respawn defect stayed invisible.
+	const UAFLCosmeticLoadoutComponent* AFLPart_FindLoadout(const APawn* P)
+	{
+		if (!P) { return nullptr; }
+		if (const APlayerState* PS = P->GetPlayerState())
+		{
+			if (const UAFLCosmeticLoadoutComponent* L = PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
+			{
+				return L;
+			}
+		}
+		if (const AController* C = P->GetController())
+		{
+			if (const APlayerState* PS2 = C->PlayerState)
+			{
+				return PS2->FindComponentByClass<UAFLCosmeticLoadoutComponent>();
+			}
+		}
+		return nullptr;
+	}
+}
+
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"
 #include "Engine/Canvas.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -110,6 +141,25 @@ void AAFLCharacterPartActor::BeginPlay()
 
 		ApplySkinColor(ColorComp->GetBodyColor(), CreatorOverride); // body finish (TeamColor axis); null -> no-op
 		ApplySkinColor(ResolvedColor, CreatorOverride);             // edge overlays (emissive); null -> no-op
+
+		// PATH 1 (stickers): self-apply, for exactly the reason the facemask comment above gives.
+		//
+		// STICKERS HAD ONLY PATH 2 -- the pawn component's reapply loop pushing to ALREADY-SPAWNED parts.
+		// A part that spawns AFTER that push is missed, and nothing catches it. On respawn every part is
+		// new, so the whole set was missed: measured as stickerRT=<none> on a pawn whose owner had two
+		// stickers placed. Colour and facemask survived the same respawn precisely because they have this
+		// self-apply and stickers did not.
+		//
+		// An empty set is a correct no-op (ApplyStickerSet forces intensity 0), so a part that spawns
+		// before Selection replicates is left clean and PATH 2 covers the arrives-second ordering --
+		// the same two-path shape as the axes above.
+		const UAFLCosmeticLoadoutComponent* Loadout = AFLPart_FindLoadout(Cast<APawn>(PawnActor));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SAP] PATH1 on %s: pawn=%d loadout=%d"),
+			*GetName(), PawnActor ? 1 : 0, Loadout ? 1 : 0);
+		if (Loadout)
+		{
+			ApplyStickerSet(Loadout->GetSelection().StickerSet, UAFLCosmeticCatalogSubsystem::Get(this));
+		}
 	}
 }
 
@@ -546,6 +596,22 @@ void AAFLCharacterPartActor::ApplyStickerSet(const FAFLStickerSet& Set, const UA
 	static const FName P_U(TEXT("StickerUOffset"));
 	static const FName P_V(TEXT("StickerVOffset"));
 	static const FName P_Int(TEXT("StickerIntensity"));
+
+	// PRESENCE OF OUTPUT. Two fixes have now been aimed at this path on a guess; neither moved it.
+	// Log every entry so the respawn case shows WHICH of the three possibilities it is: never called,
+	// called with an empty set, or called with a set the catalog cannot resolve to tiles.
+	{
+		int32 SetCount = 0;
+		for (int32 z = 0; z < FAFLStickerSet::ZoneCount; ++z)
+		{
+			const FAFLStickerPlacement* Pp = Set.Find(static_cast<EAFLStickerZone>(z));
+			if (Pp && Pp->IsSet()) { ++SetCount; }
+		}
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SAP] ApplyStickerSet on %s: zonesSet=%d zonesArray=%d catalog=%d authority=%d"),
+			*GetName(), SetCount, Set.Zones.Num(), Catalog ? 1 : 0,
+			(GetOwner() && GetOwner()->HasAuthority()) ? 1 : 0);
+	}
 
 	// Which zones actually carry a sticker, and can the catalog tell us their atlas tile?
 	struct FDraw { int32 Zone; int32 Tile; FVector2D Pos; float Scale; float Rot; };
