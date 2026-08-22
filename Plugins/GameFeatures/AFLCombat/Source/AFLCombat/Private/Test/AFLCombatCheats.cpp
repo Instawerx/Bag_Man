@@ -20,6 +20,11 @@
 #include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
 #include "Engine/SkeletalMeshSocket.h"   // CC-X34 socket authoring
 #include "Animation/Skeleton.h"   // CC-X34 socket authoring
+#include "Misc/FileHelper.h"   // CC-7 material graph read
+#include "Materials/MaterialExpressionTextureSampleParameter.h"   // CC-7 material graph read
+#include "Materials/MaterialExpressionParameter.h"   // CC-7 material graph read
+#include "Materials/MaterialExpression.h"   // CC-7 material graph read
+#include "Materials/Material.h"   // CC-7 material graph read
 #include "Cosmetics/AFLSkinColorComponent.h"   // CC-6.5 preview-vs-spawn override readback // CC-5.3 probe: the creator interface under test
 #include "UObject/UObjectIterator.h" // CC-5.3 probe: find an already-open loadout widget
 #include "UI/AFLLoadoutDisplayPawn.h" // CC-5.3 probe: the preview pawn whose MIDs are read
@@ -5926,6 +5931,108 @@ namespace
 		TEXT("row, an owned row and a fresh sticker CONTROL, so each refusal is attributed to the gate that ")
 		TEXT("produced it. Spends one existing credit on the control."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLRedeemRefusalMatrix));
+
+#if WITH_EDITOR
+	// === CC-7 step 1: afl.Dev.MaterialGraphSnapshot ==============================================
+	// READ-ONLY. Emits a deterministic, GUID-keyed fingerprint of a material graph so an edit can be
+	// proved non-destructive by diffing before against after.
+	static FString AFLDescribeInput(const FExpressionInput* In)
+	{
+		if (!In || !In->Expression) { return TEXT("<none>"); }
+		return FString::Printf(TEXT("%s:%d"),
+			*In->Expression->MaterialExpressionGuid.ToString(EGuidFormats::DigitsWithHyphens),
+			In->OutputIndex);
+	}
+
+	void HandleAFLMaterialGraphSnapshot(const TArray<FString>& Args, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		const FString Path = Args.IsValidIndex(0) ? Args[0]
+			: TEXT("/Game/BagMan/Materials/M_AFL_Character.M_AFL_Character");
+		const FString Tag = Args.IsValidIndex(1) ? Args[1] : TEXT("snap");
+
+		UMaterial* Mat = LoadObject<UMaterial>(nullptr, *Path);
+		if (!Mat)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[MGS] ABORT -- %s did not load. NOTHING READ."), *Path);
+			return;
+		}
+
+		TConstArrayView<TObjectPtr<UMaterialExpression>> Exprs = Mat->GetExpressions();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[MGS] %s expressions=%d tag=%s"),
+			*Mat->GetName(), Exprs.Num(), *Tag);
+
+		// PROOF THE READ IS REAL. A zero here would look identical to "the graph is empty"; it is the
+		// same confident-null shape that made expression_collection look absent in Python.
+		if (Exprs.Num() == 0)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[MGS] VOID -- 0 expressions read. That is not 'an empty graph', it is a failed read."));
+			return;
+		}
+
+		TArray<FString> Lines;
+		for (const TObjectPtr<UMaterialExpression>& E : Exprs)
+		{
+			if (!E) { continue; }
+			FString ParamName;
+			if (const UMaterialExpressionParameter* P = Cast<UMaterialExpressionParameter>(E))
+			{
+				ParamName = P->ParameterName.ToString();
+			}
+			else if (const UMaterialExpressionTextureSampleParameter* TP = Cast<UMaterialExpressionTextureSampleParameter>(E))
+			{
+				ParamName = TP->ParameterName.ToString();
+			}
+			FString L = FString::Printf(TEXT("EXPR %s %s%s%s"),
+				*E->MaterialExpressionGuid.ToString(EGuidFormats::DigitsWithHyphens),
+				*E->GetClass()->GetName(),
+				ParamName.IsEmpty() ? TEXT("") : TEXT(" param="),
+				*ParamName);
+			const int32 N = E->CountInputs();
+			for (int32 i = 0; i < N; ++i)
+			{
+				const FExpressionInput* In = E->GetInput(i);
+				L += FString::Printf(TEXT(" | in[%s]=%s"), *E->GetInputName(i).ToString(), *AFLDescribeInput(In));
+			}
+			Lines.Add(L);
+		}
+
+		// MATERIAL PROPERTY INPUTS -- what actually reaches the output. This is the half CC-X25 protects.
+		if (const UEnum* PropEnum = StaticEnum<EMaterialProperty>())
+		{
+			for (int32 p = 0; p < MP_MAX; ++p)
+			{
+				const EMaterialProperty Prop = static_cast<EMaterialProperty>(p);
+				FExpressionInput* In = Mat->GetExpressionInputForProperty(Prop);
+				if (In && In->Expression)
+				{
+					Lines.Add(FString::Printf(TEXT("PROP %s = %s"),
+						*PropEnum->GetNameStringByValue(p), *AFLDescribeInput(In)));
+				}
+			}
+		}
+
+		// SORTED: array order is not a fact about the graph, and an append would otherwise read as a
+		// wholesale reordering and bury the one line that matters.
+		Lines.Sort();
+
+		const FString Body = FString::Join(Lines, TEXT("\n"));
+		const uint32 Hash = FCrc::StrCrc32(*Body);
+		const FString Out = FPaths::Combine(FPaths::ProjectSavedDir(),
+			FString::Printf(TEXT("MatGraph_%s_%s.txt"), *Mat->GetName(), *Tag));
+		FFileHelper::SaveStringToFile(Body, *Out);
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[MGS] lines=%d crc=0x%08X -> %s"), Lines.Num(), Hash, *Out);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[MGS] END"));
+		Ar.Logf(TEXT("MaterialGraphSnapshot: %d lines, crc 0x%08X, written to %s"), Lines.Num(), Hash, *Out);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMatGraphSnapCmd(TEXT("afl.Dev.MaterialGraphSnapshot"),
+		TEXT("CC-7 EDITOR ONLY, READ-ONLY: dump a GUID-keyed fingerprint of a material graph (every ")
+		TEXT("expression, every input connection, every material property input) to Saved/. Args: ")
+		TEXT("[materialPath] [tag]. Use before/after an edit to prove nothing pre-existing moved."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMaterialGraphSnapshot));
+#endif // WITH_EDITOR
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
