@@ -6365,6 +6365,346 @@ namespace
 		TEXT("byte-identical is not measurable and no verdict is given. Arg: [tag]."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLIdentityRenderHash));
 
+	// === CC-7 step 1: afl.Online.VerifyStickerPlacement =========================================
+	// Captures a TARGET pawn from a yaw offset around it. Fixed distance and height so two captures of
+	// the same pawn differ only where the pawn itself differs.
+	// CAPTURES A FIXED CLONE, NOT THE LIVE PAWN.
+	//
+	// Two attempts captured the pawn where it stood and both were VOID: a chest sticker moved the BACK
+	// view by 20,839 pixels. Freezing the pose did not fix it and could not -- the pawn is at a
+	// DIFFERENT WORLD POSITION each time, so it is lit differently even in an identical pose. A live
+	// pawn cannot be a deterministic subject.
+	//
+	// So the subject is a transient clone at a FIXED transform, wearing the body mesh and the SAME
+	// composited sticker RT the observed pawn's part just produced. The only thing that varies between
+	// captures is the RT -- which is exactly the question being asked.
+	static bool AFLCaptureStickerClone(UWorld* World, UTextureRenderTarget2D* StickerRT, float YawOffset,
+		TArray<FColor>& Out)
+	{
+		if (!World) { return false; }
+		static const FVector kLoc(0.0f, 0.0f, -20000.0f);
+		USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/IRONICS_Blank/SKM_IRONICS_Blank.SKM_IRONICS_Blank"));
+		UMaterialInterface* Master = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/BagMan/Materials/M_AFL_Character.M_AFL_Character"));
+		if (!Mesh || !Master) { return false; }
+
+		FActorSpawnParameters SP; SP.ObjectFlags |= RF_Transient;
+		ASkeletalMeshActor* SMA = World->SpawnActor<ASkeletalMeshActor>(kLoc, FRotator::ZeroRotator, SP);
+		if (!SMA) { return false; }
+		USkeletalMeshComponent* SMC = SMA->GetSkeletalMeshComponent();
+		SMC->SetSkeletalMesh(Mesh);
+		SMC->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		SMC->GlobalAnimRateScale = 0.0f;
+		for (int32 i = 0; i < SMC->GetNumMaterials(); ++i)
+		{
+			UMaterialInstanceDynamic* MID = SMC->CreateAndSetMaterialInstanceDynamicFromMaterial(i, Master);
+			if (!MID) { continue; }
+			MID->SetScalarParameterValue(FName(TEXT("StickerUVScale")), 1.0f);
+			MID->SetScalarParameterValue(FName(TEXT("StickerUOffset")), 0.0f);
+			MID->SetScalarParameterValue(FName(TEXT("StickerVOffset")), 0.0f);
+			if (StickerRT)
+			{
+				MID->SetTextureParameterValue(FName(TEXT("StickerAtlasTex")), StickerRT);
+				MID->SetScalarParameterValue(FName(TEXT("StickerIntensity")), 1.0f);
+			}
+			else
+			{
+				MID->SetScalarParameterValue(FName(TEXT("StickerIntensity")), 0.0f);
+			}
+		}
+		SMC->RefreshBoneTransforms();
+
+		const FVector C = kLoc + FVector(0, 0, 95.0f);
+		const FVector Fwd = FVector(1, 0, 0).RotateAngleAxis(YawOffset, FVector::UpVector);
+		ASceneCapture2D* Cap = World->SpawnActor<ASceneCapture2D>(C + Fwd * 260.0f,
+			(C - (C + Fwd * 260.0f)).Rotation(), SP);
+		USceneCaptureComponent2D* Comp = Cap ? Cap->GetCaptureComponent2D() : nullptr;
+		if (!Comp) { SMA->Destroy(); if (Cap) { Cap->Destroy(); } return false; }
+		UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>();
+		RT->InitAutoFormat(256, 256);
+		RT->ClearColor = FLinearColor::Black;
+		Comp->TextureTarget = RT;
+		Comp->CaptureSource = SCS_FinalColorLDR;
+		Comp->bCaptureEveryFrame = false;
+		Comp->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+		Comp->ShowOnlyActors.Add(SMA);
+		Comp->CaptureScene();
+
+		FTextureRenderTargetResource* Res = RT->GameThread_GetRenderTargetResource();
+		const bool bOk = Res && Res->ReadPixels(Out);
+		Cap->Destroy(); SMA->Destroy();
+		return bOk && Out.Num() > 0;
+	}
+
+	// Find the observed pawn's part actor, and hand back its composited RT.
+	static UTextureRenderTarget2D* AFLFindStickerRT(UWorld* World, bool bRemote)
+	{
+		APlayerController* PC = World->GetFirstPlayerController();
+		APawn* Local = PC ? PC->GetPawn() : nullptr;
+		APawn* Target = Local;
+		if (bRemote)
+		{
+			Target = nullptr;
+			for (TActorIterator<APawn> It(World); It; ++It)
+			{
+				if (*It != Local && It->GetClass()->GetName().Contains(TEXT("Hero"))) { Target = *It; break; }
+			}
+		}
+		if (!Target) { return nullptr; }
+		TArray<UChildActorComponent*> CACs;
+		Target->GetComponents<UChildActorComponent>(CACs);
+		for (UChildActorComponent* CAC : CACs)
+		{
+			if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
+			{
+				if (UTextureRenderTarget2D* RT = Part->GetStickerRT()) { return RT; }
+			}
+		}
+		return nullptr;
+	}
+
+	// Changed-pixel count in a horizontal band, so "the chest changed" and "the legs changed" are
+	// separate facts rather than one "the front changed".
+	static int32 AFLBandDelta(const TArray<FColor>& A, const TArray<FColor>& B, int32 Row0, int32 Row1)
+	{
+		if (A.Num() != B.Num() || A.Num() < 256 * 256) { return -1; }
+		int32 Changed = 0;
+		for (int32 y = Row0; y < Row1; ++y)
+		{
+			for (int32 x = 0; x < 256; ++x)
+			{
+				const int32 i = y * 256 + x;
+				if (FMath::Abs(A[i].R - B[i].R) > 6 || FMath::Abs(A[i].G - B[i].G) > 6 || FMath::Abs(A[i].B - B[i].B) > 6)
+				{
+					++Changed;
+				}
+			}
+		}
+		return Changed;
+	}
+
+	struct FAFLPlaceState
+	{
+		int32 Step = 0;
+		TArray<FColor> BaseFront, BaseBack;
+		TArray<FName> Owned;
+		bool bHaveBase = false;
+	};
+
+	static APawn* AFLPickObservedPawn(UWorld* World, bool bRemote)
+	{
+		APlayerController* PC = World->GetFirstPlayerController();
+		APawn* Local = PC ? PC->GetPawn() : nullptr;
+		if (!bRemote) { return Local; }
+		for (TActorIterator<APawn> It(World); It; ++It)
+		{
+			if (*It != Local && It->GetClass()->GetName().Contains(TEXT("Hero"))) { return *It; }
+		}
+		return nullptr;
+	}
+
+	void HandleAFLVerifyStickerPlacement(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("run inside PIE.")); return; }
+		const FString Phase = Args.IsValidIndex(0) ? Args[0] : TEXT("cap");
+		const bool bRemote = Args.IsValidIndex(1) && Args[1] == TEXT("remote");
+
+		static FAFLPlaceState S;
+		UTextureRenderTarget2D* SRT = AFLFindStickerRT(World, bRemote);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SPL] %s remote=%d stickerRT=%s"),
+			*Phase, bRemote ? 1 : 0, SRT ? TEXT("present") : TEXT("<none>"));
+
+		TArray<FColor> F, B;
+		if (!AFLCaptureStickerClone(World, SRT, 0.0f, F) || !AFLCaptureStickerClone(World, SRT, 180.0f, B))
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SPL] VOID -- capture failed."));
+			return;
+		}
+
+		if (Phase == TEXT("base"))
+		{
+			S.BaseFront = F; S.BaseBack = B; S.bHaveBase = true;
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SPL] BASELINE captured (remote=%d) px=%d"),
+				bRemote ? 1 : 0, F.Num());
+			return;
+		}
+		if (!S.bHaveBase)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SPL] VOID -- no baseline; a delta needs a before."));
+			return;
+		}
+
+		// Bands: upper third is chest/head, middle is stomach, lower third is legs.
+		const int32 UpF = AFLBandDelta(S.BaseFront, F, 0, 85);
+		const int32 MidF = AFLBandDelta(S.BaseFront, F, 85, 170);
+		const int32 LoF = AFLBandDelta(S.BaseFront, F, 170, 256);
+		const int32 AllB = AFLBandDelta(S.BaseBack, B, 0, 256);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SPL] %s remote=%d  FRONT upper=%d mid=%d lower=%d | BACK total=%d"),
+			*Phase, bRemote ? 1 : 0, UpF, MidF, LoF, AllB);
+		Ar.Logf(TEXT("SPL %s upper=%d lower=%d back=%d"), *Phase, UpF, LoF, AllB);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyStickerPlacementCmd(
+		TEXT("afl.Online.VerifyStickerPlacement"),
+		TEXT("CC-7 step 1: capture a pawn front and back and report per-band changed-pixel counts. ")
+		TEXT("Args: base|<label> [remote]. A chest sticker must move the UPPER band and leave the ")
+		TEXT("LOWER band and the BACK view alone."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyStickerPlacement));
+
+	// Redeem + place, driven from the writer role.
+	void HandleAFLStickerPlace(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World) { return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		ALyraPlayerState* PS = PC ? PC->GetPlayerState<ALyraPlayerState>() : nullptr;
+		UAFLCosmeticLoadoutComponent* LC = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		UAFLWalletComponent* W = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+		const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!LC || !W || !Cat) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SPL] no loadout/wallet/catalog")); return; }
+
+		const int32 ZoneIdx = Args.IsValidIndex(0) ? FCString::Atoi(*Args[0]) : 0;
+		const int32 Which   = Args.IsValidIndex(1) ? FCString::Atoi(*Args[1]) : 0;
+
+		TArray<const FAFLCatalogEntry*> Stickers;
+		Cat->GetEntriesByType(EAFLCosmeticType::Sticker, Stickers);
+		TArray<FName> Ids;
+		for (const FAFLCatalogEntry* E : Stickers) { if (E) { Ids.Add(E->CosmeticId); } }
+		Ids.Sort(FNameLexicalLess());
+		if (!Ids.IsValidIndex(Which)) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SPL] no sticker %d"), Which); return; }
+		const FName Id = Ids[Which];
+
+		if (!W->IsEntitled(PS, Id))
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SPL] redeeming %s with a credit"), *Id.ToString());
+			W->ServerRequestCreditRedemption(Id);
+		}
+		FAFLStickerPlacement P;
+		P.StickerId = Id;
+		P.Position = FVector2D(0.5, 0.5);
+		P.Scale = 0.9f;
+		P.RotationDegrees = 0.0f;
+		LC->ServerSetStickerPlacement(static_cast<EAFLStickerZone>(ZoneIdx), P);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SPL] placed %s in zone %d"), *Id.ToString(), ZoneIdx);
+	}
+
+	// THE BASELINE MUST BE STICKER-FREE. The previous run left two zones set on the saved selection, so
+	// "before" already had stickers and every delta was measured on top of them -- which is why a CHEST
+	// sticker appeared to change the BACK view. Same shape as the credit proof's "counter must start at
+	// zero" guard: a starting state that is not controlled is not a baseline.
+	void HandleAFLStickerClearAll(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World) { return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		ALyraPlayerState* PS = PC ? PC->GetPlayerState<ALyraPlayerState>() : nullptr;
+		UAFLCosmeticLoadoutComponent* LC = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		if (!LC) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SPL] clear: no loadout")); return; }
+		for (int32 z = 0; z < FAFLStickerSet::ZoneCount; ++z)
+		{
+			LC->ServerClearStickerZone(static_cast<EAFLStickerZone>(z));
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SPL] cleared all %d zones for a sticker-free baseline"),
+			FAFLStickerSet::ZoneCount);
+	}
+
+	// READ THE COMPOSITED TARGET ITSELF, per 3x3 zone cell.
+	//
+	// The screen-capture route was abandoned: it reported the same deltas whether the sticker RT was
+	// bound or absent, and a constant 223-pixel floor in the leg band. An instrument that answers the
+	// same with the subject removed is not measuring the subject.
+	//
+	// This reads the pixels the compositor actually produced. "DrawTexture was called" and "pixels are
+	// in the cell" are different claims, and only the second one is evidence.
+	void HandleAFLStickerRTDump(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		const bool bRemote = Args.IsValidIndex(0) && Args[0] == TEXT("remote");
+		UTextureRenderTarget2D* RT = AFLFindStickerRT(World, bRemote);
+		if (!RT)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SRT] remote=%d NO RT (nothing equipped)"), bRemote ? 1 : 0);
+			return;
+		}
+		FTextureRenderTargetResource* Res = RT->GameThread_GetRenderTargetResource();
+		TArray<FColor> Px;
+		if (!Res || !Res->ReadPixels(Px) || Px.Num() == 0)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SRT] VOID -- RT read failed."));
+			return;
+		}
+		const int32 W = RT->SizeX, H = RT->SizeY;
+		const int32 CW = W / 3, CH = H / 3;
+		static const TCHAR* ZN[9] = { TEXT("ChestLeft"), TEXT("ChestRight"), TEXT("Stomach"),
+			TEXT("LegFrontLeft"), TEXT("LegFrontRight"), TEXT("LegBackLeft"),
+			TEXT("LegBackRight"), TEXT("Back"), TEXT("Face") };
+		int32 Occupied = 0;
+		for (int32 z = 0; z < 9; ++z)
+		{
+			const int32 c = z % 3, r = z / 3;
+			int32 Lit = 0;
+			for (int32 y = r * CH; y < (r + 1) * CH; ++y)
+			{
+				for (int32 x = c * CW; x < (c + 1) * CW; ++x)
+				{
+					if (Px[y * W + x].A > 8) { ++Lit; }
+				}
+			}
+			if (Lit > 0) { ++Occupied; }
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SRT] remote=%d zone %d %-14s cell(%d,%d) litPx=%d"),
+				bRemote ? 1 : 0, z, ZN[z], c, r, Lit);
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SRT] remote=%d %dx%d occupiedCells=%d"),
+			bRemote ? 1 : 0, W, H, Occupied);
+	}
+
+	// CC-7 step 2: what does the STORE actually offer?
+	// Measured, not reasoned: GetPurchasableEntries filters on GrantedFree and on the registered
+	// sellable set, and does NOT consult bTransactable. So "stickers are bTransactable=false" does not
+	// by itself mean they are absent from the shop -- it means a purchase would be REFUSED after being
+	// offered, which is a worse shape than not listing them. Only reading the list settles it.
+	void HandleAFLStoreSurface(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(World ? (UObject*)World : (UObject*)GEngine);
+		if (!Cat) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[STO] VOID -- no catalog.")); return; }
+		TArray<FAFLCatalogEntry> Buyable;
+		Cat->GetPurchasableEntries(Buyable);
+		int32 Stickers = 0, Credits = 0;
+		for (const FAFLCatalogEntry& E : Buyable)
+		{
+			const FString Id = E.CosmeticId.ToString();
+			if (Id.StartsWith(TEXT("AFL.StickerCredit."))) { ++Credits; }
+			else if (Id.StartsWith(TEXT("AFL.Sticker.")))
+			{
+				++Stickers;
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[STO] OFFERED STICKER %s (transactable=%d vo=%d)"),
+					*Id, E.bTransactable ? 1 : 0, E.PriceVolts);
+			}
+		}
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[STO] purchasable=%d ; sticker rows offered=%d (want 0) ; credit SKUs offered=%d (want 2) %s"),
+			Buyable.Num(), Stickers, Credits,
+			(Stickers == 0 && Credits == 2) ? TEXT("PASS") : TEXT("FAIL"));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[STO] END"));
+		Ar.Logf(TEXT("store: %d buyable, stickers=%d credits=%d"), Buyable.Num(), Stickers, Credits);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStoreSurfaceCmd(TEXT("afl.Catalog.StoreSurface"),
+		TEXT("CC-7 step 2: read GetPurchasableEntries and report whether sticker rows are offered (they ")
+		TEXT("must not be) and whether both credit SKUs are (they must be)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStoreSurface));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStickerRTDumpCmd(TEXT("afl.Dev.StickerRTDump"),
+		TEXT("CC-7: report lit-pixel counts per 3x3 zone cell of the composited sticker target. Arg: [remote]."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerRTDump));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStickerClearCmd(TEXT("afl.Dev.StickerClearAll"),
+		TEXT("CC-7: clear every sticker zone so a baseline capture is genuinely sticker-free."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerClearAll));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStickerPlaceCmd(TEXT("afl.Dev.StickerPlace"),
+		TEXT("CC-7: redeem (if needed) and place sticker <which> in zone <zoneIndex>. Args: <zone> <which>."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerPlace));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
 		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
@@ -7104,6 +7444,10 @@ static FAutoConsoleVariableRef CVarAFLCountedDurable(TEXT("afl.Online.CountedDur
 static int32 GAFLDoneLoopProbe = 0;
 static FAutoConsoleVariableRef CVarAFLDoneLoopProbe(TEXT("afl.Creator.DoneLoop.Enable"),
 	GAFLDoneLoopProbe, TEXT("CC-6.5: 1 = run the end-to-end done-definition loop. SPENDS real Volts."), ECVF_Default);
+static int32 GAFLStickerPlace = 0;
+static FAutoConsoleVariableRef GAFLStickerPlaceCVar(TEXT("afl.Online.StickerPlaceProbe"), GAFLStickerPlace,
+	TEXT("CC-7: place stickers and capture the pawn front/back per band. Spends up to 2 sticker credits."),
+	ECVF_Default);
 static int32 GAFLRefusalMatrix = 0;
 static FAutoConsoleVariableRef GAFLRefusalMatrixCVar(TEXT("afl.Dev.RefusalMatrix"), GAFLRefusalMatrix,
 	TEXT("CC-7: 1 = attribute each redemption refusal to its gate. Spends ONE existing credit, buys nothing."),
@@ -7323,6 +7667,25 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0 && bEconomyOk && GAFLRedeemProbe != 0) { FireCmd(24.0f, TEXT("afl.Online.VerifyCreditRedeem"), TEXT("0-ccx30-redeem")); }
 		if (RoleIndex == 0 && bEconomyOk && GAFLStickerCreditProbe != 0) { FireCmd(24.0f, TEXT("afl.Online.VerifyStickerCredit"), TEXT("0-cc7-sticker-credit")); }
 		if (RoleIndex == 0 && GAFLRefusalMatrix != 0) { FireCmd(20.0f, TEXT("afl.Dev.RedeemRefusalMatrix"), TEXT("0-cc7-refusal-matrix")); }
+		// CC-7 PLACEMENT. A writes and places; B captures A's pawn, so what is measured is what a
+		// DIFFERENT machine renders. Capturing one's own pawn would pass even if nothing replicated.
+		if (GAFLStickerPlace != 0)
+		{
+			if (RoleIndex == 0) { FireCmd( 6.0f, TEXT("afl.Dev.StickerClearAll"), TEXT("A-clear-for-baseline")); }
+			if (RoleIndex == 0) { FireCmd(14.0f, TEXT("afl.Dev.StickerPlace 0 0"),  TEXT("A-place-chestleft")); }
+			FireCmd(12.0f, RoleIndex == 1 ? TEXT("afl.Online.VerifyStickerPlacement base remote")
+			                              : TEXT("afl.Online.VerifyStickerPlacement base"), TEXT("baseline"));
+			FireCmd(22.0f, RoleIndex == 1 ? TEXT("afl.Online.VerifyStickerPlacement afterChest remote")
+			                              : TEXT("afl.Online.VerifyStickerPlacement afterChest"), TEXT("after-chest"));
+			if (RoleIndex == 0) { FireCmd(26.0f, TEXT("afl.Dev.StickerPlace 7 1"), TEXT("A-place-back")); }
+			FireCmd(31.0f, RoleIndex == 1 ? TEXT("afl.Dev.StickerRTDump remote") : TEXT("afl.Dev.StickerRTDump"), TEXT("rt-dump"));
+			if (RoleIndex == 0) { FireCmd(32.0f, TEXT("afl.Catalog.StoreSurface"), TEXT("store-surface")); }
+			FireCmd(34.0f, RoleIndex == 1 ? TEXT("afl.Online.VerifyStickerPlacement afterBack remote")
+			                              : TEXT("afl.Online.VerifyStickerPlacement afterBack"), TEXT("after-back"));
+			if (RoleIndex == 0) { FireServerKill(38.0f, TEXT("kill-A-for-respawn")); }
+			FireCmd(48.0f, RoleIndex == 1 ? TEXT("afl.Online.VerifyStickerPlacement afterRespawn remote")
+			                              : TEXT("afl.Online.VerifyStickerPlacement afterRespawn"), TEXT("after-respawn"));
+		}
 		// CC-6.5 at t=26: spends, so it is an ECONOMY probe and obeys the isolation gate.
 		if (RoleIndex == 0 && bEconomyOk && GAFLDoneLoopProbe != 0) { FireCmd(26.0f, TEXT("afl.Creator.VerifyDoneLoop"), TEXT("0-cc65-doneloop")); }
 		// Run 2 EARLY (t=6): it is a pure read, and it must land after hydration but before anything
