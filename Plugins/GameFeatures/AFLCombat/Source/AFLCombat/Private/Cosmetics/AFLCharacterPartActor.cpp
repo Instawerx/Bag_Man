@@ -98,6 +98,13 @@ void AAFLCharacterPartActor::BeginPlay()
 		}
 	}
 
+	// UNCONDITIONAL. The sticker PATH1 log sits INSIDE `if (ColorComp)`, so its absence after respawn
+	// has two possible meanings and cannot tell them apart: either new parts spawned and the block was
+	// skipped (colour is broken too), or no new parts spawned at all in the window (nothing to apply
+	// to, and everything lands later). This line fires for EVERY part BeginPlay and separates them.
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[PBP] part BeginPlay %s: pawn=%s colorComp=%d"),
+		*GetName(), PawnActor ? *PawnActor->GetName() : TEXT("<none>"), ColorComp ? 1 : 0);
+
 	// Capture the color AFTER the authority re-resolve above, so PATH 1 applies the freshly-resolved brand
 	// edge (not a stale pre-resolve value). On non-authority / no-controller this is unchanged behavior.
 	const UAFLSkinColorAsset* ResolvedColor = ColorComp ? ColorComp->GetSkinColor() : nullptr;

@@ -953,35 +953,35 @@ legs alone: `upper=7351  mid=378  lower=3`. After the second sticker: `upper=104
 `10487`. The observing client renders what the writer placed — cosmetic replication, dedicated, not
 the listen-server economy exception.
 
-⚠ **RESPAWN PERSISTENCE — STILL OPEN, but now precisely characterised.**
+⚠ **RESPAWN PERSISTENCE — NOT MEASURABLE IN THIS HARNESS. My earlier "open defect" was MISATTRIBUTED.**
 
-Three fixes were aimed at it; none moved it. What the instrumentation finally showed is that the
-earlier readings were the wrong shape entirely.
+Colour was measured, as ruled, and the answer overturns the premise three fixes were built on.
 
-**`ApplyStickerSet` is NEVER CALLED after respawn** — not called with an empty set, not called with an
-unresolvable one. Timeline from the run:
+**Nothing respawns.** After the server-side kill there is **not one part-actor BeginPlay** for the
+remaining 52 seconds of the run, and no possession event either:
 
 ```
-20:19:30-31   PATH1 + applies on part _C_6, zonesSet=2      (pre-kill)
-20:19:36      RT dump: occupiedCells=2                       ✓
-20:19:43      THE KILL
-20:19:57      RT dump: NO RT      <- and ZERO SAP lines in between
+20:35:16.499  part _C_6 BeginPlay -> PATH1 loadout=1 -> ApplyStickerSet zonesSet=2   OK
+20:35:21.831  RT dump: occupiedCells=2                                               OK
+20:35:22.498  COLOUR: pawn _C_6, parts=1, midsReported=2, Team=(0.900,0.050,0.600)   OK
+20:35:29.112  THE KILL (server pawn _C_8)
+20:35:42.908  RT dump: NO RT
+   ...        NO part BeginPlay through to log end at 20:36:21
 ```
 
-Neither PATH 1 (the part actor's BeginPlay self-apply) nor PATH 2 (the pawn component's reapply loop)
-fires for the respawned pawn's parts.
+**So colour does NOT survive either — it cannot, because there is no part to carry it.** "Colour
+survives respawn on the same loop" is false in this scenario, and the sticker arm was never testing
+sticker persistence: it was testing whether parts respawn, and they do not.
 
-**THIS UNDERCUTS THE PREMISE THE FIXES WERE BUILT ON.** PATH 1 for stickers sits inside the same
-`if (ColorComp)` block that applies skin colour. If it never ran, **colour did not re-apply on those
-parts either** — so "colour survives respawn on the same loop" is an assumption that has never been
-measured this session, and it is the first thing to check. If colour also fails, this is not a sticker
-defect at all but a part-respawn defect that stickers merely exposed.
+**What this means for the three fixes:** all were aimed at a defect that was not there. Each is kept
+because each is independently correct — a controller fallback in the loadout lookup, the PATH 1
+self-apply (stickers genuinely had only PATH 2, the race the facemask comment documents), and
+presence-of-output logging — but **none of them was the fix, because there was nothing to fix in the
+sticker path.**
 
-**Fixes kept, all correct on their own merits and all labelled as NOT the fix:** a controller
-fallback in the loadout lookup (a null there is indistinguishable from "owns no stickers"), the PATH 1
-self-apply (stickers had only PATH 2, the exact race the facemask comment documents), and
-presence-of-output logging on every `ApplyStickerSet` entry — which is what finally produced a
-characterisation instead of a fourth guess.
+**The real open question is upstream and is NOT a CC-7 item:** whether `SuicidePawn` produces a real
+respawn in this experience at all, or ends in spectate. Until that is settled, sticker persistence
+across death is **unmeasured**, not broken. Do not aim another cosmetic fix at it.
 
 ### WHAT A PLAYER CAN AND CANNOT DO
 

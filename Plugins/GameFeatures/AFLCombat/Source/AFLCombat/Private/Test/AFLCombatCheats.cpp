@@ -6619,6 +6619,72 @@ namespace
 	//
 	// This reads the pixels the compositor actually produced. "DrawTexture was called" and "pixels are
 	// in the cell" are different claims, and only the second one is evidence.
+	// DOES COLOUR SURVIVE RESPAWN? Reads the body MID's colour parameters straight off the part, so
+	// "colour survives on the same loop" stops being an assumption two fixes were built on. Same
+	// resolution as the RT dump, so both describe the same part on the same pawn.
+	void HandleAFLColourDump(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		const bool bRemote = Args.IsValidIndex(0) && Args[0] == TEXT("remote");
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		APawn* Local = PC ? PC->GetPawn() : nullptr;
+		APawn* Target = Local;
+		if (bRemote)
+		{
+			Target = nullptr;
+			for (TActorIterator<APawn> It(World); It; ++It)
+			{
+				if (*It != Local && It->GetClass()->GetName().Contains(TEXT("Hero"))) { Target = *It; break; }
+			}
+		}
+		if (!Target)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[COL] remote=%d NO PAWN"), bRemote ? 1 : 0);
+			return;
+		}
+		TArray<UChildActorComponent*> CACs;
+		Target->GetComponents<UChildActorComponent>(CACs);
+		int32 Parts = 0, Reported = 0;
+		for (UChildActorComponent* CAC : CACs)
+		{
+			AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr);
+			if (!Part) { continue; }
+			++Parts;
+			TArray<UActorComponent*> Meshes;
+			Part->GetComponents(USkeletalMeshComponent::StaticClass(), Meshes);
+			for (UActorComponent* MC : Meshes)
+			{
+				USkeletalMeshComponent* SMC = Cast<USkeletalMeshComponent>(MC);
+				if (!SMC) { continue; }
+				for (int32 i = 0; i < SMC->GetNumMaterials(); ++i)
+				{
+					UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(SMC->GetMaterial(i));
+					if (!MID) { continue; }
+					FLinearColor Neon(0,0,0,0), Team(0,0,0,0);
+					float NeonI = -1.0f;
+					MID->GetVectorParameterValue(FName(TEXT("NeonColor")), Neon);
+					MID->GetVectorParameterValue(FName(TEXT("TeamColor")), Team);
+					MID->GetScalarParameterValue(FName(TEXT("NeonIntensity")), NeonI);
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[COL] remote=%d %s slot%d MID parent=%s Neon=(%.3f,%.3f,%.3f) Team=(%.3f,%.3f,%.3f) NeonI=%.2f"),
+						bRemote ? 1 : 0, *Part->GetName(), i,
+						MID->Parent ? *MID->Parent->GetName() : TEXT("<none>"),
+						Neon.R, Neon.G, Neon.B, Team.R, Team.G, Team.B, NeonI);
+					++Reported;
+				}
+			}
+		}
+		// A part with NO dynamic MID has never been through the colour apply at all -- which is the
+		// distinction that matters here, and is invisible if only colour VALUES are reported.
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[COL] remote=%d pawn=%s parts=%d midsReported=%d %s"),
+			bRemote ? 1 : 0, *Target->GetName(), Parts, Reported,
+			(Parts > 0 && Reported == 0) ? TEXT("<- parts exist but NO dynamic MIDs: colour never applied either") : TEXT(""));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLColourDumpCmd(TEXT("afl.Dev.ColourDump"),
+		TEXT("Report the body MIDs' colour parameters on the local or remote pawn's parts. Arg: [remote]."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLColourDump));
+
 	void HandleAFLStickerRTDump(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
 		const bool bRemote = Args.IsValidIndex(0) && Args[0] == TEXT("remote");
@@ -8096,6 +8162,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			                              : TEXT("afl.Online.VerifyStickerPlacement afterChest"), TEXT("after-chest"));
 			if (RoleIndex == 0) { FireCmd(26.0f, TEXT("afl.Dev.StickerPlace 7 1"), TEXT("A-place-back")); }
 			FireCmd(31.0f, RoleIndex == 1 ? TEXT("afl.Dev.StickerRTDump remote") : TEXT("afl.Dev.StickerRTDump"), TEXT("rt-dump"));
+			FireCmd(31.5f, RoleIndex == 1 ? TEXT("afl.Dev.ColourDump remote") : TEXT("afl.Dev.ColourDump"), TEXT("colour-pre-kill"));
 			if (RoleIndex == 0) { FireCmd(32.0f, TEXT("afl.Catalog.StoreSurface"), TEXT("store-surface")); }
 			FireCmd(34.0f, RoleIndex == 1 ? TEXT("afl.Online.VerifyStickerPlacement afterBack remote")
 			                              : TEXT("afl.Online.VerifyStickerPlacement afterBack"), TEXT("after-back"));
@@ -8110,6 +8177,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			// the replication half.
 			FireCmd(52.0f, RoleIndex == 1 ? TEXT("afl.Dev.StickerRTDump remote") : TEXT("afl.Dev.StickerRTDump"),
 				TEXT("rt-dump-after-respawn"));
+			FireCmd(52.5f, RoleIndex == 1 ? TEXT("afl.Dev.ColourDump remote") : TEXT("afl.Dev.ColourDump"), TEXT("colour-after-respawn"));
 		}
 		// CC-6.5 at t=26: spends, so it is an ECONOMY probe and obeys the isolation gate.
 		if (RoleIndex == 0 && bEconomyOk && GAFLDoneLoopProbe != 0) { FireCmd(26.0f, TEXT("afl.Creator.VerifyDoneLoop"), TEXT("0-cc65-doneloop")); }
