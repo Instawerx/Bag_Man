@@ -20,6 +20,8 @@
 #include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
 #include "Engine/SkeletalMeshSocket.h"   // CC-X34 socket authoring
 #include "Animation/Skeleton.h"   // CC-X34 socket authoring
+#include "Engine/Canvas.h"   // CC-7 screen proof: K2_DrawBox
+#include "Kismet/KismetRenderingLibrary.h"   // CC-7 screen proof
 #include "Rendering/SkeletalMeshLODModel.h"   // CC-7 step 5 verify
 #include "Rendering/SkeletalMeshModel.h"   // CC-7 step 5 verify
 #include "Editor.h"   // CC-7 editor-world capture
@@ -6704,6 +6706,236 @@ namespace
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStickerPlaceCmd(TEXT("afl.Dev.StickerPlace"),
 		TEXT("CC-7: redeem (if needed) and place sticker <which> in zone <zoneIndex>. Args: <zone> <which>."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerPlace));
+
+	// === CC-7 step 2: afl.Dev.StickerScreenProof ================================================
+	static UTextureRenderTarget2D* AFLMakeCellRT(UObject* Ctx, int32 ZoneCell)
+	{
+		UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(Ctx);
+		RT->RenderTargetFormat = RTF_RGBA8;
+		RT->ClearColor = FLinearColor(0, 0, 0, 0);
+		RT->InitAutoFormat(1024, 1024);
+		UKismetRenderingLibrary::ClearRenderTarget2D(Ctx, RT, FLinearColor(0, 0, 0, 0));
+		if (ZoneCell >= 0)
+		{
+			UCanvas* C = nullptr; FVector2D Sz; FDrawToRenderTargetContext Ctx2;
+			UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(Ctx, RT, C, Sz, Ctx2);
+			if (C)
+			{
+				const float Cell = 1024.0f / 3.0f;
+				const int32 col = ZoneCell % 3, row = ZoneCell / 3;
+				// K2_DrawBox draws an OUTLINE and its third argument is LINE THICKNESS, not opacity --
+				// passing 1.0 drew a one-pixel wire that no per-band threshold could ever see, and the
+				// instrument correctly reported itself blind. A FILLED rect needs a texture draw.
+				UTexture2D* White = LoadObject<UTexture2D>(nullptr,
+					TEXT("/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture"));
+				if (White)
+				{
+					C->K2_DrawTexture(White, FVector2D(col * Cell + 12, row * Cell + 12),
+						FVector2D(Cell - 24, Cell - 24), FVector2D::ZeroVector, FVector2D::UnitVector,
+						FLinearColor::White, BLEND_Opaque);
+				}
+			}
+			UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(Ctx, Ctx2);
+		}
+		// PRESENCE OF OUTPUT. If the draw silently did nothing, every downstream zero is explained here
+		// rather than being blamed on the zones.
+		{
+			FTextureRenderTargetResource* R = RT->GameThread_GetRenderTargetResource();
+			TArray<FColor> Px; int32 Lit = 0;
+			if (R && R->ReadPixels(Px)) { for (const FColor& C2 : Px) { if (C2.R > 8 || C2.G > 8 || C2.B > 8) { ++Lit; } } }
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SSP] synthetic RT cell=%d litPx=%d"), ZoneCell, Lit);
+		}
+		return RT;
+	}
+
+	static bool AFLCaptureCloneWithRT(UWorld* World, UTextureRenderTarget2D* RT, float Intensity,
+		float Yaw, TArray<FColor>& Out)
+	{
+		static const FVector kLoc(0.0f, 0.0f, -20000.0f);
+		USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/IRONICS_Blank/SKM_IRONICS_Blank.SKM_IRONICS_Blank"));
+		if (!Mesh || !World) { return false; }
+		FActorSpawnParameters SP; SP.ObjectFlags |= RF_Transient;
+		ASkeletalMeshActor* SMA = World->SpawnActor<ASkeletalMeshActor>(kLoc, FRotator::ZeroRotator, SP);
+		if (!SMA) { return false; }
+		USkeletalMeshComponent* SMC = SMA->GetSkeletalMeshComponent();
+		SMC->SetSkeletalMesh(Mesh);
+		SMC->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		SMC->GlobalAnimRateScale = 0.0f;
+		// THE MESH'S OWN slot materials: MI children of the master, so they carry the sticker layer and
+		// the shipped look. Forcing the master into every slot made the last clone unrepresentative.
+		for (int32 i = 0; i < SMC->GetNumMaterials(); ++i)
+		{
+			UMaterialInstanceDynamic* MID = SMC->CreateAndSetMaterialInstanceDynamic(i);
+			if (!MID)
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SSP] slot %d produced NO MID -- params unset"), i);
+			}
+			if (MID)
+			{
+				MID->SetScalarParameterValue(FName(TEXT("StickerUVScale")), 1.0f);
+				MID->SetScalarParameterValue(FName(TEXT("StickerUOffset")), 0.0f);
+				MID->SetScalarParameterValue(FName(TEXT("StickerVOffset")), 0.0f);
+				if (RT) { MID->SetTextureParameterValue(FName(TEXT("StickerAtlasTex")), RT); }
+				MID->SetScalarParameterValue(FName(TEXT("StickerIntensity")), Intensity);
+				float Rb = -1.0f; MID->GetScalarParameterValue(FName(TEXT("StickerIntensity")), Rb);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SSP]   slot %d parent=%s intensity set=%.1f readback=%.1f"),
+					i, MID->Parent ? *MID->Parent->GetName() : TEXT("<none>"), Intensity, Rb);
+			}
+		}
+		SMC->RefreshBoneTransforms();
+
+		const FVector C = kLoc + FVector(0, 0, 95.0f);
+		const FVector Fwd = FVector(1, 0, 0).RotateAngleAxis(Yaw, FVector::UpVector);
+		const FVector CamLoc = C + Fwd * 240.0f;
+		ASceneCapture2D* Cap = World->SpawnActor<ASceneCapture2D>(CamLoc, (C - CamLoc).Rotation(), SP);
+		USceneCaptureComponent2D* Comp = Cap ? Cap->GetCaptureComponent2D() : nullptr;
+		if (!Comp) { SMA->Destroy(); if (Cap) { Cap->Destroy(); } return false; }
+		UTextureRenderTarget2D* Shot = NewObject<UTextureRenderTarget2D>();
+		Shot->InitAutoFormat(256, 256);
+		Shot->ClearColor = FLinearColor::Black;
+		Comp->TextureTarget = Shot;
+		Comp->CaptureSource = SCS_FinalColorLDR;
+		Comp->bCaptureEveryFrame = false;
+		Comp->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+		Comp->ShowOnlyActors.Add(SMA);
+		Comp->CaptureScene();
+		FTextureRenderTargetResource* Res = Shot->GameThread_GetRenderTargetResource();
+		const bool bOk = Res && Res->ReadPixels(Out);
+		Cap->Destroy(); SMA->Destroy();
+		return bOk && Out.Num() > 0;
+	}
+
+	void HandleAFLStickerScreenProof(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World && GEditor) { World = GEditor->GetEditorWorldContext().World(); }
+		if (!World) { Ar.Log(TEXT("no world")); return; }
+
+		TArray<FColor> Off1, Off2;
+		if (!AFLCaptureCloneWithRT(World, nullptr, 0.0f, 0.0f, Off1) ||
+			!AFLCaptureCloneWithRT(World, nullptr, 0.0f, 0.0f, Off2))
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SSP] VOID -- capture failed.")); return;
+		}
+		const int32 SelfDelta = AFLBandDelta(Off1, Off2, 0, 256);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SSP] CONTROL A repeatable: OFF vs OFF changed=%d (want 0) %s"),
+			SelfDelta, (SelfDelta == 0) ? TEXT("PASS") : TEXT("FAIL"));
+		if (SelfDelta != 0)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[SSP] VOID -- the capture is not repeatable, so no difference below can be attributed."));
+			return;
+		}
+
+		struct FCase { int32 Cell; const TCHAR* Name; };
+		static const FCase Cases[] = { { 0, TEXT("ChestLeft") }, { 3, TEXT("LegFrontLeft") }, { 7, TEXT("Back") } };
+		bool bAnyDetected = false;
+		for (const FCase& Cs : Cases)
+		{
+			UTextureRenderTarget2D* RT = AFLMakeCellRT(World, Cs.Cell);
+			TArray<FColor> OnF, OnB, OffB;
+			if (!AFLCaptureCloneWithRT(World, RT, 1.0f, 0.0f, OnF) ||
+				!AFLCaptureCloneWithRT(World, RT, 1.0f, 180.0f, OnB) ||
+				!AFLCaptureCloneWithRT(World, nullptr, 0.0f, 180.0f, OffB))
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SSP] VOID -- capture failed for %s."), Cs.Name);
+				return;
+			}
+			const int32 Up = AFLBandDelta(Off1, OnF, 0, 85);
+			const int32 Mid = AFLBandDelta(Off1, OnF, 85, 170);
+			const int32 Lo = AFLBandDelta(Off1, OnF, 170, 256);
+			const int32 Bk = AFLBandDelta(OffB, OnB, 0, 256);
+			const int32 Total = Up + Mid + Lo + Bk;
+			if (Total > 0) { bAnyDetected = true; }
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[SSP] cell %d %-13s FRONT upper=%-6d mid=%-6d lower=%-6d | BACK=%-6d"),
+				Cs.Cell, Cs.Name, Up, Mid, Lo, Bk);
+		}
+		// CONTROL B. If filling a cell changed NOTHING anywhere, the instrument cannot see a sticker and
+		// the per-band numbers above are all zero for a reason that has nothing to do with zones.
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SSP] CONTROL B can-detect: some filled cell changed the image = %d %s"),
+			bAnyDetected ? 1 : 0,
+			bAnyDetected ? TEXT("PASS") : TEXT("FAIL <- VOID: instrument blind, zones NOT measured"));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SSP] END"));
+		Ar.Log(TEXT("sticker screen proof complete -- see AFL_TEST[SSP]."));
+	}
+
+	// REPAIR: the sampler had NO Coordinates, so it read a constant texel and the layer contributed
+	// nothing. The authoring reported newWires=10 for 11 attempted connections and I accepted the
+	// aggregate; step 3 verified that no PRE-EXISTING connection moved but never that the NEW nodes
+	// were wired to each other. "Nothing else broke" is not "the new thing works".
+	//
+	// EVERY WIRE HERE IS CONFIRMED BY READING THE INPUT BACK, never by the connect call's return value.
+	void HandleAFLRepairStickerUV(const TArray<FString>& /*Args*/, UWorld* /*W*/, FOutputDevice& Ar)
+	{
+		UMaterial* M = LoadObject<UMaterial>(nullptr, TEXT("/Game/BagMan/Materials/M_AFL_Character.M_AFL_Character"));
+		if (!M) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RSU] no master")); return; }
+		UMaterialExpression* Scaled = AFLFindExprByGuid(M, TEXT("A7568AAB-46A2-266E-6992-EE9A7A271B7C"));
+		UMaterialExpression* Append = AFLFindExprByGuid(M, TEXT("2D249A6C-4AA6-90BF-05F4-9C87EF4BBE1D"));
+		UMaterialExpression* Samp   = AFLFindExprByGuid(M, TEXT("124E2E98-4A6B-8E7D-9293-3AAAB7064596"));
+		if (!Scaled || !Append || !Samp)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RSU] REFUSED -- scaled=%d append=%d samp=%d"),
+				Scaled?1:0, Append?1:0, Samp?1:0);
+			return;
+		}
+		// Reuse an existing wired-up Add if a previous repair made one; otherwise create it.
+		UMaterialExpression* FinalUV = nullptr;
+		for (const TObjectPtr<UMaterialExpression>& E : M->GetExpressions())
+		{
+			if (E && E->IsA<UMaterialExpressionAdd>())
+			{
+				const FExpressionInput* A2 = E->GetInput(0);
+				if (A2 && A2->Expression == Scaled) { FinalUV = E; break; }
+			}
+		}
+		const bool bCreated = (FinalUV == nullptr);
+		if (!FinalUV)
+		{
+			FinalUV = UMaterialEditingLibrary::CreateMaterialExpression(M, UMaterialExpressionAdd::StaticClass(), -900, 2700);
+		}
+		typedef UMaterialEditingLibrary ML;
+		ML::ConnectMaterialExpressions(Scaled,  TEXT(""), FinalUV, TEXT("A"));
+		ML::ConnectMaterialExpressions(Append,  TEXT(""), FinalUV, TEXT("B"));
+		// ConnectMaterialExpressions WILL NOT bind a texture sampler's Coordinates by name -- it has
+		// failed silently on every attempt, which is why the layer sampled a constant texel and
+		// contributed nothing. Same shape as CC-X34: the convenience API is closed, the underlying
+		// data is not. FExpressionInput is a plain struct with an Expression pointer.
+		if (FExpressionInput* CoordIn = Samp->GetInput(0))
+		{
+			CoordIn->Expression = FinalUV;
+			CoordIn->OutputIndex = 0;
+		}
+		UMaterialEditingLibrary::RecompileMaterial(M);
+		M->MarkPackageDirty();
+
+		auto Src = [](UMaterialExpression* E, int32 i) -> UMaterialExpression*
+		{
+			const FExpressionInput* In = E ? E->GetInput(i) : nullptr;
+			return In ? In->Expression : nullptr;
+		};
+		const bool bA = (Src(FinalUV, 0) == Scaled);
+		const bool bB = (Src(FinalUV, 1) == Append);
+		const bool bC = (Src(Samp, 0) == FinalUV);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[RSU] createdAdd=%d | readback FinalUV.A=%d FinalUV.B=%d Samp.Coordinates=%d %s"),
+			bCreated?1:0, bA?1:0, bB?1:0, bC?1:0, (bA&&bB&&bC) ? TEXT("PASS") : TEXT("FAIL"));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RSU] END"));
+		Ar.Log(TEXT("sticker UV repair done -- see AFL_TEST[RSU]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLRepairStickerUVCmd(TEXT("afl.Dev.RepairStickerUV"),
+		TEXT("CC-7: wire the sticker sampler's Coordinates (UV2 x scale + offset). Verifies every wire by ")
+		TEXT("reading the input back rather than trusting the connect call."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLRepairStickerUV));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStickerScreenProofCmd(TEXT("afl.Dev.StickerScreenProof"),
+		TEXT("CC-7 step 2: fill ONE zone cell of a synthetic RT and capture a fixed clone with the sticker ")
+		TEXT("layer on vs off. Proves it can fail first: OFF vs OFF must be identical, and a filled cell ")
+		TEXT("must change something, or the run is VOID."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerScreenProof));
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
