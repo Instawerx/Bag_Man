@@ -262,6 +262,22 @@ owns layout - the proven AFL split). No surface bypasses this SSOT.
 
 ---
 
+## 6.1 · SPACING RHYTHM — **DERIVED, NOT SPECIFICATION** (CC-5, 2026-08-22)
+
+This SSOT is **silent** on grid, gutters and spacing. The creator UI needed values, so these were
+DERIVED from the radii and type ramp this document *does* rule, and are recorded here **as a
+derivation** so a later style pass overrides them freely — **they are not inherited law.**
+
+| Value | Derived from |
+|---|---|
+| **Base unit 4 px** | input radius 8 and button radius 12 are both multiples of 4 |
+| **Panel padding 16 / 24 px** | matches the ruled panel-radius band (16–24), so corner and inset agree |
+| **Row gutter 8 px** (2× base) | intra-row separation |
+| **Region gutter 24 px** (6× base) | keeps 1c's three-column separation visibly stronger than intra-row |
+
+Type sizes are **not** derived — they come from `AFLTokenCompiler`. Approved by the operator
+2026-08-22 as derived, explicitly not as spec.
+
 ## OPEN ITEMS (need operator sign-off before lockdown)
 1. ~~**Type ramp (sec4)** - confirm faces + licensing.~~ **CLOSED 2026-08-10.** Ruled **Orbitron /
    Noto Sans / Droid Sans Mono** — all three already licence-cleared and already in the project, so no new

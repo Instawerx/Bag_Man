@@ -998,6 +998,48 @@ This is the same gap CC-5.2 has: the widget builds its rows from the schema but 
 player input. Recorded here beside it rather than as a separate surprise.
 **CANNOT:** keep stickers through a death — see the open defect above.
 
+## 8.19 · CC-5 EMBLEM AXIS — BUILT 2026-08-22
+
+**Emblem is the term.** The catalog says `AFL.Emblem.*`, the enum now says `Emblem`, the asset field
+says `EmblemMaterial`. Use it everywhere.
+
+⚠ **THE NAMING COLLISION, RECORDED SO THE NEXT READER IS NOT CROSSED UP AS WE WERE.** Two mechanisms
+exist for the same concept:
+
+| line | mechanism | in creator scope? |
+|---|---|---|
+| **X line** (the creator chassis) | `ChestEmblemDecal`, a `UDecalComponent` bone-attached to spine_04, projecting an `MI_AFL_Branding_<NAME>` MIC | **YES — this is the axis** |
+| **Original line** | `LogoTexture` + `UseLogo` on `M_Mannequin`, baked per identity | **NO — LEGACY, out of scope** |
+
+Measured: **`M_AFL_Character` has no logo channel at all** — its texture parameters are `ORMTex,
+NormalTex, BaseColorTex, EmissiveTex, BrandMaskTex`. The `LogoTexture` references in X-line code
+belong to the **facemask visor**, an unrelated mechanism. That is why there was never a unified axis.
+
+**WHAT WAS BUILT.** The emblem had art, rows, an asset field and a getter — and no way to choose one.
+`GetEmblemMaterial()` had **no consumer anywhere**.
+
+- `FAFLCosmeticSelection::EmblemId` (appended)
+- `EAFLLoadoutAxis::Emblem` (appended) + all **four** loadout switch sites, conforming to the seven
+- `AAFLCharacterPartActor::ApplyEmblem` — captures the authored decal base, swaps in the chosen MIC,
+  drops the stale MID, re-pushes colour. **Exactly the shape `ApplyFacemask` uses for slot 1.**
+  A null MIC **restores** the chassis-authored decal: un-equip is a meaningful state, not a no-op.
+- `SetEmblem` / `OnRep_Emblem` / `ReapplyEmblemToAllParts` + `DOREPLIFETIME`, mirroring the facemask
+  spine including the listen-host local apply
+- `RefreshEmblemForPawn`, reading the **preview-aware** effective selection so creator preview and
+  spawned pawn resolve through one path — driven from the same 2 call sites as the facemask
+- **Lint rule in the same commit.** Verified: `checked=445 unmapped=0` — the 6 rows now classify.
+
+**The tint push was already there and is untouched.** Mask is the product, tint is the axis.
+
+**DELIBERATELY NO BRAND-DEFAULT FALLBACK**, unlike the facemask: an unset emblem means *no mark*.
+Substituting a default would put a brand on a player who chose none.
+
+⚠ **6 rows, 33 MICs.** 27 brand emblems have finished art and no catalog row — product intent, and
+the operator has tied it to the roster-cut ruling on retired identities' marks.
+
+⚠ Lint also reports **5 pre-existing `AFL.Character.` type mismatches**, unrelated to emblems and not
+touched here.
+
 ## 11 · CLOSED BY RULING — DO NOT RE-ASK
 
 These three were carried as open product questions across several blocks. They are **ruled and
