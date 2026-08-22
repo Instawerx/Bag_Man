@@ -78,6 +78,7 @@ namespace
 		case EAFLLoadoutAxis::BodyColor:  return EAFLCosmeticType::Finish;         // BodyId resolves to a Finish (free base = 7 AFL.Finish.*)
 		case EAFLLoadoutAxis::EdgeColor:  return EAFLCosmeticType::SkinColor_Edge;
 		case EAFLLoadoutAxis::Facemask:   return EAFLCosmeticType::Facemask;
+		case EAFLLoadoutAxis::Emblem:     return EAFLCosmeticType::Emblem;
 		default:                          return EAFLCosmeticType::Weapon; // Weapon + WeaponSkin (Identity is dual-type, special-cased)
 		}
 	}
@@ -94,6 +95,7 @@ namespace
 		case EAFLLoadoutAxis::BodyColor:   return TEXT("AFL.Finish.");
 		case EAFLLoadoutAxis::EdgeColor:   return TEXT("AFL.Edge.");
 		case EAFLLoadoutAxis::Facemask:    return TEXT("AFL.Facemask.");
+		case EAFLLoadoutAxis::Emblem:      return TEXT("AFL.Emblem.");
 		default:                           return FString(); // Identity -> dual-type query, no single namespace filter
 		}
 	}
@@ -265,6 +267,7 @@ FName UAFLW_LoadoutBase::GetEquippedIdForAxis(EAFLLoadoutAxis Axis) const
 	case EAFLLoadoutAxis::BodyColor:   return Sel.BodyId;
 	case EAFLLoadoutAxis::EdgeColor:   return Sel.EdgeId;
 	case EAFLLoadoutAxis::Facemask:    return Sel.FacemaskId;
+	case EAFLLoadoutAxis::Emblem:      return Sel.EmblemId;
 	default:                           return NAME_None;
 	}
 }
@@ -310,6 +313,7 @@ void UAFLW_LoadoutBase::EquipForAxis(EAFLLoadoutAxis Axis, FName CosmeticId)
 	case EAFLLoadoutAxis::BodyColor:   Sel.BodyId = CosmeticId; break;
 	case EAFLLoadoutAxis::EdgeColor:   Sel.EdgeId = CosmeticId; break;
 	case EAFLLoadoutAxis::Facemask:    Sel.FacemaskId = CosmeticId; break;
+	case EAFLLoadoutAxis::Emblem:      Sel.EmblemId = CosmeticId; break;
 	default:                           return;
 	}
 

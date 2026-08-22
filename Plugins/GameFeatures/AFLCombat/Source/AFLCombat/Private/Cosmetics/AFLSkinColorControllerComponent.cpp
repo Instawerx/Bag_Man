@@ -351,6 +351,49 @@ void UAFLSkinColorControllerComponent::RefreshSkinForPawn(APawn* Pawn) const
 	}
 }
 
+void UAFLSkinColorControllerComponent::RefreshEmblemForPawn(APawn* Pawn) const
+{
+	if (!Pawn) { return; }
+
+	// SAME selection resolution as the facemask: pawn PlayerState first, controller's as the fallback,
+	// through GetEffectiveSelection so a creator PREVIEW override is honoured. One path, not two.
+	const APlayerState* PawnPS = Pawn->GetPlayerState();
+	const AController* OwningController = GetController<AController>();
+	const APlayerState* CtrlPS = OwningController ? OwningController->PlayerState : nullptr;
+	const APlayerState* SelectionPS = PawnPS ? PawnPS : CtrlPS;
+	const FAFLCosmeticSelection* EffSel = GetEffectiveSelection(SelectionPS);
+
+	UMaterialInstanceConstant* EmblemMIC = nullptr;
+	const FName EmblemId = EffSel ? EffSel->EmblemId : NAME_None;
+	if (EmblemId != NAME_None)
+	{
+		if (const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(this))
+		{
+			if (const UAFLSkinColorAsset* EmblemAsset = Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(EmblemId)))
+			{
+				EmblemMIC = EmblemAsset->GetEmblemMaterial();
+			}
+		}
+	}
+
+	// NO BRAND-DEFAULT FALLBACK, deliberately, and this is where it differs from the facemask. An unset
+	// emblem means "no mark", and ApplyEmblem(nullptr) restores the chassis-authored decal. Substituting
+	// a default here would put a brand on a player who chose none -- and the identity tint already
+	// reaches the decal by the separate path that has always existed.
+	if (APlayerState* PS = Pawn->GetPlayerState())
+	{
+		if (UAFLSkinColorComponent* SkinComp = PS->FindComponentByClass<UAFLSkinColorComponent>())
+		{
+			SkinComp->SetEmblem(EmblemMIC);
+			return;
+		}
+	}
+	if (UAFLSkinColorComponent* PawnComp = Pawn->FindComponentByClass<UAFLSkinColorComponent>())
+	{
+		PawnComp->SetEmblem(EmblemMIC);
+	}
+}
+
 void UAFLSkinColorControllerComponent::RefreshFacemaskForPawn(APawn* Pawn) const
 {
 	// MIRRORS RefreshSkinForPawn's resolve+push shape, for the FACEMASK axis (a slot-1 base-MATERIAL swap, not a

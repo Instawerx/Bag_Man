@@ -57,6 +57,12 @@ public:
 	 *  robot keeps its BP-default slot-1). Idempotent. Mirrors RefreshSkinForPawn's resolve+apply shape. */
 	void RefreshFacemaskForPawn(APawn* Pawn) const;
 
+	/** CC-5 EMBLEM: resolve the equipped EmblemId to its decal MIC and push it. Mirrors
+	 *  RefreshFacemaskForPawn, including reading the PREVIEW-aware effective selection so the creator's
+	 *  preview and the spawned pawn resolve through one path rather than two. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|SkinColor")
+	void RefreshEmblemForPawn(APawn* Pawn) const;
+
 	/**
 	 * AUTHORITY (server-only): resolve the player's selected WeaponId (PlayerState loadout -> catalog -> a
 	 * UAFLWeaponCosmeticAsset carrier -> its EquipmentDefinition) and EQUIP it on the pawn's

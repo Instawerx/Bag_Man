@@ -3202,6 +3202,10 @@ namespace
 			{ TEXT("AFL.Sticker."), EAFLCosmeticType::Sticker,     EAFLCosmeticType::Sticker },
 			// CC-8: same rule, same commit as the namespace.
 			{ TEXT("AFL.Accessory."), EAFLCosmeticType::Accessory, EAFLCosmeticType::Accessory },
+			// CC-5: the rule ships with the axis that needs it. AFL.Emblem. rows have existed since the
+			// identity work but never had a lint rule, because they never had an axis -- so 6 rows sat in
+			// `unmapped` and the lint reported that hole as a clean result.
+			{ TEXT("AFL.Emblem."), EAFLCosmeticType::Emblem,       EAFLCosmeticType::Emblem },
 		};
 		const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
 		int32 Checked = 0, Mismatch = 0, Unmapped = 0, InvalidRows = 0;

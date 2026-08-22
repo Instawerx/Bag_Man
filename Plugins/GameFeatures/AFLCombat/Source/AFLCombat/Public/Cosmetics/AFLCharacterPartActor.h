@@ -106,6 +106,15 @@ public:
 	// re-layer MUST carry the creator overlay or it re-writes registry/brand tones over the player's colours --
 	// MEASURED: 48 writes with override=miss produced brand red on top of 96 correct override=HIT writes.
 	// A DEFAULTED param is the trap: every un-updated call site compiles and silently drops what it carries.
+	/**
+	 * CC-5 EMBLEM: swap the chest decal's BASE material to the chosen brand MIC, then re-MID so the tint
+	 * push lands on the new base. Exactly the shape ApplyFacemask uses for slot 1.
+	 *
+	 * Null MIC restores the chassis-authored decal material -- an unset emblem must clear, not linger.
+	 */
+	void ApplyEmblem(class UMaterialInstanceConstant* EmblemMIC, const UAFLSkinColorAsset* ColorToReapply,
+		const FAFLColorOverride& ColorOverride = FAFLColorOverride());
+
 	void ApplyFacemask(class UMaterialInstanceConstant* FacemaskMIC, const UAFLSkinColorAsset* ColorToReapply,
 		const FAFLColorOverride& ColorOverride = FAFLColorOverride());
 
@@ -205,6 +214,11 @@ protected:
 	// MI_<id>_Limbs) instead of leaving the mask stuck. Keyed by mesh; the value is the pre-swap base material.
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<UMeshComponent>, TObjectPtr<UMaterialInterface>> AuthoredSlot1Material;
+
+	/** CC-5 EMBLEM: the captured pre-swap decal base, so an unset emblem restores what the chassis
+	 *  authored rather than leaving the last player's mark projected. Mirrors AuthoredSlot1Material. */
+	UPROPERTY(Transient)
+	TMap<TObjectPtr<class UDecalComponent>, TObjectPtr<UMaterialInterface>> AuthoredDecalMaterial;
 
 	// DEFECT-2: the asset ApplySkinColor last painted THIS part's MIDs with -- the finish ACTUALLY on the live
 	// runtime MID. Recorded each apply. The dismember gib color source reads it (server-side) so a severed gib

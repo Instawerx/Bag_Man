@@ -444,6 +444,53 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 	}
 }
 
+void AAFLCharacterPartActor::ApplyEmblem(UMaterialInstanceConstant* EmblemMIC, const UAFLSkinColorAsset* ColorToReapply,
+	const FAFLColorOverride& ColorOverride)
+{
+	const bool bDiag = AFLSkinDiag::IsOn();
+	TArray<UDecalComponent*> Decals;
+	GetComponents<UDecalComponent>(Decals);
+	int32 Swapped = 0;
+	for (UDecalComponent* Decal : Decals)
+	{
+		if (!IsValid(Decal)) { continue; }
+
+		// CAPTURE THE AUTHORED BASE ONCE, before the first swap -- and capture it from the decal itself,
+		// never from a MID we made, or a second equip would "restore" to our own previous swap.
+		if (!AuthoredDecalMaterial.Contains(Decal))
+		{
+			UMaterialInterface* Cur = Decal->GetDecalMaterial();
+			if (!Cast<UMaterialInstanceDynamic>(Cur))
+			{
+				AuthoredDecalMaterial.Add(Decal, Cur);
+			}
+		}
+
+		UMaterialInterface* NewBase = EmblemMIC
+			? static_cast<UMaterialInterface*>(EmblemMIC)
+			: AuthoredDecalMaterial.FindRef(Decal).Get();
+		if (!NewBase) { continue; }
+
+		Decal->SetDecalMaterial(NewBase);
+		// Drop the stale MID: it was built off the OLD base and would keep projecting the old mark.
+		OwnedDecalMIDs.Remove(Decal);
+		++Swapped;
+
+		if (bDiag)
+		{
+			UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : emblem decal %s base <- %s"),
+				*AFLSkinDiag::Prefix(this), *GetName(), *Decal->GetName(), *GetNameSafe(NewBase));
+		}
+	}
+
+	// RE-PUSH THE COLOUR so the new base gets the identity tint. The tint half already existed and is
+	// untouched -- this only makes sure it lands on the material we just swapped in.
+	if (Swapped > 0)
+	{
+		ApplySkinColor(ColorToReapply, ColorOverride);
+	}
+}
+
 void AAFLCharacterPartActor::ApplyFacemask(UMaterialInstanceConstant* FacemaskMIC, const UAFLSkinColorAsset* ColorToReapply,
 	const FAFLColorOverride& ColorOverride)
 {

@@ -476,6 +476,15 @@ struct FAFLCosmeticSelection
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
 	FName FacemaskId = NAME_None;
 
+	/** CC-5 EMBLEM: the chest brand mark, AFL.Emblem.<BRAND>. Resolves through the catalog row's Asset to
+	 *  that asset's EmblemMaterial -- an MI off M_AFL_Branding_Decal carrying BrandMaskTex (the mark) and
+	 *  NeonColor (the tint). ONE ID IS ENOUGH here, unlike stickers and accessories: an emblem is a
+	 *  selection, not an arrangement, so it rides EquipForAxis exactly as the other seven axes do.
+	 *  NOTE the Original line's LogoTexture + UseLogo on M_Mannequin is the LEGACY mechanism for the same
+	 *  concept and is NOT this field -- M_AFL_Character has no logo channel at all. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Axes")
+	FName EmblemId = NAME_None;
+
 	/** CC-7.2 -- the nine sticker zones. FIXED SIZE, so it replicates directly: no compact-reference
 	 *  indirection, no array delta, no ordering to reconcile between client and server. An empty zone
 	 *  is a placement with StickerId == None, NOT an absent element -- absent-vs-empty is the

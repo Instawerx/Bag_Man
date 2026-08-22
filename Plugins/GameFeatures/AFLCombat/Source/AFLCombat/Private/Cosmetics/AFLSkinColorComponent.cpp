@@ -134,6 +134,7 @@ void UAFLSkinColorComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	DOREPLIFETIME(UAFLSkinColorComponent, SkinColor);
 	DOREPLIFETIME(UAFLSkinColorComponent, BodyColor);
 	DOREPLIFETIME(UAFLSkinColorComponent, Facemask);
+	DOREPLIFETIME(UAFLSkinColorComponent, Emblem);
 	DOREPLIFETIME(UAFLSkinColorComponent, WeaponSkinMaterial);
 	DOREPLIFETIME(UAFLSkinColorComponent, BeamColorAsset);
 	// Creator overlay rides the SAME pawn-side replication spine as the five above -- that is what lets the
@@ -396,6 +397,38 @@ void UAFLSkinColorComponent::OnRep_Facemask()
 			Facemask ? *Facemask->GetName() : TEXT("null"));
 	}
 	ReapplyFacemaskToAllParts();
+}
+
+void UAFLSkinColorComponent::SetEmblem(UMaterialInstanceConstant* NewMaterial)
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		Emblem = NewMaterial;
+		// Listen-host: OnRep does NOT fire on authority -> apply locally now (mirrors SetFacemask).
+		ReapplyEmblemToAllParts();
+	}
+}
+
+void UAFLSkinColorComponent::OnRep_Emblem()
+{
+	ReapplyEmblemToAllParts();
+}
+
+void UAFLSkinColorComponent::ReapplyEmblemToAllParts()
+{
+	// NO early-return on a null Emblem: like the facemask, un-equip is a MEANINGFUL state and
+	// ApplyEmblem(nullptr, ...) restores the chassis-authored decal rather than leaving the last mark up.
+	AActor* Owner = GetOwner();
+	if (!Owner) { return; }
+	TArray<UChildActorComponent*> ChildActorComps;
+	Owner->GetComponents<UChildActorComponent>(ChildActorComps);
+	for (UChildActorComponent* CAC : ChildActorComps)
+	{
+		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
+		{
+			Part->ApplyEmblem(Emblem, SkinColor, ActiveColorOverride);
+		}
+	}
 }
 
 void UAFLSkinColorComponent::ReapplyFacemaskToAllParts()

@@ -88,6 +88,14 @@ public:
 	 *  picks it up. nullptr = no facemask equipped. */
 	UMaterialInstanceConstant* GetFacemask() const { return Facemask; }
 
+	/** CC-5 EMBLEM: authority-only setter, mirroring SetFacemask exactly (including the listen-host
+	 *  local apply, because OnRep does not fire on authority). */
+	UFUNCTION(BlueprintCallable, Category = "AFL|SkinColor")
+	void SetEmblem(UMaterialInstanceConstant* NewMaterial);
+
+	UFUNCTION(BlueprintPure, Category = "AFL|SkinColor")
+	UMaterialInstanceConstant* GetEmblem() const { return Emblem; }
+
 	/** AUTHORITY-ONLY: set the equipped weapon's skin MI on the server. Replicates to all clients (MIRRORS
 	 *  SetFacemask exactly, for the weapon axis). Applied to the equipped weapon mesh's material slots (the
 	 *  48-color NeonCamo MIs off the locked master). nullptr = no override (the weapon keeps its baked original).
@@ -155,6 +163,16 @@ protected:
 	 *  asset (UMaterialInstanceConstant) -> safe to replicate by pointer. nullptr = none equipped. */
 	UPROPERTY(ReplicatedUsing = OnRep_Facemask)
 	TObjectPtr<UMaterialInstanceConstant> Facemask = nullptr;
+
+	/** CC-5 EMBLEM: the chosen chest-decal MIC. Replicated so every client projects the same mark. */
+	UPROPERTY(ReplicatedUsing = OnRep_Emblem)
+	TObjectPtr<UMaterialInstanceConstant> Emblem = nullptr;
+
+	UFUNCTION()
+	void OnRep_Emblem();
+
+	/** PATH 2 (emblem): swap the decal base on all spawned parts, then re-apply colour. Idempotent. */
+	void ReapplyEmblemToAllParts();
 
 	UFUNCTION()
 	void OnRep_Facemask();

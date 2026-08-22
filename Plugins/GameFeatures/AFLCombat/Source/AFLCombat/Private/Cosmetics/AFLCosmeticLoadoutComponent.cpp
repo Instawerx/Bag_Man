@@ -438,6 +438,8 @@ void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const
 			// Facemask FIRST (slot-1 material swap), THEN skin (param push) -- composition order, so a live
 			// wallet-UI facemask change shows immediately without respawn (the FacemaskId is in this selection).
 			SkinCtrl->RefreshFacemaskForPawn(Pawn);
+			// CC-5: the emblem rides the same moments as the facemask -- same driver, same ordering.
+			SkinCtrl->RefreshEmblemForPawn(Pawn);
 			SkinCtrl->RefreshSkinForPawn(Pawn);
 			// #43 WeaponId consumer: equip the selected weapon (D2 replace) on the SAME spine. Independent
 			// subsystem (equipment, not material) -> order-free; server-only + Lyra fast-array-replicated.
@@ -470,6 +472,7 @@ void UAFLCosmeticLoadoutComponent::OnPlayerStatePawnSet(APlayerState* /*Player*/
 				// Facemask FIRST then skin (composition order) -- makes the equipped facemask respawn-durable
 				// on the same spine as the skin/identity (the FacemaskId rides CopyProperties already).
 				SkinCtrl->RefreshFacemaskForPawn(NewPawn);
+				SkinCtrl->RefreshEmblemForPawn(NewPawn);
 				SkinCtrl->RefreshSkinForPawn(NewPawn);
 				// #43 WeaponId consumer: equip the selected weapon on possession/respawn (WeaponId rides
 				// CopyProperties -> respawn-durable, same spine as facemask/skin).
