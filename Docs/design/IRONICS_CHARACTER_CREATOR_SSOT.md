@@ -633,70 +633,81 @@ can read the graph first.
 ⚠ Tile 6 (`1776 Pack`) is a sheet of five small 1776 marks rather than one design. Packed as
 supplied; one sticker or five is product intent.
 
-## 8.11 · CC-7 SAMPLER — THE GRAPH IS READABLE FROM C++; THE GATE IS NOT SATISFIABLE
+## 8.11 · CC-7 SAMPLER — AUTHORED 2026-08-21, GATE MET, REGRESSION MEASURED
 
-**STEP 1 ANSWERED: C++ CAN READ THE MATERIAL GRAPH.** The Python objection dissolves — same shape as
-CC-X34. `UMaterial::GetExpressions()` is `ENGINE_API` and public (`Material.h:1400`,
-`WITH_EDITORONLY_DATA`), with `CountInputs()` / `GetInput(i)` / `GetInputName(i)` and
-`FExpressionInput { Expression, OutputIndex }`. The reflection layer hid `expression_collection`; the
-C++ surface never did. `afl.Dev.MaterialGraphSnapshot` reads **103 expressions + 6 property inputs**
-off `M_AFL_Character` and writes a GUID-keyed fingerprint, so before/after diffing is now possible.
-Baseline `crc=0x29902240`.
+**RULED: connect it.** CC-X25 stands for `Multiply_15.B` and the albedo path; this is an additive
+`+0` term, not a retarget of an existing signal.
 
-**THE BRAND PATH, TRACED.** The quartet is not a decal projection in this master — it composites
-**additively into EmissiveColor**:
+**C++ CAN READ THE GRAPH** — `UMaterial::GetExpressions()` is `ENGINE_API` and public
+(`Material.h:1400`). Python was closed, C++ open: the CC-X34 shape.
+
+**THE DIFF, GUID-keyed** (`0x29902240` → `0x391A6CEE`):
+
+| | |
+|---|---|
+| nodes added | **11** |
+| nodes removed | **0** |
+| **pre-existing connections modified** | **exactly 1** |
 
 ```
-TexCoord × BrandUVScale → … → BrandMaskTex.out1 × BrandIntensity(144A1B29)
-  → ×tint = 3EA5180E → Add(17C1A3DD,·) = D85D2F50 → Add(·,AE6BD1FE) = DEB92745 → MP_EmissiveColor
+DEB92745.in[A]   D85D2F50:0  ->  1F32FB8C:0     (the new Add)
+DEB92745.in[B]   unchanged
 ```
 
-**STEP 3'S GATE CANNOT BE SATISFIED FOR A VISIBLE STICKER, AND SO IT STOPS.** The ruling was: every
-pre-existing connection unchanged, or it is a rewire and it stops. Measured — the only unconnected
-inputs anywhere in the graph are `Desaturation.Fraction` and two `Fresnel` control pins
-(`ExponentIn`, `BaseReflectFractionIn`, `Normal`). **None is an additive compositing slot**; wiring a
-sticker into one would not composite a sticker, it would corrupt a fresnel. So there is no
-non-destructive insertion point, and making a sticker visible requires moving **exactly one**
-connection:
+Nothing else in 103 expressions moved. **The gate is met.**
 
-> `MP_EmissiveColor`'s Add (`DEB92745`) input **A**, from `D85D2F50:0` to a new Add node whose other
-> input is the sticker contribution.
+Shape mirrors the Brand quartet — UV2 × `StickerUVScale`, offset, sampled from
+`T_BagMan_StickerAtlas`, × `StickerIntensity` (default **0**), added. **One addition beyond the named
+trio: `StickerUOffset`.** Brand needs V only because the brand mask is a single mark with no grid; a
+4×4 atlas needs both axes, and with V alone 12 of 16 cells are unaddressable.
 
-Adding the sampler *nodes* moves nothing — that part of the operator's expectation is correct. It is
-the single output link that trips the gate. With a `StickerIntensity` defaulting to 0 the added term
-is exactly `+0` and the compiled result is mathematically identical with no sticker equipped, which
-is what step 4's regression gate asks for — **but that is an argument for why the change is safe, not
-permission to make it.** One link on the shared master CC-X25 ruled `DO NOT REWIRE`. **Operator's
-call.**
+**REGRESSION MEASURED, NOT REASONED.** Two full OFF/ON cycles after warm-up, streaming pinned: five
+captures all hash `0x66C5EB10`, and the raw buffers are **byte-identical — 0 differing bytes of
+262,144**.
 
-## 8.12 · CC-7 ZONE UVs — BUILT AND VERIFIED, NOT YET PROMOTED
+⚠ **THE FIRST ATTEMPT LOOKED LIKE A REGRESSION AND WAS NOT.** The before/after hashes differed
+(`0x9895D6C2` → `0x1819621A`), which reads as exactly the failure step 4 exists to catch. It was
+session warm-up before the first `RecompileMaterial` — **proven because toggling the link back did not
+restore the old hash. A one-way change cannot come from a link that toggles.** Without the A/B/A
+control this would have been reported as a regression and the ruling reversed on an artefact.
 
-Authored on the reconciled source. `IRONICS_Blank_symm_final_UV2.blend` (saved **beside** the
-original, which stays pristine).
+**The render-hash instrument captures twice per invocation and reports whether the two agree**, so a
+setup that cannot support a byte-identical claim says so rather than producing a verdict. It runs in
+the EDITOR world on a fixed-transform actor in reference pose — a game pawn's animated pose and
+moving camera differ between two runs of the same build.
 
-- **Zones assigned by BONE WEIGHT, not position** — the armature is in cm and the mesh in metres, and
-  weights are scale-independent and are what actually deforms the vertex.
-- **Front is −Y, measured** from the toe sitting forward of the ankle (`Δy = −14.9`), not assumed.
-  Guessing this wrong mirrors every front zone onto the character's back and looks fine in the UV
-  editor.
-- Polygon counts came out **symmetric** — ChestLeft/Right **3192/3192 exactly**, legs 6678/6675 and
-  6645/6645 — which is the correctness signal on a symmetrised mesh.
-- 3×3 grid, aspect preserved (uniform scale, no stretch). **172,905 assigned loops, all inside their
-  own cell; 106,674 unassigned, all parked at (−1,−1)** — outside every rect, so unzoned geometry
-  cannot draw a sticker. A (0,0) default would have put all 106,674 inside ChestLeft.
-- **UV0/UV1 PROVEN UNCHANGED**: `UV0=68F9BCDF`, `UV1=6C0AB3E8`, byte-identical between the original
-  and the edited file. "I only added a layer" was an assumption until the bytes agreed.
-- Exported with the banked UE-origin settings (`-Y`/`Z`, `bake_space_transform=False`); the FBX reads
-  **46,603 control points, UV layers 2 → 3** on the independent parser.
+## 8.12 · CC-7 ZONE UVs — AUTHORED AND PROMOTED
 
-⚠ **NOT PROMOTED.** The preview import minted a NEW skeleton instead of sharing `SK_Mannequin`, and
-was deleted rather than left as a near-identical duplicate of the hero body. Promotion must be a
-**reimport onto `SKM_IRONICS_Blank` preserving `SK_Mannequin`** — and there is no reason to change the
-body every X-line robot uses to carry data nothing reads until the sampler is ruled. **Zone placement
-is art-critical and unreviewed**; the layout render is the thing to eyeball first.
+Authored on the reconciled source (`symm_final.blend`, kept pristine; work saved to `_UV2.blend`).
 
-⚠ The `.blend` and `.fbx` live in **gitignored** paths (`.gitignore:150`, `:156`) — the project's
-existing convention, which is also why the shipped mesh's own source was never in version control.
+- Zones by **bone weight**, not position (armature cm, mesh metres — weights are scale-free).
+- **Front is −Y, measured** from the toe forward of the ankle (Δy −14.9), not assumed.
+- Symmetric counts — chest **3192/3192 exactly**, legs 6678/6675 and 6645/6645.
+- 3×3 grid, aspect preserved. **172,905 loops each inside its own cell, 0 outside; 106,674 unassigned
+  parked at (−1,−1)** so unzoned geometry cannot draw a sticker. A (0,0) default would have put all
+  106,674 inside ChestLeft.
+- **UV0/UV1 proven byte-identical** before and after (`68F9BCDF` / `6C0AB3E8`).
+
+**PROMOTED onto `SKM_IRONICS_Blank`** with `SK_Mannequin` supplied **explicitly** — leaving it null is
+what minted a second skeleton on the preview import, and the CC-X34 accessory sockets live on
+`SK_Mannequin`.
+
+| | before | after |
+|---|---|---|
+| UV channels | 2 | **3** |
+| skeleton | SK_Mannequin | **SK_Mannequin** |
+| materials | 2 | 2 |
+| render verts | 66,434 | 68,670 (+3.4%) |
+
+⚠ **The vert figures are RENDER vertices, split at seams — not the 46,603 control points.** UV2 adds
+seams, so the rise is expected; 46,603 was verified FBX-side, where it is the meaningful number. UE
+was always going to report higher, and conflating the two would look like a mesh regression.
+
+⚠ **Zone placement is still art-unreviewed.** The layout render is with the operator. Re-running is
+cheap — the source is pristine and the projection is scripted.
+
+**STILL PRODUCT INTENT:** tile 6 (`1776 Pack`) is a sheet of five marks — one sticker or five; and
+direct sticker pricing (credits-only, or a price).
 
 ## 9 · Blocked axes
 
