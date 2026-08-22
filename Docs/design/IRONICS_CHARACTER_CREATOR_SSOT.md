@@ -937,6 +937,40 @@ offers no sticker rows and both credit SKUs.
 placement remains art-unreviewed (ruled: stands as projected). Respawn persistence and two-client
 observer rendering were never separately re-measured after the fix.
 
+## 8.18 · CC-7 CLOSE-OUT — placement proven on screen; respawn is an OPEN DEFECT
+
+Re-measured after the V-flip fix, because both arms had only ever been seen on the data path.
+
+**COMPOSITOR + ZONES — PROVEN.** Dedicated two-client. ChestLeft → cell **(0,2)** `litPx=11830`,
+Back → cell **(1,0)** `litPx=14707`, **all seven other zones 0**, `occupiedCells=2`. Exactly the
+flipped rows, nothing bleeding.
+
+**ZONE FALSIFICATION ON SCREEN — PASSES.** A chest sticker moves the front upper band and leaves the
+legs alone: `upper=7351  mid=378  lower=3`. After the second sticker: `upper=10487  lower=6`, BACK
+3239 → 5337.
+
+**TWO-CLIENT OBSERVER — PROVEN.** `remote=0 upper=7351` vs `remote=1 upper=7351`; then `10487` vs
+`10487`. The observing client renders what the writer placed — cosmetic replication, dedicated, not
+the listen-server economy exception.
+
+⚠ **RESPAWN PERSISTENCE — FAILS. OPEN DEFECT.** The server-side kill fires
+(`killedPawn=B_Hero_BagMan_Pro_C_8`) and the respawned pawn comes back with **`stickerRT=<none>`** and
+`NO RT (nothing equipped)` on both roles. Stickers do not survive death. A controller-PlayerState
+fallback was added to the loadout lookup on the theory that a freshly possessed pawn has no
+PlayerState linked when the reapply runs — **it did not fix it**, so the cause is elsewhere (most
+likely the reapply runs before `Selection` replicates to the new parts, and nothing re-drives it
+afterwards). Colour survives respawn on the same loop, which is the thread to pull.
+
+### WHAT A PLAYER CAN AND CANNOT DO
+
+**CAN:** buy credit packs (5 for $0.99, 10 for $1.49) → redeem any of 14 stickers, one credit each →
+place one in any of 9 zones → **see it render on the body in that zone**, and other players see it too.
+
+**CANNOT:** reach any of it through a UI. **There is no creator UI — placement is RPC/console only.**
+This is the same gap CC-5.2 has: the widget builds its rows from the schema but nothing drives it from
+player input. Recorded here beside it rather than as a separate surprise.
+**CANNOT:** keep stickers through a death — see the open defect above.
+
 ## 11 · CLOSED BY RULING — DO NOT RE-ASK
 
 These three were carried as open product questions across several blocks. They are **ruled and

@@ -8102,6 +8102,14 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			if (RoleIndex == 0) { FireServerKill(38.0f, TEXT("kill-A-for-respawn")); }
 			FireCmd(48.0f, RoleIndex == 1 ? TEXT("afl.Online.VerifyStickerPlacement afterRespawn remote")
 			                              : TEXT("afl.Online.VerifyStickerPlacement afterRespawn"), TEXT("after-respawn"));
+			// THE ARM THE V-FLIP FIX INVALIDATED. Respawn persistence and the observer's view were both
+			// measured on the DATA path before the fix, so neither has been seen composited to the
+			// CORRECT cell. The RT dump is the reliable signal now that RT -> screen is proven: it
+			// reports which cell each zone's geometry actually samples, using the same flip the
+			// compositor applies. Fired on BOTH roles -- on B it reads the REMOTE pawn's parts, which is
+			// the replication half.
+			FireCmd(52.0f, RoleIndex == 1 ? TEXT("afl.Dev.StickerRTDump remote") : TEXT("afl.Dev.StickerRTDump"),
+				TEXT("rt-dump-after-respawn"));
 		}
 		// CC-6.5 at t=26: spends, so it is an ECONOMY probe and obeys the isolation gate.
 		if (RoleIndex == 0 && bEconomyOk && GAFLDoneLoopProbe != 0) { FireCmd(26.0f, TEXT("afl.Creator.VerifyDoneLoop"), TEXT("0-cc65-doneloop")); }

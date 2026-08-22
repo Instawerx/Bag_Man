@@ -5,6 +5,7 @@
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/Controller.h"
 
 namespace
 {
@@ -17,6 +18,17 @@ namespace
 			if (const APlayerState* PS = P->GetPlayerState())
 			{
 				return PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>();
+			}
+			// RESPAWN: a freshly possessed pawn may not have its PlayerState linked yet when the
+			// reapply runs, and returning null here is indistinguishable from "this player owns no
+			// stickers" -- which is exactly what the respawn arm measured: stickerRT=<none> on a pawn
+			// whose owner had two placed. The controller still holds the PlayerState at that moment.
+			if (const AController* C = P->GetController())
+			{
+				if (const APlayerState* PS2 = C->PlayerState)
+				{
+					return PS2->FindComponentByClass<UAFLCosmeticLoadoutComponent>();
+				}
 			}
 		}
 		return nullptr;
