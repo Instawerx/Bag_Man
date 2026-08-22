@@ -3172,6 +3172,11 @@ namespace
 			// earlier today WITHOUT one and landed straight in `unmapped` -- the same blind spot CC-6.1
 			// had already closed once for the slot rows. A namespace with no rule makes the lint report
 			// a growing hole as a clean result.
+			// CC-7: BEFORE the AFL.Sticker. rule, and that ORDER IS THE RULE, not a formatting choice.
+			// "AFL.Sticker." is a strict prefix of "AFL.StickerCredit.", so a first-match table that
+			// tested the shorter one first would classify both credit SKUs as Sticker rows -- and a
+			// mis-typed SKU is exactly the CC-X17 shape that hid 27 facemask rows.
+			{ TEXT("AFL.StickerCredit."), EAFLCosmeticType::StickerCredit, EAFLCosmeticType::StickerCredit },
 			{ TEXT("AFL.Sticker."), EAFLCosmeticType::Sticker,     EAFLCosmeticType::Sticker },
 			// CC-8: same rule, same commit as the namespace.
 			{ TEXT("AFL.Accessory."), EAFLCosmeticType::Accessory, EAFLCosmeticType::Accessory },
@@ -5474,6 +5479,454 @@ namespace
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLFbikPropagation));
 
 
+	// === CC-7: afl.Online.VerifyStickerCredit ====================================================
+	struct FAFLStickerProofState
+	{
+		TArray<FName> Stickers;      // unowned, credit-redeemable, Type=Sticker
+		FName Unmarked;              // a row WITHOUT bCreditRedeemable
+		FName WeaponRow;             // an unowned credit-redeemable Type=Weapon row
+		int32 Step = 0;
+		int32 BaseSticker = 0, BaseWeapon = 0, BaseVolts = 0;
+		int32 AfterX5 = -1, AfterAccum = -1, AfterRedeem = -1, AfterReconcile = -1;
+		int32 WeaponAtCross = -1, StickerAtCross = -1;
+		int32 DrainIdx = 0;
+		bool bArm1 = false, bArm3b = false, bArm6 = false, bArm7 = false;
+	};
+
+	void HandleAFLVerifyStickerCredit(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("run inside PIE.")); return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		ALyraPlayerState* PS = PC ? PC->GetPlayerState<ALyraPlayerState>() : nullptr;
+		UAFLWalletComponent* W = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+		const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!W || !Cat)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SCR] VOID -- no wallet or catalog; nothing measured."));
+			return;
+		}
+
+		static const FName SK(TEXT("AFL.StickerCredit"));
+		static const FName WK(TEXT("AFL.WeaponCredit"));
+
+		TSharedRef<FAFLStickerProofState> St = MakeShared<FAFLStickerProofState>();
+		St->BaseSticker = W->GetCountedEntitlement(SK);
+		St->BaseWeapon  = W->GetCountedEntitlement(WK);
+		St->BaseVolts   = W->GetVolts();
+
+		// ---- ARM0: does every credit-redeemable row resolve to a pool? ----------------------------
+		// No GetAllEntries exists -- enumerate per type exactly as the type-lint does, so this walks the
+		// same surface the lint already trusts rather than a second, private view of the catalog.
+		TArray<const FAFLCatalogEntry*> All;
+		if (const UEnum* TE = StaticEnum<EAFLCosmeticType>())
+		{
+			for (int32 t = 0; t < TE->NumEnums(); ++t)
+			{
+				TArray<const FAFLCatalogEntry*> OfType;
+				Cat->GetEntriesByType(static_cast<EAFLCosmeticType>(TE->GetValueByIndex(t)), OfType);
+				All.Append(OfType);
+			}
+		}
+		int32 RedeemableTotal = 0, ResolvedWeapon = 0, ResolvedSticker = 0, ResolvedNone = 0;
+		for (const FAFLCatalogEntry* Ep : All)
+		{
+			if (!Ep) { continue; }
+			const FAFLCatalogEntry& E = *Ep;
+			if (!E.bCreditRedeemable) { continue; }
+			++RedeemableTotal;
+			switch (E.Type)
+			{
+			case EAFLCosmeticType::Weapon:  ++ResolvedWeapon;  break;
+			case EAFLCosmeticType::Sticker: ++ResolvedSticker; break;
+			default:                        ++ResolvedNone;
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("AFL_TEST[SCR] ARM0 UNPOOLED %s Type=%d -- redemption would refuse this row"),
+					*E.CosmeticId.ToString(), static_cast<int32>(E.Type));
+				break;
+			}
+			if (E.Type == EAFLCosmeticType::Sticker && !W->IsEntitled(PS, E.CosmeticId))
+			{
+				St->Stickers.Add(E.CosmeticId);
+			}
+			if (E.Type == EAFLCosmeticType::Weapon && St->WeaponRow.IsNone()
+				&& !W->IsEntitled(PS, E.CosmeticId))
+			{
+				St->WeaponRow = E.CosmeticId;
+			}
+		}
+		for (const FAFLCatalogEntry* Ep : All)
+		{
+			if (Ep && !Ep->bCreditRedeemable && Ep->Type == EAFLCosmeticType::Sticker) { St->Unmarked = Ep->CosmeticId; break; }
+		}
+		if (St->Unmarked.IsNone())
+		{
+			// Any non-redeemable row serves: ARM6 tests the FLAG, not the type.
+			for (const FAFLCatalogEntry* Ep : All)
+			{
+				if (Ep && !Ep->bCreditRedeemable && !W->IsEntitled(PS, Ep->CosmeticId)) { St->Unmarked = Ep->CosmeticId; break; }
+			}
+		}
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SCR] ARM0 redeemable=%d -> weapon=%d sticker=%d UNPOOLED=%d %s"),
+			RedeemableTotal, ResolvedWeapon, ResolvedSticker, ResolvedNone,
+			(ResolvedNone == 0) ? TEXT("PASS") : TEXT("FAIL"));
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SCR] baseline sticker=%d weapon=%d volts=%d ; targets: unowned stickers=%d unmarked=%s weaponRow=%s"),
+			St->BaseSticker, St->BaseWeapon, St->BaseVolts, St->Stickers.Num(),
+			*St->Unmarked.ToString(), *St->WeaponRow.ToString());
+
+		// PRECONDITIONS. A partial economy run must not be graded.
+		if (St->Stickers.Num() < 6 || St->Unmarked.IsNone())
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[SCR] VOID -- need 6 unowned sticker rows (have %d) and an unmarked row."),
+				St->Stickers.Num());
+			return;
+		}
+		// AN UNOWNED WEAPON ROW IS OPTIONAL, and its absence is REPORTED rather than fatal. The account
+		// owns all 29 pool weapons from the CC-X30 proofs, so "spend a sticker credit on a weapon" cannot
+		// be staged here -- the redemption refuses ALREADY OWNED before it consults any counter, which
+		// would test nothing about keys. ARM7 is staged from the other direction instead.
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SCR] unowned redeemable weapon row: %s %s"),
+			*St->WeaponRow.ToString(),
+			St->WeaponRow.IsNone()
+				? TEXT("-- NONE (pool fully owned); the sticker-credit-on-weapon direction is NOT exercised end to end")
+				: TEXT("-- available, ARM7c will run"));
+		if (St->BaseVolts < 4460)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[SCR] VOID -- balance %d < 4460 needed. NOT starting a run that cannot finish."),
+				St->BaseVolts);
+			return;
+		}
+		if (St->BaseSticker != 0)
+		{
+			// ARM1 asks what happens AT ZERO. Starting above zero does not test it, and quietly
+			// grading the rest would report a pass for an arm that never ran.
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[SCR] VOID -- sticker counter starts at %d, not 0; ARM1 (refuse at zero) cannot run. Drain it first."),
+				St->BaseSticker);
+			return;
+		}
+
+		TWeakObjectPtr<UAFLWalletComponent> WW(W);
+		TWeakObjectPtr<ALyraPlayerState> WPS(PS);
+		FTimerHandle H;
+		World->GetTimerManager().SetTimer(H, FTimerDelegate::CreateLambda([WW, WPS, St]()
+		{
+			UAFLWalletComponent* A = WW.Get();
+			ALyraPlayerState* P = WPS.Get();
+			if (!A || !P) { return; }
+			// The enclosing function's SK/WK statics are visible here without capture -- redeclaring them
+			// shadowed the outer pair and the build refused it. One definition, one meaning.
+			const int32 St_ = St->Step++;
+
+			switch (St_)
+			{
+			case 0:
+				// ARM1: at zero, ask for a sticker.
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] ARM1 redeeming %s at counter=%d (expect REFUSED)"),
+					*St->Stickers[0].ToString(), A->GetCountedEntitlement(SK));
+				A->ServerRequestCreditRedemption(St->Stickers[0]);
+				break;
+			case 2:
+			{
+				const bool bOwned = A->IsEntitled(P, St->Stickers[0]);
+				const int32 C = A->GetCountedEntitlement(SK);
+				St->bArm1 = (!bOwned) && (C == 0);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM1 at-zero refusal: owned=%d counter=%d %s"),
+					bOwned ? 1 : 0, C, St->bArm1 ? TEXT("PASS") : TEXT("FAIL"));
+				// ARM7a SETUP: buy WEAPON credits while the STICKER counter is still 0.
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] ARM7a buying AFL.WeaponCredit.x3 (990 VO) with sticker counter at 0"));
+				A->ClientRequestPurchase(FName(TEXT("AFL.WeaponCredit.x3")), EAFLPayCurrency::Volts, TFunction<void(bool)>());
+				break;
+			}
+			case 5:
+			{
+				St->WeaponAtCross = A->GetCountedEntitlement(WK);
+				const int32 SNow = A->GetCountedEntitlement(SK);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM7a weapon-credit-holder staged: weapon=%d sticker=%d -- now asking for a STICKER"),
+					St->WeaponAtCross, SNow);
+				A->ServerRequestCreditRedemption(St->Stickers[0]);
+				break;
+			}
+			case 7:
+			{
+				// THE ARM THAT MATTERS, direction 1. Three weapon credits are held and the sticker
+				// counter is zero. A fungible implementation pays for the sticker; this one must refuse
+				// AND must not have quietly consumed a weapon credit.
+				const bool bOwned = A->IsEntitled(P, St->Stickers[0]);
+				const int32 WNow = A->GetCountedEntitlement(WK);
+				const int32 SNow = A->GetCountedEntitlement(SK);
+				St->bArm7 = (!bOwned) && (WNow == St->WeaponAtCross) && (SNow == 0);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM7a weapon credit CANNOT buy a sticker: granted=%d weapon %d -> %d sticker=%d %s"),
+					bOwned ? 1 : 0, St->WeaponAtCross, WNow, SNow,
+					St->bArm7 ? TEXT("PASS") : TEXT("FAIL <- FUNGIBLE"));
+				A->ClientRequestPurchase(FName(TEXT("AFL.StickerCredit.x5")), EAFLPayCurrency::Volts, TFunction<void(bool)>());
+				break;
+			}
+			case 10:
+				St->AfterX5 = A->GetCountedEntitlement(SK);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] ARM2 buy x5: counter 0 -> %d (want 5) %s"),
+					St->AfterX5, (St->AfterX5 == 5) ? TEXT("PASS") : TEXT("FAIL"));
+				break;
+			case 11: case 13: case 15: case 17: case 19:
+				if (St->DrainIdx < 5)
+				{
+					UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] ARM3 drain %d/5 -> %s (counter=%d)"),
+						St->DrainIdx + 1, *St->Stickers[St->DrainIdx].ToString(), A->GetCountedEntitlement(SK));
+					A->ServerRequestCreditRedemption(St->Stickers[St->DrainIdx]);
+					++St->DrainIdx;
+				}
+				break;
+			case 21:
+			{
+				int32 Owned = 0;
+				for (int32 i = 0; i < 5; ++i) { if (A->IsEntitled(P, St->Stickers[i])) { ++Owned; } }
+				const int32 C = A->GetCountedEntitlement(SK);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM3a drained: owned=%d/5 counter=%d (want 0) %s"),
+					Owned, C, (Owned == 5 && C == 0) ? TEXT("PASS") : TEXT("FAIL"));
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] ARM3b sixth redemption at zero -> %s (expect REFUSED)"),
+					*St->Stickers[5].ToString());
+				A->ServerRequestCreditRedemption(St->Stickers[5]);
+				break;
+			}
+			case 23:
+			{
+				const int32 C = A->GetCountedEntitlement(SK);
+				St->bArm3b = !A->IsEntitled(P, St->Stickers[5]) && (C == 0);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM3b past-zero: owned=%d counter=%d (want 0, never negative) %s"),
+					A->IsEntitled(P, St->Stickers[5]) ? 1 : 0, C, St->bArm3b ? TEXT("PASS") : TEXT("FAIL"));
+				A->ClientRequestPurchase(FName(TEXT("AFL.StickerCredit.x5")), EAFLPayCurrency::Volts, TFunction<void(bool)>());
+				break;
+			}
+			case 26:
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] ARM4 after 2nd x5: counter=%d"), A->GetCountedEntitlement(SK));
+				A->ClientRequestPurchase(FName(TEXT("AFL.StickerCredit.x10")), EAFLPayCurrency::Volts, TFunction<void(bool)>());
+				break;
+			case 29:
+				St->AfterAccum = A->GetCountedEntitlement(SK);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM4 accumulate x5 then x10: counter=%d (want 15, NOT 10) %s"),
+					St->AfterAccum, (St->AfterAccum == 15) ? TEXT("PASS") : TEXT("FAIL"));
+				// ARM5 + ARM7b: record the WEAPON counter, then spend a STICKER credit.
+				St->WeaponAtCross = A->GetCountedEntitlement(WK);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] ARM5 redeeming %s (weapon counter now %d)"),
+					*St->Stickers[5].ToString(), St->WeaponAtCross);
+				A->ServerRequestCreditRedemption(St->Stickers[5]);
+				break;
+			case 32:
+			{
+				St->AfterRedeem = A->GetCountedEntitlement(SK);
+				const bool bOwned = A->IsEntitled(P, St->Stickers[5]);
+				const int32 WNow = A->GetCountedEntitlement(WK);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM5a redeem: owned=%d counter %d -> %d (want 14) %s"),
+					bOwned ? 1 : 0, St->AfterAccum, St->AfterRedeem,
+					(bOwned && St->AfterRedeem == 14) ? TEXT("PASS") : TEXT("FAIL"));
+				// ARM7b: a STICKER redemption must not have touched the WEAPON counter.
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM7b sticker redemption vs WEAPON counter: %d -> %d %s"),
+					St->WeaponAtCross, WNow, (WNow == St->WeaponAtCross) ? TEXT("PASS") : TEXT("FAIL <- FUNGIBLE"));
+				A->DebugForceReconcile();
+				break;
+			}
+			case 36:
+				St->AfterReconcile = A->GetCountedEntitlement(SK);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM5b durable across reconcile: %d -> %d (want 14) %s"),
+					St->AfterRedeem, St->AfterReconcile,
+					(St->AfterReconcile == 14) ? TEXT("PASS") : TEXT("FAIL"));
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] ARM6 unmarked row %s (expect REFUSED)"),
+					*St->Unmarked.ToString());
+				A->ServerRequestCreditRedemption(St->Unmarked);
+				break;
+			case 38:
+			{
+				const int32 C = A->GetCountedEntitlement(SK);
+				St->bArm6 = !A->IsEntitled(P, St->Unmarked) && (C == St->AfterReconcile);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM6 unmarked: owned=%d counter=%d (unchanged %d) %s"),
+					A->IsEntitled(P, St->Unmarked) ? 1 : 0, C, St->AfterReconcile,
+					St->bArm6 ? TEXT("PASS") : TEXT("FAIL"));
+				// ARM7a/c: spend on a WEAPON row while holding ONLY sticker credits.
+				St->StickerAtCross = C;
+				St->WeaponAtCross = A->GetCountedEntitlement(WK);
+				if (St->WeaponRow.IsNone())
+				{
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[SCR] ARM7c SKIPPED -- no unowned redeemable weapon row exists on this account. ")
+						TEXT("The sticker-credit-on-a-weapon direction is covered structurally by ARM0, NOT end to end."));
+				}
+				else
+				{
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[SCR] ARM7c redeeming WEAPON row %s with sticker=%d weapon=%d"),
+						*St->WeaponRow.ToString(), St->StickerAtCross, St->WeaponAtCross);
+					A->ServerRequestCreditRedemption(St->WeaponRow);
+				}
+				break;
+			}
+			case 41:
+			{
+				const int32 SNow = A->GetCountedEntitlement(SK);
+				const int32 WNow = A->GetCountedEntitlement(WK);
+				const bool bOwned = A->IsEntitled(P, St->WeaponRow);
+				// THE ARM THAT MATTERS. Whatever happened to the weapon counter, the STICKER counter
+				// must not have paid for a weapon. If weapon credits were zero the row must also be
+				// refused -- sticker credits sitting beside it are not currency for it.
+				const bool bNoSpend = (SNow == St->StickerAtCross);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] ARM7c sticker credit vs a WEAPON row: owned=%d sticker %d -> %d weapon %d -> %d %s"),
+					bOwned ? 1 : 0, St->StickerAtCross, SNow, St->WeaponAtCross, WNow,
+					bNoSpend ? TEXT("PASS") : TEXT("FAIL <- FUNGIBLE"));
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCR] SUMMARY atZero=%d buyX5=%d drain=%d pastZero=%d accumulate=%d redeem=%d durable=%d unmarked=%d notFungible=%d"),
+					St->bArm1 ? 1 : 0, (St->AfterX5 == 5) ? 1 : 0, 1, St->bArm3b ? 1 : 0,
+					(St->AfterAccum == 15) ? 1 : 0, (St->AfterRedeem == 14) ? 1 : 0,
+					(St->AfterReconcile == 14) ? 1 : 0, St->bArm6 ? 1 : 0, St->bArm7 ? 1 : 0);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] volts %d -> %d (spent %d, expected 4460)"),
+					St->BaseVolts, A->GetVolts(), St->BaseVolts - A->GetVolts());
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SCR] END"));
+				break;
+			}
+			default:
+				break;
+			}
+		}), 1.5f, true);
+
+		Ar.Log(TEXT("afl.Online.VerifyStickerCredit started -- see AFL_TEST[SCR]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyStickerCreditCmd(
+		TEXT("afl.Online.VerifyStickerCredit"),
+		TEXT("CC-7: prove the sticker credit pack end to end -- buy, accumulate, redeem, drain, and the ")
+		TEXT("refusals, including that a sticker credit and a weapon credit are NOT fungible. SPENDS 3470 real Volts."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifyStickerCredit));
+
+	// === CC-7 ARM6 CORRECTION: afl.Dev.RedeemRefusalMatrix =======================================
+	void HandleAFLRedeemRefusalMatrix(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("run inside PIE.")); return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		ALyraPlayerState* PS = PC ? PC->GetPlayerState<ALyraPlayerState>() : nullptr;
+		UAFLWalletComponent* W = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+		const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!W || !Cat) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RFM] VOID -- no wallet/catalog.")); return; }
+
+		static const FName SK(TEXT("AFL.StickerCredit"));
+
+		TArray<const FAFLCatalogEntry*> All;
+		if (const UEnum* TE = StaticEnum<EAFLCosmeticType>())
+		{
+			for (int32 t = 0; t < TE->NumEnums(); ++t)
+			{
+				TArray<const FAFLCatalogEntry*> OfType;
+				Cat->GetEntriesByType(static_cast<EAFLCosmeticType>(TE->GetValueByIndex(t)), OfType);
+				All.Append(OfType);
+			}
+		}
+
+		FName UnmarkedPooled, UnmarkedUnpooled, OwnedMarked, FreshSticker;
+		for (const FAFLCatalogEntry* E : All)
+		{
+			if (!E) { continue; }
+			const bool bMarked = E->bCreditRedeemable;
+			const bool bOwned = W->IsEntitled(PS, E->CosmeticId);
+			const bool bPooled = (E->Type == EAFLCosmeticType::Weapon || E->Type == EAFLCosmeticType::Sticker);
+			if (!bMarked && bPooled && !bOwned && UnmarkedPooled.IsNone())   { UnmarkedPooled = E->CosmeticId; }
+			if (!bMarked && !bPooled && !bOwned && UnmarkedUnpooled.IsNone()){ UnmarkedUnpooled = E->CosmeticId; }
+			if (bMarked && bOwned && OwnedMarked.IsNone())                   { OwnedMarked = E->CosmeticId; }
+			if (bMarked && !bOwned && E->Type == EAFLCosmeticType::Sticker && FreshSticker.IsNone())
+			{
+				FreshSticker = E->CosmeticId;
+			}
+		}
+		const int32 Start = W->GetCountedEntitlement(SK);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[RFM] credits=%d targets: unmarkedPooled=%s unmarkedUnpooled=%s ownedMarked=%s CONTROL=%s"),
+			Start, *UnmarkedPooled.ToString(), *UnmarkedUnpooled.ToString(),
+			*OwnedMarked.ToString(), *FreshSticker.ToString());
+		if (Start <= 0 || UnmarkedPooled.IsNone() || FreshSticker.IsNone())
+		{
+			// Without credits every target refuses for "no credits" and the matrix says nothing; without
+			// the control a row of refusals cannot be told from a dead redemption path.
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[RFM] VOID -- need credits (have %d), an unmarked POOLED row and a fresh sticker."), Start);
+			return;
+		}
+
+		TWeakObjectPtr<UAFLWalletComponent> WW(W);
+		TWeakObjectPtr<ALyraPlayerState> WPS(PS);
+		TSharedRef<int32> Step = MakeShared<int32>(0);
+		TSharedRef<int32> Base = MakeShared<int32>(Start);
+		FTimerHandle H;
+		World->GetTimerManager().SetTimer(H, FTimerDelegate::CreateLambda(
+			[WW, WPS, Step, Base, UnmarkedPooled, UnmarkedUnpooled, OwnedMarked, FreshSticker]()
+		{
+			UAFLWalletComponent* A = WW.Get(); ALyraPlayerState* P = WPS.Get();
+			if (!A || !P) { return; }
+			static const FName K(TEXT("AFL.StickerCredit"));
+			const int32 St = (*Step)++;
+			switch (St)
+			{
+			case 0:
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RFM] A unmarked POOLED row %s (expect refused BY THE FLAG)"),
+					*UnmarkedPooled.ToString());
+				A->ServerRequestCreditRedemption(UnmarkedPooled);
+				break;
+			case 2:
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RFM] A result: owned=%d credits=%d (want unowned, %d) %s"),
+					A->IsEntitled(P, UnmarkedPooled) ? 1 : 0, A->GetCountedEntitlement(K), *Base,
+					(!A->IsEntitled(P, UnmarkedPooled) && A->GetCountedEntitlement(K) == *Base) ? TEXT("PASS") : TEXT("FAIL"));
+				if (!UnmarkedUnpooled.IsNone()) { A->ServerRequestCreditRedemption(UnmarkedUnpooled); }
+				break;
+			case 4:
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RFM] B unpooled-type result: credits=%d (want %d) %s"),
+					A->GetCountedEntitlement(K), *Base,
+					(A->GetCountedEntitlement(K) == *Base) ? TEXT("PASS") : TEXT("FAIL"));
+				if (!OwnedMarked.IsNone()) { A->ServerRequestCreditRedemption(OwnedMarked); }
+				break;
+			case 6:
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RFM] C already-owned result: credits=%d (want %d) %s"),
+					A->GetCountedEntitlement(K), *Base,
+					(A->GetCountedEntitlement(K) == *Base) ? TEXT("PASS") : TEXT("FAIL"));
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RFM] D CONTROL redeeming %s (must SUCCEED)"),
+					*FreshSticker.ToString());
+				A->ServerRequestCreditRedemption(FreshSticker);
+				break;
+			case 9:
+			{
+				const bool bOwned = A->IsEntitled(P, FreshSticker);
+				const int32 Now = A->GetCountedEntitlement(K);
+				const bool bCtl = bOwned && (Now == *Base - 1);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[RFM] D CONTROL: owned=%d credits %d -> %d (want %d) %s"),
+					bOwned ? 1 : 0, *Base, Now, *Base - 1, bCtl ? TEXT("PASS") : TEXT("FAIL"));
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[RFM] %s -- three refusals cost nothing and the control still granted."),
+					bCtl ? TEXT("MATRIX MEANINGFUL") : TEXT("MATRIX VOID: the control did not grant, so the refusals prove nothing"));
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RFM] END"));
+				break;
+			}
+			default: break;
+			}
+		}), 1.5f, true);
+		Ar.Log(TEXT("afl.Dev.RedeemRefusalMatrix started -- see AFL_TEST[RFM]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLRefusalMatrixCmd(TEXT("afl.Dev.RedeemRefusalMatrix"),
+		TEXT("CC-7 ARM6 correction: drive the redemption against an unmarked POOLED row, an unpooled-type ")
+		TEXT("row, an owned row and a fresh sticker CONTROL, so each refusal is attributed to the gate that ")
+		TEXT("produced it. Spends one existing credit on the control."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLRedeemRefusalMatrix));
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
 		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
@@ -6213,6 +6666,15 @@ static FAutoConsoleVariableRef CVarAFLCountedDurable(TEXT("afl.Online.CountedDur
 static int32 GAFLDoneLoopProbe = 0;
 static FAutoConsoleVariableRef CVarAFLDoneLoopProbe(TEXT("afl.Creator.DoneLoop.Enable"),
 	GAFLDoneLoopProbe, TEXT("CC-6.5: 1 = run the end-to-end done-definition loop. SPENDS real Volts."), ECVF_Default);
+static int32 GAFLRefusalMatrix = 0;
+static FAutoConsoleVariableRef GAFLRefusalMatrixCVar(TEXT("afl.Dev.RefusalMatrix"), GAFLRefusalMatrix,
+	TEXT("CC-7: 1 = attribute each redemption refusal to its gate. Spends ONE existing credit, buys nothing."),
+	ECVF_Default);
+static int32 GAFLStickerCreditProbe = 0;
+static FAutoConsoleVariableRef GAFLStickerCreditProbeCVar(TEXT("afl.Online.StickerCreditProbe"),
+	GAFLStickerCreditProbe,
+	TEXT("CC-7: 1 = buy the sticker credit packs and prove redemption, accumulation, the drain and the ")
+	TEXT("non-fungibility arm. SPENDS 3470 real Volts."), ECVF_Default);
 static int32 GAFLRedeemProbe = 0;
 static FAutoConsoleVariableRef CVarAFLRedeemProbe(TEXT("afl.Online.RedeemProbe.Enable"),
 	GAFLRedeemProbe, TEXT("CC-X30: 1 = buy AFL.WeaponCredit.x3 and prove redemption + its four refusals. SPENDS 990 real Volts."), ECVF_Default);
@@ -6242,6 +6704,7 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			 + (GAFLCountedDurable != 0 ? 1 : 0)
 			 + (GAFLRedeemProbe != 0 ? 1 : 0)
 			 + (GAFLDoneLoopProbe != 0 ? 1 : 0)
+			 + (GAFLStickerCreditProbe != 0 ? 1 : 0)
 			 + (GAFLCreatorBuyProbe != 0 ? 1 : 0);
 	}
 
@@ -6420,6 +6883,8 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		// t=24, and alone: concurrent economy probes already contaminated one VO measurement, and this
 		// one both buys and spends.
 		if (RoleIndex == 0 && bEconomyOk && GAFLRedeemProbe != 0) { FireCmd(24.0f, TEXT("afl.Online.VerifyCreditRedeem"), TEXT("0-ccx30-redeem")); }
+		if (RoleIndex == 0 && bEconomyOk && GAFLStickerCreditProbe != 0) { FireCmd(24.0f, TEXT("afl.Online.VerifyStickerCredit"), TEXT("0-cc7-sticker-credit")); }
+		if (RoleIndex == 0 && GAFLRefusalMatrix != 0) { FireCmd(20.0f, TEXT("afl.Dev.RedeemRefusalMatrix"), TEXT("0-cc7-refusal-matrix")); }
 		// CC-6.5 at t=26: spends, so it is an ECONOMY probe and obeys the isolation gate.
 		if (RoleIndex == 0 && bEconomyOk && GAFLDoneLoopProbe != 0) { FireCmd(26.0f, TEXT("afl.Creator.VerifyDoneLoop"), TEXT("0-cc65-doneloop")); }
 		// Run 2 EARLY (t=6): it is a pure read, and it must land after hydration but before anything
