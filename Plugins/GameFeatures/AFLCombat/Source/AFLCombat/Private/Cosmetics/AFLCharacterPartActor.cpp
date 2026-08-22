@@ -605,7 +605,12 @@ void AAFLCharacterPartActor::ApplyStickerSet(const FAFLStickerSet& Set, const UA
 		const float Tile = 1.0f / 4.0f;           // atlas grid, 4x4
 		for (const FDraw& D : Draws)
 		{
-			const int32 zc = D.Zone % 3, zr = D.Zone / 3;
+			// UE FLIPS V ON FBX IMPORT. UV2 was authored in Blender with v rising up the body, so a zone
+			// written at Blender row R arrives at UE row (2-R). Composing without this flip put every
+			// sticker two rows away from its own geometry -- ChestLeft landed on the back of a leg, which
+			// is why a front-on camera saw nothing and the layer looked dead. PROVEN by filling UE cell
+			// (0,2) and watching the mark appear on the CHEST.
+			const int32 zc = D.Zone % 3, zr = 2 - (D.Zone / 3);
 			const int32 tc = D.Tile % 4, tr = D.Tile / 4;
 			const float Size = Cell * FMath::Clamp(D.Scale, 0.05f, 1.0f);
 			// Placement is normalised ZONE space, so it cannot leave the cell by construction.
