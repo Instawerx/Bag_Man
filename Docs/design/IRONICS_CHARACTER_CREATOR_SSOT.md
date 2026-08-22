@@ -553,6 +553,59 @@ launch.
 
 ---
 
+## 8.9 · CC-7 STICKER CREDIT PACKS — SHIPPED 2026-08-21
+
+**RULED AND BUILT.** `AFL.StickerCredit.x5` (990 VO) and `.x10` (1490 VO), `CountedKey =
+AFL.StickerCredit`, GrantQuantity 5 and 10. Live on title `1A2077` (109 items) and in the UE catalog
+(428 → 440 rows), verified by RE-READING the live title rather than the apply step.
+
+**The 10 designs supplied by the operator are authored as credit-redeemable pool rows.** They are
+deliberately `bTransactable = false`: the operator ruled the CREDIT prices and nothing else, so a
+direct sticker price would be invented product. Priced at 0 and left transactable, every sticker would
+read "Free" in the store and be buyable for nothing. The redemption path does not consult
+`bTransactable`, so they stay redeemable with a credit and unbuyable with money. **Direct sticker
+pricing is still the operator's call.**
+
+**THE REDEMPTION RPC WAS NOT KEY-GENERIC** — it hardcoded `AFL.WeaponCredit` in the request body and
+again in the async callback. The fix deliberately does **not** add a Key parameter: the required key is
+derived server-side from the TARGET ROW's Type (`Weapon → AFL.WeaponCredit`, `Sticker →
+AFL.StickerCredit`, everything else → None → refused). **The client never names a key, so spending the
+wrong currency is not refused — it is unrepresentable.** The premise was measured, not assumed: all 29
+existing credit-redeemable rows are Type=Weapon, and that is not vacuous since only 177 of 428 rows are
+Weapon.
+
+**PROVEN** (production entry, listen server, one account, 8000 → 3540 VO, spent exactly 4460):
+
+| arm | result |
+|---|---|
+| refuse at zero | counter 0, redemption refused, nothing granted |
+| **weapon credit CANNOT buy a sticker** | held 3 weapon credits with 0 sticker credits → refused, weapon counter still 3 |
+| buy x5 | 0 → 5 |
+| drain | five redemptions 5 → 0, five rows owned; the sixth REFUSED, never negative |
+| accumulate | x5 then x10 → **15**, not 10 |
+| redeem + durable | 15 → 14, owned, still 14 across a reconcile |
+| sticker redemption vs weapon counter | 3 → 3, untouched |
+| unmarked row | refused |
+
+**ARM6 PASSED WHILE TESTING THE WRONG GATE, and was corrected.** It claimed to test
+`bCreditRedeemable` but picked `AFL.Edge.Crimson`, whose refusal came from the *type resolver* — the
+gate added the same day — because the resolver runs first. `afl.Dev.RedeemRefusalMatrix` re-ran it
+against an unmarked row of a POOLED type (`AFL.WeaponSkin.NeonCamo.IceCyan`), which refused **by the
+flag**, alongside an unpooled-type row (resolver), an owned row (owned check), and a CONTROL that
+GRANTED (14 → 13). Three refusals cost zero credits; without the control they would be
+indistinguishable from a redemption path that refuses everything.
+
+⚠ **ONE DIRECTION IS NOT EXERCISED END TO END.** "A sticker credit spent on an unowned weapon row"
+cannot be staged: the account owns all 29 pool weapons from the CC-X30 proofs, and the redemption
+refuses ALREADY OWNED before consulting any counter. It is covered structurally — every one of the 29
+resolves to `AFL.WeaponCredit`, none to `AFL.StickerCredit`, and the resolver takes no caller input —
+but that is an argument, not a measurement.
+
+⚠ **`setup:economy` reseeds the test account** (VO 145,819 → 8,000) as a side effect of syncing the
+catalog. Not a catalog defect, but it will surprise anyone who runs it expecting a catalog-only write.
+
+**PLACEMENT STILL BLOCKED** — see CC-7.1. A sticker can be OWNED but not yet PLACED.
+
 ## 9 · Blocked axes
 
 **Stickers — blocked on UV work.** `SKM_IRONICS_Blank` has exactly two UV sets: `UV0`
