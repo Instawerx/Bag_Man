@@ -890,43 +890,52 @@ compact-reference indirection.
 
 ---
 
-## 8.17 · CC-7 RT → SCREEN — WHERE IT DIES, AND A CORRECTION
+## 8.17 · CC-7 RT → SCREEN — **PROVEN.** The break was a V flip.
 
-**LOGGED AS UNPROVEN. The failure is in the CAPTURE HARNESS, not in the sticker chain.**
+**The sticker renders, in its zone.** A mark in ChestLeft's cell appears on the chest and nowhere
+else, seen in the editor viewport — the shipping render path.
 
-The chain was bisected instead of photographed again. In order:
+### The bug
 
-| # | measured | result |
+UV2 was authored in Blender with `v` rising up the body. **UE flips V on FBX import**, so a zone
+written at Blender row *R* arrives at UE row *(2−R)*. The compositor drew at the unflipped row, so
+every sticker landed **two rows from the geometry that samples it** — ChestLeft composited where the
+back of a leg reads. A front-on camera saw nothing, and the layer looked dead. One line:
+`zr = 2 - (Zone / 3)`.
+
+### How it was found — after six instruments failed
+
+Every automated capture was blind, and the last one (`HighResShot` of the editor viewport) failed its
+own repeatability control: **ON-vs-ON with nothing changed differed by 260,388 px, MORE than
+OFF-vs-ON.** I had already written "the shipping path can see the parameter" off the first comparison
+before that control withdrew it.
+
+**The operator looked at the viewport.** That single observation — *"only the visor is visible,
+everything else is a white out"* — did what six instruments could not:
+
+| step | observation | what it eliminated |
 |---|---|---|
-| A | graph state after all saves/reverts/repairs | **INTACT** — `DEB92745.in[A]` → sticker Add; `stickerAdd.in[B]` = contribution Multiply; `sampler.Coordinates` → UV Add |
-| B | do parameters reach the MIDs? | **YES** — parents `MI_AFL_IRONICS_Body` / `_Visor`, read-back `intensity=1.0`, texture set |
-| C | **is the subject even visible?** | **YES** — `nonBlack = 64,477 / 65,536`. No capture was photographing an empty frame |
-| D | ladder: solid white → atlas → RT, all at intensity 1 | all `dMean = 0.000` |
+| solid white texture, intensity 1 | body blown white, **visor unaffected** | the layer renders. The visor is on `M_AFL_Visor_Clean` with no sticker layer — the one surface that *should* be immune, and was |
+| `UVScale=0`, offset to a cell centre | white again | sampler, parameters and RT all work |
+| **prediction:** fill UE cell (0,2) | **white patch on the CHEST only** | the V flip is the cause |
 
-⚠ **THE POSITIVE CONTROL OVERTURNED THE READING.** `NeonIntensity=50` with red Neon and Emissive —
-**shipping parameters that visibly drive this body** — also produced `dMean = 0.000`. **The capture is
-blind to ANY MID parameter change, not just sticker ones.**
+The solid-white test could never have caught this: a uniform texture looks identical at every UV, so
+it cannot test UV addressing at all. Only a *localised* cell could, and only once it was placed at the
+flipped row.
 
-**So the previous conclusion is withdrawn.** "The material's sticker branch never reaches the output"
-is NOT supported: five capture instruments have been measuring something that cannot see a material
-change at all. The sticker branch is neither proven nor disproven by any of them.
+**LESSON.** Six instruments produced confident nulls and one produced a confident false positive. The
+thing that resolved it was looking at the screen. When an instrument cannot be made to hold a
+baseline, that is itself the signal to stop building instruments.
 
-Render-thread ordering was the leading hypothesis and was **tested and rejected**:
-`MarkRenderStateDirty` + `FlushRenderingCommands` either side of `CaptureScene` changed nothing.
-(`RenderCore` is kept as a dependency; the flush is correct practice regardless.)
+### CC-7 placement: what a player can do, measured
 
-**WHERE IT DIES: between the MID and the captured pixels, inside the harness.** Not the material, not
-the RT, not the zones, not replication.
+Buy credits → redeem a sticker → place it in a zone → it composites into that zone's cell (RT
+per-cell: placed zones lit, all others zero) → **and it renders on the body in that zone.** Store
+offers no sticker rows and both credit SKUs.
 
-**WHAT REMAINS TRUE AND MEASURED:** the axis, the economy, the compositor and the geometry. A sticker
-placed in a zone composites into that zone's cell and no other (RT per-cell: two placed zones lit,
-seven at zero), and UV2 puts every loop inside its own cell. **The one thing never demonstrated is a
-sticker visible on a rendered body**, and the honest reason is that no instrument built for it could
-see a material change of any kind.
-
-Next attempt should abandon `SceneCapture2D` on a spawned clone entirely — take a real viewport
-screenshot (`HighResShot`) of a posed pawn, or verify in the material editor's own preview, where the
-render path is the shipping one rather than one assembled by the test.
+⚠ Still true: **there is no creator UI** — placement is reachable only through the RPC/console. Zone
+placement remains art-unreviewed (ruled: stands as projected). Respawn persistence and two-client
+observer rendering were never separately re-measured after the fix.
 
 ## 11 · CLOSED BY RULING — DO NOT RE-ASK
 
