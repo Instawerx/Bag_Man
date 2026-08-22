@@ -890,6 +890,44 @@ compact-reference indirection.
 
 ---
 
+## 8.17 · CC-7 RT → SCREEN — WHERE IT DIES, AND A CORRECTION
+
+**LOGGED AS UNPROVEN. The failure is in the CAPTURE HARNESS, not in the sticker chain.**
+
+The chain was bisected instead of photographed again. In order:
+
+| # | measured | result |
+|---|---|---|
+| A | graph state after all saves/reverts/repairs | **INTACT** — `DEB92745.in[A]` → sticker Add; `stickerAdd.in[B]` = contribution Multiply; `sampler.Coordinates` → UV Add |
+| B | do parameters reach the MIDs? | **YES** — parents `MI_AFL_IRONICS_Body` / `_Visor`, read-back `intensity=1.0`, texture set |
+| C | **is the subject even visible?** | **YES** — `nonBlack = 64,477 / 65,536`. No capture was photographing an empty frame |
+| D | ladder: solid white → atlas → RT, all at intensity 1 | all `dMean = 0.000` |
+
+⚠ **THE POSITIVE CONTROL OVERTURNED THE READING.** `NeonIntensity=50` with red Neon and Emissive —
+**shipping parameters that visibly drive this body** — also produced `dMean = 0.000`. **The capture is
+blind to ANY MID parameter change, not just sticker ones.**
+
+**So the previous conclusion is withdrawn.** "The material's sticker branch never reaches the output"
+is NOT supported: five capture instruments have been measuring something that cannot see a material
+change at all. The sticker branch is neither proven nor disproven by any of them.
+
+Render-thread ordering was the leading hypothesis and was **tested and rejected**:
+`MarkRenderStateDirty` + `FlushRenderingCommands` either side of `CaptureScene` changed nothing.
+(`RenderCore` is kept as a dependency; the flush is correct practice regardless.)
+
+**WHERE IT DIES: between the MID and the captured pixels, inside the harness.** Not the material, not
+the RT, not the zones, not replication.
+
+**WHAT REMAINS TRUE AND MEASURED:** the axis, the economy, the compositor and the geometry. A sticker
+placed in a zone composites into that zone's cell and no other (RT per-cell: two placed zones lit,
+seven at zero), and UV2 puts every loop inside its own cell. **The one thing never demonstrated is a
+sticker visible on a rendered body**, and the honest reason is that no instrument built for it could
+see a material change of any kind.
+
+Next attempt should abandon `SceneCapture2D` on a spawned clone entirely — take a real viewport
+screenshot (`HighResShot`) of a posed pawn, or verify in the material editor's own preview, where the
+render path is the shipping one rather than one assembled by the test.
+
 ## 11 · CLOSED BY RULING — DO NOT RE-ASK
 
 These three were carried as open product questions across several blocks. They are **ruled and
