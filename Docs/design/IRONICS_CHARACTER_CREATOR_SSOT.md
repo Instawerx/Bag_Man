@@ -633,6 +633,71 @@ can read the graph first.
 ⚠ Tile 6 (`1776 Pack`) is a sheet of five small 1776 marks rather than one design. Packed as
 supplied; one sticker or five is product intent.
 
+## 8.11 · CC-7 SAMPLER — THE GRAPH IS READABLE FROM C++; THE GATE IS NOT SATISFIABLE
+
+**STEP 1 ANSWERED: C++ CAN READ THE MATERIAL GRAPH.** The Python objection dissolves — same shape as
+CC-X34. `UMaterial::GetExpressions()` is `ENGINE_API` and public (`Material.h:1400`,
+`WITH_EDITORONLY_DATA`), with `CountInputs()` / `GetInput(i)` / `GetInputName(i)` and
+`FExpressionInput { Expression, OutputIndex }`. The reflection layer hid `expression_collection`; the
+C++ surface never did. `afl.Dev.MaterialGraphSnapshot` reads **103 expressions + 6 property inputs**
+off `M_AFL_Character` and writes a GUID-keyed fingerprint, so before/after diffing is now possible.
+Baseline `crc=0x29902240`.
+
+**THE BRAND PATH, TRACED.** The quartet is not a decal projection in this master — it composites
+**additively into EmissiveColor**:
+
+```
+TexCoord × BrandUVScale → … → BrandMaskTex.out1 × BrandIntensity(144A1B29)
+  → ×tint = 3EA5180E → Add(17C1A3DD,·) = D85D2F50 → Add(·,AE6BD1FE) = DEB92745 → MP_EmissiveColor
+```
+
+**STEP 3'S GATE CANNOT BE SATISFIED FOR A VISIBLE STICKER, AND SO IT STOPS.** The ruling was: every
+pre-existing connection unchanged, or it is a rewire and it stops. Measured — the only unconnected
+inputs anywhere in the graph are `Desaturation.Fraction` and two `Fresnel` control pins
+(`ExponentIn`, `BaseReflectFractionIn`, `Normal`). **None is an additive compositing slot**; wiring a
+sticker into one would not composite a sticker, it would corrupt a fresnel. So there is no
+non-destructive insertion point, and making a sticker visible requires moving **exactly one**
+connection:
+
+> `MP_EmissiveColor`'s Add (`DEB92745`) input **A**, from `D85D2F50:0` to a new Add node whose other
+> input is the sticker contribution.
+
+Adding the sampler *nodes* moves nothing — that part of the operator's expectation is correct. It is
+the single output link that trips the gate. With a `StickerIntensity` defaulting to 0 the added term
+is exactly `+0` and the compiled result is mathematically identical with no sticker equipped, which
+is what step 4's regression gate asks for — **but that is an argument for why the change is safe, not
+permission to make it.** One link on the shared master CC-X25 ruled `DO NOT REWIRE`. **Operator's
+call.**
+
+## 8.12 · CC-7 ZONE UVs — BUILT AND VERIFIED, NOT YET PROMOTED
+
+Authored on the reconciled source. `IRONICS_Blank_symm_final_UV2.blend` (saved **beside** the
+original, which stays pristine).
+
+- **Zones assigned by BONE WEIGHT, not position** — the armature is in cm and the mesh in metres, and
+  weights are scale-independent and are what actually deforms the vertex.
+- **Front is −Y, measured** from the toe sitting forward of the ankle (`Δy = −14.9`), not assumed.
+  Guessing this wrong mirrors every front zone onto the character's back and looks fine in the UV
+  editor.
+- Polygon counts came out **symmetric** — ChestLeft/Right **3192/3192 exactly**, legs 6678/6675 and
+  6645/6645 — which is the correctness signal on a symmetrised mesh.
+- 3×3 grid, aspect preserved (uniform scale, no stretch). **172,905 assigned loops, all inside their
+  own cell; 106,674 unassigned, all parked at (−1,−1)** — outside every rect, so unzoned geometry
+  cannot draw a sticker. A (0,0) default would have put all 106,674 inside ChestLeft.
+- **UV0/UV1 PROVEN UNCHANGED**: `UV0=68F9BCDF`, `UV1=6C0AB3E8`, byte-identical between the original
+  and the edited file. "I only added a layer" was an assumption until the bytes agreed.
+- Exported with the banked UE-origin settings (`-Y`/`Z`, `bake_space_transform=False`); the FBX reads
+  **46,603 control points, UV layers 2 → 3** on the independent parser.
+
+⚠ **NOT PROMOTED.** The preview import minted a NEW skeleton instead of sharing `SK_Mannequin`, and
+was deleted rather than left as a near-identical duplicate of the hero body. Promotion must be a
+**reimport onto `SKM_IRONICS_Blank` preserving `SK_Mannequin`** — and there is no reason to change the
+body every X-line robot uses to carry data nothing reads until the sampler is ruled. **Zone placement
+is art-critical and unreviewed**; the layout render is the thing to eyeball first.
+
+⚠ The `.blend` and `.fbx` live in **gitignored** paths (`.gitignore:150`, `:156`) — the project's
+existing convention, which is also why the shipped mesh's own source was never in version control.
+
 ## 9 · Blocked axes
 
 **CC-7.1 RESOLVED 2026-08-21 — THE SOURCE IS NOT LOST.**
