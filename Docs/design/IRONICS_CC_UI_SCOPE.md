@@ -158,3 +158,78 @@ drag today is the hue arc.
 Not blocking, and I will proceed on these unless told otherwise: the sticker drag is built against
 the existing shared clamp; the Builds surface goes in the loadout; save/name/equip binds the existing
 RPCs.
+
+---
+
+# ADDENDUM · SCOPE ANSWERS (ruled 1c / no motion / loadout entry)
+
+## A · THE AXIS SHAPE — the creator owns arrangement, the loadout stays single-id
+
+**Recommendation, and it adds no second selection path.**
+
+`EquipForAxis(Axis, CosmeticId)` is a **selection** API: one id, one axis. That fits Weapon,
+WeaponSkin, Beam, Identity, BodyColor, EdgeColor, Facemask — **and Emblem**, which resolves to exactly
+one MIC.
+
+It cannot fit Sticker or Accessory, and forcing it would require either encoding a transform into an
+`FName` or adding a second `EquipForAxis` overload. **Both are the "second selection path" the ruling
+forbids.**
+
+The component **already carries the right APIs** for arrangement: `ServerSetStickerPlacement(Zone,
+Placement)` and `ServerClearStickerZone(Zone)`, both server-authoritative and both re-clamping through
+the shared `AFLStickerBounds::Clamp` on arrival.
+
+| axis kind | who drives it | API |
+|---|---|---|
+| **selection** (7 axes + Emblem) | loadout tile grid | `EquipForAxis(Axis, Id)` |
+| **arrangement** (Sticker, Accessory) | **creator** | `ServerSetStickerPlacement(...)` / accessory RPC |
+
+**Both write into the same replicated `FAFLCosmeticSelection`.** That is what keeps it one path: the
+selection is the single source of truth, and the creator and loadout are two editors of it, not two
+pipelines. The loadout's `Sticker`/`Accessory` enum members become *"open the creator on this axis"*
+affordances rather than tile grids — they are currently in no switch case, so nothing regresses.
+
+## B · EMBLEM — measured, and the premise needs one correction
+
+**1. The creator chassis uses the DECAL path, confirmed.** `M_AFL_Character` exposes texture params
+`ORMTex, NormalTex, BaseColorTex, EmissiveTex, BrandMaskTex` — **no `LogoTexture`, no `UseLogo`**. The
+only `LogoTexture` references in X-line code are for the **facemask visor** (`M_AFL_FaceMask_Visor` @
+TexCoord1), an unrelated mechanism. **The Original line's LogoTexture is out of scope for the creator.**
+
+**2. ⚠ THERE ARE 6 EMBLEM ROWS, NOT 28.** Measured from the catalog. The 28 in the ruling is close to
+the **33 `MI_AFL_Branding_*` MICs on disk** (AKUMA, ARIA, ASTRA, AURELIA, AZURA, BigSixx, C12, CIELO,
+DRACO, EMBER, FANATICS, Flak, HALO, IRONICS, KAGE, MAKHIAVELLI, NOVAKAI, ONYXPRIME, ORION, RIFTONE,
+RONIN, RYU, Railgun, SABLE, SCARLETT, SMG, SOLARA, Seeker, TALON, VALKYR, VANTA, VOLT, ZEN).
+
+**So 27 brand emblems have finished art and no catalog row.** Whether they ship is product intent, not
+an engineering gap — flagged, not decided.
+
+**3. The 6 rows RESOLVE, and the shape is exactly right for a single-id axis.** All 6 carry an `Asset`,
+and all 6 assets carry `EmblemMaterial` → `MI_AFL_Branding_<NAME>`. That mirrors the facemask control
+measured beside it (`FacemaskMaterial` → `MI_AFL_FaceMask_*`). **One id per axis carries an emblem.**
+
+**4. The apply path does not exist — that is the work.** `GetEmblemMaterial()` has **no consumer
+anywhere**. But the decal plumbing is already built: `AAFLCharacterPartActor` already does
+`GetComponents<UDecalComponent>`, owns `OwnedDecalMIDs`, and pushes the identity tint into them. What
+is missing is swapping the decal's **base material** to the selected emblem's MIC before re-MIDing —
+the exact shape `ApplyFacemask` already uses for slot 1 (`SetMaterial` → re-MID → re-apply colour).
+
+This is the banked doctrine restated by the ruling: **the mask is the product, the tint is the axis.**
+
+**5. NAMING — `Emblem` everywhere.** The catalog says `AFL.Emblem.*`, the enum will say `Emblem`, the
+asset field says `EmblemMaterial`. The Original line's `LogoTexture` + `UseLogo` on `M_Mannequin` is
+the **legacy mechanism for the same concept** and is recorded as such so the next reader is not
+crossed up.
+
+## C · SPACING RHYTHM — DERIVED, NOT SPEC
+
+The style SSOT is silent here, so this is derived from the two things it does rule, and is reported as
+derivation rather than presented as spec:
+
+- **Base unit 4px**, from the input radius (8) and button radius (12) being multiples of 4.
+- **Panel padding 16px / 24px**, matching the panel radius band (16–24) so corner and inset agree.
+- **Row gutter 8px, region gutter 24px** — 2× and 6× base, keeping the 1c three-column separation
+  visibly stronger than intra-row separation.
+- Type sizes are **not** derived: they come from `AFLTokenCompiler`.
+
+**If any of these four numbers matter, they are a ruling I am inviting, not one I am claiming.**
