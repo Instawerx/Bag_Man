@@ -119,7 +119,18 @@ enum class EAFLCosmeticType : uint8
 	// next texture anyone adds would break the master. The shipping BrandMaskTex + BrandUVScale +
 	// BrandVOffset + BrandIntensity decal in that same master is exactly this shape, so stickers
 	// conform to it rather than introducing a second decal path.
-	Sticker           UMETA(DisplayName = "Sticker")
+	Sticker           UMETA(DisplayName = "Sticker"),
+
+	// CC-7 STICKER CREDITS. APPENDED, same reason as every member above it.
+	//
+	// Its own Type for the same reason WeaponCredit has one: a credit grants nothing wearable. It
+	// increments CountedKey=AFL.StickerCredit and is later redeemed against rows carrying
+	// bCreditRedeemable -- the REDEMPTION grants the sticker, the credit itself is not a sticker.
+	//
+	// A SECOND COUNTER, NOT A SECOND MECHANISM. AFL.StickerCredit and AFL.WeaponCredit accumulate
+	// separately and are NOT fungible: which credit redeems a row is derived server-side from that
+	// row's Type, so a caller has no input through which to spend the wrong one.
+	StickerCredit     UMETA(DisplayName = "Sticker Credit")
 
 };
 

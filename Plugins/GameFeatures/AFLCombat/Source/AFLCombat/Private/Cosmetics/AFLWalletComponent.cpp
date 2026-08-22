@@ -1238,11 +1238,28 @@ void UAFLWalletComponent::GrantCountedEntitlement(const FName Key, const int32 Q
 	ApplyAuthoritativeCounted(Key, Local);
 }
 
+// CC-7: WHICH COUNTED KEY REDEEMS THIS ROW? Derived from the ROW, never from the caller.
+//
+// This function is the entire reason the two credit counters cannot be spent on each other. The RPC
+// takes a CosmeticId and nothing else, so there is no parameter through which a client could ask to
+// pay for a sticker with a weapon credit -- the wrong currency is not refused, it is unrepresentable.
+//
+// TOTAL AND FAIL-CLOSED: a Type with no mapping returns None and the redemption is refused. Adding a
+// third credit pool later means adding a line here, and forgetting to costs a refused redemption
+// rather than a free grant.
+static FName AFLResolveCreditKeyForRow(const FAFLCatalogEntry& Entry)
+{
+	switch (Entry.Type)
+	{
+	case EAFLCosmeticType::Weapon:  return FName(TEXT("AFL.WeaponCredit"));
+	case EAFLCosmeticType::Sticker: return FName(TEXT("AFL.StickerCredit"));
+	default:                        return NAME_None;
+	}
+}
+
 void UAFLWalletComponent::ServerRequestCreditRedemption_Implementation(const FName CosmeticId)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
-
-	static const FName CreditKey(TEXT("AFL.WeaponCredit"));
 
 	// ---- 1. the row must exist -------------------------------------------------------------------
 	const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog();
@@ -1251,6 +1268,18 @@ void UAFLWalletComponent::ServerRequestCreditRedemption_Implementation(const FNa
 	{
 		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sREDEEM REFUSED %s -- no catalog row"),
 			*WalletPrefix(this), *CosmeticId.ToString());
+		return;
+	}
+
+	// ---- 1b. WHICH CREDIT PAYS FOR THIS ROW -- decided here, from the row --------------------------
+	// Was a hardcoded AFL.WeaponCredit before CC-7. Note what did NOT change: the RPC signature. The
+	// caller still sends only a CosmeticId, so a client cannot nominate a counter to drain.
+	const FName CreditKey = AFLResolveCreditKeyForRow(*Entry);
+	if (CreditKey.IsNone())
+	{
+		UE_LOG(LogAFLWalletDiag, Warning,
+			TEXT("%sREDEEM REFUSED %s -- no credit pool serves Type=%d (rows of this type are not credit-redeemable)"),
+			*WalletPrefix(this), *CosmeticId.ToString(), static_cast<int32>(Entry->Type));
 		return;
 	}
 
@@ -1315,12 +1344,15 @@ void UAFLWalletComponent::ServerRequestCreditRedemption_Implementation(const FNa
 		*WalletPrefix(this), *CosmeticId.ToString(), *PlayFabId, Have);
 
 	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
-	Online->PostServerCountedEntitlement(Body, [WeakThis, CosmeticId](bool bOk, const FString& Resp)
+	Online->PostServerCountedEntitlement(Body, [WeakThis, CosmeticId, CreditKey](bool bOk, const FString& Resp)
 	{
 		UAFLWalletComponent* Self = WeakThis.Get();
 		if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority()) { return; }
 
-		static const FName K(TEXT("AFL.WeaponCredit"));
+		// CAPTURED FROM THE REQUEST, not re-derived and definitely not re-hardcoded. The reply must be
+		// applied to the SAME counter the spend was posted against; a second lookup here is a second
+		// chance to disagree with it.
+		const FName K = CreditKey;
 
 		int32 Remaining = -1;
 		FString Granted;
