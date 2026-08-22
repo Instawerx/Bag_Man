@@ -377,8 +377,8 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
   <div class="row">
     <span class="rid">CC-5.2</span>
     <span class="rt">Hue arc control — clamped, not RGB sliders
-      <span class="d">Neon and Edge linked by default with an unlink toggle.</span></span>
-    <span class="pill lane">AIK</span><span class="pill st-open">UI</span>
+      <span class="d">Neon and Edge linked by default with an unlink toggle. <b>DONE 2026-08-21 &mdash; widget built, rows derived from the schema.</b></span></span>
+    <span class="pill lane">AIK</span><span class="pill st-done">DONE</span>
   </div>
   <div class="row">
     <span class="rid">CC-5.3</span>
@@ -437,8 +437,8 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
     <span class="rid">CC-6.5</span>
     <span class="rt">PlayFab real-money check before the first catalog write
       <span class="d">Title <code>1A2077</code>. <code>MintedCount</code> is polluted by canary
-      and dev buys and cannot answer it.</span></span>
-    <span class="pill lane">Claude Code</span><span class="pill st-open">VERIFY</span>
+      and dev buys and cannot answer it. <b>DONE 2026-08-21.</b></span></span>
+    <span class="pill lane">Claude Code</span><span class="pill st-done">DONE</span>
   </div>
   <div class="gate"><b>PROOF</b> &nbsp;Buy a robot pack, receive slots, build in the creator,
   equip, spawn — no cheat path anywhere in the loop.</div>
@@ -455,8 +455,9 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
   <div class="row">
     <span class="rid">CC-7.1</span>
     <span class="rt">Blender — derive zone UVs from FBX
-      <span class="d">Exactly two UV sets exist: <code>UV0</code> retopo, <code>UV1</code>
-      visor projection. <code>UV2</code>–<code>UV5</code> return zero.
+      <span class="d"><b>CORRECTED 2026-08-21:</b> two UV sets exist, <code>UV0</code> retopo
+      and <code>UV1</code> &mdash; <b>which covers 99.99% of verts, NOT a "visor projection"</b>
+      as this row previously claimed. <code>UV2</code>&ndash;<code>UV5</code> return zero.
       <b>No <code>.blend</code> exists for <code>SKM_IRONICS_Blank</code></b> — only a 16 MB
       FBX. Other bodies have conform sources; the chassis does not.</span></span>
     <span class="pill lane">Claude Code</span><span class="pill st-block">BLOCKED</span>
@@ -466,8 +467,8 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
     <span class="rt">Sticker axis — enum, catalog, placement struct
       <span class="d">Categorically absent today: no C++ symbol, no enum member, no rows, no
       textures. 9-zone cap: 2 chest, 1 stomach, 1 per front leg, 1 per back leg, 1 back,
-      2 face. Fixed-size 9 is directly replicable.</span></span>
-    <span class="pill lane">Claude Code</span><span class="pill st-new">NEW</span>
+      2 face. Fixed-size 9 is directly replicable. <b>DONE 2026-08-21 &mdash; 9 zones, one atlas, one sampler; server re-clamps.</b></span></span>
+    <span class="pill lane">Claude Code</span><span class="pill st-done">DONE</span>
   </div>
   <div class="row">
     <span class="rid">CC-7.3</span>
@@ -487,13 +488,13 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
     <span class="rid">CC-8.1</span>
     <span class="rt">Hardpoint socket schema
       <span class="d">Only six sockets exist today, all on the skeleton, all weapon or foot.
-      No accessory hardpoints.</span></span>
-    <span class="pill lane">AIK</span><span class="pill st-new">NEW</span>
+      No accessory hardpoints. <b>DONE 2026-08-21 (CC-X34) &mdash; three accessory sockets authored on <code>SK_Mannequin</code> from C++; 6 &rarr; 9, both lines see them.</b></span></span>
+    <span class="pill lane">AIK</span><span class="pill st-done">DONE</span>
   </div>
   <div class="row">
     <span class="rid">CC-8.2</span>
     <span class="rt">Accessory rows + attach path</span>
-    <span class="pill lane">AIK</span><span class="pill st-new">NEW</span>
+    <span class="pill lane">AIK</span><span class="pill st-done">DONE</span>
   </div>
 </div>
 
