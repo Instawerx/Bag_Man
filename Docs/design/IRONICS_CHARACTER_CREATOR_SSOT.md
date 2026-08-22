@@ -770,6 +770,52 @@ accessory. CC-8 is closed to *axis-and-sockets*, not to a usable feature.
 - **CC-X35** — the steps were already split (`setup:economy:catalog`); the defect was volume, and a
   balance mutation now announces itself.
 
+## 8.16 · CC-7 PACK SPLIT — 14 STICKERS, and two defects found chasing the screen proof
+
+**RULED: each pack contains individual stickers, each counting 1 toward a credit.**
+
+Mark counts were **measured with controls at both ends** — connected components of the dilated alpha
+mask, swept across radii, using only a radius where known-single designs read 1 *and* the pack reads
+>1. Every radius from 4 to 24 agreed: **the pack is 5 marks; all nine others, including all five ROR,
+are exactly 1.** There is no ror pack.
+
+14 active rows, bijection over tiles 0–13. **Existing tile indices preserved** — the nine shipped rows
+keep their exact indices (control: 9/9), the retired Pack's tile 6 is reused, the rest go to 10–13.
+Pack is retired (tile −1, not redeemable) rather than deleted: an account could already own one.
+Backend synced via `setup:economy:catalog` — the log confirms `seedAccount SKIPPED … balances left
+untouched` — and verified against the live title at 114 items.
+
+`Tag.RedWhiteBlue` is named from a hue histogram, not a mean: the mean of its saturated pixels was
+"Purple", and its actual clusters are red (0–30°, 330–360°) and blue (210–240°) with **no purple at
+all**. The mean of red and blue is purple.
+
+### TWO REAL DEFECTS, both found by chasing a VOID rather than a number
+
+⚠ **The body materials were wiped to `WorldGridMaterial`.** My UV2 promotion reimport replaced both
+slot assignments, so the hero body was rendering as the engine's default checkerboard — shipped.
+**My verification missed it because it counted**: verts, UV channels, skeleton and material *count*
+(2 → 2), never what the materials *were*. That is the "a count would not notice a replacement" lesson
+I applied to the catalog rows in the same session and not here. Restored by slot name with a
+parent-chain control.
+
+⚠ **The sticker sampler's `Coordinates` input was never connected** — it read a constant texel and the
+layer contributed nothing. Two of my own checks let it through: the authoring reported `newWires=10`
+of 11 attempted and I read the aggregate; and step 3 verified that **no pre-existing connection
+moved** but never that the eleven **new** nodes were wired to each other. *"Nothing else broke" is not
+"the new thing works."* `ConnectMaterialExpressions` will not bind a sampler's Coordinates by name —
+same shape as CC-X34; the underlying `FExpressionInput` is a plain struct and takes the pointer.
+
+### THE SCREEN LINK IS STILL NOT PROVEN
+
+With the chain now structurally complete (`FinalUV.A=1 FinalUV.B=1 Samp.Coordinates=1`) and the
+synthetic RT verified to hold **100,489 lit pixels**, filling a zone cell still changes **no pixel** on
+the clone. `CONTROL A` (repeatability) passes; `CONTROL B` (can-detect) **fails**, so the instrument
+reports **VOID** and its per-band zeros are NOT a zone result in either direction.
+
+**Placement composites correctly and is unproven on screen.** The compositor's output is measured
+(RT per-cell: the two placed zones lit, all seven others zero) and the geometry is measured (every
+UV2 loop inside its own cell). RT → screen is the one link still open.
+
 ## 9 · Blocked axes
 
 **CC-7.1 RESOLVED 2026-08-21 — THE SOURCE IS NOT LOST.**
