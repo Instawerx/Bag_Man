@@ -101,6 +101,10 @@ public class AFLCombat : ModuleRules
 				// FAssetRegistryModule::AssetCreated. Editor-asset authoring lives behind WITH_EDITOR in the dev
 				// cheats (inert in shipping); AssetRegistry is a runtime module, so the dep is cook-safe.
 				"AssetRegistry",
+				// CC-7 bisect: FlushRenderingCommands. MID parameter writes are enqueued to the render
+				// thread, so a same-frame CaptureScene renders stale uniforms -- which is what made five
+				// capture instruments blind. RenderCore is a runtime module, so this is cook-safe.
+				"RenderCore",
 			}
 		);
 

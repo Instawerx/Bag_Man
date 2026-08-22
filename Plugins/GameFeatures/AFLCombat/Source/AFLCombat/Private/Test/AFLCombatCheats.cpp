@@ -20,6 +20,7 @@
 #include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
 #include "Engine/SkeletalMeshSocket.h"   // CC-X34 socket authoring
 #include "Animation/Skeleton.h"   // CC-X34 socket authoring
+#include "RenderingThread.h"   // CC-7 bisect: FlushRenderingCommands
 #include "Engine/Canvas.h"   // CC-7 screen proof: K2_DrawBox
 #include "Kismet/KismetRenderingLibrary.h"   // CC-7 screen proof
 #include "Rendering/SkeletalMeshLODModel.h"   // CC-7 step 5 verify
@@ -6930,6 +6931,188 @@ namespace
 		TEXT("CC-7: wire the sticker sampler's Coordinates (UV2 x scale + offset). Verifies every wire by ")
 		TEXT("reading the input back rather than trusting the connect call."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLRepairStickerUV));
+
+	// === CC-7: afl.Dev.StickerBisect ============================================================
+	static float GAFLBisectNeon = 0.0f;   // >0 drives the known-good control parameters
+	struct FAFLShot { int32 NonBlack = 0; double R = 0, G = 0, B = 0; };
+
+	static FAFLShot AFLShotStats(const TArray<FColor>& Px)
+	{
+		FAFLShot S;
+		double r = 0, g = 0, b = 0;
+		for (const FColor& C : Px)
+		{
+			if (C.R > 6 || C.G > 6 || C.B > 6) { ++S.NonBlack; }
+			r += C.R; g += C.G; b += C.B;
+		}
+		const double N = FMath::Max(1, Px.Num());
+		S.R = r / N; S.G = g / N; S.B = b / N;
+		return S;
+	}
+
+	static bool AFLCaptureCloneTex(UWorld* World, UTexture* Tex, float Intensity, TArray<FColor>& Out,
+		FString& OutParents)
+	{
+		static const FVector kLoc(0.0f, 0.0f, -20000.0f);
+		USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/IRONICS_Blank/SKM_IRONICS_Blank.SKM_IRONICS_Blank"));
+		if (!Mesh || !World) { return false; }
+		FActorSpawnParameters SP; SP.ObjectFlags |= RF_Transient;
+		ASkeletalMeshActor* SMA = World->SpawnActor<ASkeletalMeshActor>(kLoc, FRotator::ZeroRotator, SP);
+		if (!SMA) { return false; }
+		USkeletalMeshComponent* SMC = SMA->GetSkeletalMeshComponent();
+		SMC->SetSkeletalMesh(Mesh);
+		SMC->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		SMC->GlobalAnimRateScale = 0.0f;
+		OutParents.Reset();
+		for (int32 i = 0; i < SMC->GetNumMaterials(); ++i)
+		{
+			UMaterialInstanceDynamic* MID = SMC->CreateAndSetMaterialInstanceDynamic(i);
+			if (!MID) { OutParents += TEXT("[noMID]"); continue; }
+			MID->SetScalarParameterValue(FName(TEXT("StickerUVScale")), 1.0f);
+			MID->SetScalarParameterValue(FName(TEXT("StickerUOffset")), 0.0f);
+			MID->SetScalarParameterValue(FName(TEXT("StickerVOffset")), 0.0f);
+			if (Tex) { MID->SetTextureParameterValue(FName(TEXT("StickerAtlasTex")), Tex); }
+			MID->SetScalarParameterValue(FName(TEXT("StickerIntensity")), Intensity);
+			// KNOWN-GOOD POSITIVE CONTROL. Nothing so far proves this capture can detect ANY material
+			// change, so "solid white at intensity 1 does nothing" is not yet attributable to the
+			// sticker branch. NeonIntensity is a shipping parameter of this master that visibly drives
+			// the body: if IT moves the image and the sticker parameters do not, the sticker branch is
+			// genuinely dead. If it does NOT move the image either, the MID-to-render path is broken and
+			// every conclusion about the sticker branch is unfounded.
+			if (GAFLBisectNeon > 0.0f)
+			{
+				MID->SetScalarParameterValue(FName(TEXT("NeonIntensity")), GAFLBisectNeon);
+				MID->SetVectorParameterValue(FName(TEXT("NeonColor")), FLinearColor(1.f, 0.f, 0.f, 1.f));
+				MID->SetVectorParameterValue(FName(TEXT("EmissiveColor")), FLinearColor(1.f, 0.f, 0.f, 1.f));
+			}
+			float Rb = -1.0f; MID->GetScalarParameterValue(FName(TEXT("StickerIntensity")), Rb);
+			UTexture* TRb = nullptr; MID->GetTextureParameterValue(FName(TEXT("StickerAtlasTex")), TRb);
+			OutParents += FString::Printf(TEXT("[%d parent=%s int=%.1f tex=%s]"), i,
+				MID->Parent ? *MID->Parent->GetName() : TEXT("<none>"), Rb,
+				TRb ? *TRb->GetName() : TEXT("<none>"));
+		}
+		SMC->RefreshBoneTransforms();
+
+		const FVector C = kLoc + FVector(0, 0, 95.0f);
+		const FVector CamLoc = C + FVector(240.0f, 0, 0);
+		ASceneCapture2D* Cap = World->SpawnActor<ASceneCapture2D>(CamLoc, (C - CamLoc).Rotation(), SP);
+		USceneCaptureComponent2D* Comp = Cap ? Cap->GetCaptureComponent2D() : nullptr;
+		if (!Comp) { SMA->Destroy(); if (Cap) { Cap->Destroy(); } return false; }
+		UTextureRenderTarget2D* Shot = NewObject<UTextureRenderTarget2D>();
+		Shot->InitAutoFormat(256, 256);
+		Shot->ClearColor = FLinearColor::Black;
+		Comp->TextureTarget = Shot;
+		Comp->CaptureSource = SCS_FinalColorLDR;
+		Comp->bCaptureEveryFrame = false;
+		Comp->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+		Comp->ShowOnlyActors.Add(SMA);
+		// MID PARAMETER WRITES ARE ENQUEUED TO THE RENDER THREAD. A CaptureScene() in the same frame
+		// renders with the PREVIOUS uniform values, so the capture is blind to everything just set --
+		// which is why a known-good shipping parameter (NeonIntensity=50, red emissive) also produced
+		// dMean=0.000 and why five capture instruments in a row reported "nothing changed".
+		SMC->MarkRenderStateDirty();
+		FlushRenderingCommands();
+		Comp->CaptureScene();
+		FlushRenderingCommands();
+		FTextureRenderTargetResource* Res = Shot->GameThread_GetRenderTargetResource();
+		const bool bOk = Res && Res->ReadPixels(Out);
+		Cap->Destroy(); SMA->Destroy();
+		return bOk && Out.Num() > 0;
+	}
+
+	void HandleAFLStickerBisect(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World && GEditor) { World = GEditor->GetEditorWorldContext().World(); }
+		if (!World) { Ar.Log(TEXT("no world")); return; }
+
+		// ---- PART A: the graph, as it stands NOW ---------------------------------------------
+		UMaterial* M = LoadObject<UMaterial>(nullptr, TEXT("/Game/BagMan/Materials/M_AFL_Character.M_AFL_Character"));
+		if (M)
+		{
+			UMaterialExpression* Emis = AFLFindExprByGuid(M, TEXT("DEB92745-433C-86FE-7FA3-589D311FD3C9"));
+			const FExpressionInput* EA = Emis ? Emis->GetInput(0) : nullptr;
+			UMaterialExpression* AddN = EA ? EA->Expression : nullptr;
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BIS] A1 DEB92745.in[A] -> %s (%s)"),
+				AddN ? *AddN->MaterialExpressionGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT("<none>"),
+				AddN ? *AddN->GetClass()->GetName() : TEXT("-"));
+			if (AddN)
+			{
+				const FExpressionInput* A0 = AddN->GetInput(0);
+				const FExpressionInput* A1 = AddN->GetInput(1);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BIS] A2 stickerAdd.in[A]=%s in[B]=%s"),
+					(A0 && A0->Expression) ? *A0->Expression->GetClass()->GetName() : TEXT("<none>"),
+					(A1 && A1->Expression) ? *A1->Expression->GetClass()->GetName() : TEXT("<none>"));
+			}
+			UMaterialExpression* Samp = AFLFindExprByGuid(M, TEXT("124E2E98-4A6B-8E7D-9293-3AAAB7064596"));
+			const FExpressionInput* Co = Samp ? Samp->GetInput(0) : nullptr;
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BIS] A3 sampler.Coordinates -> %s"),
+				(Co && Co->Expression) ? *Co->Expression->GetClass()->GetName() : TEXT("<NONE>"));
+		}
+
+		// ---- PARTS B/C/D: the ladder ---------------------------------------------------------
+		UTexture2D* Solid = LoadObject<UTexture2D>(nullptr,
+			TEXT("/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture"));
+		UTexture2D* Atlas = LoadObject<UTexture2D>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/Stickers/T_BagMan_StickerAtlas.T_BagMan_StickerAtlas"));
+		UTextureRenderTarget2D* RT = AFLMakeCellRT(World, 0);
+
+		struct FStep { const TCHAR* Label; UTexture* Tex; float Intensity; };
+		const FStep Steps[] = {
+			{ TEXT("0 OFF          "), nullptr, 0.0f },
+			{ TEXT("1 SOLID white  "), Solid,   1.0f },
+			{ TEXT("2 ATLAS        "), Atlas,   1.0f },
+			{ TEXT("3 RT cell0     "), RT,      1.0f },
+		};
+		// run the ladder, then the known-good control as a separate pass
+		FAFLShot Base;
+		for (int32 i = 0; i < UE_ARRAY_COUNT(Steps); ++i)
+		{
+			TArray<FColor> Px; FString Parents;
+			if (!AFLCaptureCloneTex(World, Steps[i].Tex, Steps[i].Intensity, Px, Parents))
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[BIS] capture failed at %s"), Steps[i].Label);
+				return;
+			}
+			const FAFLShot S = AFLShotStats(Px);
+			if (i == 0) { Base = S; }
+			// NON-BLACK COUNT IS THE ONE THAT MATTERS FIRST. If the subject is invisible, every
+			// "nothing changed" so far has been a photograph of an empty frame.
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[BIS] %s nonBlack=%-6d meanRGB=(%.2f,%.2f,%.2f) dMean=%.3f  %s"),
+				Steps[i].Label, S.NonBlack, S.R, S.G, S.B,
+				FMath::Abs(S.R - Base.R) + FMath::Abs(S.G - Base.G) + FMath::Abs(S.B - Base.B),
+				*Parents);
+		}
+		// ---- THE POSITIVE CONTROL ------------------------------------------------------------
+		{
+			GAFLBisectNeon = 50.0f;
+			TArray<FColor> Px; FString Parents;
+			const bool bOk = AFLCaptureCloneTex(World, nullptr, 0.0f, Px, Parents);
+			GAFLBisectNeon = 0.0f;
+			if (bOk)
+			{
+				const FAFLShot S = AFLShotStats(Px);
+				const double D = FMath::Abs(S.R - Base.R) + FMath::Abs(S.G - Base.G) + FMath::Abs(S.B - Base.B);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[BIS] C KNOWN-GOOD NeonIntensity=50 + red Neon/Emissive: nonBlack=%d meanRGB=(%.2f,%.2f,%.2f) dMean=%.3f %s"),
+					S.NonBlack, S.R, S.G, S.B, D,
+					(D > 0.5) ? TEXT("<- capture CAN see a material change; the sticker branch is dead")
+							  : TEXT("<- capture sees NOTHING even here; the MID->render path is broken, sticker verdict UNFOUNDED"));
+			}
+		}
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[BIS] READ IT THIS WAY: nonBlack==0 everywhere means the CLONE never rendered ")
+			TEXT("and no capture in this programme measured a sticker. nonBlack>0 with dMean==0 at step 1 ")
+			TEXT("means the material's sticker branch never reaches the output."));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BIS] END"));
+		Ar.Log(TEXT("bisect complete -- see AFL_TEST[BIS]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStickerBisectCmd(TEXT("afl.Dev.StickerBisect"),
+		TEXT("CC-7: find where the sticker signal dies -- graph state, MID parents, and a solid/atlas/RT ")
+		TEXT("ladder reporting non-black pixel count and mean RGB per step."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerBisect));
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLStickerScreenProofCmd(TEXT("afl.Dev.StickerScreenProof"),
 		TEXT("CC-7 step 2: fill ONE zone cell of a synthetic RT and capture a fixed clone with the sticker ")
