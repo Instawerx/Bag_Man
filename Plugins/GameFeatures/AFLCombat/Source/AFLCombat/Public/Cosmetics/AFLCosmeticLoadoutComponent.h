@@ -50,6 +50,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
 	const FAFLCosmeticSelection& GetSelection() const { return Selection; }
 
+	/** CC-7: push the equipped stickers onto the owner's character parts.
+	 *  DIRECT, not via the skin-colour reapply: OnRep_Selection nudges the CONTROLLER component, and a
+	 *  sticker change is not a skin change, so relying on that path is relying on a side effect. */
+	void RefreshStickers() const;
+
 	/** CC-2.1: the ONE construction of the creator colour overlay (invalid unless bUseCreatorColors). Shared by the
 	 *  server push (RefreshSkinForPawn, step 5) and the client OnRep_Selection populate (step 6) -- two copies drift. */
 	static FAFLColorOverride BuildColorOverride(const FAFLCosmeticSelection& Sel);

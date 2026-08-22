@@ -1,6 +1,28 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "Cosmetics/AFLSkinColorComponent.h"
+#include "Cosmetics/AFLCosmeticLoadoutComponent.h"
+#include "AFLCosmeticCatalogSubsystem.h"
+#include "GameFramework/PlayerState.h"
+#include "GameFramework/Pawn.h"
+
+namespace
+{
+	// The loadout lives on the PlayerState, not the pawn. Looking only at the pawn would find nothing
+	// and the stickers would silently never apply -- which reads identically to "the player has none".
+	const UAFLCosmeticLoadoutComponent* AFLSticker_FindLoadout(const AActor* Owner)
+	{
+		if (const APawn* P = Cast<APawn>(Owner))
+		{
+			if (const APlayerState* PS = P->GetPlayerState())
+			{
+				return PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>();
+			}
+		}
+		return nullptr;
+	}
+}
+
 
 #include "Components/ChildActorComponent.h"
 #include "Cosmetics/AFLCharacterPartActor.h"
@@ -187,6 +209,15 @@ void UAFLSkinColorComponent::ReapplyColorToAllParts()
 					*AFLSkinDiag::Prefix(this), *Owner->GetName(), *Part->GetName());
 			}
 			Part->ApplySkinColor(SkinColor, ActiveColorOverride); // idempotent (part's owned-MID create-once); CC-2.1 overlay passed in
+
+			// CC-7: stickers ride the SAME reapply loop as skin colour, deliberately. They are driven by
+			// the same replicated Selection and must land on the same clients at the same moment; a
+			// separate path would be a second place for the two to disagree.
+			if (const UAFLCosmeticLoadoutComponent* Loadout = AFLSticker_FindLoadout(Owner))
+			{
+				Part->ApplyStickerSet(Loadout->GetSelection().StickerSet,
+					UAFLCosmeticCatalogSubsystem::Get(this));
+			}
 		}
 	}
 

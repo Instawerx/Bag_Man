@@ -69,6 +69,28 @@ public:
 	void ApplySkinColor(const UAFLSkinColorAsset* ColorAsset, const FAFLColorOverride& ColorOverride = FAFLColorOverride());
 
 	/**
+	 * CC-7: composite the equipped stickers into this part's render target and point the material at it.
+	 *
+	 * ONE SAMPLER, ANY NUMBER OF STICKERS. The master carries a single StickerAtlasTex sampler, and a
+	 * scale+offset pair is an affine map -- it can route one rect to one tile, never nine zone cells to
+	 * nine different atlas tiles. So the composition happens here, once, into an RT laid out in the same
+	 * 3x3 zone space as UV2; the material then samples that RT with UV2 at scale 1 and offset 0.
+	 *
+	 * LAZY: with nothing equipped no RT is allocated and StickerIntensity stays 0.
+	 */
+	void ApplyStickerSet(const struct FAFLStickerSet& Set, const class UAFLCosmeticCatalogSubsystem* Catalog);
+
+	/** CC-7 proof access: the composited sticker target, or null if nothing is equipped. */
+	class UTextureRenderTarget2D* GetStickerRT() const { return StickerRT; }
+
+private:
+	/** Per-part sticker composition target. Created on first equipped sticker, never before. */
+	UPROPERTY(Transient)
+	TObjectPtr<class UTextureRenderTarget2D> StickerRT;
+
+public:
+
+	/**
 	 * Equip a FACEMASK on THIS part: swap the SLOT-1 base material (M_HeadLegs, the head/visor region) to the
 	 * given mask MIC -- the proven slot-1 base-MI facemask path (MI_AFL_FaceMask_Pink). FacemaskMIC==nullptr
 	 * RESTORES slot 1 to the part's authored base material (cached on first equip). Public so the pawn

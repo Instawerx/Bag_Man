@@ -18,7 +18,8 @@
 #include "Cosmetics/AFLPlayerIdentityComponent.h"       // GetResolvedPlayFabId (A1.4 verified id)
 #include "JsonObjectConverter.h"                        // BuildSet <-> JSON blob
 #include "Engine/GameInstance.h"                                   // LogAFLCombat (the AFL_TEST emit category)
-#include "Cosmetics/AFLSkinColorComponent.h"          // AFLSkinDiag (shared cvar-gated diag: LogAFLSkinDiag / IsOn / Prefix)
+#include "Cosmetics/AFLSkinColorComponent.h"
+#include "AFLCosmeticCatalogSubsystem.h"          // AFLSkinDiag (shared cvar-gated diag: LogAFLSkinDiag / IsOn / Prefix)
 #include "Cosmetics/AFLSkinColorControllerComponent.h"
 #include "Components/ActorComponent.h"
 #include "GameFramework/Controller.h"
@@ -317,6 +318,7 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	// Step 5 -- if already possessed (pre-match live change), re-run the proven controller push so the
 	// change shows immediately without a respawn. In-match this line is unreachable (step 2 rejects).
 	NudgeControllerReapply();
+	RefreshStickers();   // CC-7: stickers are not a skin change; drive them explicitly
 }
 
 FAFLColorOverride UAFLCosmeticLoadoutComponent::BuildColorOverride(const FAFLCosmeticSelection& Sel)
@@ -361,6 +363,7 @@ void UAFLCosmeticLoadoutComponent::OnRep_Selection()
 	// Pairs with the OnPawnSet hook (the pawn half): whichever lands last fires the correct push.
 
 	NudgeControllerReapply();
+	RefreshStickers();   // CC-7: stickers are not a skin change; drive them explicitly
 }
 
 ALyraPlayerState* UAFLCosmeticLoadoutComponent::GetLyraPlayerState() const
@@ -590,6 +593,7 @@ void UAFLCosmeticLoadoutComponent::ServerSetActiveBuild_Implementation(int32 Ind
 	// direct edit are indistinguishable downstream.
 	OnRep_Selection();
 	NudgeControllerReapply();
+	RefreshStickers();   // CC-7: stickers are not a skin change; drive them explicitly
 }
 
 // --- CC-4.2 LAPSE RULE ----------------------------------------------------------------------------
@@ -850,6 +854,7 @@ void UAFLCosmeticLoadoutComponent::ServerSetStickerPlacement_Implementation(cons
 	// is deliberately no unclamped setter on FAFLStickerSet for a caller to reach for.
 	Selection.StickerSet.EnsureSized();
 	Selection.StickerSet.Set(Zone, Placement);
+	RefreshStickers();          // listen/standalone: the server's own view updates immediately
 
 	// Same commit path the other axes use, so stickers cannot drift onto a private route.
 	ServerSetCosmeticSelection(Selection);
@@ -932,4 +937,27 @@ void UAFLCosmeticLoadoutComponent::ServerClearAccessory_Implementation(const EAF
 	Selection.AccessorySet.EnsureSized();
 	Selection.AccessorySet.ClearSlot(Slot);
 	ServerSetCosmeticSelection(Selection);
+}
+
+void UAFLCosmeticLoadoutComponent::RefreshStickers() const
+{
+	// The loadout is on the PlayerState; the parts hang off the PAWN. Walking the wrong one finds
+	// nothing and looks exactly like "this player owns no stickers".
+	const APlayerState* PS = Cast<APlayerState>(GetOwner());
+	const APawn* Pawn = PS ? PS->GetPawn() : nullptr;
+	if (!Pawn) { return; }
+	const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(this);
+	int32 Parts = 0;
+	TArray<UChildActorComponent*> CACs;
+	Pawn->GetComponents<UChildActorComponent>(CACs);
+	for (UChildActorComponent* CAC : CACs)
+	{
+		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
+		{
+			Part->ApplyStickerSet(Selection.StickerSet, Cat);
+			++Parts;
+		}
+	}
+	UE_LOG(LogAFLSkinDiag, Log, TEXT("%s[Sticker] RefreshStickers -> %d part(s), %d zone(s) set"),
+		*AFLSkinDiag::Prefix(this), Parts, Selection.StickerSet.NumSet());
 }

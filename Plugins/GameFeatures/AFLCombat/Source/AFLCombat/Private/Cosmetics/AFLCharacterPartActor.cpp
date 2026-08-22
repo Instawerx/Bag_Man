@@ -1,6 +1,10 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "Cosmetics/AFLCharacterPartActor.h"
+#include "Cosmetics/AFLCosmeticSelectionTypes.h"
+#include "Engine/Canvas.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Kismet/KismetRenderingLibrary.h"
 
 #include "AFLCombat.h"                             // LogAFLCombat (the UV1 variant SkinDiag lines; unity-shuffle-proof)
 #include "Cosmetics/AFLSkinColorAsset.h"
@@ -533,3 +537,100 @@ int32 AAFLCharacterPartActor::DebugSetMIDScalarParam(FName ParamName, float Valu
 	});
 }
 #endif // UE_WITH_CHEAT_MANAGER
+
+// --- CC-7 STICKER COMPOSITION ------------------------------------------------------------------
+void AAFLCharacterPartActor::ApplyStickerSet(const FAFLStickerSet& Set, const UAFLCosmeticCatalogSubsystem* Catalog)
+{
+	static const FName P_Tex(TEXT("StickerAtlasTex"));
+	static const FName P_Scale(TEXT("StickerUVScale"));
+	static const FName P_U(TEXT("StickerUOffset"));
+	static const FName P_V(TEXT("StickerVOffset"));
+	static const FName P_Int(TEXT("StickerIntensity"));
+
+	// Which zones actually carry a sticker, and can the catalog tell us their atlas tile?
+	struct FDraw { int32 Zone; int32 Tile; FVector2D Pos; float Scale; float Rot; };
+	TArray<FDraw> Draws;
+	for (int32 z = 0; z < FAFLStickerSet::ZoneCount && Catalog; ++z)
+	{
+		const FAFLStickerPlacement* P = Set.Find(static_cast<EAFLStickerZone>(z));
+		if (!P || !P->IsSet()) { continue; }
+		const FAFLCatalogEntry* Row = Catalog->FindEntry(P->StickerId);
+		// A row with no tile (-1) is REFUSED, not defaulted to 0. Tile 0 is a real sticker, so
+		// defaulting would silently draw someone else's art on an unconfigured row.
+		if (!Row || Row->StickerAtlasTile < 0)
+		{
+			UE_LOG(LogAFLSkinDiag, Warning,
+				TEXT("[Sticker] zone %d -> %s has no atlas tile; skipped (not defaulted to 0)"),
+				z, *P->StickerId.ToString());
+			continue;
+		}
+		Draws.Add({ z, Row->StickerAtlasTile, P->Position, P->Scale, P->RotationDegrees });
+	}
+
+	if (Draws.Num() == 0)
+	{
+		// NOTHING EQUIPPED: force the layer off. Leaving a stale intensity would keep the last
+		// player's stickers on this pawn after a respawn with none.
+		ForEachOwnedMID(this, OwnedMIDs, [](UMaterialInstanceDynamic* MID)
+		{
+			MID->SetScalarParameterValue(P_Int, 0.0f);
+		});
+		return;
+	}
+
+	UTexture2D* Atlas = LoadObject<UTexture2D>(nullptr,
+		TEXT("/Game/BagMan/Characters/Cosmetics/Stickers/T_BagMan_StickerAtlas.T_BagMan_StickerAtlas"));
+	if (!Atlas)
+	{
+		UE_LOG(LogAFLSkinDiag, Warning, TEXT("[Sticker] atlas missing -- layer left OFF."));
+		return;
+	}
+
+	const int32 RTSize = 1024;
+	if (!StickerRT)
+	{
+		StickerRT = NewObject<UTextureRenderTarget2D>(this);
+		StickerRT->RenderTargetFormat = RTF_RGBA8;
+		StickerRT->ClearColor = FLinearColor(0, 0, 0, 0);
+		StickerRT->bAutoGenerateMips = false;
+		StickerRT->InitAutoFormat(RTSize, RTSize);
+	}
+	UKismetRenderingLibrary::ClearRenderTarget2D(this, StickerRT, FLinearColor(0, 0, 0, 0));
+
+	UCanvas* Canvas = nullptr; FVector2D CanvasSize; FDrawToRenderTargetContext Ctx;
+	UKismetRenderingLibrary::BeginDrawCanvasToRenderTarget(this, StickerRT, Canvas, CanvasSize, Ctx);
+	if (Canvas)
+	{
+		const float Cell = RTSize / 3.0f;         // zone grid, matching UV2
+		const float Tile = 1.0f / 4.0f;           // atlas grid, 4x4
+		for (const FDraw& D : Draws)
+		{
+			const int32 zc = D.Zone % 3, zr = D.Zone / 3;
+			const int32 tc = D.Tile % 4, tr = D.Tile / 4;
+			const float Size = Cell * FMath::Clamp(D.Scale, 0.05f, 1.0f);
+			// Placement is normalised ZONE space, so it cannot leave the cell by construction.
+			const FVector2D Centre(zc * Cell + D.Pos.X * Cell, zr * Cell + D.Pos.Y * Cell);
+			Canvas->K2_DrawTexture(Atlas,
+				Centre - FVector2D(Size * 0.5f, Size * 0.5f), FVector2D(Size, Size),
+				FVector2D(tc * Tile, tr * Tile), FVector2D(Tile, Tile),
+				FLinearColor::White, BLEND_Translucent, D.Rot, FVector2D(0.5f, 0.5f));
+			UE_LOG(LogAFLSkinDiag, Log,
+				TEXT("[Sticker] drew zone=%d tile=%d at cell(%d,%d) pos=(%.2f,%.2f) scale=%.2f rot=%.0f"),
+				D.Zone, D.Tile, zc, zr, D.Pos.X, D.Pos.Y, D.Scale, D.Rot);
+		}
+	}
+	UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(this, Ctx);
+
+	// UV2 ADDRESSES THE RT DIRECTLY: scale 1, offset 0. The tile arithmetic already happened above,
+	// which is the whole point of compositing -- the material does not have to know about tiles.
+	const int32 Count = Draws.Num();
+	ForEachOwnedMID(this, OwnedMIDs, [this, Count](UMaterialInstanceDynamic* MID)
+	{
+		MID->SetTextureParameterValue(P_Tex, StickerRT);
+		MID->SetScalarParameterValue(P_Scale, 1.0f);
+		MID->SetScalarParameterValue(P_U, 0.0f);
+		MID->SetScalarParameterValue(P_V, 0.0f);
+		MID->SetScalarParameterValue(P_Int, 1.0f);
+	});
+	UE_LOG(LogAFLSkinDiag, Log, TEXT("[Sticker] composited %d sticker(s) -> RT, intensity 1"), Count);
+}
