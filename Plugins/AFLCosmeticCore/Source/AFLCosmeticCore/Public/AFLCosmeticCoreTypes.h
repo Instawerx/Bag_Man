@@ -350,6 +350,23 @@ struct FAFLCatalogEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
 	bool bCreditRedeemable = false;
 
+	/**
+	 * CC-7: WHICH CELL OF THE STICKER ATLAS THIS ROW DRAWS. Meaningful only when Type == Sticker.
+	 *
+	 * A sticker row names an atlas TILE, never its own texture: M_AFL_Character already carries 5
+	 * texture parameters across 9 sample nodes, and a texture per sticker would blow the platform's
+	 * 16-sampler budget and break the master for whoever adds the next one. One atlas costs one
+	 * sampler no matter how many stickers ship.
+	 *
+	 * DEFAULT IS -1, NOT 0, AND THAT IS THE POINT. Tile 0 is a real, valid cell (ROR Green). With a
+	 * 0 default, "nobody set this" and "this draws the first sticker" would be the same stored value
+	 * and unreadable apart -- the absent-vs-default ambiguity that made 27 facemask rows invisible
+	 * and cost a re-derivation to find. -1 is not a cell, so an unset row is refusable rather than
+	 * silently drawing someone else's art.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Sticker")
+	int32 StickerAtlasTile = INDEX_NONE;
+
 	/** Season / set grouping (e.g. Founders, Season_1). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
 	FName CollectionId;
