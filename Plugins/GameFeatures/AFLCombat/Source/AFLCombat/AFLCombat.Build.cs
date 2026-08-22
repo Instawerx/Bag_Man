@@ -103,5 +103,21 @@ public class AFLCombat : ModuleRules
 				"AssetRegistry",
 			}
 		);
+
+		// CC-7: the sticker sampler is authored into M_AFL_Character from C++, which needs
+		// MaterialEditingLibrary (MaterialEditor module). GATED ON bBuildEditor -- MaterialEditor does
+		// not exist in a packaged build, so an ungated dependency would not fail here, it would fail at
+		// cook/package time on a machine that is not this one. The call sites are already behind
+		// WITH_EDITOR; this is the build-graph half of the same fence.
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(
+				new string[]
+				{
+					"MaterialEditor",
+					"UnrealEd",
+				}
+			);
+		}
 	}
 }
