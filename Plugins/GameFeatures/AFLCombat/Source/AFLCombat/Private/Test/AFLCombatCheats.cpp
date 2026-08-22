@@ -6643,7 +6643,9 @@ namespace
 		int32 Occupied = 0;
 		for (int32 z = 0; z < 9; ++z)
 		{
-			const int32 c = z % 3, r = z / 3;
+			// Same V flip as the compositor, so a cell reported for a zone is the cell that zone's
+			// geometry actually samples.
+			const int32 c = z % 3, r = 2 - (z / 3);
 			int32 Lit = 0;
 			for (int32 y = r * CH; y < (r + 1) * CH; ++y)
 			{
