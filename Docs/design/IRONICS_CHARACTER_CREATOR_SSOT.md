@@ -709,6 +709,67 @@ cheap — the source is pristine and the projection is scripted.
 **STILL PRODUCT INTENT:** tile 6 (`1776 Pack`) is a sheet of five marks — one sticker or five; and
 direct sticker pricing (credits-only, or a price).
 
+## 8.13 · CC-7 PLACEMENT — WHAT A PLAYER CAN AND CANNOT DO
+
+### CAN, measured
+
+| | evidence |
+|---|---|
+| Buy sticker credits | 990 / 1490 VO SKUs live on title `1A2077`; proof spent 4,460 VO |
+| Redeem a sticker with a credit | counter decrements, grant durable across reconcile |
+| Place a sticker in a zone | `ServerSetStickerPlacement` → server re-clamps → replicates |
+| Have it composite | `drew zone=0 tile=8 at cell(0,0)` / `zone=7 tile=7 at cell(1,2)`, `composited 2 sticker(s) -> RT, intensity 1` |
+| Land in the RIGHT zone | **RT per-cell readback: cell(0,0)=11,820 lit px, cell(1,2)=14,709, all seven other cells ZERO** |
+| Not be mis-sold | store offers 0 sticker rows and both credit SKUs |
+
+**THE DRIVER DID NOT EXIST until this block.** Zero references to any sticker material parameter
+outside the cheats file; `StickerSet` was written by the RPC and read by nobody. The axis was data and
+the material was wired, and nothing joined them.
+
+**One sampler cannot show nine stickers by scale and offset** — that is an affine map, and it routes
+one rect to one tile. Composition happens once into a per-part RT laid out in the same 3×3 zone space
+as UV2; the material samples that with UV2 at scale 1. One sampler, any number of stickers.
+
+### CANNOT / NOT PROVEN
+
+⚠ **The on-screen appearance of a sticker is NOT measured.** Three capture instruments failed, and the
+third failed *silently*: a capture with the sticker RT **absent** produced deltas identical to one with
+it present, plus a constant 223-px floor. An instrument that answers the same with the subject removed
+is not measuring the subject, so none of its numbers are reported as a zone result — in either
+direction. What IS measured is the compositor's output (RT per cell) and the geometry (UV2 puts every
+loop in its own cell). The remaining unmeasured link is RT → screen.
+
+⚠ **Respawn persistence is not proven.** The kill fires, but the capture that would show the stickers
+surviving used the broken instrument.
+
+⚠ **Two-client replication is partially shown.** `RefreshStickers` fires on the dedicated server world
+and on a client, and an earlier run showed both client pids compositing; this is weaker than a
+measured render on the observer, which the broken capture was meant to supply.
+
+⚠ **Zone layout is still art-unreviewed** — the render is with the operator.
+
+⚠ **No UI.** Placement is reachable only through the RPC / console. There is no creator screen for
+choosing a sticker, a zone, or a position.
+
+### STILL PRODUCT INTENT
+Tile 6 (`1776 Pack`) is a sheet of five marks — one sticker or five. Direct sticker pricing —
+credits-only, or a price.
+
+## 8.14 · CC-8 STATUS — AXIS AND SOCKETS, NO CONTENT
+
+Accessory **axis** and **sockets** are done: three sockets authored on `SK_Mannequin` from C++
+(CC-X34, 6 → 9, both character lines see them), attach guarded by `DoesSocketExist`. **There is no
+accessory content** — not one accessory asset or catalog row exists, so a player cannot equip an
+accessory. CC-8 is closed to *axis-and-sockets*, not to a usable feature.
+
+## 8.15 · CC-X33 / CC-X34 / CC-X35 — RESOLVED
+
+- **CC-X33** — the FBIK solver does **not** propagate into `spine_03`/`pelvis`. Three poses, all 164
+  bones, spine and pelvis at exactly 0.0000 cm while the solver moved other bones 8–9.5 cm.
+- **CC-X34** — sockets authored from C++; Python was closed, C++ open.
+- **CC-X35** — the steps were already split (`setup:economy:catalog`); the defect was volume, and a
+  balance mutation now announces itself.
+
 ## 9 · Blocked axes
 
 **CC-7.1 RESOLVED 2026-08-21 — THE SOURCE IS NOT LOST.**
