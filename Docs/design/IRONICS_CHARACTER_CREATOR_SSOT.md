@@ -953,39 +953,40 @@ legs alone: `upper=7351  mid=378  lower=3`. After the second sticker: `upper=104
 `10487`. The observing client renders what the writer placed — cosmetic replication, dedicated, not
 the listen-server economy exception.
 
-⚠ **RESPAWN — RESOLVED. The probe's death leaves the player PAWNLESS; the visor does not survive it either.**
+**RESPAWN — STICKERS SURVIVE IT. The "defect" was the probe's kill path, start to finish.**
 
-The operator observed visors respawning, which contradicted "nothing respawns". Both cosmetics were
-watched through ONE death on ONE pawn, with a heartbeat so a truncated run could not masquerade as a
-null:
+**Operator confirmed visually that the sticker survived respawn**, and the watcher logged the pawn
+transition that goes with it — **twice, in two separate runs**:
 
 ```
-tick 00-02   pawn=_C_6  parts=1  VISOR=MID_MI_AFL_FaceMaskV_Pink_2  STICKER=RT lit=24776
-             THE KILL
-tick 03-44   pawn=<none>  parts=0  VISOR=-  STICKER=-        (42 ticks, 84 seconds)
-             WINDOW COMPLETE (45 ticks) -- this run was NOT truncated
+tick 00-50  pawn=B_Hero_BagMan_Pro_C_6  parts=1  VISOR=MID_MI_AFL_FaceMaskV_Pink_2  STICKER=RT lit=24281
+tick 51     pawn=B_Hero_BagMan_Pro_C_7  parts=1  VISOR=MID_MI_AFL_FaceMaskV_Pink_2  STICKER=RT lit=24281
 ```
 
-**Three things settled at once:**
+A different pawn, **both cosmetics present, identical lit count**. Visor and sticker travel together,
+exactly as the code says they must — they share the part actor.
 
-1. **The window was never the problem.** 84 seconds past the kill, heartbeat-proven un-truncated.
-2. **There is no pawn at all afterwards** — not a pawn missing its parts. `pawn=<none>`.
-3. **The visor does NOT survive this death either.** It and the sticker appear and disappear together,
-   which is exactly what the code predicts: `ApplyFacemask` calls `GetComponents<UMeshComponent>` on
-   the PART ACTOR and swaps slot 1 on its mesh, so visor and sticker ride the same part. **The
-   "visors are immune because they need no part actor" hypothesis is refuted from the code and from
-   the measurement.**
+**WHY EVERY EARLIER RUN SAID OTHERWISE: `SuicidePawn` leaves the player un-possessed in this
+experience** (42 ticks / 84 s at `pawn=<none>`, heartbeat-proven un-truncated). Nothing cosmetic can
+survive that, because there is no pawn. Every "respawn defect" reading came from a path players never
+take.
 
-**So the contradiction was never visor-vs-sticker.** It is that `SuicidePawn` in this harness ends
-with the player un-possessed, and nothing cosmetic can survive that because there is no pawn to carry
-it. The operator's visor observation must come from a different death path — real damage in normal
-play — which is the one open question left: **is `SuicidePawn` the same death a player takes?** Until
-that is answered, sticker persistence across a REAL death remains unmeasured; what is measured is that
-this probe has been exercising a path players never take.
+⚠ **AND THE ORDINARY DAMAGE PATH CANNOT KILL AT ALL HERE.** Applying Lyra's weapon damage GE with an
+external instigator and no self-destruct tag: **40 hits × 200 damage = 8,000, health unchanged at
+100.0 — "absorbers held".** The AFL overload/absorber system absorbs the entire weapon-GE path. This is
+not a surprise in hindsight: `SuicidePawn`'s own comment says it exists to *"bypass the AFL absorbers
+/ overload clamp — a suicide must always kill"*. It is worth knowing that **no scripted damage kill is
+possible through that GE**, which constrains how any future death test can be built.
 
-⚠ This also puts a question against the earlier `cc-6-4` colour proof, which used the same
-`FireServerKill` path and described it as "the genuine Lyra OnOutOfHealth flow ... respawn /
-re-possession fire exactly as in a real death". On this experience it does not re-possess.
+**cc-6-4 IS SOUND — it did NOT inherit the assumption.** Read as instructed: it *asserted*
+re-possession and *guarded* it — *"pawn= must DIFFER from step 5 — that difference IS the respawn.
+Unchanged → NOT EXERCISED."* An unchanged pawn would have voided the arm rather than passing it. No
+retag needed.
+
+**THE RECORD ON THE THREE PRIOR FIXES:** all three stay kept and stay labelled **not the fix** —
+there was no sticker defect to fix. Each remains independently correct (controller fallback in the
+loadout lookup; PATH 1 self-apply, since stickers genuinely had only PATH 2; presence-of-output
+logging, which is what eventually produced characterisations instead of guesses).
 
 ### WHAT A PLAYER CAN AND CANNOT DO
 

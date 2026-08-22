@@ -20,6 +20,9 @@
 #include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
 #include "Engine/SkeletalMeshSocket.h"   // CC-X34 socket authoring
 #include "Animation/Skeleton.h"   // CC-X34 socket authoring
+#include "LyraGameplayTags.h"   // CC-7 damage kill
+#include "System/LyraGameData.h"   // CC-7 damage kill
+#include "System/LyraAssetManager.h"   // CC-7 damage kill
 #include "RenderingThread.h"   // CC-7 bisect: FlushRenderingCommands
 #include "Engine/Canvas.h"   // CC-7 screen proof: K2_DrawBox
 #include "Kismet/KismetRenderingLibrary.h"   // CC-7 screen proof
@@ -6632,6 +6635,102 @@ namespace
 	// THE HEARTBEAT IS THE POINT: every tick prints, so a run that simply ENDED early is visibly
 	// different from a run where nothing came back. The previous conclusion rested on an absence
 	// inside a window that was never shown to be long enough.
+	// KILL BY DAMAGE, NOT SELF-DESTRUCT.
+	//
+	// DamageSelfDestruct uses the SAME GameplayEffect a weapon does -- it only adds
+	// TAG_Gameplay_DamageSelfDestruct. That tag is the ONLY difference between the probe's death and a
+	// player's, so this applies the identical spec WITHOUT it, and with an EXTERNAL instigator so the
+	// kill reads as inflicted by another actor rather than self-inflicted.
+	//
+	// Runs against the DEDICATED SERVER world, resolved by PlayerId exactly as FireServerKill does:
+	// PlayerId is server-assigned and replicated, so it is the only handle that means the same player
+	// in both worlds.
+	void HandleAFLDamageKill(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !GEngine) { return; }
+		int32 MyId = -1;
+		if (APlayerController* MyPC = World->GetFirstPlayerController())
+		{
+			if (APlayerState* MyPS = MyPC->PlayerState) { MyId = MyPS->GetPlayerId(); }
+		}
+		UWorld* SrvWorld = nullptr;
+		for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+		{
+			UWorld* W = Ctx.World();
+			if (W && W->IsGameWorld() && W->GetNetMode() == NM_DedicatedServer) { SrvWorld = W; break; }
+		}
+		if (!SrvWorld || MyId < 0)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DMG] ABORT srvWorld=%d myId=%d"), SrvWorld ? 1 : 0, MyId);
+			return;
+		}
+		APawn* Victim = nullptr;
+		for (FConstPlayerControllerIterator It = SrvWorld->GetPlayerControllerIterator(); It; ++It)
+		{
+			APlayerController* PC = It->Get();
+			APlayerState* PS = PC ? PC->PlayerState : nullptr;
+			if (PS && PS->GetPlayerId() == MyId) { Victim = PC->GetPawn(); break; }
+		}
+		if (!Victim)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DMG] ABORT -- no server pawn for playerId %d"), MyId);
+			return;
+		}
+		UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Victim);
+		ULyraHealthComponent* HC = ULyraHealthComponent::FindHealthComponent(Victim);
+		if (!ASC || !HC)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DMG] ABORT -- asc=%d hc=%d"), ASC ? 1 : 0, HC ? 1 : 0);
+			return;
+		}
+		const TSubclassOf<UGameplayEffect> DamageGE =
+			ULyraAssetManager::GetSubclass(ULyraGameData::Get().DamageGameplayEffect_SetByCaller);
+		if (!DamageGE)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DMG] ABORT -- damage GE not found"));
+			return;
+		}
+		// AN EXTERNAL KILLER. Any other pawn in the server world serves as instigator/causer; a
+		// self-inflicted context is the thing being ruled out.
+		AActor* Killer = nullptr;
+		for (TActorIterator<APawn> It(SrvWorld); It; ++It)
+		{
+			if (*It != Victim) { Killer = *It; break; }
+		}
+		FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
+		Ctx.AddInstigator(Killer ? Killer : Victim, Killer ? Killer : Victim);
+		FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(DamageGE, 1.0f, Ctx);
+		if (!Spec.Data.Get())
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[DMG] ABORT -- no spec"));
+			return;
+		}
+		// NOTE: no TAG_Gameplay_DamageSelfDestruct. That omission is the entire experiment.
+		// THE ABSORBERS ATE THE FIRST ATTEMPT. One application of MaxHealth*2 left health at 100.0 --
+		// AFL carries damage absorbers / an overload clamp, which is precisely what SuicidePawn's own
+		// comment says it exists to bypass. A player's death is many hits, not one, so apply
+		// repeatedly until health actually reaches zero rather than assuming one spec is lethal.
+		const float Dmg = HC->GetMaxHealth() * 2.0f;
+		int32 Hits = 0;
+		for (; Hits < 40 && HC->GetHealth() > 0.0f; ++Hits)
+		{
+			FGameplayEffectSpecHandle Sp = ASC->MakeOutgoingSpec(DamageGE, 1.0f, Ctx);
+			if (!Sp.Data.Get()) { break; }
+			Sp.Data->SetSetByCallerMagnitude(LyraGameplayTags::SetByCaller_Damage, Dmg);
+			ASC->ApplyGameplayEffectSpecToSelf(*Sp.Data.Get());
+		}
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[DMG] %d hits of %.0f on %s via the weapon GE (NO self-destruct tag), killer=%s; health now %.1f %s"),
+			Hits, Dmg, *Victim->GetName(), *GetNameSafe(Killer), HC->GetHealth(),
+			(HC->GetHealth() <= 0.0f) ? TEXT("-- DEAD") : TEXT("-- STILL ALIVE, absorbers held"));
+		Ar.Log(TEXT("damage kill applied."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLDamageKillCmd(TEXT("afl.Dev.DamageKill"),
+		TEXT("Kill this window's player on the DEDICATED SERVER with the ordinary weapon damage GE and an ")
+		TEXT("external instigator -- the same spec as DamageSelfDestruct minus the self-destruct tag."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLDamageKill));
+
 	void HandleAFLRespawnWatch(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
 		if (!World) { return; }
@@ -8241,7 +8340,9 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			// Watch from BEFORE the kill to well after, on the writer. 90s of ticks against a kill at
 			// t=38 means a respawn up to ~50s late still lands inside the window.
 			if (RoleIndex == 0) { FireCmd(34.0f, TEXT("afl.Dev.RespawnWatch 90"), TEXT("respawn-watch")); }
-			if (RoleIndex == 0) { FireServerKill(38.0f, TEXT("kill-A-for-respawn")); }
+			// KILL BY DAMAGE, not SuicidePawn: the operator observes visors surviving death in normal
+			// play, and SuicidePawn is the one path that adds the self-destruct tag.
+			if (RoleIndex == 0) { FireCmd(38.0f, TEXT("afl.Dev.DamageKill"), TEXT("kill-A-by-damage")); }
 			FireCmd(48.0f, RoleIndex == 1 ? TEXT("afl.Online.VerifyStickerPlacement afterRespawn remote")
 			                              : TEXT("afl.Online.VerifyStickerPlacement afterRespawn"), TEXT("after-respawn"));
 			// THE ARM THE V-FLIP FIX INVALIDATED. Respawn persistence and the observer's view were both
