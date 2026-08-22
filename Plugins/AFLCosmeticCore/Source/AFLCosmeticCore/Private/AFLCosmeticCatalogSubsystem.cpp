@@ -274,6 +274,18 @@ void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry
 			++Filtered;   // priced in the UE catalog, absent from the backend: CC-X22's whole subject
 			continue;
 		}
+		// CC-7: A ROW THAT CANNOT TRANSACT MUST NOT BE OFFERED.
+		// bTransactable is checked on all three PURCHASE paths but was never checked HERE, so the ten
+		// sticker rows were listed in the shop at 0 VO -- reading as "Free" -- and a click was refused
+		// with "not yet available". Measured, not assumed: I previously reported that
+		// bTransactable=false kept them out of the store. It keeps them from being BOUGHT; it did not
+		// keep them from being SHOWN, and offering something that cannot be bought is the same
+		// mis-sell shape CC-X22 existed to close.
+		if (!Entry.bTransactable)
+		{
+			++Filtered;
+			continue;
+		}
 		OutEntries.Add(Entry); // by value -- small BlueprintType struct for the store grid.
 	}
 
