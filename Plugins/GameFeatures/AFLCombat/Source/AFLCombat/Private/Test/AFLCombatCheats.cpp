@@ -20,6 +20,17 @@
 #include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
 #include "Engine/SkeletalMeshSocket.h"   // CC-X34 socket authoring
 #include "Animation/Skeleton.h"   // CC-X34 socket authoring
+#include "Rendering/SkeletalMeshLODModel.h"   // CC-7 step 5 verify
+#include "Rendering/SkeletalMeshModel.h"   // CC-7 step 5 verify
+#include "Editor.h"   // CC-7 editor-world capture
+#include "Animation/SkeletalMeshActor.h"   // CC-7 identity render hash
+#include "Materials/MaterialExpressionTextureSampleParameter2D.h"   // CC-7 sticker sampler
+#include "Materials/MaterialExpressionAppendVector.h"   // CC-7 sticker sampler
+#include "Materials/MaterialExpressionAdd.h"   // CC-7 sticker sampler
+#include "Materials/MaterialExpressionMultiply.h"   // CC-7 sticker sampler
+#include "Materials/MaterialExpressionScalarParameter.h"   // CC-7 sticker sampler
+#include "Materials/MaterialExpressionTextureCoordinate.h"   // CC-7 sticker sampler
+#include "MaterialEditingLibrary.h"   // CC-7 sticker sampler
 #include "Misc/FileHelper.h"   // CC-7 material graph read
 #include "Materials/MaterialExpressionTextureSampleParameter.h"   // CC-7 material graph read
 #include "Materials/MaterialExpressionParameter.h"   // CC-7 material graph read
@@ -6033,6 +6044,326 @@ namespace
 		TEXT("[materialPath] [tag]. Use before/after an edit to prove nothing pre-existing moved."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMaterialGraphSnapshot));
 #endif // WITH_EDITOR
+
+#if WITH_EDITOR
+	// === CC-7 step 2: afl.Dev.AuthorStickerSampler ===============================================
+	static UMaterialExpression* AFLFindExprByGuid(UMaterial* M, const FString& GuidStr)
+	{
+		FGuid Want;
+		if (!FGuid::Parse(GuidStr, Want)) { return nullptr; }
+		for (const TObjectPtr<UMaterialExpression>& E : M->GetExpressions())
+		{
+			if (E && E->MaterialExpressionGuid == Want) { return E; }
+		}
+		return nullptr;
+	}
+
+	void HandleAFLAuthorStickerSampler(const TArray<FString>& /*Args*/, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		const TCHAR* MatPath = TEXT("/Game/BagMan/Materials/M_AFL_Character.M_AFL_Character");
+		UMaterial* Mat = LoadObject<UMaterial>(nullptr, MatPath);
+		if (!Mat)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[STKM] ABORT -- master did not load. NOTHING WRITTEN."));
+			return;
+		}
+
+		// IDEMPOTENT. A second run would stack a second sticker layer AND a second rewire.
+		for (const TObjectPtr<UMaterialExpression>& E : Mat->GetExpressions())
+		{
+			if (const UMaterialExpressionTextureSampleParameter* TP = Cast<UMaterialExpressionTextureSampleParameter>(E))
+			{
+				if (TP->ParameterName == FName(TEXT("StickerAtlasTex")))
+				{
+					UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[STKM] ALREADY AUTHORED -- StickerAtlasTex present. NOTHING WRITTEN."));
+					return;
+				}
+			}
+		}
+
+		// ---- the two nodes this touches, BY GUID ---------------------------------------------------
+		UMaterialExpression* EmissiveAdd = AFLFindExprByGuid(Mat, TEXT("DEB92745-433C-86FE-7FA3-589D311FD3C9"));
+		UMaterialExpression* CurrentA    = AFLFindExprByGuid(Mat, TEXT("D85D2F50-4760-2FB0-F179-4F9FD0C3F065"));
+		if (!EmissiveAdd || !CurrentA)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[STKM] REFUSED -- target nodes not found by GUID (emissiveAdd=%d currentA=%d). The graph moved; NOTHING WRITTEN."),
+				EmissiveAdd ? 1 : 0, CurrentA ? 1 : 0);
+			return;
+		}
+		// THE GRAPH MUST STILL LOOK LIKE THE BASELINE. Authoring against a stale picture is exactly
+		// what reading first was supposed to prevent.
+		FExpressionInput* AIn = EmissiveAdd->GetInput(0);
+		if (!AIn || AIn->Expression != CurrentA)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[STKM] REFUSED -- DEB92745 input A is no longer D85D2F50. NOTHING WRITTEN."));
+			return;
+		}
+
+		UTexture* Atlas = LoadObject<UTexture>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/Stickers/T_BagMan_StickerAtlas.T_BagMan_StickerAtlas"));
+		if (!Atlas)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[STKM] ABORT -- atlas texture missing. NOTHING WRITTEN."));
+			return;
+		}
+
+		const int32 BeforeCount = Mat->GetExpressions().Num();
+		int32 X = -1800, Y = 2400;
+		auto New = [&](UClass* C, int32 dx, int32 dy) -> UMaterialExpression*
+		{
+			return UMaterialEditingLibrary::CreateMaterialExpression(Mat, C, X + dx, Y + dy);
+		};
+
+		// UV2 -- the zone rects. Coordinate index 2 is the layer authored on the reconciled source.
+		UMaterialExpressionTextureCoordinate* UV2 =
+			Cast<UMaterialExpressionTextureCoordinate>(New(UMaterialExpressionTextureCoordinate::StaticClass(), 0, 0));
+		UV2->CoordinateIndex = 2;
+
+		auto Scalar = [&](const TCHAR* Name, float Default, int32 dx, int32 dy) -> UMaterialExpressionScalarParameter*
+		{
+			UMaterialExpressionScalarParameter* P =
+				Cast<UMaterialExpressionScalarParameter>(New(UMaterialExpressionScalarParameter::StaticClass(), dx, dy));
+			P->ParameterName = FName(Name);
+			P->DefaultValue = Default;
+			P->Group = FName(TEXT("Sticker"));
+			return P;
+		};
+		UMaterialExpressionScalarParameter* UVScale   = Scalar(TEXT("StickerUVScale"),  1.0f, 0, 120);
+		UMaterialExpressionScalarParameter* UOffset   = Scalar(TEXT("StickerUOffset"),  0.0f, 0, 240);
+		UMaterialExpressionScalarParameter* VOffset   = Scalar(TEXT("StickerVOffset"),  0.0f, 0, 360);
+		// DEFAULT 0 IS THE WHOLE SAFETY ARGUMENT: the added term is exactly +0 until something sets it.
+		UMaterialExpressionScalarParameter* Intensity = Scalar(TEXT("StickerIntensity"), 0.0f, 0, 480);
+
+		UMaterialExpressionMultiply* ScaledUV =
+			Cast<UMaterialExpressionMultiply>(New(UMaterialExpressionMultiply::StaticClass(), 320, 40));
+		UMaterialExpressionAppendVector* Offset =
+			Cast<UMaterialExpressionAppendVector>(New(UMaterialExpressionAppendVector::StaticClass(), 320, 280));
+		UMaterialExpressionAdd* FinalUV =
+			Cast<UMaterialExpressionAdd>(New(UMaterialExpressionAdd::StaticClass(), 620, 140));
+
+		UMaterialExpressionTextureSampleParameter2D* Samp =
+			Cast<UMaterialExpressionTextureSampleParameter2D>(
+				New(UMaterialExpressionTextureSampleParameter2D::StaticClass(), 900, 140));
+		Samp->ParameterName = FName(TEXT("StickerAtlasTex"));
+		Samp->Texture = Atlas;
+		Samp->SamplerType = SAMPLERTYPE_Color;
+		Samp->Group = FName(TEXT("Sticker"));
+
+		UMaterialExpressionMultiply* Contribution =
+			Cast<UMaterialExpressionMultiply>(New(UMaterialExpressionMultiply::StaticClass(), 1240, 200));
+		UMaterialExpressionAdd* NewAdd =
+			Cast<UMaterialExpressionAdd>(New(UMaterialExpressionAdd::StaticClass(), 1520, 120));
+
+		typedef UMaterialEditingLibrary ML;
+		int32 Wires = 0;
+		Wires += ML::ConnectMaterialExpressions(UV2,       TEXT(""), ScaledUV,     TEXT("A")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(UVScale,   TEXT(""), ScaledUV,     TEXT("B")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(UOffset,   TEXT(""), Offset,       TEXT("A")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(VOffset,   TEXT(""), Offset,       TEXT("B")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(ScaledUV,  TEXT(""), FinalUV,      TEXT("A")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(Offset,    TEXT(""), FinalUV,      TEXT("B")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(FinalUV,   TEXT(""), Samp,         TEXT("Coordinates")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(Samp,      TEXT(""), Contribution, TEXT("A")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(Intensity, TEXT(""), Contribution, TEXT("B")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(CurrentA,  TEXT(""), NewAdd,       TEXT("A")) ? 1 : 0;
+		Wires += ML::ConnectMaterialExpressions(Contribution, TEXT(""), NewAdd,    TEXT("B")) ? 1 : 0;
+
+		// THE ONE PRE-EXISTING CONNECTION THAT MOVES. Everything above wires only new nodes.
+		const bool bRewired = ML::ConnectMaterialExpressions(NewAdd, TEXT(""), EmissiveAdd, TEXT("A"));
+
+		UMaterialEditingLibrary::RecompileMaterial(Mat);
+		Mat->MarkPackageDirty();
+
+		const int32 AfterCount = Mat->GetExpressions().Num();
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[STKM] expressions %d -> %d (+%d) ; newWires=%d ; rewiredEmissiveA=%d"),
+			BeforeCount, AfterCount, AfterCount - BeforeCount, Wires, bRewired ? 1 : 0);
+
+		// READ BACK the one link, from the graph rather than from the call's return value.
+		FExpressionInput* AIn2 = EmissiveAdd->GetInput(0);
+		const bool bOk = AIn2 && AIn2->Expression == NewAdd;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[STKM] readback: DEB92745.A -> %s %s"),
+			(AIn2 && AIn2->Expression) ? *AIn2->Expression->MaterialExpressionGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT("<none>"),
+			bOk ? TEXT("PASS") : TEXT("FAIL"));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[STKM] SAVE AND DIFF THE SNAPSHOT -- exactly one pre-existing connection may differ."));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[STKM] END"));
+		Ar.Log(TEXT("afl.Dev.AuthorStickerSampler complete -- see AFL_TEST[STKM]."));
+	}
+
+	// A/B/A CONTROL. Moves DEB92745.A between the ORIGINAL source and the new Add, and nothing else,
+	// so a render difference can be attributed to that ONE link rather than to a recompile, to
+	// streaming, or to the eleven new nodes merely existing.
+	void HandleAFLToggleStickerLink(const TArray<FString>& Args, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		const bool bWantSticker = !Args.IsValidIndex(0) || Args[0] != TEXT("off");
+		UMaterial* Mat = LoadObject<UMaterial>(nullptr, TEXT("/Game/BagMan/Materials/M_AFL_Character.M_AFL_Character"));
+		if (!Mat) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[STKL] ABORT -- no master.")); return; }
+
+		UMaterialExpression* Emissive = AFLFindExprByGuid(Mat, TEXT("DEB92745-433C-86FE-7FA3-589D311FD3C9"));
+		UMaterialExpression* Original = AFLFindExprByGuid(Mat, TEXT("D85D2F50-4760-2FB0-F179-4F9FD0C3F065"));
+		UMaterialExpression* NewAdd = nullptr;
+		for (const TObjectPtr<UMaterialExpression>& E : Mat->GetExpressions())
+		{
+			// the sticker Add is the one whose A is the original node and which is not the emissive Add
+			if (E && E != Emissive && E->IsA<UMaterialExpressionAdd>())
+			{
+				const FExpressionInput* In = E->GetInput(0);
+				if (In && In->Expression == Original) { NewAdd = E; break; }
+			}
+		}
+		if (!Emissive || !Original || !NewAdd)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[STKL] ABORT -- emissive=%d orig=%d newAdd=%d"),
+				Emissive?1:0, Original?1:0, NewAdd?1:0);
+			return;
+		}
+		UMaterialExpression* Target = bWantSticker ? NewAdd : Original;
+		const bool bOk = UMaterialEditingLibrary::ConnectMaterialExpressions(Target, TEXT(""), Emissive, TEXT("A"));
+		UMaterialEditingLibrary::RecompileMaterial(Mat);
+		const FExpressionInput* Rb = Emissive->GetInput(0);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[STKL] set DEB92745.A -> %s (%s) ok=%d readback=%s"),
+			bWantSticker ? TEXT("stickerAdd") : TEXT("ORIGINAL"), bWantSticker ? TEXT("on") : TEXT("off"), bOk?1:0,
+			(Rb && Rb->Expression) ? *Rb->Expression->MaterialExpressionGuid.ToString(EGuidFormats::DigitsWithHyphens) : TEXT("<none>"));
+		Ar.Log(TEXT("sticker link toggled."));
+	}
+
+	// CC-7 step 5 verification. UE Python cannot read vertex/UV counts off a skeletal mesh -- the
+	// getters simply are not exposed, which was established by them failing identically on the SHIPPED
+	// mesh as well as the new one. The editor-side imported model carries both directly.
+	void HandleAFLSkelMeshInfo(const TArray<FString>& Args, UWorld* /*World*/, FOutputDevice& Ar)
+	{
+		const FString Path = Args.IsValidIndex(0) ? Args[0]
+			: TEXT("/Game/BagMan/Characters/Cosmetics/IRONICS_Blank/SKM_IRONICS_Blank.SKM_IRONICS_Blank");
+		USkeletalMesh* M = LoadObject<USkeletalMesh>(nullptr, *Path);
+		if (!M) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SMI] %s DID NOT LOAD"), *Path); return; }
+		const FSkeletalMeshModel* Model = M->GetImportedModel();
+		int32 Verts = -1, UVs = -1;
+		if (Model && Model->LODModels.Num() > 0)
+		{
+			Verts = Model->LODModels[0].NumVertices;
+			UVs   = Model->LODModels[0].NumTexCoords;
+		}
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SMI] %s verts=%d uvChannels=%d skeleton=%s materials=%d"),
+			*M->GetName(), Verts, UVs,
+			M->GetSkeleton() ? *M->GetSkeleton()->GetName() : TEXT("<none>"), M->GetMaterials().Num());
+		Ar.Logf(TEXT("%s: verts=%d uv=%d"), *M->GetName(), Verts, UVs);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLSkelMeshInfoCmd(TEXT("afl.Dev.SkelMeshInfo"),
+		TEXT("CC-7: report a skeletal mesh's vertex count, UV channel count, skeleton and material count ")
+		TEXT("from the editor-side imported model. Arg: [assetPath]."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLSkelMeshInfo));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLToggleStickerLinkCmd(TEXT("afl.Dev.ToggleStickerLink"),
+		TEXT("CC-7 A/B/A control: move MP_EmissiveColor's Add input A between the original source and the ")
+		TEXT("sticker Add. Arg: on|off. Recompiles. Changes nothing else."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLToggleStickerLink));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLAuthorStickerSamplerCmd(TEXT("afl.Dev.AuthorStickerSampler"),
+		TEXT("CC-7 EDITOR ONLY: add the sticker atlas sampler to M_AFL_Character, mirroring the Brand ")
+		TEXT("quartet, and move MP_EmissiveColor's Add input A onto a new Add. Idempotent; refuses if the ")
+		TEXT("graph no longer matches the baseline. StickerIntensity defaults to 0."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLAuthorStickerSampler));
+#endif // WITH_EDITOR
+
+	// === CC-7 step 4: afl.Dev.IdentityRenderHash =================================================
+	static bool AFLCaptureIdentity(UWorld* World, TArray<FColor>& OutPixels)
+	{
+		// FIXED, ABSOLUTE TRANSFORMS. Anything derived from a moving pawn would move between runs and
+		// the comparison would measure the camera, not the material.
+		static const FVector kMeshLoc(0.0f, 0.0f, -20000.0f);   // far from gameplay, nothing else nearby
+		static const FVector kCamOff(300.0f, 0.0f, 90.0f);
+
+		USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/IRONICS_Blank/SKM_IRONICS_Blank.SKM_IRONICS_Blank"));
+		if (!Mesh) { return false; }
+
+		FActorSpawnParameters SP; SP.ObjectFlags |= RF_Transient;
+		ASkeletalMeshActor* SMA = World->SpawnActor<ASkeletalMeshActor>(kMeshLoc, FRotator::ZeroRotator, SP);
+		if (!SMA) { return false; }
+		USkeletalMeshComponent* SMC = SMA->GetSkeletalMeshComponent();
+		SMC->SetSkeletalMesh(Mesh);
+		// NO anim blueprint and no update: the reference pose is the same every single run.
+		SMC->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		SMC->SetUpdateAnimationInEditor(false);
+		SMC->GlobalAnimRateScale = 0.0f;
+		SMC->RefreshBoneTransforms();
+
+		ASceneCapture2D* Cap = World->SpawnActor<ASceneCapture2D>(kMeshLoc + kCamOff, FRotator(0.f, 180.f, 0.f), SP);
+		USceneCaptureComponent2D* C = Cap ? Cap->GetCaptureComponent2D() : nullptr;
+		if (!C) { if (SMA) SMA->Destroy(); return false; }
+
+		UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>();
+		RT->InitAutoFormat(256, 256);
+		RT->ClearColor = FLinearColor::Black;
+		C->TextureTarget = RT;
+		C->CaptureSource = SCS_FinalColorLDR;
+		C->bCaptureEveryFrame = false;
+		C->bCaptureOnMovement = false;
+		C->ShowOnlyActors.Add(SMA);          // ONLY the subject: level dressing would add its own noise
+		C->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+		C->CaptureScene();
+
+		FTextureRenderTargetResource* Res = RT->GameThread_GetRenderTargetResource();
+		const bool bOk = Res && Res->ReadPixels(OutPixels);
+
+		Cap->Destroy(); SMA->Destroy();
+		return bOk && OutPixels.Num() > 0;
+	}
+
+	void HandleAFLIdentityRenderHash(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		// EDITOR WORLD IS FINE and is BETTER. The subject is a transient actor in reference pose with a
+		// fixed camera -- none of that needs a game world, and PIE would add start-up variance to a
+		// comparison whose entire value is that two captures agree to the byte. It also avoids the
+		// standing rule against injecting console calls while PIE runs.
+		if (!World && GEditor) { World = GEditor->GetEditorWorldContext().World(); }
+		if (!World) { Ar.Log(TEXT("no world available.")); return; }
+		const FString Tag = Args.IsValidIndex(0) ? Args[0] : TEXT("t");
+
+		TArray<FColor> A, B;
+		if (!AFLCaptureIdentity(World, A) || !AFLCaptureIdentity(World, B))
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[IRH] VOID -- capture failed; nothing measured."));
+			return;
+		}
+		const uint32 HA = FCrc::MemCrc32(A.GetData(), A.Num() * sizeof(FColor));
+		const uint32 HB = FCrc::MemCrc32(B.GetData(), B.Num() * sizeof(FColor));
+
+		// REPEATABILITY CONTROL. Two captures of the SAME material must agree, or a difference measured
+		// after the edit would prove nothing about the edit.
+		int32 SelfMax = 0;
+		for (int32 i = 0; i < FMath::Min(A.Num(), B.Num()); ++i)
+		{
+			SelfMax = FMath::Max(SelfMax, FMath::Max3(
+				FMath::Abs(A[i].R - B[i].R), FMath::Abs(A[i].G - B[i].G), FMath::Abs(A[i].B - B[i].B)));
+		}
+		const bool bRepeatable = (HA == HB);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[IRH] tag=%s px=%d hashA=0x%08X hashB=0x%08X selfMaxDelta=%d repeatable=%d %s"),
+			*Tag, A.Num(), HA, HB, SelfMax, bRepeatable ? 1 : 0,
+			bRepeatable ? TEXT("") : TEXT("<- byte-identical is NOT measurable on this setup"));
+
+		// Persist the pixels so a later run can diff against this one across an editor restart.
+		const FString Out = FPaths::Combine(FPaths::ProjectSavedDir(),
+			FString::Printf(TEXT("IdentityRender_%s.raw"), *Tag));
+		TArray<uint8> Bytes;
+		Bytes.Append(reinterpret_cast<const uint8*>(A.GetData()), A.Num() * sizeof(FColor));
+		FFileHelper::SaveArrayToFile(Bytes, *Out);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[IRH] wrote %s (%d bytes)"), *Out, Bytes.Num());
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[IRH] END"));
+		Ar.Logf(TEXT("IdentityRenderHash %s: 0x%08X (repeatable=%d)"), *Tag, HA, bRepeatable ? 1 : 0);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLIdentityRenderHashCmd(TEXT("afl.Dev.IdentityRenderHash"),
+		TEXT("CC-7 step 4: capture an untouched X-line identity at a fixed transform in reference pose and ")
+		TEXT("hash the pixels. Captures TWICE and reports whether the two agree -- if they do not, ")
+		TEXT("byte-identical is not measurable and no verdict is given. Arg: [tag]."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLIdentityRenderHash));
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
