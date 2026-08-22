@@ -606,17 +606,73 @@ catalog. Not a catalog defect, but it will surprise anyone who runs it expecting
 
 **PLACEMENT STILL BLOCKED** — see CC-7.1. A sticker can be OWNED but not yet PLACED.
 
+## 8.10 · CC-7 STICKER ATLAS — BUILT 2026-08-21
+
+`T_BagMan_StickerAtlas` — 2048x2048 RGBA, a **4x4 grid of 512 cells, ten used and six free**, so more
+designs later cost **zero additional samplers**. That is the whole point of an atlas here:
+`M_AFL_Character` carries 5 texture parameters across 9 sample nodes, and a texture per sticker would
+blow the platform's 16-sampler budget and break the master for whoever adds the next texture.
+
+Aspect is preserved, not stretched — the art is 3:2 (one piece 1:1) and squashing it into square
+cells would distort every design by a third. Each image is fit and centred with transparent padding,
+plus a **4 px gutter** so mip generation cannot bleed one sticker into its neighbour.
+
+Rows carry `StickerAtlasTile` 0-9, **default -1**: tile 0 is a real cell, so a 0 default would make
+"unset" and "draws ROR Green" the same stored value.
+
+⚠ **THE REMAINING PIECE IS THE SAMPLER, AND I STOPPED SHORT OF IT DELIBERATELY.** Wiring the atlas
+into `M_AFL_Character` needs one added sampler. Measured: UE Python **can author** material
+expressions (`create_material_expression`, `connect_material_expressions`, `connect_material_property`)
+but **cannot read** the existing graph — `expression_collection` is not exposed, the same protected
+surface that blocked `read_graph` on the ControlRig. **Writing into a graph that cannot be read means
+not knowing where to connect, not being able to verify nothing was displaced, and not being able to
+check the result** — on the shared master that CC-X25 was explicitly ruled `DO NOT REWIRE` because it
+moves every X-line robot's shipped look. That step needs the material editor UI, or a C++ path that
+can read the graph first.
+
+⚠ Tile 6 (`1776 Pack`) is a sheet of five small 1776 marks rather than one design. Packed as
+supplied; one sticker or five is product intent.
+
 ## 9 · Blocked axes
 
-**Stickers — blocked on UV work.** `SKM_IRONICS_Blank` has exactly two UV sets: `UV0`
-(retopo) and `UV1`. `UV2` through `UV5` return zero occurrences in the source FBX. Zone UVs
-do not exist.
+**CC-7.1 RESOLVED 2026-08-21 — THE SOURCE IS NOT LOST.**
 
-> **CORRECTION 2026-08-21 — `UV1` is NOT a "visor front-planar projection".** That was carried
-> in this document and in the roadmap and it is wrong: **`UV1` covers 99.99% of the mesh's
-> vertices**, not a visor-sized patch of them. The name was doing the describing, not a
-> measurement. Whatever `UV1` is, a sticker plan that assumed it was a small facial projection
-> was planning against a set that spans the whole body.
+The blocker was that `IRONICS_Blank_conform.blend` holds 45,398 verts against the shipped FBX's
+46,603, so it could not be the source. It isn't — but another file on disk is.
+**`Tools/Generated/IRONICS_Blank_symm_final.blend` IS the source of the shipped
+`SKM_IRONICS_Blank.fbx`**, on four independent lines:
+
+1. **46,603 vertices**, exact match to the FBX's control points.
+2. **UV0 + UV1**, matching the FBX's two UV layers.
+3. **mtime 0.14 s apart** — FBX `18:45:16.407`, blend `18:45:16.550`. One export operation.
+4. **Vertex positions identical to 2.4e-07** — float32 rounding. The same geometry, not merely the
+   same count. This is what made the answer decisive rather than circumstantial; counts alone can
+   coincide.
+
+The full reconciliation:
+
+| file | verts | UV | verdict |
+|---|---|---|---|
+| `SKM_IRONICS_Blank.fbx` | 46,603 | UV0,UV1 | SHIPPED |
+| `IRONICS_Blank_symm_final.blend` | **46,603** | UV0,UV1 | **THE SOURCE** |
+| `IRONICS_Blank_conform` / `_prerefit.blend` | 45,398 | UV0,UV1 | earlier conform pass |
+| `IRONICS_Blank_rootfix` / `_visorcut.blend` | 66,394 | UV0 | dead branch |
+| `SKM_IRONICS_Blank_UV1FIX` / `_ROOTFIXED.fbx` | 66,394 | UV0,UV1 | dead branch |
+| `IRONICS_Blank_CLEAN.fbx` | 46,338 | 1 | intermediate |
+| `_MV` / `_Apose_MV` / `_ArmsFwd_MV.fbx` | 46,067 / 45,470 / 45,462 | 1 | intermediate |
+
+**`SKM_IRONICS_Blank_UV1FIX.fbx` is 66,394 — a third number, matching neither.** It pairs with
+`rootfix.blend` (66,394, UV0 only) exported 2 seconds apart, so it was the attempt to add UV1 to the
+66,394 topology. That topology never shipped. Not the source.
+
+**Zone UVs can therefore be authored in a real source scene**, not re-projected onto the shipped
+mesh. Tools banked at `Tools/MeshForensics/` — both readers refuse to report numbers without passing
+a control, and both were wrong on their first run and said so.
+
+> **CORRECTION 2026-08-21 — `UV1` is NOT a "visor front-planar projection".** Carried in this
+> document and the roadmap, and wrong: **`UV1` covers 99.99% of the mesh's vertices**. The name was
+> doing the describing rather than a measurement.
+
 
 Worse: **there is no `.blend` for `SKM_IRONICS_Blank`** — only
 `Content/AFL/_Bridge/Blender/pending/20260723-body-IRONICS_Blank/SKM_IRONICS_Blank.fbx`
