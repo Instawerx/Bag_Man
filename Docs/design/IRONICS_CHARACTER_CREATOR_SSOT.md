@@ -953,35 +953,39 @@ legs alone: `upper=7351  mid=378  lower=3`. After the second sticker: `upper=104
 `10487`. The observing client renders what the writer placed — cosmetic replication, dedicated, not
 the listen-server economy exception.
 
-⚠ **RESPAWN PERSISTENCE — NOT MEASURABLE IN THIS HARNESS. My earlier "open defect" was MISATTRIBUTED.**
+⚠ **RESPAWN — RESOLVED. The probe's death leaves the player PAWNLESS; the visor does not survive it either.**
 
-Colour was measured, as ruled, and the answer overturns the premise three fixes were built on.
-
-**Nothing respawns.** After the server-side kill there is **not one part-actor BeginPlay** for the
-remaining 52 seconds of the run, and no possession event either:
+The operator observed visors respawning, which contradicted "nothing respawns". Both cosmetics were
+watched through ONE death on ONE pawn, with a heartbeat so a truncated run could not masquerade as a
+null:
 
 ```
-20:35:16.499  part _C_6 BeginPlay -> PATH1 loadout=1 -> ApplyStickerSet zonesSet=2   OK
-20:35:21.831  RT dump: occupiedCells=2                                               OK
-20:35:22.498  COLOUR: pawn _C_6, parts=1, midsReported=2, Team=(0.900,0.050,0.600)   OK
-20:35:29.112  THE KILL (server pawn _C_8)
-20:35:42.908  RT dump: NO RT
-   ...        NO part BeginPlay through to log end at 20:36:21
+tick 00-02   pawn=_C_6  parts=1  VISOR=MID_MI_AFL_FaceMaskV_Pink_2  STICKER=RT lit=24776
+             THE KILL
+tick 03-44   pawn=<none>  parts=0  VISOR=-  STICKER=-        (42 ticks, 84 seconds)
+             WINDOW COMPLETE (45 ticks) -- this run was NOT truncated
 ```
 
-**So colour does NOT survive either — it cannot, because there is no part to carry it.** "Colour
-survives respawn on the same loop" is false in this scenario, and the sticker arm was never testing
-sticker persistence: it was testing whether parts respawn, and they do not.
+**Three things settled at once:**
 
-**What this means for the three fixes:** all were aimed at a defect that was not there. Each is kept
-because each is independently correct — a controller fallback in the loadout lookup, the PATH 1
-self-apply (stickers genuinely had only PATH 2, the race the facemask comment documents), and
-presence-of-output logging — but **none of them was the fix, because there was nothing to fix in the
-sticker path.**
+1. **The window was never the problem.** 84 seconds past the kill, heartbeat-proven un-truncated.
+2. **There is no pawn at all afterwards** — not a pawn missing its parts. `pawn=<none>`.
+3. **The visor does NOT survive this death either.** It and the sticker appear and disappear together,
+   which is exactly what the code predicts: `ApplyFacemask` calls `GetComponents<UMeshComponent>` on
+   the PART ACTOR and swaps slot 1 on its mesh, so visor and sticker ride the same part. **The
+   "visors are immune because they need no part actor" hypothesis is refuted from the code and from
+   the measurement.**
 
-**The real open question is upstream and is NOT a CC-7 item:** whether `SuicidePawn` produces a real
-respawn in this experience at all, or ends in spectate. Until that is settled, sticker persistence
-across death is **unmeasured**, not broken. Do not aim another cosmetic fix at it.
+**So the contradiction was never visor-vs-sticker.** It is that `SuicidePawn` in this harness ends
+with the player un-possessed, and nothing cosmetic can survive that because there is no pawn to carry
+it. The operator's visor observation must come from a different death path — real damage in normal
+play — which is the one open question left: **is `SuicidePawn` the same death a player takes?** Until
+that is answered, sticker persistence across a REAL death remains unmeasured; what is measured is that
+this probe has been exercising a path players never take.
+
+⚠ This also puts a question against the earlier `cc-6-4` colour proof, which used the same
+`FireServerKill` path and described it as "the genuine Lyra OnOutOfHealth flow ... respawn /
+re-possession fire exactly as in a real death". On this experience it does not re-possess.
 
 ### WHAT A PLAYER CAN AND CANNOT DO
 

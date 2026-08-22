@@ -6622,6 +6622,78 @@ namespace
 	// DOES COLOUR SURVIVE RESPAWN? Reads the body MID's colour parameters straight off the part, so
 	// "colour survives on the same loop" stops being an assumption two fixes were built on. Same
 	// resolution as the RT dump, so both describe the same part on the same pawn.
+	// RESPAWN WATCH -- one pawn, one death, BOTH cosmetics, a long window and a HEARTBEAT.
+	//
+	// ApplyFacemask swaps slot 1 on the PART ACTOR's own mesh (GetComponents<UMeshComponent> on `this`),
+	// so the visor and the sticker ride the SAME part actor. If parts never return, neither can. The
+	// operator observes visors returning, so either parts do return and the previous read was inside a
+	// truncated window, or the deaths differ. This watches both through one death and settles it.
+	//
+	// THE HEARTBEAT IS THE POINT: every tick prints, so a run that simply ENDED early is visibly
+	// different from a run where nothing came back. The previous conclusion rested on an absence
+	// inside a window that was never shown to be long enough.
+	void HandleAFLRespawnWatch(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World) { return; }
+		const float Secs = Args.IsValidIndex(0) ? FCString::Atof(*Args[0]) : 60.0f;
+		TWeakObjectPtr<UWorld> WW(World);
+		TSharedRef<int32> Tick = MakeShared<int32>(0);
+		const int32 MaxTicks = FMath::Max(1, FMath::RoundToInt(Secs / 2.0f));
+		FTimerHandle H;
+		World->GetTimerManager().SetTimer(H, FTimerDelegate::CreateLambda([WW, Tick, MaxTicks]()
+		{
+			UWorld* W = WW.Get();
+			if (!W) { return; }
+			const int32 T = (*Tick)++;
+			APlayerController* PC = W->GetFirstPlayerController();
+			APawn* P = PC ? PC->GetPawn() : nullptr;
+			int32 Parts = 0; FString Visor = TEXT("-"); FString RTState = TEXT("-");
+			if (P)
+			{
+				TArray<UChildActorComponent*> CACs;
+				P->GetComponents<UChildActorComponent>(CACs);
+				for (UChildActorComponent* CAC : CACs)
+				{
+					AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr);
+					if (!Part) { continue; }
+					++Parts;
+					TArray<UActorComponent*> Ms;
+					Part->GetComponents(USkeletalMeshComponent::StaticClass(), Ms);
+					for (UActorComponent* MC : Ms)
+					{
+						USkeletalMeshComponent* SMC = Cast<USkeletalMeshComponent>(MC);
+						if (SMC && SMC->GetNumMaterials() > 1)
+						{
+							UMaterialInterface* M1 = SMC->GetMaterial(1);
+							if (M1) { Visor = M1->GetName(); }
+						}
+					}
+					if (UTextureRenderTarget2D* RT = Part->GetStickerRT())
+					{
+						FTextureRenderTargetResource* R = RT->GameThread_GetRenderTargetResource();
+						TArray<FColor> Px; int32 Lit = 0;
+						if (R && R->ReadPixels(Px)) { for (const FColor& C : Px) { if (C.R>8||C.G>8||C.B>8) ++Lit; } }
+						RTState = FString::Printf(TEXT("RT lit=%d"), Lit);
+					}
+					else { RTState = TEXT("NO RT"); }
+				}
+			}
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[RSW] tick %02d/%02d pawn=%s parts=%d VISOR=%s STICKER=%s"),
+				T, MaxTicks, P ? *P->GetName() : TEXT("<none>"), Parts, *Visor, *RTState);
+			if (T + 1 >= MaxTicks)
+			{
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RSW] WINDOW COMPLETE (%d ticks) -- this run was NOT truncated"), T + 1);
+			}
+		}), 2.0f, true);
+		Ar.Logf(TEXT("respawn watch armed for %.0fs"), Secs);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLRespawnWatchCmd(TEXT("afl.Dev.RespawnWatch"),
+		TEXT("Watch one pawn through a death: pawn, part count, visor slot-1 material and sticker RT, ")
+		TEXT("every 2s with a heartbeat so a truncated run is distinguishable. Arg: [seconds]."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLRespawnWatch));
+
 	void HandleAFLColourDump(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
 		const bool bRemote = Args.IsValidIndex(0) && Args[0] == TEXT("remote");
@@ -8166,6 +8238,9 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 			if (RoleIndex == 0) { FireCmd(32.0f, TEXT("afl.Catalog.StoreSurface"), TEXT("store-surface")); }
 			FireCmd(34.0f, RoleIndex == 1 ? TEXT("afl.Online.VerifyStickerPlacement afterBack remote")
 			                              : TEXT("afl.Online.VerifyStickerPlacement afterBack"), TEXT("after-back"));
+			// Watch from BEFORE the kill to well after, on the writer. 90s of ticks against a kill at
+			// t=38 means a respawn up to ~50s late still lands inside the window.
+			if (RoleIndex == 0) { FireCmd(34.0f, TEXT("afl.Dev.RespawnWatch 90"), TEXT("respawn-watch")); }
 			if (RoleIndex == 0) { FireServerKill(38.0f, TEXT("kill-A-for-respawn")); }
 			FireCmd(48.0f, RoleIndex == 1 ? TEXT("afl.Online.VerifyStickerPlacement afterRespawn remote")
 			                              : TEXT("afl.Online.VerifyStickerPlacement afterRespawn"), TEXT("after-respawn"));
