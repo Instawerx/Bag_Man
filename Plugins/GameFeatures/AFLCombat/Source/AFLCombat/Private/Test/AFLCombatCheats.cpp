@@ -5270,6 +5270,210 @@ namespace
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLAuthorAccessorySockets));
 #endif // WITH_EDITOR
 
+	// === CC-X33: afl.Dev.FbikPropagation (v2, tick-stepped) ======================================
+	// v1 toggled and re-sampled inside one call. No frame elapsed, so every bone read 0.0000 and the
+	// run VOIDed on its own control. v2 steps across real ticks with the base pose frozen.
+	static void AFLFbikSampleAll(USkeletalMeshComponent* Mesh, TArray<FTransform>& Out)
+	{
+		const int32 N = Mesh->GetNumBones();
+		Out.Reset(N);
+		for (int32 i = 0; i < N; ++i) { Out.Add(Mesh->GetBoneTransform(i)); }
+	}
+
+	// Largest component-space movement between two samples, and which bone it was.
+	static double AFLFbikMaxDelta(USkeletalMeshComponent* Mesh, const TArray<FTransform>& A,
+		const TArray<FTransform>& B, FName& OutBone)
+	{
+		double Max = 0.0; OutBone = NAME_None;
+		const int32 N = FMath::Min(A.Num(), B.Num());
+		for (int32 i = 0; i < N; ++i)
+		{
+			const double D = FVector::Dist(A[i].GetLocation(), B[i].GetLocation());
+			if (D > Max) { Max = D; OutBone = Mesh->GetBoneName(i); }
+		}
+		return Max;
+	}
+
+	static double AFLFbikBoneDelta(USkeletalMeshComponent* Mesh, const TArray<FTransform>& A,
+		const TArray<FTransform>& B, const TCHAR* BoneName)
+	{
+		const int32 Idx = Mesh->GetBoneIndex(FName(BoneName));
+		if (Idx == INDEX_NONE || Idx >= A.Num() || Idx >= B.Num()) { return -1.0; }
+		return FVector::Dist(A[Idx].GetLocation(), B[Idx].GetLocation());
+	}
+
+	void HandleAFLFbikPropagation(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Dev.FbikPropagation - run inside PIE.")); return; }
+		APlayerController* PC = World->GetFirstPlayerController();
+		ACharacter* Ch = PC ? Cast<ACharacter>(PC->GetPawn()) : nullptr;
+		USkeletalMeshComponent* Mesh = Ch ? Ch->GetMesh() : nullptr;
+		if (!Mesh)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[FBIK] VOID -- no pawn mesh; nothing measured."));
+			return;
+		}
+		if (Mesh->GetPostProcessInstance() == nullptr)
+		{
+			// VOID, NOT "no propagation". With no post-process stage there is nothing to subtract, so a
+			// zero would say nothing about FBIK.
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[FBIK] VOID -- pawn has NO post-process ABP. A zero here would not be a finding."));
+			return;
+		}
+
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[FBIK] mesh=%s bones=%d postProcess=1 disabledAtStart=%d rateScale=%.2f"),
+			*Mesh->GetName(), Mesh->GetNumBones(), Mesh->GetDisablePostProcessBlueprint() ? 1 : 0,
+			Mesh->GlobalAnimRateScale);
+
+		TWeakObjectPtr<USkeletalMeshComponent> WeakMesh(Mesh);
+		TSharedRef<int32> Step = MakeShared<int32>(0);
+		TSharedRef<float> SavedRate = MakeShared<float>(Mesh->GlobalAnimRateScale);
+		TSharedRef<TArray<FTransform>> SampA = MakeShared<TArray<FTransform>>();
+		TSharedRef<TArray<FTransform>> SampB = MakeShared<TArray<FTransform>>();
+		TSharedRef<TArray<FTransform>> SampC = MakeShared<TArray<FTransform>>();
+		TSharedRef<double> FreezeDelta = MakeShared<double>(0.0);
+
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+			[WeakMesh, Step, SavedRate, SampA, SampB, SampC, FreezeDelta](float) -> bool
+		{
+			USkeletalMeshComponent* M = WeakMesh.Get();
+			if (!M)
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[FBIK] VOID -- pawn mesh went away mid-measurement."));
+				return false;
+			}
+			const int32 St = (*Step)++;
+			switch (St)
+			{
+			case 0:
+				// FREEZE the base pose so the only thing that can move a bone is the post-process ABP.
+				M->GlobalAnimRateScale = 0.0f;
+				return true;
+			case 1: case 2:
+				return true;                                    // let the freeze settle over real ticks
+			case 3:
+				AFLFbikSampleAll(M, *SampA);
+				return true;
+			case 4:
+				return true;
+			case 5:
+			{
+				// FREEZE CONTROL: nothing was changed between A and B. If this is not ~0 the pose is not
+				// actually held, and nothing measured afterwards can be attributed to the solver.
+				AFLFbikSampleAll(M, *SampB);
+				FName Which;
+				*FreezeDelta = AFLFbikMaxDelta(M, *SampA, *SampB, Which);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[FBIK] FREEZE CONTROL max delta over ALL bones = %.4f cm (%s) -- want ~0"),
+					*FreezeDelta, *Which.ToString());
+				M->SetDisablePostProcessBlueprint(true);
+				return true;
+			}
+			case 6: case 7:
+				return true;                                    // real frames with the solver switched off
+			case 8:
+			{
+				AFLFbikSampleAll(M, *SampC);
+
+				// FLAG CHECK: the setter must have actually taken. A write API that reports the call and
+				// not the effect has cost this programme real runs.
+				const bool bFlagTook = M->GetDisablePostProcessBlueprint();
+				FName Which;
+				const double MaxD = AFLFbikMaxDelta(M, *SampB, *SampC, Which);
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[FBIK] FLAG disable read back = %d %s"),
+					bFlagTook ? 1 : 0, bFlagTook ? TEXT("(took)") : TEXT("<- VOID: the toggle did nothing"));
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[FBIK] SOLVER max delta over ALL %d bones = %.4f cm, largest at '%s'"),
+					M->GetNumBones(), MaxD, *Which.ToString());
+
+				const bool bLive = bFlagTook && (MaxD > 0.01) && (*FreezeDelta < 0.01);
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[FBIK] instrument live = %d (flag=%d anyBoneMoved=%d poseHeld=%d)"),
+					bLive ? 1 : 0, bFlagTook ? 1 : 0, (MaxD > 0.01) ? 1 : 0, (*FreezeDelta < 0.01) ? 1 : 0);
+
+				static const TCHAR* Bones[] = { TEXT("spine_03"), TEXT("pelvis"), TEXT("spine_01"),
+					TEXT("head"), TEXT("clavicle_l"), TEXT("clavicle_r"), TEXT("hand_l"), TEXT("hand_r"),
+					TEXT("foot_l"), TEXT("ball_l") };
+				for (const TCHAR* B : Bones)
+				{
+					const double D = AFLFbikBoneDelta(M, *SampB, *SampC, B);
+					const TCHAR* V = (!bLive) ? TEXT("(void)") : (D > 0.01) ? TEXT("SOLVER-DRIVEN") : TEXT("quiet");
+					UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[FBIK]   %-12s delta=%.4f cm  %s"), B, D, V);
+				}
+
+				if (bLive)
+				{
+					const double Spine = AFLFbikBoneDelta(M, *SampB, *SampC, TEXT("spine_03"));
+					const double Pelvis = AFLFbikBoneDelta(M, *SampB, *SampC, TEXT("pelvis"));
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[FBIK] VERDICT: solver %s into the spine (spine_03=%.4f pelvis=%.4f)"),
+						((Spine > 0.01) || (Pelvis > 0.01)) ? TEXT("DOES propagate") : TEXT("does NOT propagate"),
+						Spine, Pelvis);
+				}
+				else if (bFlagTook && (*FreezeDelta < 0.01))
+				{
+					// Flag took, pose held, and NOT ONE of the skeleton's bones moved. The post-process ABP
+					// contributes nothing to this pose -- so it is not propagating into spine_03 here. Stated
+					// with its scope attached: this is THIS pose, not every pose.
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[FBIK] VERDICT: post-process ABP moved ZERO of %d bones with the flag ")
+						TEXT("confirmed flipped and the pose held -- it contributes nothing in this pose, so it ")
+						TEXT("is not propagating into spine_03 here. SCOPE: one pose, not a general claim."),
+						M->GetNumBones());
+				}
+				else
+				{
+					UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[FBIK] VERDICT: VOID -- see the checks above."));
+				}
+
+				// RESTORE THE STAGE, BUT HOLD THE FREEZE. Releasing the freeze here would let the pawn
+				// animate on, and the recovery check below would then measure ordinary motion instead of
+				// answering whether the pose came back. The rate is released after that check.
+				M->SetDisablePostProcessBlueprint(false);
+				return true;
+			}
+			case 9: case 10:
+				return true;
+			default:
+			{
+				// RECOVERY (pose still frozen): with the base pose held and the stage switched back on,
+				// the skeleton must return to exactly where it was before the toggle. Measured BEFORE the
+				// freeze is released -- v2 released it first and so measured the pawn animating on.
+				TArray<FTransform> Back;
+				AFLFbikSampleAll(M, Back);
+				FName Which;
+				const double Rec = AFLFbikMaxDelta(M, *SampB, Back, Which);
+				const bool bRestored = (Rec < 0.01) && !M->GetDisablePostProcessBlueprint();
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[FBIK] RECOVERY max delta vs pre-toggle = %.4f cm (%s); disable=%d %s"),
+					Rec, *Which.ToString(), M->GetDisablePostProcessBlueprint() ? 1 : 0,
+					bRestored ? TEXT("RESTORED") : TEXT("<- CHECK"));
+
+				// Only now release the freeze, and confirm both knobs are back where they started.
+				M->GlobalAnimRateScale = *SavedRate;
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[FBIK] pawn released: disable=%d rateScale=%.2f (saved %.2f) %s"),
+					M->GetDisablePostProcessBlueprint() ? 1 : 0, M->GlobalAnimRateScale, *SavedRate,
+					(!M->GetDisablePostProcessBlueprint() && M->GlobalAnimRateScale == *SavedRate)
+						? TEXT("CLEAN") : TEXT("<- CHECK"));
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[FBIK] END"));
+				return false;
+			}
+			}
+		}), 0.05f);
+
+		Ar.Log(TEXT("afl.Dev.FbikPropagation started -- tick-stepped; see AFL_TEST[FBIK]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLFbikPropCmd(TEXT("afl.Dev.FbikPropagation"),
+		TEXT("CC-X33: freeze the base pose, toggle the post-process ABP across real ticks, and report the ")
+		TEXT("largest bone movement anywhere on the skeleton plus the named subjects. Freeze, flag and ")
+		TEXT("recovery checks can each VOID the run. Restores the pawn."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLFbikPropagation));
+
+
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLVerifyBundleBuyCmd(TEXT("afl.Online.VerifyBundleBuy"),
 		TEXT("Buys a hand cannon pair through ClientRequestPurchase and asserts BOTH child ids land. ")
 		TEXT("Bundle id alone = the slot defect reproduced = FAIL."),
@@ -6195,6 +6399,11 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 		if (RoleIndex == 0) { FireCmd(3.0f, TEXT("afl.Catalog.TypeLint"), TEXT("0-type-lint")); }
 		// CC-7.2 at t=3.2: pure computation, no spend, no asset touched.
 		if (RoleIndex == 0) { FireCmd(3.2f, TEXT("afl.Sticker.Probe"), TEXT("0-cc72-sticker")); }
+		// CC-X33 ANSWERED 2026-08-21 -- DISPATCH DELIBERATELY REMOVED, COMMAND KEPT.
+		// The probe sets GlobalAnimRateScale to 0 for ~0.6s to hold the pose. Left on the auto-sequence
+		// it would freeze the pawn three times inside every future run and quietly corrupt the timing of
+		// any probe that measures motion. Run it by hand -- `afl.Dev.FbikPropagation` -- when the
+		// question is asked again.
 		if (RoleIndex == 0) { FireCmd(3.2f, TEXT("afl.Creator.ArcProbe"), TEXT("0-arc-probe")); }
 		if (RoleIndex == 0) { FireCmd(6.5f, TEXT("afl.Creator.PreviewProbe"), TEXT("0-cc53-preview")); }
 		// SUPPRESSED during the CC-X30 durability run: SlotProbe grants x3 and x8 through
