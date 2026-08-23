@@ -78,6 +78,67 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout")
 	bool bStoreCardStyle = false;
 
+	/**
+	 * CC-5 ENTRY POINT: the creator widget this loadout opens.
+	 *
+	 * A SOFT CLASS POINTER, NOT A RUNTIME LoadClass PATH. A hardcoded `/Game/...` string resolves fine
+	 * in PIE and is DROPPED BY THE COOK -- measured on this project, and it never reproduces in the
+	 * editor, which is what makes it dangerous. A UPROPERTY soft reference is a real dependency the
+	 * cooker follows. Defaulted in the constructor so it works out of the box; a WBP may override it.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Creator")
+	TSoftClassPtr<class UAFLW_Creator> CreatorWidgetClass;
+
+	/**
+	 * Open the creator on this loadout. THE ONLY SHIPPING PATH INTO IT -- until now every reference
+	 * lived in AFLCombatCheats.cpp.
+	 *
+	 * Entry is from the loadout deliberately: UAFLW_Creator::InitializeCreator takes a
+	 * UAFLW_LoadoutBase*, so the coupling is designed in -- the loadout owns the preview pawn the
+	 * creator rotates, and a main-menu entry would have to synthesise a context the loadout already
+	 * holds.
+	 *
+	 * Returns the pushed creator, or null with a REASON logged. Never fails silently: an entry point
+	 * that quietly does nothing is indistinguishable from a button that is not wired.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout|Creator")
+	class UAFLW_Creator* OpenCreator(EAFLLoadoutAxis FocusAxis = EAFLLoadoutAxis::BodyColor);
+
+	// ===== CC-5 step 3: ACTIVE-AXIS MODEL (region B/C tabs -> D rail+detail -> E commit) ============
+	//
+	// The screen shows ONE axis at a time. That is the whole point: with a rail per axis the screen's
+	// height grows with the axis count, and it has already outgrown a 720-tall window. Here height is
+	// constant no matter how many axes exist.
+
+	/** The axis the rail and detail panel are showing. Never an arrangement axis -- selecting one of
+	 *  those opens the creator instead, so it can never become the thing the rail is displaying. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Loadout|Active")
+	EAFLLoadoutAxis ActiveAxis = EAFLLoadoutAxis::Weapon;
+
+	/** The row highlighted in the rail. DISTINCT FROM EQUIPPED, deliberately: browsing must not equip,
+	 *  or every arrow-key press on a controller fires a server RPC. Commit is a separate act. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Loadout|Active")
+	FName SelectedId;
+
+	/** Switch the shown axis. An ARRANGEMENT axis opens the creator focused there and leaves ActiveAxis
+	 *  alone -- a nine-zone sticker arrangement is not something a one-id rail can display. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout|Active")
+	void SetActiveAxis(EAFLLoadoutAxis Axis);
+
+	/** Highlight a row. Refreshes the detail panel and the commit button; equips nothing. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout|Active")
+	void SelectItem(FName CosmeticId);
+
+	/** Region E. Equips SelectedId on ActiveAxis. No-ops with a logged reason when there is nothing to
+	 *  commit, rather than dispatching an RPC the server would reject. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout|Active")
+	void CommitEquip();
+
+	/** The widget class used for BOTH axis tabs and rail rows. One class, two bindings -- the region
+	 *  that spawns it decides which handler it routes to. Falls back to TileClass when unset. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Active")
+	TSubclassOf<UAFLW_LoadoutTileBase> AxisTabClass;
+
 protected:
 	//~UCommonActivatableWidget / UUserWidget
 	virtual void NativeOnInitialized() override;
@@ -87,8 +148,14 @@ protected:
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 	//~End
 
-	/** WEAPON-axis tile grid (BindWidget: the WBP names its ScrollBox TileContainer). */
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidget))
+	/** WEAPON-axis tile grid.
+	 *
+	 *  CC-5 step 3: WAS a REQUIRED BindWidget. The active-axis design has no per-axis rails at all -- one
+	 *  RailContainer shows whichever axis is active -- so a mandatory weapon-only grid would force every
+	 *  WBP to carry a panel the layout does not have, or fail to compile. Optional like the other seven.
+	 *  Kept rather than deleted: removing public API is a separate decision from changing a layout, and
+	 *  a per-axis WBP may still want it. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UPanelWidget> TileContainer;
 
 	/** Weapon-SKIN tile grid (Increment 2). Optional so the Inc-1 WBP still binds. */
@@ -111,6 +178,46 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UPanelWidget> FacemaskTileContainer;
+
+	/** EMBLEM-axis tile grid. A selection axis like the six above it -- one id, N owned rows. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> EmblemTileContainer;
+
+	/** CC-5 STICKER rail. Holds exactly ONE tile -- the "open the creator on this axis" affordance -- because
+	 *  a sticker loadout is an ARRANGEMENT (nine zones), which no single tile can express. Same container
+	 *  shape and same TileClass as every axis above, so the WBP places it where the sticker rail belongs. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> StickerTileContainer;
+
+	/** CC-5 ACCESSORY rail. Same as StickerTileContainer -- an arrangement over fixed hardpoints. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> AccessoryTileContainer;
+
+	// ===== CC-5 step 3: the design-system regions ==================================================
+	// ALL OPTIONAL. A WBP binds EITHER these or the per-axis containers above; the in-match locker keeps
+	// the old ones and is untouched by this pass.
+
+	/** REGION B/C -- the axis tab row. One tab per axis, one active. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> AxisTabContainer;
+
+	/** REGION D left -- rows for the active axis only. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> RailContainer;
+
+	/** REGION D right -- the detail panel's fields. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> DetailNameText;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> DetailMetaText;
+
+	/** REGION E -- the single commit. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UButton> EquipButton;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> EquipLabelText;
 
 	/** Optional close button -> DeactivateWidget (pops the locker off the Menu layer). */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
@@ -158,6 +265,21 @@ protected:
 	/** A tile was clicked: equip its cosmetic on Axis, then refresh the grids (EQUIPPED badge). */
 	UFUNCTION()
 	void HandleTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
+
+	/** CC-5 step 3. Two handlers, not one: a tab and a row are the same widget class, and the ONLY
+	 *  honest way to tell them apart is which delegate the spawning region bound. */
+	UFUNCTION()
+	void HandleAxisTabClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
+
+	UFUNCTION()
+	void HandleRailItemClicked(EAFLLoadoutAxis Axis, FName CosmeticId);
+
+	UFUNCTION()
+	void HandleEquipButtonClicked();
+
+	void RebuildAxisTabs();
+	void RebuildRail();
+	void RefreshDetail();
 
 	UFUNCTION()
 	void HandleCloseClicked();
@@ -256,8 +378,20 @@ public:
 	 *  compare it against the gameplay pawn's. That comparison IS the done definition -- "the robot in
 	 *  match is the robot in the preview" -- and it can only be made by reading BOTH pawns through the
 	 *  same accessor, or the difference measured would be a difference in method. Null before the rig
-	 *  has spawned one. */
-	APawn* GetPreviewPawnForTest() const { return Cast<APawn>(DisplayPawn.Get()); }
+	 *  has spawned one.
+	 *
+	 *  BODY LIVES IN THE .CPP. DisplayPawn is a forward-declared type here, and an inline Cast<> on an
+	 *  incomplete type compiles ONLY in translation units that happen to include AFLLoadoutDisplayPawn.h
+	 *  first -- so this header built or failed depending on who included it, which is how it survived
+	 *  until another UI file included it in a different order. */
+	APawn* GetPreviewPawnForTest() const;
+
+	/** TEST ONLY (CC-5 step 2). The two rails the entry proof clicks. Returned as the BOUND pointer, so a
+	 *  null here is readable as "BindWidgetOptional did not bind" -- which is otherwise invisible: a null
+	 *  container is skipped inside RebuildAxisTiles without a word, and the missing rail would be blamed
+	 *  on the code that fills it. */
+	UPanelWidget* GetStickerRailForTest() const { return StickerTileContainer; }
+	UPanelWidget* GetFacemaskRailForTest() const { return FacemaskTileContainer; }
 #endif
 
 protected:

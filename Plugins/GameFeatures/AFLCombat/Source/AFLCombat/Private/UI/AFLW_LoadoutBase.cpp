@@ -1,6 +1,15 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "UI/AFLW_LoadoutBase.h"
+#include "UI/AFLW_Creator.h"                 // CC-5: the creator this loadout opens
+#include "PrimaryGameLayout.h"                // CC-5: PushWidgetToLayerStack -- the loadout's own push pattern
+#include "NativeGameplayTags.h"              // CC-5: the menu layer tag
+#include "AFLCombat.h"                    // CC-5: LogAFLCombat -- this file never logged before
+#include "Components/TextBlock.h"          // CC-5 step 3: detail panel + commit label
+
+// Same string every other push in this module uses; each file declares its own static, which is the
+// established convention here rather than a shared header.
+UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Creator, "UI.Layer.Menu");
 
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
 #include "Cosmetics/AFLWalletComponent.h"       // UAFLWalletComponent::IsEntitled (the public entitlement check)
@@ -83,21 +92,105 @@ namespace
 		}
 	}
 
-	/** The CosmeticId namespace prefix that disambiguates an axis within its (possibly overloaded) Type.
-	 *  "AFL.Weapon." excludes "AFL.WeaponSkin." (the char after "Weapon" is '.' vs 'S'), and vice-versa. */
-	FString GetAxisIdPrefix(EAFLLoadoutAxis Axis)
+	/** EVERY CosmeticId namespace an axis owns.
+	 *
+	 *  A LIST, NOT A STRING, and that is the whole fix. An axis can legitimately span more than one
+	 *  namespace: BodyColor owns BOTH "AFL.Finish." and "AFL.Body.", which the STORE has always known
+	 *  (AFLW_FrontEndMarket's Tab_SKINS matches Finish + Body + Edge) and this filter did not. Ten
+	 *  FINISH-typed rows in AFL.Body.* were therefore purchasable in the store and invisible in the
+	 *  locker that equips them.
+	 *
+	 *  Third instance of this shape after the 27 facemasks and the AFL.Body duplicates. Returning a list
+	 *  means the next two-namespace axis is expressible rather than silently truncated to its first.
+	 *
+	 *  "AFL.Weapon." still excludes "AFL.WeaponSkin." -- the char after "Weapon" is '.' vs 'S'. */
+	TArray<FString> GetAxisIdPrefixes(EAFLLoadoutAxis Axis)
 	{
 		switch (Axis)
 		{
-		case EAFLLoadoutAxis::Weapon:      return TEXT("AFL.Weapon.");
-		case EAFLLoadoutAxis::WeaponSkin:  return TEXT("AFL.WeaponSkin.");
-		case EAFLLoadoutAxis::Beam:        return TEXT("AFL.Beam.");
-		case EAFLLoadoutAxis::BodyColor:   return TEXT("AFL.Finish.");
-		case EAFLLoadoutAxis::EdgeColor:   return TEXT("AFL.Edge.");
-		case EAFLLoadoutAxis::Facemask:    return TEXT("AFL.Facemask.");
-		case EAFLLoadoutAxis::Emblem:      return TEXT("AFL.Emblem.");
-		default:                           return FString(); // Identity -> dual-type query, no single namespace filter
+		case EAFLLoadoutAxis::Weapon:      return { TEXT("AFL.Weapon.") };
+		case EAFLLoadoutAxis::WeaponSkin:  return { TEXT("AFL.WeaponSkin.") };
+		case EAFLLoadoutAxis::Beam:        return { TEXT("AFL.Beam.") };
+		case EAFLLoadoutAxis::BodyColor:   return { TEXT("AFL.Finish."), TEXT("AFL.Body.") };
+		case EAFLLoadoutAxis::EdgeColor:   return { TEXT("AFL.Edge.") };
+		case EAFLLoadoutAxis::Facemask:    return { TEXT("AFL.Facemask.") };
+		case EAFLLoadoutAxis::Emblem:      return { TEXT("AFL.Emblem.") };
+		default:                           return {}; // Identity -> dual-type query, no namespace filter
 		}
+	}
+
+	/** Does this id belong to the axis? Empty list = the axis does not filter by namespace (Identity). */
+	bool AxisOwnsId(EAFLLoadoutAxis Axis, FName CosmeticId)
+	{
+		const TArray<FString> Prefixes = GetAxisIdPrefixes(Axis);
+		if (Prefixes.Num() == 0)
+		{
+			return true;
+		}
+		const FString Id = CosmeticId.ToString();
+		for (const FString& Prefix : Prefixes)
+		{
+			if (Id.StartsWith(Prefix, ESearchCase::IgnoreCase))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Joined for logs and for the coverage control's "does this axis filter at all" test. */
+	FString GetAxisIdPrefix(EAFLLoadoutAxis Axis)
+	{
+		return FString::Join(GetAxisIdPrefixes(Axis), TEXT("|"));
+	}
+
+	/** CC-5: does this axis resolve to ONE id in FAFLCosmeticSelection, or to an ARRANGEMENT?
+	 *
+	 *  This is the property that decides whether an axis can be a tile rail at all, and it is exactly the
+	 *  property GetEquippedIdForAxis's switch already encodes: every axis with a case there names a single
+	 *  FName field; these two name StickerPlacements (nine zones) and AccessorySet (N hardpoints) instead.
+	 *  So the two functions must agree, and AFLReportAxisCoverage below checks that they do rather than
+	 *  trusting this list to be maintained by hand.
+	 *
+	 *  NOT an id test. The affordance tile carries NAME_None -- and so does an unset BodyColor, so an id
+	 *  test would send a player who has equipped nothing into the creator. */
+	bool IsArrangementAxis(EAFLLoadoutAxis Axis)
+	{
+		return Axis == EAFLLoadoutAxis::Sticker || Axis == EAFLLoadoutAxis::Accessory;
+	}
+
+	/** CC-5 CONTROL. Every axis must be EXACTLY ONE of: a namespace rail (GetAxisIdPrefix non-empty), an
+	 *  arrangement (IsArrangementAxis), or Identity (dual-type, special-cased in GetOwnedEntriesForAxis).
+	 *  An axis that is none of those falls through QueryTypeForAxis's default and fills its own rail with
+	 *  WEAPONS -- which looks like a content mistake, not a code one, so nothing would report it. */
+	void AFLReportAxisCoverage()
+	{
+		const UEnum* E = StaticEnum<EAFLLoadoutAxis>();
+		if (!E) { UE_LOG(LogAFLCombat, Warning, TEXT("[AFLLoadout] AXIS COVERAGE: no UEnum -- NOT CHECKED.")); return; }
+		const int32 Num = E->NumEnums() - 1; // trailing _MAX
+		FString Bad;
+		int32 Rails = 0, Arrangements = 0, Special = 0;
+		for (int32 i = 0; i < Num; ++i)
+		{
+			const EAFLLoadoutAxis A = static_cast<EAFLLoadoutAxis>(E->GetValueByIndex(i));
+			const int32 Kinds = (GetAxisIdPrefix(A).IsEmpty() ? 0 : 1)
+				+ (IsArrangementAxis(A) ? 1 : 0)
+				+ ((A == EAFLLoadoutAxis::Identity) ? 1 : 0);
+			if (Kinds == 1)
+			{
+				if (IsArrangementAxis(A))                { ++Arrangements; }
+				else if (A == EAFLLoadoutAxis::Identity) { ++Special; }
+				else                                     { ++Rails; }
+			}
+			else
+			{
+				Bad += FString::Printf(TEXT(" %s(kinds=%d)"), *E->GetNameStringByIndex(i), Kinds);
+			}
+		}
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("[AFLLoadout] AXIS COVERAGE: axes=%d rails=%d arrangements=%d special=%d unclassified=%s %s"),
+			Num, Rails, Arrangements, Special, Bad.IsEmpty() ? TEXT("none") : *Bad,
+			Bad.IsEmpty() ? TEXT("PASS") : TEXT("FAIL <- that axis will render WEAPONS in its own rail"));
 	}
 
 	/** Color axes render as tinted swatch chips (the cosmetic IS a color); the rest are name/thumbnail tiles. */
@@ -228,8 +321,9 @@ void UAFLW_LoadoutBase::GetOwnedEntriesForAxis(EAFLLoadoutAxis Axis, TArray<FAFL
 		++Scanned;
 
 		// EAFLCosmeticType::Weapon is OVERLOADED on disk -- weapons AND weapon-skins both carry Type==Weapon.
-		// Filter to the axis's OWN id-namespace so the weapon picker shows only AFL.Weapon.* (not the skins).
-		if (!AxisPrefix.IsEmpty() && !Entry->CosmeticId.ToString().StartsWith(AxisPrefix, ESearchCase::IgnoreCase))
+		// Filter to the axis's OWN id-namespaces so the weapon picker shows only AFL.Weapon.* (not the
+		// skins) -- and so BodyColor sees AFL.Body.* as well as AFL.Finish.*, which it never did.
+		if (!AxisOwnsId(Axis, Entry->CosmeticId))
 		{
 			continue;
 		}
@@ -331,6 +425,10 @@ void UAFLW_LoadoutBase::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
 
+	if (EquipButton)
+	{
+		EquipButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleEquipButtonClicked);
+	}
 	if (CloseButton)
 	{
 		CloseButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleCloseClicked);
@@ -770,8 +868,20 @@ void UAFLW_LoadoutBase::RepositionPreviewCamera()
 	}
 }
 
+#if !UE_BUILD_SHIPPING
+// CC-5: out of the header so the Cast has a COMPLETE type -- see the declaration's note.
+APawn* UAFLW_LoadoutBase::GetPreviewPawnForTest() const
+{
+	return Cast<APawn>(DisplayPawn.Get());
+}
+#endif
+
 void UAFLW_LoadoutBase::RebuildTiles()
 {
+	// CC-5: once per run, and it always prints -- silence must not be readable as a pass.
+	static bool bReportedCoverage = false;
+	if (!bReportedCoverage) { bReportedCoverage = true; AFLReportAxisCoverage(); }
+
 	// Rebuild every axis grid from the current owned-set + selection. All non-weapon containers are optional
 	// (BindWidgetOptional) -> a null container is skipped inside RebuildAxisTiles.
 	RebuildAxisTiles(EAFLLoadoutAxis::Weapon,     TileContainer);
@@ -781,7 +891,220 @@ void UAFLW_LoadoutBase::RebuildTiles()
 	RebuildAxisTiles(EAFLLoadoutAxis::BodyColor,  BodyColorTileContainer);
 	RebuildAxisTiles(EAFLLoadoutAxis::EdgeColor,  EdgeColorTileContainer);
 	RebuildAxisTiles(EAFLLoadoutAxis::Facemask,   FacemaskTileContainer);
+	RebuildAxisTiles(EAFLLoadoutAxis::Emblem,     EmblemTileContainer);
+	// CC-5: same call, same function -- the arrangement branch is INSIDE RebuildAxisTiles so there is one
+	// rail-building path, not two that can drift.
+	RebuildAxisTiles(EAFLLoadoutAxis::Sticker,    StickerTileContainer);
+	RebuildAxisTiles(EAFLLoadoutAxis::Accessory,  AccessoryTileContainer);
+
+	// CC-5 step 3: the design-system regions. Every one is optional, so a WBP binding none of them
+	// behaves exactly as before -- which is what keeps the in-match locker out of this pass.
+	RebuildAxisTabs();
+	RebuildRail();
+	RefreshDetail();
 }
+
+// ===== CC-5 step 3: ACTIVE-AXIS MODEL ==========================================================
+
+void UAFLW_LoadoutBase::SetActiveAxis(EAFLLoadoutAxis Axis)
+{
+	if (IsArrangementAxis(Axis))
+	{
+		// A nine-zone arrangement is not something a one-id rail can show. The tab is a DOOR here, and
+		// ActiveAxis deliberately does not move -- backing out of the creator must reveal the axis the
+		// player was actually on, not the door they walked through.
+		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] axis tab %d is an arrangement -> OpenCreator"), (int32)Axis);
+		OpenCreator(Axis);
+		return;
+	}
+
+	ActiveAxis = Axis;
+	// Seed the highlight from what is EQUIPPED on the newly-shown axis, so the detail panel opens on the
+	// player's current choice rather than blank. Browsing then moves the highlight, never the equip.
+	SelectedId = GetEquippedIdForAxis(Axis);
+	UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] active axis -> %d (seeded selection %s)"),
+		(int32)Axis, *SelectedId.ToString());
+
+	RebuildAxisTabs();
+	RebuildRail();
+	RefreshDetail();
+}
+
+void UAFLW_LoadoutBase::SelectItem(FName CosmeticId)
+{
+	SelectedId = CosmeticId;
+	// The rail is rebuilt so the highlight moves. Nothing is equipped and no RPC is sent.
+	RebuildRail();
+	RefreshDetail();
+}
+
+void UAFLW_LoadoutBase::CommitEquip()
+{
+	// FAIL LOUDLY, NOT SILENTLY. A commit button that does nothing without saying why is
+	// indistinguishable from one that is not wired -- which is exactly how the creator's missing close
+	// control survived long enough to trap a player.
+	if (SelectedId.IsNone())
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[AFLLoadout] CommitEquip REFUSED -- nothing selected on axis %d."),
+			(int32)ActiveAxis);
+		return;
+	}
+	if (SelectedId == GetEquippedIdForAxis(ActiveAxis))
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] CommitEquip skipped -- %s is already equipped."),
+			*SelectedId.ToString());
+		return;
+	}
+	UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] CommitEquip axis=%d id=%s"),
+		(int32)ActiveAxis, *SelectedId.ToString());
+	EquipForAxis(ActiveAxis, SelectedId);
+	RebuildTiles();
+}
+
+void UAFLW_LoadoutBase::RebuildAxisTabs()
+{
+	if (!AxisTabContainer) { return; }
+	AxisTabContainer->ClearChildren();
+
+	UClass* SpawnClass = AxisTabClass ? AxisTabClass.Get() : TileClass.Get();
+	if (!SpawnClass) { return; }
+
+	// EVERY axis the enum declares, in declaration order -- NOT a hand-written list a later appended
+	// axis would silently miss. The enum IS the inventory of axes.
+	const UEnum* E = StaticEnum<EAFLLoadoutAxis>();
+	if (!E) { return; }
+	const int32 Num = E->NumEnums() - 1; // trailing _MAX
+	for (int32 i = 0; i < Num; ++i)
+	{
+		const EAFLLoadoutAxis Axis = static_cast<EAFLLoadoutAxis>(E->GetValueByIndex(i));
+		UAFLW_LoadoutTileBase* Tab = CreateWidget<UAFLW_LoadoutTileBase>(this, SpawnClass);
+		if (!Tab) { continue; }
+		// The axis names itself. Typing the labels here would be a second source that drifts.
+		Tab->SetTileData(Axis, NAME_None, E->GetDisplayNameTextByValue(static_cast<int64>(Axis)),
+			/*bEquipped=*/(Axis == ActiveAxis), /*bIsSwatch=*/false, FLinearColor::White, nullptr);
+		// THE DISCRIMINATION: bound to the TAB handler because the TAB region spawned it.
+		Tab->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleAxisTabClicked);
+		// A card is not a tab. Ten cards overflowed 1280px; ten labels do not.
+		Tab->ApplyTabStyle(Axis == ActiveAxis);
+		AxisTabContainer->AddChild(Tab);
+	}
+}
+
+void UAFLW_LoadoutBase::RebuildRail()
+{
+	if (!RailContainer) { return; }
+	RailContainer->ClearChildren();
+
+	UClass* SpawnClass = TileClass.Get();
+	if (!SpawnClass) { return; }
+
+	TArray<FAFLCatalogEntry> Owned;
+	GetOwnedEntriesForAxis(ActiveAxis, Owned);
+	const FName EquippedId = GetEquippedIdForAxis(ActiveAxis);
+	const bool bColorAxis = IsColorAxis(ActiveAxis);
+	const UAFLCosmeticCatalogSubsystem* Catalog = bColorAxis ? GetCatalog() : nullptr;
+
+	for (const FAFLCatalogEntry& Entry : Owned)
+	{
+		UAFLW_LoadoutTileBase* Row = CreateWidget<UAFLW_LoadoutTileBase>(this, SpawnClass);
+		if (!Row) { continue; }
+
+		FText Label = Entry.DisplayName;
+		if (Label.IsEmpty())
+		{
+			const FString IdStr = Entry.CosmeticId.ToString();
+			FString Left, Right;
+			Label = FText::FromString(IdStr.Split(TEXT("."), &Left, &Right, ESearchCase::IgnoreCase,
+				ESearchDir::FromEnd) ? Right : IdStr);
+		}
+
+		bool bIsSwatch = false;
+		FLinearColor SwatchColor = FLinearColor::White;
+		if (bColorAxis && Catalog)
+		{
+			bIsSwatch = true;
+			SwatchColor = ResolveAxisColor(this, ActiveAxis,
+				Cast<UAFLSkinColorAsset>(Catalog->ResolveAsset(Entry.CosmeticId)));
+		}
+		// HIGHLIGHT TRACKS SELECTION, NOT EQUIPMENT. The equipped item is named in the detail panel and
+		// on the commit button; using one visual for both makes "what am I about to equip" unreadable at
+		// exactly the moment it matters.
+		Row->SetTileData(ActiveAxis, Entry.CosmeticId, Label, Entry.CosmeticId == SelectedId,
+			bIsSwatch, SwatchColor, Entry.ShopThumbnail);
+		Row->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleRailItemClicked);
+		RailContainer->AddChild(Row);
+	}
+
+	UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] rail axis=%d rows=%d equipped=%s selected=%s"),
+		(int32)ActiveAxis, Owned.Num(), *EquippedId.ToString(), *SelectedId.ToString());
+}
+
+void UAFLW_LoadoutBase::RefreshDetail()
+{
+	const FName EquippedId = GetEquippedIdForAxis(ActiveAxis);
+	const bool bHasSelection = !SelectedId.IsNone();
+	const bool bAlready = bHasSelection && (SelectedId == EquippedId);
+
+	if (DetailNameText)
+	{
+		FText Name = NSLOCTEXT("AFLLoadout", "NothingSelected", "Nothing selected");
+		if (bHasSelection)
+		{
+			// Prefer the marketing name; the id is the fallback, never the other way round.
+			Name = FText::FromName(SelectedId);
+			TArray<FAFLCatalogEntry> Owned;
+			GetOwnedEntriesForAxis(ActiveAxis, Owned);
+			for (const FAFLCatalogEntry& Row : Owned)
+			{
+				if (Row.CosmeticId == SelectedId && !Row.DisplayName.IsEmpty())
+				{
+					Name = Row.DisplayName;
+					break;
+				}
+			}
+		}
+		DetailNameText->SetText(Name);
+	}
+
+	if (DetailMetaText)
+	{
+		const UEnum* E = StaticEnum<EAFLLoadoutAxis>();
+		const FText AxisName = E ? E->GetDisplayNameTextByValue(static_cast<int64>(ActiveAxis)) : FText::GetEmpty();
+		const FText State = bAlready
+			? NSLOCTEXT("AFLLoadout", "MetaEquipped", "equipped")
+			: (bHasSelection ? NSLOCTEXT("AFLLoadout", "MetaOwned", "owned")
+							 : NSLOCTEXT("AFLLoadout", "MetaNone", "--"));
+		DetailMetaText->SetText(FText::Format(
+			NSLOCTEXT("AFLLoadout", "DetailMeta", "{0}  |  {1}"), AxisName, State));
+	}
+
+	if (EquipLabelText)
+	{
+		EquipLabelText->SetText(bAlready ? NSLOCTEXT("AFLLoadout", "BtnEquipped", "EQUIPPED")
+										 : NSLOCTEXT("AFLLoadout", "BtnEquip", "EQUIP"));
+	}
+	if (EquipButton)
+	{
+		// Disabled is a STATE, not a hidden control -- the player must still see where the commit lives.
+		EquipButton->SetIsEnabled(bHasSelection && !bAlready);
+	}
+}
+
+void UAFLW_LoadoutBase::HandleAxisTabClicked(EAFLLoadoutAxis Axis, FName /*CosmeticId*/)
+{
+	SetActiveAxis(Axis);
+}
+
+void UAFLW_LoadoutBase::HandleRailItemClicked(EAFLLoadoutAxis /*Axis*/, FName CosmeticId)
+{
+	SelectItem(CosmeticId);
+}
+
+void UAFLW_LoadoutBase::HandleEquipButtonClicked()
+{
+	CommitEquip();
+}
+
 
 void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Container)
 {
@@ -792,6 +1115,31 @@ void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Con
 	Container->ClearChildren();
 	if (!TileClass)
 	{
+		return;
+	}
+
+	// CC-5 ARRANGEMENT AXES: one affordance tile, not a catalog rail. Falling through would query the
+	// catalog with QueryTypeForAxis's DEFAULT (Weapon) and fill the sticker rail with weapons.
+	if (IsArrangementAxis(Axis))
+	{
+		UAFLW_LoadoutTileBase* Entry = CreateWidget<UAFLW_LoadoutTileBase>(this, TileClass);
+		if (Entry)
+		{
+			// The axis's own name for itself, via reflection. Typing it here would be a second source.
+			const FText AxisName = StaticEnum<EAFLLoadoutAxis>()
+				? StaticEnum<EAFLLoadoutAxis>()->GetDisplayNameTextByValue(static_cast<int64>(Axis))
+				: FText::GetEmpty();
+			// NAME_None, and bEquipped=false: there is no single id to be equipped ON this axis, which is
+			// the whole reason it is an affordance. HandleTileClicked branches on the AXIS, never on this.
+			Entry->SetTileData(Axis, NAME_None, AxisName, /*bEquipped=*/false,
+				/*bIsSwatch=*/false, FLinearColor::White, nullptr);
+			Entry->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleTileClicked);
+			if (bStoreCardStyle)
+			{
+				Entry->ApplyLoadoutCardStyle(false);
+			}
+			Container->AddChild(Entry);
+		}
 		return;
 	}
 
@@ -842,6 +1190,15 @@ void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Con
 
 void UAFLW_LoadoutBase::HandleTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId)
 {
+	// CC-5: an arrangement axis has nothing to equip -- its tile OPENS THE CREATOR, focused on that axis.
+	// Branching on the axis and not on CosmeticId is deliberate: see IsArrangementAxis.
+	if (IsArrangementAxis(Axis))
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] tile clicked -> OpenCreator(axis=%d)"), (int32)Axis);
+		OpenCreator(Axis);
+		return; // no equip, no rebuild: the loadout is unchanged and stays alive under the creator.
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("[AFLLoadout] tile clicked -> equip %s (axis=%d)"), *CosmeticId.ToString(), (int32)Axis);
 	EquipForAxis(Axis, CosmeticId);
 	RebuildTiles(); // refresh EQUIPPED badges across all axes (optimistic; the replicated selection catches up)
@@ -883,3 +1240,56 @@ static FAutoConsoleCommandWithWorld GAFLLoadoutOpenCmd(
 		UE_LOG(LogTemp, Log, TEXT("[AFLLoadout] afl.Loadout.Open: pushed WBP_AFL_Loadout to UI.Layer.Menu."));
 	}));
 #endif
+
+UAFLW_Creator* UAFLW_LoadoutBase::OpenCreator(EAFLLoadoutAxis FocusAxis)
+{
+	// CONFORMS TO HOW THE LOADOUT ITSELF IS PUSHED -- PushWidgetToLayerStack on UI.Layer.Menu, the same
+	// call the front-end market uses, NOT a second push pattern. Its init hook runs BEFORE activation,
+	// which is what lets the focus axis and the loadout handle be set on a widget that has not drawn a
+	// frame yet; pushing first and poking after is a visible jump.
+	//
+	// BACK/CANCEL NEEDS NO CODE: both widgets are UCommonActivatableWidgets on the SAME layer stack, so
+	// the creator sits ON TOP of this loadout and popping it reveals this instance -- state intact,
+	// because it was never destroyed. That is the framework's own semantics, not something re-invented.
+	if (CreatorWidgetClass.IsNull())
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Loadout] OpenCreator REFUSED -- CreatorWidgetClass unset on %s."),
+			*GetClass()->GetName());
+		return nullptr;
+	}
+	UClass* Resolved = CreatorWidgetClass.LoadSynchronous();
+	if (!Resolved)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Loadout] OpenCreator REFUSED -- %s did not load."),
+			*CreatorWidgetClass.ToString());
+		return nullptr;
+	}
+	APlayerController* PC = GetOwningPlayer();
+	UPrimaryGameLayout* Layout = PC ? UPrimaryGameLayout::GetPrimaryGameLayout(PC) : nullptr;
+	if (!Layout)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Loadout] OpenCreator REFUSED -- no PrimaryGameLayout for this player."));
+		return nullptr;
+	}
+
+	UAFLW_LoadoutBase* Self = this;
+	UAFLW_Creator* Pushed = Layout->PushWidgetToLayerStack<UAFLW_Creator>(
+		TAG_UI_Layer_Menu_Creator, Resolved,
+		[Self, FocusAxis](UAFLW_Creator& W)
+		{
+			// Both BEFORE activation: the creator reads the schema, preview pawn and slot counter through
+			// the loadout, and a pushed-but-uninitialised creator renders an empty rail that reads as a
+			// data bug rather than a wiring one.
+			W.FocusAxis = FocusAxis;
+			W.InitializeCreator(Self);
+		});
+
+	if (!Pushed)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Loadout] OpenCreator -- push returned null for %s."), *Resolved->GetName());
+		return nullptr;
+	}
+	UE_LOG(LogAFLCombat, Display, TEXT("[Loadout] OpenCreator -> %s focus=%d"),
+		*Resolved->GetName(), static_cast<int32>(FocusAxis));
+	return Pushed;
+}

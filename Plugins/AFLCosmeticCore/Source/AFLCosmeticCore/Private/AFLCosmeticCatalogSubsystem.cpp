@@ -8,6 +8,8 @@
 #include "AFLColorIdentityRegistry.h"
 #include "AFLCosmeticCore.h"
 #include "Engine/AssetManager.h"
+#include "Engine/AssetManagerSettings.h"
+#include "AssetRegistry/IAssetRegistry.h"  // the registry the primary-asset scan reads from  // PrimaryAssetTypesToScan -- the ONE source for the scan paths
 #include "Engine/Engine.h"        // GEngine / GetWorldFromContextObject
 #include "Engine/GameInstance.h"
 
@@ -49,10 +51,60 @@ void UAFLCosmeticCatalogSubsystem::LoadCatalog()
 
 	if (Ids.Num() == 0)
 	{
+		// GAME-FEATURE MOUNT ORDERING, not a missing asset.
+		//
+		// The catalog lives in a GameFeature plugin's content (/AFLBagMan/Cosmetics). The AssetManager
+		// scans PrimaryAssetTypesToScan at STARTUP, before that plugin mounts, so the directory does not
+		// exist yet and the type correctly ends with zero ids. The editor never shows this because its
+		// asset registry already holds everything -- which is why this reproduced ONLY in -game, and why
+		// an empty locker looked like a content problem for an entire phase.
+		//
+		// Re-scan the directories THE SETTINGS DECLARE. Read from config, never typed here, so there is
+		// still exactly one source for where the catalog may live: adding a path to DefaultGame.ini keeps
+		// working with no code change. Not a retry -- the first query ran before the scan was possible.
+		const UAssetManagerSettings& Settings = AssetManager.GetSettings();
+		int32 Rescanned = 0;
+		for (const FPrimaryAssetTypeInfo& Info : Settings.PrimaryAssetTypesToScan)
+		{
+			if (Info.PrimaryAssetType != AFLCosmeticCatalogType)
+			{
+				continue;
+			}
+			TArray<FString> Paths;
+			for (const FDirectoryPath& Dir : Info.GetDirectories())
+			{
+				Paths.Add(Dir.Path);
+			}
+			if (Paths.Num() == 0)
+			{
+				continue;
+			}
+			// THE STEP THAT WAS MISSING. ScanPathsForPrimaryAssets reads the ASSET REGISTRY; it does not
+			// walk the disk. In an uncooked -game there is no pre-built registry for a GameFeature
+			// plugin's content, so the registry holds nothing for /AFLBagMan/ and the primary-asset scan
+			// correctly finds nothing -- even though the plugin IS mounted and the asset loads fine by
+			// direct path. Measured: registered at :11.532, re-scanned at :11.763, still 0 ids.
+			// In a cooked build the registry already carries this data and the call is cheap.
+			IAssetRegistry::GetChecked().ScanPathsSynchronous(Paths, /*bForceRescan=*/true);
+
+			AssetManager.ScanPathsForPrimaryAssets(Info.PrimaryAssetType, Paths,
+				Info.GetAssetBaseClass().LoadSynchronous(), Info.bHasBlueprintClasses, Info.bIsEditorOnly,
+				/*bForceSynchronousScan=*/true);
+			Rescanned += Paths.Num();
+		}
+		AssetManager.GetPrimaryAssetIdList(AFLCosmeticCatalogType, Ids);
+		// ALWAYS LOGGED, pass or fail: a silent recovery is indistinguishable from never having run.
+		UE_LOG(LogAFLCosmeticCore, Log,
+			TEXT("[Catalog] startup scan found none -> re-scanned %d configured path(s) -> %d id(s)."),
+			Rescanned, Ids.Num());
+	}
+
+	if (Ids.Num() == 0)
+	{
 		// Not fatal: if the asset isn't authored / the type isn't registered, the subsystem is simply
 		// not-ready (IsReady() false) and resolves nothing. Logged so a "catalog miss" is legible.
 		UE_LOG(LogAFLCosmeticCore, Warning,
-			TEXT("[Catalog] No AFLCosmeticCatalog primary asset found (register PrimaryAssetTypesToScan + author DA_AFL_CosmeticCatalog)."));
+			TEXT("[Catalog] No AFLCosmeticCatalog primary asset found after re-scan (register PrimaryAssetTypesToScan + author DA_AFL_CosmeticCatalog)."));
 		return;
 	}
 

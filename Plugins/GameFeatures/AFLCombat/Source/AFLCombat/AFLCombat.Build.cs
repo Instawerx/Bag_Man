@@ -56,6 +56,10 @@ public class AFLCombat : ModuleRules
 			{
 				"Slate",
 				"SlateCore",
+				// CC-5 step 2: the entry proof synthesises a REAL press+release through
+				// FSlateApplication, which needs EKeys::LeftMouseButton -- an InputCore symbol.
+				// Slate declares the event types; InputCore owns the key constants.
+				"InputCore",
 				// Energy cycle 2: UAFLW_EnergyMeter (the HUD meter's C++ binding half -- BP graph
 				// authoring is bridge-hostile, so the delegate work lives in code).
 				"UMG",

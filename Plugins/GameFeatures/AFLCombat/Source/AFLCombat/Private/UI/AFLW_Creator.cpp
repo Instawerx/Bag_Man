@@ -4,6 +4,10 @@
 #include "UI/AFLW_LoadoutBase.h"
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
 #include "Cosmetics/AFLWalletComponent.h"
+#include "AFLCombat.h"                  // LogAFLCombat -- this file never logged before
+#include "Components/Button.h"
+#include "Components/EditableTextBox.h"   // the build name the player types
+#include "Components/PanelWidget.h"       // the rail the rows are spawned into           // CC-5: the creator's own way out
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 
@@ -31,6 +35,176 @@ namespace
 		}
 		return FText::GetEmpty();
 	}
+}
+
+UAFLW_Creator::UAFLW_Creator()
+{
+	// ESCAPABLE BY THE FRAMEWORK'S OWN ROUTE. bIsBackHandler is what makes CommonUI deliver the Back
+	// action here; without it Escape reached the game viewport and the screen was a dead end.
+	bIsBackHandler = true;
+}
+
+UWidget* UAFLW_Creator::NativeGetDesiredFocusTarget() const
+{
+	// A NAME I NEVER VERIFIED IS WHAT TRAPPED THE PLAYER. This asked for "ChannelRail"; the WBP calls it
+	// C_ChannelRail. The lookup always missed, Super returned nothing, the widget was not focusable, focus
+	// went to the game viewport and Escape did nothing -- twice.
+	//
+	// So the guarantee no longer depends on a name. Named regions are a PREFERENCE, tried in order and
+	// logged when none hit; the widget ITSELF is the last resort, and it is always present.
+	static const TCHAR* const Preferred[] = { TEXT("C_ChannelRail"), TEXT("ChannelRail"), TEXT("Root_Shell") };
+	for (const TCHAR* Name : Preferred)
+	{
+		if (UWidget* W = GetWidgetFromName(FName(Name)))
+		{
+			return W;
+		}
+	}
+	UE_LOG(LogAFLCombat, Verbose,
+		TEXT("[Creator] no preferred focus region present -- focusing the creator itself."));
+	return const_cast<UAFLW_Creator*>(this);
+}
+
+void UAFLW_Creator::NativeOnInitialized()
+{
+	Super::NativeOnInitialized();
+
+	// WITHOUT THIS, RETURNING A FOCUS TARGET IS NOT ENOUGH. The router's own words were "the widget isn't
+	// focusable - focusing the game viewport", and a viewport-focused layer never receives Back.
+	SetIsFocusable(true);
+
+	// A SECOND, INDEPENDENT WAY OUT. Escape is a keyboard affordance; a pointer-only player needs a
+	// control. Optional so the WBP is free to place it, wired here so it cannot be forgotten in Blueprint.
+	if (CloseButton)
+	{
+		CloseButton->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleCloseClicked);
+	}
+	if (F_Save)
+	{
+		F_Save->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleSaveClicked);
+	}
+	else
+	{
+		// SAYS SO. An unbound commit button is exactly the "built, correct, unreachable" shape this
+		// step exists to end.
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[Creator] F_Save not bound -- the creator has no way to commit a build."));
+	}
+}
+
+void UAFLW_Creator::NativeOnActivated()
+{
+	Super::NativeOnActivated();
+
+	// ON ACTIVATE, NOT ON CONSTRUCT. The schema resolves against the loadout's DisplayPawn, which may not
+	// have spawned when this widget is constructed -- resolving early is how an earlier probe ended up
+	// reporting channels against whatever material happened to be reachable.
+	RefreshFromSchema();
+	RebuildChannelRows();
+}
+
+void UAFLW_Creator::RebuildChannelRows()
+{
+	if (!ChannelRailContainer)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[Creator] no ChannelRailContainer bound -- the rail cannot render. (BindWidgetOptional)"));
+		return;
+	}
+	ChannelRailContainer->ClearChildren();
+
+	if (!ChannelRowClass)
+	{
+		// SAYS SO RATHER THAN DRAWING NOTHING. An unset row class and a resolved-but-empty schema are
+		// indistinguishable on screen, and that ambiguity is what this whole phase was spent unpicking.
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[Creator] ChannelRowClass unset -- %d row(s) resolved but none can be spawned."), Rows.Num());
+		return;
+	}
+
+	for (const FAFLCreatorChannelRow& RowData : Rows)
+	{
+		if (UAFLW_CreatorChannelRowBase* RowWidget =
+			CreateWidget<UAFLW_CreatorChannelRowBase>(this, ChannelRowClass))
+		{
+			RowWidget->SetRowData(RowData);
+			ChannelRailContainer->AddChild(RowWidget);
+		}
+	}
+
+	UE_LOG(LogAFLCombat, Log, TEXT("[Creator] rail rebuilt: %d row(s), schemaResolved=%d, focusAxis=%d"),
+		Rows.Num(), IsSchemaResolved() ? 1 : 0, (int32)FocusAxis);
+}
+
+FAFLCreatorBuild UAFLW_Creator::AssembleBuild() const
+{
+	FAFLCreatorBuild Build;
+
+	if (E_BuildName)
+	{
+		Build.DisplayName = E_BuildName->GetText().ToString();
+	}
+
+	for (const FAFLCreatorChannelRow& Row : Rows)
+	{
+		// UNSET STAYS UNSET. FAFLChannelValue defaults Resolved to WHITE, so writing every row would
+		// turn "never touched" into "deliberately chose white". The rail's readout already distinguishes
+		// them; the saved build must agree with what the player was shown.
+		if (!Row.bHasValue)
+		{
+			continue;
+		}
+		// A row carries a resolved colour, never a cosmetic id -- so this is a CONTINUUM value.
+		// MakeCatalog would set RequiresEntitlement() on a colour that has nothing to be entitled to.
+		const FAFLChannelValue Value = FAFLChannelValue::MakeContinuum(Row.Colour);
+		switch (Row.Channel)
+		{
+		case EAFLCreatorChannel::Body:  Build.BodyChannel  = Value; break;
+		case EAFLCreatorChannel::Edge:  Build.EdgeChannel  = Value; break;
+		case EAFLCreatorChannel::Glow:  Build.GlowChannel  = Value; break;
+		case EAFLCreatorChannel::Visor: Build.VisorChannel = Value; break;
+		default: break;
+		}
+	}
+	return Build;
+}
+
+bool UAFLW_Creator::CommitBuild()
+{
+	APlayerController* PC = GetOwningPlayer();
+	APlayerState* PS = PC ? PC->PlayerState : nullptr;
+	UAFLCosmeticLoadoutComponent* LC = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+	if (!LC)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_TEST[COMMIT] NOT DISPATCHED -- no loadout component on the player state."));
+		return false;
+	}
+
+	const FAFLCreatorBuild Build = AssembleBuild();
+
+	// LOG WHAT IS BEING SENT, not merely that something was. The four channel states are the whole
+	// product, and "unset" is one of them.
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("AFL_TEST[COMMIT] dispatch index=%d name='%s' body=%d edge=%d glow=%d visor=%d rows=%d"),
+		EditingIndex, *Build.DisplayName,
+		Build.BodyChannel.IsSet() ? 1 : 0, Build.EdgeChannel.IsSet() ? 1 : 0,
+		Build.GlowChannel.IsSet() ? 1 : 0, Build.VisorChannel.IsSet() ? 1 : 0, Rows.Num());
+
+	// DISPATCHING IS NOT SUCCEEDING. The server re-checks the cap, the name and the lapse state.
+	LC->ServerSaveBuild(Build, EditingIndex);
+	return true;
+}
+
+void UAFLW_Creator::HandleSaveClicked()
+{
+	CommitBuild();
+}
+
+void UAFLW_Creator::HandleCloseClicked()
+{
+	UE_LOG(LogAFLCombat, Log, TEXT("[Creator] close clicked -> deactivate."));
+	DeactivateWidget();
 }
 
 void UAFLW_Creator::InitializeCreator(UAFLW_LoadoutBase* InLoadout)
@@ -282,17 +456,28 @@ int32 UAFLW_Creator::GetSlotsUsed() const
 	const APlayerController* PC = GetOwningPlayer();
 	const APlayerState* PS = PC ? PC->PlayerState : nullptr;
 	const UAFLCosmeticLoadoutComponent* LC = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
-	return LC ? LC->GetBuildSet().Builds.Num() : 0;
+	// UNLOCKED, not total. A locked build is kept and rendering but sits OUTSIDE the cap, so counting it
+	// made this read "5 / 2" against the very cap it is displayed beside.
+	return LC ? LC->CountUnlockedBuilds() : 0;
 }
 
 int32 UAFLW_Creator::GetSlotCap() const
 {
-	// Baseline + purchased, ceiling-clamped, per the pricing ladder. The purchased count is the
-	// COUNTED ENTITLEMENT -- now account-durable (CC-X30), so this reads a real number rather than a
-	// session value that evaporates on relaunch.
-	const UAFLWalletComponent* Wallet = ResolveWallet();
-	const int32 Purchased = Wallet ? Wallet->GetCountedEntitlement(FName(TEXT("AFL.CreatorSlot"))) : 0;
-	return FMath::Clamp(SlotBaseline + Purchased, SlotBaseline, SlotHardCap);
+	// DELEGATES TO THE SERVER'S LADDER. This computed the cap itself, so the number shown to the player
+	// and the number the server would enforce were two independent calculations free to disagree. The
+	// component owns it now; this reads the same answer the gate uses.
+	if (const APlayerController* PC = GetOwningPlayer())
+	{
+		if (const APlayerState* PS = PC->PlayerState)
+		{
+			if (const UAFLCosmeticLoadoutComponent* LC = PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
+			{
+				return LC->GetEffectiveSlotCap();
+			}
+		}
+	}
+	// Nothing to ask -- show the baseline rather than a number invented here.
+	return UAFLCosmeticLoadoutComponent::SlotBaseline;
 }
 
 FText UAFLW_Creator::GetSlotCounterText() const

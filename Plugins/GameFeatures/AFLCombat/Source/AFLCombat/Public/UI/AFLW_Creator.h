@@ -20,6 +20,7 @@
 
 #include "CommonActivatableWidget.h"
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"  // EAFLCreatorChannel, EAFLChannelAvailability, schema, gamut, links
+#include "UI/AFLW_LoadoutTileBase.h"        // EAFLLoadoutAxis (FocusAxis)
 #include "AFLW_Creator.generated.h"
 
 class UAFLW_LoadoutBase;
@@ -90,13 +91,133 @@ struct FAFLCreatorChannelRow
  * preview IS the product, and a second render path would reintroduce exactly the divergence the
  * "what you see is what spawns" rule forbids.
  */
+/**
+ * UAFLW_CreatorChannelRowBase -- the contract for one row of the creator's channel rail.
+ *
+ * It exists because WBP_AFL_CreatorChannelRow derived from plain UUserWidget, so there was no way to
+ * hand a spawned row its data. One property in, one event out; the WBP owns every pixel.
+ */
+UCLASS(Abstract, BlueprintType)
+class AFLCOMBAT_API UAFLW_CreatorChannelRowBase : public UUserWidget
+{
+	GENERATED_BODY()
+
+public:
+	/** The row this widget draws. Set by the creator immediately before OnRowDataSet fires. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Row")
+	FAFLCreatorChannelRow Row;
+
+	/** Draw yourself. Called once per rebuild, after Row is populated. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Creator|Row")
+	void OnRowDataSet();
+
+	void SetRowData(const FAFLCreatorChannelRow& InRow)
+	{
+		Row = InRow;
+		OnRowDataSet();
+	}
+};
+
 UCLASS(Abstract)
 class AFLCOMBAT_API UAFLW_Creator : public UCommonActivatableWidget
 {
 	GENERATED_BODY()
 
 public:
+	/** CC-5: THE CREATOR MUST BE ESCAPABLE.
+	 *
+	 *  It was not. It shipped with no close button, no back handling and no focus target, so opening it
+	 *  from the loadout TRAPPED the player -- Escape did nothing and there was no control to click. That
+	 *  was my error: I recorded that back/cancel "needs no code" because both widgets sit on the same
+	 *  activatable stack. Sharing a stack makes the loadout SURVIVE underneath; it does not give the
+	 *  widget on top any way to pop itself. CommonUI only routes the Back action to widgets that opt in.
+	 *
+	 *  Set in the constructor rather than on the WBP so it cannot be lost by a reparent or a redesign of
+	 *  the visual layer -- which is exactly what is about to happen to this screen. */
+	UAFLW_Creator();
+
+	/** Without a focus target the input router logged "widget isn't focusable - focusing the game
+	 *  viewport" and left the creator unreachable by keyboard/gamepad. Prefer the rail, as the market
+	 *  prefers its list. */
+	virtual UWidget* NativeGetDesiredFocusTarget() const override;
+
+protected:
+	virtual void NativeOnInitialized() override;
+
+	/** An always-available way out that does not depend on keyboard focus routing. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UButton> CloseButton;
+
+	/** The rail the channel rows are spawned into. Was a ListView, which cannot render USTRUCT rows. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UPanelWidget> ChannelRailContainer;
+
+	// ===== CC-5 step 5: THE COMMIT PATH ===========================================================
+	// Names match the greybox WBP exactly -- F_Save and E_BuildName were READ off the widget tree, not
+	// guessed. Guessing a widget name is what left the creator with no focus target and trapped a
+	// player twice.
+
+	/** The commit button. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UButton> F_Save;
+
+	/** The build's name. Validated server-side; a refused name refuses the whole save. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UEditableTextBox> E_BuildName;
+
+	/**
+	 * Which saved build this session is editing. INDEX_NONE = a NEW build, which is the only case the
+	 * slot cap gates -- editing one you already hold is always allowed.
+	 */
+	UPROPERTY(BlueprintReadWrite, Category = "AFL|Creator|Build")
+	int32 EditingIndex = INDEX_NONE;
+
+	/** Assemble the current rail state into a build. Rows without a value stay UNSET. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Build")
+	FAFLCreatorBuild AssembleBuild() const;
+
+	/**
+	 * Submit to the server. Returns false and logs a REASON when it did not dispatch -- a commit button
+	 * that silently does nothing is indistinguishable from one that is not wired, which is how the
+	 * creator's missing close control survived to trap a player.
+	 *
+	 * Dispatching is NOT succeeding: the server re-checks the cap, the name and the lapse state, and any
+	 * of them can still refuse.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Build")
+	bool CommitBuild();
+
+	/** One row widget per channel. Unset = nothing to spawn, and it says so rather than drawing nothing. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Creator")
+	TSubclassOf<UAFLW_CreatorChannelRowBase> ChannelRowClass;
+
+	/** Rebuild the rail from Rows. Safe to call repeatedly. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator")
+	void RebuildChannelRows();
+
+	virtual void NativeOnActivated() override;
+
+	UFUNCTION()
+	void HandleCloseClicked();
+
+	UFUNCTION()
+	void HandleSaveClicked();
+
+public:
+
+public:
 	/** Bind to the loadout that owns the preview rig. Call before anything else. */
+	/**
+	 * CC-5: which axis the creator opens focused on. Set by the opener BEFORE activation, which is why
+	 * the entry uses PushWidgetToLayerStack's init hook rather than pushing then poking -- a widget that
+	 * activates on one axis and jumps to another is a visible glitch, not a detail.
+	 *
+	 * Sticker and Accessory arrive here because they are ARRANGEMENT axes: the loadout cannot express
+	 * them as a tile (one id per axis), so its dormant enum members become "open the creator here".
+	 */
+	UPROPERTY(BlueprintReadWrite, Category = "AFL|Creator")
+	EAFLLoadoutAxis FocusAxis = EAFLLoadoutAxis::BodyColor;
+
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator")
 	void InitializeCreator(UAFLW_LoadoutBase* InLoadout);
 
@@ -176,7 +297,6 @@ protected:
 	/** Slot ladder, PRICING_SSOT 5.1: 2 free, 5 League, 10 hard cap. Named constants rather than
 	 *  literals at the use site so a price/tier change lands in one place. */
 	static constexpr int32 SlotBaseline    = 2;
-	static constexpr int32 SlotTierCeiling = 5;
 	static constexpr int32 SlotHardCap     = 10;
 
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator")

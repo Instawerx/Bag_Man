@@ -151,6 +151,76 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Creator")
 	void ApplyLapseRule(int32 EffectiveSlotCap, bool bContinuumEditingHeld);
 
+	// ===== THE SLOT LADDER -- server-authoritative, and the ONLY definition =================
+	//
+	// It previously lived on UAFLW_Creator. A widget computing the cap means the only answer to "how
+	// many slots" was client-side, which is not a gate at all. The widget now delegates here.
+	//
+	// SlotTierCeiling (5) was declared alongside these and referenced NOWHERE -- League grants counted
+	// slots like any other purchase, so a tier constant implied a mechanism that does not exist. Gone.
+
+	/** Slots nobody has to buy. */
+	static constexpr int32 SlotBaseline = 2;
+
+	/** Ceiling regardless of how many were bought. */
+	static constexpr int32 SlotHardCap = 10;
+
+	/** The counted, account-durable entitlement a robot pack / slot SKU increments. */
+	static const FName SlotEntitlementKey;
+
+	/**
+	 * How many builds this player may hold. SlotBaseline + counted AFL.CreatorSlot, clamped to
+	 * SlotHardCap.
+	 *
+	 * FAILS CLOSED. No wallet means the purchased count cannot be verified, so it resolves to the
+	 * BASELINE -- not to unlimited, and not to zero. This deliberately does NOT inherit the permissive
+	 * degrade documented on GetEntitlementSource(): being generous with what a player can SEE is not the
+	 * same as being generous with what they may SAVE.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Slots")
+	int32 GetEffectiveSlotCap() const;
+
+	/** Builds that are NOT read-only -- the number the cap actually governs. A locked build is kept and
+	 *  rendered but sits outside the cap, so counting it would compare against the wrong total. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Slots")
+	int32 CountUnlockedBuilds() const;
+
+	/** Builds held in total, locked included. Distinct from the slot count on purpose: this is the
+	 *  STORAGE figure, and nothing bounds it today -- see the note on the save path. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Slots")
+	int32 CountAllBuilds() const { return BuildSet.Builds.Num(); }
+
+	// ===== SUBSCRIPTION STATE -> THE LAPSE RULE ===================================================
+	//
+	// ApplyLapseRule was complete and correct with a cheat command as its only caller. What was missing
+	// was a runtime holder for the conditional set: it is persisted, but nothing could be ASKED whether
+	// a condition is held right now.
+
+	/** The condition the creator's continuum authoring hangs off. */
+	static const FName LeagueConditionId;
+
+	/**
+	 * Record the authoritative state of a condition and re-apply the lapse rule.
+	 *
+	 * SERVER ONLY. Called by whatever establishes subscription truth (login, entitlement refresh, a
+	 * store purchase completing) -- this component does not poll and does not guess.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Lapse")
+	void SetConditionState(FName ConditionId, EAFLConditionState NewState);
+
+	/** The state we last recorded. Unknown until something establishes it. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Lapse")
+	EAFLConditionState GetConditionState(FName ConditionId) const;
+
+	/**
+	 * Re-apply the lapse rule from the recorded subscription state.
+	 *
+	 * ON Unknown THIS DOES NOTHING. A lapse is a PENALTY, and the conditional-entitlement contract makes
+	 * penalties fail OPEN on Unknown. Calling ApplyLapseRule with a guessed cap would BE the penalty.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Lapse")
+	void RefreshLapseFromSubscription();
+
 	/** True when creator EDITING is locked by a lapse. Applied colours are unaffected -- this gates
 	 *  authoring only. Replicated so the UI can show the lock rather than silently rejecting input. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator")
@@ -209,6 +279,11 @@ protected:
 	UPROPERTY(Replicated)
 	bool bContinuumEditingLocked = false;
 
+	/** Recorded condition states. Keyed by ConditionId -- one condition confers many grants, so the
+	 *  state belongs to the condition, not to each grant. Absent = Unknown, never = Lapsed. */
+	UPROPERTY()
+	TMap<FName, EAFLConditionState> ConditionStates;
+
 	UFUNCTION()
 	void OnRep_BuildSet();
 
@@ -239,6 +314,9 @@ private:
 	/** Resolve the entitlement source (the real UAFLWalletComponent owned-set impl -- S-ECON-WALLET). Null-tolerant:
 	 *  a missing source means basics are owned (the call sites short-circuit to allowed). */
 	IAFLEntitlementSource* GetEntitlementSource() const;
+
+	/** The same wallet, CONCRETE -- counted entitlements are not on the IAFLEntitlementSource interface. */
+	class UAFLWalletComponent* GetWalletComponent() const;
 
 	/** Resolve the persistence backend (stub now). May be null in early bring-up -> persistence no-ops. */
 	IAFLCosmeticPersistence* GetPersistence() const;

@@ -234,6 +234,32 @@ void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmetic
 	if (EquipButton)  { EquipButton->SetVisibility(ESlateVisibility::Collapsed); }
 }
 
+void UAFLW_LoadoutTileBase::ApplyTabStyle(bool bActive)
+{
+	// EVERYTHING THAT IS NOT THE LABEL. Named rather than reached through the tree so a WBP that never
+	// had one of these simply misses it instead of crashing -- and so the list is auditable.
+	static const TCHAR* const CardFurniture[] = {
+		TEXT("ProductImage"), TEXT("PriceText"), TEXT("PriceRichText"),
+		TEXT("EquipButton"), TEXT("BuyButton"), TEXT("ButtonRow"),
+	};
+	for (const TCHAR* Name : CardFurniture)
+	{
+		if (UWidget* W = GetWidgetFromName(FName(Name)))
+		{
+			W->SetVisibility(ESlateVisibility::Collapsed); // COLLAPSED, not Hidden: hidden still costs layout
+		}
+	}
+
+	// The active tab is the lit segment; the rest are unlit tube. Electric is the house LEAD and is the
+	// only colour that may carry "active" -- arc-violet is hover/focus and never a resting state.
+	if (UTextBlock* Label = Cast<UTextBlock>(GetWidgetFromName(TEXT("NameText"))))
+	{
+		Label->SetColorAndOpacity(bActive
+			? FSlateColor(FLinearColor(1.f, 1.f, 1.f, 1.f))
+			: FSlateColor(FLinearColor(0.013f, 0.102f, 1.f, 1.f)));
+	}
+}
+
 void UAFLW_LoadoutTileBase::ApplyLoadoutCardStyle(bool bEquipped, bool bEquipViaTileClick)
 {
 	// EQUIP-button routing: locker (true) -> OnTileClicked (carries the axis) so the locker's existing

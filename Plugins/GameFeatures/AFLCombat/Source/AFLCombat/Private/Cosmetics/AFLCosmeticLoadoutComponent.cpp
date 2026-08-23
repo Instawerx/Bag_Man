@@ -388,6 +388,95 @@ IAFLEntitlementSource* UAFLCosmeticLoadoutComponent::GetEntitlementSource() cons
 	return nullptr;
 }
 
+const FName UAFLCosmeticLoadoutComponent::SlotEntitlementKey(TEXT("AFL.CreatorSlot"));
+const FName UAFLCosmeticLoadoutComponent::LeagueConditionId(TEXT("AFL.Condition.League"));
+
+EAFLConditionState UAFLCosmeticLoadoutComponent::GetConditionState(FName ConditionId) const
+{
+	// ABSENT IS Unknown, NOT Lapsed. Collapsing those two is the dangerous direction: a server that has
+	// not reached the entitlement source yet would treat every player as freshly lapsed.
+	if (const EAFLConditionState* Found = ConditionStates.Find(ConditionId))
+	{
+		return *Found;
+	}
+	return EAFLConditionState::Unknown;
+}
+
+void UAFLCosmeticLoadoutComponent::SetConditionState(FName ConditionId, EAFLConditionState NewState)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	const EAFLConditionState Was = GetConditionState(ConditionId);
+	ConditionStates.Add(ConditionId, NewState);
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[COND] %s: %d -> %d"),
+		*ConditionId.ToString(), (int32)Was, (int32)NewState);
+
+	if (ConditionId == LeagueConditionId)
+	{
+		RefreshLapseFromSubscription();
+	}
+}
+
+void UAFLCosmeticLoadoutComponent::RefreshLapseFromSubscription()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	const EAFLConditionState State = GetConditionState(LeagueConditionId);
+
+	if (State == EAFLConditionState::Unknown)
+	{
+		// PENALTIES FAIL OPEN ON Unknown -- the conditional-entitlement contract, obeyed literally.
+		// Doing nothing is the correct action: ApplyLapseRule with ANY cap would be applying the
+		// penalty to a player nobody has checked.
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[LAPSE] league condition UNKNOWN -- lapse rule NOT applied (penalties fail open)."));
+		return;
+	}
+
+	// HELD: the player's full cap, continuum authoring held.
+	// LAPSED: back to the baseline nobody has to buy, continuum authoring locked. Builds beyond the
+	// baseline become READ-ONLY -- never deleted, and the active one keeps rendering.
+	const bool bHeld = (State == EAFLConditionState::Held);
+	const int32 Cap = bHeld ? GetEffectiveSlotCap() : SlotBaseline;
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LAPSE] league=%s -> cap=%d editingHeld=%d"),
+		bHeld ? TEXT("HELD") : TEXT("LAPSED"), Cap, bHeld ? 1 : 0);
+	ApplyLapseRule(Cap, bHeld);
+}
+
+UAFLWalletComponent* UAFLCosmeticLoadoutComponent::GetWalletComponent() const
+{
+	if (const ALyraPlayerState* PS = GetLyraPlayerState())
+	{
+		return PS->FindComponentByClass<UAFLWalletComponent>();
+	}
+	return nullptr;
+}
+
+int32 UAFLCosmeticLoadoutComponent::CountUnlockedBuilds() const
+{
+	int32 N = 0;
+	for (const FAFLCreatorBuild& B : BuildSet.Builds)
+	{
+		if (!B.bReadOnly) { ++N; }
+	}
+	return N;
+}
+
+int32 UAFLCosmeticLoadoutComponent::GetEffectiveSlotCap() const
+{
+	const UAFLWalletComponent* Wallet = GetWalletComponent();
+	if (!Wallet)
+	{
+		// FAIL CLOSED. An unverifiable purchase count is not a licence to save without limit. The player
+		// keeps the baseline they never had to buy; nothing purchased is honoured on a read that failed.
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[Creator] slot cap: NO WALLET -- failing closed to baseline %d."), SlotBaseline);
+		return SlotBaseline;
+	}
+	const int32 Purchased = Wallet->GetCountedEntitlement(SlotEntitlementKey);
+	return FMath::Clamp(SlotBaseline + Purchased, SlotBaseline, SlotHardCap);
+}
+
 IAFLCosmeticPersistence* UAFLCosmeticLoadoutComponent::GetPersistence() const
 {
 	// Phase A0: the local SaveGame persistence subsystem (first impl of the seam). The BeginPlay
@@ -498,7 +587,30 @@ void UAFLCosmeticLoadoutComponent::OnRep_BuildSet()
 	}
 }
 
-bool UAFLCosmeticLoadoutComponent::ServerSaveBuild_Validate(FAFLCreatorBuild, int32) { return true; }
+bool UAFLCosmeticLoadoutComponent::ServerSaveBuild_Validate(FAFLCreatorBuild Build, int32 Index)
+{
+	// _Validate DISCONNECTS A CHEATING CLIENT; it is not the business rule. It returned true
+	// unconditionally, so a malformed call reached the implementation and was merely ignored there.
+	//
+	// Anything a legitimate client cannot produce is rejected here. The slot CAP is NOT checked in this
+	// function: exceeding it is an ordinary refusal a truthful client can hit by trying to save one too
+	// many, and disconnecting a player for that would be punishing them for a normal action.
+	//
+	// INDEX_NONE means "append". Any other negative, or an index past the hard cap, is a fabricated call.
+	if (Index < INDEX_NONE || Index >= SlotHardCap)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Creator] ServerSaveBuild_Validate REJECT: index %d out of range."), Index);
+		return false;
+	}
+	// A name longer than the validator could ever accept is not a name, it is a payload.
+	if (Build.DisplayName.Len() > 256)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Creator] ServerSaveBuild_Validate REJECT: name length %d."),
+			Build.DisplayName.Len());
+		return false;
+	}
+	return true;
+}
 
 void UAFLCosmeticLoadoutComponent::ServerSaveBuild_Implementation(FAFLCreatorBuild Build, int32 Index)
 {
@@ -557,11 +669,27 @@ void UAFLCosmeticLoadoutComponent::ServerSaveBuild_Implementation(FAFLCreatorBui
 	}
 	else
 	{
-		// SLOT CAP DELIBERATELY NOT ENFORCED. How many slots a player gets is product intent -- the
-		// pricing SSOT flags the $3 robot/slot collision as unresolved -- and the counted entitlement
-		// that will carry it landed in CC-3.3. Enforcement arrives with that ruling; inventing a number
-		// here would ship a cap nobody chose.
+		// SAVE AND LOCK -- the cap decides whether a new build is LOCKED, never whether it is KEPT.
+		//
+		// THE SAME EXPRESSION AS ApplyLapseRule, DELIBERATELY. That rule locks by `i >= Cap`, so a build
+		// appended at index N is unlocked exactly when N < Cap -- which is Builds.Num() < Cap here. One
+		// rule for what is locked, evaluated in two places that cannot disagree because they are the
+		// same comparison. A second locking concept is what this avoids.
+		//
+		// THE BUILD IS ALWAYS KEPT. A refused save destroys a creation the player just made, and the
+		// conversion model depends on them still having it to want back.
+		const int32 Cap = GetEffectiveSlotCap();
+		const bool bLockedOnArrival = (BuildSet.Builds.Num() >= Cap);
+		Build.bReadOnly = bLockedOnArrival;
 		Index = BuildSet.Builds.Add(Build);
+
+		if (bLockedOnArrival)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[SLOT] SAVED LOCKED: index=%d, %d unlocked slot(s) in use, cap %d. ")
+				TEXT("Kept and rendering; buy a slot to unlock."),
+				Index, CountUnlockedBuilds(), Cap);
+		}
 	}
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILD] saved index=%d builds=%d continuum=%d"),
 		Index, BuildSet.Builds.Num(), Build.UsesContinuum() ? 1 : 0);

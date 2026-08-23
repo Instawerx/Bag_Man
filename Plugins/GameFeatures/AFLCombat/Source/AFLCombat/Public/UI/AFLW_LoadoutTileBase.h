@@ -24,8 +24,8 @@ enum class EAFLLoadoutAxis : uint8
 	WeaponSkin  UMETA(DisplayName = "Weapon Skin"), // AFL.WeaponSkin.*  -> WeaponSkinId   (type=Weapon, skin-prefix)
 	Beam        UMETA(DisplayName = "Beam"),        // AFL.Beam.*        -> BeamId          (type=Beam)
 	Identity    UMETA(DisplayName = "Identity"),    // AFL.Team.* + AFL.Character.* -> IdentityType + Team/CharacterId (dual-type)
-	BodyColor   UMETA(DisplayName = "Body Color"),  // AFL.Finish.*      -> BodyId          (BodyId resolves to a Finish; free base = 7 finishes)
-	EdgeColor   UMETA(DisplayName = "Edge Color"),  // AFL.Edge.*        -> EdgeId          (type=SkinColor_Edge)
+	BodyColor   UMETA(DisplayName = "Body"),         // AFL.Finish.*      -> BodyId          (BodyId resolves to a Finish; free base = 7 finishes)
+	EdgeColor   UMETA(DisplayName = "Edge"),         // AFL.Edge.*        -> EdgeId          (type=SkinColor_Edge)
 	Facemask    UMETA(DisplayName = "Facemask"),     // AFL.Facemask.*    -> FacemaskId      (type=Facemask)
 	// CC-7.2: APPENDED. Nine fixed zones, addressed by AFL.Sticker.* rows.
 	Sticker     UMETA(DisplayName = "Sticker"),      // AFL.Sticker.*    -> StickerPlacements (type=Sticker)
@@ -116,6 +116,17 @@ public:
 	 *  OnTileClicked (the locker's tile-click handler equips it); false (front-end market) routes it through
 	 *  OnEquipClicked so the market can split SELECT (tile-body click = preview) from COMMIT (EQUIP button). */
 	void ApplyLoadoutCardStyle(bool bEquipped, bool bEquipViaTileClick = true);
+
+	/**
+	 * CC-5 step 3: strip this tile down to a TAB -- label only, no thumbnail, no price, no per-tile
+	 * action buttons.
+	 *
+	 * A tab and a product card are different objects that happen to share a widget class here, and the
+	 * card's furniture is what made ten axis tabs overflow 1280px. Hiding by name mirrors how
+	 * UAFLW_FrontEndMarket::ApplyShowroomMode dissolves its backdrop -- the same technique, applied to
+	 * the same problem of one WBP serving two jobs.
+	 */
+	void ApplyTabStyle(bool bActive);
 
 	/** FRONT-END SUGGESTED card style: reveal the rarity frame + dual-color price + BUY (no EQUIP) on an UNOWNED,
 	 *  buyable tile -- reuses the store card's widgets. Call AFTER SetTileData (which collapsed them). */
