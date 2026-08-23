@@ -5398,6 +5398,186 @@ namespace
 		TEXT("door. Pure computation -- spends nothing, touches no asset."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerProbe));
 
+
+#if WITH_EDITOR
+	// === afl.Test.Wearables ========================================================================
+	// The slot-mechanism arms of the jewellery proof. See the equip in AFLCosmeticLoadoutComponent.
+	// Forward-declared because the arming ticker below calls it from inside its own body.
+	void HandleAFLTestWearables(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar);
+
+	void HandleAFLTestWearables(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		int32 Ran = 0, Passed = 0;
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[WEAR] BEGIN"));
+
+		auto Arm = [&Ran, &Passed](const TCHAR* Name, const bool bOk, const FString& Detail)
+		{
+			++Ran; if (bOk) { ++Passed; }
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[WEAR]   %-34s %s  %s"),
+				Name, bOk ? TEXT("PASS") : TEXT("FAIL"), *Detail);
+		};
+
+		// FIND A WORLD WITH A PLAYER, not merely the world we were handed. Run from the editor console
+		// before PIE, `World` is the EDITOR world and has no PlayerController -- which is the normal
+		// case here, because arming has to happen before PIE starts.
+		auto FindPlayed = []() -> UWorld*
+		{
+			if (!GEngine) { return nullptr; }
+			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+			{
+				if (Ctx.World() && Ctx.World()->GetFirstPlayerController()) { return Ctx.World(); }
+			}
+			return nullptr;
+		};
+
+		UWorld* Played = FindPlayed();
+		APlayerController* PC = Played ? Played->GetFirstPlayerController() : nullptr;
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* L = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		UAFLWalletComponent* W = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+
+		if (!L || !W || !PS->HasAuthority())
+		{
+			// ARM AND WAIT. Nothing may be injected into a running PIE session, so this command is
+			// issued BEFORE PIE and re-checks on a ticker until the PlayerState appears.
+			//
+			// BOUNDED, WITH A TERMINATOR. Sixty seconds, then it gives up and SAYS SO. An unbounded
+			// poll on a condition that may never arrive is not a wait, it is a leak.
+			static bool bArmed = false;
+			if (bArmed)
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[WEAR] already armed -- not arming twice."));
+				Ar.Log(TEXT("afl.Test.Wearables already armed."));
+				return;
+			}
+			bArmed = true;
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[WEAR] ARMED -- no PlayerState yet (loadout=%s wallet=%s). Will fire when PIE brings one up; giving up after 60s."),
+				L ? TEXT("ok") : TEXT("missing"), W ? TEXT("ok") : TEXT("missing"));
+
+			TSharedPtr<double> Elapsed = MakeShared<double>(0.0);
+			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+				[Elapsed](float Dt) -> bool
+				{
+					*Elapsed += Dt;
+					if (*Elapsed > 60.0)
+					{
+						UE_LOG(LogAFLCombat, Warning,
+							TEXT("AFL_TEST[WEAR] GAVE UP after 60s -- no PlayerState with a loadout ever appeared. NOTHING TESTED."));
+						return false;   // terminator
+					}
+					for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+					{
+						UWorld* Wld = Ctx.World();
+						APlayerController* P = Wld ? Wld->GetFirstPlayerController() : nullptr;
+						APlayerState* S = P ? P->PlayerState : nullptr;
+						if (S && S->HasAuthority()
+							&& S->FindComponentByClass<UAFLCosmeticLoadoutComponent>()
+							&& S->FindComponentByClass<UAFLWalletComponent>())
+						{
+							UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[WEAR] FIRING (armed %.1fs ago, world=%s)"),
+								*Elapsed, *Wld->GetName());
+							FOutputDeviceNull Null;
+							HandleAFLTestWearables(TArray<FString>(), Wld, Null);
+							return false;   // one shot
+						}
+					}
+					return true;
+				}), 0.5f);
+
+			Ar.Log(TEXT("afl.Test.Wearables ARMED -- start PIE; see AFL_TEST[WEAR]."));
+			return;
+		}
+
+		const FName CHAIN   (TEXT("AFL.Accessory.Chain.FoundersPurps"));
+		const FName PENDANT (TEXT("AFL.Accessory.Pendant.TTG"));
+		const FName WATCH_A (TEXT("AFL.Accessory.Watch.RareUniverse"));
+		const FName WATCH_B (TEXT("AFL.Accessory.Watch.Quantum"));
+		const FName BRACE_A (TEXT("AFL.Accessory.Bracelet.QuantumUniverse"));
+
+		auto Holds = [L](const EAFLAccessorySlot S) -> FName
+		{
+			const FAFLAccessoryPlacement* P = L->GetSelection().AccessorySet.Find(S);
+			return (P && P->IsSet()) ? P->AccessoryId : NAME_None;
+		};
+
+		// Deterministic start: every slot empty, so an arm cannot pass on residue from a prior run.
+		for (int32 i = 0; i < static_cast<int32>(EAFLAccessorySlot::MAX); ++i)
+		{
+			L->ServerClearAccessory(static_cast<EAFLAccessorySlot>(i));
+		}
+
+		// --- ARM 1: THE GATE ITSELF. Not granted, must refuse. If this fails, every later PASS is void.
+		L->ServerEquipWearable(CHAIN);
+		Arm(TEXT("1 unowned chain refused"), Holds(EAFLAccessorySlot::Neck).IsNone(),
+			FString::Printf(TEXT("neck=%s (expected None)"), *Holds(EAFLAccessorySlot::Neck).ToString()));
+
+		// --- ARM 2: pendant with NO chain refuses. Granted, so only the dependency can refuse it.
+		W->DebugGrantOwnership(PENDANT);
+		L->ServerEquipWearable(PENDANT);
+		Arm(TEXT("2 pendant refused, no chain"), Holds(EAFLAccessorySlot::Pendant).IsNone(),
+			FString::Printf(TEXT("pendant=%s (expected None)"), *Holds(EAFLAccessorySlot::Pendant).ToString()));
+
+		// --- ARM 3: chain equips at Neck once owned.
+		W->DebugGrantOwnership(CHAIN);
+		L->ServerEquipWearable(CHAIN);
+		Arm(TEXT("3 chain equips at Neck"), Holds(EAFLAccessorySlot::Neck) == CHAIN,
+			FString::Printf(TEXT("neck=%s"), *Holds(EAFLAccessorySlot::Neck).ToString()));
+
+		// --- ARM 4: the same pendant now accepted. Same call, same grant -- only the chain changed.
+		L->ServerEquipWearable(PENDANT);
+		Arm(TEXT("4 pendant accepted with chain"), Holds(EAFLAccessorySlot::Pendant) == PENDANT,
+			FString::Printf(TEXT("pendant=%s"), *Holds(EAFLAccessorySlot::Pendant).ToString()));
+
+		// --- ARM 5: un-equipping the chain KEEPS the pendant and stops drawing it. Two assertions,
+		// because "kept" and "not drawn" are different claims and one without the other is the bug.
+		L->ServerClearAccessory(EAFLAccessorySlot::Neck);
+		const bool bKept    = (Holds(EAFLAccessorySlot::Pendant) == PENDANT);
+		const bool bNotDrawn= !L->IsAccessorySlotRenderable(EAFLAccessorySlot::Pendant);
+		Arm(TEXT("5 pendant kept, not rendered"), bKept && bNotDrawn,
+			FString::Printf(TEXT("kept=%d renderable=%d"), bKept ? 1 : 0, bNotDrawn ? 0 : 1));
+
+		// --- ARM 6: an either-side wrist piece takes the first open side.
+		W->DebugGrantOwnership(WATCH_A);
+		L->ServerEquipWearable(WATCH_A);
+		Arm(TEXT("6 wrist A takes left"), Holds(EAFLAccessorySlot::WristL) == WATCH_A,
+			FString::Printf(TEXT("wristL=%s"), *Holds(EAFLAccessorySlot::WristL).ToString()));
+
+		// --- ARM 7: the second takes the OTHER side rather than replacing the first.
+		W->DebugGrantOwnership(BRACE_A);
+		L->ServerEquipWearable(BRACE_A);
+		Arm(TEXT("7 wrist B takes right"),
+			Holds(EAFLAccessorySlot::WristR) == BRACE_A && Holds(EAFLAccessorySlot::WristL) == WATCH_A,
+			FString::Printf(TEXT("wristL=%s wristR=%s"),
+				*Holds(EAFLAccessorySlot::WristL).ToString(), *Holds(EAFLAccessorySlot::WristR).ToString()));
+
+		// --- ARM 8: a third is REFUSED, and neither wrist changed. The second half matters: a refusal
+		// that still mutated state would pass a "not equipped" check while having dropped something.
+		W->DebugGrantOwnership(WATCH_B);
+		L->ServerEquipWearable(WATCH_B);
+		Arm(TEXT("8 third wrist refused, no swap"),
+			Holds(EAFLAccessorySlot::WristL) == WATCH_A && Holds(EAFLAccessorySlot::WristR) == BRACE_A,
+			FString::Printf(TEXT("wristL=%s wristR=%s"),
+				*Holds(EAFLAccessorySlot::WristL).ToString(), *Holds(EAFLAccessorySlot::WristR).ToString()));
+
+		// --- ARM 9: re-equipping what is already worn is not a third item. Without this the mechanism
+		// refuses a no-op, which reads as a bug to the player.
+		L->ServerEquipWearable(WATCH_A);
+		Arm(TEXT("9 re-equip worn is a no-op"), Holds(EAFLAccessorySlot::WristL) == WATCH_A,
+			FString::Printf(TEXT("wristL=%s"), *Holds(EAFLAccessorySlot::WristL).ToString()));
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[WEAR] END arms=%d passed=%d %s"),
+			Ran, Passed, (Ran == Passed && Ran == 9) ? TEXT("PASS") : TEXT("FAIL"));
+		Ar.Log(TEXT("afl.Test.Wearables complete -- see AFL_TEST[WEAR]."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLTestWearablesCmd(TEXT("afl.Test.Wearables"),
+		TEXT("Jewellery slot mechanism: ownership gate, pendant dependency, wrist side selection and ")
+		TEXT("every refusal. Nine arms; arm 1 is the ownership control. Mutates the local player's ")
+		TEXT("accessory slots."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLTestWearables));
+#endif // WITH_EDITOR
+
 #if WITH_EDITOR
 	// === CC-X34: afl.Dev.AuthorAccessorySockets ===================================================
 	// EDITOR ONLY. Registers the three accessory hardpoints on the SKELETON both character lines
@@ -5425,6 +5605,20 @@ namespace
 			{ TEXT("accessory_head"),       TEXT("head")       },
 			{ TEXT("accessory_clavicle_l"), TEXT("clavicle_l") },
 			{ TEXT("accessory_clavicle_r"), TEXT("clavicle_r") },
+
+			// JEWELLERY. Bone choices verified against THIS skeleton's 164-bone list, not inferred from
+			// mannequin naming: there is no neck_01 and no spine_04/05 here, so a chain hangs on
+			// spine_03 -- the same bone weapon_holster_back already uses.
+			{ TEXT("accessory_neck"),       TEXT("spine_03")   },
+
+			// The pendant shares the chain's BONE but gets its own SOCKET, because it hangs lower and an
+			// offset belongs to the socket. FAFLAccessoryPlacement carries no transform by design.
+			{ TEXT("accessory_pendant"),    TEXT("spine_03")   },
+
+			// hand_l/hand_r, not lowerarm: a watch turns with the wrist, and the wrist joint IS hand_*.
+			// Parented to the forearm it would stay level while the hand rotated, which reads as broken.
+			{ TEXT("accessory_wrist_l"),    TEXT("hand_l")     },
+			{ TEXT("accessory_wrist_r"),    TEXT("hand_r")     },
 		};
 
 		int32 Added = 0, Skipped = 0, Refused = 0;
@@ -5480,21 +5674,27 @@ namespace
 
 		// CONTROL: the six pre-existing sockets must be untouched. Authoring must not disturb what was
 		// already there, and a count alone would not notice a replacement.
+		// THE CONTROL GREW WITH THE SET. The three CC-8 accessory sockets are now pre-existing content
+		// too, so a control that still counted only the original six would not notice this run
+		// disturbing them -- a control that cannot fail is not a control.
 		static const TCHAR* Existing[] = { TEXT("weapon_r_muzzle"), TEXT("foot_r_Socket"), TEXT("foot_l_Socket"),
-			TEXT("weapon_lowerarm_l"), TEXT("weapon_lowerarm_r"), TEXT("weapon_holster_back") };
+			TEXT("weapon_lowerarm_l"), TEXT("weapon_lowerarm_r"), TEXT("weapon_holster_back"),
+			TEXT("accessory_head"), TEXT("accessory_clavicle_l"), TEXT("accessory_clavicle_r") };
+		const int32 ExpectedExisting = UE_ARRAY_COUNT(Existing);
 		int32 StillThere = 0;
 		for (const TCHAR* E : Existing) { if (Skel->FindSocket(FName(E))) { ++StillThere; } }
 		UE_LOG(LogAFLCombat, Display,
-			TEXT("AFL_TEST[SOCKW] CONTROL pre-existing sockets still resolvable = %d/6 %s"),
-			StillThere, (StillThere == 6) ? TEXT("PASS") : TEXT("FAIL"));
+			TEXT("AFL_TEST[SOCKW] CONTROL pre-existing sockets still resolvable = %d/%d %s"),
+			StillThere, ExpectedExisting, (StillThere == ExpectedExisting) ? TEXT("PASS") : TEXT("FAIL"));
 		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SOCKW] package marked dirty -- SAVE AND VERIFY mtime/git externally."));
 		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SOCKW] END"));
 		Ar.Log(TEXT("afl.Dev.AuthorAccessorySockets complete -- see AFL_TEST[SOCKW]."));
 	}
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLAuthorSocketsCmd(TEXT("afl.Dev.AuthorAccessorySockets"),
-		TEXT("CC-X34 EDITOR ONLY: register accessory_head / accessory_clavicle_l / accessory_clavicle_r on ")
-		TEXT("SK_Mannequin. Idempotent -- a re-run adds nothing. Marks the package dirty; save separately."),
+		TEXT("CC-X34 EDITOR ONLY: register the accessory hardpoints (head, clavicles, neck, pendant, ")
+		TEXT("wrists) on SK_Mannequin. Idempotent -- a re-run adds nothing. Marks the package dirty; ")
+		TEXT("save separately."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLAuthorAccessorySockets));
 #endif // WITH_EDITOR
 
