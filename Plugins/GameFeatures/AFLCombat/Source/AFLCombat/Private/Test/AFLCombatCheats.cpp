@@ -3265,6 +3265,42 @@ namespace
 			Checked, Mismatch, Unmapped, InvalidRows, *Split);
 		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[TYPELINT] checked=%d mismatch=%d unmapped=%d invalid=%d  %s"),
 			Checked, Mismatch, Unmapped, InvalidRows, *Split);
+
+		// --- FREELINT: a GrantedFree row must not also claim to be transactable ---------------------
+		//
+		// bTransactable DEFAULTS TRUE, so true on a free row means "nobody authored it" rather than
+		// "someone decided to sell it" -- measured 2026-08-23: 169 of 169 free rows carried true and
+		// none carried false, which is what a uniform default looks like, not what a decision looks
+		// like. Nothing was mis-sold (ClientRequestPurchase refuses GrantedFree regardless, and the
+		// store filters on Acquisition), but the row-level flag was one manifest registration away
+		// from being the only thing standing between a free item and a price.
+		//
+		// The DEFAULT IS NOT CHANGED. Flipping it to false would fix new rows and silently un-sell the
+		// 140 paid rows that depend on it -- the same absent-vs-default trap, pointed the other way.
+		// The DISAGREEMENT is caught instead, so a row authored tomorrow is flagged the day it lands.
+		{
+			int32 FreeRows = 0, FreeTransactable = 0, PaidTransactable = 0;
+			for (int32 T = 0; T < (TypeEnum ? TypeEnum->NumEnums() : 0); ++T)
+			{
+				TArray<const FAFLCatalogEntry*> OfType;
+				Catalog->GetEntriesByType(static_cast<EAFLCosmeticType>(TypeEnum->GetValueByIndex(T)), OfType);
+				for (const FAFLCatalogEntry* R : OfType)
+				{
+					if (!R) { continue; }
+					const bool bFree = (R->Acquisition == EAFLAcquisition::GrantedFree);
+					if (bFree) { ++FreeRows; if (R->bTransactable) { ++FreeTransactable;
+						Ar.Logf(TEXT("  FREE-BUT-TRANSACTABLE %s"), *R->CosmeticId.ToString()); } }
+					else if (R->bTransactable) { ++PaidTransactable; }
+				}
+			}
+			// THE CONTROL TRAVELS WITH THE RESULT. free=0 would also read as "0 transactable", so the
+			// paid count is printed alongside: a zero next to paid=0 is a lint that found nothing.
+			const bool bOk = (FreeTransactable == 0) && (FreeRows > 0) && (PaidTransactable > 0);
+			Ar.Logf(TEXT("AFL_TEST[FREELINT] free=%d freeTransactable=%d paidTransactable=%d %s"),
+				FreeRows, FreeTransactable, PaidTransactable, bOk ? TEXT("PASS") : TEXT("FAIL"));
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[FREELINT] free=%d freeTransactable=%d paidTransactable=%d %s"),
+				FreeRows, FreeTransactable, PaidTransactable, bOk ? TEXT("PASS") : TEXT("FAIL"));
+		}
 	}
 
 	// --- CC-3 BUILD PROOF -----------------------------------------------------------------------------
