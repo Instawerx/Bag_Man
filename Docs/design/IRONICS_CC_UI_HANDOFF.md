@@ -1,7 +1,140 @@
 # IRONICS — STORE · LOADOUT · CREATOR · UI DESIGN HANDOFF
 
+> ## REVISION R3 — 2026-08-23
+> **The flow changed and the catalog shrank. R3 supersedes R2 on both; everything else in R2 stands.**
+>
+> Two things Design must read before anything else:
+>
+> **1 · THE CREATOR IS THE PRIMARY SURFACE.** It was reachable only through the Sticker tile — an
+> arrangement affordance — which inverted the hierarchy: a player builds a robot in the creator, and
+> stickers are ONE AXIS INSIDE it. The creator now opens **on a build**, new or existing. The
+> Sticker/Accessory tiles remain as **shortcuts**, valid but secondary.
+>
+> **2 · THE LOADOUT IS OWNED-ONLY.** It shows saved builds, the six free identities, and owned assets.
+> **Nothing unowned appears.** It is an inventory and equip surface; the store is where unowned things
+> live. This deletes the "empty axis" problem rather than solving it: an axis with nothing owned shows
+> nothing *because the player owns nothing*, which is honest rather than broken.
+>
+> **THE SPLIT THAT DECIDES WHAT LIVES WHERE (ruled):** the **loadout EQUIPS**, the **creator AMENDS**.
+> Anything needing ARRANGEMENT — sticker placement, colour channels — opens the creator. One placement
+> implementation, not two.
+
+---
+
+## R3.1 · THE CATALOG IS NOW 319 ROWS
+
+126 retired: discrete colour SKUs, because the creator's continuum replaces **palette**. It does not
+replace a **brand**, so anything an identity wears stayed.
+
+**What a player can actually own, measured in the shipping path — not estimated:**
+
+| Axis | catalog rows | dev account owns | shape |
+|---|---:|---:|---|
+| Weapon | 127 | 77 | the only browsable-length list |
+| Edge | 42 | 32 | swatch grid |
+| Facemask | 38 | 17 | grid |
+| Identity | 13 | **13 — all of them** | a fixed roster, not a list |
+| Body (Finish) | 11 | 7 | the free base |
+| Beam | 6 | — | 5 free + one test fixture |
+| Emblem | 6 | 2 | a handful |
+| Sticker | 15 | — | arrangement → creator |
+| **WeaponSkin** | **0** | **0** | axis retired wholesale |
+| **Accessory** | **0** | **0** | never had any rows |
+
+**Three consequences Design has to design around:**
+
+* **Only ONE axis has a list.** Four of the eight are handfuls. A uniform tab-per-axis row gives
+  Emblem's two items the same furniture as Weapon's 77.
+* **Identity is not an axis.** All 13 are owned by everyone, so it never filters and never grows. It
+  belongs with the six free identities as a **roster**.
+* **Two axes must not appear at all.** WeaponSkin returns 0 because its rows are gone; Accessory never
+  had any. A tab that promises a category the game cannot fill is the same defect as the store's
+  phantom web categories.
+
+---
+
+## R3.2 · WHAT DESIGN ANSWERS — 1a–1d, RESTATED FOR THE NEW FLOW
+
+**1a · THE LANDING STATE.** With no axis chosen, what does the creator open on?
+**The engineering read, offered as input and not as an answer: the BUILD AS A WHOLE — preview plus rail,
+nothing focused.** Focusing a channel implies a decision the player has not made, and that is precisely
+the bug the old `BodyColor` default embodied. Design confirms or replaces this.
+
+**1b · WHERE New Build AND Edit Build SIT** in a surface of builds + roster + owned assets. Both exist
+in code: `BeginNewBuild()` and `LoadBuild(Index)`. **Editing loads the build into the rail** — that is
+built and no longer hypothetical.
+
+**1c · THE WORKBENCH LAYOUT.** Chassis picker, channel rail, hue arc, slot counter, build name, commit
+bar, and an **always-visible exit**. See the non-negotiable below.
+
+**1d · THE CARD AND THE EMPTY STATES**, per the shipping conditions in §R3.3.
+
+> ### ⚠ THE NON-NEGOTIABLE IN 1c
+> The creator shipped with no close control, no back handler and no focus target, and it **trapped a
+> live player twice**. The code now guarantees a focus target and a CloseButton, and Escape is verified
+> working. **Any layout must keep an always-visible exit.** Not a style preference.
+
+---
+
+## R3.3 · SHIPPING CONDITIONS — design the real form, not an ideal plus a fallback
+
+**These are what the product IS.** Measured over all 319 rows.
+
+1. **The subtitle is ONE part.** `SeriesName` is empty on **every row**. Category derives from `Type`;
+   series has no data anywhere. Design the one-part subtitle — `Mask`, `Hand cannon`, `Sticker`.
+2. **The no-image card IS the card.** Roughly half carry a `ShopThumbnail`. Design the imageless card as
+   primary, with the image as enhancement.
+3. **COMMON is the resting state.** The overwhelming majority are COMMON. A rarity band tuned for
+   LEGENDARY will shout COMMON most of the time.
+4. **A new player owns almost nothing.** Six identities, zero builds, near-empty axes. **That surface
+   must read as "you own nothing yet, here is how to get things"** — the empty-state rule is now
+   load-bearing on the primary screen, not an edge case.
+5. **The filter row shows what ships.** Four of the web's seven categories have no catalog type at all.
+
+---
+
+## R3.4 · THE STORE IS A PRODUCT PAGE, NOT A FILTERED GRID
+
+The ruled product list: robot packs · slot SKUs · weapon credits · sticker credits · hand-cannon pairs ·
+emblems · League membership · jewellery when the accessory line lands.
+
+**Four of those eight are ENTITLEMENTS that map to no axis** — `CreatorSlot` is literally typed
+*"Creator Slot / Robot Pack"*. **Tabs have nothing left to filter.** The store becomes a small set of
+product cards, each a purchase.
+
+**The web at `ironics.org/market` is a TEMPLATE — card structure only. The catalog rules every value:**
+name, category, price, rarity, description. Where the web and the catalog disagree, the catalog wins
+without exception (see R2.4; e.g. stickers are credit-packs and must show **no price** — the catalog
+already complies: 15 sticker rows, 0 priced, 0 transactable).
+
+---
+
+## R3.5 · CONSTRAINTS, CARRIED — Design has never seen these screens
+
+| Constraint | Value |
+|---|---|
+| House palette | Electric `#1E5AFF` lead · Arc-Violet `#A855F7` accent · Black `#05080F` depth · White text |
+| **Blend rule (LAW)** | Electric CORE + Arc-Violet RIM; violet never touches core, fill or readable text. Size-gated: rim ON ≥64px, core-dominant ≤32px |
+| Glass | Bg `.12 / .08 / .05` · Border `rgba(255,255,255,.20)` → Electric when active · **BackgroundBlur strength 24.0** (the store's real mechanism) |
+| Radii | panel **16–24** · button 12 · input 8 |
+| Typography | **Bound, never typed** — `TS_IRONICS_*` from `AFLTokenCompiler`. Display=Orbitron, Text=NotoSans, Data=DroidSansMono |
+| Focus | Arc-Violet 2px outline, 2px offset. Hover and focus visually identical |
+| Rail ground | `GlossBlackRail` **(0.0196, 0.0314, 0.0588, 0.93)** |
+| Chrome is furniture | Currency marks use house tokens only; identity resolves by tag |
+
+**⚠ Two things the tokens do not carry.** The compiled styles hold face and size only — the `.70/.45`
+opacity tiers come from the glass tokens and must be applied per widget. And **the ruled 16–24 panel
+radius is realised NOWHERE, the store included** — adopting it retrofits the shipped store too, so the
+store is *not* the existing target on geometry.
+
+**⚠ A stated exception now exists.** The operator ruled violet piping on creator text. The blend rule
+forbids violet on readable text at that size; the ruling overrides it. Recorded here and in the style
+SSOT so neither document describes a law the build contradicts.
+
+---
+
 > ## REVISION R2 — 2026-08-22
-> **Scope widened from the creator alone to all three front-end surfaces.** One card pattern and one
+> **(R2, superseded on flow and catalog size by R3 above.)** Scope widened from the creator alone to all three front-end surfaces. One card pattern and one
 > token set serve the store, the loadout and the creator, so specifying them apart guarantees drift.
 > Everything below the revision block is the original creator spec (R1) and still stands except where
 > this block corrects it.
