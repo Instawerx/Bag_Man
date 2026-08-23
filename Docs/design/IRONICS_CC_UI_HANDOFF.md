@@ -1,4 +1,254 @@
-# IRONICS — CHARACTER CREATOR · UI DESIGN HANDOFF
+# IRONICS — STORE · LOADOUT · CREATOR · UI DESIGN HANDOFF
+
+> ## REVISION R2 — 2026-08-22
+> **Scope widened from the creator alone to all three front-end surfaces.** One card pattern and one
+> token set serve the store, the loadout and the creator, so specifying them apart guarantees drift.
+> Everything below the revision block is the original creator spec (R1) and still stands except where
+> this block corrects it.
+>
+> **DESIGN HAS NEVER SEEN THESE SCREENS.** §R2.1 is what actually ships today, warts included.
+
+---
+
+## R2.1 · WHAT SHIPS TODAY (so nothing is designed against a guess)
+
+| Surface | State |
+|---|---|
+| **Store** (`AFLW_Menu_CosmeticShop`) | Full layout. Six category tabs, showroom, detail panel, dual-currency buttons, footer bar. **Its detail panel was authored with a complete fake product** — that is now replaced with explicit empty state (§R2.5). |
+| **Loadout** (`WBP_AFL_Loadout`) | Rebuilt 2026-08-22 to a five-region grid: header 64px · axis tabs 48px · stage \| detail 420px · commit 72px. Ten axis tabs, one rail, one detail column, one EQUIP. |
+| **Creator** (`WBP_AFL_Creator`) | Greybox only: `A_ChassisPicker`, `ChannelRailContainer`, `D_SlotCounter`, `E_BuildName`, `F_CommitBar` (Save/Revert), `CloseButton`. **Never rendered on screen.** Behaviour layer complete in C++. |
+
+**One showroom mechanism, now uniform.** The store dissolves its backdrop to alpha 0 and lets the live
+armory and the real display pawn render behind the glass. The loadout was conformed to it, and the
+creator's `B_PreviewImage` was deleted. **There is no render target anywhere in the front end.**
+`UAFLW_LoadoutBase` owns the display pawn; the creator resolves against it and spawns nothing.
+
+---
+
+## R2.2 · CONSTRAINTS — not preferences, and not open to redesign
+
+These are shipped and ruled. Design answers *within* them.
+
+| Constraint | Value | Source |
+|---|---|---|
+| House palette (4-colour ROLE) | Electric `#1E5AFF` lead · Arc-Violet `#A855F7` accent · Black `#05080F` depth · White text | SSOT §2.1 |
+| **The blend rule (LAW)** | Electric CORE + Arc-Violet RIM. Violet never touches core, fill or readable text. Size-gated: rim ON ≥64px, core-dominant ≤32px | SSOT §2.1 |
+| Glass | Bg `.12 / .08 / .05` · Border `rgba(255,255,255,.20)` → **Electric when active** · blur **24** (measured off the store's `GlassBlur`) | SSOT §3 |
+| Radii | panel **16–24** · button **12** · input **8** | SSOT §3 |
+| Typography | **Bound, never typed.** `TS_IRONICS_*` styles emitted by `AFLTokenCompiler`: Display=Orbitron 14, Text=NotoSans 14/13/12, Data=DroidSansMono 13 | SSOT §4 |
+| Focus | Arc-Violet, 2px outline, 2px offset. Hover and focus are **visually identical** | Home artifact |
+| Rail ground | `GlossBlackRail` **(0.0196, 0.0314, 0.0588, 0.93)** linear | `AFLUITheme.h` |
+| Chrome is furniture | Currency marks use **house tokens only**. Identity resolves by tag, never hard-coded per surface | §10.2 |
+
+**⚠ The opacity tiers are NOT in the compiler.** `Text_Secondary` and `Text_Tertiary` are white at full
+alpha and differ from Primary by **size only**. The `.70 / .45` tiers come from the glass tokens and
+must be applied per widget.
+
+### The palette question, answered
+
+The web's `#07080B` and the SSOT's `UI.House.Black` `#05080F` are the **same job** (page ground) two
+points apart — not a divergence. The `#222A3A` seen in-game is neither: converted to sRGB,
+`GlossBlackRail` (0.0196, 0.0314, 0.0588) lands at **≈ `#263245`**, which is what that reading is. It is
+the **rail ground**, a different token doing a different job from the page ground. **The palettes have
+not diverged.**
+
+---
+
+## R2.3 · THE CARD — from `ironics.org/market`
+
+> ### THE WEB IS A TEMPLATE. CARD STRUCTURE ONLY.
+> **The game and its assets rule completely.** Every value, category, price, rarity and description comes
+> from the catalog. Take the *shape* of the card from the web and nothing else — no name, no price, no
+> rarity, no series, no category on that page is authoritative. Where §R2.4 lists a conflict, the
+> catalog wins without exception.
+
+```
+┌──────────────────────────────┐
+│ LEGENDARY                    │  rarity band, above the name
+│ Dragon Soul                  │  name
+│ Mask · Red.Dragon            │  subtitle: category · series
+│                              │
+│ 4,200 Volts    180 Watts     │  Volts ALWAYS · Watts CONDITIONAL
+└──────────────────────────────┘
+```
+
+**The subtitle closes a real gap.** The shipped store shows a name with nothing saying what kind of
+thing it is.
+
+**Granted state**, for sponsor content: `Granted · not for sale`, naming the sponsor. No price, no
+currency row. This is a *state of the card*, not a price of zero.
+
+### Can the catalog render this? Measured, n=445
+
+| Card element | Catalog support | Fill |
+|---|---|---|
+| Name | `DisplayName` | **445 / 445** ✅ |
+| Rarity band | `RarityTag` | **445 / 445** ✅ |
+| **Category** (subtitle left) | **No field.** Must be **DERIVED from `Type`** | — ⚠ |
+| **Series** (subtitle right) | `SeriesName` **exists and is empty on every row** | **0 / 445** ⚠ |
+| Volts price | `PriceVolts` | 254 |
+| Watts price | `PriceWatts` | 166 (88 rows are Volts-only) |
+| Thumbnail | `ShopThumbnail` | **214 / 445 (48%)** ⚠ |
+
+### SHIPPING CONDITIONS — not gaps, not fallbacks
+
+**These are what the product IS. Design the shipping form directly; do not design an ideal and a
+degraded variant, because the "degraded" variant is the one that ships.**
+
+1. **The subtitle is ONE part.** `SeriesName` is empty on **all 445 rows**. The category half is derived
+   from `Type`; the series half has no data anywhere. **Design the one-part subtitle** — `Mask`,
+   `Hand cannon`, `Sticker` — not a two-part subtitle with a fallback. If series is ever authored it is a
+   later addition to a working card, not a rescue of a broken one.
+2. **The no-image card is the card.** Only **214 of 445 (48%)** carry a `ShopThumbnail`. The majority
+   state has no image. **Design that as the primary card**, with the image as the enhancement.
+3. **COMMON is the resting state.** **366 of 445** are COMMON. A rarity band tuned for LEGENDARY will
+   shout COMMON eight times in ten. Design COMMON as quiet-by-default and let the 79 non-COMMON rows earn
+   the emphasis.
+4. **`Accessory` has ZERO rows.** The axis exists in code and returns nothing. **The tab must not promise
+   content that does not exist** — either it is absent from the row or it carries an explicit empty state.
+5. **The filter row shows what ships.** Four of the web's seven categories — drones, liveries, utilities
+   (beyond a single `ABILITY_COSMETIC` row), and the "sticker pack" concept — **have no catalog type at
+   all**. A filter row copied from the web would promise four categories the game cannot fill.
+
+---
+
+## R2.4 · RECONCILIATION — the web shows fiction the game does not ship
+
+**The catalog is authoritative. The web is illustrative.** This list is what to correct, not to copy.
+
+| Web shows | Ships as | Note |
+|---|---|---|
+| **1776 Pack** — one card, "Five colourways", 2,400 Volts | **Five individual stickers, one credit each** | RULED. The pack does not exist as a purchasable. |
+| **Sticker prices in direct Volts** (ROR 9,400 V) | **Credit-packs only** | RULED. **Catalog already complies:** 15 sticker rows, **0 priced, 0 transactable**. Stickers must show **no price**. |
+| **Acid Wyrm** LEGENDARY 14,000 V | — | Fiction. |
+| **Simularent Livery** `Granted · not for sale` | **Correct** — Simularent is a sponsor and free | The granted state is right; the priced cards around it are not. |
+| Prices throughout | Catalog values | Same ruling as the wireframe's "+5 SLOTS 400 VOLTS". |
+
+### Which web categories have an axis
+
+| Web category | Catalog type | Loadout axis |
+|---|---|---|
+| Masks | `FACEMASK` (38) | ✅ Facemask |
+| Hand cannons / Rifles | `WEAPON` (177) | ✅ Weapon + Weapon Skin |
+| Stickers | `STICKER` (15) | ✅ Sticker → opens the creator |
+| **Drones** (Hellfang FPV) | **none** | ❌ no type, no axis |
+| **Utilities** (EMP Grenade) | `ABILITY_COSMETIC` (**1**) | ❌ no axis |
+| **Liveries** (Simularent) | **none** | ❌ no type, no axis |
+
+**Four of seven web categories have no shipping representation.** Design should not build a filter row
+that promises them.
+
+**And one shipping axis has no content: `Accessory` — 0 catalog rows.** The tab exists in code and
+returns nothing.
+
+---
+
+## R2.5 · EMPTY STATE — mandatory, and the reason it is mandatory
+
+The store's detail panel shipped authored with `NEON BLUE EDGE / IRONICS SERIES / LEGENDARY / "Cut
+through the darkness."` **A placeholder that reads like data hid an empty catalog through every
+screenshot in this programme** — including a full scope pass that concluded the surfaces were populated.
+
+Replaced with `No item selected` / `—` / `Select an item to see its details.` / `BUY  —`.
+
+**Rule for Design: every empty state must be unmistakable for content.** Not a plausible product, not a
+grey rectangle that reads as a loading image. If a surface can be empty, specify what empty looks like.
+
+---
+
+## R2.6 · GEOMETRY — the finding that decides what is buildable
+
+**A plain UMG `Border` cannot round its corners.** Rounding requires the brush's `DrawAs =
+RoundedBox` plus `OutlineSettings` (`CornerRadii`, `Width`, `RoundingType`).
+
+**Measured across all three surfaces, and it corrects an earlier report of mine:**
+
+| | RoundedBox | OutlineSettings | BackgroundBlur |
+|---|---|---|---|
+| Store | ✅ 12 widgets | ✅ | ✅ `GlassBlur` strength **24.0**, applyAlpha true |
+| Loadout | ✅ *(conformed 2026-08-22)* | ✅ | ❌ **owed** |
+| Creator | ❌ | ❌ | ❌ |
+
+**The ruled 16–24 panel radius is realised NOWHERE — the store included.** Every large panel in the
+store reports radii `(0,0,0,0)` and outline width `0`. Only two wallet pills (`HALF_HEIGHT_RADIUS`,
+outline 1.5) and ten stat segments (`FIXED_RADIUS`, radii 3) are rounded at all.
+
+> ### ⚠ THE STORE IS NOT THE EXISTING TARGET
+> **The ruled radii are realised NOWHERE — the store included.** Do not treat the store as the standard
+> the other two surfaces catch up to. On geometry it is as far from spec as they are.
+>
+> **Adopting the ruled 16–24 panel radius is a change to the STORE as well.** Design should specify the
+> radius it wants for all three surfaces and understand that it retrofits the shipped screen too. The
+> loadout's detail column already carries the ruled 20px, so the three surfaces are currently
+> inconsistent with each other *and* with the SSOT.
+>
+> `BackgroundBlur` at **strength 24.0** is the store's real glass mechanism and is the one piece worth
+> conforming to as-is.
+
+---
+
+## R2.7 · WHAT DESIGN ANSWERS — 1a–1d
+
+R1 §2 left the creator's layout `UNSPECIFIED` and asked for a ruling. **That question now goes to
+Design, not back to the operator.** The three-column workbench (1c) is ruled; what is open is its
+execution, and the same answers must serve the store and loadout.
+
+- **1a · Grid and proportions.** Region widths, gutters, column ratios across all three. The loadout
+  currently uses stage-fill \| 420px detail, taken from the lobby. Confirm or replace — **for all three
+  at once.**
+- **1b · The card, resolved.** The R2.3 card with series absent, no thumbnail, and rarity COMMON — the
+  majority states, not the showcase one.
+- **1c · The creator workbench.** Chassis picker, channel rail, hue arc, slot counter, build name,
+  commit bar, and an **always-visible exit**. See the warning below.
+- **1d · Empty, loading and disabled.** Per R2.5, for every region that can be empty.
+
+**Motion (R1 §6) is UNSPECIFIED across the board and stays with Design.** The Home artifact ships a
+complete motion spec — breathe 7.5s ±5px counter-phased, hover lift −12px scale 1.012, entry stagger
+150/300/450/600ms, `cubic-bezier(.16,1,.3,1)`. **Reuse it rather than inventing a second vocabulary.**
+
+> ### ⚠ THE ONE NON-NEGOTIABLE IN 1c
+> The shipped creator had **no close control, no back handler and no focus target**, and it **trapped a
+> live player twice** — Escape reached the game viewport and nothing on screen dismissed it. The code
+> now guarantees a focus target and a `CloseButton`. **Any layout must keep an always-visible exit.**
+> This is not a style preference.
+
+---
+
+## R2.8 · NAMING — with the operator, not with Design
+
+Three classes of divergence, all one line each at the axis enum, which is the single source the tabs
+read from:
+
+| Concept | Store (authored) | Loadout enum | Web |
+|---|---|---|---|
+| Weapon skins | `CAMOS` | `Weapon Skin` | — |
+| Facemasks | `VISORS` | `Facemask` | `Mask` |
+| Weapons | `WEAPONS` | `Weapon` | `Hand cannon` / `Rifle` |
+| Character skins | `SKINS` | *(spans `Body`, `Edge`, `Identity`)* | — |
+| Bundles | `BUNDLES` | *(no axis)* | — |
+| — | `HELMETS`, `EMOTES` | *(no axis)* | — |
+
+### The store tab set, corrected
+
+I previously reported the store's tabs as "stale on both sides". **That was wrong.** The relabel is
+deliberate and documented in `EnterStoreMode`: the WBP widget *names* are historical and deliberately
+kept, and the *captions* are reassigned in C++. The rendered labels are the truth.
+
+| Widget (historical) | Rendered caption | Catalog namespaces matched |
+|---|---|---|
+| `Tab_WEAPONS` | WEAPONS | `AFL.Weapon.` + `AFL.Ability.` |
+| `Tab_SKINS` | SKINS | `AFL.Finish.` + **`AFL.Body.`** + `AFL.Edge.` |
+| `Tab_HELMETS` | **CAMOS** | `AFL.WeaponSkin.` |
+| `Tab_VISORS` | VISORS | `AFL.Facemask.` |
+| `Tab_EMOTES` | **BEAMS** | `AFL.Beam.` |
+| `Tab_BUNDLES` | BUNDLES | `AFL.Bundle.` |
+
+Only the **authored WBP caption text** was stale (it still read `HELMETS` / `EMOTES` before C++ overwrote
+it). The naming decision to rule is therefore between the **rendered store captions** and the **loadout
+axis enum**, plus plural-vs-singular, plus the store's `SKINS` spanning three loadout axes and `BUNDLES`
+having none.
+
+---
 
 **Status:** spec, not an implementation. The widget is the UI lane's.
 **Authored:** 2026-08-20 · **Lane split:** behaviour + interface = Claude Code lane (shipped, see §9); widget assets, layout and visual authoring = UI lane.
@@ -23,8 +273,9 @@ sees it on a live preview they can rotate, names it, and saves it to a slot. Tha
 
 Front-end, out of match. `IRONICS_CHARACTER_CREATOR_SSOT.md` §5.2 places change-timing outside the match
 boundary; the selection lock (`IsSelectionEditable`) is the gate. The creator is reached from the loadout
-surface and shares its preview rig (`UAFLW_LoadoutBase` owns the display pawn, the `SceneCapture2D` and the
-render target — the creator does not spawn a second one).
+surface and shares its preview rig. **CORRECTED IN R2:** `UAFLW_LoadoutBase` owns the display pawn, but
+the `SceneCapture2D` and render target are **retired** — all three surfaces now dissolve their backdrop to
+alpha 0 and show the live armory pawn directly, the way the store always did.
 
 ### What the player is actually deciding
 

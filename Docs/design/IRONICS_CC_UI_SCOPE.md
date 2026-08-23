@@ -233,3 +233,36 @@ derivation rather than presented as spec:
 - Type sizes are **not** derived: they come from `AFLTokenCompiler`.
 
 **If any of these four numbers matter, they are a ruling I am inviting, not one I am claiming.**
+
+## D · STEP 2 — THE LOADOUT ENTRY, AS BUILT (2026-08-22)
+
+**What the entry looks like: a TILE, in a RAIL, in the column that already holds cosmetics.**
+
+The loadout has exactly one surface idiom, measured off the widget tree rather than assumed: every
+axis is a `<Axis>Label` (TextBlock) over an `<Axis>Box` (SizeBox) wrapping an `<Axis>TileContainer`
+(ScrollBox) that `RebuildAxisTiles` fills with `TileClass` chips. The three new axes take that idiom
+unchanged — `EMBLEM`, `STICKER`, `ACCESSORY` — so the entry is not a new kind of control. The two
+ARRANGEMENT rails hold exactly **one** chip: the affordance that opens the creator on that axis.
+
+**Where the style SSOT specifies it: it does not.** `IRONICS_UI_STYLE_SSOT.md` §6 names
+`UIButton.Glass` and `UIBadge.Rarity`, both of which the existing loadout tile already realises in its
+card style — but there is **no loadout-tile token**, and no rule for rails, columns or row rhythm. The
+entry therefore inherits the *existing tile's* appearance (itself unspecified) and the §6.1 spacing,
+which that section states outright is **derived, not law**. Nothing here is presented as style spec.
+
+**The values that were chosen were read, not invented.** Label font (Roboto Bold 16), label colour
+(0.013, 0.102, 1.000), label slot padding (0,10,0,2) and rail width (205) were read off the existing
+`MASK` row and copied. The one deliberate difference: `EmblemBox` takes the reference height (105)
+because Emblem is a selection rail that scrolls; the two arrangement rails take **no** height override
+and size to their single chip, because a 105px scroll region around one chip reads as an empty rail.
+
+**Why `CosmeticsColumn` and not `IdentityColumn`.** Measured: `IdentityColumn` already spends ~577 of
+the row's 680px, and three more rows would push it to ~854 and clip the lowest rails out of reach in a
+720-tall window — which would have made the click proof unrunnable for a reason unrelated to the code.
+`CosmeticsColumn` spends ~133 of the same 680. **This is a placement of convenience for step 2 and is
+expected to be superseded by the 1c layout in step 3.**
+
+**Back/cancel needed no code.** Both `UAFLW_LoadoutBase` and `UAFLW_Creator` are
+`UCommonActivatableWidget`s pushed to the same `UI.Layer.Menu` stack, so the creator sits *on top of*
+the live loadout and popping it reveals that same instance — state intact because it was never
+destroyed. That is the framework's own semantics, not a second mechanism.
