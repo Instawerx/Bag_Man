@@ -244,6 +244,93 @@ FAFLCreatorBuild UAFLW_Creator::AssembleBuild() const
 	return Build;
 }
 
+bool UAFLW_Creator::LoadBuild(int32 Index)
+{
+	UAFLW_LoadoutBase* L = Loadout.Get();
+	APlayerController* PC = GetOwningPlayer();
+	APlayerState* PS = PC ? PC->PlayerState : nullptr;
+	UAFLCosmeticLoadoutComponent* LC = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+	if (!L || !LC)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[LOADBUILD] REFUSED -- loadout=%d component=%d."),
+			L ? 1 : 0, LC ? 1 : 0);
+		return false;
+	}
+
+	const FAFLCreatorBuildSet& Set = LC->GetBuildSet();
+	if (!Set.Builds.IsValidIndex(Index))
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_TEST[LOADBUILD] REFUSED -- index %d names no build (held=%d)."),
+			Index, Set.Builds.Num());
+		return false;
+	}
+	const FAFLCreatorBuild& Build = Set.Builds[Index];
+
+	// THROUGH THE CHANNEL SETTER, NOT AROUND IT. The rail reads colour from the working selection and
+	// the preview renders from the same one; writing Rows directly would show a colour the preview does
+	// not have.
+	//
+	// AN UNSET CHANNEL IS NOT PUSHED. Resolved defaults to WHITE, so writing all four would turn "never
+	// set Glow" into "chose white".
+	int32 Pushed = 0;
+	auto Push = [&](EAFLCreatorChannel Ch, const FAFLChannelValue& V)
+	{
+		if (V.IsSet()) { L->CreatorSetChannel(Ch, V.Resolved); ++Pushed; }
+	};
+	Push(EAFLCreatorChannel::Body,  Build.BodyChannel);
+	Push(EAFLCreatorChannel::Edge,  Build.EdgeChannel);
+	Push(EAFLCreatorChannel::Glow,  Build.GlowChannel);
+	Push(EAFLCreatorChannel::Visor, Build.VisorChannel);
+
+	EditingIndex = Index;
+	if (E_BuildName)
+	{
+		E_BuildName->SetText(FText::FromString(Build.DisplayName));
+	}
+
+	// A read-only build is still LOADED and still RENDERS -- the lapse rule's whole promise is that a
+	// player keeps looking like the robot they built. It simply cannot be saved over.
+	SetIsEnabled(!Build.bReadOnly);
+
+	RefreshFromSchema();
+	RebuildChannelRows();
+	RefreshSlotCounter();
+
+	UE_LOG(LogAFLCombat, Display,
+		TEXT("AFL_TEST[LOADBUILD] index=%d name='%s' readOnly=%d channelsPushed=%d rows=%d"),
+		Index, *Build.DisplayName, Build.bReadOnly ? 1 : 0, Pushed, Rows.Num());
+
+	// STATED, NOT HIDDEN: body/edge/glow share ONE bUseCreatorColors flag in the selection, so a build
+	// with only some of the three set cannot round-trip exactly -- setting any one makes all three read
+	// as set. A property of the selection struct, not of this loader.
+	const int32 ColourChannels = (Build.BodyChannel.IsSet() ? 1 : 0)
+		+ (Build.EdgeChannel.IsSet() ? 1 : 0) + (Build.GlowChannel.IsSet() ? 1 : 0);
+	if (ColourChannels > 0 && ColourChannels < 3)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_TEST[LOADBUILD] %d of 3 colour channels set -- the selection carries ONE flag for "
+				"body/edge/glow, so all three will read as set."), ColourChannels);
+	}
+	return true;
+}
+
+void UAFLW_Creator::BeginNewBuild()
+{
+	// INDEX_NONE IS THE APPEND CASE and the only one the slot cap gates. Editing an existing build is
+	// always allowed; creating another may save locked.
+	EditingIndex = INDEX_NONE;
+	if (E_BuildName)
+	{
+		E_BuildName->SetText(FText::GetEmpty());
+	}
+	SetIsEnabled(true);
+	RefreshFromSchema();
+	RebuildChannelRows();
+	RefreshSlotCounter();
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LOADBUILD] NEW build (EditingIndex=INDEX_NONE) rows=%d"), Rows.Num());
+}
+
 bool UAFLW_Creator::CommitBuild()
 {
 	APlayerController* PC = GetOwningPlayer();

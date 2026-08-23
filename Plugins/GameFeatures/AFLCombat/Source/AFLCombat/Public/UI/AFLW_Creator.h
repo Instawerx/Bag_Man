@@ -197,9 +197,30 @@ protected:
 	UPROPERTY(BlueprintReadWrite, Category = "AFL|Creator|Build")
 	int32 EditingIndex = INDEX_NONE;
 
+public:
+	// THE BUILD API IS PUBLIC. It sat in a protected block, which was fine while only the creator's own
+	// Save button called it -- the loadout now opens the creator ON a build, so LoadBuild/BeginNewBuild
+	// are called from outside. BlueprintCallable already implied an external caller; C++ access simply
+	// had not caught up.
 	/** Assemble the current rail state into a build. Rows without a value stay UNSET. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Build")
 	FAFLCreatorBuild AssembleBuild() const;
+
+	/**
+	 * Open an EXISTING saved build for editing: push its channels into the working selection, point
+	 * EditingIndex at it, and refresh the rail and the name field.
+	 *
+	 * The inverse of AssembleBuild, and the piece Edit Build could not work without -- EditingIndex
+	 * existed and nothing ever filled the rail from it.
+	 *
+	 * Returns false with a logged reason when the index names no build.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Build")
+	bool LoadBuild(int32 Index);
+
+	/** Start a NEW build: EditingIndex = INDEX_NONE, which is the only case the slot cap gates. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Build")
+	void BeginNewBuild();
 
 	/**
 	 * Submit to the server. Returns false and logs a REASON when it did not dispatch -- a commit button
@@ -212,6 +233,7 @@ protected:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Build")
 	bool CommitBuild();
 
+protected:
 	/** One row widget per channel. Unset = nothing to spawn, and it says so rather than drawing nothing. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Creator")
 	TSubclassOf<UAFLW_CreatorChannelRowBase> ChannelRowClass;
@@ -242,6 +264,11 @@ public:
 	 */
 	UPROPERTY(BlueprintReadWrite, Category = "AFL|Creator")
 	EAFLLoadoutAxis FocusAxis = EAFLLoadoutAxis::BodyColor;
+
+	/** Whether FocusAxis MEANS anything. Without this there is no way to say "no axis": the enum has no
+	 *  unset value, which is why the old BodyColor default silently focused a channel on every open. */
+	UPROPERTY(BlueprintReadWrite, Category = "AFL|Creator")
+	bool bHasFocusAxis = false;
 
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator")
 	void InitializeCreator(UAFLW_LoadoutBase* InLoadout);

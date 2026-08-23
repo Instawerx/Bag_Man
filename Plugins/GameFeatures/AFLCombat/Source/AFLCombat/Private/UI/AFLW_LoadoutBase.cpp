@@ -913,8 +913,8 @@ void UAFLW_LoadoutBase::SetActiveAxis(EAFLLoadoutAxis Axis)
 		// A nine-zone arrangement is not something a one-id rail can show. The tab is a DOOR here, and
 		// ActiveAxis deliberately does not move -- backing out of the creator must reveal the axis the
 		// player was actually on, not the door they walked through.
-		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] axis tab %d is an arrangement -> OpenCreator"), (int32)Axis);
-		OpenCreator(Axis);
+		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] axis tab %d is an arrangement -> creator SHORTCUT"), (int32)Axis);
+		OpenCreatorOnAxis(Axis);
 		return;
 	}
 
@@ -1194,8 +1194,8 @@ void UAFLW_LoadoutBase::HandleTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId
 	// Branching on the axis and not on CosmeticId is deliberate: see IsArrangementAxis.
 	if (IsArrangementAxis(Axis))
 	{
-		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] tile clicked -> OpenCreator(axis=%d)"), (int32)Axis);
-		OpenCreator(Axis);
+		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] tile clicked -> creator SHORTCUT (axis=%d)"), (int32)Axis);
+		OpenCreatorOnAxis(Axis);
 		return; // no equip, no rebuild: the loadout is unchanged and stays alive under the creator.
 	}
 
@@ -1241,7 +1241,19 @@ static FAutoConsoleCommandWithWorld GAFLLoadoutOpenCmd(
 	}));
 #endif
 
-UAFLW_Creator* UAFLW_LoadoutBase::OpenCreator(EAFLLoadoutAxis FocusAxis)
+UAFLW_Creator* UAFLW_LoadoutBase::OpenCreatorOnAxis(EAFLLoadoutAxis FocusAxis)
+{
+	// The shortcut. Opens a NEW build focused on one axis -- the sticker/accessory tiles' door.
+	UAFLW_Creator* W = OpenCreator(INDEX_NONE);
+	if (W)
+	{
+		W->FocusAxis = FocusAxis;
+		W->bHasFocusAxis = true;
+	}
+	return W;
+}
+
+UAFLW_Creator* UAFLW_LoadoutBase::OpenCreator(int32 BuildIndex)
 {
 	// CONFORMS TO HOW THE LOADOUT ITSELF IS PUSHED -- PushWidgetToLayerStack on UI.Layer.Menu, the same
 	// call the front-end market uses, NOT a second push pattern. Its init hook runs BEFORE activation,
@@ -1275,13 +1287,18 @@ UAFLW_Creator* UAFLW_LoadoutBase::OpenCreator(EAFLLoadoutAxis FocusAxis)
 	UAFLW_LoadoutBase* Self = this;
 	UAFLW_Creator* Pushed = Layout->PushWidgetToLayerStack<UAFLW_Creator>(
 		TAG_UI_Layer_Menu_Creator, Resolved,
-		[Self, FocusAxis](UAFLW_Creator& W)
+		[Self, BuildIndex](UAFLW_Creator& W)
 		{
 			// Both BEFORE activation: the creator reads the schema, preview pawn and slot counter through
 			// the loadout, and a pushed-but-uninitialised creator renders an empty rail that reads as a
 			// data bug rather than a wiring one.
-			W.FocusAxis = FocusAxis;
+			//
+			// NO AXIS BY DEFAULT. The creator lands on the build as a whole; OpenCreatorOnAxis sets one
+			// afterwards for the two shortcut tiles, which are secondary doors.
+			W.bHasFocusAxis = false;
 			W.InitializeCreator(Self);
+			if (BuildIndex != INDEX_NONE) { W.LoadBuild(BuildIndex); }
+			else                          { W.BeginNewBuild(); }
 		});
 
 	if (!Pushed)
@@ -1289,7 +1306,7 @@ UAFLW_Creator* UAFLW_LoadoutBase::OpenCreator(EAFLLoadoutAxis FocusAxis)
 		UE_LOG(LogAFLCombat, Warning, TEXT("[Loadout] OpenCreator -- push returned null for %s."), *Resolved->GetName());
 		return nullptr;
 	}
-	UE_LOG(LogAFLCombat, Display, TEXT("[Loadout] OpenCreator -> %s focus=%d"),
-		*Resolved->GetName(), static_cast<int32>(FocusAxis));
+	UE_LOG(LogAFLCombat, Display, TEXT("[Loadout] OpenCreator -> %s buildIndex=%d"),
+		*Resolved->GetName(), BuildIndex);
 	return Pushed;
 }

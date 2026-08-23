@@ -101,8 +101,29 @@ public:
 	 * Returns the pushed creator, or null with a REASON logged. Never fails silently: an entry point
 	 * that quietly does nothing is indistinguishable from a button that is not wired.
 	 */
+	/**
+	 * Open the creator ON A BUILD. THE MAIN DOOR.
+	 *
+	 * @param BuildIndex   which saved build to edit; INDEX_NONE starts a NEW one (the append case, and
+	 *                     the only case the slot cap gates).
+	 * @param FocusAxis    UNSET means no axis is focused -- the creator lands on the build as a whole.
+	 *                     Set only by the Sticker/Accessory SHORTCUTS, which are secondary doors.
+	 *
+	 * THE OLD DEFAULT WAS `= EAFLLoadoutAxis::BodyColor`, so there had never been a no-axis state and
+	 * every open silently focused a channel nobody chose. That default was the inverted hierarchy in
+	 * miniature: the creator is where a robot is built, and an axis is one thing inside it.
+	 *
+	 * AN INDEX, NOT A POINTER: builds are addressed by index everywhere else (EditingIndex,
+	 * ServerSaveBuild, the lapse rule's index-order locking), and a pointer into a replicated array
+	 * dangles the moment the set replicates.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout|Creator")
-	class UAFLW_Creator* OpenCreator(EAFLLoadoutAxis FocusAxis = EAFLLoadoutAxis::BodyColor);
+	// -1 rather than INDEX_NONE: UHT cannot parse a macro as a UFUNCTION default parameter.
+	class UAFLW_Creator* OpenCreator(int32 BuildIndex = -1);
+
+	/** The SHORTCUT door: open focused on one axis. Kept, and secondary, per the ruling. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout|Creator")
+	class UAFLW_Creator* OpenCreatorOnAxis(EAFLLoadoutAxis FocusAxis);
 
 	// ===== CC-5 step 3: ACTIVE-AXIS MODEL (region B/C tabs -> D rail+detail -> E commit) ============
 	//
