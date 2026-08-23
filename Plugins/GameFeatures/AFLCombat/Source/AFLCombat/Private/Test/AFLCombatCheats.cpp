@@ -5435,6 +5435,154 @@ namespace
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLStickerProbe));
 
 
+
+#if WITH_EDITOR
+	// === afl.Catalog.LedgerVisibility ==============================================================
+	// CC-X38: the store asks TWO backends. PlayFab sells catalog items; the mint ledger sells bundles,
+	// and a ledger bundle is absent from the PlayFab manifest by design.
+	void HandleAFLLedgerVisibility(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar);
+
+	void RunAFLLedgerVisibility(UWorld* World, FOutputDevice& Ar)
+	{
+		int32 Ran = 0, Passed = 0;
+		auto Arm = [&Ran, &Passed](const TCHAR* Name, const bool bOk, const FString& Detail)
+		{
+			++Ran; if (bOk) { ++Passed; }
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LEDGERVIS]   %-40s %s  %s"),
+				Name, bOk ? TEXT("PASS") : TEXT("FAIL"), *Detail);
+		};
+
+		const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Cat)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[LEDGERVIS] ABORT -- no catalog subsystem. NOTHING TESTED."));
+			return;
+		}
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LEDGERVIS] BEGIN  playfabKnown=%d(%d) ledgerKnown=%d(%d)"),
+			Cat->IsRegisteredSetKnown() ? 1 : 0, Cat->GetRegisteredCount(),
+			Cat->IsLedgerSetKnown() ? 1 : 0, Cat->GetLedgerSellableCount());
+
+		// THE LEDGER MUST HAVE ANSWERED, or every later arm measures the old behaviour and passes for
+		// the wrong reason. This is the precondition, stated as an arm rather than assumed.
+		Arm(TEXT("0 the ledger answered at all"), Cat->IsLedgerSetKnown() && Cat->GetLedgerSellableCount() > 0,
+			FString::Printf(TEXT("ledger ids=%d"), Cat->GetLedgerSellableCount()));
+
+		TArray<FAFLCatalogEntry> Shown;
+		Cat->GetPurchasableEntries(Shown);
+		TSet<FName> ShownIds;
+		for (const FAFLCatalogEntry& E : Shown) { ShownIds.Add(E.CosmeticId); }
+
+		// Partition the .XT rows BY PROPERTY, then check each side. Reading the split from the data
+		// rather than hard-coding 28 and 21 means a re-balanced catalog re-derives instead of lying.
+		int32 PaidXt = 0, PaidXtShown = 0, FreeXt = 0, FreeXtShown = 0;
+		int32 NotSellable = 0, NotSellableShown = 0;
+		// Enumerated by TYPE, the way TYPELINT does -- the subsystem exposes no whole-asset accessor and
+		// adding one to read four counters would widen a public surface for a probe's convenience.
+		const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>();
+		for (int32 T = 0; T < (TypeEnum ? TypeEnum->NumEnums() : 0); ++T)
+		{
+			TArray<const FAFLCatalogEntry*> OfType;
+			Cat->GetEntriesByType(static_cast<EAFLCosmeticType>(TypeEnum->GetValueByIndex(T)), OfType);
+			for (const FAFLCatalogEntry* Ptr : OfType)
+			{
+				if (!Ptr) { continue; }
+				const FAFLCatalogEntry& E = *Ptr;
+				const bool bXt = E.CosmeticId.ToString().EndsWith(TEXT(".XT"), ESearchCase::IgnoreCase);
+				const bool bFree = (E.Acquisition == EAFLAcquisition::GrantedFree);
+				if (bXt)
+				{
+					if (bFree) { ++FreeXt; if (ShownIds.Contains(E.CosmeticId)) { ++FreeXtShown; } }
+					else       { ++PaidXt; if (ShownIds.Contains(E.CosmeticId)) { ++PaidXtShown; } }
+				}
+				// The general control: any priced row neither backend can sell must still be withheld.
+				if (!bFree && E.bTransactable && !Cat->IsSellable(E.CosmeticId))
+				{
+					++NotSellable;
+					if (ShownIds.Contains(E.CosmeticId)) { ++NotSellableShown; }
+				}
+			}
+		}
+
+		Arm(TEXT("1 the PAID .XT pairs are visible"), PaidXt > 0 && PaidXtShown == PaidXt,
+			FString::Printf(TEXT("%d/%d shown"), PaidXtShown, PaidXt));
+
+		// THE NEGATIVE SIDE. Removing the filter entirely would satisfy arm 1 and fail here.
+		Arm(TEXT("2 the FREE .XT rows are NOT visible"), FreeXt > 0 && FreeXtShown == 0,
+			FString::Printf(TEXT("%d/%d shown (expected 0 of %d)"), FreeXtShown, FreeXt, FreeXt));
+
+		Arm(TEXT("3 rows neither backend sells stay hidden"), NotSellableShown == 0,
+			FString::Printf(TEXT("%d such rows, %d leaked"), NotSellable, NotSellableShown));
+
+		// A store with nothing in it would satisfy arms 2 and 3 for free.
+		Arm(TEXT("4 the store is not simply empty"), Shown.Num() > PaidXt,
+			FString::Printf(TEXT("%d rows shown in total"), Shown.Num()));
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LEDGERVIS] END arms=%d passed=%d %s"),
+			Ran, Passed, (Ran == Passed && Ran == 5) ? TEXT("PASS") : TEXT("FAIL"));
+	}
+
+	void HandleAFLLedgerVisibility(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		// ARM AND WAIT, for the same reason afl.Test.Wearables does: the catalog subsystem lives on a
+		// game instance and nothing may be injected into a running PIE session. Bounded at 60s with a
+		// terminator that says it gave up.
+		auto Played = []() -> UWorld*
+		{
+			if (!GEngine) { return nullptr; }
+			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+			{
+				if (Ctx.World() && UAFLCosmeticCatalogSubsystem::Get(Ctx.World())
+					&& Ctx.World()->GetFirstPlayerController()) { return Ctx.World(); }
+			}
+			return nullptr;
+		};
+
+		if (UWorld* W = Played()) { RunAFLLedgerVisibility(W, Ar); return; }
+
+		static bool bArmed = false;
+		if (bArmed)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[LEDGERVIS] already armed -- not arming twice."));
+			return;
+		}
+		bArmed = true;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[LEDGERVIS] ARMED -- no game instance yet. Will fire when PIE brings one up; giving up after 60s."));
+
+		TSharedPtr<double> Elapsed = MakeShared<double>(0.0);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+			[Elapsed, Played](float Dt) -> bool
+			{
+				*Elapsed += Dt;
+				if (*Elapsed > 60.0)
+				{
+					UE_LOG(LogAFLCombat, Warning,
+						TEXT("AFL_TEST[LEDGERVIS] GAVE UP after 60s -- no game instance with a catalog appeared. NOTHING TESTED."));
+					return false;
+				}
+				if (UWorld* W = Played())
+				{
+					// THE LEDGER FETCH IS ASYNC. Firing the instant a world exists would measure an
+					// unanswered set and report the OLD behaviour as the new one. Waits for the answer,
+					// inside the same bounded window.
+					const UAFLCosmeticCatalogSubsystem* C = UAFLCosmeticCatalogSubsystem::Get(W);
+					if (!C || !C->IsLedgerSetKnown()) { return true; }
+					UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LEDGERVIS] FIRING (armed %.1fs ago)"), *Elapsed);
+					FOutputDeviceNull Null;
+					RunAFLLedgerVisibility(W, Null);
+					return false;
+				}
+				return true;
+			}), 0.5f);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLLedgerVisCmd(TEXT("afl.Catalog.LedgerVisibility"),
+		TEXT("CC-X38: prove mint-ledger bundles are offered and rows neither backend sells are not. ")
+		TEXT("Arms before PIE and fires once the ledger set has answered."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLLedgerVisibility));
+#endif // WITH_EDITOR
+
 #if WITH_EDITOR
 	// === afl.Test.Wearables ========================================================================
 	// The slot-mechanism arms of the jewellery proof. See the equip in AFLCosmeticLoadoutComponent.
