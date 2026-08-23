@@ -107,15 +107,32 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Row")
 	FAFLCreatorChannelRow Row;
 
-	/** Draw yourself. Called once per rebuild, after Row is populated. */
+	/** Optional extra drawing. The native paint below runs FIRST and is what makes a row legible; this
+	 *  exists so a WBP can add to it, not so it can be the only thing that does. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Creator|Row")
 	void OnRowDataSet();
 
-	void SetRowData(const FAFLCreatorChannelRow& InRow)
-	{
-		Row = InRow;
-		OnRowDataSet();
-	}
+	/** Store the row, paint it, then let Blueprint add to it. */
+	void SetRowData(const FAFLCreatorChannelRow& InRow);
+
+	// Names match WBP_AFL_CreatorChannelRow exactly -- READ from the asset, not guessed.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> Row_Label;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> Row_Readout;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> Row_Reason;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> Row_StateBadge;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UImage> Row_Swatch;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UCheckBox> Row_LinkToggle;
 };
 
 UCLASS(Abstract)
@@ -164,6 +181,14 @@ protected:
 	/** The build's name. Validated server-side; a refused name refuses the whole save. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UEditableTextBox> E_BuildName;
+
+	/** The slot readout. Name matches the greybox WBP exactly -- read, not guessed. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> D_SlotCounter;
+
+	/** Paint the counter from the authoritative set. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Slots")
+	void RefreshSlotCounter();
 
 	/**
 	 * Which saved build this session is editing. INDEX_NONE = a NEW build, which is the only case the

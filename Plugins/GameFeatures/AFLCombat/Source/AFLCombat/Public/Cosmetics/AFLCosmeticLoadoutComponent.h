@@ -85,6 +85,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator")
 	const FAFLCreatorBuildSet& GetBuildSet() const { return BuildSet; }
 
+	/** Fires when the authoritative build set lands (OnRep) or changes server-side. OnRep_BuildSet has
+	 *  always described itself as a "creator-UI notify" -- it simply had nothing to notify. */
+	DECLARE_MULTICAST_DELEGATE(FOnAFLBuildSetChanged);
+	FOnAFLBuildSetChanged OnBuildSetChanged;
+
 	/** CC-5.1: which creator channels this pawn's chassis actually renders. Derived by asking the
 	 *  bound slot-1 master, so a rewired or new master is handled without editing code. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator")

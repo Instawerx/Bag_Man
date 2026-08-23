@@ -6,7 +6,10 @@
 #include "Cosmetics/AFLWalletComponent.h"
 #include "AFLCombat.h"                  // LogAFLCombat -- this file never logged before
 #include "Components/Button.h"
-#include "Components/EditableTextBox.h"   // the build name the player types
+#include "Components/EditableTextBox.h"
+#include "Components/TextBlock.h"
+#include "Components/CheckBox.h"     // the link toggle
+#include "Components/Image.h"        // the channel swatch        // the slot readout   // the build name the player types
 #include "Components/PanelWidget.h"       // the rail the rows are spawned into           // CC-5: the creator's own way out
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
@@ -92,6 +95,53 @@ void UAFLW_Creator::NativeOnInitialized()
 	}
 }
 
+void UAFLW_CreatorChannelRowBase::SetRowData(const FAFLCreatorChannelRow& InRow)
+{
+	Row = InRow;
+
+	if (Row_Label)
+	{
+		Row_Label->SetText(Row.Label);
+	}
+	if (Row_Readout)
+	{
+		Row_Readout->SetText(Row.Readout);
+	}
+	if (Row_Reason)
+	{
+		// A REASON IS SHOWN ONLY WHEN THERE IS ONE. An empty reason line under every row would teach the
+		// player to stop reading the line that matters when a channel is genuinely unavailable.
+		Row_Reason->SetText(Row.Reason);
+		Row_Reason->SetVisibility(Row.Reason.IsEmpty()
+			? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+	}
+	if (Row_StateBadge)
+	{
+		const UEnum* E = StaticEnum<EAFLChannelAvailability>();
+		Row_StateBadge->SetText(E
+			? E->GetDisplayNameTextByValue(static_cast<int64>(Row.State))
+			: FText::GetEmpty());
+	}
+	if (Row_Swatch)
+	{
+		// UNSET IS SHOWN AS UNSET. Painting FLinearColor::White on a channel the player has not touched
+		// would claim they chose white, which is a colour they can actually choose.
+		Row_Swatch->SetColorAndOpacity(Row.Colour);
+		Row_Swatch->SetVisibility(Row.bHasValue
+			? ESlateVisibility::Visible : ESlateVisibility::Hidden);
+	}
+	if (Row_LinkToggle)
+	{
+		Row_LinkToggle->SetIsChecked(Row.bLinked);
+		Row_LinkToggle->SetIsEnabled(Row.bInteractive);
+	}
+
+	// The whole row reads as unavailable when it is, rather than looking live and doing nothing.
+	SetIsEnabled(Row.bInteractive);
+
+	OnRowDataSet();
+}
+
 void UAFLW_Creator::NativeOnActivated()
 {
 	Super::NativeOnActivated();
@@ -101,6 +151,21 @@ void UAFLW_Creator::NativeOnActivated()
 	// reporting channels against whatever material happened to be reachable.
 	RefreshFromSchema();
 	RebuildChannelRows();
+
+	// Paint once now (a set that replicated before this screen opened produces no edge to listen for),
+	// then follow the authoritative set from here on.
+	RefreshSlotCounter();
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (APlayerState* PS = PC->PlayerState)
+		{
+			if (UAFLCosmeticLoadoutComponent* LC = PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
+			{
+				LC->OnBuildSetChanged.RemoveAll(this);
+				LC->OnBuildSetChanged.AddUObject(this, &UAFLW_Creator::RefreshSlotCounter);
+			}
+		}
+	}
 }
 
 void UAFLW_Creator::RebuildChannelRows()
@@ -134,6 +199,16 @@ void UAFLW_Creator::RebuildChannelRows()
 
 	UE_LOG(LogAFLCombat, Log, TEXT("[Creator] rail rebuilt: %d row(s), schemaResolved=%d, focusAxis=%d"),
 		Rows.Num(), IsSchemaResolved() ? 1 : 0, (int32)FocusAxis);
+}
+
+void UAFLW_Creator::RefreshSlotCounter()
+{
+	if (!D_SlotCounter)
+	{
+		return;
+	}
+	// UNLOCKED / CAP. A locked build sits outside the cap, so showing the total would print "5 / 2".
+	D_SlotCounter->SetText(GetSlotCounterText());
 }
 
 FAFLCreatorBuild UAFLW_Creator::AssembleBuild() const
@@ -306,26 +381,44 @@ FText UAFLW_Creator::BuildReadout(const FLinearColor& C, const bool bHasValue)
 
 void UAFLW_Creator::RefreshFromSchema()
 {
-	Rows.Reset();
-	bSchemaResolved = false;
-
+	// NOTHING IS DISCARDED UNTIL THERE IS SOMETHING BETTER TO PUT IN ITS PLACE.
+	//
+	// This used to Reset() the rows and clear bSchemaResolved on entry. That made a FAILED re-resolve
+	// destructive: InitializeCreator resolved the schema during the push, then a second call from
+	// NativeOnActivated re-resolved into an empty result and wiped it -- measured as
+	// "SCHEMA ... available=4" at :820 followed by "0 row(s), schemaResolved=0" at :822.
+	//
+	// Both silent paths that produce that empty result -- a null loadout component, and a null display
+	// pawn -- return a default-constructed schema without logging, so the clobber left no trace and
+	// surfaced only as an empty rail.
 	UAFLW_LoadoutBase* L = Loadout.Get();
 	if (!L)
 	{
-		OnChannelRowsChanged();
+		if (!bSchemaResolved) { Rows.Reset(); OnChannelRowsChanged(); }
 		return;
 	}
 
-	Schema = L->CreatorGetSchema();
+	const FAFLCreatorChannelSchema Candidate = L->CreatorGetSchema();
 
-	// FAILS CLOSED. ResolvedFromMaster == None means the schema has not resolved, so we claim NO
-	// channels rather than guessing a set. A creator that invents a rail while loading teaches the
-	// player that channels appear and disappear.
-	if (Schema.ResolvedFromMaster.IsNone())
+	// FAILS CLOSED, BUT NOT BACKWARDS. ResolvedFromMaster == None means THIS attempt did not resolve.
+	// If an earlier one did, keep it: a creator that claims no channels because a later lookup was
+	// unlucky teaches the player that channels appear and disappear, which is the very thing the
+	// original fail-closed rule was written to prevent.
+	if (Candidate.ResolvedFromMaster.IsNone())
 	{
+		if (bSchemaResolved)
+		{
+			UE_LOG(LogAFLCombat, Verbose,
+				TEXT("[Creator] re-resolve produced nothing; keeping the schema from %s."),
+				*Schema.ResolvedFromMaster.ToString());
+			return;
+		}
+		Rows.Reset();
 		OnChannelRowsChanged();
 		return;
 	}
+
+	Schema = Candidate;
 	bSchemaResolved = true;
 	RebuildRows();
 }

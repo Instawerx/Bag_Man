@@ -585,6 +585,7 @@ void UAFLCosmeticLoadoutComponent::OnRep_BuildSet()
 		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s[Loadout] OnRep_BuildSet builds=%d active=%d"),
 			*AFLSkinDiag::Prefix(this), BuildSet.Builds.Num(), BuildSet.ActiveBuildIndex);
 	}
+	OnBuildSetChanged.Broadcast();
 }
 
 bool UAFLCosmeticLoadoutComponent::ServerSaveBuild_Validate(FAFLCreatorBuild Build, int32 Index)
@@ -693,6 +694,9 @@ void UAFLCosmeticLoadoutComponent::ServerSaveBuild_Implementation(FAFLCreatorBui
 	}
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BUILD] saved index=%d builds=%d continuum=%d"),
 		Index, BuildSet.Builds.Num(), Build.UsesContinuum() ? 1 : 0);
+	// OnRep DOES NOT FIRE ON THE AUTHORITY. On a listen server the host is both, so without this the
+	// one player who cannot be wrong about the count is the one who never sees it change.
+	OnBuildSetChanged.Broadcast();
 	PushBuildsToPersistence();
 }
 
