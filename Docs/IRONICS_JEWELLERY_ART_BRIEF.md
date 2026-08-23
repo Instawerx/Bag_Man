@@ -29,8 +29,13 @@ pendant offset cannot have one.
 
 ## REQUIREMENT 2 — wrist pieces symmetric, or supplied as an L/R pair
 
-The server picks which wrist a piece goes on, based on what is already worn. A watch equipped first
-takes the left; a bracelet equipped second takes the right. There is no player-facing side choice.
+The server picks which wrist a piece goes on. **The rule is: first open side, left before right** —
+the order is fixed so the same equip twice lands the same way, and it applies to whatever is equipped,
+regardless of what kind of piece it is. There is no player-facing side choice.
+
+That order is arbitrary and carries no meaning. It is **not** the handedness fallback below, which is a
+different rule for a different reason: one is "which side is free", the other is "which side this mesh
+was built for".
 
 That mechanism assumes the mesh reads correctly on either arm. A watch is the usual failure: the
 crown sits on one side, the clasp runs one way, and mirrored it reads as broken.
@@ -100,6 +105,10 @@ and refuses correctly — but **no code reads it to attach a mesh.** The attach 
 
 So a purchased piece today is owned, appears in the loadout, and resolves to a slot; it does not
 render. The art landing does not by itself make it visible — the consumer is a separate piece of work.
+
+Logged as **CC-X37** in `Docs/design/IRONICS_CHARACTER_CREATOR_SSOT.md` §11.1, where it belongs: it is
+a programme-level gap, not an art note. Third instance of built-correct-unreachable, after CC-X21 and
+CC-X32.
 
 ---
 
