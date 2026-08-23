@@ -120,6 +120,9 @@
 #include "CommonActivatableWidget.h"                   // S-ECON-STORE: the store widget class type to push
 #include "Engine/LocalPlayer.h"                        // S-ECON-STORE: GetLocalPlayer() for the per-player push
 #include "PrimaryGameLayout.h"                         // STEP 5: PushWidgetToLayerStack init-hook (afl.Market.Loadout)
+#include "Widgets/CommonActivatableWidgetContainer.h"   // CC-5 entry proof: read the Menu layer's top widget
+#include "Components/PanelWidget.h"                     // CC-5 entry proof: the rails' children
+#include "Framework/Application/SlateApplication.h"     // CC-5 entry proof: a REAL press+release
 #include "UI/AFLW_FrontEndMarket.h"                    // STEP 5: UAFLW_FrontEndMarket + EAFLMarketMode (Mode=Loadout)
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCombatCheats)
@@ -4685,6 +4688,200 @@ namespace
 		TEXT("the intersection; plus a named registered id that must appear and a named unregistered id ")
 		TEXT("that must not. Reads only -- spends nothing."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLSellableProbe));
+
+	// === CC-5 step 2: afl.Creator.EntryProof =====================================================
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_EntryProof, "UI.Layer.Menu");
+
+	static UCommonActivatableWidget* AFLTopOfMenuLayer(APlayerController* PC)
+	{
+		UPrimaryGameLayout* Layout = UPrimaryGameLayout::GetPrimaryGameLayout(PC);
+		UCommonActivatableWidgetContainerBase* Stack =
+			Layout ? Layout->GetLayerWidget(TAG_UI_Layer_Menu_EntryProof) : nullptr;
+		return Stack ? Stack->GetActiveWidget() : nullptr;
+	}
+
+	/** A real press+release at the widget's own painted position. Returns false if the widget has never
+	 *  been painted -- which must be reported, not silently treated as "the click did nothing". */
+	static bool AFLClickWidget(UWidget* W, FString& OutWhere)
+	{
+		if (!W) { OutWhere = TEXT("<null widget>"); return false; }
+		const FGeometry& G = W->GetCachedGeometry();
+		const FVector2D Size = G.GetLocalSize();
+		if (Size.X <= 0.0f || Size.Y <= 0.0f)
+		{
+			OutWhere = TEXT("<never painted -- zero cached geometry>");
+			return false;
+		}
+		const FVector2D Pos = G.LocalToAbsolute(Size * 0.5f);
+		OutWhere = FString::Printf(TEXT("(%.0f,%.0f) size=%.0fx%.0f"), Pos.X, Pos.Y, Size.X, Size.Y);
+
+		FSlateApplication& App = FSlateApplication::Get();
+		FPointerEvent Down(0, App.CursorPointerIndex, Pos, Pos, TSet<FKey>(), EKeys::LeftMouseButton,
+			0.0f, FModifierKeysState());
+		App.ProcessMouseButtonDownEvent(nullptr, Down);
+		FPointerEvent Up(0, App.CursorPointerIndex, Pos, Pos, TSet<FKey>(), EKeys::LeftMouseButton,
+			0.0f, FModifierKeysState());
+		App.ProcessMouseButtonUpEvent(Up);
+		return true;
+	}
+
+	void AFLRunEntryProof(UWorld* World, APlayerController* PC);
+
+	/** ARMS the proof and waits for a PAINTED loadout. Cached geometry -- the thing the click needs --
+	 *  only exists after a frame has been drawn, so running inline would measure "never painted" and
+	 *  report it as a failure of the entry. Waiting is not a retry: the sequence runs EXACTLY ONCE, on
+	 *  the first tick where its precondition holds, and if the precondition never holds that is REPORTED
+	 *  rather than left as silence. Arm it before or after opening the loadout -- either order works. */
+	void HandleAFLCreatorEntryProof(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld())
+		{
+			Ar.Log(TEXT("afl.Creator.EntryProof - run inside PIE.")); return;
+		}
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[ENT] ARMED -- waiting for a PAINTED front-end loadout on the Menu layer. ")
+			TEXT("Open it from W_IRONICS_Home; the proof fires by itself on the first frame it is drawn."));
+
+		TWeakObjectPtr<UWorld> WeakWorld(World);
+		int32* Waited = new int32(0);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+			[WeakWorld, Waited](float) -> bool
+			{
+				UWorld* W = WeakWorld.Get();
+				APlayerController* PC = W ? W->GetFirstPlayerController() : nullptr;
+				if (!W || !PC)
+				{
+					UE_LOG(LogAFLCombat, Warning,
+						TEXT("AFL_TEST[ENT] DISARMED after %d frames -- the world went away before a ")
+						TEXT("loadout was painted. NOTHING WAS MEASURED."), *Waited);
+					delete Waited; return false;
+				}
+				UAFLW_LoadoutBase* L = Cast<UAFLW_LoadoutBase>(AFLTopOfMenuLayer(PC));
+				const bool bPainted = L && L->GetCachedGeometry().GetLocalSize().X > 0.0f;
+				if (bPainted)
+				{
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[ENT] FIRING after %d frames -- loadout %s is painted."),
+						*Waited, *L->GetName());
+					AFLRunEntryProof(W, PC);
+					delete Waited; return false;
+				}
+				// NO FRAME CAP. The precondition is a HUMAN opening the loadout, and a cap short enough
+				// to be useful is shorter than a person takes -- the first run disarmed in 26 seconds and
+				// measured nothing. The latch now lives as long as the world does; it is not a retry
+				// because the sequence still runs exactly once. It HEARTBEATS so that a quiet log is
+				// readable as "armed and waiting" and never as "the command did not run".
+				if ((++(*Waited) % 600) == 0)
+				{
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[ENT] still armed after %d ticks -- top of Menu layer is %s. ")
+						TEXT("Open the LOADOUT from the home menu."),
+						*Waited, *GetNameSafe(AFLTopOfMenuLayer(PC)));
+				}
+				return true;
+			}), 0.0f);
+	}
+
+	void AFLRunEntryProof(UWorld* World, APlayerController* PC)
+	{
+
+		// ---- CONTROL 0: the instrument can see the thing it is about to test --------------------
+		UAFLW_LoadoutBase* Loadout = Cast<UAFLW_LoadoutBase>(AFLTopOfMenuLayer(PC));
+		if (!Loadout)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[ENT] VOID -- top of the Menu layer is not a loadout (got %s). ")
+				TEXT("Open the front-end loadout from W_IRONICS_Home first."),
+				*GetNameSafe(AFLTopOfMenuLayer(PC)));
+			return;
+		}
+		UPanelWidget* StickerRail = Loadout->GetStickerRailForTest();
+		UPanelWidget* MaskRail    = Loadout->GetFacemaskRailForTest();
+		const int32 StickerKids = StickerRail ? StickerRail->GetChildrenCount() : -1;
+		const int32 MaskKids    = MaskRail ? MaskRail->GetChildrenCount() : -1;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[ENT] CTRL0 loadout=%s stickerRailBound=%d children=%d | maskRailBound=%d children=%d %s"),
+			*Loadout->GetName(), StickerRail ? 1 : 0, StickerKids, MaskRail ? 1 : 0, MaskKids,
+			(StickerRail && StickerKids == 1) ? TEXT("PASS")
+				: TEXT("FAIL <- BindWidgetOptional did not bind, or the rail built no affordance"));
+		if (!StickerRail || StickerKids != 1)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[ENT] VOID -- nothing to click."));
+			return;
+		}
+
+		// ---- CONTROL 1: nothing already open ----------------------------------------------------
+		const bool bPreClean = (Cast<UAFLW_Creator>(AFLTopOfMenuLayer(PC)) == nullptr);
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[ENT] CTRL1 no creator before the click = %d %s"),
+			bPreClean ? 1 : 0, bPreClean ? TEXT("PASS") : TEXT("FAIL <- VOID, cannot read 'it opened'"));
+		if (!bPreClean) { return; }
+
+		// ---- CONTROL 2: a SELECTION tile must not open it ----------------------------------------
+		// Same widget class, same delegate, same handler. If this opens a creator, ARM A proves nothing.
+		if (MaskRail && MaskKids > 0)
+		{
+			FString Where;
+			const bool bClicked = AFLClickWidget(MaskRail->GetChildAt(0), Where);
+			const bool bStillNone = (Cast<UAFLW_Creator>(AFLTopOfMenuLayer(PC)) == nullptr);
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[ENT] CTRL2 facemask tile clicked=%d at %s -> creator opened=%d %s"),
+				bClicked ? 1 : 0, *Where, bStillNone ? 0 : 1,
+				(bClicked && bStillNone) ? TEXT("PASS")
+					: TEXT("FAIL <- either the click never landed, or ANY tile opens the creator"));
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[ENT] CTRL2 NOT RUN -- no facemask tile owned. ARM A is UNCONTROLLED: it ")
+				TEXT("cannot distinguish 'the affordance opens it' from 'any click opens it'."));
+		}
+
+		// Snapshot BEFORE, so ARM B compares against something measured, not remembered.
+		const FName BodyBefore = Loadout->GetEquippedIdForAxis(EAFLLoadoutAxis::BodyColor);
+		const FName MaskBefore = Loadout->GetEquippedIdForAxis(EAFLLoadoutAxis::Facemask);
+
+		// ---- ARM A: the affordance opens the creator, focused on ITS axis ------------------------
+		FString WhereA;
+		const bool bClickedA = AFLClickWidget(StickerRail->GetChildAt(0), WhereA);
+		UAFLW_Creator* Opened = Cast<UAFLW_Creator>(AFLTopOfMenuLayer(PC));
+		const bool bArmA = bClickedA && Opened && (Opened->FocusAxis == EAFLLoadoutAxis::Sticker);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[ENT] ARM A sticker affordance clicked=%d at %s -> top=%s focusAxis=%d (want %d) %s"),
+			bClickedA ? 1 : 0, *WhereA, *GetNameSafe(AFLTopOfMenuLayer(PC)),
+			Opened ? (int32)Opened->FocusAxis : -1, (int32)EAFLLoadoutAxis::Sticker,
+			bArmA ? TEXT("PASS") : TEXT("FAIL"));
+		if (!Opened)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[ENT] ARM B NOT RUN -- nothing was opened to close."));
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[ENT] END"));
+			return;
+		}
+
+		// ---- ARM B: Back pops it, and the SAME loadout object comes back untouched ---------------
+		// Deactivating the creator is the framework's own back semantics -- the same thing the creator's
+		// back button and the Back input action both do. What is being proved is that the loadout under
+		// it SURVIVED: same object, same equipped ids, not a rebuilt one that merely looks the same.
+		Opened->DeactivateWidget();
+		UCommonActivatableWidget* NowTop = AFLTopOfMenuLayer(PC);
+		const bool bSameObject = (NowTop == Loadout);
+		const FName BodyAfter = Loadout->GetEquippedIdForAxis(EAFLLoadoutAxis::BodyColor);
+		const FName MaskAfter = Loadout->GetEquippedIdForAxis(EAFLLoadoutAxis::Facemask);
+		const bool bArmB = bSameObject && (BodyAfter == BodyBefore) && (MaskAfter == MaskBefore);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[ENT] ARM B back -> top=%s sameObject=%d body %s->%s mask %s->%s %s"),
+			*GetNameSafe(NowTop), bSameObject ? 1 : 0,
+			*BodyBefore.ToString(), *BodyAfter.ToString(),
+			*MaskBefore.ToString(), *MaskAfter.ToString(),
+			bArmB ? TEXT("PASS") : TEXT("FAIL"));
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[ENT] END"));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorEntryProofCmd(TEXT("afl.Creator.EntryProof"),
+		TEXT("CC-5 step 2: with the front-end loadout OPEN, click the STICKER affordance with real Slate ")
+		TEXT("input and prove a creator focused on that axis is pushed, then that Back reveals the SAME ")
+		TEXT("loadout object with its state intact. Controlled by a selection tile that must NOT open it."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorEntryProof));
 
 	// === CC-5.2: afl.Creator.WidgetProbe ==========================================================
 	void HandleAFLCreatorWidgetProbe(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
