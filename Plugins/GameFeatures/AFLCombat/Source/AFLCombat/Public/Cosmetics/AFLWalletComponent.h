@@ -181,6 +181,9 @@ protected:
 	 *  most once per GameInstance -- the set is global, the wallet is not. */
 	void RefreshSellableSet();
 
+	/** CC-X38: the OTHER backend's sellable set -- mint-ledger bundles, read live from GET /catalog. */
+	void RefreshLedgerSellableSet();
+
 	/** CC-X30: read the AUTHORITATIVE counted set from /counted-entitlement into the replicated array.
 	 *  Called from LoadFromPersistence alongside the balance and owned-set reads.
 	 *

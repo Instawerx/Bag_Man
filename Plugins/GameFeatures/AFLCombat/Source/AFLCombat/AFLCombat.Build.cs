@@ -97,6 +97,9 @@ public class AFLCombat : ModuleRules
 				// always-loaded AFLOnline is the correct load-order direction (login resident before BeginPlay).
 				"AFLOnline",
 				"Json",
+				// CC-X38: GET /catalog for the mint-ledger sellable set. The store must ask BOTH
+				// backends, and the ledger half is a plain REST read of a public endpoint.
+				"HTTP",
 				// CC-3.5: FJsonObjectConverter (FAFLCreatorBuildSet <-> the saved-build blob). Json alone
 				// gives FJsonObject parsing; USTRUCT round-tripping lives in JsonUtilities.
 				"JsonUtilities",

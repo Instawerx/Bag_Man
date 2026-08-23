@@ -243,6 +243,40 @@ void UAFLCosmeticCatalogSubsystem::SetRegisteredIds(const TSet<FName>& InIds)
 	SaveRegisteredCache();
 }
 
+void UAFLCosmeticCatalogSubsystem::SetLedgerSellableIds(const TSet<FName>& InIds)
+{
+	LedgerSellableIds = InIds;
+	bLedgerKnown = true;
+	UE_LOG(LogTemp, Log, TEXT("[AFLCatalog] CC-X38 ledger sellable set ANSWERED: %d bundle id(s)."), LedgerSellableIds.Num());
+
+	// Cached for the same reason the PlayFab set is: an offline start should show the store the player
+	// saw last, not an empty one.
+	TArray<FString> Lines;
+	for (const FName& Id : LedgerSellableIds) { Lines.Add(Id.ToString()); }
+	Lines.Sort();
+	const FString Path = FPaths::ProjectSavedDir() / TEXT("AFLLedgerSellable.txt");
+	if (!FFileHelper::SaveStringArrayToFile(Lines, *Path))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[AFLCatalog] CC-X38 ledger cache WRITE FAILED -> %s."), *Path);
+	}
+}
+
+bool UAFLCosmeticCatalogSubsystem::LoadLedgerCache()
+{
+	TArray<FString> Lines;
+	const FString Path = FPaths::ProjectSavedDir() / TEXT("AFLLedgerSellable.txt");
+	if (!FFileHelper::LoadFileToStringArray(Lines, *Path)) { return false; }
+	LedgerSellableIds.Reset();
+	for (const FString& L : Lines)
+	{
+		const FString T = L.TrimStartAndEnd();
+		if (!T.IsEmpty()) { LedgerSellableIds.Add(FName(*T)); }
+	}
+	bLedgerKnown = true;
+	UE_LOG(LogTemp, Log, TEXT("[AFLCatalog] CC-X38 ledger cache LOADED: %d id(s)."), LedgerSellableIds.Num());
+	return true;
+}
+
 void UAFLCosmeticCatalogSubsystem::SaveRegisteredCache() const
 {
 	TArray<FString> Lines;
@@ -305,10 +339,13 @@ void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry
 	// NEVER SHOW ALL. An unanswered sellable set shows NOTHING rather than everything: a row PlayFab
 	// has never heard of becomes a shop button that returns ItemNotFound when tapped, and an empty
 	// store is recoverable where a store full of erroring buttons is not.
-	if (!bRegisteredKnown)
+	// EITHER BACKEND ANSWERING IS AN ANSWER, about the rows THAT backend sells. Requiring both would let
+	// one outage empty a store the other backend could still fill; requiring only PlayFab is what hid
+	// every ledger bundle.
+	if (!bRegisteredKnown && !bLedgerKnown)
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("[AFLCatalog] CC-X22 purchasable set requested before the sellable set was ANSWERED -- returning NOTHING. ")
+			TEXT("[AFLCatalog] CC-X22 purchasable set requested before EITHER backend answered -- returning NOTHING. ")
 			TEXT("This is deliberate: showing all would offer rows the backend cannot sell."));
 		return;
 	}
@@ -321,9 +358,12 @@ void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry
 		{
 			continue;
 		}
-		if (!RegisteredIds.Contains(Entry.CosmeticId))
+		// CC-X38: ASK BOTH BACKENDS. PlayFab sells catalog items; the mint ledger sells bundles, and a
+		// ledger bundle is absent from the PlayFab manifest by design. Testing only RegisteredIds
+		// withheld all 28 .XT pairs and every future ledger product.
+		if (!IsSellable(Entry.CosmeticId))
 		{
-			++Filtered;   // priced in the UE catalog, absent from the backend: CC-X22's whole subject
+			++Filtered;   // priced in the UE catalog, absent from BOTH backends: CC-X22's whole subject
 			continue;
 		}
 		// CC-7: A ROW THAT CANNOT TRANSACT MUST NOT BE OFFERED.
@@ -343,8 +383,10 @@ void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry
 
 	// PRESENCE OF OUTPUT: the count that was WITHHELD is the measurement. A silent filter and a filter
 	// that had nothing to do would otherwise look identical.
-	UE_LOG(LogTemp, Log, TEXT("[AFLCatalog] CC-X22 purchasable: %d shown, %d withheld (priced here, not sellable by the backend)."),
-		OutEntries.Num(), Filtered);
+	UE_LOG(LogTemp, Log,
+		TEXT("[AFLCatalog] CC-X22 purchasable: %d shown, %d withheld (priced here, not sellable by either backend). ")
+		TEXT("playfab=%d ledger=%d"),
+		OutEntries.Num(), Filtered, GetRegisteredCount(), GetLedgerSellableCount());
 }
 
 bool UAFLCosmeticCatalogSubsystem::GetEntry(FName CosmeticId, FAFLCatalogEntry& OutEntry) const

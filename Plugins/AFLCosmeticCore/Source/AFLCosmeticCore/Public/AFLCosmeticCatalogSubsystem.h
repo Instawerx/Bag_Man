@@ -72,6 +72,26 @@ public:
 	 *  adopted as one -- "the backend sells nothing" is a fact, not a failure. */
 	void SetRegisteredIds(const TSet<FName>& InIds);
 
+	/**
+	 * THE OTHER BACKEND. Mint-ledger bundles are sold by /purchase-bundle out of DynamoDB and are absent
+	 * from the PlayFab manifest BY DESIGN -- giving them a PlayFab price would create a second purchase
+	 * route with no cap. Kept as its own set rather than merged into RegisteredIds so the two answers can
+	 * arrive in either order without one overwriting the other.
+	 */
+	void SetLedgerSellableIds(const TSet<FName>& InIds);
+
+	/** True once the ledger has answered. Distinct from IsRegisteredSetKnown -- either alone is an answer
+	 *  about ONE backend, and a row is judged against whichever have replied. */
+	bool IsLedgerSetKnown() const { return bLedgerKnown; }
+	int32 GetLedgerSellableCount() const { return bLedgerKnown ? LedgerSellableIds.Num() : -1; }
+	bool LoadLedgerCache();
+
+	/** CAN THE BACKEND SELL THIS ROW -- the question the store actually needs answered, asked of both. */
+	bool IsSellable(FName CosmeticId) const
+	{
+		return RegisteredIds.Contains(CosmeticId) || LedgerSellableIds.Contains(CosmeticId);
+	}
+
 	/** True once the sellable set has been ANSWERED -- by the backend or by the on-disk cache.
 	 *  False means the question is still open, which is NOT the same as the answer being empty. */
 	bool IsRegisteredSetKnown() const { return bRegisteredKnown; }
@@ -194,6 +214,11 @@ private:
 	/** CC-X22. The ids the BACKEND says it can sell. Deliberately NOT the catalog's own ids: the whole
 	 *  point is that the two disagree. */
 	TSet<FName> RegisteredIds;
+
+	/** Bundle ids the MINT LEDGER can sell (GET /catalog -> bundles[]). Read live, never inferred from a
+	 *  local MintCap: a catalog row asserting a cap is not evidence that a ledger row exists. */
+	TSet<FName> LedgerSellableIds;
+	bool bLedgerKnown = false;
 
 	/** Has the sellable set been answered at all? Three-state matters here -- see the header comment
 	 *  on GetPurchasableEntries. Unknown must never behave like "everything". */

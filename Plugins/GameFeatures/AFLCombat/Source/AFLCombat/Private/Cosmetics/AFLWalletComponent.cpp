@@ -4,7 +4,10 @@
 
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
 #include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
-#include "Dom/JsonObject.h"                             // A1.2: PurchaseItem body + GetUserInventory parse (verify)
+#include "Dom/JsonObject.h"
+#include "HttpModule.h"                       // CC-X38: GET /catalog for the ledger sellable set
+#include "Interfaces/IHttpResponse.h"          // CC-X38: GetResponseCode on the reply
+#include "Interfaces/IHttpRequest.h"           // CC-X38: IHttpRequest                             // A1.2: PurchaseItem body + GetUserInventory parse (verify)
 #include "AFLCosmeticCatalogSubsystem.h"            // catalog price/tier lookup for the purchase path (AFLCosmeticCore)
 #include "AFLCosmeticCoreTypes.h"                   // FAFLCatalogEntry, EAFLAcquisition, EAFLCosmeticTier
 #include "GameFramework/PlayerState.h"
@@ -1411,6 +1414,89 @@ void UAFLWalletComponent::ServerRequestCreditRedemption_Implementation(const FNa
 	});
 }
 
+void UAFLWalletComponent::RefreshLedgerSellableSet()
+{
+	UAFLCosmeticCatalogSubsystem* Catalog = const_cast<UAFLCosmeticCatalogSubsystem*>(GetCatalog());
+	if (!Catalog) { return; }
+
+	// CACHE FIRST, same discipline as the PlayFab half: an offline start shows the last known bundles.
+	if (!Catalog->IsLedgerSetKnown()) { Catalog->LoadLedgerCache(); }
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	const FString BaseUrl = Online ? Online->PlayerApiBaseUrl() : FString();
+	if (BaseUrl.IsEmpty())
+	{
+		// SAID OUT LOUD. "We could not ask" and "there are no bundles" are opposite claims about a money
+		// surface and must not share a representation.
+		UE_LOG(LogAFLWalletDiag, Warning,
+			TEXT("%sCC-X38 no API base url -- ledger sellable set NOT fetched (known=%d count=%d, cache only)"),
+			*WalletPrefix(this), Catalog->IsLedgerSetKnown() ? 1 : 0, Catalog->GetLedgerSellableCount());
+		return;
+	}
+
+	// GameInstance-scoped question, per-player component: ask once.
+	static bool bLedgerFetchInFlight = false;
+	if (bLedgerFetchInFlight) { return; }
+	bLedgerFetchInFlight = true;
+
+	// GET /catalog is PUBLIC and player-scoped by nothing -- it exists to show prices and remaining
+	// mint counts. No session ticket, and none is sent.
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(BaseUrl + TEXT("/catalog"));
+	Request->SetVerb(TEXT("GET"));
+
+	UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCC-X38 GET /catalog -> asking the mint ledger what it can sell"), *WalletPrefix(this));
+
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+	Request->OnProcessRequestComplete().BindLambda(
+		[WeakThis](FHttpRequestPtr, FHttpResponsePtr Res, bool bOk)
+		{
+			bLedgerFetchInFlight = false;
+			UAFLWalletComponent* Self = WeakThis.Get();
+			if (!Self) { return; }
+			UAFLCosmeticCatalogSubsystem* Cat = const_cast<UAFLCosmeticCatalogSubsystem*>(Self->GetCatalog());
+			if (!Cat) { return; }
+
+			const int32 Code = Res.IsValid() ? Res->GetResponseCode() : 0;
+			if (!bOk || !Res.IsValid() || Code < 200 || Code >= 300)
+			{
+				// UNANSWERED IS NOT EMPTY. A failed fetch leaves the cached answer standing rather than
+				// replacing it with nothing.
+				UE_LOG(LogAFLWalletDiag, Warning,
+					TEXT("%sCC-X38 GET /catalog FAILED (http %d) -- ledger set LEFT ALONE (known=%d count=%d)"),
+					*WalletPrefix(Self), Code, Cat->IsLedgerSetKnown() ? 1 : 0, Cat->GetLedgerSellableCount());
+				return;
+			}
+
+			TSharedPtr<FJsonObject> Root;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Res->GetContentAsString());
+			if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+			{
+				UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sCC-X38 /catalog returned unparseable JSON -- LEFT ALONE"), *WalletPrefix(Self));
+				return;
+			}
+
+			const TArray<TSharedPtr<FJsonValue>>* Bundles = nullptr;
+			if (!Root->TryGetArrayField(TEXT("bundles"), Bundles) || !Bundles)
+			{
+				UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sCC-X38 /catalog reply has no 'bundles' array -- LEFT ALONE"), *WalletPrefix(Self));
+				return;
+			}
+
+			TSet<FName> Ids;
+			for (const TSharedPtr<FJsonValue>& V : *Bundles)
+			{
+				const TSharedPtr<FJsonObject>* Obj = nullptr;
+				if (!V.IsValid() || !V->TryGetObject(Obj) || !Obj) { continue; }
+				FString Id;
+				if ((*Obj)->TryGetStringField(TEXT("bundleId"), Id) && !Id.IsEmpty()) { Ids.Add(FName(*Id)); }
+			}
+			UE_LOG(LogAFLWalletDiag, Log, TEXT("%sCC-X38 ledger answered: %d bundle(s) sellable"), *WalletPrefix(Self), Ids.Num());
+			Cat->SetLedgerSellableIds(Ids);
+		});
+	Request->ProcessRequest();
+}
+
 void UAFLWalletComponent::RefreshSellableSet()
 {
 	UAFLCosmeticCatalogSubsystem* Catalog = const_cast<UAFLCosmeticCatalogSubsystem*>(GetCatalog());
@@ -1422,6 +1508,11 @@ void UAFLWalletComponent::RefreshSellableSet()
 	{
 		Catalog->LoadRegisteredCache();
 	}
+
+	// CC-X38: the ledger half runs BEFORE the login guard, and that placement is the point. GET /catalog
+	// is public and player-scoped by nothing -- gating it on a PlayFab login would couple two backends
+	// that answer about different rows, so a login failure would hide every bundle the ledger can sell.
+	RefreshLedgerSellableSet();
 
 	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
 	if (!Online || !Online->IsLoggedIn())
