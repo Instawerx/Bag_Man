@@ -288,6 +288,15 @@ enum class EAFLAccessorySlot : uint8
 	ShoulderL  UMETA(DisplayName = "Shoulder (left)"),
 	ShoulderR  UMETA(DisplayName = "Shoulder (right)"),
 
+	// --- JEWELLERY. APPENDED, NEVER INSERTED ---------------------------------------------------
+	// FAFLAccessorySet is indexed BY ENUM VALUE and replicates. Inserting a member above ShoulderR
+	// renumbers the shoulders, and every stored selection then reads the WRONG SLOT -- silent data
+	// corruption that surfaces as an art bug. New slots go at the end, before MAX, always.
+	Neck       UMETA(DisplayName = "Neck (chain)"),
+	Pendant    UMETA(DisplayName = "Pendant"),
+	WristL     UMETA(DisplayName = "Wrist (left)"),
+	WristR     UMETA(DisplayName = "Wrist (right)"),
+
 	/** Count sentinel. LAST, always. */
 	MAX        UMETA(Hidden)
 };
@@ -374,9 +383,13 @@ struct FAFLAccessorySet
  * CLOSED -- attaching to NAME_None would silently parent to the component root, putting an accessory
  * at the pawn's feet rather than refusing.
  *
- * NOT YET AUTHORED ON THE SKELETON: see CC-X34. SkeletalMeshSocket::SocketName is read-only from
- * Python and the Sockets array is protected, so these three need the Skeleton editor or a C++ path.
- * The names are fixed here so the code and the eventual sockets cannot disagree.
+ * AUTHORED VIA afl.Dev.AuthorAccessorySockets (CC-X34), NOT BY HAND. USkeleton::Sockets is protected
+ * from Python and SocketName is read-only there, so the console command is the only write path -- it is
+ * idempotent, refuses a socket whose bone is missing, and re-reads what it wrote.
+ *
+ * A NAME HERE IS NOT A SOCKET ON THE SKELETON. ResolveSocket returns a name whether or not the skeleton
+ * carries one, and UE does not fail an attach to a missing socket -- it parents to the component root,
+ * hanging the part at the pawn's feet. Every caller must ask the MESH, which is what the equip does.
  */
 namespace AFLAccessorySockets
 {
@@ -387,6 +400,19 @@ namespace AFLAccessorySockets
 			case EAFLAccessorySlot::Head:      return FName(TEXT("accessory_head"));
 			case EAFLAccessorySlot::ShoulderL: return FName(TEXT("accessory_clavicle_l"));
 			case EAFLAccessorySlot::ShoulderR: return FName(TEXT("accessory_clavicle_r"));
+
+			// A CHAIN HANGS ON THE CHEST, NOT THE NECK. This skeleton has no neck_01 -- it stops at
+			// spine_03, which is also what weapon_holster_back uses. Verified against the reference
+			// skeleton rather than assumed from the UE5 mannequin's naming, which does have neck bones.
+			case EAFLAccessorySlot::Neck:      return FName(TEXT("accessory_neck"));
+
+			// THE PENDANT GETS ITS OWN SOCKET even though it shares the chain's bone: it hangs LOWER,
+			// and an offset is a property of the socket. Sharing one socket would force a per-item
+			// transform, which FAFLAccessoryPlacement deliberately does not carry.
+			case EAFLAccessorySlot::Pendant:   return FName(TEXT("accessory_pendant"));
+
+			case EAFLAccessorySlot::WristL:    return FName(TEXT("accessory_wrist_l"));
+			case EAFLAccessorySlot::WristR:    return FName(TEXT("accessory_wrist_r"));
 			default: break;
 		}
 		return NAME_None;   // fails closed

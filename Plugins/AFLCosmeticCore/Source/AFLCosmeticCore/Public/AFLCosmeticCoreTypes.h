@@ -221,6 +221,49 @@ inline int32 AFLResolveEffectiveSlotCap(const int32 Baseline, const int32 Purcha
 	return FMath::Clamp(Baseline + Safe, Baseline, TierCeiling);
 }
 
+/**
+ * WHERE A WEARABLE SITS ON THE BODY. A property of the ITEM, never parsed from its id.
+ *
+ * Unset is the default and means the row equips NOWHERE -- fail closed, the same discipline
+ * bCreditRedeemable follows. A row that forgets its slot is inert; a row that defaults to one is worn
+ * somewhere nobody chose.
+ *
+ * PENDANT IS ITS OWN SLOT, not a variant of Neck. A pendant hangs FROM a chain -- two items occupying
+ * one slot cannot both be worn, and the dependency between them is a rule about slots, not about ids.
+ *
+ * HANDEDNESS IS ON THE ROW because the mesh is modelled for a wrist. The server reads it; the player is
+ * never asked to pick a side the art cannot honour.
+ */
+/**
+ * WHICH WRIST, when a row cannot take either. Meaningful only alongside bWristEitherSide == false.
+ *
+ * NO "Either" MEMBER, DELIBERATELY. "Either" is not a wrist -- it is a statement that the choice is
+ * open, and a member that means "two places" would have to be handled as a special case by every
+ * consumer that switches on a side. The openness is a bool on the row; this enum only ever names one
+ * real side, so a consumer that reads it can always attach.
+ */
+UENUM(BlueprintType)
+enum class EAFLWristSide : uint8
+{
+	Left  UMETA(DisplayName = "Left wrist"),
+	Right UMETA(DisplayName = "Right wrist")
+};
+
+UENUM(BlueprintType)
+enum class EAFLWearSlot : uint8
+{
+	Unset   UMETA(DisplayName = "Unset -- equips nowhere"),
+	Neck    UMETA(DisplayName = "Neck (chain)"),
+	Pendant UMETA(DisplayName = "Pendant (requires a chain)"),
+
+	/**
+	 * A WRIST, NOT A SIDE. The row states that the piece is worn on a wrist; WHICH wrist is resolved at
+	 * equip against what is already worn. Two members (WristLeft/WristRight) would have forced the
+	 * either-side case to be expressed as "author it twice" or "add a third member meaning both".
+	 */
+	Wrist   UMETA(DisplayName = "Wrist (side resolved at equip)")
+};
+
 USTRUCT(BlueprintType)
 struct FAFLCatalogEntry
 {
@@ -349,6 +392,36 @@ struct FAFLCatalogEntry
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Economy")
 	bool bCreditRedeemable = false;
+
+	/**
+	 * WHERE THIS ROW IS WORN. Meaningful for accessories; Unset for everything else, which is also the
+	 * default -- an unmarked row equips nowhere rather than defaulting into a slot nobody assigned.
+	 *
+	 * NOT DERIVED FROM THE ID. AFL.Accessory.Chain.* and AFL.Accessory.Pendant.* are FAMILIES, and a
+	 * family is a naming convention that a later rename would silently break. The slot is an authored
+	 * fact, which is why it is a field.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Wearable")
+	EAFLWearSlot WearSlot = EAFLWearSlot::Unset;
+
+	/**
+	 * CAN THIS PIECE GO ON EITHER WRIST? A property of the ART, not of the player's preference: a
+	 * symmetric mesh fits both wrists, a handed one (crown on one side, clasp running one way) reads as
+	 * broken mirrored. True means the server picks whichever wrist is open; false means it goes on
+	 * WristSideWhenFixed and nowhere else.
+	 *
+	 * DEFAULTS FALSE, WHICH IS THE NARROWER ANSWER. A forgotten flag then lands the piece on one
+	 * definite, predictable wrist rather than letting it float across both -- the same fail-closed
+	 * reasoning as WearSlot::Unset, applied to a bool that has no "unset" value of its own.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Wearable",
+		meta = (EditCondition = "WearSlot == EAFLWearSlot::Wrist"))
+	bool bWristEitherSide = false;
+
+	/** The one wrist a HANDED piece may occupy. Read only when bWristEitherSide is false. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Wearable",
+		meta = (EditCondition = "WearSlot == EAFLWearSlot::Wrist && !bWristEitherSide"))
+	EAFLWristSide WristSideWhenFixed = EAFLWristSide::Right;
 
 	/**
 	 * CC-7: WHICH CELL OF THE STICKER ATLAS THIS ROW DRAWS. Meaningful only when Type == Sticker.

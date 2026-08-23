@@ -1074,6 +1074,140 @@ void UAFLCosmeticLoadoutComponent::ServerClearAccessory_Implementation(const EAF
 	ServerSetCosmeticSelection(Selection);
 }
 
+
+// --- JEWELLERY: SERVER-RESOLVED WEARABLE SLOTS -------------------------------------------------
+
+EAFLAccessorySlot UAFLCosmeticLoadoutComponent::ResolveWearableSlot(const FAFLCatalogEntry& Row, FString& OutReason) const
+{
+	// A LOCAL COPY, because Find() is index-based and an under-sized array returns the WRONG SLOT
+	// rather than failing. EnsureSized cannot run here (const), so a short array is treated as empty --
+	// which fails toward "refused", not toward "equipped somewhere unintended".
+	auto SlotHolds = [this](const EAFLAccessorySlot S) -> FName
+	{
+		const FAFLAccessoryPlacement* P = Selection.AccessorySet.Find(S);
+		return (P && P->IsSet()) ? P->AccessoryId : NAME_None;
+	};
+
+	switch (Row.WearSlot)
+	{
+		case EAFLWearSlot::Unset:
+			OutReason = TEXT("row has no wear slot");
+			return EAFLAccessorySlot::MAX;
+
+		case EAFLWearSlot::Neck:
+			return EAFLAccessorySlot::Neck;
+
+		case EAFLWearSlot::Pendant:
+		{
+			// THE DEPENDENCY IS SERVER-SIDE AND IT IS A REFUSAL. A pendant hangs FROM a chain; with no
+			// chain there is nothing to hang it on, and the socket would put it floating on the chest.
+			if (SlotHolds(EAFLAccessorySlot::Neck).IsNone())
+			{
+				OutReason = TEXT("a pendant needs a chain -- equip one first");
+				return EAFLAccessorySlot::MAX;
+			}
+			return EAFLAccessorySlot::Pendant;
+		}
+
+		case EAFLWearSlot::Wrist:
+		{
+			// RE-EQUIPPING WHAT IS ALREADY WORN IS NOT A THIRD ITEM. Without this, equipping a bracelet
+			// already on the left wrist while the right is full would report "both wrists full" -- a
+			// refusal for an action that changes nothing, which reads as a bug.
+			if (SlotHolds(EAFLAccessorySlot::WristL) == Row.CosmeticId) { return EAFLAccessorySlot::WristL; }
+			if (SlotHolds(EAFLAccessorySlot::WristR) == Row.CosmeticId) { return EAFLAccessorySlot::WristR; }
+
+			if (Row.bWristEitherSide)
+			{
+				// LEFT THEN RIGHT, FIXED ORDER. A stable order means the same equip twice lands the same
+				// way and the player can predict where a piece goes.
+				if (SlotHolds(EAFLAccessorySlot::WristL).IsNone()) { return EAFLAccessorySlot::WristL; }
+				if (SlotHolds(EAFLAccessorySlot::WristR).IsNone()) { return EAFLAccessorySlot::WristR; }
+
+				// BOTH FULL REFUSES -- it does not replace. Replacing would silently drop one of two
+				// items the player chose, with no way to say which, and no way to undo it.
+				OutReason = TEXT("both wrists are full -- remove one first");
+				return EAFLAccessorySlot::MAX;
+			}
+
+			const EAFLAccessorySlot Fixed = (Row.WristSideWhenFixed == EAFLWristSide::Left)
+				? EAFLAccessorySlot::WristL : EAFLAccessorySlot::WristR;
+			if (!SlotHolds(Fixed).IsNone())
+			{
+				OutReason = FString::Printf(TEXT("this piece only fits the %s wrist, and it is full"),
+					(Fixed == EAFLAccessorySlot::WristL) ? TEXT("left") : TEXT("right"));
+				return EAFLAccessorySlot::MAX;
+			}
+			return Fixed;
+		}
+
+		default:
+			break;
+	}
+
+	OutReason = TEXT("unhandled wear slot");
+	return EAFLAccessorySlot::MAX;
+}
+
+bool UAFLCosmeticLoadoutComponent::IsAccessorySlotRenderable(const EAFLAccessorySlot Slot) const
+{
+	const FAFLAccessoryPlacement* P = Selection.AccessorySet.Find(Slot);
+	if (!P || !P->IsSet()) { return false; }
+
+	// THE PENDANT IS KEPT AND NOT DRAWN. Un-equipping a chain must not destroy the pendant choice --
+	// the player did not ask for that, and nothing would tell them it had happened.
+	if (Slot == EAFLAccessorySlot::Pendant)
+	{
+		const FAFLAccessoryPlacement* Chain = Selection.AccessorySet.Find(EAFLAccessorySlot::Neck);
+		return Chain && Chain->IsSet();
+	}
+	return true;
+}
+
+bool UAFLCosmeticLoadoutComponent::ServerEquipWearable_Validate(FName) { return true; }
+
+void UAFLCosmeticLoadoutComponent::ServerEquipWearable_Implementation(const FName CosmeticId)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(this);
+	const FAFLCatalogEntry* Row = Cat ? Cat->FindEntry(CosmeticId) : nullptr;
+	if (!Row)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[AFLWearable] REFUSED id=%s -- no catalog row. Nothing equipped."), *CosmeticId.ToString());
+		return;
+	}
+
+	// OWNERSHIP IS CHECKED HERE, not upstream in the UI. These are capped, paid rows: a client that
+	// never opened the store can still send this RPC, and the loadout's owned-only filter is a
+	// courtesy to the player, not a boundary.
+	const UAFLWalletComponent* Wallet = GetWalletComponent();
+	if (!Wallet || !Wallet->OwnsCosmetic(CosmeticId))
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[AFLWearable] REFUSED id=%s -- not owned by this player. Nothing equipped."), *CosmeticId.ToString());
+		return;
+	}
+
+	FString Reason;
+	const EAFLAccessorySlot Target = ResolveWearableSlot(*Row, Reason);
+	if (Target == EAFLAccessorySlot::MAX)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[AFLWearable] REFUSED id=%s -- %s. Nothing equipped."), *CosmeticId.ToString(), *Reason);
+		return;
+	}
+
+	UE_LOG(LogAFLCombat, Log, TEXT("[AFLWearable] id=%s -> slot=%d (socket %s)"),
+		*CosmeticId.ToString(), static_cast<int32>(Target), *AFLAccessorySockets::ResolveSocket(Target).ToString());
+
+	// DELEGATES INTO THE EXISTING PATH rather than writing the slot here: the socket-exists guard and
+	// the single ServerSetCosmeticSelection commit both live there, and a second write route would be
+	// a second set of rules to keep in agreement.
+	ServerSetAccessory_Implementation(Target, CosmeticId);
+}
+
 void UAFLCosmeticLoadoutComponent::RefreshStickers() const
 {
 	// The loadout is on the PlayerState; the parts hang off the PAWN. Walking the wrong one finds

@@ -449,10 +449,19 @@ void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrenc
 	// MINT -> DEDUCT -> GRANT children -> REFUND-on-fail atomically, reading the children from the
 	// mint-ledger row. Note a GrantedFree bundle never reaches here: it is refused one line above,
 	// which is correct -- sponsor pairs are GRANTED, not bought.
-	if (Entry->Type == EAFLCosmeticType::Bundle)
+	//
+	// ROUTED BY CAP, NOT BY TYPE. A capped row is sold by the mint ledger whatever kind of thing it is.
+	// The jewellery SKUs are Type==Accessory with a hundred or a thousand units each; sending them to
+	// PurchaseItem would have sold them without limit while the ledger sat at MintedCount 0 -- and that
+	// zero would have read as "none sold yet" rather than "the cap is not being consulted".
+	//
+	// MintCap here is a ROUTING fact, not an enforcement one: the server reads the real cap from the
+	// ledger row and never trusts this number. Only its being non-zero is load-bearing.
+	const bool bLedgerBacked = (Entry->Type == EAFLCosmeticType::Bundle) || (Entry->MintCap > 0);
+	if (bLedgerBacked)
 	{
-		UE_LOG(LogAFLWalletDiag, Log, TEXT("%s[Wallet] BUNDLE route %s -> ServerRequestBundlePurchase (NOT PurchaseItem)"),
-			*WalletPrefix(this), *CosmeticId.ToString());
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%s[Wallet] LEDGER route %s (type=%d cap=%d) -> ServerRequestBundlePurchase (NOT PurchaseItem)"),
+			*WalletPrefix(this), *CosmeticId.ToString(), static_cast<int32>(Entry->Type), Entry->MintCap);
 		ServerRequestBundlePurchase(CosmeticId);
 		if (OnComplete) { OnComplete(true); }   // request accepted; the GRANT is asserted server-side
 		return;
@@ -511,7 +520,15 @@ void UAFLWalletComponent::ServerRequestBundlePurchase_Implementation(FName Bundl
 	const UAFLCosmeticCatalogSubsystem* BundleCatalog = GetCatalog();
 	const FAFLCatalogEntry* Entry = BundleCatalog ? BundleCatalog->FindEntry(BundleId) : nullptr;
 	if (!Entry)                                  { UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- not in catalog"), *WalletPrefix(this), *BundleId.ToString()); return; }
-	if (Entry->Type != EAFLCosmeticType::Bundle) { UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- not a Bundle row"), *WalletPrefix(this), *BundleId.ToString()); return; }
+	// MATCHES THE ROUTER ABOVE. If this still tested Type alone, a capped Accessory would route here
+	// correctly and then be refused for not being a Bundle -- an unbuyable item with a server-side
+	// warning as its only symptom.
+	if (Entry->Type != EAFLCosmeticType::Bundle && Entry->MintCap <= 0)
+	{
+		UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- neither a Bundle row nor capped"),
+			*WalletPrefix(this), *BundleId.ToString());
+		return;
+	}
 	if (!Entry->bTransactable)                   { UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- not transactable"), *WalletPrefix(this), *BundleId.ToString()); return; }
 	if (Entry->Acquisition == EAFLAcquisition::GrantedFree) { UE_LOG(LogAFLWalletDiag, Warning, TEXT("%sBUNDLE REFUSED %s -- GrantedFree is granted, not bought"), *WalletPrefix(this), *BundleId.ToString()); return; }
 

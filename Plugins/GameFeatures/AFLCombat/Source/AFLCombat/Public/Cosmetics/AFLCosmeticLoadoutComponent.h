@@ -141,6 +141,35 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, Category = "AFL|Accessory")
 	void ServerClearAccessory(EAFLAccessorySlot Slot);
 
+	/**
+	 * EQUIP BY CATALOG ID, LETTING THE SERVER CHOOSE THE SLOT. The client cannot name a slot here, and
+	 * that is the point: an either-side wrist piece has no slot until the server looks at what is
+	 * already worn, so a client-chosen slot would either be a guess or an authority the client does
+	 * not have. ServerSetAccessory stays for the slot-known case; this is the wearable path.
+	 *
+	 * REFUSES, NEVER SUBSTITUTES. Unowned, unknown, slotless, a pendant with no chain, or a wrist piece
+	 * with no open side are all refusals with a logged reason -- never a silent swap of something the
+	 * player chose deliberately, which they could not undo because nothing would say what was dropped.
+	 */
+	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, Category = "AFL|Accessory")
+	void ServerEquipWearable(FName CosmeticId);
+
+	/**
+	 * IS THIS SLOT'S CONTENT DRAWABLE RIGHT NOW? Distinct from "is it equipped": a pendant whose chain
+	 * has been un-equipped is STILL HELD in its slot and simply stops rendering. Removing it instead
+	 * would destroy a choice the player made in response to an unrelated one, and re-equipping the
+	 * chain could not put it back.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Accessory")
+	bool IsAccessorySlotRenderable(EAFLAccessorySlot Slot) const;
+
+	/**
+	 * WHERE WOULD THIS ROW GO? Pure, authority-side resolution, factored out so the equip and any test
+	 * or UI preview ask the SAME function rather than two implementations of one rule. Returns MAX and
+	 * fills OutReason when the answer is "nowhere".
+	 */
+	EAFLAccessorySlot ResolveWearableSlot(const FAFLCatalogEntry& Row, FString& OutReason) const;
+
 	// --- CC-4.2 LAPSE RULE ---------------------------------------------------------------------
 	// FREEZE, NEVER MUTATE. What a lapse takes away is the ABILITY TO CHANGE, never the work already
 	// done. Applied colours stay applied (ResolveInto reads values frozen at save and never
