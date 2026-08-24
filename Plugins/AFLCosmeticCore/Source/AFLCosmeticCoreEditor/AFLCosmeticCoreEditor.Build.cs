@@ -29,5 +29,18 @@ public class AFLCosmeticCoreEditor : ModuleRules
 				"Engine", // UBlueprint, UBlueprintFunctionLibrary
 			}
 		);
+
+		// CC-8 AFLAnimWiringLibrary: authoring an AnimDynamics post-process AnimGraph in C++, because the
+		// pose-link connection (UEdGraphSchema::TryCreateConnection) is C++-only. These are all editor
+		// modules -- this module is already Type=Editor and never ships.
+		PrivateDependencyModuleNames.AddRange(
+			new string[]
+			{
+				"UnrealEd",         // FBlueprintEditorUtils, FKismetEditorUtilities
+				"AnimGraph",        // UAnimGraphNode_AnimDynamics/_Root, UAnimationGraphSchema
+				"AnimGraphRuntime", // FAnimNode_AnimDynamics
+				"BlueprintGraph",   // EdGraph node/pin plumbing
+			}
+		);
 	}
 }
