@@ -17,6 +17,7 @@
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Cosmetics/AFLAccessoryPartActor.h"   // CC-8: the wrist orientation assert
 #include "Cosmetics/AFLAccessoryChainActor.h"    // CC-8: JewelProof recurses chain->pendant
+#include "GameFramework/GameStateBase.h"      // CC-8: PlayerArray finds OBSERVED players
 #include "Kismet/GameplayStatics.h"   // CC-X30 relaunch arm: DoesSaveGameExist, the mirror-absent discriminator            // S-ECON-WALLET: balance/gate/earn-spend cheats
 #include "UI/AFLW_LoadoutBase.h"
 #include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
@@ -3303,6 +3304,40 @@ namespace
 			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[FREELINT] free=%d freeTransactable=%d paidTransactable=%d %s"),
 				FreeRows, FreeTransactable, PaidTransactable, bOk ? TEXT("PASS") : TEXT("FAIL"));
 		}
+
+		// --- ARTLINT: which rows are riding placeholder art? ----------------------------------------
+		//
+		// bPlaceholderArt is an authored fact with a false default, so a row that SHOULD carry it and
+		// does not is indistinguishable from a finished one. Nothing in code can find that. What code
+		// CAN do is refuse to let a mark that WAS made go quiet -- so every marked row is named here,
+		// every run, and shipping one becomes a decision somebody has to make out loud.
+		//
+		// This is not a PASS/FAIL arm. A marked row is correct behaviour, not a defect; the defect
+		// would be a marked row nobody remembered. So it reports, and the number is the point.
+		{
+			int32 Rows = 0, Placeholder = 0;
+			for (int32 T = 0; T < (TypeEnum ? TypeEnum->NumEnums() : 0); ++T)
+			{
+				TArray<const FAFLCatalogEntry*> OfType;
+				Catalog->GetEntriesByType(static_cast<EAFLCosmeticType>(TypeEnum->GetValueByIndex(T)), OfType);
+				for (const FAFLCatalogEntry* R : OfType)
+				{
+					if (!R) { continue; }
+					++Rows;
+					if (R->bPlaceholderArt)
+					{
+						++Placeholder;
+						Ar.Logf(TEXT("  PLACEHOLDER-ART %s -- withheld from store AND refused on purchase"),
+							*R->CosmeticId.ToString());
+						UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[ARTLINT]   PLACEHOLDER-ART %s"),
+							*R->CosmeticId.ToString());
+					}
+				}
+			}
+			// scanned=0 and placeholder=0 must not read the same as scanned=329 and placeholder=0.
+			Ar.Logf(TEXT("AFL_TEST[ARTLINT] scanned=%d placeholderArt=%d"), Rows, Placeholder);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[ARTLINT] scanned=%d placeholderArt=%d"), Rows, Placeholder);
+		}
 	}
 
 	// --- CC-3 BUILD PROOF -----------------------------------------------------------------------------
@@ -5626,6 +5661,7 @@ namespace
 	{
 		FString Label;
 		bool    bClient = false;
+		bool    bDedicated = false;   // Lyra spawns NO cosmetic parts here -- an engine guarantee, asserted below
 		APawn*  Pawn = nullptr;
 		TArray<FJewelPart> Parts;
 
@@ -5691,16 +5727,22 @@ namespace
 			UWorld* W = Ctx.World();
 			if (!W || !W->IsGameWorld()) { continue; }
 			const ENetMode NM = W->GetNetMode();
-			for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
+			// GameState->PlayerArray, NOT GetPlayerControllerIterator. On a client the controller
+			// iterator yields only LOCALLY CONTROLLED players, so the OBSERVED player -- the one whose
+			// jewellery the second client is supposed to be looking at -- was invisible to this walk,
+			// and the two-client run silently measured one client. PlayerArray holds every player that
+			// world knows about, controlled locally or not.
+			AGameStateBase* GS = W->GetGameState();
+			if (!GS) { continue; }
+			for (APlayerState* PS : GS->PlayerArray)
 			{
-				APlayerController* PC = It->Get();
-				APlayerState* PS = PC ? PC->PlayerState : nullptr;
 				if (!PS || PS->GetPlayerId() != PlayerId) { continue; }
 				APawn* Pawn = PS->GetPawn();
 				if (!Pawn) { continue; }
 				FJewelWorld JW;
 				JW.Label = FString::Printf(TEXT("%s:%s"), *W->GetName(), AFLNetModeName(NM));
 				JW.bClient = (NM == NM_Client);
+				JW.bDedicated = (NM == NM_DedicatedServer);
 				JW.Pawn = Pawn;
 				AFLCollectParts(Pawn, JW.Parts);
 				Out.Add(JW);
@@ -5904,40 +5946,52 @@ namespace
 			}
 			case 7:
 			{
-				// THE REPLICATION ARM, and the one that makes a miss attributable. Every world holding
-				// this player must AGREE on which sockets are occupied. A client that shows the chain but
-				// not the pendant fails here and NAMES ITSELF -- which is exactly the defect the first cut
-				// could only report as an unexplained FAIL on arm 2.
-				const FJewelWorld* Auth = nullptr;
-				for (const FJewelWorld& JW : Worlds) { if (!JW.bClient) { Auth = &JW; break; } }
+				// THE REPLICATION ARM. Clients are compared to EACH OTHER, never to the server.
+				//
+				// Lyra does not spawn cosmetic parts on a dedicated server at all
+				// (LyraPawnComponent_CharacterParts.cpp:157 guards on !IsNetMode(NM_DedicatedServer)),
+				// so requiring the server to match a client made this arm unpassable by construction.
+				// That guarantee is now asserted in the direction it actually holds: a dedicated world
+				// must carry ZERO parts, which would catch the day the engine changes its mind.
+				//
+				// A client that shows the chain but not the pendant fails HERE and NAMES ITSELF.
+				const FJewelWorld* Ref = nullptr;
 				int32 Clients = 0, Diverged = 0;
 				FString Which;
-				if (Auth)
+				for (const FJewelWorld& JW : Worlds)
 				{
-					for (const FJewelWorld& JW : Worlds)
-					{
-						if (!JW.bClient) { continue; }
-						++Clients;
-						const bool bSame =
-							JW.Has(NeckS) == Auth->Has(NeckS) && JW.Has(PendS) == Auth->Has(PendS) &&
-							JW.Has(WristLS) == Auth->Has(WristLS) && JW.Has(WristRS) == Auth->Has(WristRS);
-						if (!bSame) { ++Diverged; Which += FString::Printf(TEXT("%s "), *JW.Label); }
-					}
+					if (!JW.bClient) { continue; }
+					++Clients;
+					if (!Ref) { Ref = &JW; continue; }
+					const bool bSame =
+						JW.Has(NeckS) == Ref->Has(NeckS) && JW.Has(PendS) == Ref->Has(PendS) &&
+						JW.Has(WristLS) == Ref->Has(WristLS) && JW.Has(WristRS) == Ref->Has(WristRS);
+					if (!bSame) { ++Diverged; Which += FString::Printf(TEXT("%s "), *JW.Label); }
 				}
-				if (Clients == 0)
+
+				// the server's zero is a POSITIVE check, not an exemption
+				bool bServerClean = true;
+				for (const FJewelWorld& JW : Worlds)
 				{
-					// NOT a silent skip. Standalone PIE cannot answer the replication question at all, and
-					// an instrument that reported PASS here would be claiming a proof it never ran.
-					Arm(TEXT("7 every world agrees on what is worn"), false,
-						FString::Printf(TEXT("NOT PROVEN: no client world (standalone PIE). %s -- run dedicated + 2 clients; this arm is the point of that run."),
-							*WorldsDetail()));
+					if (JW.bDedicated && JW.Parts.Num() != 0) { bServerClean = false; }
+				}
+
+				if (Clients < 2)
+				{
+					// One client cannot answer "do clients agree". Reported as NOT PROVEN rather than
+					// passed, because an instrument that cannot ask the question must not print a pass.
+					Arm(TEXT("7 all client worlds agree on what is worn"), false,
+						FString::Printf(TEXT("NOT PROVEN: found %d client world(s), need 2. %s"),
+							Clients, *WorldsDetail()));
 				}
 				else
 				{
-					Arm(TEXT("7 every world agrees on what is worn"), Diverged == 0,
-						FString::Printf(TEXT("clients=%d diverged=%d %s %s"),
+					Arm(TEXT("7 all client worlds agree on what is worn"), Diverged == 0,
+						FString::Printf(TEXT("clients=%d diverged=%d %s%s"),
 							Clients, Diverged, Diverged ? *Which : TEXT(""), *WorldsDetail()));
 				}
+				Arm(TEXT("7b dedicated server spawns no cosmetics"), bServerClean,
+					TEXT("Lyra suppresses character parts on NM_DedicatedServer -- asserted, not assumed"));
 				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL] END arms=%d passed=%d %s"),
 					*Ran, *Pass, (*Ran > 0 && *Ran == *Pass) ? TEXT("PASS") : TEXT("PARTIAL/FAIL"));
 				return false;
