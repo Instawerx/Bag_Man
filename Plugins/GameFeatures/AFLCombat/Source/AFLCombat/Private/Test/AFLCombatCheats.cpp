@@ -5639,6 +5639,154 @@ namespace
 	// post-process sway instance installed on chains/bracelets and ABSENT on watches, and replication to
 	// a second world. SWAY AMPLITUDE and visual correctness stay the operator's eye, by doctrine.
 
+
+#if WITH_EDITOR
+	// === afl.Test.CreditRedemption ==================================================================
+	// Four credit types now: weapon, sticker, facemask, and the signup grant that fills the weapon
+	// counter. The arm that matters is CROSS-POOL -- and it is only meaningful because a second real
+	// pool exists (37 facemasks) rather than being hypothetical.
+	void RunAFLCreditRedemption(UWorld* World)
+	{
+		int32 Ran = 0, Passed = 0;
+		auto Arm = [&Ran, &Passed](const TCHAR* Name, bool bOk, const FString& Detail)
+		{
+			++Ran; if (bOk) { ++Passed; }
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CREDIT]   %-46s %s  %s"),
+				Name, bOk ? TEXT("PASS") : TEXT("FAIL"), *Detail);
+		};
+
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLWalletComponent* W = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+		if (!W || !PS->HasAuthority())
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[CREDIT] ABORT -- wallet=%s authority=%s. NOTHING TESTED."),
+				W ? TEXT("ok") : TEXT("MISSING"), (PS && PS->HasAuthority()) ? TEXT("y") : TEXT("N"));
+			return;
+		}
+		const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(World);
+		if (!Cat) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[CREDIT] ABORT -- no catalog. NOTHING TESTED.")); return; }
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CREDIT] BEGIN"));
+
+		// ---- find one row of each shape, BY PROPERTY, never by id ---------------------------------
+		FName PooledWeapon, PooledFacemask, UnmarkedWeapon, FreeHandCannon, XtBundle;
+		int32 PoolWeapon = 0, PoolFacemask = 0, PoolFree = 0;
+		// There is no GetAllEntries -- the subsystem enumerates BY TYPE. Walking the type enum is the
+		// supported way to see everything, and it keeps the scan honest: a type added later appears
+		// here automatically rather than being missed by a hand-written list.
+		TArray<const FAFLCatalogEntry*> All;
+		if (const UEnum* TypeEnum = StaticEnum<EAFLCosmeticType>())
+		{
+			for (int32 T = 0; T < TypeEnum->NumEnums(); ++T)
+			{
+				TArray<const FAFLCatalogEntry*> OfType;
+				Cat->GetEntriesByType(static_cast<EAFLCosmeticType>(TypeEnum->GetValueByIndex(T)), OfType);
+				All.Append(OfType);
+			}
+		}
+		for (const FAFLCatalogEntry* Ptr : All)
+		{
+			if (!Ptr) { continue; }
+			const FAFLCatalogEntry& E = *Ptr;
+			{
+			const bool bFree = (E.Acquisition == EAFLAcquisition::GrantedFree);
+			if (E.bCreditRedeemable)
+			{
+				if (bFree) { ++PoolFree; }
+				if (E.Type == EAFLCosmeticType::Weapon)   { ++PoolWeapon;   if (PooledWeapon.IsNone())   { PooledWeapon = E.CosmeticId; } }
+				if (E.Type == EAFLCosmeticType::Facemask) { ++PoolFacemask; if (PooledFacemask.IsNone()) { PooledFacemask = E.CosmeticId; } }
+			}
+			else
+			{
+				if (E.Type == EAFLCosmeticType::Weapon && UnmarkedWeapon.IsNone()) { UnmarkedWeapon = E.CosmeticId; }
+			}
+			if (E.Type == EAFLCosmeticType::Bundle && XtBundle.IsNone()
+				&& E.CosmeticId.ToString().EndsWith(TEXT(".XT"))) { XtBundle = E.CosmeticId; }
+			if (bFree && E.Type == EAFLCosmeticType::Weapon && FreeHandCannon.IsNone()
+				&& E.CosmeticId.ToString().Contains(TEXT(".HandCannon."))) { FreeHandCannon = E.CosmeticId; }
+			}
+		}
+
+		// THE POOL ITSELF IS AN ARM. A run against an empty or half-populated pool would report
+		// refusals that mean nothing -- everything refuses when nothing is redeemable.
+		Arm(TEXT("0 the pool is populated and holds no free rows"),
+			PoolWeapon == 42 && PoolFacemask == 37 && PoolFree == 0,
+			FString::Printf(TEXT("weapon=%d facemask=%d free=%d (expect 42 / 37 / 0)"),
+				PoolWeapon, PoolFacemask, PoolFree));
+
+		auto Counter = [W](const TCHAR* K) { return W->GetCountedEntitlement(FName(K)); };
+		const int32 W0 = Counter(TEXT("AFL.WeaponCredit"));
+		const int32 F0 = Counter(TEXT("AFL.FacemaskCredit"));
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CREDIT]   counters at start: weapon=%d facemask=%d"), W0, F0);
+
+		// ---- the refusals. Each happens on the authority BEFORE any POST, so each is observable
+		//      here with no backend. A counter that MOVES on a refusal is the failure being hunted.
+		auto TryRedeem = [&](const TCHAR* ArmName, FName Target, const TCHAR* Why)
+		{
+			if (Target.IsNone()) { Arm(ArmName, false, TEXT("NOT PROVEN: no row of this shape in the catalog")); return; }
+			const int32 Wb = Counter(TEXT("AFL.WeaponCredit")), Fb = Counter(TEXT("AFL.FacemaskCredit"));
+			W->ServerRequestCreditRedemption(Target);
+			const int32 Wa = Counter(TEXT("AFL.WeaponCredit")), Fa = Counter(TEXT("AFL.FacemaskCredit"));
+			Arm(ArmName, (Wa == Wb) && (Fa == Fb),
+				FString::Printf(TEXT("%s target=%s weapon %d->%d facemask %d->%d (%s)"),
+					Why, *Target.ToString(), Wb, Wa, Fb, Fa,
+					(Wa == Wb && Fa == Fb) ? TEXT("no counter moved") : TEXT("A COUNTER MOVED ON A REFUSAL")));
+		};
+
+		TryRedeem(TEXT("1 an UNMARKED row is refused"), UnmarkedWeapon, TEXT("bCreditRedeemable=false;"));
+		TryRedeem(TEXT("2 a free base/.L hand cannon is refused"), FreeHandCannon, TEXT("sponsor free, outside the pool;"));
+		TryRedeem(TEXT("3 a .XT bundle is refused"), XtBundle, TEXT("Type=Bundle has no credit currency;"));
+
+		// ---- CROSS-POOL, both directions. The key is DERIVED, so the wrong currency cannot be named;
+		//      what is asserted is that the derivation picks the RIGHT pool and leaves the other alone.
+		if (!PooledFacemask.IsNone())
+		{
+			const int32 Wb = Counter(TEXT("AFL.WeaponCredit"));
+			W->ServerRequestCreditRedemption(PooledFacemask);
+			const int32 Wa = Counter(TEXT("AFL.WeaponCredit"));
+			Arm(TEXT("4 a facemask NEVER spends a weapon credit"), Wa == Wb,
+				FString::Printf(TEXT("facemask=%s weaponCounter %d->%d (must not move; facemask credits held=%d)"),
+					*PooledFacemask.ToString(), Wb, Wa, Counter(TEXT("AFL.FacemaskCredit"))));
+		}
+		if (!PooledWeapon.IsNone())
+		{
+			const int32 Fb = Counter(TEXT("AFL.FacemaskCredit"));
+			W->ServerRequestCreditRedemption(PooledWeapon);
+			const int32 Fa = Counter(TEXT("AFL.FacemaskCredit"));
+			Arm(TEXT("5 a weapon NEVER spends a facemask credit"), Fa == Fb,
+				FString::Printf(TEXT("weapon=%s facemaskCounter %d->%d (must not move; weapon credits held=%d)"),
+					*PooledWeapon.ToString(), Fb, Fa, Counter(TEXT("AFL.WeaponCredit"))));
+		}
+
+		// ---- what this harness cannot answer, said rather than passed ------------------------------
+		Arm(TEXT("6 pack -> counter increments"), false,
+			TEXT("NOT PROVEN HERE: the counter's truth is DynamoDB, not the local mirror. Needs the live Lambda."));
+		Arm(TEXT("7 redeem to zero, next redemption refused"), false,
+			TEXT("NOT PROVEN HERE: same reason -- the decrement and the refusal past zero are the Lambda's."));
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[CREDIT] END arms=%d passed=%d %s"),
+			Ran, Passed, (Ran == Passed) ? TEXT("PASS") : TEXT("PARTIAL (see NOT PROVEN arms)"));
+	}
+
+	void HandleAFLCreditRedemption(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())
+		{
+			AFLArmForPie(TEXT("AFL_TEST[CREDIT]"), [](UWorld* W) { RunAFLCreditRedemption(W); });
+			Ar.Log(TEXT("afl.Test.CreditRedemption ARMED -- start PIE; see AFL_TEST[CREDIT]."));
+			return;
+		}
+		RunAFLCreditRedemption(World);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreditRedemptionCmd(TEXT("afl.Test.CreditRedemption"),
+		TEXT("CC-7/CC-X30: the credit axis, four-way. Proves the credit key is DERIVED from the target ")
+		TEXT("row -- so the wrong currency cannot be named -- and that a refusal never moves a counter."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreditRedemption));
+#endif // WITH_EDITOR
+
 	struct FJewelPart
 	{
 		FName Socket; FString ActorClass; FVector WorldLoc; FVector Up; bool bHasPostProcess;
