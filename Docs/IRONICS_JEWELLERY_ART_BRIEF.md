@@ -27,7 +27,35 @@ to the socket, authored once.
 **Both chains must clear the same volume.** They share one socket. A chain that needs its own
 pendant offset cannot have one.
 
-## REQUIREMENT 2 — wrist pieces symmetric, or supplied as an L/R pair
+## REQUIREMENT 2 — chains and bracelets are SKELETAL with a bone chain; watches are RIGID
+
+Chains and bracelets get secondary motion — game-realism bounce and sway, driven by **AnimDynamics in
+a post-process AnimBP** on the accessory's own mesh. That is a spring-mass solver on a bone chain: with
+no bones there is nothing to swing, and a static mesh cannot be made to sway later without re-rigging.
+
+**This is why the requirement is here and not after the run.** Sway is only visible on a bone chain.
+Proving the mechanism on a static mesh proves nothing, and re-authoring afterwards costs a second pass
+on all ten pieces.
+
+| piece | rig | why |
+|---|---|---|
+| **Chains** | skeletal, **3–5 bones down the hanging length** | the swing happens along that chain |
+| **Bracelets** | skeletal, **small bone chain** | sway at the wrist |
+| **Watches** | **rigid — static mesh is correct** | a watch does not sway, and this is what keeps the budget honest |
+
+### `accessory_pendant` goes on the LOWEST SIMULATED bone
+
+Not the root, not a static bone. **A socket on a static bone makes the chain swing while the pendant
+hangs motionless inside it** — which reads worse than no physics at all, because the eye reads the
+contradiction rather than the motion.
+
+### Every accessory mesh needs `bEnablePostProcess` ON
+
+`bEnablePostProcess` is **false** on the character's part meshes today. An accessory whose post-process
+AnimBP never runs looks exactly like a physics failure — no sway, no error, nothing in a log. Set it
+per accessory mesh, and treat a still chain as a wiring question before an authoring one.
+
+## REQUIREMENT 3 — wrist pieces symmetric, or supplied as an L/R pair
 
 The server picks which wrist a piece goes on. **The rule is: first open side, left before right** —
 the order is fixed so the same equip twice lands the same way, and it applies to whatever is equipped,
@@ -109,6 +137,10 @@ render. The art landing does not by itself make it visible — the consumer is a
 Logged as **CC-X37** in `Docs/design/IRONICS_CHARACTER_CREATOR_SSOT.md` §11.1, where it belongs: it is
 a programme-level gap, not an art note. Third instance of built-correct-unreachable, after CC-X21 and
 CC-X32.
+
+**The physics layer sits on top of that attach path, not instead of it.** AnimDynamics runs inside the
+accessory mesh's own anim graph; it needs the mesh to exist and be attached first. Nothing in this
+section blocks the art — it blocks the pieces being *seen*.
 
 ---
 
