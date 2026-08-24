@@ -136,9 +136,13 @@ void UAFLCosmeticLoadoutComponent::BeginPlay()
 				{
 					if (UAFLCosmeticLoadoutComponent* Self = WeakThis.Get())
 					{
-						if (bFound && Self->GetOwner() && Self->GetOwner()->HasAuthority())
+						if (Self->GetOwner() && Self->GetOwner()->HasAuthority())
 						{
-							Self->Selection = Loaded;
+							if (bFound) { Self->Selection = Loaded; }
+							// IRONICS FIRST. Runs whether or not a stored selection was found: a row that
+							// predates identity assignment holds the same empty identity a missing row does,
+							// and it must not survive merely because it exists.
+							Self->ApplyDefaultIdentityIfUnset();
 							Self->NudgeControllerReapply();
 						}
 					}
@@ -485,6 +489,37 @@ IAFLCosmeticPersistence* UAFLCosmeticLoadoutComponent::GetPersistence() const
 	// LoadSelection + the RPC SaveSelection now round-trip to disk -> the loadout survives a session
 	// boundary. A1 swaps this backing (Bag_Man_Backend Lambda, server-auth) behind the SAME interface.
 	return UAFLEconomyPersistenceSubsystem::Get(this);
+}
+
+
+// The House identity. Named once, here, so "which one is first" is a single authored fact rather than
+// a literal repeated at each call site.
+namespace AFLDefaultIdentity
+{
+	static const FName Character(TEXT("AFL.Character.IRONICS"));
+	static const FName Team(TEXT("AFL.Team.IRONICS"));
+}
+
+bool UAFLCosmeticLoadoutComponent::ApplyDefaultIdentityIfUnset()
+{
+	// Only the authority may originate a selection; a client-side default would be a second source of
+	// truth for what a player is.
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return false; }
+
+	bool bChanged = false;
+	if (Selection.CharacterId.IsNone()) { Selection.CharacterId = AFLDefaultIdentity::Character; bChanged = true; }
+	if (Selection.TeamId.IsNone())      { Selection.TeamId = AFLDefaultIdentity::Team;           bChanged = true; }
+
+	if (bChanged)
+	{
+		// PRESENCE OF OUTPUT: "assigned the default" and "already had one" must not read the same, or a
+		// regression that stopped assigning would be invisible.
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("[AFLLoadout] DEFAULT IDENTITY assigned: character=%s team=%s (active=%s)"),
+			*Selection.CharacterId.ToString(), *Selection.TeamId.ToString(),
+			*Selection.GetActiveIdentityId().ToString());
+	}
+	return bChanged;
 }
 
 FAFLPlayerId UAFLCosmeticLoadoutComponent::MakePlayerId() const

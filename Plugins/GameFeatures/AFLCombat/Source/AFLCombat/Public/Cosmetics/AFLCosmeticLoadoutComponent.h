@@ -386,6 +386,23 @@ private:
 	 */
 	void RedriveAccessoryChains() const;
 
+	/**
+	 * IRONICS IS ALWAYS ASSIGNED FIRST -- the standing ruling, applied to a player who has no identity.
+	 *
+	 * Measured before writing: nothing assigned one. The selection struct defaults both TeamId and
+	 * CharacterId to NAME_None and the load path only copies a stored selection in when one is FOUND,
+	 * so a new account held no identity at all -- and ServerSetCosmeticSelection refuses a selection
+	 * whose identity is NAME_None, making a failed guard the first thing a new account could do.
+	 *
+	 * Sets BOTH axes. IdentityType chooses which of TeamId/CharacterId is live; setting only the
+	 * currently-selected one would leave the other empty and put the player back in the same state one
+	 * axis-switch later.
+	 *
+	 * IDEMPOTENT: writes only when the identity is unset, so it can never overwrite a real choice.
+	 * Returns true if it changed anything, so the caller can decide whether to persist.
+	 */
+	bool ApplyDefaultIdentityIfUnset();
+
 public:
 	/**
 	 * Tell the OWNING CLIENT why an equip was refused. Every refusal in ServerEquipWearable was a
