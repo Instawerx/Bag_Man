@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Components/ControllerComponent.h"
+#include "Cosmetics/LyraCharacterPartTypes.h"  // CC-8: FLyraCharacterPart, to remove by value
 #include "Templates/SubclassOf.h"
 #include "UObject/SoftObjectPtr.h"
 
@@ -45,7 +46,13 @@ public:
 	/** AUTHORITY: resolve this pawn's identity (PlayerState loadout selection) to a robot body class and add
 	 *  it to the pawn's customizer. The possess hook calls THIS. Idempotent-by-intent: it adds the resolved
 	 *  body once per possession (a fresh pawn starts with no parts; re-possession gets a fresh pawn). */
-	void ResolveBodyForPawn(APawn* Pawn) const;
+	void ResolveBodyForPawn(APawn* Pawn);
+
+private:
+	/** CC-8: the body part this component last added, so it can remove exactly that one. Clear-all would
+	 *  strip the accessories that now ride the same stock component. */
+	UPROPERTY(Transient)
+	FLyraCharacterPart LastAddedBody;
 
 protected:
 	virtual void BeginPlay() override;

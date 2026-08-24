@@ -7,7 +7,8 @@
 #include "Cosmetics/AFLCosmeticServices.h"
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
 #include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
-#include "Cosmetics/AFLWalletComponent.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
+#include "Cosmetics/AFLWalletComponent.h"
+#include "Cosmetics/AFLAccessoryPartComponent.h"   // CC-8: the accessory consumer             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
 #include "AFLCombat.h"
 #include "Cosmetics/AFLCharacterPartActor.h"           // CC-5.1: slot-1 master lookup
 #include "Components/MeshComponent.h"
@@ -533,8 +534,21 @@ void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const
 			// #43 WeaponId consumer: equip the selected weapon (D2 replace) on the SAME spine. Independent
 			// subsystem (equipment, not material) -> order-free; server-only + Lyra fast-array-replicated.
 			SkinCtrl->RefreshWeaponForPawn(Pawn);
-				SkinCtrl->RefreshWeaponSkinForPawn(Pawn); // weapon COLOR (WeaponId suffix) -- AFTER equip so the mesh exists
-				SkinCtrl->RefreshBeamColorForPawn(Pawn);  // INDEPENDENT BeamId axis -- beam applies to ANY equipped weapon
+			SkinCtrl->RefreshWeaponSkinForPawn(Pawn); // weapon COLOR (WeaponId suffix) -- AFTER equip so the mesh exists
+			SkinCtrl->RefreshBeamColorForPawn(Pawn);  // INDEPENDENT BeamId axis -- beam applies to ANY equipped weapon
+		}
+	}
+
+	// CC-8: the accessory axis rides the SAME re-drive. Equipping a chain is a selection change like any
+	// other, so it reaches the pawn by the path every other axis already uses rather than a private one.
+	// Its own if(), not the skin block's: the two components are granted independently, and an accessory
+	// must not depend on a skin controller being present.
+	if (UAFLAccessoryPartComponent* AccCtrl =
+			OwningController->FindComponentByClass<UAFLAccessoryPartComponent>())
+	{
+		if (APawn* Pawn = OwningController->GetPawn())
+		{
+			AccCtrl->RefreshAccessoriesForPawn(Pawn);
 		}
 	}
 }

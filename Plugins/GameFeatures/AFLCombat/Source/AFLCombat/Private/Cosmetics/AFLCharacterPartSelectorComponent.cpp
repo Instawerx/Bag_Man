@@ -68,7 +68,7 @@ FName UAFLCharacterPartSelectorComponent::ResolveIdentityId(APawn* Pawn) const
 	return Loadout ? Loadout->GetSelection().GetActiveIdentityId() : NAME_None;
 }
 
-void UAFLCharacterPartSelectorComponent::ResolveBodyForPawn(APawn* Pawn) const
+void UAFLCharacterPartSelectorComponent::ResolveBodyForPawn(APawn* Pawn)
 {
 	if (!Pawn)
 	{
@@ -156,7 +156,14 @@ void UAFLCharacterPartSelectorComponent::ResolveBodyForPawn(APawn* Pawn) const
 	// SOLE body source on this stock comp (static CharacterParts pin is empty), so clearing all is correct
 	// here. (If a future non-body part ever rides this same stock comp, switch to handle-tracked single
 	// removal instead of clear-all.)
-	UFunction* RemoveAllFn = StockPartsComp ? StockPartsComp->FindFunction(FName(TEXT("RemoveAllCharacterParts"))) : nullptr;
+	// CC-8: REMOVE THE BODY, NOT EVERYTHING. This used RemoveAllCharacterParts, and the comment above
+	// predicted exactly what would break: "If a future non-body part ever rides this same stock comp,
+	// switch to handle-tracked single removal instead of clear-all." Accessories now ride it, and a
+	// clear-all here would strip a player's chain and wrist pieces on every body re-resolve.
+	//
+	// RemoveCharacterPart takes the part BY VALUE, so each axis removes exactly its own without needing
+	// a handle -- which is why this is a swap rather than a bookkeeping rewrite.
+	UFunction* RemoveAllFn = StockPartsComp ? StockPartsComp->FindFunction(FName(TEXT("RemoveCharacterPart"))) : nullptr;
 
 	if (AFLSkinDiag::IsOn())
 	{
@@ -170,10 +177,13 @@ void UAFLCharacterPartSelectorComponent::ResolveBodyForPawn(APawn* Pawn) const
 
 	if (StockPartsComp && AddFn)
 	{
-		// Clear any previously-added body first (idempotent replace). RemoveAllCharacterParts takes no args.
-		if (RemoveAllFn)
+		// Take off the body we last added (idempotent replace). RemoveCharacterPart takes the part by
+		// value; LastAddedBody is empty on the first resolve, and removing an absent part is a no-op.
+		if (RemoveAllFn && LastAddedBody.PartClass != nullptr)
 		{
-			StockPartsComp->ProcessEvent(RemoveAllFn, nullptr);
+			struct FRemoveArgs { FLyraCharacterPart Part; };
+			FRemoveArgs RArgs; RArgs.Part = LastAddedBody;
+			StockPartsComp->ProcessEvent(RemoveAllFn, &RArgs);
 		}
 
 		// Arg layout MUST match the UFUNCTION signature: a single `FLyraCharacterPart NewPart`.
@@ -183,5 +193,6 @@ void UAFLCharacterPartSelectorComponent::ResolveBodyForPawn(APawn* Pawn) const
 		Args.NewPart.SocketName = NAME_None;
 		Args.NewPart.CollisionMode = ECharacterCustomizationCollisionMode::NoCollision;
 		StockPartsComp->ProcessEvent(AddFn, &Args);
+		LastAddedBody = Args.NewPart;
 	}
 }

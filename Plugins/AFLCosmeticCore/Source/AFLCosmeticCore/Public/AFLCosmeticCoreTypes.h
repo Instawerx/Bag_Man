@@ -405,6 +405,22 @@ struct FAFLCatalogEntry
 	EAFLWearSlot WearSlot = EAFLWearSlot::Unset;
 
 	/**
+	 * THE ACTOR THIS ROW SPAWNS AS A CHARACTER PART. Meaningful for accessories.
+	 *
+	 * ON THE ROW RATHER THAN IN A COMPONENT MAP, unlike the body axis. A body is one-of-N chosen per
+	 * player and a map reads naturally; accessories are an open set that grows every time a piece is
+	 * authored, and a map would mean a component edit per SKU -- a step someone eventually forgets,
+	 * leaving an owned, equipped, invisible item.
+	 *
+	 * SOFT, so a catalog row does not drag every jewellery mesh into memory to answer a price query.
+	 * Unset means the row cannot be worn yet; the consumer skips it and says so rather than silently
+	 * attaching nothing.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Wearable",
+		meta = (EditCondition = "WearSlot != EAFLWearSlot::Unset"))
+	TSoftClassPtr<AActor> AccessoryPartClass;
+
+	/**
 	 * CAN THIS PIECE GO ON EITHER WRIST? A property of the ART, not of the player's preference: a
 	 * symmetric mesh fits both wrists, a handed one (crown on one side, clasp running one way) reads as
 	 * broken mirrored. True means the server picks whichever wrist is open; false means it goes on
