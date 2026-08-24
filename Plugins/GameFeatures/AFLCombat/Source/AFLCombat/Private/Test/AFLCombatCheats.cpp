@@ -16,6 +16,7 @@
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Cosmetics/AFLAccessoryPartActor.h"   // CC-8: the wrist orientation assert
+#include "Cosmetics/AFLAccessoryChainActor.h"    // CC-8: JewelProof recurses chain->pendant
 #include "Kismet/GameplayStatics.h"   // CC-X30 relaunch arm: DoesSaveGameExist, the mirror-absent discriminator            // S-ECON-WALLET: balance/gate/earn-spend cheats
 #include "UI/AFLW_LoadoutBase.h"
 #include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
@@ -5584,6 +5585,256 @@ namespace
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLLedgerVisibility));
 #endif // WITH_EDITOR
 
+
+#if WITH_EDITOR
+	// Forward-declared; AFLArmForPie is defined further down (grew out of the FBIK probe).
+	static bool AFLArmForPie(const TCHAR* Tag, TFunction<void(UWorld*)> Run);
+
+	// === afl.Test.JewelProof =======================================================================
+	// The render-level proof for the accessory axis. afl.Test.Wearables proved SELECTION resolution;
+	// this proves the parts actually SPAWN, ATTACH at the right sockets, and replicate -- the layer no
+	// data check could see. Tick-stepped: each phase drives an equip on the authority pawn, then waits
+	// for replication + child-actor spawn before asserting. Arms before PIE; reads nothing mid-run.
+	//
+	// WHAT IT PROVES vs WHAT THE OPERATOR WATCHES: this asserts the PLUMBING -- part present, correct
+	// socket, world transform not at the origin, pendant parented to the CHAIN not the pawn, the
+	// post-process sway instance installed on chains/bracelets and ABSENT on watches, and replication to
+	// a second world. SWAY AMPLITUDE and visual correctness stay the operator's eye, by doctrine.
+
+	struct FJewelPart { FName Socket; FString ActorClass; FVector WorldLoc; bool bHasPostProcess; };
+
+	// Every accessory part actor attached to a pawn. Chain/watch/bracelet ride the pawn; the pendant
+	// rides the chain, so it is found by recursing into each chain actor's own child-actor components.
+	static void AFLCollectParts(APawn* Pawn, TArray<FJewelPart>& Out)
+	{
+		if (!Pawn) { return; }
+		TArray<UChildActorComponent*> CACs;
+		Pawn->GetComponents<UChildActorComponent>(CACs);
+		for (UChildActorComponent* CAC : CACs)
+		{
+			AActor* Child = CAC ? CAC->GetChildActor() : nullptr;
+			AAFLAccessoryPartActor* Part = Cast<AAFLAccessoryPartActor>(Child);
+			if (!Part) { continue; }
+
+			FJewelPart P;
+			P.Socket = CAC->GetAttachSocketName();
+			P.ActorClass = Child->GetClass()->GetName();
+			P.WorldLoc = Child->GetActorLocation();
+			P.bHasPostProcess = false;
+
+			TArray<USkeletalMeshComponent*> SKMs;
+			Child->GetComponents<USkeletalMeshComponent>(SKMs);
+			for (USkeletalMeshComponent* SK : SKMs)
+			{
+				if (SK && SK->GetPostProcessInstance()) { P.bHasPostProcess = true; }
+			}
+			Out.Add(P);
+
+			// the pendant hangs off the chain actor -- recurse one level into its child-actor comps
+			TArray<UChildActorComponent*> Inner;
+			Child->GetComponents<UChildActorComponent>(Inner);
+			for (UChildActorComponent* IC : Inner)
+			{
+				if (AAFLAccessoryPartActor* Pend = Cast<AAFLAccessoryPartActor>(IC->GetChildActor()))
+				{
+					FJewelPart PP;
+					PP.Socket = IC->GetAttachSocketName();
+					PP.ActorClass = Pend->GetClass()->GetName();
+					PP.WorldLoc = Pend->GetActorLocation();
+					PP.bHasPostProcess = false;
+					Out.Add(PP);
+				}
+			}
+		}
+	}
+
+	// The pawn where rendering actually happens: on a dedicated server nothing spawns, so prefer a
+	// client world's copy of this player; fall back to the authority pawn when it is standalone.
+	static APawn* AFLFindRenderPawn(int32 PlayerId, bool& bOutIsClientWorld)
+	{
+		bOutIsClientWorld = false;
+		if (!GEngine) { return nullptr; }
+		APawn* Fallback = nullptr;
+		for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+		{
+			UWorld* W = Ctx.World();
+			if (!W || !W->IsGameWorld()) { continue; }
+			const ENetMode NM = W->GetNetMode();
+			for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
+			{
+				APlayerController* PC = It->Get();
+				APlayerState* PS = PC ? PC->PlayerState : nullptr;
+				if (!PS || PS->GetPlayerId() != PlayerId) { continue; }
+				APawn* Pawn = PS->GetPawn();
+				if (!Pawn) { continue; }
+				if (NM == NM_Client) { bOutIsClientWorld = true; return Pawn; }  // best: real client render
+				if (NM != NM_DedicatedServer) { Fallback = Pawn; }               // standalone renders here
+			}
+		}
+		return Fallback;
+	}
+
+	void RunAFLJewelProof(UWorld* World)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* L = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		UAFLWalletComponent* W = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+		if (!L || !W || !PS->HasAuthority())
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[JEWEL] ABORT -- loadout=%s wallet=%s authority=%s. NOTHING TESTED."),
+				L ? TEXT("ok") : TEXT("MISSING"), W ? TEXT("ok") : TEXT("MISSING"),
+				(PS && PS->HasAuthority()) ? TEXT("y") : TEXT("N"));
+			return;
+		}
+		const int32 PlayerId = PS->GetPlayerId();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL] BEGIN on %s (playerId=%d)"), *GetNameSafe(PC->GetPawn()), PlayerId);
+
+		const FName CHAIN(TEXT("AFL.Accessory.Chain.FoundersLink"));
+		const FName PEND(TEXT("AFL.Accessory.Pendant.TTG"));
+		const FName WATCH(TEXT("AFL.Accessory.Watch.Quantum"));
+		const FName BRACE(TEXT("AFL.Accessory.Bracelet.QuantumUniverse"));
+		const FName WATCH2(TEXT("AFL.Accessory.Watch.RareUniverse"));
+		for (const FName Id : { CHAIN, PEND, WATCH, BRACE, WATCH2 }) { W->DebugGrantOwnership(Id); }
+		for (int32 i = 0; i < (int32)EAFLAccessorySlot::MAX; ++i) { L->ServerClearAccessory((EAFLAccessorySlot)i); }
+
+		TSharedPtr<int32> Phase = MakeShared<int32>(0);
+		TSharedPtr<int32> Sub = MakeShared<int32>(0);
+		TSharedPtr<int32> Ran = MakeShared<int32>(0);
+		TSharedPtr<int32> Pass = MakeShared<int32>(0);
+		TWeakObjectPtr<UAFLCosmeticLoadoutComponent> WL(L);
+		const int32 WAIT = 30;   // ticks between phases -- replication + child-actor spawn need frames
+
+		auto Arm = [Ran, Pass](const TCHAR* N, bool ok, const FString& d)
+		{
+			(*Ran)++; if (ok) { (*Pass)++; }
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL]   %-40s %s  %s"), N, ok ? TEXT("PASS") : TEXT("FAIL"), *d);
+		};
+
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+			[Phase, Sub, Ran, Pass, WL, PlayerId, Arm, CHAIN, PEND, WATCH, BRACE, WATCH2, WAIT](float) -> bool
+		{
+			UAFLCosmeticLoadoutComponent* L = WL.Get();
+			if (!L) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[JEWEL] loadout gone -- END")); return false; }
+			(*Sub)++;
+			if ((*Sub) < WAIT) { return true; }
+			*Sub = 0;
+
+			bool bClientWorld = false;
+			APawn* RP = AFLFindRenderPawn(PlayerId, bClientWorld);
+			TArray<FJewelPart> Parts; AFLCollectParts(RP, Parts);
+			auto AtSocket = [&Parts](FName S) -> const FJewelPart*
+			{
+				for (const FJewelPart& P : Parts) { if (P.Socket == S) { return &P; } }
+				return nullptr;
+			};
+
+			switch (*Phase)
+			{
+			case 0:
+				L->ServerEquipWearable(CHAIN); (*Phase)++; break;
+
+			case 1:
+			{
+				const FJewelPart* Neck = AtSocket(FName(TEXT("accessory_neck")));
+				Arm(TEXT("1 chain renders at neck"), Neck != nullptr,
+					FString::Printf(TEXT("renderPawn=%s clientWorld=%d parts=%d"), *GetNameSafe(RP), bClientWorld ? 1 : 0, Parts.Num()));
+				if (Neck)
+				{
+					Arm(TEXT("1b chain not at world origin"), !Neck->WorldLoc.IsNearlyZero(),
+						FString::Printf(TEXT("loc=%s"), *Neck->WorldLoc.ToCompactString()));
+					Arm(TEXT("1c chain sway instance installed"), Neck->bHasPostProcess, TEXT("post-process AnimDynamics live"));
+				}
+				L->ServerEquipWearable(PEND); (*Phase)++; break;
+			}
+			case 2:
+			{
+				const FJewelPart* Pend = AtSocket(FName(TEXT("accessory_pendant")));
+				Arm(TEXT("2 pendant renders on the chain"), Pend != nullptr,
+					FString::Printf(TEXT("parts=%d (pendant socket is on the chain mesh, not the pawn)"), Parts.Num()));
+				if (Pend)
+				{
+					Arm(TEXT("2b pendant not at origin"), !Pend->WorldLoc.IsNearlyZero(),
+						FString::Printf(TEXT("loc=%s"), *Pend->WorldLoc.ToCompactString()));
+				}
+				L->ServerClearAccessory(EAFLAccessorySlot::Neck); (*Phase)++; break;
+			}
+			case 3:
+			{
+				const bool bNoChain = AtSocket(FName(TEXT("accessory_neck"))) == nullptr;
+				const bool bNoPend = AtSocket(FName(TEXT("accessory_pendant"))) == nullptr;
+				Arm(TEXT("3 un-equip chain removes chain+pendant"), bNoChain && bNoPend,
+					FString::Printf(TEXT("chainGone=%d pendantGone=%d"), bNoChain ? 1 : 0, bNoPend ? 1 : 0));
+				const FAFLAccessoryPlacement* Keep = L->GetSelection().AccessorySet.Find(EAFLAccessorySlot::Pendant);
+				Arm(TEXT("3b selection still holds the pendant"), Keep && Keep->IsSet() && Keep->AccessoryId == PEND,
+					FString::Printf(TEXT("selection pendant=%s"), Keep ? *Keep->AccessoryId.ToString() : TEXT("None")));
+				L->ServerEquipWearable(CHAIN); (*Phase)++; break;
+			}
+			case 4:
+			{
+				const bool bChain = AtSocket(FName(TEXT("accessory_neck"))) != nullptr;
+				const bool bPend = AtSocket(FName(TEXT("accessory_pendant"))) != nullptr;
+				Arm(TEXT("4 re-equip restores chain+pendant"), bChain && bPend,
+					FString::Printf(TEXT("chain=%d pendant=%d"), bChain ? 1 : 0, bPend ? 1 : 0));
+				L->ServerEquipWearable(WATCH); L->ServerEquipWearable(BRACE); (*Phase)++; break;
+			}
+			case 5:
+			{
+				const FJewelPart* WristL = AtSocket(FName(TEXT("accessory_wrist_l")));
+				const FJewelPart* WristR = AtSocket(FName(TEXT("accessory_wrist_r")));
+				Arm(TEXT("5 both wrists occupied"), WristL && WristR,
+					FString::Printf(TEXT("wristL=%d wristR=%d"), WristL ? 1 : 0, WristR ? 1 : 0));
+				bool bWatchRigid = false, bBraceSways = false;
+				for (const FJewelPart* P : { WristL, WristR })
+				{
+					if (!P) { continue; }
+					if (P->ActorClass.Contains(TEXT("Watch"))) { bWatchRigid = !P->bHasPostProcess; }
+					if (P->ActorClass.Contains(TEXT("Bracelet"))) { bBraceSways = P->bHasPostProcess; }
+				}
+				Arm(TEXT("5b watch rigid, bracelet sways"), bWatchRigid && bBraceSways,
+					FString::Printf(TEXT("watchRigid=%d braceSways=%d"), bWatchRigid ? 1 : 0, bBraceSways ? 1 : 0));
+				L->ServerEquipWearable(WATCH2); (*Phase)++; break;
+			}
+			case 6:
+			{
+				int32 WristParts = 0;
+				if (AtSocket(FName(TEXT("accessory_wrist_l")))) { WristParts++; }
+				if (AtSocket(FName(TEXT("accessory_wrist_r")))) { WristParts++; }
+				Arm(TEXT("6 third wrist refused (still 2)"), WristParts == 2,
+					FString::Printf(TEXT("wristParts=%d"), WristParts));
+				(*Phase)++; break;
+			}
+			case 7:
+			{
+				Arm(TEXT("7 parts render in a client world"), bClientWorld && Parts.Num() >= 3,
+					bClientWorld ? FString::Printf(TEXT("client-world parts=%d"), Parts.Num())
+					: TEXT("SKIP: no in-process client world (standalone PIE) -- run dedicated + 2 clients"));
+				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL] END arms=%d passed=%d %s"),
+					*Ran, *Pass, (*Ran > 0 && *Ran == *Pass) ? TEXT("PASS") : TEXT("PARTIAL/FAIL"));
+				return false;
+			}
+			}
+			return true;
+		}), 0.016f);
+	}
+
+	void HandleAFLJewelProof(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())
+		{
+			AFLArmForPie(TEXT("AFL_TEST[JEWEL]"), [](UWorld* Wd) { RunAFLJewelProof(Wd); });
+			Ar.Log(TEXT("afl.Test.JewelProof ARMED -- start PIE; see AFL_TEST[JEWEL]."));
+			return;
+		}
+		RunAFLJewelProof(World);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLJewelProofCmd(TEXT("afl.Test.JewelProof"),
+		TEXT("CC-8 render proof: drives equips through ServerEquipWearable and asserts the parts SPAWN, ")
+		TEXT("attach at the right sockets, pendant rides the chain, un-equip/re-equip, wrist selection + ")
+		TEXT("third refused, and replication to a client world. Arms before PIE. Operator watches sway."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLJewelProof));
+#endif // WITH_EDITOR
 
 #if WITH_EDITOR
 	// Defined further down, where it grew out of the FBIK probe. Forward-declared rather than moved:
