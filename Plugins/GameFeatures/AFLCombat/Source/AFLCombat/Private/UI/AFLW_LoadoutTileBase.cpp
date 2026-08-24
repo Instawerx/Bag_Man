@@ -234,6 +234,25 @@ void UAFLW_LoadoutTileBase::SetTileData(EAFLLoadoutAxis InAxis, FName InCosmetic
 	if (EquipButton)  { EquipButton->SetVisibility(ESlateVisibility::Collapsed); }
 }
 
+void UAFLW_LoadoutTileBase::SetBuildData(int32 InBuildIndex, const FText& InName, bool bInReadOnly, bool bInActive)
+{
+	BuildIndex = InBuildIndex;
+
+	// Reuse the tile's own presentation -- a build tile is the same furniture carrying different data,
+	// so it inherits whatever the visual layer does to tiles rather than needing a parallel treatment.
+	SetTileData(EAFLLoadoutAxis::Weapon, NAME_None, InName, bInActive, /*bIsSwatch=*/false,
+		FLinearColor::White, nullptr);
+
+	// A LOCKED BUILD IS SHOWN, NOT HIDDEN. The lapse rule's whole promise is that a player keeps
+	// looking like the robot they built; hiding it would be the deletion the rule refuses to do.
+	if (UTextBlock* Label = Cast<UTextBlock>(GetWidgetFromName(TEXT("NameText"))))
+	{
+		Label->SetColorAndOpacity(bInReadOnly
+			? FSlateColor(FLinearColor(1.f, 1.f, 1.f, 0.45f))
+			: FSlateColor(FLinearColor(1.f, 1.f, 1.f, 1.f)));
+	}
+}
+
 void UAFLW_LoadoutTileBase::ApplyTabStyle(bool bActive)
 {
 	// EVERYTHING THAT IS NOT THE LABEL. Named rather than reached through the tree so a WBP that never

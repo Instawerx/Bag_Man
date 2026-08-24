@@ -218,6 +218,36 @@ protected:
 	// ALL OPTIONAL. A WBP binds EITHER these or the per-axis containers above; the in-match locker keeps
 	// the old ones and is untouched by this pass.
 
+	// ===== CC-5 item 6: OWNED-ONLY SURFACE ========================================================
+
+	/** Does this axis appear at all?
+	 *
+	 *  Asks what the PLAYER CAN SEE, not what the enum declares: a selection axis needs owned rows, an
+	 *  arrangement axis needs catalog rows (it is a door to the creator, not a list). WeaponSkin has
+	 *  zero of either since the retirement and Accessory has never had any, so both vanish -- and both
+	 *  return by themselves the day they have content, with no code change.
+	 *
+	 *  THE ENUM MEMBERS STAY. Removing WeaponSkin would renumber every axis after it, and stored
+	 *  selections are raw ints. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Loadout|Owned")
+	bool ShouldAxisAppear(EAFLLoadoutAxis Axis) const;
+
+	/** Saved builds, rebuilt from the replicated set. A build is not a cosmetic and is not an axis. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> BuildsContainer;
+
+	/** First-class New Build action. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UButton> NewBuildButton;
+
+	/** THE NEW-PLAYER STATE, which is the common first experience rather than an edge case: six
+	 *  identities, no builds, near-empty axes. Says what is true and where to go. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> EmptyStateText;
+
+	UFUNCTION(BlueprintCallable, Category = "AFL|Loadout|Build")
+	void RebuildBuilds();
+
 	/** REGION B/C -- the axis tab row. One tab per axis, one active. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<UPanelWidget> AxisTabContainer;
@@ -297,6 +327,12 @@ protected:
 
 	UFUNCTION()
 	void HandleEquipButtonClicked();
+
+	UFUNCTION()
+	void HandleNewBuildClicked();
+
+	UFUNCTION()
+	void HandleBuildTileClicked(int32 InBuildIndex);
 
 	void RebuildAxisTabs();
 	void RebuildRail();

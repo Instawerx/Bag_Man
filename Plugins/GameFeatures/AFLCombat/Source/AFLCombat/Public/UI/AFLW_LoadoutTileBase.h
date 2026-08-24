@@ -128,6 +128,22 @@ public:
 	 */
 	void ApplyTabStyle(bool bActive);
 
+	/** CC-5 item 6: a BUILD tile. A build is not a cosmetic -- it carries an INDEX, not a CosmeticId,
+	 *  because that is how builds are addressed everywhere (EditingIndex, ServerSaveBuild, the lapse
+	 *  rule's index-order locking). Encoding the index into the FName would be a sentinel by name. */
+	void SetBuildData(int32 InBuildIndex, const FText& InName, bool bInReadOnly, bool bInActive);
+
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAFLBuildTileClicked, int32, BuildIndex);
+
+	/** Separate from OnTileClicked on purpose: a build click opens the creator ON that build, and a
+	 *  cosmetic click equips. One delegate carrying both would need a discriminator at every listener. */
+	UPROPERTY(BlueprintAssignable, Category = "AFL|Loadout|Build")
+	FOnAFLBuildTileClicked OnBuildTileClicked;
+
+	/** INDEX_NONE unless this tile is a build tile. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Loadout|Build")
+	int32 BuildIndex = INDEX_NONE;
+
 	/** FRONT-END SUGGESTED card style: reveal the rarity frame + dual-color price + BUY (no EQUIP) on an UNOWNED,
 	 *  buyable tile -- reuses the store card's widgets. Call AFTER SetTileData (which collapsed them). */
 	void ApplyPurchasableCardStyle(FName InCosmeticId);

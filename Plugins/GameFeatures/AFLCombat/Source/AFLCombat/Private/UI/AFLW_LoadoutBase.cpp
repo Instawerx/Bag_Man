@@ -429,6 +429,10 @@ void UAFLW_LoadoutBase::NativeOnInitialized()
 	{
 		EquipButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleEquipButtonClicked);
 	}
+	if (NewBuildButton)
+	{
+		NewBuildButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleNewBuildClicked);
+	}
 	if (CloseButton)
 	{
 		CloseButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleCloseClicked);
@@ -902,6 +906,9 @@ void UAFLW_LoadoutBase::RebuildTiles()
 	RebuildAxisTabs();
 	RebuildRail();
 	RefreshDetail();
+	// ITEM 6: builds are rebuilt HERE and not in SetActiveAxis -- switching axis does not change what a
+	// player has saved, and rebuilding them on every tab click would discard scroll and selection state.
+	RebuildBuilds();
 }
 
 // ===== CC-5 step 3: ACTIVE-AXIS MODEL ==========================================================
@@ -977,6 +984,12 @@ void UAFLW_LoadoutBase::RebuildAxisTabs()
 	for (int32 i = 0; i < Num; ++i)
 	{
 		const EAFLLoadoutAxis Axis = static_cast<EAFLLoadoutAxis>(E->GetValueByIndex(i));
+
+		// OWNED-ONLY: an axis with nothing to show does not get a tab. An empty tab promises a category
+		// the game cannot fill -- the defect the store's phantom web categories have, and the one
+		// WeaponSkin left behind when its content retired and its tab did not.
+		if (!ShouldAxisAppear(Axis)) { continue; }
+
 		UAFLW_LoadoutTileBase* Tab = CreateWidget<UAFLW_LoadoutTileBase>(this, SpawnClass);
 		if (!Tab) { continue; }
 		// The axis names itself. Typing the labels here would be a second source that drifts.
@@ -1088,6 +1101,90 @@ void UAFLW_LoadoutBase::RefreshDetail()
 		// Disabled is a STATE, not a hidden control -- the player must still see where the commit lives.
 		EquipButton->SetIsEnabled(bHasSelection && !bAlready);
 	}
+}
+
+
+bool UAFLW_LoadoutBase::ShouldAxisAppear(EAFLLoadoutAxis Axis) const
+{
+	// AN ARRANGEMENT AXIS IS A DOOR, NOT A LIST. It appears when the CATALOG has rows for it -- the
+	// player does not need to own a sticker to open the placement surface. Accessory has zero catalog
+	// rows and so has no door to offer.
+	if (IsArrangementAxis(Axis))
+	{
+		const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog();
+		if (!Catalog) { return false; }
+		TArray<const FAFLCatalogEntry*> All;
+		Catalog->GetEntriesByType(QueryTypeForAxis(Axis), All);
+		for (const FAFLCatalogEntry* E : All)
+		{
+			if (E && AxisOwnsId(Axis, E->CosmeticId)) { return true; }
+		}
+		return false;
+	}
+
+	// A SELECTION AXIS NEEDS OWNED ROWS. Nothing unowned appears in the loadout at all, so an axis with
+	// nothing owned has nothing to show -- and that is honest rather than broken: the player owns
+	// nothing on it. The store is where unowned things live.
+	TArray<FAFLCatalogEntry> Owned;
+	GetOwnedEntriesForAxis(Axis, Owned);
+	return Owned.Num() > 0;
+}
+
+void UAFLW_LoadoutBase::RebuildBuilds()
+{
+	const UAFLCosmeticLoadoutComponent* LC = GetLoadoutComponent();
+	const int32 BuildCount = LC ? LC->GetBuildSet().Builds.Num() : 0;
+
+	// THE EMPTY STATE IS THE COMMON FIRST EXPERIENCE, not an edge case: a new player owns the six free
+	// identities and nothing else. It says what is true and where to go rather than rendering an empty
+	// grid that reads as a failure.
+	if (EmptyStateText)
+	{
+		const bool bNothingYet = (BuildCount == 0);
+		EmptyStateText->SetVisibility(bNothingYet ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		if (bNothingYet)
+		{
+			EmptyStateText->SetText(NSLOCTEXT("AFLLoadout", "NoBuildsYet",
+				"No builds yet. Start one in the Creator, or equip an identity below."));
+		}
+	}
+
+	if (!BuildsContainer) { return; }
+	BuildsContainer->ClearChildren();
+	UClass* SpawnClass = TileClass.Get();
+	if (!SpawnClass || !LC) { return; }
+
+	const FAFLCreatorBuildSet& Set = LC->GetBuildSet();
+	for (int32 i = 0; i < Set.Builds.Num(); ++i)
+	{
+		const FAFLCreatorBuild& Build = Set.Builds[i];
+		UAFLW_LoadoutTileBase* Tile = CreateWidget<UAFLW_LoadoutTileBase>(this, SpawnClass);
+		if (!Tile) { continue; }
+
+		// THE NAME MAY NOT BE SHOWABLE. A pending or rejected name is not shown to anyone -- the build
+		// is intact, only the name is gated -- so the public accessor is the one to ask.
+		Tile->SetBuildData(i, FText::FromString(Build.GetPublicDisplayName()),
+			Build.bReadOnly, i == Set.ActiveBuildIndex);
+		Tile->OnBuildTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleBuildTileClicked);
+		BuildsContainer->AddChild(Tile);
+	}
+
+	UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] builds rebuilt: %d held, active=%d"),
+		Set.Builds.Num(), Set.ActiveBuildIndex);
+}
+
+void UAFLW_LoadoutBase::HandleNewBuildClicked()
+{
+	// -1 is the append case, and the only one the slot cap gates.
+	OpenCreator(INDEX_NONE);
+}
+
+void UAFLW_LoadoutBase::HandleBuildTileClicked(int32 InBuildIndex)
+{
+	// EDIT: the creator opens ON this build, with it loaded. Editing an existing build is always
+	// permitted -- the cap gates creating another, never changing one already held.
+	UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] build tile clicked -> edit index=%d"), InBuildIndex);
+	OpenCreator(InBuildIndex);
 }
 
 void UAFLW_LoadoutBase::HandleAxisTabClicked(EAFLLoadoutAxis Axis, FName /*CosmeticId*/)
