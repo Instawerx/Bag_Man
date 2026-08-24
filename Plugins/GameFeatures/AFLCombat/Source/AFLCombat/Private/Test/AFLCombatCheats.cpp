@@ -5589,6 +5589,9 @@ namespace
 #if WITH_EDITOR
 	// Forward-declared; AFLArmForPie is defined further down (grew out of the FBIK probe).
 	static bool AFLArmForPie(const TCHAR* Tag, TFunction<void(UWorld*)> Run);
+	// JewelProof needs the AUTHORITY world specifically -- see the definition for why the shared
+	// AFLArmForPie cannot be used once there is more than one world in the process.
+	static bool AFLArmForPieAuthority(const TCHAR* Tag, TFunction<void(UWorld*)> Run);
 
 	// === afl.Test.JewelProof =======================================================================
 	// The render-level proof for the accessory axis. afl.Test.Wearables proved SELECTION resolution;
@@ -5602,6 +5605,37 @@ namespace
 	// a second world. SWAY AMPLITUDE and visual correctness stay the operator's eye, by doctrine.
 
 	struct FJewelPart { FName Socket; FString ActorClass; FVector WorldLoc; bool bHasPostProcess; };
+
+	static const TCHAR* AFLNetModeName(ENetMode NM)
+	{
+		switch (NM)
+		{
+		case NM_Standalone:      return TEXT("standalone");
+		case NM_DedicatedServer: return TEXT("dedicated");
+		case NM_ListenServer:    return TEXT("listen");
+		case NM_Client:          return TEXT("client");
+		default:                 return TEXT("?");
+		}
+	}
+
+	// ONE ENTRY PER WORLD that holds this player's pawn. The first cut of this instrument picked a single
+	// preferred pawn and asserted against it, which made every miss unattributable: "the pendant is not
+	// there" could equally mean the equip never landed, or that it landed on the authority and never
+	// reached the client. Those are different bugs with different fixes, and one of them was real.
+	struct FJewelWorld
+	{
+		FString Label;
+		bool    bClient = false;
+		APawn*  Pawn = nullptr;
+		TArray<FJewelPart> Parts;
+
+		const FJewelPart* At(FName S) const
+		{
+			for (const FJewelPart& P : Parts) { if (P.Socket == S) { return &P; } }
+			return nullptr;
+		}
+		int32 Has(FName S) const { return At(S) ? 1 : 0; }
+	};
 
 	// Every accessory part actor attached to a pawn. Chain/watch/bracelet ride the pawn; the pendant
 	// rides the chain, so it is found by recursing into each chain actor's own child-actor components.
@@ -5648,13 +5682,10 @@ namespace
 		}
 	}
 
-	// The pawn where rendering actually happens: on a dedicated server nothing spawns, so prefer a
-	// client world's copy of this player; fall back to the authority pawn when it is standalone.
-	static APawn* AFLFindRenderPawn(int32 PlayerId, bool& bOutIsClientWorld)
+	static void AFLCollectJewelWorlds(int32 PlayerId, TArray<FJewelWorld>& Out)
 	{
-		bOutIsClientWorld = false;
-		if (!GEngine) { return nullptr; }
-		APawn* Fallback = nullptr;
+		Out.Reset();
+		if (!GEngine) { return; }
 		for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
 		{
 			UWorld* W = Ctx.World();
@@ -5667,11 +5698,15 @@ namespace
 				if (!PS || PS->GetPlayerId() != PlayerId) { continue; }
 				APawn* Pawn = PS->GetPawn();
 				if (!Pawn) { continue; }
-				if (NM == NM_Client) { bOutIsClientWorld = true; return Pawn; }  // best: real client render
-				if (NM != NM_DedicatedServer) { Fallback = Pawn; }               // standalone renders here
+				FJewelWorld JW;
+				JW.Label = FString::Printf(TEXT("%s:%s"), *W->GetName(), AFLNetModeName(NM));
+				JW.bClient = (NM == NM_Client);
+				JW.Pawn = Pawn;
+				AFLCollectParts(Pawn, JW.Parts);
+				Out.Add(JW);
+				break;
 			}
 		}
-		return Fallback;
 	}
 
 	void RunAFLJewelProof(UWorld* World)
@@ -5700,10 +5735,23 @@ namespace
 
 		TSharedPtr<int32> Phase = MakeShared<int32>(0);
 		TSharedPtr<int32> Sub = MakeShared<int32>(0);
+		TSharedPtr<int32> Total = MakeShared<int32>(0);
 		TSharedPtr<int32> Ran = MakeShared<int32>(0);
 		TSharedPtr<int32> Pass = MakeShared<int32>(0);
 		TWeakObjectPtr<UAFLCosmeticLoadoutComponent> WL(L);
-		const int32 WAIT = 30;   // ticks between phases -- replication + child-actor spawn need frames
+
+		// WAIT ON THE THING, WITH A TERMINATOR -- not on a tick count. The first cut's flat 30 ticks
+		// (0.48s) could not cover a destroy + re-add + a 30MB skeletal child-actor spawn, so arms 2/4/5
+		// reported FAIL while the engine log showed the product working, and the FSM was still running
+		// when PIE ended so 6/7 never asserted. A fixed count measures the clock, not the product.
+		//
+		// MAXWAIT is a TERMINATOR, not a retry: when it expires the arm asserts anyway and SAYS it timed
+		// out, so a genuine absence and a slow arrival can never be confused. MINWAIT exists because a
+		// NEGATIVE expectation ("the third watch was refused, so there are still exactly 2") has no
+		// arrival to wait for -- it can only be given a settle window and then read.
+		const int32 MAXWAIT = 240;   // ~3.8s at 0.016 -- positive expectations
+		const int32 MINWAIT = 90;    // ~1.4s          -- negative / steady-state expectations
+		const int32 HARDCAP = 3600;  // ~58s total     -- the FSM itself cannot outlive this
 
 		auto Arm = [Ran, Pass](const TCHAR* N, bool ok, const FString& d)
 		{
@@ -5712,21 +5760,68 @@ namespace
 		};
 
 		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
-			[Phase, Sub, Ran, Pass, WL, PlayerId, Arm, CHAIN, PEND, WATCH, BRACE, WATCH2, WAIT](float) -> bool
+			[Phase, Sub, Total, Ran, Pass, WL, PlayerId, Arm, CHAIN, PEND, WATCH, BRACE, WATCH2,
+			 MAXWAIT, MINWAIT, HARDCAP](float) -> bool
 		{
+			static const FName NeckS(TEXT("accessory_neck"));
+			static const FName PendS(TEXT("accessory_pendant"));
+			static const FName WristLS(TEXT("accessory_wrist_l"));
+			static const FName WristRS(TEXT("accessory_wrist_r"));
+
 			UAFLCosmeticLoadoutComponent* L = WL.Get();
 			if (!L) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[JEWEL] loadout gone -- END")); return false; }
-			(*Sub)++;
-			if ((*Sub) < WAIT) { return true; }
+
+			(*Sub)++; (*Total)++;
+			if ((*Total) > HARDCAP)
+			{
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("AFL_TEST[JEWEL] ABORT -- hard cap %d ticks reached at phase %d. arms=%d passed=%d (INCOMPLETE)."),
+					HARDCAP, *Phase, *Ran, *Pass);
+				return false;
+			}
+
+			TArray<FJewelWorld> Worlds; AFLCollectJewelWorlds(PlayerId, Worlds);
+			const FJewelWorld* Render = nullptr;
+			for (const FJewelWorld& JW : Worlds) { if (JW.bClient) { Render = &JW; break; } }
+			if (!Render && Worlds.Num() > 0) { Render = &Worlds[0]; }
+			if (!Render) { return true; }   // no pawn in any world yet -- HARDCAP bounds this
+
+			// ONE PLACE that says what each phase is waiting FOR. Negative phases fall through to the
+			// MINWAIT settle window instead, because there is no arrival to detect.
+			const int32 Ph = *Phase;
+			const bool bNegative = (Ph == 6 || Ph == 7);
+			bool bArrived = false;
+			switch (Ph)
+			{
+			case 1: bArrived = Render->Has(NeckS) == 1; break;
+			case 2: bArrived = Render->Has(PendS) == 1; break;
+			case 3: bArrived = Render->Has(NeckS) == 0 && Render->Has(PendS) == 0; break;
+			case 4: bArrived = Render->Has(NeckS) == 1 && Render->Has(PendS) == 1; break;
+			case 5: bArrived = Render->Has(WristLS) == 1 && Render->Has(WristRS) == 1; break;
+			default: break;
+			}
+			if (Ph != 0)
+			{
+				const int32 Budget = bNegative ? MINWAIT : MAXWAIT;
+				if (!bArrived && (*Sub) < Budget) { return true; }
+			}
+			const bool bTimedOut = (Ph != 0) && !bNegative && !bArrived;
+			const FString WaitTag = bTimedOut
+				? FString::Printf(TEXT(" [TIMED OUT after %d ticks -- absent, not slow]"), *Sub)
+				: FString::Printf(TEXT(" [settled in %d ticks]"), *Sub);
 			*Sub = 0;
 
-			bool bClientWorld = false;
-			APawn* RP = AFLFindRenderPawn(PlayerId, bClientWorld);
-			TArray<FJewelPart> Parts; AFLCollectParts(RP, Parts);
-			auto AtSocket = [&Parts](FName S) -> const FJewelPart*
+			// Per-world occupancy on EVERY arm's detail line, so a divergence is visible where it happens
+			// rather than reconstructed afterwards.
+			auto WorldsDetail = [&Worlds]() -> FString
 			{
-				for (const FJewelPart& P : Parts) { if (P.Socket == S) { return &P; } }
-				return nullptr;
+				FString D;
+				for (const FJewelWorld& JW : Worlds)
+				{
+					D += FString::Printf(TEXT("[%s n=%d p=%d wl=%d wr=%d]"),
+						*JW.Label, JW.Has(NeckS), JW.Has(PendS), JW.Has(WristLS), JW.Has(WristRS));
+				}
+				return D;
 			};
 
 			switch (*Phase)
@@ -5736,9 +5831,11 @@ namespace
 
 			case 1:
 			{
-				const FJewelPart* Neck = AtSocket(FName(TEXT("accessory_neck")));
+				const FJewelPart* Neck = Render->At(NeckS);
 				Arm(TEXT("1 chain renders at neck"), Neck != nullptr,
-					FString::Printf(TEXT("renderPawn=%s clientWorld=%d parts=%d"), *GetNameSafe(RP), bClientWorld ? 1 : 0, Parts.Num()));
+					FString::Printf(TEXT("renderPawn=%s clientWorld=%d worlds=%d %s%s"),
+						*GetNameSafe(Render->Pawn), Render->bClient ? 1 : 0, Worlds.Num(),
+						*WorldsDetail(), *WaitTag));
 				if (Neck)
 				{
 					Arm(TEXT("1b chain not at world origin"), !Neck->WorldLoc.IsNearlyZero(),
@@ -5749,9 +5846,9 @@ namespace
 			}
 			case 2:
 			{
-				const FJewelPart* Pend = AtSocket(FName(TEXT("accessory_pendant")));
+				const FJewelPart* Pend = Render->At(PendS);
 				Arm(TEXT("2 pendant renders on the chain"), Pend != nullptr,
-					FString::Printf(TEXT("parts=%d (pendant socket is on the chain mesh, not the pawn)"), Parts.Num()));
+					FString::Printf(TEXT("%s%s"), *WorldsDetail(), *WaitTag));
 				if (Pend)
 				{
 					Arm(TEXT("2b pendant not at origin"), !Pend->WorldLoc.IsNearlyZero(),
@@ -5761,10 +5858,11 @@ namespace
 			}
 			case 3:
 			{
-				const bool bNoChain = AtSocket(FName(TEXT("accessory_neck"))) == nullptr;
-				const bool bNoPend = AtSocket(FName(TEXT("accessory_pendant"))) == nullptr;
+				const bool bNoChain = Render->Has(NeckS) == 0;
+				const bool bNoPend = Render->Has(PendS) == 0;
 				Arm(TEXT("3 un-equip chain removes chain+pendant"), bNoChain && bNoPend,
-					FString::Printf(TEXT("chainGone=%d pendantGone=%d"), bNoChain ? 1 : 0, bNoPend ? 1 : 0));
+					FString::Printf(TEXT("chainGone=%d pendantGone=%d %s%s"),
+						bNoChain ? 1 : 0, bNoPend ? 1 : 0, *WorldsDetail(), *WaitTag));
 				const FAFLAccessoryPlacement* Keep = L->GetSelection().AccessorySet.Find(EAFLAccessorySlot::Pendant);
 				Arm(TEXT("3b selection still holds the pendant"), Keep && Keep->IsSet() && Keep->AccessoryId == PEND,
 					FString::Printf(TEXT("selection pendant=%s"), Keep ? *Keep->AccessoryId.ToString() : TEXT("None")));
@@ -5772,18 +5870,20 @@ namespace
 			}
 			case 4:
 			{
-				const bool bChain = AtSocket(FName(TEXT("accessory_neck"))) != nullptr;
-				const bool bPend = AtSocket(FName(TEXT("accessory_pendant"))) != nullptr;
+				const bool bChain = Render->Has(NeckS) == 1;
+				const bool bPend = Render->Has(PendS) == 1;
 				Arm(TEXT("4 re-equip restores chain+pendant"), bChain && bPend,
-					FString::Printf(TEXT("chain=%d pendant=%d"), bChain ? 1 : 0, bPend ? 1 : 0));
+					FString::Printf(TEXT("chain=%d pendant=%d %s%s"),
+						bChain ? 1 : 0, bPend ? 1 : 0, *WorldsDetail(), *WaitTag));
 				L->ServerEquipWearable(WATCH); L->ServerEquipWearable(BRACE); (*Phase)++; break;
 			}
 			case 5:
 			{
-				const FJewelPart* WristL = AtSocket(FName(TEXT("accessory_wrist_l")));
-				const FJewelPart* WristR = AtSocket(FName(TEXT("accessory_wrist_r")));
+				const FJewelPart* WristL = Render->At(WristLS);
+				const FJewelPart* WristR = Render->At(WristRS);
 				Arm(TEXT("5 both wrists occupied"), WristL && WristR,
-					FString::Printf(TEXT("wristL=%d wristR=%d"), WristL ? 1 : 0, WristR ? 1 : 0));
+					FString::Printf(TEXT("wristL=%d wristR=%d %s%s"),
+						WristL ? 1 : 0, WristR ? 1 : 0, *WorldsDetail(), *WaitTag));
 				bool bWatchRigid = false, bBraceSways = false;
 				for (const FJewelPart* P : { WristL, WristR })
 				{
@@ -5797,18 +5897,47 @@ namespace
 			}
 			case 6:
 			{
-				int32 WristParts = 0;
-				if (AtSocket(FName(TEXT("accessory_wrist_l")))) { WristParts++; }
-				if (AtSocket(FName(TEXT("accessory_wrist_r")))) { WristParts++; }
+				const int32 WristParts = Render->Has(WristLS) + Render->Has(WristRS);
 				Arm(TEXT("6 third wrist refused (still 2)"), WristParts == 2,
-					FString::Printf(TEXT("wristParts=%d"), WristParts));
+					FString::Printf(TEXT("wristParts=%d %s%s"), WristParts, *WorldsDetail(), *WaitTag));
 				(*Phase)++; break;
 			}
 			case 7:
 			{
-				Arm(TEXT("7 parts render in a client world"), bClientWorld && Parts.Num() >= 3,
-					bClientWorld ? FString::Printf(TEXT("client-world parts=%d"), Parts.Num())
-					: TEXT("SKIP: no in-process client world (standalone PIE) -- run dedicated + 2 clients"));
+				// THE REPLICATION ARM, and the one that makes a miss attributable. Every world holding
+				// this player must AGREE on which sockets are occupied. A client that shows the chain but
+				// not the pendant fails here and NAMES ITSELF -- which is exactly the defect the first cut
+				// could only report as an unexplained FAIL on arm 2.
+				const FJewelWorld* Auth = nullptr;
+				for (const FJewelWorld& JW : Worlds) { if (!JW.bClient) { Auth = &JW; break; } }
+				int32 Clients = 0, Diverged = 0;
+				FString Which;
+				if (Auth)
+				{
+					for (const FJewelWorld& JW : Worlds)
+					{
+						if (!JW.bClient) { continue; }
+						++Clients;
+						const bool bSame =
+							JW.Has(NeckS) == Auth->Has(NeckS) && JW.Has(PendS) == Auth->Has(PendS) &&
+							JW.Has(WristLS) == Auth->Has(WristLS) && JW.Has(WristRS) == Auth->Has(WristRS);
+						if (!bSame) { ++Diverged; Which += FString::Printf(TEXT("%s "), *JW.Label); }
+					}
+				}
+				if (Clients == 0)
+				{
+					// NOT a silent skip. Standalone PIE cannot answer the replication question at all, and
+					// an instrument that reported PASS here would be claiming a proof it never ran.
+					Arm(TEXT("7 every world agrees on what is worn"), false,
+						FString::Printf(TEXT("NOT PROVEN: no client world (standalone PIE). %s -- run dedicated + 2 clients; this arm is the point of that run."),
+							*WorldsDetail()));
+				}
+				else
+				{
+					Arm(TEXT("7 every world agrees on what is worn"), Diverged == 0,
+						FString::Printf(TEXT("clients=%d diverged=%d %s %s"),
+							Clients, Diverged, Diverged ? *Which : TEXT(""), *WorldsDetail()));
+				}
 				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL] END arms=%d passed=%d %s"),
 					*Ran, *Pass, (*Ran > 0 && *Ran == *Pass) ? TEXT("PASS") : TEXT("PARTIAL/FAIL"));
 				return false;
@@ -5822,7 +5951,7 @@ namespace
 	{
 		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())
 		{
-			AFLArmForPie(TEXT("AFL_TEST[JEWEL]"), [](UWorld* Wd) { RunAFLJewelProof(Wd); });
+			AFLArmForPieAuthority(TEXT("AFL_TEST[JEWEL]"), [](UWorld* Wd) { RunAFLJewelProof(Wd); });
 			Ar.Log(TEXT("afl.Test.JewelProof ARMED -- start PIE; see AFL_TEST[JEWEL]."));
 			return;
 		}
@@ -6333,6 +6462,62 @@ namespace
 					return false;
 				}
 				if (UWorld* W = Played()) { Run(W); return false; }
+				return true;
+			}), 0.5f);
+		return false;
+	}
+
+	// As AFLArmForPie, but it will only fire on a world that is NOT a client -- i.e. the standalone
+	// world in single-player PIE, or the dedicated/listen server world when clients are present.
+	//
+	// WHY A SIBLING AND NOT A FLAG ON THE ORIGINAL: AFLArmForPie is what the WRIST and FBIK probes are
+	// proven against, and both are single-world by nature. Changing shared, working arming to fix a
+	// caller-specific need is how a proven probe silently acquires a new failure mode.
+	static bool AFLArmForPieAuthority(const TCHAR* Tag, TFunction<void(UWorld*)> Run)
+	{
+		auto ServerWorld = []() -> UWorld*
+		{
+			if (!GEngine) { return nullptr; }
+			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+			{
+				UWorld* W = Ctx.World();
+				if (!W || !W->IsGameWorld() || W->GetNetMode() == NM_Client) { continue; }
+				APlayerController* PC = W->GetFirstPlayerController();
+				if (PC && Cast<ACharacter>(PC->GetPawn())) { return W; }
+			}
+			return nullptr;
+		};
+		if (UWorld* W = ServerWorld())
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("%s firing on authority world %s (netmode=%d)"),
+				Tag, *W->GetName(), (int32)W->GetNetMode());
+			Run(W);
+			return true;
+		}
+
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("%s ARMED (authority) -- waiting for a SERVER-side pawn; giving up after 60s."), Tag);
+		TSharedPtr<double> Elapsed = MakeShared<double>(0.0);
+		FString TagS(Tag);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+			[Elapsed, ServerWorld, Run, TagS](float Dt) -> bool
+			{
+				*Elapsed += Dt;
+				if (*Elapsed > 60.0)
+				{
+					// PRESENCE OF OUTPUT, and it names the reason rather than going quiet: on a
+					// client-only process there is no authority world and there never will be.
+					UE_LOG(LogAFLCombat, Warning,
+						TEXT("%s GAVE UP after 60s -- no AUTHORITY pawn appeared. NOTHING MEASURED."), *TagS);
+					return false;
+				}
+				if (UWorld* W = ServerWorld())
+				{
+					UE_LOG(LogAFLCombat, Display, TEXT("%s firing on authority world %s (netmode=%d)"),
+						*TagS, *W->GetName(), (int32)W->GetNetMode());
+					Run(W);
+					return false;
+				}
 				return true;
 			}), 0.5f);
 		return false;
