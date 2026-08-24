@@ -314,9 +314,14 @@ protected:
 	bool bContinuumEditingLocked = false;
 
 	/** Recorded condition states. Keyed by ConditionId -- one condition confers many grants, so the
-	 *  state belongs to the condition, not to each grant. Absent = Unknown, never = Lapsed. */
-	UPROPERTY()
-	TMap<FName, EAFLConditionState> ConditionStates;
+	 *  state belongs to the condition, not to each grant. Absent = Unknown, never = Lapsed.
+	 *
+	 *  REPLICATED COND_OwnerOnly. It was UPROPERTY() with no replication at all, so a client could
+	 *  never see its own subscription state -- the server knew, and the player's own UI could not.
+	 *  Owner-only because whether someone subscribes is theirs: every other client has no use for it
+	 *  and no business with it. */
+	UPROPERTY(Replicated)
+	TArray<FAFLConditionStateEntry> ConditionStates;
 
 	UFUNCTION()
 	void OnRep_BuildSet();

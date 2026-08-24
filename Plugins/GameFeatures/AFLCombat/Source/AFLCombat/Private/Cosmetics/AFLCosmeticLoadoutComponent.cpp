@@ -53,6 +53,8 @@ void UAFLCosmeticLoadoutComponent::GetLifetimeReplicatedProps(TArray<FLifetimePr
 	// A's set to B is bandwidth for data nobody reads.
 	DOREPLIFETIME_CONDITION(UAFLCosmeticLoadoutComponent, BuildSet, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UAFLCosmeticLoadoutComponent, bContinuumEditingLocked, COND_OwnerOnly);
+	// the player's own subscription state, and nobody else's business.
+	DOREPLIFETIME_CONDITION(UAFLCosmeticLoadoutComponent, ConditionStates, COND_OwnerOnly);
 }
 
 void UAFLCosmeticLoadoutComponent::CopyProperties(UPlayerStateComponent* TargetPlayerStateComponent)
@@ -401,9 +403,9 @@ EAFLConditionState UAFLCosmeticLoadoutComponent::GetConditionState(FName Conditi
 {
 	// ABSENT IS Unknown, NOT Lapsed. Collapsing those two is the dangerous direction: a server that has
 	// not reached the entitlement source yet would treat every player as freshly lapsed.
-	if (const EAFLConditionState* Found = ConditionStates.Find(ConditionId))
+	for (const FAFLConditionStateEntry& E : ConditionStates)
 	{
-		return *Found;
+		if (E.ConditionId == ConditionId) { return E.State; }
 	}
 	return EAFLConditionState::Unknown;
 }
@@ -413,7 +415,20 @@ void UAFLCosmeticLoadoutComponent::SetConditionState(FName ConditionId, EAFLCond
 	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
 
 	const EAFLConditionState Was = GetConditionState(ConditionId);
-	ConditionStates.Add(ConditionId, NewState);
+	// find-or-add, so a second write to the same condition UPDATES rather than appending a duplicate
+	// the reader would then resolve by whichever came first.
+	bool bFound = false;
+	for (FAFLConditionStateEntry& E : ConditionStates)
+	{
+		if (E.ConditionId == ConditionId) { E.State = NewState; bFound = true; break; }
+	}
+	if (!bFound)
+	{
+		FAFLConditionStateEntry Added;
+		Added.ConditionId = ConditionId;
+		Added.State = NewState;
+		ConditionStates.Add(Added);
+	}
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[COND] %s: %d -> %d"),
 		*ConditionId.ToString(), (int32)Was, (int32)NewState);
 

@@ -120,7 +120,47 @@ enum class EAFLConditionState : uint8
 	/** Condition currently true -- grants apply. */
 	Held     UMETA(DisplayName = "Held"),
 	/** Condition was true and is no longer -- grants revoked, CC-4.2 lapse rule applies. */
-	Lapsed   UMETA(DisplayName = "Lapsed")
+	Lapsed   UMETA(DisplayName = "Lapsed"),
+
+	/**
+	 * PAID AND OWED, NOT YET LIVE. Appended, never inserted -- the value is stored in a TMap that
+	 * persists, so renumbering the three above would re-state every recorded condition.
+	 *
+	 * IT EXISTS BECAUSE LAPSE IS DERIVED FROM EXPIRY. A player who has paid but whose entitlement is
+	 * not yet active has no expiry to derive from, and without a state of its own that condition reads
+	 * as LAPSED -- which revokes grants and locks their saved builds. A paying player locked out is the
+	 * worst outcome this mechanism can produce and it happens silently.
+	 *
+	 * BOTH ASYMMETRIES APPLY, and they point the same way as Unknown:
+	 *   GRANTS   fail CLOSED -- IsHeld() is false, so nothing is handed out on a promise.
+	 *   PENALTIES fail OPEN  -- IsConfirmedLapsed() is false, so the lapse rule does not fire.
+	 * Both fall out of the existing accessors rather than needing a new branch, which is why this is a
+	 * fourth VALUE and not a bool beside the enum.
+	 */
+	AwaitingActivation UMETA(DisplayName = "Awaiting activation (paid, not yet live)")
+};
+
+/**
+ * One condition's recorded state, as an ARRAY ELEMENT rather than a map entry.
+ *
+ * UHT REFUSES A REPLICATED TMap OUTRIGHT -- "Replicated maps are not supported". The state has to
+ * reach the owning client (a player's own subscription state was previously server-only, so their own
+ * UI could not read it), so the container becomes a TArray and this is its element.
+ *
+ * A linear find over a handful of conditions is not a cost worth a second representation: keeping a
+ * map AND a replicated array would mean two things to hold in agreement, which is the shape that
+ * drifts.
+ */
+USTRUCT(BlueprintType)
+struct FAFLConditionStateEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Entitlement")
+	FName ConditionId = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Entitlement")
+	EAFLConditionState State = EAFLConditionState::Unknown;
 };
 
 USTRUCT(BlueprintType)
