@@ -334,14 +334,28 @@ def pick_model_url(data):
 
 
 def download(url, dest_path):
-    """Download the pre-signed mesh URL (expires ~24h -- download promptly)."""
+    """Download the pre-signed mesh URL (expires ~24h -- download promptly).
+
+    SENDS A BROWSER User-Agent. The CDN in front of Tripo's signed URLs 403s the default
+    `Python-urllib/3.x`, which cost a completed 40-credit generation: the gen SUCCEEDED, the download
+    did not, and the mesh was unrecoverable because the task id was never written down. No auth header
+    -- the URL is already signed, and adding Authorization is itself a way to get a 403 from S3."""
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     print(f"[tripo] downloading -> {dest_path}")
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Accept": "*/*",
+    })
     try:
-        with urllib.request.urlopen(url, timeout=120) as resp, open(dest_path, "wb") as f:
+        with urllib.request.urlopen(req, timeout=120) as resp, open(dest_path, "wb") as f:
             f.write(resp.read())
     except (urllib.error.HTTPError, urllib.error.URLError) as e:
-        sys.exit(f"FATAL: download failed: {e}")
+        # NOT sys.exit. The task id is printed above and the URL is still valid for ~24h, so this is
+        # recoverable -- exiting here is what turned a transport hiccup into a lost generation.
+        print(f"[tripo] DOWNLOAD FAILED: {e}")
+        print(f"[tripo] the model is NOT lost -- re-fetch with the task id above; the URL lives ~24h")
+        raise
     size = os.path.getsize(dest_path)
     if size == 0:
         sys.exit("FATAL: downloaded file is 0 bytes")
@@ -446,6 +460,20 @@ def main():
             task_id = submit_text_task(key, args.prompt, args.negative_prompt,
                                        args.model_version, args.face_limit,
                                        texture=texture, pbr=pbr, extras=extras)
+
+    # WRITE THE TASK ID DOWN BEFORE POLLING. A generation is paid for at submit; everything after
+    # (poll, download, unpack) can fail, and without the id a paid task cannot be re-fetched. Tripo
+    # exposes no task-list endpoint (HTTP 405), so this file is the only record there is.
+    try:
+        _rec = os.path.join(OUT_DIR, f"{args.name}.task.json")
+        os.makedirs(OUT_DIR, exist_ok=True)
+        with open(_rec, "w", encoding="utf-8") as _f:
+            json.dump({"task_id": task_id, "name": args.name, "prompt": args.prompt,
+                       "model_version": args.model_version,
+                       "geometry_quality": args.geometry_quality}, _f, indent=2)
+        print(f"[tripo] task recorded -> {_rec}")
+    except Exception as _e:
+        print(f"[tripo] WARNING: could not record task id ({_e}) -- note it from the line above")
 
     data = poll(key, task_id)
     result = pick_model_url(data)
