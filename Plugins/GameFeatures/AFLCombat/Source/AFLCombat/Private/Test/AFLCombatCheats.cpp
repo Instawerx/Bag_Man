@@ -15,6 +15,7 @@
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"   // #43 selection-seam harness target
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"     // #43 FAFLCosmeticSelection / EAFLIdentityType
 #include "Cosmetics/AFLWalletComponent.h"
+#include "Cosmetics/AFLAccessoryPartActor.h"   // CC-8: the wrist orientation assert
 #include "Kismet/GameplayStatics.h"   // CC-X30 relaunch arm: DoesSaveGameExist, the mirror-absent discriminator            // S-ECON-WALLET: balance/gate/earn-spend cheats
 #include "UI/AFLW_LoadoutBase.h"
 #include "UI/AFLW_Creator.h"   // CC-5.2 widget probe
@@ -5581,6 +5582,112 @@ namespace
 		TEXT("CC-X38: prove mint-ledger bundles are offered and rows neither backend sells are not. ")
 		TEXT("Arms before PIE and fires once the ledger set has answered."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLLedgerVisibility));
+#endif // WITH_EDITOR
+
+
+#if WITH_EDITOR
+	// Defined further down, where it grew out of the FBIK probe. Forward-declared rather than moved:
+	// relocating a proven block to satisfy declaration order is a bigger change than a prototype.
+	static bool AFLArmForPie(const TCHAR* Tag, TFunction<void(UWorld*)> Run);
+
+	// === afl.Test.WristOrientation ================================================================
+	// The two wrist sockets are MIRRORED on SK_Mannequin (measured: local +Y is up on the left and down
+	// on the right). A single mesh therefore cannot be correct on both without a per-side correction,
+	// and this is the check that a missing or wrong correction cannot pass.
+	void RunAFLWristOrientation(UWorld* World)
+	{
+		int32 Ran = 0, Passed = 0;
+		auto Arm = [&Ran, &Passed](const TCHAR* Name, bool bOk, const FString& Detail)
+		{
+			++Ran; if (bOk) { ++Passed; }
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[WRIST]   %-40s %s  %s"),
+				Name, bOk ? TEXT("PASS") : TEXT("FAIL"), *Detail);
+		};
+
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		ACharacter* Ch = PC ? Cast<ACharacter>(PC->GetPawn()) : nullptr;
+		USkeletalMeshComponent* Mesh = Ch ? Ch->GetMesh() : nullptr;
+		if (!Mesh)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[WRIST] ABORT -- no character mesh. NOTHING TESTED."));
+			return;
+		}
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[WRIST] BEGIN on %s"), *GetNameSafe(Ch));
+
+		// PRECONDITION, stated as an arm: the sockets must actually be mirrored. If they ever stop being,
+		// this whole mechanism is unnecessary and the test should say so rather than keep correcting.
+		const FTransform L = Mesh->GetSocketTransform(FName(TEXT("accessory_wrist_l")), RTS_World);
+		const FTransform R = Mesh->GetSocketTransform(FName(TEXT("accessory_wrist_r")), RTS_World);
+		const FVector LUp = L.GetRotation().GetRightVector();   // socket local +Y
+		const FVector RUp = R.GetRotation().GetRightVector();
+		Arm(TEXT("0 the wrist sockets are mirrored"), (LUp.Z * RUp.Z) < 0.0,
+			FString::Printf(TEXT("L.+Y.z=%+.3f R.+Y.z=%+.3f (opposite signs expected)"), LUp.Z, RUp.Z));
+
+		// Spawn the SAME part class at each socket and compare where its own up axis ends up.
+		UClass* PartClass = LoadClass<AActor>(nullptr,
+			TEXT("/Game/BagMan/Cosmetics/Accessories/Parts/B_BagMan_Watch_Quantum.B_BagMan_Watch_Quantum_C"));
+		if (!PartClass)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[WRIST] ABORT -- watch part class not found. NOTHING TESTED."));
+			return;
+		}
+
+		auto SpawnAt = [&](const TCHAR* SocketName) -> AActor*
+		{
+			FActorSpawnParameters P; P.Owner = Ch;
+			AActor* A = World->SpawnActor<AActor>(PartClass, FTransform::Identity, P);
+			if (A)
+			{
+				A->AttachToComponent(Mesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+					FName(SocketName));
+				// A direct spawn has no ChildActorComponent, so BeginPlay may already have run before the
+				// attach. Re-apply explicitly: the call is idempotent and reads the socket fresh.
+				if (AAFLAccessoryPartActor* Part = Cast<AAFLAccessoryPartActor>(A))
+				{
+					Part->ApplyWristCorrection();
+				}
+			}
+			return A;
+		};
+
+		AActor* AL = SpawnAt(TEXT("accessory_wrist_l"));
+		AActor* AR = SpawnAt(TEXT("accessory_wrist_r"));
+		if (!AL || !AR)
+		{
+			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[WRIST] ABORT -- spawn failed. NOTHING TESTED."));
+			if (AL) { AL->Destroy(); } if (AR) { AR->Destroy(); }
+			return;
+		}
+
+		const FVector UpL = AL->GetActorUpVector();
+		const FVector UpR = AR->GetActorUpVector();
+		Arm(TEXT("1 both wrists agree on which way is up"), (UpL.Z * UpR.Z) > 0.0,
+			FString::Printf(TEXT("left.up.z=%+.3f right.up.z=%+.3f (same sign required)"), UpL.Z, UpR.Z));
+
+		Arm(TEXT("2 and both face UP, not down"), UpL.Z > 0.0 && UpR.Z > 0.0,
+			FString::Printf(TEXT("left=%+.3f right=%+.3f"), UpL.Z, UpR.Z));
+
+		AL->Destroy(); AR->Destroy();
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[WRIST] END arms=%d passed=%d %s"),
+			Ran, Passed, (Ran == Passed && Ran == 3) ? TEXT("PASS") : TEXT("FAIL"));
+	}
+
+	void HandleAFLWristOrientation(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())
+		{
+			AFLArmForPie(TEXT("AFL_TEST[WRIST]"), [](UWorld* W) { RunAFLWristOrientation(W); });
+			Ar.Log(TEXT("afl.Test.WristOrientation ARMED -- start PIE; see AFL_TEST[WRIST]."));
+			return;
+		}
+		RunAFLWristOrientation(World);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLWristOrientCmd(TEXT("afl.Test.WristOrientation"),
+		TEXT("CC-8: the wrist sockets are mirrored, so a single mesh needs a per-side correction. ")
+		TEXT("Attaches the same part at both wrists and requires their up axes to agree AND point up."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLWristOrientation));
 #endif // WITH_EDITOR
 
 #if WITH_EDITOR
