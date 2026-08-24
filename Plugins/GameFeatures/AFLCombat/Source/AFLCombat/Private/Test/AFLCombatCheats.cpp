@@ -5942,9 +5942,56 @@ namespace
 		return FVector::Dist(A[Idx].GetLocation(), B[Idx].GetLocation());
 	}
 
+	void HandleAFLFbikPropagation(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar);
+
+	// ARMS BEFORE PIE, like afl.Test.Wearables and afl.Catalog.LedgerVisibility. Nothing may be injected
+	// into a running PIE session, so a probe that needs a live pawn has to be issued first and wait.
+	// Bounded at 60s with a terminator that says it gave up -- an unbounded wait is a leak, not a wait.
+	static bool AFLArmForPie(const TCHAR* Tag, TFunction<void(UWorld*)> Run)
+	{
+		auto Played = []() -> UWorld*
+		{
+			if (!GEngine) { return nullptr; }
+			for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+			{
+				UWorld* W = Ctx.World();
+				if (W && W->IsGameWorld() && W->GetFirstPlayerController()
+					&& Cast<ACharacter>(W->GetFirstPlayerController()->GetPawn())) { return W; }
+			}
+			return nullptr;
+		};
+		if (UWorld* W = Played()) { Run(W); return true; }
+
+		UE_LOG(LogAFLCombat, Display, TEXT("%s ARMED -- no pawn yet; will fire when PIE brings one up, giving up after 60s."), Tag);
+		TSharedPtr<double> Elapsed = MakeShared<double>(0.0);
+		FString TagS(Tag);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+			[Elapsed, Played, Run, TagS](float Dt) -> bool
+			{
+				*Elapsed += Dt;
+				if (*Elapsed > 60.0)
+				{
+					UE_LOG(LogAFLCombat, Warning, TEXT("%s GAVE UP after 60s -- no pawn appeared. NOTHING MEASURED."), *TagS);
+					return false;
+				}
+				if (UWorld* W = Played()) { Run(W); return false; }
+				return true;
+			}), 0.5f);
+		return false;
+	}
+
 	void HandleAFLFbikPropagation(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
 	{
-		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Dev.FbikPropagation - run inside PIE.")); return; }
+		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())
+		{
+			AFLArmForPie(TEXT("AFL_TEST[FBIK]"), [](UWorld* W)
+			{
+				FOutputDeviceNull Null;
+				HandleAFLFbikPropagation(TArray<FString>(), W, Null);
+			});
+			Ar.Log(TEXT("afl.Dev.FbikPropagation ARMED -- start PIE; see AFL_TEST[FBIK]."));
+			return;
+		}
 		APlayerController* PC = World->GetFirstPlayerController();
 		ACharacter* Ch = PC ? Cast<ACharacter>(PC->GetPawn()) : nullptr;
 		USkeletalMeshComponent* Mesh = Ch ? Ch->GetMesh() : nullptr;
