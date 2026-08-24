@@ -8,7 +8,8 @@
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
 #include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
 #include "Cosmetics/AFLWalletComponent.h"
-#include "Cosmetics/AFLAccessoryPartComponent.h"   // CC-8: the accessory consumer             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
+#include "Cosmetics/AFLAccessoryPartComponent.h"   // CC-8: the accessory consumer
+#include "Cosmetics/AFLAccessoryChainActor.h"    // CC-8: the pendant re-drive walks to these             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
 #include "AFLCombat.h"
 #include "Cosmetics/AFLCharacterPartActor.h"           // CC-5.1: slot-1 master lookup
 #include "Components/MeshComponent.h"
@@ -513,6 +514,14 @@ void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const
 	// Drive the PROVEN push: find the owning controller's UAFLSkinColorControllerComponent and ask it to
 	// re-resolve+push for the current pawn (idempotent; same path the #38a part-arrival hook uses). The
 	// controller component reads THIS selection during resolution (File 5 edit). No new propagation here.
+	// CC-8 PENDANT RE-DRIVE, deliberately ABOVE the controller guard below. A pendant is not pushed
+	// through a controller component, and an observed player's PlayerState has no owning controller in a
+	// remote client's world -- so anything placed after that early-return never runs on a client for any
+	// pawn but the local one. Running it before the accessory consumer is safe in both orders: if the
+	// consumer goes on to destroy and respawn the chain, the fresh actor's BeginPlay re-reads the pendant
+	// against an already-committed selection.
+	RedriveAccessoryChains();
+
 	const ALyraPlayerState* PS = GetLyraPlayerState();
 	AController* OwningController = PS ? PS->GetOwningController() : nullptr;
 	if (!OwningController)
@@ -550,6 +559,42 @@ void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const
 		{
 			AccCtrl->RefreshAccessoriesForPawn(Pawn);
 		}
+	}
+}
+
+void UAFLCosmeticLoadoutComponent::RedriveAccessoryChains() const
+{
+	// PlayerState -> pawn, NOT controller -> pawn. This is the difference that makes the function work on
+	// a client for a pawn the local player does not control (see the header note).
+	const APlayerState* OwnerPS = Cast<APlayerState>(GetOwner());
+	const APawn* Pawn = OwnerPS ? OwnerPS->GetPawn() : nullptr;
+	if (!Pawn)
+	{
+		return;   // no pawn yet -> nothing worn. The chain's own BeginPlay covers the spawn-later order.
+	}
+
+	// Recursive: the chain actor hangs off a ChildActorComponent on the pawn's MESH, not off the pawn's
+	// root, so a non-recursive walk finds nothing. Asked for explicitly rather than assumed.
+	TArray<AActor*> Attached;
+	Pawn->GetAttachedActors(Attached, /*bResetArray=*/true, /*bRecursivelyIncludeAttachedActors=*/true);
+
+	int32 Chains = 0;
+	for (AActor* A : Attached)
+	{
+		if (AAFLAccessoryChainActor* Chain = Cast<AAFLAccessoryChainActor>(A))
+		{
+			++Chains;
+			Chain->RefreshPendant();   // idempotent: no-ops when the pendant id has not changed
+		}
+	}
+
+	// PRESENCE OF OUTPUT. "found no chains" and "never ran" must not read the same in a log, because the
+	// whole defect this fixes was a re-drive that never ran and looked exactly like nothing to do.
+	if (AFLSkinDiag::IsOn())
+	{
+		UE_LOG(LogAFLSkinDiag, Log,
+			TEXT("%s[Loadout] RedriveAccessoryChains on %s: attachedActors=%d chains=%d"),
+			*AFLSkinDiag::Prefix(this), *GetNameSafe(Pawn), Attached.Num(), Chains);
 	}
 }
 

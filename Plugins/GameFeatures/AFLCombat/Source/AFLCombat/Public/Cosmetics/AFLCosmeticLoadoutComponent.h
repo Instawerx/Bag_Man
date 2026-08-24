@@ -362,4 +362,27 @@ private:
 	 *  push so a pre-match live edit shows immediately (same idempotent path the #38a part-arrival hook
 	 *  uses; no respawn). In-match this is unreachable because step 2 rejects the mutation. */
 	void NudgeControllerReapply() const;
+
+	/**
+	 * CC-8: re-read the pendant selection on every chain actor currently worn by this player's pawn.
+	 *
+	 * WHY THIS IS NOT PART OF NudgeControllerReapply'S CONTROLLER BLOCK. That block needs
+	 * GetOwningController(), and an OBSERVED player's PlayerState has no owning controller in a remote
+	 * client's world -- it returns null and the whole function early-returns. The chain actors are still
+	 * there (they arrive with Lyra's replicated character-part list), so on a client every other player's
+	 * pendant depended on nothing at all. This walks PlayerState -> Pawn -> attached actors instead, so it
+	 * works for any pawn in any world, authority or not.
+	 *
+	 * WHY IT IS NEEDED AT ALL, given the chain reads its pendant in BeginPlay: BeginPlay only covers the
+	 * ordering where the selection is already known when the chain spawns. The other ordering -- chain
+	 * first, pendant value replicates after -- had no path, and left the pendant permanently absent. The
+	 * two together cover both orders, which is why this is not a retry: each call site answers one
+	 * ordering exactly once.
+	 *
+	 * It is also what stops the SERVER path being incidental. Today the pendant updates on authority only
+	 * because the accessory consumer removes and re-adds all three pawn parts on every refresh, which
+	 * destroys and respawns the chain. Anything that turned that into a diff would silently stop updating
+	 * pendants; after this, the re-drive is explicit and does not care.
+	 */
+	void RedriveAccessoryChains() const;
 };
