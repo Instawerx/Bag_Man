@@ -1331,9 +1331,14 @@ static FName AFLResolveCreditKeyForRow(const FAFLCatalogEntry& Entry)
 {
 	switch (Entry.Type)
 	{
-	case EAFLCosmeticType::Weapon:  return FName(TEXT("AFL.WeaponCredit"));
-	case EAFLCosmeticType::Sticker: return FName(TEXT("AFL.StickerCredit"));
-	default:                        return NAME_None;
+	case EAFLCosmeticType::Weapon:   return FName(TEXT("AFL.WeaponCredit"));
+	case EAFLCosmeticType::Sticker:  return FName(TEXT("AFL.StickerCredit"));
+	case EAFLCosmeticType::Facemask: return FName(TEXT("AFL.FacemaskCredit"));
+	// FAIL CLOSED. A type with no credit currency returns NAME_None and the redemption is refused.
+	// This is what makes spending the wrong currency UNREPRESENTABLE rather than merely checked: the
+	// caller never names a counter, so there is no parameter to get wrong. A .XT bundle lands here
+	// (Type=Bundle) and so does anything added later that nobody has decided a currency for.
+	default:                         return NAME_None;
 	}
 }
 
