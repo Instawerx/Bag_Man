@@ -5692,9 +5692,37 @@ namespace
 		}
 
 		// --- ARM 1: THE GATE ITSELF. Not granted, must refuse. If this fails, every later PASS is void.
-		L->ServerEquipWearable(CHAIN);
-		Arm(TEXT("1 unowned chain refused"), Holds(EAFLAccessorySlot::Neck).IsNone(),
-			FString::Printf(TEXT("neck=%s (expected None)"), *Holds(EAFLAccessorySlot::Neck).ToString()));
+		//
+		// THE ID IS CHOSEN AT RUN TIME, NOT PINNED. This arm named a fixed chain, and a live canary
+		// purchase later granted that chain to the dev account -- so the equip correctly succeeded and
+		// the control reported a defect that was not there. A control pinned to a fact that can change
+		// underneath it stops being a control the moment it does.
+		static const FName Candidates[] = {
+			FName(TEXT("AFL.Accessory.Pendant.RareUniverse")), FName(TEXT("AFL.Accessory.Pendant.BigSixx")),
+			FName(TEXT("AFL.Accessory.Pendant.1776")),         FName(TEXT("AFL.Accessory.Watch.Quantum")),
+			FName(TEXT("AFL.Accessory.Bracelet.BigSixx")),     FName(TEXT("AFL.Accessory.Chain.FoundersLink")),
+		};
+		FName Unowned = NAME_None;
+		for (const FName& C : Candidates) { if (!W->OwnsCosmetic(C)) { Unowned = C; break; } }
+		if (Unowned.IsNone())
+		{
+			// LOUD, not skipped. "Every candidate is owned" and "the gate held" must not look alike.
+			Arm(TEXT("1 an unowned id was available"), false,
+				TEXT("the dev account owns every candidate -- the ownership control CANNOT run"));
+		}
+		else
+		{
+			// Neck is the slot a chain would take; a pendant/watch/bracelet resolves elsewhere, so the
+			// assertion reads whichever slot this candidate would have landed in.
+			L->ServerEquipWearable(Unowned);
+			bool bLanded = false;
+			for (int32 i = 0; i < static_cast<int32>(EAFLAccessorySlot::MAX); ++i)
+			{
+				if (Holds(static_cast<EAFLAccessorySlot>(i)) == Unowned) { bLanded = true; break; }
+			}
+			Arm(TEXT("1 unowned item refused"), !bLanded,
+				FString::Printf(TEXT("tried %s, landed=%d (expected 0)"), *Unowned.ToString(), bLanded ? 1 : 0));
+		}
 
 		// --- ARM 2: pendant with NO chain refuses. Granted, so only the dependency can refuse it.
 		W->DebugGrantOwnership(PENDANT);
