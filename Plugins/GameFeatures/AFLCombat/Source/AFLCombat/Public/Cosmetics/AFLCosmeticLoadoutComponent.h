@@ -385,4 +385,32 @@ private:
 	 * pendants; after this, the re-drive is explicit and does not care.
 	 */
 	void RedriveAccessoryChains() const;
+
+public:
+	/**
+	 * Tell the OWNING CLIENT why an equip was refused. Every refusal in ServerEquipWearable was a
+	 * server-side UE_LOG; on a dedicated server the player's machine never saw one, so a refused item
+	 * simply did not appear and nothing anywhere said why.
+	 *
+	 * The reason is STORED as well as logged. A value that only passes through a log cannot be read by
+	 * UI, cannot be asserted by a proof, and cannot be acted on by anything -- which is what made
+	 * "REFUSED, readable reason" unprovable as an arm.
+	 */
+	UFUNCTION(Client, Reliable)
+	void ClientWearableRefused(FName CosmeticId, const FString& Reason);
+
+	/** The last refusal this client was told about. Read by UI and by the render proof. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
+	FString GetLastRefusalReason() const { return LastRefusalReason; }
+
+	/** Which id was refused, so a stale reason cannot be misread as a fresh one. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
+	FName GetLastRefusalId() const { return LastRefusalId; }
+
+private:
+	UPROPERTY(Transient)
+	FString LastRefusalReason;
+
+	UPROPERTY(Transient)
+	FName LastRefusalId;
 };

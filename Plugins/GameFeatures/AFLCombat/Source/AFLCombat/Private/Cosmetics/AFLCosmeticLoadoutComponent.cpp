@@ -562,6 +562,17 @@ void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const
 	}
 }
 
+void UAFLCosmeticLoadoutComponent::ClientWearableRefused_Implementation(FName CosmeticId, const FString& Reason)
+{
+	LastRefusalId = CosmeticId;
+	LastRefusalReason = Reason;
+
+	// PRESENCE OF OUTPUT on the CLIENT. The matching server log already exists; this one is the proof
+	// that the reason crossed the wire, which is the half that was missing.
+	UE_LOG(LogAFLCombat, Warning,
+		TEXT("[AFLWearable] CLIENT NOTIFIED: %s refused -- %s"), *CosmeticId.ToString(), *Reason);
+}
+
 void UAFLCosmeticLoadoutComponent::RedriveAccessoryChains() const
 {
 	// PlayerState -> pawn, NOT controller -> pawn. This is the difference that makes the function work on
@@ -1235,6 +1246,7 @@ void UAFLCosmeticLoadoutComponent::ServerEquipWearable_Implementation(const FNam
 	{
 		UE_LOG(LogAFLCombat, Warning,
 			TEXT("[AFLWearable] REFUSED id=%s -- no catalog row. Nothing equipped."), *CosmeticId.ToString());
+		ClientWearableRefused(CosmeticId, TEXT("that item does not exist"));
 		return;
 	}
 
@@ -1246,6 +1258,7 @@ void UAFLCosmeticLoadoutComponent::ServerEquipWearable_Implementation(const FNam
 	{
 		UE_LOG(LogAFLCombat, Warning,
 			TEXT("[AFLWearable] REFUSED id=%s -- not owned by this player. Nothing equipped."), *CosmeticId.ToString());
+		ClientWearableRefused(CosmeticId, TEXT("you do not own that item"));
 		return;
 	}
 
@@ -1255,6 +1268,7 @@ void UAFLCosmeticLoadoutComponent::ServerEquipWearable_Implementation(const FNam
 	{
 		UE_LOG(LogAFLCombat, Warning,
 			TEXT("[AFLWearable] REFUSED id=%s -- %s. Nothing equipped."), *CosmeticId.ToString(), *Reason);
+		ClientWearableRefused(CosmeticId, Reason);   // the authored reason, verbatim -- "both wrists are full -- remove one first"
 		return;
 	}
 
