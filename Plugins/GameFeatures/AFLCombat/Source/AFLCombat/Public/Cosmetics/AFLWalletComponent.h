@@ -299,6 +299,20 @@ protected:
 	 */
 	void HandleLoggedIn(const TCHAR* Source);
 
+	/**
+	 * Grant the signup entitlements -- 3 AFL.WeaponCredit -- through the proven counted path.
+	 *
+	 * CALLED ON EVERY LOGIN, DELIBERATELY. The game does not try to work out whether an account is
+	 * new: that judgement would live on the client-facing side of a grant and would be wrong under a
+	 * retry, a reconnect, or a second device. Idempotency lives in the BACKEND instead -- the
+	 * grant-once op adds the credits and plants its marker in ONE conditional write, so the second
+	 * call fails the condition against the first call's write and returns the existing count.
+	 *
+	 * A returning player therefore gets granted=false and their existing balance, which is the
+	 * expected answer on every login after the first and not an error.
+	 */
+	void SeedSignupGrants();
+
 public:
 	/**
 	 * BUNDLE PURCHASE -- Type==Bundle routes here instead of PlayFab PurchaseItem.

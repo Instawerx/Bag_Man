@@ -192,6 +192,65 @@ void UAFLWalletComponent::HandleLoggedIn(const TCHAR* Source)
 		*WalletPrefix(this), Source, Volts, Watts);
 
 	LoadFromPersistence();
+
+	// SIGNUP GRANTS ride the same moment the balance reconcile does: it is the first point at which a
+	// verified PlayFabId exists on the authority. Safe to run every login -- the backend makes it once.
+	SeedSignupGrants();
+}
+
+// The signup grant set. One place, so "what a new account starts with" is an authored fact rather
+// than a literal buried in a call.
+namespace AFLSignupGrants
+{
+	static const TCHAR* WeaponCreditKey = TEXT("AFL.WeaponCredit");
+	static const int32  WeaponCreditQty = 3;
+}
+
+void UAFLWalletComponent::SeedSignupGrants()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || !Online->IsCountedEntitlementConfigured())
+	{
+		// NAMES THE MISSING LEG. "not configured" and "the backend refused" are different worlds and
+		// must not share a message -- an unattributable skip left a run inconclusive once already.
+		UE_LOG(LogAFLWalletDiag, Warning,
+			TEXT("%sSIGNUP GRANT SKIPPED -- /counted-entitlement not configured (needs AFL_COUNTED_URL + AFL_EARN_HMAC_KEY). This is NOT a refusal."),
+			*WalletPrefix(this));
+		return;
+	}
+
+	const UAFLPlayerIdentityComponent* Identity = GetOwner()->FindComponentByClass<UAFLPlayerIdentityComponent>();
+	const FString PlayFabId = Identity ? Identity->GetResolvedPlayFabId() : FString();
+	if (PlayFabId.IsEmpty())
+	{
+		// Never grant against an empty id: the safe failure is to skip, not to misgrant.
+		UE_LOG(LogAFLWalletDiag, Warning,
+			TEXT("%sSIGNUP GRANT SKIPPED -- no resolved PlayFabId (identity unresolved)"), *WalletPrefix(this));
+		return;
+	}
+
+	const FString Body = FString::Printf(
+		TEXT("{\"playFabId\":\"%s\",\"op\":\"grant-once\",\"key\":\"%s\",\"quantity\":%d,\"nonce\":\"signup-%s\",\"ts\":%lld}"),
+		*PlayFabId, AFLSignupGrants::WeaponCreditKey, AFLSignupGrants::WeaponCreditQty,
+		*PlayFabId, (long long)FDateTime::UtcNow().ToUnixTimestamp());
+
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+	Online->PostServerCountedEntitlement(Body, [WeakThis, PlayFabId](bool bOk, const FString& Resp)
+	{
+		// PRESENCE OF OUTPUT on BOTH branches: granted and already-granted are both correct outcomes
+		// and must be distinguishable, or a regression that stopped granting would read as normal.
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("[Wallet] SIGNUP GRANT pf=%s ok=%s resp=%s"),
+			*PlayFabId, bOk ? TEXT("y") : TEXT("N"), *Resp);
+		if (UAFLWalletComponent* Self = WeakThis.Get())
+		{
+			if (bOk && Self->GetOwner() && Self->GetOwner()->HasAuthority())
+			{
+				Self->LoadFromPersistence();   // pull the counted set back so the wallet reflects it
+			}
+		}
+	});
 }
 
 // =====================================================================================================
