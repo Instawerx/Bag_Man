@@ -5639,7 +5639,12 @@ namespace
 	// post-process sway instance installed on chains/bracelets and ABSENT on watches, and replication to
 	// a second world. SWAY AMPLITUDE and visual correctness stay the operator's eye, by doctrine.
 
-	struct FJewelPart { FName Socket; FString ActorClass; FVector WorldLoc; bool bHasPostProcess; };
+	struct FJewelPart
+	{
+		FName Socket; FString ActorClass; FVector WorldLoc; FVector Up; bool bHasPostProcess;
+		FRotator RelRot = FRotator::ZeroRotator;   // what the correction actually left behind
+		FString BoneTrace;                          // chains: where each bone really is, in world Z
+	};
 
 	static const TCHAR* AFLNetModeName(ENetMode NM)
 	{
@@ -5653,16 +5658,17 @@ namespace
 		}
 	}
 
-	// ONE ENTRY PER WORLD that holds this player's pawn. The first cut of this instrument picked a single
-	// preferred pawn and asserted against it, which made every miss unattributable: "the pendant is not
-	// there" could equally mean the equip never landed, or that it landed on the authority and never
-	// reached the client. Those are different bugs with different fixes, and one of them was real.
+	// ONE ENTRY PER WORLD that holds this player's pawn -- found through GameState->PlayerArray, not
+	// through the controller iterator, because on a client the iterator yields only LOCALLY CONTROLLED
+	// players and the OBSERVED copy is the entire point of a two-client run.
 	struct FJewelWorld
 	{
 		FString Label;
 		bool    bClient = false;
-		bool    bDedicated = false;   // Lyra spawns NO cosmetic parts here -- an engine guarantee, asserted below
+		bool    bDedicated = false;     // Lyra spawns NO cosmetic parts here -- asserted, not excused
+		bool    bLocal = false;         // is the subject locally controlled in THIS world?
 		APawn*  Pawn = nullptr;
+		UAFLCosmeticLoadoutComponent* Loadout = nullptr;
 		TArray<FJewelPart> Parts;
 
 		const FJewelPart* At(FName S) const
@@ -5673,8 +5679,6 @@ namespace
 		int32 Has(FName S) const { return At(S) ? 1 : 0; }
 	};
 
-	// Every accessory part actor attached to a pawn. Chain/watch/bracelet ride the pawn; the pendant
-	// rides the chain, so it is found by recursing into each chain actor's own child-actor components.
 	static void AFLCollectParts(APawn* Pawn, TArray<FJewelPart>& Out)
 	{
 		if (!Pawn) { return; }
@@ -5690,6 +5694,11 @@ namespace
 			P.Socket = CAC->GetAttachSocketName();
 			P.ActorClass = Child->GetClass()->GetName();
 			P.WorldLoc = Child->GetActorLocation();
+			P.Up = Child->GetActorUpVector();   // the wrist-orientation arm reads this
+			// THE ROTATION THAT SURVIVED. ApplyWristCorrection sets this in BeginPlay and logs that it
+			// did; reading it back HERE is what separates "never applied" from "applied then reset by
+			// something after BeginPlay". The log alone cannot tell those apart.
+			if (USceneComponent* R = Child->GetRootComponent()) { P.RelRot = R->GetRelativeRotation(); }
 			P.bHasPostProcess = false;
 
 			TArray<USkeletalMeshComponent*> SKMs;
@@ -5697,10 +5706,29 @@ namespace
 			for (USkeletalMeshComponent* SK : SKMs)
 			{
 				if (SK && SK->GetPostProcessInstance()) { P.bHasPostProcess = true; }
+				// WHERE THE BONES ACTUALLY ARE. "the pendant is above the chain" could mean the socket
+				// is on the wrong bone, or that the whole mesh hangs the wrong way. Only the per-bone
+				// world Z separates those two, and they need different fixes.
+				if (SK && SK->GetSkeletalMeshAsset())
+				{
+					P.BoneTrace = FString::Printf(TEXT(" actorZ=%.2f compZ=%.2f"),
+						Child->GetActorLocation().Z, SK->GetComponentLocation().Z);
+					const int32 NB = SK->GetNumBones();
+					for (int32 b = 0; b < NB && b < 8; ++b)
+					{
+						const FName BN = SK->GetBoneName(b);
+						P.BoneTrace += FString::Printf(TEXT(" %s=%.2f"), *BN.ToString(),
+							SK->GetBoneLocation(BN, EBoneSpaces::WorldSpace).Z);
+					}
+					if (SK->DoesSocketExist(FName(TEXT("accessory_pendant"))))
+					{
+						P.BoneTrace += FString::Printf(TEXT(" [socket accessory_pendant Z=%.2f]"),
+							SK->GetSocketLocation(FName(TEXT("accessory_pendant"))).Z);
+					}
+				}
 			}
 			Out.Add(P);
 
-			// the pendant hangs off the chain actor -- recurse one level into its child-actor comps
 			TArray<UChildActorComponent*> Inner;
 			Child->GetComponents<UChildActorComponent>(Inner);
 			for (UChildActorComponent* IC : Inner)
@@ -5711,6 +5739,7 @@ namespace
 					PP.Socket = IC->GetAttachSocketName();
 					PP.ActorClass = Pend->GetClass()->GetName();
 					PP.WorldLoc = Pend->GetActorLocation();
+					PP.Up = Pend->GetActorUpVector();
 					PP.bHasPostProcess = false;
 					Out.Add(PP);
 				}
@@ -5727,11 +5756,6 @@ namespace
 			UWorld* W = Ctx.World();
 			if (!W || !W->IsGameWorld()) { continue; }
 			const ENetMode NM = W->GetNetMode();
-			// GameState->PlayerArray, NOT GetPlayerControllerIterator. On a client the controller
-			// iterator yields only LOCALLY CONTROLLED players, so the OBSERVED player -- the one whose
-			// jewellery the second client is supposed to be looking at -- was invisible to this walk,
-			// and the two-client run silently measured one client. PlayerArray holds every player that
-			// world knows about, controlled locally or not.
 			AGameStateBase* GS = W->GetGameState();
 			if (!GS) { continue; }
 			for (APlayerState* PS : GS->PlayerArray)
@@ -5743,7 +5767,9 @@ namespace
 				JW.Label = FString::Printf(TEXT("%s:%s"), *W->GetName(), AFLNetModeName(NM));
 				JW.bClient = (NM == NM_Client);
 				JW.bDedicated = (NM == NM_DedicatedServer);
+				JW.bLocal = Pawn->IsLocallyControlled();
 				JW.Pawn = Pawn;
+				JW.Loadout = PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>();
 				AFLCollectParts(Pawn, JW.Parts);
 				Out.Add(JW);
 				break;
@@ -5772,6 +5798,11 @@ namespace
 		const FName WATCH(TEXT("AFL.Accessory.Watch.Quantum"));
 		const FName BRACE(TEXT("AFL.Accessory.Bracelet.QuantumUniverse"));
 		const FName WATCH2(TEXT("AFL.Accessory.Watch.RareUniverse"));
+
+		// PRODUCTION PATH. Ownership arrives through the WALLET; every equip goes through
+		// ServerEquipWearable, which re-checks the catalog row, re-checks ownership and resolves the
+		// slot. Nothing here calls AddCharacterPart or writes AccessorySet directly -- a proof that
+		// injected parts would be measuring its own injection.
 		for (const FName Id : { CHAIN, PEND, WATCH, BRACE, WATCH2 }) { W->DebugGrantOwnership(Id); }
 		for (int32 i = 0; i < (int32)EAFLAccessorySlot::MAX; ++i) { L->ServerClearAccessory((EAFLAccessorySlot)i); }
 
@@ -5782,23 +5813,14 @@ namespace
 		TSharedPtr<int32> Pass = MakeShared<int32>(0);
 		TWeakObjectPtr<UAFLCosmeticLoadoutComponent> WL(L);
 
-		// WAIT ON THE THING, WITH A TERMINATOR -- not on a tick count. The first cut's flat 30 ticks
-		// (0.48s) could not cover a destroy + re-add + a 30MB skeletal child-actor spawn, so arms 2/4/5
-		// reported FAIL while the engine log showed the product working, and the FSM was still running
-		// when PIE ended so 6/7 never asserted. A fixed count measures the clock, not the product.
-		//
-		// MAXWAIT is a TERMINATOR, not a retry: when it expires the arm asserts anyway and SAYS it timed
-		// out, so a genuine absence and a slow arrival can never be confused. MINWAIT exists because a
-		// NEGATIVE expectation ("the third watch was refused, so there are still exactly 2") has no
-		// arrival to wait for -- it can only be given a settle window and then read.
-		const int32 MAXWAIT = 240;   // ~3.8s at 0.016 -- positive expectations
-		const int32 MINWAIT = 90;    // ~1.4s          -- negative / steady-state expectations
-		const int32 HARDCAP = 3600;  // ~58s total     -- the FSM itself cannot outlive this
+		const int32 MAXWAIT = 240;   // ~3.8s -- positive expectations, a TERMINATOR not a retry
+		const int32 MINWAIT = 90;    // ~1.4s -- negative expectations have no arrival to wait for
+		const int32 HARDCAP = 5400;  // ~86s  -- the FSM itself cannot outlive this
 
 		auto Arm = [Ran, Pass](const TCHAR* N, bool ok, const FString& d)
 		{
 			(*Ran)++; if (ok) { (*Pass)++; }
-			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL]   %-40s %s  %s"), N, ok ? TEXT("PASS") : TEXT("FAIL"), *d);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL]   %-44s %s  %s"), N, ok ? TEXT("PASS") : TEXT("FAIL"), *d);
 		};
 
 		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
@@ -5817,7 +5839,7 @@ namespace
 			if ((*Total) > HARDCAP)
 			{
 				UE_LOG(LogAFLCombat, Warning,
-					TEXT("AFL_TEST[JEWEL] ABORT -- hard cap %d ticks reached at phase %d. arms=%d passed=%d (INCOMPLETE)."),
+					TEXT("AFL_TEST[JEWEL] ABORT -- hard cap %d ticks at phase %d. arms=%d passed=%d (INCOMPLETE)."),
 					HARDCAP, *Phase, *Ran, *Pass);
 				return false;
 			}
@@ -5826,20 +5848,39 @@ namespace
 			const FJewelWorld* Render = nullptr;
 			for (const FJewelWorld& JW : Worlds) { if (JW.bClient) { Render = &JW; break; } }
 			if (!Render && Worlds.Num() > 0) { Render = &Worlds[0]; }
-			if (!Render) { return true; }   // no pawn in any world yet -- HARDCAP bounds this
+			if (!Render) { return true; }
 
-			// ONE PLACE that says what each phase is waiting FOR. Negative phases fall through to the
-			// MINWAIT settle window instead, because there is no arrival to detect.
+			// the refusal the OWNING client was told about, if any
+			auto RefusalFor = [&Worlds](FName Id) -> FString
+			{
+				for (const FJewelWorld& JW : Worlds)
+				{
+					if (JW.Loadout && JW.Loadout->GetLastRefusalId() == Id)
+					{
+						return JW.Loadout->GetLastRefusalReason();
+					}
+				}
+				return FString();
+			};
+
 			const int32 Ph = *Phase;
-			const bool bNegative = (Ph == 6 || Ph == 7);
+			const bool bNegative = (Ph == 1 || Ph == 8);
 			bool bArrived = false;
 			switch (Ph)
 			{
-			case 1: bArrived = Render->Has(NeckS) == 1; break;
-			case 2: bArrived = Render->Has(PendS) == 1; break;
+			case 2: bArrived = Render->Has(NeckS) == 1 && Render->Has(PendS) == 1; break;
 			case 3: bArrived = Render->Has(NeckS) == 0 && Render->Has(PendS) == 0; break;
 			case 4: bArrived = Render->Has(NeckS) == 1 && Render->Has(PendS) == 1; break;
 			case 5: bArrived = Render->Has(WristLS) == 1 && Render->Has(WristRS) == 1; break;
+			case 6:
+			{
+				// wait for the BRACELET specifically -- "a part is on the right wrist" was still true
+				// the instant before the swap, so waiting on presence alone would judge the old watch.
+				const FJewelPart* R = Render->At(WristRS);
+				bArrived = (R != nullptr) && R->ActorClass.Contains(TEXT("Bracelet"));
+				break;
+			}
+			case 7: bArrived = !RefusalFor(WATCH2).IsEmpty(); break;
 			default: break;
 			}
 			if (Ph != 0)
@@ -5853,15 +5894,14 @@ namespace
 				: FString::Printf(TEXT(" [settled in %d ticks]"), *Sub);
 			*Sub = 0;
 
-			// Per-world occupancy on EVERY arm's detail line, so a divergence is visible where it happens
-			// rather than reconstructed afterwards.
 			auto WorldsDetail = [&Worlds]() -> FString
 			{
 				FString D;
 				for (const FJewelWorld& JW : Worlds)
 				{
-					D += FString::Printf(TEXT("[%s n=%d p=%d wl=%d wr=%d]"),
-						*JW.Label, JW.Has(NeckS), JW.Has(PendS), JW.Has(WristLS), JW.Has(WristRS));
+					D += FString::Printf(TEXT("[%s%s n=%d p=%d wl=%d wr=%d]"),
+						*JW.Label, JW.bClient ? (JW.bLocal ? TEXT("/own") : TEXT("/obs")) : TEXT(""),
+						JW.Has(NeckS), JW.Has(PendS), JW.Has(WristLS), JW.Has(WristRS));
 				}
 				return D;
 			};
@@ -5869,32 +5909,52 @@ namespace
 			switch (*Phase)
 			{
 			case 0:
-				L->ServerEquipWearable(CHAIN); (*Phase)++; break;
+				// PENDANT FIRST, with no chain anywhere. The dependency is only real if a pendant
+				// alone renders nothing.
+				L->ServerEquipWearable(PEND); (*Phase)++; break;
 
 			case 1:
 			{
-				const FJewelPart* Neck = Render->At(NeckS);
-				Arm(TEXT("1 chain renders at neck"), Neck != nullptr,
-					FString::Printf(TEXT("renderPawn=%s clientWorld=%d worlds=%d %s%s"),
-						*GetNameSafe(Render->Pawn), Render->bClient ? 1 : 0, Worlds.Num(),
-						*WorldsDetail(), *WaitTag));
-				if (Neck)
-				{
-					Arm(TEXT("1b chain not at world origin"), !Neck->WorldLoc.IsNearlyZero(),
-						FString::Printf(TEXT("loc=%s"), *Neck->WorldLoc.ToCompactString()));
-					Arm(TEXT("1c chain sway instance installed"), Neck->bHasPostProcess, TEXT("post-process AnimDynamics live"));
-				}
-				L->ServerEquipWearable(PEND); (*Phase)++; break;
+				const bool bNoPend = Render->Has(PendS) == 0;
+				const bool bNoChain = Render->Has(NeckS) == 0;
+				Arm(TEXT("1 pendant with NO chain renders nothing"), bNoPend && bNoChain,
+					FString::Printf(TEXT("pendant=%d chain=%d %s%s"),
+						Render->Has(PendS), Render->Has(NeckS), *WorldsDetail(), *WaitTag));
+				const FAFLAccessoryPlacement* Keep = L->GetSelection().AccessorySet.Find(EAFLAccessorySlot::Pendant);
+				Arm(TEXT("1b ...but the selection still holds it"), Keep && Keep->IsSet() && Keep->AccessoryId == PEND,
+					FString::Printf(TEXT("selection pendant=%s -- product REFUSES the equip outright ('a pendant needs a chain'); the ruled behaviour is accept-and-not-render"),
+						Keep ? *Keep->AccessoryId.ToString() : TEXT("None")));
+
+				// Chain then pendant: the supported order. The refusal above stands as a finding; this
+				// is what lets every other arm be measured rather than lost behind one cause.
+				L->ServerEquipWearable(CHAIN);
+				L->ServerEquipWearable(PEND);
+				(*Phase)++; break;
 			}
 			case 2:
 			{
+				const FJewelPart* Neck = Render->At(NeckS);
 				const FJewelPart* Pend = Render->At(PendS);
-				Arm(TEXT("2 pendant renders on the chain"), Pend != nullptr,
-					FString::Printf(TEXT("%s%s"), *WorldsDetail(), *WaitTag));
-				if (Pend)
+				Arm(TEXT("2 chain renders at the neck"), Neck != nullptr,
+					FString::Printf(TEXT("renderPawn=%s worlds=%d %s%s"),
+						*GetNameSafe(Render->Pawn), Worlds.Num(), *WorldsDetail(), *WaitTag));
+				if (Neck)
 				{
-					Arm(TEXT("2b pendant not at origin"), !Pend->WorldLoc.IsNearlyZero(),
-						FString::Printf(TEXT("loc=%s"), *Pend->WorldLoc.ToCompactString()));
+					Arm(TEXT("2b chain not at world origin"), !Neck->WorldLoc.IsNearlyZero(),
+						FString::Printf(TEXT("loc=%s"), *Neck->WorldLoc.ToCompactString()));
+					Arm(TEXT("2c chain sway instance installed"), Neck->bHasPostProcess,
+						TEXT("post-process AnimDynamics live"));
+				}
+				Arm(TEXT("3 pendant renders ON the chain"), Pend != nullptr,
+					FString::Printf(TEXT("%s"), *WorldsDetail()));
+				if (Pend && Neck)
+				{
+					// A pendant parented to the mesh ROOT instead of the lowest bone would sit at the
+					// chain's own origin and still "exist". This is the arm for the named suspect.
+					const double Drop = Neck->WorldLoc.Z - Pend->WorldLoc.Z;
+					Arm(TEXT("3b pendant hangs BELOW the chain"), Drop > 0.5,
+						FString::Printf(TEXT("chainZ=%.2f pendantZ=%.2f drop=%.2fcm |%s"),
+							Neck->WorldLoc.Z, Pend->WorldLoc.Z, Drop, *Neck->BoneTrace));
 				}
 				L->ServerClearAccessory(EAFLAccessorySlot::Neck); (*Phase)++; break;
 			}
@@ -5902,11 +5962,11 @@ namespace
 			{
 				const bool bNoChain = Render->Has(NeckS) == 0;
 				const bool bNoPend = Render->Has(PendS) == 0;
-				Arm(TEXT("3 un-equip chain removes chain+pendant"), bNoChain && bNoPend,
+				Arm(TEXT("4 un-equip chain removes chain AND pendant"), bNoChain && bNoPend,
 					FString::Printf(TEXT("chainGone=%d pendantGone=%d %s%s"),
 						bNoChain ? 1 : 0, bNoPend ? 1 : 0, *WorldsDetail(), *WaitTag));
 				const FAFLAccessoryPlacement* Keep = L->GetSelection().AccessorySet.Find(EAFLAccessorySlot::Pendant);
-				Arm(TEXT("3b selection still holds the pendant"), Keep && Keep->IsSet() && Keep->AccessoryId == PEND,
+				Arm(TEXT("4b selection keeps the pendant"), Keep && Keep->IsSet() && Keep->AccessoryId == PEND,
 					FString::Printf(TEXT("selection pendant=%s"), Keep ? *Keep->AccessoryId.ToString() : TEXT("None")));
 				L->ServerEquipWearable(CHAIN); (*Phase)++; break;
 			}
@@ -5914,47 +5974,82 @@ namespace
 			{
 				const bool bChain = Render->Has(NeckS) == 1;
 				const bool bPend = Render->Has(PendS) == 1;
-				Arm(TEXT("4 re-equip restores chain+pendant"), bChain && bPend,
+				Arm(TEXT("5 re-equip returns both as left"), bChain && bPend,
 					FString::Printf(TEXT("chain=%d pendant=%d %s%s"),
 						bChain ? 1 : 0, bPend ? 1 : 0, *WorldsDetail(), *WaitTag));
-				L->ServerEquipWearable(WATCH); L->ServerEquipWearable(BRACE); (*Phase)++; break;
+
+				// THE SAME PART ON BOTH WRISTS. ServerEquipWearable fills the first free side, which
+				// would put a watch left and a bracelet right -- and the previous run then compared a
+				// watch's up-vector against a BRACELET's, which is not a question with an answer.
+				// ServerSetAccessory places explicitly; still a production RPC.
+				L->ServerSetAccessory(EAFLAccessorySlot::WristL, WATCH);
+				L->ServerSetAccessory(EAFLAccessorySlot::WristR, WATCH);
+				(*Phase)++; break;
 			}
 			case 5:
 			{
 				const FJewelPart* WristL = Render->At(WristLS);
 				const FJewelPart* WristR = Render->At(WristRS);
-				Arm(TEXT("5 both wrists occupied"), WristL && WristR,
-					FString::Printf(TEXT("wristL=%d wristR=%d %s%s"),
-						WristL ? 1 : 0, WristR ? 1 : 0, *WorldsDetail(), *WaitTag));
+				const bool bBoth = WristL && WristR;
+				const bool bSameMesh = bBoth && (WristL->ActorClass == WristR->ActorClass);
+				Arm(TEXT("6 the same watch sits on BOTH wrists"), bBoth && bSameMesh,
+					FString::Printf(TEXT("L=%s R=%s %s%s"),
+						WristL ? *WristL->ActorClass : TEXT("<none>"),
+						WristR ? *WristR->ActorClass : TEXT("<none>"), *WorldsDetail(), *WaitTag));
+				if (bBoth && bSameMesh)
+				{
+					const bool bAgree = (WristL->Up.Z * WristR->Up.Z) > 0.0;
+					const bool bUp = (WristL->Up.Z > 0.0) && (WristR->Up.Z > 0.0);
+					Arm(TEXT("6b both wrists agree which way is up"), bAgree,
+						FString::Printf(TEXT("L.up.z=%+.3f R.up.z=%+.3f | SURVIVING relRot L=%s R=%s (BeginPlay logged base R=90, right +180 -- if these read zero the correction was RESET after BeginPlay)"),
+							WristL->Up.Z, WristR->Up.Z,
+							*WristL->RelRot.ToCompactString(), *WristR->RelRot.ToCompactString()));
+					Arm(TEXT("6c watch face reads UP, top of wrist"), bUp,
+						FString::Printf(TEXT("L=%+.3f R=%+.3f -- pose-dependent on a live pawn; a marginal value is the operator's eye"),
+							WristL->Up.Z, WristR->Up.Z));
+				}
+				L->ServerClearAccessory(EAFLAccessorySlot::WristR);
+				L->ServerEquipWearable(BRACE);
+				(*Phase)++; break;
+			}
+			case 6:
+			{
+				const FJewelPart* WL2 = Render->At(WristLS);
+				const FJewelPart* WR2 = Render->At(WristRS);
+				Arm(TEXT("7 watch and bracelet take a wrist each"), WL2 && WR2,
+					FString::Printf(TEXT("L=%s R=%s %s%s"),
+						WL2 ? *WL2->ActorClass : TEXT("<none>"),
+						WR2 ? *WR2->ActorClass : TEXT("<none>"), *WorldsDetail(), *WaitTag));
 				bool bWatchRigid = false, bBraceSways = false;
-				for (const FJewelPart* P : { WristL, WristR })
+				for (const FJewelPart* P : { WL2, WR2 })
 				{
 					if (!P) { continue; }
 					if (P->ActorClass.Contains(TEXT("Watch"))) { bWatchRigid = !P->bHasPostProcess; }
 					if (P->ActorClass.Contains(TEXT("Bracelet"))) { bBraceSways = P->bHasPostProcess; }
 				}
-				Arm(TEXT("5b watch rigid, bracelet sways"), bWatchRigid && bBraceSways,
+				Arm(TEXT("7b watch rigid, bracelet sways"), bWatchRigid && bBraceSways,
 					FString::Printf(TEXT("watchRigid=%d braceSways=%d"), bWatchRigid ? 1 : 0, bBraceSways ? 1 : 0));
 				L->ServerEquipWearable(WATCH2); (*Phase)++; break;
 			}
-			case 6:
-			{
-				const int32 WristParts = Render->Has(WristLS) + Render->Has(WristRS);
-				Arm(TEXT("6 third wrist refused (still 2)"), WristParts == 2,
-					FString::Printf(TEXT("wristParts=%d %s%s"), WristParts, *WorldsDetail(), *WaitTag));
-				(*Phase)++; break;
-			}
 			case 7:
 			{
-				// THE REPLICATION ARM. Clients are compared to EACH OTHER, never to the server.
-				//
-				// Lyra does not spawn cosmetic parts on a dedicated server at all
-				// (LyraPawnComponent_CharacterParts.cpp:157 guards on !IsNetMode(NM_DedicatedServer)),
-				// so requiring the server to match a client made this arm unpassable by construction.
-				// That guarantee is now asserted in the direction it actually holds: a dedicated world
-				// must carry ZERO parts, which would catch the day the engine changes its mind.
-				//
-				// A client that shows the chain but not the pendant fails HERE and NAMES ITSELF.
+				const int32 WristParts = Render->Has(WristLS) + Render->Has(WristRS);
+				Arm(TEXT("8 a third wrist item is REFUSED"), WristParts == 2,
+					FString::Printf(TEXT("wristParts=%d %s%s"), WristParts, *WorldsDetail(), *WaitTag));
+
+				// The reason has to reach the PLAYER. A server-side log proves the server decided,
+				// which was never in doubt; on a dedicated server that log is on another machine.
+				const FString Why = RefusalFor(WATCH2);
+				Arm(TEXT("8b ...with a reason the CLIENT can read"), !Why.IsEmpty(),
+					Why.IsEmpty() ? TEXT("no reason reached any client -- silent refusal")
+								  : FString::Printf(TEXT("client was told: \"%s\""), *Why));
+				(*Phase)++; break;
+			}
+			case 8:
+			{
+				// CLIENTS vs CLIENTS. Lyra spawns no cosmetics on a dedicated server
+				// (LyraPawnComponent_CharacterParts.cpp:157), so comparing to the server is unpassable
+				// by construction; that guarantee is asserted in the direction it holds instead.
 				const FJewelWorld* Ref = nullptr;
 				int32 Clients = 0, Diverged = 0;
 				FString Which;
@@ -5968,30 +6063,61 @@ namespace
 						JW.Has(WristLS) == Ref->Has(WristLS) && JW.Has(WristRS) == Ref->Has(WristRS);
 					if (!bSame) { ++Diverged; Which += FString::Printf(TEXT("%s "), *JW.Label); }
 				}
+				if (Clients < 2)
+				{
+					Arm(TEXT("9 all client worlds agree on WHAT is worn"), false,
+						FString::Printf(TEXT("NOT PROVEN: %d client world(s), need 2. %s"), Clients, *WorldsDetail()));
+				}
+				else
+				{
+					Arm(TEXT("9 all client worlds agree on WHAT is worn"), Diverged == 0,
+						FString::Printf(TEXT("clients=%d diverged=%d %s%s"),
+							Clients, Diverged, Diverged ? *Which : TEXT(""), *WorldsDetail()));
+				}
 
-				// the server's zero is a POSITIVE check, not an exemption
+				// THE OBSERVER -- the whole reason for a second client.
+				const FJewelWorld* Obs = nullptr;
+				for (const FJewelWorld& JW : Worlds) { if (JW.bClient && !JW.bLocal) { Obs = &JW; break; } }
+				if (!Obs)
+				{
+					Arm(TEXT("10 the OBSERVER client sees it on the other player"), false,
+						TEXT("NOT PROVEN: no client world where the subject is remotely controlled"));
+				}
+				else
+				{
+					const bool bAll = Obs->Has(NeckS) && Obs->Has(PendS) && Obs->Has(WristLS) && Obs->Has(WristRS);
+					Arm(TEXT("10 the OBSERVER client sees it on the other player"), bAll,
+						FString::Printf(TEXT("%s n=%d p=%d wl=%d wr=%d"), *Obs->Label,
+							Obs->Has(NeckS), Obs->Has(PendS), Obs->Has(WristLS), Obs->Has(WristRS)));
+				}
+
 				bool bServerClean = true;
 				for (const FJewelWorld& JW : Worlds)
 				{
 					if (JW.bDedicated && JW.Parts.Num() != 0) { bServerClean = false; }
 				}
-
-				if (Clients < 2)
-				{
-					// One client cannot answer "do clients agree". Reported as NOT PROVEN rather than
-					// passed, because an instrument that cannot ask the question must not print a pass.
-					Arm(TEXT("7 all client worlds agree on what is worn"), false,
-						FString::Printf(TEXT("NOT PROVEN: found %d client world(s), need 2. %s"),
-							Clients, *WorldsDetail()));
-				}
-				else
-				{
-					Arm(TEXT("7 all client worlds agree on what is worn"), Diverged == 0,
-						FString::Printf(TEXT("clients=%d diverged=%d %s%s"),
-							Clients, Diverged, Diverged ? *Which : TEXT(""), *WorldsDetail()));
-				}
-				Arm(TEXT("7b dedicated server spawns no cosmetics"), bServerClean,
+				Arm(TEXT("11 dedicated server spawns no cosmetics"), bServerClean,
 					TEXT("Lyra suppresses character parts on NM_DedicatedServer -- asserted, not assumed"));
+
+				// SWAY IS SIMULATED PER CLIENT AND IS NOT REPLICATED. Divergence is CORRECT and is
+				// never failed. What IS asserted is that the simulation is installed in EVERY client,
+				// because that is the thing that could be missing.
+				int32 SwayClients = 0, SwayLive = 0;
+				FString Positions;
+				for (const FJewelWorld& JW : Worlds)
+				{
+					if (!JW.bClient) { continue; }
+					++SwayClients;
+					const FJewelPart* N = JW.At(NeckS);
+					if (N && N->bHasPostProcess) { ++SwayLive; }
+					const FJewelPart* P = JW.At(PendS);
+					if (P) { Positions += FString::Printf(TEXT("[%s pendantZ=%.4f]"), *JW.Label, P->WorldLoc.Z); }
+				}
+				Arm(TEXT("12 sway simulated in EVERY client (not replicated)"),
+					SwayClients > 0 && SwayLive == SwayClients,
+					FString::Printf(TEXT("clients=%d withSway=%d %s -- differing positions are CORRECT, not a fault"),
+						SwayClients, SwayLive, *Positions));
+
 				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL] END arms=%d passed=%d %s"),
 					*Ran, *Pass, (*Ran > 0 && *Ran == *Pass) ? TEXT("PASS") : TEXT("PARTIAL/FAIL"));
 				return false;
