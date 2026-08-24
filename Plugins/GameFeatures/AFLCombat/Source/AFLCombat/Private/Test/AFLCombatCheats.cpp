@@ -5694,11 +5694,19 @@ namespace
 			P.Socket = CAC->GetAttachSocketName();
 			P.ActorClass = Child->GetClass()->GetName();
 			P.WorldLoc = Child->GetActorLocation();
-			P.Up = Child->GetActorUpVector();   // the wrist-orientation arm reads this
+			P.Up = Part->GetPartUpVector();   // the MESH's up -- the actor root is snapped by the engine
 			// THE ROTATION THAT SURVIVED. ApplyWristCorrection sets this in BeginPlay and logs that it
 			// did; reading it back HERE is what separates "never applied" from "applied then reset by
 			// something after BeginPlay". The log alone cannot tell those apart.
-			if (USceneComponent* R = Child->GetRootComponent()) { P.RelRot = R->GetRelativeRotation(); }
+			{
+				// the MESH's surviving relative rotation. Reading the ROOT here would now always report
+				// identity by design and would look like the old defect forever.
+				TInlineComponentArray<UMeshComponent*> PMs(Child);
+				for (UMeshComponent* M : PMs)
+				{
+					if (M && M != Child->GetRootComponent()) { P.RelRot = M->GetRelativeRotation(); break; }
+				}
+			}
 			P.bHasPostProcess = false;
 
 			TArray<USkeletalMeshComponent*> SKMs;
@@ -5719,6 +5727,25 @@ namespace
 						const FName BN = SK->GetBoneName(b);
 						P.BoneTrace += FString::Printf(TEXT(" %s=%.2f"), *BN.ToString(),
 							SK->GetBoneLocation(BN, EBoneSpaces::WorldSpace).Z);
+					}
+					// WHICH WAY IS DOWN AT THIS SOCKET? A chain that hangs sideways is either the
+					// socket's frame or the simulation's gravity, and those need different fixes. The
+					// socket's own axes separate them: if the socket's -Z already points forward, the
+					// rest pose is wrong before any simulation runs.
+					if (const ACharacter* OwnCh = Cast<ACharacter>(Pawn))
+					{
+						if (const USkeletalMeshComponent* PM = OwnCh->GetMesh())
+						{
+							if (PM->DoesSocketExist(P.Socket))
+							{
+								const FTransform ST = PM->GetSocketTransform(P.Socket, RTS_World);
+								const FVector SDown = -ST.GetRotation().GetUpVector();
+								const FVector SFwd = ST.GetRotation().GetForwardVector();
+								P.BoneTrace += FString::Printf(
+									TEXT(" | socket '%s' -Z.z=%+.3f fwd.z=%+.3f (world-down would be -Z.z=-1)"),
+									*P.Socket.ToString(), SDown.Z, SFwd.Z);
+							}
+						}
 					}
 					if (SK->DoesSocketExist(FName(TEXT("accessory_pendant"))))
 					{
@@ -6220,8 +6247,11 @@ namespace
 			return;
 		}
 
-		const FVector UpL = AL->GetActorUpVector();
-		const FVector UpR = AR->GetActorUpVector();
+		// the MESH's up, matching the shipping measurement. This test attaches DIRECTLY, so its root
+		// survives -- but the correction no longer lives there, and reading the actor would now report
+		// a false FAIL against a working build.
+		const FVector UpL = Cast<AAFLAccessoryPartActor>(AL)->GetPartUpVector();
+		const FVector UpR = Cast<AAFLAccessoryPartActor>(AR)->GetPartUpVector();
 		Arm(TEXT("1 both wrists agree on which way is up"), (UpL.Z * UpR.Z) > 0.0,
 			FString::Printf(TEXT("left.up.z=%+.3f right.up.z=%+.3f (same sign required)"), UpL.Z, UpR.Z));
 
