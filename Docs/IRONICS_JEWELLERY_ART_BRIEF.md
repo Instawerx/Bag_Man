@@ -27,6 +27,33 @@ to the socket, authored once.
 **Both chains must clear the same volume.** They share one socket. A chain that needs its own
 pendant offset cannot have one.
 
+## REQUIREMENT 0 — THE SOURCE IMAGE POSE IS THE 3D RESULT
+
+**Tripo reconstructs what it is shown, not what the object is.** Measured on our own two chains, from
+identical prompts and settings — the only difference was how the piece was photographed:
+
+| source pose | resulting mesh |
+|---|---|
+| **Founders Link** — hanging in a V, tapering to a point | X 15.4% · Y 79.1% · **Z 100%**. A real hanging drape. Slice-taper 0.34 → 0.79. Rigged first time. |
+| **Founders Purps** — laid flat in a closed circle, top-down | X 100% · Y 98.9% · **Z 8.2%**. A flat ring. **No hanging axis exists to rig along.** |
+
+So for anything that must sway:
+
+- **PHOTOGRAPH IT HANGING.** A vertical drape gives the bone chain an unambiguous axis. A flat or
+  coiled presentation gives none, and no conform can invent one — bending a flat ring into a U is
+  authoring geometry that was never generated.
+- **THE PIECE ALONE.** No pendant on the chain, no bust, no mannequin, no prop. A chain worn on
+  something reconstructs that something.
+- **PLAIN BACKGROUND.** Background content is reconstructable.
+
+**`Ironics Founders Link Chain.png` is the reference for how to shoot these.** It already satisfies all
+three, which is why it worked.
+
+Bracelets are the exception that proves the rule: a bracelet **is** a ring, so a flat-ish result
+(Z 35–39% of the longest axis, measured on both) is the correct shape rather than a defect. What a
+bracelet lacks is not depth but a hanging direction — its sway axis comes from how it sits on the
+wrist, not from the mesh.
+
 ## REQUIREMENT 2 — chains and bracelets are SKELETAL with a bone chain; watches are RIGID
 
 Chains and bracelets get secondary motion — game-realism bounce and sway, driven by **AnimDynamics in
