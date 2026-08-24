@@ -380,6 +380,7 @@ void UAFLWalletComponent::ServerPurchaseCosmetic_Implementation(FName CosmeticId
 	const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog();
 	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
 	if (!Entry) { Deny(TEXT("not in catalog")); return; }
+	if (Entry->bPlaceholderArt) { Deny(TEXT("not available -- placeholder art")); return; }   // ruled not-shippable: refuse BEFORE any currency is touched
 	if (!Entry->bTransactable) { Deny(TEXT("not yet available (backend-gated)")); return; } // B1 INERT GATE: author-now-inert SKU cannot transact until B2 de-inerts it.
 	if (Entry->Acquisition == EAFLAcquisition::GrantedFree) { Deny(TEXT("GrantedFree (already owned by all)")); return; }
 	if (OwnedCosmeticIds.Contains(CosmeticId)) { Deny(TEXT("already owned (no double charge)")); return; }

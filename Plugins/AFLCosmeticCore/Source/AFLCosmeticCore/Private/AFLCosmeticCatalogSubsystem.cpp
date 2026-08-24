@@ -351,6 +351,7 @@ void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry
 	}
 
 	int32 Filtered = 0;
+	int32 Placeholder = 0;
 	for (const FAFLCatalogEntry& Entry : Catalog->Entries)
 	{
 		// Purchasable = NOT GrantedFree (identity / free base / basic colors are owned by all, not shop items).
@@ -378,15 +379,25 @@ void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry
 			++Filtered;
 			continue;
 		}
+		// PROVISIONAL ART MUST NOT BE OFFERED. Separate from bTransactable deliberately: that field
+		// says "cannot be bought", this one says "should not exist yet", and a row can be either
+		// without being the other. Counted into its own bucket so the log can tell an operator which
+		// of the two withheld a row -- one is a backend state that will resolve itself, the other is
+		// work that is owed.
+		if (Entry.bPlaceholderArt)
+		{
+			++Placeholder;
+			continue;
+		}
 		OutEntries.Add(Entry); // by value -- small BlueprintType struct for the store grid.
 	}
 
 	// PRESENCE OF OUTPUT: the count that was WITHHELD is the measurement. A silent filter and a filter
 	// that had nothing to do would otherwise look identical.
 	UE_LOG(LogTemp, Log,
-		TEXT("[AFLCatalog] CC-X22 purchasable: %d shown, %d withheld (priced here, not sellable by either backend). ")
-		TEXT("playfab=%d ledger=%d"),
-		OutEntries.Num(), Filtered, GetRegisteredCount(), GetLedgerSellableCount());
+		TEXT("[AFLCatalog] CC-X22 purchasable: %d shown, %d withheld (priced here, not sellable by either backend), ")
+		TEXT("%d withheld as PLACEHOLDER ART. playfab=%d ledger=%d"),
+		OutEntries.Num(), Filtered, Placeholder, GetRegisteredCount(), GetLedgerSellableCount());
 }
 
 bool UAFLCosmeticCatalogSubsystem::GetEntry(FName CosmeticId, FAFLCatalogEntry& OutEntry) const

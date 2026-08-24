@@ -480,6 +480,27 @@ struct FAFLCatalogEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Bundle")
 	bool bTransactable = true;
 
+	/**
+	 * IS THIS ROW'S ART PROVISIONAL? Default false. A true here means the row exists and works but the
+	 * ASSET behind it is a stand-in, and it must not reach a player.
+	 *
+	 * THIS IS NOT DERIVABLE. A placeholder row resolves to a live class, carries a mesh, carries its
+	 * post-process ABP and its sockets, and passes every structural check that exists -- measured, on
+	 * AFL.Accessory.Chain.FoundersPurps, which passes all four. Nothing about a stand-in is visible to
+	 * code; only to an eye. So it is recorded as a fact rather than inferred by a rule.
+	 *
+	 * NOT bTransactable. That field already means "free or backend-gated" on 169 rows, and a
+	 * placeholder marked with it becomes indistinguishable from a legitimately free item -- the exact
+	 * overloaded-property shape that made "unset" and "set to default" unreadable before.
+	 *
+	 * ENFORCED ON BOTH SEAMS: withheld from the purchasable set AND refused on the purchase path.
+	 * bTransactable was once checked only on purchase, and the rows it protected were still SHOWN at
+	 * 0 VO reading as "Free" (CC-7). Hiding without refusing, or refusing without hiding, each leaves
+	 * half the defect.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Catalog|Identity")
+	bool bPlaceholderArt = false;
+
 	/** Limited-edition mint cap (the 1-of-N). 0 = unlimited (default; every existing row). The 1-of-1 Singularity
 	 *  bundles set 1. FIELD ONLY here -- MintedCount + sold-out/never-reissue ENFORCEMENT is persistence-gated B2 (PSS §5.1). */
 	UPROPERTY(EditAnywhere, Category = "AFL|Catalog|Bundle")
