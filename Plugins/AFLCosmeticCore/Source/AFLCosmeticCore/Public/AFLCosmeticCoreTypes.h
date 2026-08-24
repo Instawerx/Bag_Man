@@ -130,7 +130,11 @@ enum class EAFLCosmeticType : uint8
 	// A SECOND COUNTER, NOT A SECOND MECHANISM. AFL.StickerCredit and AFL.WeaponCredit accumulate
 	// separately and are NOT fungible: which credit redeems a row is derived server-side from that
 	// row's Type, so a caller has no input through which to spend the wrong one.
-	StickerCredit     UMETA(DisplayName = "Sticker Credit")
+	StickerCredit     UMETA(DisplayName = "Sticker Credit"),
+
+	// APPENDED, never inserted. These values are serialised by NUMBER into 300+ catalog rows;
+	// inserting anywhere above would silently re-type every row below the insertion point.
+	FacemaskCredit    UMETA(DisplayName = "Facemask Credit")   // AFL.FacemaskCredit.x5 -> CountedKey AFL.FacemaskCredit
 
 };
 
