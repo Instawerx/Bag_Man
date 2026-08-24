@@ -54,6 +54,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Accessory")
 	bool WasWristCorrected() const { return bWristCorrected; }
 
+	/**
+	 * Which way is UP for the visible part.
+	 *
+	 * NOT GetActorUpVector(). The correction can no longer live on the actor root: for a child actor
+	 * the engine snaps that root to its ChildActorComponent immediately after BeginPlay
+	 * (ChildActorComponent.cpp CreateChildActor, SnapToTargetNotIncludingScale), so the root's relative
+	 * rotation is always identity by the time anything renders and the actor's up vector answers a
+	 * question about the socket rather than about the part.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Accessory")
+	FVector GetPartUpVector() const;
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -95,6 +107,33 @@ protected:
 	/** The other wrist. Both are named so "is this a wrist?" is a lookup rather than a prefix guess. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Accessory")
 	FName LeftWristSocket = FName(TEXT("accessory_wrist_l"));
+
+	/**
+	 * Applied to a part attached at the NECK, and the reason a chain hangs at all.
+	 *
+	 * MEASURED, on a live pawn, not assumed: at accessory_neck the socket's own axes read
+	 *
+	 *     forward (+X) -> world z = +0.998     i.e. +X points STRAIGHT UP
+	 *     up      (+Z) -> world z =  0.000     i.e. +Z is HORIZONTAL
+	 *
+	 * because the socket inherits spine_03, and a UE spine bone runs +X up the spine. A chain authored
+	 * to hang along its own -Z therefore inherits a frame in which -Z is sideways, and it sticks out of
+	 * the chest instead of lying on it. Measured before this correction existed: the bone chain spans
+	 * 18.75cm and descended 1.08cm -- about 3 degrees off horizontal.
+	 *
+	 * Pitch -90 maps the part's +Z onto the socket's +X, so the part's -Z lands on the socket's -X,
+	 * which is down. Same discipline as the wrist: a measured default, exposed so a piece authored on
+	 * another axis can differ without a code change.
+	 *
+	 * IT IS NOT GRAVITY. AnimDynamics was the other candidate and the socket axes rule it out -- the
+	 * rest pose is already wrong before any simulation runs.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Accessory")
+	FRotator BaseNeckOrientation = FRotator(-90.0f, 0.0f, 0.0f);
+
+	/** The neck socket this correction applies to. Named, not inferred. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Accessory")
+	FName NeckSocket = FName(TEXT("accessory_neck"));
 
 private:
 	UPROPERTY(Transient)

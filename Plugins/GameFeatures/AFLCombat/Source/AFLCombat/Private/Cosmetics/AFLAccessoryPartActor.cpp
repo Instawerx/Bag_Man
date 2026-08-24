@@ -1,6 +1,7 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "Cosmetics/AFLAccessoryPartActor.h"
+#include "Components/MeshComponent.h"   // the correction lives on the MESH, not the root
 
 #include "AFLCombat.h"
 #include "Components/ChildActorComponent.h"
@@ -40,10 +41,46 @@ void AAFLAccessoryPartActor::BeginPlay()
 	ApplyWristCorrection();
 }
 
+
+// The visible mesh, which is a CHILD of the actor root in every part BP. The correction goes here
+// because the engine owns the root's relative transform for a child actor and overwrites it.
+static UMeshComponent* AFLFindPartMesh(const AActor* Self)
+{
+	TInlineComponentArray<UMeshComponent*> Meshes(Self);
+	for (UMeshComponent* M : Meshes)
+	{
+		if (M && M != Self->GetRootComponent()) { return M; }
+	}
+	// A BP whose ROOT is the mesh still has to work -- it just cannot survive the snap, and the log
+	// below says so rather than pretending the correction held.
+	return Meshes.Num() > 0 ? Meshes[0] : nullptr;
+}
+
+FVector AAFLAccessoryPartActor::GetPartUpVector() const
+{
+	if (const UMeshComponent* M = AFLFindPartMesh(this)) { return M->GetUpVector(); }
+	return GetActorUpVector();
+}
+
 void AAFLAccessoryPartActor::ApplyWristCorrection()
 {
 	const FName Socket = GetAttachedSocketName();
 	const bool bIsWrist = (Socket == RightWristSocket) || (Socket == LeftWristSocket);
+
+	// THE NECK NEEDS ONE TOO, for the same reason the wrists do: the socket's frame is not the world's.
+	// spine_03 runs +X up the spine, so a chain that hangs along its own -Z inherits a sideways frame.
+	if (Socket == NeckSocket)
+	{
+		if (UMeshComponent* M = AFLFindPartMesh(this))
+		{
+			M->SetRelativeRotation(BaseNeckOrientation.Quaternion());
+			bWristCorrected = true;
+			UE_LOG(LogAFLCombat, Log,
+				TEXT("[AFLAccessoryPart] %s at '%s' -- neck %s (socket +X points up the spine; this is what makes it hang)"),
+				*GetName(), *Socket.ToString(), *BaseNeckOrientation.ToCompactString());
+		}
+		return;
+	}
 
 	if (!bIsWrist)
 	{
@@ -51,7 +88,7 @@ void AAFLAccessoryPartActor::ApplyWristCorrection()
 		// wrist, the correction must come OFF, not merely not be re-applied.
 		if (bWristCorrected)
 		{
-			if (USceneComponent* Root = GetRootComponent()) { Root->SetRelativeRotation(FRotator::ZeroRotator); }
+			if (UMeshComponent* M = AFLFindPartMesh(this)) { M->SetRelativeRotation(FRotator::ZeroRotator); }
 			bWristCorrected = false;
 		}
 		// Neck and pendant: the mesh's authored orientation is already correct. Saying so in the log
@@ -62,7 +99,11 @@ void AAFLAccessoryPartActor::ApplyWristCorrection()
 		return;
 	}
 
-	if (USceneComponent* Root = GetRootComponent())
+	// THE MESH, NOT THE ROOT. Writing the root here is what made the correction vanish between
+	// BeginPlay and the first frame: the engine snaps a child actor's root to its component
+	// immediately afterwards. Measured -- relRot read back R(0) on both wrists while the log said
+	// base R=90 and a +180 mirror had been applied.
+	if (UMeshComponent* Root = AFLFindPartMesh(this))
 	{
 		// BASE FIRST, THEN THE SIDE. The base puts the face up (the socket's up-ish axis is +Y, not +Z);
 		// the per-side roll undoes the mirroring between the two sockets. Composed as quaternions so the
