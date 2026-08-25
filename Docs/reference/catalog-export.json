@@ -3299,6 +3299,36 @@
    "ph": false,
    "volts": 0,
    "watts": 0
+  },
+  {
+   "id": "AFL.League.Monthly",
+   "name": "League - Monthly",
+   "type": "SUBSCRIPTION",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 5000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.League.Quarterly",
+   "name": "League - Quarterly (annual commit)",
+   "type": "SUBSCRIPTION",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 10000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.League.Annual",
+   "name": "League - Annual",
+   "type": "SUBSCRIPTION",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 30000,
+   "watts": 0
   }
  ]
 }
