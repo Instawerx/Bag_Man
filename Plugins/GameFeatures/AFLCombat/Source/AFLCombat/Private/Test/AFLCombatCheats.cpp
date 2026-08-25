@@ -6002,6 +6002,55 @@ namespace
 		FString RenderWhy;         // the first reason a component is not drawn, named
 	};
 
+	// ONE capture, used by BOTH collection loops. The first cut of this lived inline in the pawn-parts
+	// loop only, so the pendant -- which is found by the SEPARATE inner loop over the chain's own child
+	// actors -- kept its default 0/0/0 and arm 13 reported it as undrawn. That was the instrument, not
+	// the product: the pendant is the ONLY part sourced from the inner loop, so a whole bucket reading
+	// 100% failed was a broken classifier rather than a finding. Factored here so a third collection
+	// path cannot reintroduce it.
+	static void AFLFillRenderState(const AActor* PartActor, FJewelPart& P)
+	{
+		if (!PartActor) { return; }
+		TInlineComponentArray<UMeshComponent*> RMs(PartActor);
+		for (UMeshComponent* M : RMs)
+		{
+			if (!M) { continue; }
+			++P.MeshComps;
+
+			bool bAsset = false;
+			if (const USkeletalMeshComponent* SkM = Cast<USkeletalMeshComponent>(M))
+			{
+				bAsset = (SkM->GetSkeletalMeshAsset() != nullptr);
+			}
+			else if (const UStaticMeshComponent* StM = Cast<UStaticMeshComponent>(M))
+			{
+				bAsset = (StM->GetStaticMesh() != nullptr);
+			}
+			if (bAsset) { ++P.WithAsset; }
+
+			const double R = M->Bounds.SphereRadius;
+			P.MaxRadius = FMath::Max(P.MaxRadius, R);
+
+			// "no mesh asset" and "hidden in game" are different bugs with different fixes, so the
+			// first failing reason is named rather than counted.
+			const bool bDrawn = bAsset && M->IsRegistered() && M->IsVisible()
+			                 && !M->bHiddenInGame && R > KINDA_SMALL_NUMBER;
+			if (bDrawn) { ++P.Drawn; }
+			else if (P.RenderWhy.IsEmpty())
+			{
+				P.RenderWhy = !bAsset            ? TEXT("no mesh asset")
+				            : !M->IsRegistered() ? TEXT("component not registered")
+				            : !M->IsVisible()    ? TEXT("component not visible")
+				            : M->bHiddenInGame   ? TEXT("hidden in game")
+				            :                      TEXT("degenerate bounds (radius ~0)");
+			}
+		}
+		if (P.MeshComps == 0 && P.RenderWhy.IsEmpty())
+		{
+			P.RenderWhy = TEXT("part actor has NO mesh components at all");
+		}
+	}
+
 	static const TCHAR* AFLNetModeName(ENetMode NM)
 	{
 		switch (NM)
@@ -6065,43 +6114,7 @@ namespace
 			}
 			P.bHasPostProcess = false;
 
-			// IS ANY OF THIS ACTUALLY DRAWN? Asked of every mesh component on the part, and the first
-			// failing reason is kept rather than a bare count -- "no mesh asset" and "hidden in game"
-			// are different bugs with different fixes, and a count cannot tell them apart.
-			{
-				TInlineComponentArray<UMeshComponent*> RMs(Child);
-				for (UMeshComponent* M : RMs)
-				{
-					if (!M) { continue; }
-					++P.MeshComps;
-
-					bool bAsset = false;
-					if (const USkeletalMeshComponent* SkM = Cast<USkeletalMeshComponent>(M))
-					{
-						bAsset = (SkM->GetSkeletalMeshAsset() != nullptr);
-					}
-					else if (const UStaticMeshComponent* StM = Cast<UStaticMeshComponent>(M))
-					{
-						bAsset = (StM->GetStaticMesh() != nullptr);
-					}
-					if (bAsset) { ++P.WithAsset; }
-
-					const double R = M->Bounds.SphereRadius;
-					P.MaxRadius = FMath::Max(P.MaxRadius, R);
-
-					const bool bDrawn = bAsset && M->IsRegistered() && M->IsVisible()
-					                 && !M->bHiddenInGame && R > KINDA_SMALL_NUMBER;
-					if (bDrawn) { ++P.Drawn; }
-					else if (P.RenderWhy.IsEmpty())
-					{
-						P.RenderWhy = !bAsset            ? TEXT("no mesh asset")
-						            : !M->IsRegistered() ? TEXT("component not registered")
-						            : !M->IsVisible()    ? TEXT("component not visible")
-						            : M->bHiddenInGame   ? TEXT("hidden in game")
-						            :                      TEXT("degenerate bounds (radius ~0)");
-					}
-				}
-			}
+			AFLFillRenderState(Child, P);
 
 			TArray<USkeletalMeshComponent*> SKMs;
 			Child->GetComponents<USkeletalMeshComponent>(SKMs);
@@ -6162,6 +6175,7 @@ namespace
 					PP.WorldLoc = Pend->GetActorLocation();
 					PP.Up = Pend->GetActorUpVector();
 					PP.bHasPostProcess = false;
+					AFLFillRenderState(Pend, PP);   // the loop that was missing it
 					Out.Add(PP);
 				}
 			}
@@ -6580,6 +6594,60 @@ namespace
 							}
 						}
 					}
+					// WHERE AND HOW BIG, printed for EVERY part whether it passes or fails. Arm 13 has
+					// been reporting drawn=8/8 while an unlit albedo capture aimed at the neck socket --
+					// the exact world position arm 2b reports for the chain -- shows nothing at all.
+					// "Drawn" and "non-degenerate" were never enough: a part 100x too small, or one whose
+					// mesh sits far from its actor, satisfies both and is invisible. A pass that cannot
+					// be reconciled with a photograph is not a pass, so the numbers go in the log.
+					for (const FJewelWorld& JW : Worlds)
+					{
+						if (!JW.bClient) { continue; }
+						for (const FJewelPart& P : JW.Parts)
+						{
+							UE_LOG(LogAFLCombat, Display,
+								TEXT("AFL_TEST[JEWEL] PART %-14s %-38s loc=%s radius=%.3fcm meshComps=%d drawn=%d"),
+								*P.Socket.ToString(), *P.ActorClass, *P.WorldLoc.ToCompactString(),
+								P.MaxRadius, P.MeshComps, P.Drawn);
+						}
+					}
+
+					// ---- IS THE LINE OF SIGHT BLOCKED? ------------------------------------------------
+					// The albedo capture killed "too dark to see" and NOTHING ELSE: SCS_BaseColor
+					// bypasses LIGHTING, not DEPTH, so a part inside the torso is still occluded there.
+					// And the x-ray frame is void as evidence, because hiding the pawn mesh may suppress
+					// attached children whatever the propagate flag says.
+					//
+					// So ask the question directly instead of photographing it again: trace from the
+					// camera position to each part's centre and report the FIRST thing hit. If the body
+					// is in the way, that is the whole defect -- the parts are drawn, correctly placed
+					// and correctly sized, and buried under the chest shell.
+					for (const FJewelWorld& JW : Worlds)
+					{
+						if (!JW.bClient || !JW.Pawn) { continue; }
+						const USkeletalMeshComponent* BM = JW.Pawn->FindComponentByClass<USkeletalMeshComponent>();
+						if (!BM) { continue; }
+						const FVector Fwd = JW.Pawn->GetActorForwardVector();
+						for (const FJewelPart& P : JW.Parts)
+						{
+							const FVector Eye = P.WorldLoc + Fwd * 140.f;
+							FHitResult Hit;
+							FCollisionQueryParams Q(SCENE_QUERY_STAT(AFLJewelLOS), /*bTraceComplex=*/true);
+							const bool bHit = JW.Pawn->GetWorld()->LineTraceSingleByChannel(
+								Hit, Eye, P.WorldLoc, ECC_Visibility, Q);
+							const float ToPart = (float)(Eye - P.WorldLoc).Size();
+							UE_LOG(LogAFLCombat, Display,
+								TEXT("AFL_TEST[JEWEL] LOS %-18s -> %s  (distToPart=%.1fcm hitDist=%.1fcm hitActor=%s comp=%s)"),
+								*P.Socket.ToString(),
+								bHit ? TEXT("BLOCKED") : TEXT("CLEAR"),
+								ToPart,
+								bHit ? Hit.Distance : 0.f,
+								bHit ? *GetNameSafe(Hit.GetActor()) : TEXT("-"),
+								bHit ? *GetNameSafe(Hit.GetComponent()) : TEXT("-"));
+						}
+						break;   // one client is enough; both carry the same geometry
+					}
+
 					const bool bArm13 = (CliParts > 0) && (CliDrawn == CliParts);
 					Arm(TEXT("13 every part on a CLIENT is actually DRAWN"), bArm13,
 						FString::Printf(TEXT("clientParts=%d drawn=%d noMeshAsset=%d%s%s"),
@@ -6590,6 +6658,169 @@ namespace
 						UE_LOG(LogAFLCombat, Error,
 							TEXT("AFL_TEST[JEWEL] ARM13 PARTS EXIST BUT ARE NOT DRAWN -- this is what the "
 							     "operator sees. Every other arm passes on presence alone."));
+					}
+				}
+
+				// ---- THE CAPTURE ---------------------------------------------------------------------
+				// THE HARNESS SHOOTS ITSELF, and that is the point. The drape is AnimDynamics and the
+				// wrist orientation is ApplyWristCorrection at BeginPlay -- both runtime-only, so an
+				// editor-static capture cannot show either and every attempt produced a flat ring and a
+				// watch sitting proud of the arm. A PIE capture is the only faithful one, and the
+				// standing rule is ZERO tooling calls into a live PIE. Doing it from inside the run
+				// satisfies both: nothing reaches in, and the frame is taken while the simulation is up.
+				{
+					const FJewelWorld* Shot = nullptr;
+					for (const FJewelWorld& JW : Worlds) { if (JW.bClient && JW.Pawn) { Shot = &JW; break; } }
+					if (Shot && Shot->Pawn)
+					{
+						UWorld* SW = Shot->Pawn->GetWorld();
+						const USkeletalMeshComponent* SM = Shot->Pawn->FindComponentByClass<USkeletalMeshComponent>();
+						if (SW && SM)
+						{
+							const FVector Neck = SM->DoesSocketExist(NeckS)
+								? SM->GetSocketLocation(NeckS)
+								: Shot->Pawn->GetActorLocation();
+							const FVector Fwd = Shot->Pawn->GetActorForwardVector();
+
+							UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(SW);
+							RT->RenderTargetFormat = RTF_RGBA8;
+							RT->InitAutoFormat(1600, 1600);
+							RT->UpdateResourceImmediate(true);
+
+							// Three framings: the neck, each wrist. Distances are in cm and chosen for
+							// pieces 5-25 cm across -- a full-body frame renders them a few pixels wide,
+							// which is a large part of why "it is on screen" and "it can be seen" have
+							// disagreed for so long.
+							struct FShotDef { const TCHAR* Name; FName Socket; float Dist; float FOV; };
+							const FShotDef Defs[] = {
+								{ TEXT("neck"),    NeckS,   55.f, 32.f },
+								{ TEXT("wrist_l"), WristLS, 32.f, 28.f },
+								{ TEXT("wrist_r"), WristRS, 32.f, 28.f },
+								{ TEXT("upper"),   NeckS,  140.f, 42.f },
+							};
+							for (const FShotDef& D : Defs)
+							{
+								const FVector Subj = SM->DoesSocketExist(D.Socket) ? SM->GetSocketLocation(D.Socket) : Neck;
+								const FVector Eye  = Subj + Fwd * D.Dist;
+								ASceneCapture2D* Cap = SW->SpawnActor<ASceneCapture2D>(Eye, (Subj - Eye).Rotation());
+								if (!Cap) { continue; }
+								USceneCaptureComponent2D* CC = Cap->GetCaptureComponent2D();
+								CC->TextureTarget = RT;
+								CC->CaptureSource = SCS_FinalColorLDR;
+								CC->FOVAngle = D.FOV;
+								CC->bCaptureEveryFrame = false;
+								CC->CaptureScene();
+								FString Err;
+								UKismetRenderingLibrary::ExportRenderTarget(
+									SW, RT, FPaths::ProjectSavedDir() / TEXT("Screenshots/JEWEL"),
+									FString::Printf(TEXT("jewel_%s.png"), D.Name));
+								Cap->Destroy();
+								UE_LOG(LogAFLCombat, Display,
+									TEXT("AFL_TEST[JEWEL] SHOT %s -> Saved/Screenshots/JEWEL/jewel_%s.png (subject=%s eye=%s)"),
+									D.Name, D.Name, *Subj.ToCompactString(), *Eye.ToCompactString());
+							}
+
+							// ---- THE X-RAY FRAME -------------------------------------------------
+							// Arm 13 says all 8 parts are DRAWN -- real assets, registered, visible,
+							// non-degenerate bounds -- and the operator looked at a 55 cm frame of the
+							// neck and saw no chain. Drawn and visible-to-a-camera are not the same
+							// claim when something opaque is in front. So: hide EVERYTHING on the pawn
+							// except the accessory part actors and shoot the identical frame.
+							//
+							//   jewellery appears  -> the parts are INSIDE the body. Socket placement,
+							//                         not attach, and arm 13 was right all along.
+							//   still nothing      -> occlusion is refused and the cause is elsewhere.
+							//
+							// Either answer is worth the frame; the point is that it CANNOT come back
+							// ambiguous. Visibility is toggled per-component with propagation OFF --
+							// propagating would hide the accessories too and fake the second outcome.
+							{
+								TArray<UMeshComponent*> Hidden;
+								TInlineComponentArray<UMeshComponent*> OwnMeshes(Shot->Pawn);
+								for (UMeshComponent* M : OwnMeshes)
+								{
+									if (M && M->IsVisible()) { M->SetVisibility(false, false); Hidden.Add(M); }
+								}
+								TArray<UChildActorComponent*> CACs;
+								Shot->Pawn->GetComponents<UChildActorComponent>(CACs);
+								for (UChildActorComponent* CAC : CACs)
+								{
+									AActor* Child = CAC ? CAC->GetChildActor() : nullptr;
+									if (!Child || Child->IsA<AAFLAccessoryPartActor>()) { continue; }  // keep jewellery
+									TInlineComponentArray<UMeshComponent*> CMs(Child);
+									for (UMeshComponent* M : CMs)
+									{
+										if (M && M->IsVisible()) { M->SetVisibility(false, false); Hidden.Add(M); }
+									}
+								}
+
+								const FVector Eye = Neck + Fwd * 55.f;
+								if (ASceneCapture2D* Cap = SW->SpawnActor<ASceneCapture2D>(Eye, (Neck - Eye).Rotation()))
+								{
+									USceneCaptureComponent2D* CC = Cap->GetCaptureComponent2D();
+									CC->TextureTarget = RT;
+									CC->CaptureSource = SCS_FinalColorLDR;
+									CC->FOVAngle = 32.f;
+									CC->bCaptureEveryFrame = false;
+									CC->CaptureScene();
+									UKismetRenderingLibrary::ExportRenderTarget(
+										SW, RT, FPaths::ProjectSavedDir() / TEXT("Screenshots/JEWEL"),
+										TEXT("jewel_xray_neck.png"));
+									Cap->Destroy();
+								}
+								for (UMeshComponent* M : Hidden) { if (M) { M->SetVisibility(true, false); } }
+								UE_LOG(LogAFLCombat, Display,
+									TEXT("AFL_TEST[JEWEL] SHOT xray_neck -- hid %d body mesh component(s), accessories kept visible"),
+									Hidden.Num());
+
+								// ---- UNLIT ALBEDO -------------------------------------------------
+								// THE FRAME THAT CANNOT BE ARGUED WITH. The x-ray above is VOID as
+								// evidence: hiding the pawn's mesh may suppress attached children at
+								// render time whatever the propagate flag says, so an empty frame there
+								// cannot separate "nothing is present" from "I hid it too".
+								//
+								// L_Expanse is near-black and only EMISSIVE surfaces read -- the cyan
+								// body edges, the red chest mark, the green floor light. Dark metal
+								// jewellery on a black body in an unlit room renders perfectly and is
+								// invisible to a camera. SCS_BaseColor bypasses lighting entirely and
+								// draws albedo, so geometry that is present MUST appear.
+								//
+								//   chain appears in albedo  -> it renders; the defect is LIGHTING or MATERIAL
+								//   still absent in albedo   -> it is not in front of this camera at all
+								//
+								// Nothing is hidden for this frame, so it carries no ambiguity.
+								{
+									const FVector Eye2 = Neck + Fwd * 55.f;
+									if (ASceneCapture2D* Cap2 = SW->SpawnActor<ASceneCapture2D>(Eye2, (Neck - Eye2).Rotation()))
+									{
+										USceneCaptureComponent2D* CC2 = Cap2->GetCaptureComponent2D();
+										CC2->TextureTarget = RT;
+										CC2->CaptureSource = SCS_BaseColor;
+										CC2->FOVAngle = 32.f;
+										CC2->bCaptureEveryFrame = false;
+										CC2->CaptureScene();
+										UKismetRenderingLibrary::ExportRenderTarget(
+											SW, RT, FPaths::ProjectSavedDir() / TEXT("Screenshots/JEWEL"),
+											TEXT("jewel_albedo_neck.png"));
+										CC2->FOVAngle = 42.f;
+										Cap2->SetActorLocation(Neck + Fwd * 140.f);
+										Cap2->SetActorRotation((Neck - (Neck + Fwd * 140.f)).Rotation());
+										CC2->CaptureScene();
+										UKismetRenderingLibrary::ExportRenderTarget(
+											SW, RT, FPaths::ProjectSavedDir() / TEXT("Screenshots/JEWEL"),
+											TEXT("jewel_albedo_upper.png"));
+										Cap2->Destroy();
+										UE_LOG(LogAFLCombat, Display,
+											TEXT("AFL_TEST[JEWEL] SHOT albedo_neck + albedo_upper (SCS_BaseColor, nothing hidden)"));
+									}
+								}
+							}
+						}
+						else
+						{
+							UE_LOG(LogAFLCombat, Warning,
+								TEXT("AFL_TEST[JEWEL] SHOT SKIPPED -- no client pawn mesh to frame."));
+						}
 					}
 				}
 
