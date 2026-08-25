@@ -1,0 +1,3304 @@
+{
+ "rows": [
+  {
+   "id": "AFL.Edge.NeonBlue",
+   "name": "Neon Blue Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.NeonGreen",
+   "name": "Neon Green Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.NeonPink",
+   "name": "Neon Pink Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.NeonPurple",
+   "name": "Neon Purple Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.NeonRed",
+   "name": "Neon Red Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Team.ARIA",
+   "name": "ARIA Team Colors",
+   "type": "TEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Team.IRONICS",
+   "name": "IRONICS Team Colors",
+   "type": "TEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Team.SCARLETT",
+   "name": "SCARLETT Team Colors",
+   "type": "TEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Team.MAKHIAVELLI",
+   "name": "MAKHIAVELLI Team Colors",
+   "type": "TEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Ability.EMP",
+   "name": "EMP Burst",
+   "type": "ABILITY_COSMETIC",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 23000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.IroVisor",
+   "name": "Ironics Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 16000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.BigSixx",
+   "name": "Big Sixx",
+   "type": "CHARACTER",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.ARIA",
+   "name": "ARIA Team Colors",
+   "type": "CHARACTER",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.IRONICS",
+   "name": "IRONICS Team Colors",
+   "type": "CHARACTER",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.SCARLETT",
+   "name": "SCARLETT Team Colors",
+   "type": "CHARACTER",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.MAKHIAVELLI",
+   "name": "MAKHIAVELLI Team Colors",
+   "type": "CHARACTER",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.FANATICS",
+   "name": "FANATICS",
+   "type": "CHARACTER",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Team.FANATICS",
+   "name": "FANATICS",
+   "type": "TEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Finish.Blue",
+   "name": "Blue",
+   "type": "FINISH",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Finish.Green",
+   "name": "Green",
+   "type": "FINISH",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Finish.Purple",
+   "name": "Purple",
+   "type": "FINISH",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Finish.Pink",
+   "name": "Pink",
+   "type": "FINISH",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Finish.Red",
+   "name": "Red",
+   "type": "FINISH",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Finish.Black",
+   "name": "Black",
+   "type": "FINISH",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Finish.Yellow",
+   "name": "Yellow",
+   "type": "FINISH",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Basic.Visor",
+   "name": "Basic Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Tech.Circuit",
+   "name": "Tech Circuit",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.Japan",
+   "name": "Rising Sun Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 5000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Basic.Solid",
+   "name": "Solid Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Basic.Stripe",
+   "name": "Scan Stripe",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Basic.Slit",
+   "name": "Optic Slit",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Basic.Dot",
+   "name": "Cyclops",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Basic.DotMatrix",
+   "name": "Sensor Array",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Basic.Cross",
+   "name": "Crosshair",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Basic.Twin",
+   "name": "Twin Optics",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Basic.Brow",
+   "name": "War Brow",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Basic.Grille",
+   "name": "Vent Grille",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Facemask.Icon.Kawaii",
+   "name": "Kawaii Warrior",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 24000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Crew.JollyRoger",
+   "name": "Jolly Roger",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 24000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Riot.Anarchy",
+   "name": "Anarchy",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 16000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Nation.Liberty",
+   "name": "Liberty 1776",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 24000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.China",
+   "name": "Red Dragon",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.Korea",
+   "name": "Taeguk",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Riot.Freedom",
+   "name": "Freedom Fighter",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 24000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.Vietnam",
+   "name": "Lotus Star",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Riot.Traitors",
+   "name": "Traitors",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 16000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.India",
+   "name": "Chakra",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.Germany",
+   "name": "Iron Eagle",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.Indonesia",
+   "name": "Garuda",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.Canada",
+   "name": "Maple",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.France",
+   "name": "Phantom",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Icon.Orchard",
+   "name": "Orchard",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 24000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.Philippines",
+   "name": "Sun Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.UK",
+   "name": "Royal Lion",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.Mexico",
+   "name": "Aguila",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.Flag.Brazil",
+   "name": "Ordem",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 8000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.NeonYellow",
+   "name": "Neon Yellow Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.Crimson",
+   "name": "Crimson Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.Indigo",
+   "name": "Indigo Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.Solar",
+   "name": "Solar Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.Magenta",
+   "name": "Magenta Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.Lime",
+   "name": "Lime Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Arclight",
+   "name": "Arclight",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Voltaic",
+   "name": "Voltaic",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Ioncaster",
+   "name": "Ioncaster",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Beam.CrimsonArc",
+   "name": "CrimsonArc",
+   "type": "BEAM",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 100,
+   "watts": 1000
+  },
+  {
+   "id": "AFL.Beam.ElectricBlue",
+   "name": "ElectricBlue",
+   "type": "BEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Beam.ToxicGreen",
+   "name": "ToxicGreen",
+   "type": "BEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Beam.Amber",
+   "name": "Amber",
+   "type": "BEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Beam.ArcViolet",
+   "name": "ArcViolet",
+   "type": "BEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Beam.CyanMagenta",
+   "name": "CyanMagenta",
+   "type": "BEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.Black",
+   "name": "Black Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Bundle.BigSixx",
+   "name": "BigSixx Singularity Bundle",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 500000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Bundle.ARIA",
+   "name": "ARIA Singularity Bundle",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 500000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Bundle.SCARLETT",
+   "name": "SCARLETT Singularity Bundle",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 500000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Bundle.MAKHIAVELLI",
+   "name": "MAKHIAVELLI Singularity Bundle",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 500000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.Tempest",
+   "name": "Tempest",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Vanguard",
+   "name": "Vanguard",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Breacher",
+   "name": "Breacher",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.GTM",
+   "name": "GTM",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.PP9",
+   "name": "PP9",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.N90",
+   "name": "N90",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Remore",
+   "name": "Remore",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.DE42",
+   "name": "DE42",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Judge45",
+   "name": "Judge45",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.NFP16",
+   "name": "NFP16",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Character.FANATICS_X",
+   "name": "FANATICS X",
+   "type": "CHARACTER",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.FANATICS",
+   "name": "FANATICS HUD Visor",
+   "type": "FACEMASK",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.FANATICS",
+   "name": "FANATICS Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Emblem.FANATICS",
+   "name": "FANATICS Emblem",
+   "type": "EMBLEM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.ARIA_X",
+   "name": "ARIA X",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.ARIA",
+   "name": "ARIA HUD Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.ARIA",
+   "name": "ARIA Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Emblem.ARIA",
+   "name": "ARIA Emblem",
+   "type": "EMBLEM",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.AKUMA",
+   "name": "AKUMA Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.ASTRA",
+   "name": "ASTRA Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.AURELIA",
+   "name": "AURELIA Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.AZURA",
+   "name": "AZURA Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.BigSixx_X",
+   "name": "BigSixx X",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.BigSixx",
+   "name": "BigSixx HUD Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.BigSixx",
+   "name": "BigSixx Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Emblem.BigSixx",
+   "name": "BigSixx Emblem",
+   "type": "EMBLEM",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.CIELO",
+   "name": "CIELO Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.DRACO",
+   "name": "DRACO Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.EMBER",
+   "name": "EMBER Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.HALO",
+   "name": "HALO Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.IRONICS_X",
+   "name": "IRONICS X",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.IRONICS",
+   "name": "IRONICS HUD Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.IRONICS",
+   "name": "IRONICS Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Emblem.IRONICS",
+   "name": "IRONICS Emblem",
+   "type": "EMBLEM",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.KAGE",
+   "name": "KAGE Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.MAKHIAVELLI_X",
+   "name": "MAKHIAVELLI X",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.MAKHIAVELLI",
+   "name": "MAKHIAVELLI HUD Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.MAKHIAVELLI",
+   "name": "MAKHIAVELLI Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Emblem.MAKHIAVELLI",
+   "name": "MAKHIAVELLI Emblem",
+   "type": "EMBLEM",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.ONYXPRIME",
+   "name": "ONYXPRIME Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.ORION",
+   "name": "ORION Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.RIFTONE",
+   "name": "RIFTONE Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.RONIN",
+   "name": "RONIN Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.RYU",
+   "name": "RYU Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Character.SCARLETT_X",
+   "name": "SCARLETT X",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Facemask.SCARLETT",
+   "name": "SCARLETT HUD Visor",
+   "type": "FACEMASK",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.SCARLETT",
+   "name": "SCARLETT Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Emblem.SCARLETT",
+   "name": "SCARLETT Emblem",
+   "type": "EMBLEM",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Edge.TALON",
+   "name": "TALON Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.VALKYR",
+   "name": "VALKYR Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.VANTA",
+   "name": "VANTA Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.VOLT",
+   "name": "VOLT Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Edge.ZEN",
+   "name": "ZEN Edge",
+   "type": "SKIN_COLOR_EDGE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.ZenKoan",
+   "name": "ZEN Koan",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.FANATICS",
+   "name": "FANATICS Riot",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.Verdant",
+   "name": "Verdant",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Coralis",
+   "name": "Coralis",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Ripsaw",
+   "name": "Ripsaw",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Breachbolt",
+   "name": "Breachbolt",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Scatterhawk",
+   "name": "Scatterhawk",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Homer",
+   "name": "Homer",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Warhead",
+   "name": "Warhead",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Lobber",
+   "name": "Lobber",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Duskbeam",
+   "name": "Duskbeam",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Emberpulse",
+   "name": "Emberpulse",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Team.BigSixx",
+   "name": "BigSixx",
+   "type": "TEAM",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Finish.Black.BigSixx",
+   "name": "BigSixx",
+   "type": "FINISH",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 3990,
+   "watts": 39900
+  },
+  {
+   "id": "AFL.Finish.Pink.Aria",
+   "name": "Aria",
+   "type": "FINISH",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 3990,
+   "watts": 39900
+  },
+  {
+   "id": "AFL.Finish.Purple.Scarlett",
+   "name": "Scarlett",
+   "type": "FINISH",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 3990,
+   "watts": 39900
+  },
+  {
+   "id": "AFL.Finish.Green.Makhiavelli",
+   "name": "Makhiavelli",
+   "type": "FINISH",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 3990,
+   "watts": 39900
+  },
+  {
+   "id": "AFL.Weapon.BigSixx",
+   "name": "BigSixx Nest",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Makhiavelli",
+   "name": "Makhiavelli Gambit",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Scarlett",
+   "name": "Scarlett Fatale",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.Aria",
+   "name": "Aria Chord",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS",
+   "name": "FANATICS Hand Cannon",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.L",
+   "name": "FANATICS Hand Cannon (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.XT",
+   "name": "FANATICS Hand Cannon XT",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonGreen",
+   "name": "SIMULARENT Hand Cannon - Neon Green",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonGreen.L",
+   "name": "SIMULARENT Hand Cannon - Neon Green (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonGreen.XT",
+   "name": "SIMULARENT Hand Cannon XT - Neon Green",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonBlue",
+   "name": "SIMULARENT Hand Cannon - Neon Blue",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonBlue.L",
+   "name": "SIMULARENT Hand Cannon - Neon Blue (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonBlue.XT",
+   "name": "SIMULARENT Hand Cannon XT - Neon Blue",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonYellow",
+   "name": "SIMULARENT Hand Cannon - Neon Yellow",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonYellow.L",
+   "name": "SIMULARENT Hand Cannon - Neon Yellow (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonYellow.XT",
+   "name": "SIMULARENT Hand Cannon XT - Neon Yellow",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonRed",
+   "name": "SIMULARENT Hand Cannon - Neon Red",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonRed.L",
+   "name": "SIMULARENT Hand Cannon - Neon Red (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonRed.XT",
+   "name": "SIMULARENT Hand Cannon XT - Neon Red",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonPink",
+   "name": "SIMULARENT Hand Cannon - Neon Pink",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonPink.L",
+   "name": "SIMULARENT Hand Cannon - Neon Pink (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonPink.XT",
+   "name": "SIMULARENT Hand Cannon XT - Neon Pink",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonPurple",
+   "name": "SIMULARENT Hand Cannon - Neon Purple",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonPurple.L",
+   "name": "SIMULARENT Hand Cannon - Neon Purple (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.NeonPurple.XT",
+   "name": "SIMULARENT Hand Cannon XT - Neon Purple",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT",
+   "name": "SIMULARENT Hand Cannon",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.L",
+   "name": "SIMULARENT Hand Cannon (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.SIMULARENT.XT",
+   "name": "SIMULARENT Hand Cannon XT",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS",
+   "name": "IRONICS Hand Cannon",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.L",
+   "name": "IRONICS Hand Cannon (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.XT",
+   "name": "IRONICS Hand Cannon XT",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonGreen",
+   "name": "IRONICS Hand Cannon - Neon Green",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonGreen.L",
+   "name": "IRONICS Hand Cannon - Neon Green (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonGreen.XT",
+   "name": "IRONICS Hand Cannon XT - Neon Green",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonBlue",
+   "name": "IRONICS Hand Cannon - Neon Blue",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonBlue.L",
+   "name": "IRONICS Hand Cannon - Neon Blue (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonBlue.XT",
+   "name": "IRONICS Hand Cannon XT - Neon Blue",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonYellow",
+   "name": "IRONICS Hand Cannon - Neon Yellow",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonYellow.L",
+   "name": "IRONICS Hand Cannon - Neon Yellow (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonYellow.XT",
+   "name": "IRONICS Hand Cannon XT - Neon Yellow",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonRed",
+   "name": "IRONICS Hand Cannon - Neon Red",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonRed.L",
+   "name": "IRONICS Hand Cannon - Neon Red (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonRed.XT",
+   "name": "IRONICS Hand Cannon XT - Neon Red",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonPink",
+   "name": "IRONICS Hand Cannon - Neon Pink",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonPink.L",
+   "name": "IRONICS Hand Cannon - Neon Pink (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonPink.XT",
+   "name": "IRONICS Hand Cannon XT - Neon Pink",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonPurple",
+   "name": "IRONICS Hand Cannon - Neon Purple",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonPurple.L",
+   "name": "IRONICS Hand Cannon - Neon Purple (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.IRONICS.NeonPurple.XT",
+   "name": "IRONICS Hand Cannon XT - Neon Purple",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonGreen",
+   "name": "FANATICS Hand Cannon - Neon Green",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonGreen.L",
+   "name": "FANATICS Hand Cannon - Neon Green (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonGreen.XT",
+   "name": "FANATICS Hand Cannon XT - Neon Green",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonBlue",
+   "name": "FANATICS Hand Cannon - Neon Blue",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonBlue.L",
+   "name": "FANATICS Hand Cannon - Neon Blue (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonBlue.XT",
+   "name": "FANATICS Hand Cannon XT - Neon Blue",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonYellow",
+   "name": "FANATICS Hand Cannon - Neon Yellow",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonYellow.L",
+   "name": "FANATICS Hand Cannon - Neon Yellow (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonYellow.XT",
+   "name": "FANATICS Hand Cannon XT - Neon Yellow",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonRed",
+   "name": "FANATICS Hand Cannon - Neon Red",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonRed.L",
+   "name": "FANATICS Hand Cannon - Neon Red (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonRed.XT",
+   "name": "FANATICS Hand Cannon XT - Neon Red",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonPink",
+   "name": "FANATICS Hand Cannon - Neon Pink",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonPink.L",
+   "name": "FANATICS Hand Cannon - Neon Pink (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonPink.XT",
+   "name": "FANATICS Hand Cannon XT - Neon Pink",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonPurple",
+   "name": "FANATICS Hand Cannon - Neon Purple",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonPurple.L",
+   "name": "FANATICS Hand Cannon - Neon Purple (L)",
+   "type": "WEAPON",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FANATICS.NeonPurple.XT",
+   "name": "FANATICS Hand Cannon XT - Neon Purple",
+   "type": "BUNDLE",
+   "acq": "GRANTED_FREE",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL",
+   "name": "DRAGON SOUL Hand Cannon",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.L",
+   "name": "DRAGON SOUL Hand Cannon (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.XT",
+   "name": "DRAGON SOUL Hand Cannon XT",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonGreen",
+   "name": "DRAGON SOUL Hand Cannon - Neon Green",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonGreen.L",
+   "name": "DRAGON SOUL Hand Cannon - Neon Green (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonGreen.XT",
+   "name": "DRAGON SOUL Hand Cannon XT - Neon Green",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonBlue",
+   "name": "DRAGON SOUL Hand Cannon - Neon Blue",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonBlue.L",
+   "name": "DRAGON SOUL Hand Cannon - Neon Blue (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonBlue.XT",
+   "name": "DRAGON SOUL Hand Cannon XT - Neon Blue",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonYellow",
+   "name": "DRAGON SOUL Hand Cannon - Neon Yellow",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonYellow.L",
+   "name": "DRAGON SOUL Hand Cannon - Neon Yellow (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonYellow.XT",
+   "name": "DRAGON SOUL Hand Cannon XT - Neon Yellow",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonRed",
+   "name": "DRAGON SOUL Hand Cannon - Neon Red",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonRed.L",
+   "name": "DRAGON SOUL Hand Cannon - Neon Red (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonRed.XT",
+   "name": "DRAGON SOUL Hand Cannon XT - Neon Red",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonPink",
+   "name": "DRAGON SOUL Hand Cannon - Neon Pink",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonPink.L",
+   "name": "DRAGON SOUL Hand Cannon - Neon Pink (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonPink.XT",
+   "name": "DRAGON SOUL Hand Cannon XT - Neon Pink",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonPurple",
+   "name": "DRAGON SOUL Hand Cannon - Neon Purple",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonPurple.L",
+   "name": "DRAGON SOUL Hand Cannon - Neon Purple (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.DRAGONSOUL.NeonPurple.XT",
+   "name": "DRAGON SOUL Hand Cannon XT - Neon Purple",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK",
+   "name": "RUN IT BACK Hand Cannon",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.L",
+   "name": "RUN IT BACK Hand Cannon (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.XT",
+   "name": "RUN IT BACK Hand Cannon XT",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonGreen",
+   "name": "RUN IT BACK Hand Cannon - Neon Green",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonGreen.L",
+   "name": "RUN IT BACK Hand Cannon - Neon Green (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonGreen.XT",
+   "name": "RUN IT BACK Hand Cannon XT - Neon Green",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonBlue",
+   "name": "RUN IT BACK Hand Cannon - Neon Blue",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonBlue.L",
+   "name": "RUN IT BACK Hand Cannon - Neon Blue (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonBlue.XT",
+   "name": "RUN IT BACK Hand Cannon XT - Neon Blue",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonYellow",
+   "name": "RUN IT BACK Hand Cannon - Neon Yellow",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonYellow.L",
+   "name": "RUN IT BACK Hand Cannon - Neon Yellow (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonYellow.XT",
+   "name": "RUN IT BACK Hand Cannon XT - Neon Yellow",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonRed",
+   "name": "RUN IT BACK Hand Cannon - Neon Red",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonRed.L",
+   "name": "RUN IT BACK Hand Cannon - Neon Red (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonRed.XT",
+   "name": "RUN IT BACK Hand Cannon XT - Neon Red",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonPink",
+   "name": "RUN IT BACK Hand Cannon - Neon Pink",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonPink.L",
+   "name": "RUN IT BACK Hand Cannon - Neon Pink (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonPink.XT",
+   "name": "RUN IT BACK Hand Cannon XT - Neon Pink",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonPurple",
+   "name": "RUN IT BACK Hand Cannon - Neon Purple",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonPurple.L",
+   "name": "RUN IT BACK Hand Cannon - Neon Purple (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.RUNITBACK.NeonPurple.XT",
+   "name": "RUN IT BACK Hand Cannon XT - Neon Purple",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR",
+   "name": "FUTURE WARRIOR Hand Cannon",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.L",
+   "name": "FUTURE WARRIOR Hand Cannon (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.XT",
+   "name": "FUTURE WARRIOR Hand Cannon XT",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonGreen",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Green",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonGreen.L",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Green (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonGreen.XT",
+   "name": "FUTURE WARRIOR Hand Cannon XT - Neon Green",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonBlue",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Blue",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonBlue.L",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Blue (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonBlue.XT",
+   "name": "FUTURE WARRIOR Hand Cannon XT - Neon Blue",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonYellow",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Yellow",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonYellow.L",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Yellow (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonYellow.XT",
+   "name": "FUTURE WARRIOR Hand Cannon XT - Neon Yellow",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonRed",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Red",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonRed.L",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Red (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonRed.XT",
+   "name": "FUTURE WARRIOR Hand Cannon XT - Neon Red",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonPink",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Pink",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonPink.L",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Pink (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonPink.XT",
+   "name": "FUTURE WARRIOR Hand Cannon XT - Neon Pink",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonPurple",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Purple",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonPurple.L",
+   "name": "FUTURE WARRIOR Hand Cannon - Neon Purple (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.FUTUREWARRIOR.NeonPurple.XT",
+   "name": "FUTURE WARRIOR Hand Cannon XT - Neon Purple",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON",
+   "name": "JAGUAR NEON Hand Cannon",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.L",
+   "name": "JAGUAR NEON Hand Cannon (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.XT",
+   "name": "JAGUAR NEON Hand Cannon XT",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonGreen",
+   "name": "JAGUAR NEON Hand Cannon - Neon Green",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonGreen.L",
+   "name": "JAGUAR NEON Hand Cannon - Neon Green (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonGreen.XT",
+   "name": "JAGUAR NEON Hand Cannon XT - Neon Green",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonBlue",
+   "name": "JAGUAR NEON Hand Cannon - Neon Blue",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonBlue.L",
+   "name": "JAGUAR NEON Hand Cannon - Neon Blue (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonBlue.XT",
+   "name": "JAGUAR NEON Hand Cannon XT - Neon Blue",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonYellow",
+   "name": "JAGUAR NEON Hand Cannon - Neon Yellow",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonYellow.L",
+   "name": "JAGUAR NEON Hand Cannon - Neon Yellow (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonYellow.XT",
+   "name": "JAGUAR NEON Hand Cannon XT - Neon Yellow",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonRed",
+   "name": "JAGUAR NEON Hand Cannon - Neon Red",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonRed.L",
+   "name": "JAGUAR NEON Hand Cannon - Neon Red (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonRed.XT",
+   "name": "JAGUAR NEON Hand Cannon XT - Neon Red",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonPink",
+   "name": "JAGUAR NEON Hand Cannon - Neon Pink",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonPink.L",
+   "name": "JAGUAR NEON Hand Cannon - Neon Pink (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonPink.XT",
+   "name": "JAGUAR NEON Hand Cannon XT - Neon Pink",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonPurple",
+   "name": "JAGUAR NEON Hand Cannon - Neon Purple",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonPurple.L",
+   "name": "JAGUAR NEON Hand Cannon - Neon Purple (L)",
+   "type": "WEAPON",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Weapon.HandCannon.JAGUARNEON.NeonPurple.XT",
+   "name": "JAGUAR NEON Hand Cannon XT - Neon Purple",
+   "type": "BUNDLE",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 0
+  },
+  {
+   "id": "AFL.CreatorSlot.x1",
+   "name": "Robot Pack x1",
+   "type": "CREATOR_SLOT",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 3000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.CreatorSlot.x3",
+   "name": "Robot Pack x3",
+   "type": "CREATOR_SLOT",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 4990,
+   "watts": 0
+  },
+  {
+   "id": "AFL.CreatorSlot.x8",
+   "name": "Robot Pack x8",
+   "type": "CREATOR_SLOT",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 10000,
+   "watts": 0
+  },
+  {
+   "id": "AFL.WeaponCredit.x3",
+   "name": "Weapon Credits x3",
+   "type": "WEAPON_CREDIT",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.StickerCredit.x5",
+   "name": "Sticker Credits x5",
+   "type": "STICKER_CREDIT",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.StickerCredit.x10",
+   "name": "Sticker Credits x10",
+   "type": "STICKER_CREDIT",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 1490,
+   "watts": 14900
+  },
+  {
+   "id": "AFL.Sticker.ROR.Green",
+   "name": "ROR Green",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.ROR.Blue",
+   "name": "ROR Blue",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.ROR.RedPink",
+   "name": "ROR Red Pink",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.ROR.BluePurple",
+   "name": "ROR Blue Purple",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.ROR.PurpleBlue",
+   "name": "ROR Purple Blue",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.PinkLightning",
+   "name": "1776 Pink Lightning",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.Pack",
+   "name": "1776 Pack",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.ChevronBlue",
+   "name": "1776 Chevron Blue",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.Blue",
+   "name": "1776 Blue",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.Red",
+   "name": "1776 Red",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.Tag.Blue",
+   "name": "1776 Tag Blue",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.Tag.Red",
+   "name": "1776 Tag Red",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.Tag.Green",
+   "name": "1776 Tag Green",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.Tag.Gold",
+   "name": "1776 Tag Gold",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Sticker.1776.Tag.RedWhiteBlue",
+   "name": "1776 Tag Red White Blue",
+   "type": "STICKER",
+   "acq": "DIRECT",
+   "tx": false,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  },
+  {
+   "id": "AFL.Accessory.Chain.FoundersPurps",
+   "name": "Ironics Founders Purps Chain",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": true,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Accessory.Chain.FoundersLink",
+   "name": "Ironics Founders Link Chain",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Accessory.Pendant.TTG",
+   "name": "Ironics TTG Pendant",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Accessory.Pendant.RareUniverse",
+   "name": "Ironics Rare Universe Pendant",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Accessory.Pendant.BigSixx",
+   "name": "Ironics Big Sixx Pendant",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Accessory.Pendant.1776",
+   "name": "Ironics 1776 Pendant",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Accessory.Watch.RareUniverse",
+   "name": "Ironics Rare Universe Watch",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Accessory.Watch.Quantum",
+   "name": "Ironics Quantum Watch",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Accessory.Bracelet.QuantumUniverse",
+   "name": "Ironics Quantum Universe Bracelet",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.Accessory.Bracelet.BigSixx",
+   "name": "Big Sixx Bracelet",
+   "type": "ACCESSORY",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 990,
+   "watts": 9900
+  },
+  {
+   "id": "AFL.FacemaskCredit.x5",
+   "name": "Facemask Credits x5",
+   "type": "FACEMASK_CREDIT",
+   "acq": "DIRECT",
+   "tx": true,
+   "ph": false,
+   "volts": 3000,
+   "watts": 30000
+  },
+  {
+   "id": "AFL.Finish.GlossBlack",
+   "name": "Gloss Black",
+   "type": "FINISH",
+   "acq": "GRANTED_FREE",
+   "tx": true,
+   "ph": false,
+   "volts": 0,
+   "watts": 0
+  }
+ ]
+}
