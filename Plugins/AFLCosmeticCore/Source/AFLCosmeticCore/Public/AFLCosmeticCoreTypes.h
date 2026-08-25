@@ -134,7 +134,26 @@ enum class EAFLCosmeticType : uint8
 
 	// APPENDED, never inserted. These values are serialised by NUMBER into 300+ catalog rows;
 	// inserting anywhere above would silently re-type every row below the insertion point.
-	FacemaskCredit    UMETA(DisplayName = "Facemask Credit")   // AFL.FacemaskCredit.x5 -> CountedKey AFL.FacemaskCredit
+	FacemaskCredit    UMETA(DisplayName = "Facemask Credit"),  // AFL.FacemaskCredit.x5 -> CountedKey AFL.FacemaskCredit
+
+	// LEAGUE. APPENDED, never inserted -- these values serialise by NUMBER into 330 catalog rows, so
+	// inserting anywhere above silently re-types every row below the insertion point. Same reason as
+	// every member since Invalid, and the reason the ordering reads oddly.
+	//
+	// A SUBSCRIPTION IS NOT A COUNTED ENTITLEMENT, which is the near-miss worth naming. CreatorSlot
+	// and the three credit types INCREMENT a counter that never decreases; League grants a right that
+	// EXPIRES, and the difference is the expiry. Reusing a counted type would have made "how many
+	// leagues do you own" the question, when the question is "is your league current".
+	//
+	// It writes the League CONDITIONAL entitlement with its expiry through /conditional-entitlement.
+	// RefreshConditionalEntitlement already reads it, and AwaitingActivation is the fourth state --
+	// grants fail CLOSED on it, so a subscription that has been paid for but not yet activated denies
+	// rather than grants.
+	//
+	// DISCARDED: a service-term product outside the catalog. It would have been a second purchase path
+	// for a single SKU, and every store, wallet and entitlement rule would have needed a parallel
+	// implementation that could drift from the one the other 330 rows use.
+	Subscription      UMETA(DisplayName = "Subscription")       // AFL.League.<Term> -> conditional entitlement with an expiry
 
 };
 

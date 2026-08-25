@@ -38,7 +38,11 @@ RULED = {
     "AFL.Facemask.":      "facemasks",
     "AFL.Accessory.":     "jewellery",
     "AFL.Emblem.":        "emblems",
-    "AFL.Bundle.":        "hand cannon pairs (.XT), and bundles generally",
+    # AFL.Bundle. was REMOVED 2026-08-25. There are no bundle products: the identity bundles retired
+    # with the roster cut, AFL.Bundle.FANATICS was deleted, and the only multi-item products left --
+    # the .XT hand cannon pairs -- carry AFL.Weapon. ids and render under WEAPONS. The BUNDLES tab
+    # was empty in every possible state, which is the empty-tab defect for the fourth time.
+    #
     # "AFL.League." lands here when the League SKU is built. Until then its absence is correct, and
     # this comment is the record that it is pending rather than forgotten.
 }
@@ -57,7 +61,7 @@ def parse() -> tuple[list[str], list[tuple[str, list[str]]]]:
         sys.exit("LINT ERROR: GAFLStoreNamespaces not found — did the store move?")
     allow = re.findall(r'TEXT\("([^"]+)"\)', m.group(1))
 
-    m2 = re.search(r"GStoreTabs\[6\]\s*=\s*\{(.*?)\n\t\};", src, re.S)
+    m2 = re.search(r"GStoreTabs\[\d+\]\s*=\s*\{(.*?)\n\t\};", src, re.S)
     if not m2:
         sys.exit("LINT ERROR: GStoreTabs not found — did the store move?")
     tabs: list[tuple[str, list[str]]] = []
@@ -78,8 +82,8 @@ def main() -> int:
 
     # A control before any verdict: if the parse found nothing, every check below would pass
     # vacuously — which is the failure mode this whole file exists to prevent.
-    if not allow or len(tabs) != 6:
-        sys.exit(f"LINT ERROR: parsed {len(allow)} namespaces and {len(tabs)} tabs — the instrument is broken, not the code")
+    if not allow or len(tabs) != 5:
+        sys.exit(f"LINT ERROR: parsed {len(allow)} namespaces and {len(tabs)} tabs (expected 5) — the instrument is broken, not the code")
 
     for ns in allow:
         if ns not in RULED:

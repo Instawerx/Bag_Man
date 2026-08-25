@@ -178,22 +178,33 @@ namespace
 		TEXT("AFL.Facemask."),       // facemasks
 		TEXT("AFL.Accessory."),      // jewellery
 		TEXT("AFL.Emblem."),         // emblems
-		TEXT("AFL.Bundle."),         // hand cannon pairs (.XT), and bundles generally
+		// AFL.Bundle. is DELIBERATELY ABSENT -- see the tab table below.
 	};
 
 	struct FStoreTabDef { const TCHAR* TabName; const TCHAR* LabelName; const TCHAR* Prefixes[3]; };
 
-	// Six PHYSICAL tab widgets exist in the WBP, so the nine ruled namespaces are grouped into six.
-	// Nothing is merged that the ruling separates except the three credit kinds, which share a tab
-	// because they are the same product shape -- a credit is a credit.
-	static const FStoreTabDef GStoreTabs[6] = {
+	// FIVE tabs. There is no BUNDLES tab and no AFL.Bundle. namespace, ruled 2026-08-25.
+	//
+	// THERE ARE NO BUNDLE PRODUCTS. The identity bundles retired with the roster cut and
+	// AFL.Bundle.FANATICS was deleted; the four AFL.Bundle.* rows that remain are non-transactable
+	// and sellable by nothing. The only multi-item products left are the .XT hand cannon pairs, and
+	// their ids are AFL.Weapon.HandCannon.<FAMILY>.XT -- they ALREADY match the WEAPONS prefix and
+	// have been rendering there all along. A player shopping for a hand cannon looks under WEAPONS.
+	//
+	// So BUNDLES rendered EMPTY IN EVERY POSSIBLE STATE: its AFL.Bundle. prefix could never match a
+	// .XT id, and nothing else was left on that axis. That is the empty-tab defect class, and its
+	// FOURTH occurrence after WeaponSkin, the SKINS axes and BEAMS.
+	//
+	// DISCARDED: making BUNDLES match .XT. It would give one product family its own tab, split hand
+	// cannons across two tabs, and keep a category name the economy no longer has.
+	static const FStoreTabDef GStoreTabs[5] = {
 		{ TEXT("Tab_WEAPONS"), TEXT("TabLabel_WEAPONS"), { TEXT("AFL.CreatorSlot."),  nullptr,                    nullptr                   } }, // -> ROBOTS
-		{ TEXT("Tab_SKINS"),   TEXT("TabLabel_SKINS"),   { TEXT("AFL.Weapon."),       nullptr,                    nullptr                   } }, // -> WEAPONS
+		{ TEXT("Tab_SKINS"),   TEXT("TabLabel_SKINS"),   { TEXT("AFL.Weapon."),       nullptr,                    nullptr                   } }, // -> WEAPONS (incl. the .XT pairs)
 		{ TEXT("Tab_HELMETS"), TEXT("TabLabel_HELMETS"), { TEXT("AFL.WeaponCredit."), TEXT("AFL.StickerCredit."), TEXT("AFL.FacemaskCredit") } }, // -> CREDITS
 		{ TEXT("Tab_VISORS"),  TEXT("TabLabel_VISORS"),  { TEXT("AFL.Facemask."),     nullptr,                    nullptr                   } }, // -> FACEMASKS
 		{ TEXT("Tab_EMOTES"),  TEXT("TabLabel_EMOTES"),  { TEXT("AFL.Accessory."),    TEXT("AFL.Emblem."),        nullptr                   } }, // -> JEWELLERY
-		{ TEXT("Tab_BUNDLES"), TEXT("TabLabel_BUNDLES"), { TEXT("AFL.Bundle."),       nullptr,                    nullptr                   } }, // -> BUNDLES
 	};
+	static constexpr int32 GStoreTabCount = 5;
 
 	/** Is this cosmetic id a PRODUCT at all? Anything outside the ruled set is invisible to the store,
 	 *  whatever tab it might otherwise have matched. */
@@ -227,15 +238,19 @@ void UAFLW_FrontEndMarket::EnterStoreMode()
 	if (UBorder* B = PrepTab(TEXT("Tab_HELMETS"))) { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabHelmets); }
 	if (UBorder* B = PrepTab(TEXT("Tab_VISORS")))  { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabVisors); }
 	if (UBorder* B = PrepTab(TEXT("Tab_EMOTES")))  { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabEmotes); }
-	if (UBorder* B = PrepTab(TEXT("Tab_BUNDLES"))) { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabBundles); }
+	// Tab_BUNDLES IS NOT BOUND AND IS HIDDEN. The widget still exists in the WBP -- removing it there
+	// is a separate content change -- but it has no category, so binding it would select index 5 of a
+	// five-entry table. Collapsed rather than left visible-and-inert: §10 says an unavailable thing is
+	// absent, not disabled, and a tab that does nothing when pressed reads as a broken product.
+	if (UWidget* B = GetWidgetFromName(TEXT("Tab_BUNDLES"))) { B->SetVisibility(ESlateVisibility::Collapsed); }
 
 	// TAXONOMY: relabel the two repurposed tabs (the widget names stay Tab_HELMETS/Tab_EMOTES; only the caption
 	// changes). CAMOS = weapon-skins (all NeonCamo, so the label reads true); BEAMS = the beam VFX (was EMOTES).
 	// EVERY caption is set here, not just the repurposed ones. The widget NAMES are historical and no
 	// longer describe what they hold, so a caption left to the WBP would be a lie that survives a
 	// taxonomy change -- which is exactly how "CAMOS" outlived weapon-skins being products.
-	static const TCHAR* GTabCaptions[6] = { TEXT("ROBOTS"), TEXT("WEAPONS"), TEXT("CREDITS"), TEXT("FACEMASKS"), TEXT("JEWELLERY"), TEXT("BUNDLES") };
-	for (int32 i = 0; i < 6; ++i)
+	static const TCHAR* GTabCaptions[GStoreTabCount] = { TEXT("ROBOTS"), TEXT("WEAPONS"), TEXT("CREDITS"), TEXT("FACEMASKS"), TEXT("JEWELLERY") };
+	for (int32 i = 0; i < GStoreTabCount; ++i)
 	{
 		if (UTextBlock* L = Cast<UTextBlock>(GetWidgetFromName(FName(GStoreTabs[i].LabelName))))
 		{
@@ -300,7 +315,7 @@ FName UAFLW_FrontEndMarket::ReadEntryCosmeticId(const UObject* Item)
 
 void UAFLW_FrontEndMarket::FilterStore(int32 TabIndex)
 {
-	if (TabIndex < 0 || TabIndex >= 6)
+	if (TabIndex < 0 || TabIndex >= GStoreTabCount)
 	{
 		return;
 	}
@@ -423,7 +438,12 @@ AFL_STORE_TAB_HANDLER(OnStoreTabSkins,   1)
 AFL_STORE_TAB_HANDLER(OnStoreTabHelmets, 2)
 AFL_STORE_TAB_HANDLER(OnStoreTabVisors,  3)
 AFL_STORE_TAB_HANDLER(OnStoreTabEmotes,  4)
-AFL_STORE_TAB_HANDLER(OnStoreTabBundles, 5)
+// OnStoreTabBundles is deliberately NOT generated: there is no index 5. The declaration stays in the
+// header because the WBP may still reference it by name, and it returns unhandled.
+FEventReply UAFLW_FrontEndMarket::OnStoreTabBundles(FGeometry, const FPointerEvent&)
+{
+	return FEventReply(false);
+}
 #undef AFL_STORE_TAB_HANDLER
 
 // --- STORE PREVIEW (front-end try-before-buy) -- selecting a store card shows it on the display robot ---
