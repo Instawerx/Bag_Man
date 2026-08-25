@@ -43,8 +43,9 @@ RULED = {
     # the .XT hand cannon pairs -- carry AFL.Weapon. ids and render under WEAPONS. The BUNDLES tab
     # was empty in every possible state, which is the empty-tab defect for the fourth time.
     #
-    # "AFL.League." lands here when the League SKU is built. Until then its absence is correct, and
-    # this comment is the record that it is pending rather than forgotten.
+    # LANDED 2026-08-25. League ships as an entitlement SKU on the Subscription type -- three terms,
+    # Volts-only. It reuses the Tab_BUNDLES widget, which BUNDLES vacated.
+    "AFL.League.":        "League subscription terms (monthly / quarterly / annual)",
 }
 
 MARKET = Path(__file__).resolve().parents[2] / (
@@ -82,8 +83,8 @@ def main() -> int:
 
     # A control before any verdict: if the parse found nothing, every check below would pass
     # vacuously — which is the failure mode this whole file exists to prevent.
-    if not allow or len(tabs) != 5:
-        sys.exit(f"LINT ERROR: parsed {len(allow)} namespaces and {len(tabs)} tabs (expected 5) — the instrument is broken, not the code")
+    if not allow or len(tabs) != 6:
+        sys.exit(f"LINT ERROR: parsed {len(allow)} namespaces and {len(tabs)} tabs (expected 6) — the instrument is broken, not the code")
 
     for ns in allow:
         if ns not in RULED:

@@ -178,6 +178,7 @@ namespace
 		TEXT("AFL.Facemask."),       // facemasks
 		TEXT("AFL.Accessory."),      // jewellery
 		TEXT("AFL.Emblem."),         // emblems
+		TEXT("AFL.League."),         // League subscription terms (monthly / quarterly / annual)
 		// AFL.Bundle. is DELIBERATELY ABSENT -- see the tab table below.
 	};
 
@@ -197,14 +198,18 @@ namespace
 	//
 	// DISCARDED: making BUNDLES match .XT. It would give one product family its own tab, split hand
 	// cannons across two tabs, and keep a category name the economy no longer has.
-	static const FStoreTabDef GStoreTabs[5] = {
+	// SIX tabs again -- but Tab_BUNDLES now carries LEAGUE, a category that exists, rather than
+	// AFL.Bundle., which does not. The widget is reused because it is already in the WBP; only the
+	// caption and the prefix change, which is the same pattern the CAMOS/BEAMS relabels used.
+	static const FStoreTabDef GStoreTabs[6] = {
 		{ TEXT("Tab_WEAPONS"), TEXT("TabLabel_WEAPONS"), { TEXT("AFL.CreatorSlot."),  nullptr,                    nullptr                   } }, // -> ROBOTS
 		{ TEXT("Tab_SKINS"),   TEXT("TabLabel_SKINS"),   { TEXT("AFL.Weapon."),       nullptr,                    nullptr                   } }, // -> WEAPONS (incl. the .XT pairs)
 		{ TEXT("Tab_HELMETS"), TEXT("TabLabel_HELMETS"), { TEXT("AFL.WeaponCredit."), TEXT("AFL.StickerCredit."), TEXT("AFL.FacemaskCredit") } }, // -> CREDITS
 		{ TEXT("Tab_VISORS"),  TEXT("TabLabel_VISORS"),  { TEXT("AFL.Facemask."),     nullptr,                    nullptr                   } }, // -> FACEMASKS
 		{ TEXT("Tab_EMOTES"),  TEXT("TabLabel_EMOTES"),  { TEXT("AFL.Accessory."),    TEXT("AFL.Emblem."),        nullptr                   } }, // -> JEWELLERY
+		{ TEXT("Tab_BUNDLES"), TEXT("TabLabel_BUNDLES"), { TEXT("AFL.League."),       nullptr,                    nullptr                   } }, // -> LEAGUE
 	};
-	static constexpr int32 GStoreTabCount = 5;
+	static constexpr int32 GStoreTabCount = 6;
 
 	/** Is this cosmetic id a PRODUCT at all? Anything outside the ruled set is invisible to the store,
 	 *  whatever tab it might otherwise have matched. */
@@ -238,18 +243,16 @@ void UAFLW_FrontEndMarket::EnterStoreMode()
 	if (UBorder* B = PrepTab(TEXT("Tab_HELMETS"))) { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabHelmets); }
 	if (UBorder* B = PrepTab(TEXT("Tab_VISORS")))  { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabVisors); }
 	if (UBorder* B = PrepTab(TEXT("Tab_EMOTES")))  { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabEmotes); }
-	// Tab_BUNDLES IS NOT BOUND AND IS HIDDEN. The widget still exists in the WBP -- removing it there
-	// is a separate content change -- but it has no category, so binding it would select index 5 of a
-	// five-entry table. Collapsed rather than left visible-and-inert: §10 says an unavailable thing is
-	// absent, not disabled, and a tab that does nothing when pressed reads as a broken product.
-	if (UWidget* B = GetWidgetFromName(TEXT("Tab_BUNDLES"))) { B->SetVisibility(ESlateVisibility::Collapsed); }
+	// Tab_BUNDLES carries LEAGUE now. The widget name is historical -- as with CAMOS and BEAMS, only
+	// the caption and the prefix moved.
+	if (UBorder* B = PrepTab(TEXT("Tab_BUNDLES"))) { B->OnMouseButtonDownEvent.BindDynamic(this, &UAFLW_FrontEndMarket::OnStoreTabBundles); }
 
 	// TAXONOMY: relabel the two repurposed tabs (the widget names stay Tab_HELMETS/Tab_EMOTES; only the caption
 	// changes). CAMOS = weapon-skins (all NeonCamo, so the label reads true); BEAMS = the beam VFX (was EMOTES).
 	// EVERY caption is set here, not just the repurposed ones. The widget NAMES are historical and no
 	// longer describe what they hold, so a caption left to the WBP would be a lie that survives a
 	// taxonomy change -- which is exactly how "CAMOS" outlived weapon-skins being products.
-	static const TCHAR* GTabCaptions[GStoreTabCount] = { TEXT("ROBOTS"), TEXT("WEAPONS"), TEXT("CREDITS"), TEXT("FACEMASKS"), TEXT("JEWELLERY") };
+	static const TCHAR* GTabCaptions[GStoreTabCount] = { TEXT("ROBOTS"), TEXT("WEAPONS"), TEXT("CREDITS"), TEXT("FACEMASKS"), TEXT("JEWELLERY"), TEXT("LEAGUE") };
 	for (int32 i = 0; i < GStoreTabCount; ++i)
 	{
 		if (UTextBlock* L = Cast<UTextBlock>(GetWidgetFromName(FName(GStoreTabs[i].LabelName))))
@@ -438,12 +441,8 @@ AFL_STORE_TAB_HANDLER(OnStoreTabSkins,   1)
 AFL_STORE_TAB_HANDLER(OnStoreTabHelmets, 2)
 AFL_STORE_TAB_HANDLER(OnStoreTabVisors,  3)
 AFL_STORE_TAB_HANDLER(OnStoreTabEmotes,  4)
-// OnStoreTabBundles is deliberately NOT generated: there is no index 5. The declaration stays in the
-// header because the WBP may still reference it by name, and it returns unhandled.
-FEventReply UAFLW_FrontEndMarket::OnStoreTabBundles(FGeometry, const FPointerEvent&)
-{
-	return FEventReply(false);
-}
+// Index 5 is LEAGUE. The handler name is historical, like the widget it is bound to.
+AFL_STORE_TAB_HANDLER(OnStoreTabBundles, 5)
 #undef AFL_STORE_TAB_HANDLER
 
 // --- STORE PREVIEW (front-end try-before-buy) -- selecting a store card shows it on the display robot ---
