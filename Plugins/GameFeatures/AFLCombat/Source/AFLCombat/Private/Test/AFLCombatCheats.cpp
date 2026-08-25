@@ -6291,10 +6291,21 @@ namespace
 				Arm(TEXT("1 pendant with NO chain renders nothing"), bNoPend && bNoChain,
 					FString::Printf(TEXT("pendant=%d chain=%d %s%s"),
 						Render->Has(PendS), Render->Has(NeckS), *WorldsDetail(), *WaitTag));
+				// RULED 2026-08-25: ORDER-DEPENDENCE IS THE DESIGN, and the two directions are different
+				// questions rather than an inconsistency.
+				//   pendant-first          -> REFUSED. The state is unreachable by choice, so nothing is
+				//                             stored; CC-X37 already recorded this refusal as correct.
+				//   chain-removed-after    -> RETAINS the pendant selection (arm 4b), on the lapse-rule
+				//                             precedent: keep the player's choice, stop rendering it.
+				// The previous cut of this arm asserted accept-and-not-render for BOTH directions. That
+				// expectation appeared nowhere but this failure string -- no doc, no SSOT, no ruling --
+				// and it failed against behaviour the SSOT calls correct. The arm was wrong, not the product.
 				const FAFLAccessoryPlacement* Keep = L->GetSelection().AccessorySet.Find(EAFLAccessorySlot::Pendant);
-				Arm(TEXT("1b ...but the selection still holds it"), Keep && Keep->IsSet() && Keep->AccessoryId == PEND,
-					FString::Printf(TEXT("selection pendant=%s -- product REFUSES the equip outright ('a pendant needs a chain'); the ruled behaviour is accept-and-not-render"),
-						Keep ? *Keep->AccessoryId.ToString() : TEXT("None")));
+				const bool bRefused = (Keep == nullptr) || !Keep->IsSet();
+				Arm(TEXT("1b ...and the selection does NOT hold it (refused, not stored)"), bRefused,
+					FString::Printf(TEXT("selection pendant=%s (want None) -- pendant-first is REFUSED: 'a pendant needs a chain'. "
+					                     "Retention is arm 4b's question, where a chain is REMOVED after the fact."),
+						Keep && Keep->IsSet() ? *Keep->AccessoryId.ToString() : TEXT("None")));
 
 				// Chain then pendant: the supported order. The refusal above stands as a finding; this
 				// is what lets every other arm be measured rather than lost behind one cause.
