@@ -3855,6 +3855,202 @@ namespace
 		return nullptr;
 	}
 
+
+	/**
+	 * afl.Creator.LeagueProbe -- the two League arms.
+	 *
+	 * ARM 1: THE CAP RESOLVES FROM THE CONDITION. Held raises the baseline from 2 to 5; Lapsed returns
+	 * it. Before this existed, GetEffectiveSlotCap used SlotBaseline whatever the subscription said, so
+	 * Held and Lapsed produced the SAME number for a player who had bought nothing -- League granted
+	 * nothing and the lapse rule had nothing to take away. The ruling was written in a comment above a
+	 * function whose Baseline parameter no caller ever varied.
+	 *
+	 * ARM 2: A LAPSED BUILD IS READ-ONLY AND NOT DELETED, and the assertion that matters is the COUNT.
+	 * A handler that deletes and a handler that locks both produce "the player cannot edit build 4".
+	 * Only BuildSet.Builds.Num() distinguishes them, so this asserts the total is UNCHANGED and the
+	 * unlocked subset shrank. Asserting only that build 4 is uneditable would pass against a handler
+	 * that threw the player's work away.
+	 *
+	 * AwaitingActivation is arm 3, and it is not decoration: it means PAID BUT NOT LIVE, and the
+	 * conditional contract says grants fail closed on it. If it ever raised the cap, a player could buy
+	 * a subscription, never have it activated, and still hold five slots.
+	 */
+	void HandleAFLLeagueProbe(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		bool bAll = true;
+
+		// ================= PURE ARMS -- NO WORLD REQUIRED =================
+		// AFLResolveEffectiveSlotCap takes every input as a parameter, so the whole ladder can be
+		// proven with no PIE session, no PlayerState and no component. Run FIRST and unconditionally,
+		// so a headless invocation still measures something instead of refusing and reporting nothing.
+		// The arms below it genuinely need an authoritative component and are gated accordingly.
+		// ARM 1b -- PURCHASED SLOTS ADD ON TOP, AND NEITHER TIER EXCEEDS ITS OWN CEILING.
+		//
+		// A ceiling is the purchasable MAXIMUM, not the granted amount. The defect this catches is a
+		// single hard cap for both tiers: a FREE player who bought eight slots would resolve to 10,
+		// buying past the free ceiling without holding the subscription that raises it. Asserted
+		// through the pure resolver so the ladder is exercised without moving a real counter.
+		const int32 FreeNoBuy    = AFLResolveEffectiveSlotCap(2, 0, UAFLCosmeticLoadoutComponent::SlotTierCeilingFree,   false, 10); // 2
+		const int32 FreePlus2    = AFLResolveEffectiveSlotCap(2, 2, UAFLCosmeticLoadoutComponent::SlotTierCeilingFree,   false, 10); // 4
+		const int32 FreeOverBuy  = AFLResolveEffectiveSlotCap(2, 8, UAFLCosmeticLoadoutComponent::SlotTierCeilingFree,   false, 10); // 5, NOT 10
+		const int32 LeagueNoBuy  = AFLResolveEffectiveSlotCap(5, 0, UAFLCosmeticLoadoutComponent::SlotTierCeilingLeague, false, 10); // 5
+		const int32 LeaguePlus3  = AFLResolveEffectiveSlotCap(5, 3, UAFLCosmeticLoadoutComponent::SlotTierCeilingLeague, false, 10); // 8
+		const int32 LeagueOverBuy= AFLResolveEffectiveSlotCap(5, 9, UAFLCosmeticLoadoutComponent::SlotTierCeilingLeague, false, 10); // 10
+
+		const bool bArm1b = (FreeNoBuy == 2) && (FreePlus2 == 4) && (FreeOverBuy == 5)
+		                 && (LeagueNoBuy == 5) && (LeaguePlus3 == 8) && (LeagueOverBuy == 10);
+		bAll &= bArm1b;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[LEAGUE] ARM1b ladder: free 0/2/8 -> %d/%d/%d (want 2/4/5) league 0/3/9 -> %d/%d/%d (want 5/8/10) -> %s"),
+			FreeNoBuy, FreePlus2, FreeOverBuy, LeagueNoBuy, LeaguePlus3, LeagueOverBuy,
+			bArm1b ? TEXT("PASS") : TEXT("FAIL"));
+		if (FreeOverBuy != 5)
+		{
+			UE_LOG(LogAFLCombat, Error,
+				TEXT("AFL_TEST[LEAGUE] ARM1b A FREE PLAYER REACHED %d -- past the free ceiling without the subscription that raises it."),
+				FreeOverBuy);
+		}
+
+
+		// ================= WORLD-GATED ARMS =================
+		if (!World || !World->IsGameWorld())
+		{
+			// NOT a pass. The ladder above ran; the cap-from-condition and lapse arms did not, and
+			// saying so is the difference between "proven" and "not exercised".
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[LEAGUE] PURE ARMS ONLY (%s) -- ARM1/ARM2/ARM2b/ARM3 need PIE and were NOT run."),
+				bAll ? TEXT("ladder PASS") : TEXT("ladder FAIL"));
+			Ar.Log(TEXT("afl.Creator.LeagueProbe - ladder arms ran; the rest need PIE."));
+			return;
+		}
+
+		// RESOLVE unconditionally, pass or fail: which loadout, on which PlayerState, with what
+		// authority. An arm that measured the wrong object must be distinguishable from an arm that
+		// measured the right one and found nothing.
+		UAFLCosmeticLoadoutComponent* Loadout = nullptr;
+		FString Why = TEXT("no local PC");
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			const int32 MyId = PC->PlayerState ? PC->PlayerState->GetPlayerId() : -1;
+			for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+			{
+				APlayerController* SrvPC = It->Get();
+				APlayerState* SrvPS = SrvPC ? SrvPC->PlayerState : nullptr;
+				if (SrvPS && SrvPS->GetPlayerId() == MyId)
+				{
+					Loadout = SrvPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>();
+					Why = FString::Printf(TEXT("pid=%d authority=%d"), MyId,
+						(Loadout && Loadout->GetOwner() && Loadout->GetOwner()->HasAuthority()) ? 1 : 0);
+					break;
+				}
+			}
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LEAGUE] RESOLVE %s"), *Why);
+		if (!Loadout || !Loadout->GetOwner() || !Loadout->GetOwner()->HasAuthority())
+		{
+			// REFUSES rather than reporting PASSes against a replica whose state the server never sees.
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[LEAGUE] ABORT -- no AUTHORITATIVE loadout reached (%s); the lapse rule is authority-only, so this would prove nothing."), *Why);
+			return;
+		}
+
+		const FName Cond = UAFLCosmeticLoadoutComponent::LeagueConditionId;
+
+		// ---- ARM 1: the cap resolves from the condition -------------------------------------------
+		Loadout->SetConditionState(Cond, EAFLConditionState::Held);
+		const int32 CapHeld = Loadout->GetEffectiveSlotCap();
+		Loadout->SetConditionState(Cond, EAFLConditionState::Lapsed);
+		const int32 CapLapsed = Loadout->GetEffectiveSlotCap();
+		Loadout->SetConditionState(Cond, EAFLConditionState::AwaitingActivation);
+		const int32 CapAwaiting = Loadout->GetEffectiveSlotCap();
+
+		const bool bArm1 = (CapHeld == 5) && (CapLapsed == 2) && (CapHeld != CapLapsed);
+		bAll &= bArm1;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[LEAGUE] ARM1 cap: Held=%d (want 5) Lapsed=%d (want 2) -> %s  [equal would mean League grants nothing]"),
+			CapHeld, CapLapsed, bArm1 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ARM 3 -- AwaitingActivation GRANTS NOTHING. It means PAID BUT NOT LIVE, and the conditional
+		// contract says grants fail closed on it. If it raised the cap, a player could buy a
+		// subscription, never have it activated, and hold five slots regardless.
+		const bool bArm3 = (CapAwaiting == 2);
+		bAll &= bArm3;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[LEAGUE] ARM3 AwaitingActivation cap=%d (want 2 -- PAID BUT NOT LIVE grants nothing) -> %s"),
+			CapAwaiting, bArm3 ? TEXT("PASS") : TEXT("FAIL"));
+
+		// ---- ARM 2: a lapsed build is READ-ONLY and NOT DELETED ------------------------------------
+		// Five builds authored while Held, which is the only state that permits five.
+		Loadout->SetConditionState(Cond, EAFLConditionState::Held);
+		Loadout->RefreshLapseFromSubscription();
+
+		// THE PRODUCTION SAVE PATH, not a debug seeder. ServerSaveBuild_Implementation is what a real
+		// save calls, and it locks-on-arrival with the SAME `Num() >= Cap` comparison ApplyLapseRule
+		// uses. Seeding BuildSet directly would prove the lapse rule against builds no player could
+		// have created, and would skip the one place the two locking rules could disagree.
+		const int32 Seeded = 5;
+		for (int32 i = Loadout->CountAllBuilds(); i < Seeded; ++i)
+		{
+			FAFLCreatorBuild B;
+			B.DisplayName = FString::Printf(TEXT("LeagueProbe%d"), i + 1);
+			Loadout->ServerSaveBuild_Implementation(B, INDEX_NONE);
+		}
+
+		const int32 BuildsBefore   = Loadout->CountAllBuilds();
+		const int32 UnlockedBefore = Loadout->CountUnlockedBuilds();
+
+		Loadout->SetConditionState(Cond, EAFLConditionState::Lapsed);
+		Loadout->RefreshLapseFromSubscription();
+
+		const int32 BuildsAfter   = Loadout->CountAllBuilds();
+		const int32 UnlockedAfter = Loadout->CountUnlockedBuilds();
+
+		// THE COUNT IS THE ASSERTION. Locked and deleted are indistinguishable from "cannot edit".
+		const bool bNotDeleted = (BuildsAfter == BuildsBefore) && (BuildsAfter == 5);
+		const bool bLocked     = (UnlockedAfter == 2) && (UnlockedAfter < UnlockedBefore);
+		const bool bArm2 = bNotDeleted && bLocked;
+		bAll &= bArm2;
+
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[LEAGUE] ARM2 lapse: builds %d->%d (want 5->5, NOT DELETED) unlocked %d->%d (want 5->2, READ-ONLY) -> %s"),
+			BuildsBefore, BuildsAfter, UnlockedBefore, UnlockedAfter, bArm2 ? TEXT("PASS") : TEXT("FAIL"));
+		if (!bNotDeleted)
+		{
+			UE_LOG(LogAFLCombat, Error,
+				TEXT("AFL_TEST[LEAGUE] ARM2 THE BUILD COUNT MOVED -- a lapse DELETED a player's work. %d -> %d"),
+				BuildsBefore, BuildsAfter);
+		}
+
+		// ---- ARM 2b: RENEWAL RESTORES WRITE ACCESS, AND THE BUILDS ARE THE ONES THE PLAYER LEFT ----
+		// Locking without a way back is indistinguishable from deleting, from the player's side. The
+		// names are compared, not just the count: a renewal that restored FIVE FRESH builds would
+		// satisfy every count assertion above and still have thrown the player's work away.
+		TArray<FString> NamesBefore;
+		for (const FAFLCreatorBuild& B : Loadout->GetBuildSet().Builds) { NamesBefore.Add(B.DisplayName); }
+
+		Loadout->SetConditionState(Cond, EAFLConditionState::Held);
+		Loadout->RefreshLapseFromSubscription();
+
+		const int32 UnlockedRenewed = Loadout->CountUnlockedBuilds();
+		const int32 BuildsRenewed   = Loadout->CountAllBuilds();
+		bool bSameBuilds = (Loadout->GetBuildSet().Builds.Num() == NamesBefore.Num());
+		if (bSameBuilds)
+		{
+			for (int32 i = 0; i < NamesBefore.Num(); ++i)
+			{
+				if (Loadout->GetBuildSet().Builds[i].DisplayName != NamesBefore[i]) { bSameBuilds = false; break; }
+			}
+		}
+		const bool bArm2b = (UnlockedRenewed == 5) && (BuildsRenewed == 5) && bSameBuilds;
+		bAll &= bArm2b;
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[LEAGUE] ARM2b renewal: unlocked %d->%d (want 2->5) builds=%d sameBuilds=%d -> %s"),
+			UnlockedAfter, UnlockedRenewed, BuildsRenewed, bSameBuilds ? 1 : 0,
+			bArm2b ? TEXT("PASS") : TEXT("FAIL"));
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LEAGUE] %s"), bAll ? TEXT("PASS = all") : TEXT("FAIL"));
+	}
+
 	void HandleAFLCreatorSlotProbe(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
 	{
 		if (!World || !World->IsGameWorld()) { Ar.Log(TEXT("afl.Creator.SlotProbe - run inside PIE.")); return; }
@@ -8930,6 +9126,12 @@ namespace
 		TEXT("asserts the counted slot entitlement reaches +3 then +6. The join neither cc-4-2-done nor ")
 		TEXT("cc-6-1-done covers. AFL_TEST[JOIN] PASS = a real purchase grants a real slot."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLVerifySlotBuyJoin));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLLeagueProbeCmd(TEXT("afl.Creator.LeagueProbe"),
+		TEXT("LEAGUE: prove the cap RESOLVES FROM THE CONDITION (Held=5, Lapsed=2, AwaitingActivation=2 -- paid but not live grants nothing), ")
+		TEXT("and that a lapse marks builds READ-ONLY WITHOUT DELETING them. The count is the assertion: locked and deleted both read as ")
+		TEXT("'cannot edit build 4', and only Builds.Num() tells them apart. AFL_TEST[LEAGUE] PASS = all."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLLeagueProbe));
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorSlotProbeCmd(TEXT("afl.Creator.SlotProbe"),
 		TEXT("CC-4.2: prove buying a slot grants a slot -- x3 increments by 3, buying it AGAIN reaches 6 (a boolean entitlement would not), x8 adds to the SAME counter, and AFLResolveEffectiveSlotCap resolves the ladder including ceiling clamp and max-upgrade. AFL_TEST[SLOT] PASS = all."),
