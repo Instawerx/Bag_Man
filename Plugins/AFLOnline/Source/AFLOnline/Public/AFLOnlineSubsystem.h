@@ -240,6 +240,18 @@ public:
 	 *  no backend, which is NOT a refusal and must not be reported as one. */
 	bool IsConditionalEntitlementConfigured() const { return !ConditionalUrl.IsEmpty() && !EarnHmacKey.IsEmpty(); }
 
+	/**
+	 * Index this account's Epic subject so the PORTAL can resolve it to a PlayFabId later.
+	 *
+	 * Runs on every successful login and is idempotent: the backend looks up before it writes, so a
+	 * repeat is a no-op rather than an accumulation, and a subject already claimed by a DIFFERENT
+	 * account is refused rather than re-pointed.
+	 *
+	 * The subject is NOT sent -- the backend derives it from PlayFab. A client able to nominate the
+	 * subject it indexes under could point another player's Epic identity at its own account.
+	 */
+	void LinkGenericIdentity();
+
 private:
 
 	/** Queued one-shot login waiters (fired on resolve). */

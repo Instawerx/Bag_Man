@@ -478,8 +478,41 @@ void UAFLOnlineSubsystem::ResolveLogin(bool bSuccess)
 
 	if (bSuccess)
 	{
+		// INDEX THIS ACCOUNT so the portal can resolve it later. Runs on EVERY login and is idempotent
+		// by construction -- the backend looks up before it writes, so a repeat is a no-op rather than
+		// an accumulation. Fire-and-forget: a failure here must never block a player getting into the
+		// game, and the portal's own refusal covers the case where the index is missing.
+		LinkGenericIdentity();
 		OnLoggedIn.Broadcast();
 	}
+}
+
+void UAFLOnlineSubsystem::LinkGenericIdentity()
+{
+	// SERVER-SIGNED ONLY. The link is written with the title secret inside the backend; a client
+	// cannot and must not perform it, and on a machine with no signer this is simply skipped.
+	if (ResolveUrl.IsEmpty() || EarnHmacKey.IsEmpty())
+	{
+		UE_LOG(LogAFLOnline, Verbose,
+			TEXT("[AFLOnline] generic-id link SKIPPED -- no resolver/signer configured. NOT a failure."));
+		return;
+	}
+	if (SessionTicket.IsEmpty()) { return; }
+
+	// THE SUBJECT IS NOT SENT. The backend derives this account's Epic subject from PlayFab itself
+	// (GetUserAccountInfo -> OpenIdInfo), because a client that could nominate the subject it indexes
+	// under could point somebody else's Epic identity at its own account and collect their Volts.
+	const FString Body = FString::Printf(
+		TEXT("{\"sessionTicket\":\"%s\",\"op\":\"link\",\"ts\":%lld}"),
+		*SessionTicket, static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
+
+	PostServerSigned(ResolveUrl, Body, [](bool bOk, const FString& Resp)
+	{
+		// PRESENCE OF OUTPUT on both branches: 'linked' and 'already' are both correct outcomes and a
+		// regression that stopped linking would otherwise read exactly like the steady state.
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] generic-id link ok=%s resp=%s"),
+			bOk ? TEXT("y") : TEXT("N"), *Resp);
+	});
 }
 
 void UAFLOnlineSubsystem::CallWhenLoggedIn(TFunction<void(bool)> Callback, float TimeoutSeconds)
