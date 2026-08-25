@@ -9,7 +9,10 @@
 #include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
 #include "Cosmetics/AFLWalletComponent.h"
 #include "Cosmetics/AFLAccessoryPartComponent.h"   // CC-8: the accessory consumer
-#include "Cosmetics/AFLAccessoryChainActor.h"    // CC-8: the pendant re-drive walks to these             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
+#include "Cosmetics/AFLAccessoryChainActor.h"    // CC-8: the pendant re-drive walks to these
+#include "Dom/JsonObject.h"                        // CC-4.1 conditional refresh parses the reply
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
 #include "AFLCombat.h"
 #include "Cosmetics/AFLCharacterPartActor.h"           // CC-5.1: slot-1 master lookup
 #include "Components/MeshComponent.h"
@@ -398,6 +401,113 @@ IAFLEntitlementSource* UAFLCosmeticLoadoutComponent::GetEntitlementSource() cons
 
 const FName UAFLCosmeticLoadoutComponent::SlotEntitlementKey(TEXT("AFL.CreatorSlot"));
 const FName UAFLCosmeticLoadoutComponent::LeagueConditionId(TEXT("AFL.Condition.League"));
+
+
+namespace AFLConditionState
+{
+	/** The wire strings, matched EXACTLY to the four the Lambda will accept. An unrecognised value
+	 *  returns Unknown rather than guessing -- and the caller treats Unknown as "leave it alone",
+	 *  so a backend that starts sending a fifth state degrades to no-change instead of to a wrong one. */
+	static EAFLConditionState FromWire(const FString& S, bool& bOutRecognised)
+	{
+		bOutRecognised = true;
+		if (S == TEXT("Held"))               { return EAFLConditionState::Held; }
+		if (S == TEXT("Lapsed"))             { return EAFLConditionState::Lapsed; }
+		if (S == TEXT("AwaitingActivation")) { return EAFLConditionState::AwaitingActivation; }
+		if (S == TEXT("Unknown"))            { return EAFLConditionState::Unknown; }
+		bOutRecognised = false;
+		return EAFLConditionState::Unknown;
+	}
+}
+
+void UAFLCosmeticLoadoutComponent::RefreshConditionalEntitlement()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || !Online->IsConditionalEntitlementConfigured())
+	{
+		// NAMES THE MISSING LEG. "not configured" is not "the backend said you lapsed", and a
+		// bring-up session with no URL must never be mistaken for a refusal.
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[AFLCond] REFRESH SKIPPED -- /conditional-entitlement not configured (needs AFL_CONDITIONAL_URL + AFL_EARN_HMAC_KEY). Recorded states LEFT AS THEY WERE."));
+		return;
+	}
+
+	const UAFLPlayerIdentityComponent* Identity = GetOwner()->FindComponentByClass<UAFLPlayerIdentityComponent>();
+	const FString PlayFabId = Identity ? Identity->GetResolvedPlayFabId() : FString();
+	if (PlayFabId.IsEmpty())
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[AFLCond] REFRESH SKIPPED -- no resolved PlayFabId. Recorded states LEFT AS THEY WERE."));
+		return;
+	}
+
+	const FString Body = FString::Printf(
+		TEXT("{\"playFabId\":\"%s\",\"op\":\"read\",\"nonce\":\"cond-%s\",\"ts\":%lld}"),
+		*PlayFabId, *FGuid::NewGuid().ToString(EGuidFormats::Digits),
+		static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
+
+	TWeakObjectPtr<UAFLCosmeticLoadoutComponent> WeakThis(this);
+	Online->PostServerConditionalEntitlement(Body, [WeakThis, PlayFabId](bool bOk, const FString& Resp)
+	{
+		UAFLCosmeticLoadoutComponent* Self = WeakThis.Get();
+		if (!Self || !Self->GetOwner() || !Self->GetOwner()->HasAuthority()) { return; }
+
+		if (!bOk)
+		{
+			// THE IMPORTANT BRANCH. Nothing is written. See the header note: Unknown would strip
+			// perks, Lapsed would lock builds, and a blip must do neither.
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("[AFLCond] REFRESH FAILED pf=%s -- recorded states LEFT AS THEY WERE. resp=%s"),
+				*PlayFabId, *Resp);
+			return;
+		}
+
+		TSharedPtr<FJsonObject> Root;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Resp);
+		if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("[AFLCond] REFRESH unparseable pf=%s -- states LEFT AS THEY WERE. resp=%s"), *PlayFabId, *Resp);
+			return;
+		}
+		const TSharedPtr<FJsonObject>* Conditions = nullptr;
+		if (!Root->TryGetObjectField(TEXT("conditions"), Conditions) || !Conditions)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("[AFLCond] REFRESH has no conditions object pf=%s -- states LEFT AS THEY WERE."), *PlayFabId);
+			return;
+		}
+
+		int32 Applied = 0, Skipped = 0;
+		for (const auto& Pair : (*Conditions)->Values)
+		{
+			const TSharedPtr<FJsonObject>* Entry = nullptr;
+			if (!Pair.Value.IsValid() || !Pair.Value->TryGetObject(Entry) || !Entry) { ++Skipped; continue; }
+			FString StateStr;
+			if (!(*Entry)->TryGetStringField(TEXT("state"), StateStr)) { ++Skipped; continue; }
+
+			bool bRecognised = false;
+			const EAFLConditionState NewState = AFLConditionState::FromWire(StateStr, bRecognised);
+			if (!bRecognised)
+			{
+				// A state this build has no branch for is LEFT ALONE rather than collapsed to Unknown,
+				// which would fail its grants closed on the strength of a string we did not understand.
+				UE_LOG(LogAFLCombat, Warning,
+					TEXT("[AFLCond] unrecognised state '%s' for %s -- LEFT AS IT WAS"), *StateStr, *Pair.Key);
+				++Skipped; continue;
+			}
+			Self->SetConditionState(FName(*Pair.Key), NewState);
+			++Applied;
+		}
+
+		// PRESENCE OF OUTPUT: "applied nothing because the player has no conditions" and "applied
+		// nothing because every entry was malformed" must not read the same.
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("[AFLCond] REFRESH pf=%s applied=%d skipped=%d"), *PlayFabId, Applied, Skipped);
+	});
+}
 
 EAFLConditionState UAFLCosmeticLoadoutComponent::GetConditionState(FName ConditionId) const
 {

@@ -242,6 +242,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Lapse")
 	void SetConditionState(FName ConditionId, EAFLConditionState NewState);
 
+	/**
+	 * Pull the authoritative condition set from /conditional-entitlement and record it.
+	 *
+	 * ON FAILURE IT CHANGES NOTHING. Writing Unknown on a failed read would fail grants CLOSED and
+	 * strip a subscriber's perks over a network blip; writing Lapsed would lock their builds, which is
+	 * the exact defect AwaitingActivation exists to prevent, reintroduced through the back door. So a
+	 * failure logs and returns, and whatever was last established stands.
+	 *
+	 * AUTHORITY ONLY. The set replicates to the owning client COND_OwnerOnly -- a client fetching its
+	 * own conditions would be a second source of truth for whether it is a subscriber.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Cosmetics")
+	void RefreshConditionalEntitlement();
+
 	/** The state we last recorded. Unknown until something establishes it. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Lapse")
 	EAFLConditionState GetConditionState(FName ConditionId) const;

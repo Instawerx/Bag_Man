@@ -192,6 +192,7 @@ private:
 	/** CC-X30 /counted-entitlement. Same HMAC key. The counted set's SSOT is PlayFab ReadOnlyData behind
 	 *  this endpoint -- NOT the local AFLEconomy SaveGame, which is now only a mirror. */
 	FString CountedUrl;
+	FString ConditionalUrl;
 
 	/** Shared signed-POST transport for the server-authoritative endpoints (A1.3b earn + A1.4 resolve): sign the
 	 *  EXACT Body with EarnHmacKey, POST it to Url with X-Signature, plain-HTTP-200 completion. Server-only
@@ -228,6 +229,16 @@ public:
 	 *  backend, which is a DIFFERENT state from a call that was made and refused -- and the two must
 	 *  never collapse into one 'it didn't work'. */
 	bool IsCountedEntitlementConfigured() const { return !CountedUrl.IsEmpty() && !EarnHmacKey.IsEmpty(); }
+
+	/**
+	 * POST a signed conditional-entitlement op to /conditional-entitlement.
+	 * Body is {playFabId, op, conditionId, state, expiresAt, nonce, ts}: op=read|set.
+	 */
+	void PostServerConditionalEntitlement(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
+
+	/** True when /conditional-entitlement can be signed. A caller that gets false is in bring-up with
+	 *  no backend, which is NOT a refusal and must not be reported as one. */
+	bool IsConditionalEntitlementConfigured() const { return !ConditionalUrl.IsEmpty() && !EarnHmacKey.IsEmpty(); }
 
 private:
 
