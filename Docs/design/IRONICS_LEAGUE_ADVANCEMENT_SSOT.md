@@ -1,5 +1,7 @@
 # IRONICS — League, Advancement, Achievements & Rankings SSOT
 
+> **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-08-05** (`1c072a49`). Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
+
 > **Status: SCOPING / DESIGN PASS — v0.2 (2026-07-09).** This is the **owed "progression / ranking
 > definitions doc"** that `IRONICS_MARKETPLACE_MASTER_ARCHITECTURE.md` §6 driver #2 (`:142`) and §10
 > (`:222`) flag as required **before Phase 5**. It is a **design deliverable only** — no game-system code,

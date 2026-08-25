@@ -1,5 +1,7 @@
 # IRONICS — Canonical Economy Spec (v1)
 
+> **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-08-05** (`1c072a49`). Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
+
 > **This is the canonical economy model.** It was built from operator decisions +
 > researched against current (June 2026) proven models (Valorant premium-direct,
 > Fortnite battle-pass-spine, the lootbox→battle-pass legal shift). The peg is a

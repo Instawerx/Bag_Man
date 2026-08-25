@@ -1,5 +1,7 @@
 # IRONICS_PRICING_SSOT
 
+> **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-08-19** (`a61d9e43`). Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
+
 **Status:** REPLACEMENT. Supersedes `IRONICS_PRICING_SCARCITY_SSOT.md` in full.
 **Date:** 2026-08-17
 **Basis:** CC-READ-1 through CC-READ-4 (read-only forensic passes, editor + terminal lanes).

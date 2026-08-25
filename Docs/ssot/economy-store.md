@@ -1,5 +1,7 @@
 # SSOT — ECONOMY + STORE (Tier 2)
 
+> **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-08-06** (`c8e21989`). Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
+
 **What this is:** what the economy, store and loot systems **are** and **why**. It changes when the system is
 redesigned.
 **What this is not:** a status board. **This document contains no status claims** — nothing here says what is

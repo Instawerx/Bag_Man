@@ -1,5 +1,7 @@
 # IRONICS -- MASTER PRODUCT / SKU CATALOG (living doc)
 
+> **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-08-05** (`1c072a49`). Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
+
 **Human-readable mirror of the machine SKU registry.** This doc is the at-a-glance catalog of
 every sellable / earnable / equippable unit in BAG MAN. The MACHINE registry is the data asset
 `DA_AFL_CosmeticCatalog` (class `UAFLCosmeticCatalog`, `/AFLBagMan/Cosmetics/`); this doc is its
