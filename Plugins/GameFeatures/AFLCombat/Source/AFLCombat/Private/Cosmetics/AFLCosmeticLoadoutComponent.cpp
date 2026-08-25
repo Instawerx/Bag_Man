@@ -568,6 +568,10 @@ void UAFLCosmeticLoadoutComponent::RefreshLapseFromSubscription()
 	// LAPSED: back to the baseline nobody has to buy, continuum authoring locked. Builds beyond the
 	// baseline become READ-ONLY -- never deleted, and the active one keeps rendering.
 	const bool bHeld = (State == EAFLConditionState::Held);
+	// GetEffectiveSlotCap already resolves the baseline from the condition, so on Held it returns the
+	// League floor plus purchases. On Lapsed the floor is the FREE baseline -- named explicitly here
+	// rather than relying on the resolver, because this line is the penalty and it should be readable
+	// as one.
 	const int32 Cap = bHeld ? GetEffectiveSlotCap() : SlotBaseline;
 	UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[LAPSE] league=%s -> cap=%d editingHeld=%d"),
 		bHeld ? TEXT("HELD") : TEXT("LAPSED"), Cap, bHeld ? 1 : 0);
@@ -604,8 +608,32 @@ int32 UAFLCosmeticLoadoutComponent::GetEffectiveSlotCap() const
 			TEXT("[Creator] slot cap: NO WALLET -- failing closed to baseline %d."), SlotBaseline);
 		return SlotBaseline;
 	}
+	// THE BASELINE RESOLVES FROM THE CONDITION. This is what makes League worth buying: a held
+	// subscription raises the floor from 2 to 5, and a lapse returns it to 2 without touching anything
+	// the player PURCHASED. Keeping the two shapes separate is what makes lapse tractable -- a lapsed
+	// subscriber keeps what they bought and loses only the baseline.
+	//
+	// Held is the ONLY state that raises it. Lapsed, AwaitingActivation and Unknown all resolve to the
+	// free baseline: an entitlement that is not currently held is not currently a benefit, and
+	// AwaitingActivation in particular means PAID BUT NOT LIVE -- granting on it would be the
+	// fail-open the conditional contract exists to prevent.
+	// BASELINE AND CEILING BOTH RESOLVE FROM THE CONDITION.
+	//   free    2 baseline, 5 ceiling
+	//   League  5 baseline, 10 ceiling
+	//
+	// A CEILING IS THE PURCHASABLE MAXIMUM, NOT THE GRANTED AMOUNT. League INCLUDES five and PERMITS
+	// buying up to ten; returning the ceiling for a League member would conflate the two and hand out
+	// five slots nobody bought.
+	//
+	// Clamping both tiers to one hard cap of 10 was the defect: a FREE player who bought eight slots
+	// resolved to 10, buying past the free ceiling without holding the subscription that raises it.
+	// That is the ladder inverted -- the thing the tier ceiling exists to prevent.
+	const bool bLeagueHeld = (GetConditionState(LeagueConditionId) == EAFLConditionState::Held);
+	const int32 Baseline = bLeagueHeld ? SlotLeagueBaseline   : SlotBaseline;
+	const int32 Ceiling  = bLeagueHeld ? SlotTierCeilingLeague : SlotTierCeilingFree;
+
 	const int32 Purchased = Wallet->GetCountedEntitlement(SlotEntitlementKey);
-	return FMath::Clamp(SlotBaseline + Purchased, SlotBaseline, SlotHardCap);
+	return FMath::Clamp(Baseline + Purchased, Baseline, Ceiling);
 }
 
 IAFLCosmeticPersistence* UAFLCosmeticLoadoutComponent::GetPersistence() const

@@ -196,7 +196,29 @@ public:
 	/** Slots nobody has to buy. */
 	static constexpr int32 SlotBaseline = 2;
 
+	/**
+	 * THE LEAGUE BASELINE. PRICING_SSOT 5.2: 2 free, 5 League.
+	 *
+	 * Without this, GetEffectiveSlotCap used SlotBaseline whatever the subscription said, so Held and
+	 * Lapsed produced the SAME cap for anyone who had bought no slots -- League granted nothing, and
+	 * the lapse rule had nothing to take away. The condition was read, logged, and had no consequence.
+	 */
+	static constexpr int32 SlotLeagueBaseline = 5;
+
 	/** Ceiling regardless of how many were bought. */
+	/**
+	 * THE CEILINGS. Free 5, League 10 -- and a ceiling is THE PURCHASABLE MAXIMUM, never the granted
+	 * amount. Ruled, and the distinction is the whole point: returning the ceiling for a League member
+	 * would conflate what League INCLUDES (five) with what a League member MAY BUY (up to ten).
+	 *
+	 * The ceiling varies with the condition for the same reason the baseline does. A single hard cap
+	 * of 10 let a FREE player who bought eight slots resolve to 10 -- buying past the free ceiling
+	 * without holding the subscription that raises it, which is the ladder inverted.
+	 */
+	static constexpr int32 SlotTierCeilingFree   = 5;
+	static constexpr int32 SlotTierCeilingLeague = 10;
+
+	/** The absolute maximum any tier can reach. Kept as the max-upgrade destination. */
 	static constexpr int32 SlotHardCap = 10;
 
 	/** The counted, account-durable entitlement a robot pack / slot SKU increments. */

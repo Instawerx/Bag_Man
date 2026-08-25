@@ -1857,11 +1857,18 @@ void UAFLWalletComponent::GrantSubscriptionEntitlement(const FName CosmeticId, c
 	// because a player holds one League standing, not three. Buying Annual after Monthly extends the
 	// same right; keying on the SKU would give a player who bought two terms two independent
 	// subscriptions and no defined answer for which one counts.
-	static const TCHAR* LeagueConditionId = TEXT("League");
+	// THE ID THE LOADOUT READS, not a second spelling of it. This said TEXT("League") while
+	// UAFLCosmeticLoadoutComponent::LeagueConditionId is TEXT("AFL.Condition.League") -- so a purchase
+	// wrote a condition nothing in the game ever looked at, RefreshLapseFromSubscription saw Unknown
+	// forever, and penalties fail open on Unknown. The player paid, the write succeeded, every log
+	// read correctly, and the entitlement did nothing.
+	//
+	// Taken from the component rather than re-spelled here, so the two cannot drift again.
+	const FString LeagueConditionId = UAFLCosmeticLoadoutComponent::LeagueConditionId.ToString();
 
 	const FString Body = FString::Printf(
 		TEXT("{\"playFabId\":\"%s\",\"op\":\"grant\",\"conditionId\":\"%s\",\"termDays\":%d,\"nonce\":\"%s\",\"ts\":%lld}"),
-		*PlayFabId, LeagueConditionId, TermDays,
+		*PlayFabId, *LeagueConditionId, TermDays,
 		*FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens),
 		static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
 
