@@ -16,6 +16,7 @@
 #include "Player/LyraPlayerState.h"
 // A1.3 step-3 earn hook -- compose the proven, committed accessors (identity/matchId) + the transport.
 #include "Cosmetics/AFLPlayerIdentityComponent.h"   // GetResolvedPlayFabId (A1.4)
+#include "Cosmetics/AFLCosmeticLoadoutComponent.h" // RefreshConditionalEntitlement after a subscription write
 #include "Round/AFLRoundManagerComponent.h"          // GetMatchId (A1.3b)
 #include "Engine/World.h"                            // GetWorld()->GetGameState()
 #include "GameFramework/GameStateBase.h"             // AGameStateBase::FindComponentByClass
@@ -1050,6 +1051,31 @@ void UAFLWalletComponent::CommitMutation(int32 DeltaVolts, int32 DeltaWatts, FNa
 				{
 					GrantCountedEntitlement(Entry->CountedKey, Entry->GrantQuantity);
 				}
+
+				// SUBSCRIPTION. Before this, buying League deducted Volts and granted NOTHING: the
+				// reader existed -- RefreshConditionalEntitlement and the replicated ConditionStates
+				// array -- and nothing on the purchase side ever wrote a condition. The branch above
+				// handles CountedKey only, and a Subscription row carries no CountedKey, so it fell
+				// through every branch here and took the money.
+				//
+				// Driven off the row's TYPE, not its id prefix -- the same discipline as CountedKey.
+				if (Entry->Type == EAFLCosmeticType::Subscription)
+				{
+					const int32 TermDays = SubscriptionTermDays(GrantId);
+					if (TermDays > 0)
+					{
+						GrantSubscriptionEntitlement(GrantId, TermDays);
+					}
+					else
+					{
+						// A Subscription row whose term nobody configured must NOT silently grant a
+						// default. Loud, and it grants nothing -- inventing a subscription length is
+						// the same class of defect as inventing a price.
+						UE_LOG(LogAFLWalletDiag, Error,
+							TEXT("%sSUBSCRIPTION ROW %s HAS NO CONFIGURED TERM -- money taken, nothing granted"),
+							*WalletPrefix(this), *GrantId.ToString());
+					}
+				}
 			}
 		}
 	}
@@ -1762,4 +1788,111 @@ void UAFLWalletComponent::PersistState() const
 		Persistence->SaveOwnedSet(Id, OwnedCosmeticIds);
 	}
 	// Stub: no-op (the replicated state IS the session source of truth).
+}
+
+/**
+ * THE TERM TABLE. Ruled: $5/mo, $30/yr, $10/quarter on annual commit.
+ *
+ * Written here rather than parsed out of the id, for the reason every other data-driven decision in
+ * this file gives: an id is provenance, not configuration. The word "Quarterly" in a string is not a
+ * promise about how many days anything lasts, and renaming a row must not silently re-term a live
+ * subscription.
+ *
+ * 30 / 91 / 365 FIXED DAYS, not calendar arithmetic. A calendar month is between 28 and 31 days, so
+ * month-based expiry gives a February buyer a shorter subscription than a March buyer for the same
+ * money. Fixed days are the same length for everyone, which is the property that matters when the
+ * thing being sold IS a length of time.
+ */
+int32 UAFLWalletComponent::SubscriptionTermDays(const FName CosmeticId)
+{
+	static const TMap<FName, int32> Terms = {
+		{ FName(TEXT("AFL.League.Monthly")),   30  },
+		{ FName(TEXT("AFL.League.Quarterly")), 91  },
+		{ FName(TEXT("AFL.League.Annual")),    365 },
+	};
+	const int32* Found = Terms.Find(CosmeticId);
+	return Found ? *Found : 0;
+}
+
+void UAFLWalletComponent::GrantSubscriptionEntitlement(const FName CosmeticId, const int32 TermDays)
+{
+	// AUTHORITY ONLY, same reason as the counted path: a client-callable subscription grant is a free
+	// League for anyone with a packet editor.
+	if (!GetOwner() || !GetOwner()->HasAuthority()) { return; }
+	if (CosmeticId.IsNone() || TermDays <= 0) { return; }
+
+	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (!Online || !Online->IsConditionalEntitlementConfigured())
+	{
+		UE_LOG(LogAFLWalletDiag, Error,
+			TEXT("%sSUBSCRIPTION GRANT REFUSED %s -- /conditional-entitlement not configured"),
+			*WalletPrefix(this), *CosmeticId.ToString());
+		return;
+	}
+
+	const FString PlayFabId = Online->GetPlayFabId();
+	if (PlayFabId.IsEmpty())
+	{
+		// NOT a silent local grant. With no account key there is nothing to durably credit, and a
+		// session-only subscription evaporates on the next hydration -- CC-X30's whole subject.
+		UE_LOG(LogAFLWalletDiag, Warning,
+			TEXT("%sSUBSCRIPTION GRANT REFUSED %s -- no PlayFabId, nothing to credit durably"),
+			*WalletPrefix(this), *CosmeticId.ToString());
+		return;
+	}
+
+	// EXPIRY COMPUTED HERE AND SENT ABSOLUTE. The backend stores what it is given and derives Lapsed
+	// from it on read; sending a duration instead would make the expiry depend on when the request
+	// happened to arrive, which is a different subscription length for a slow network.
+	const int64 ExpiresAt = (FDateTime::UtcNow() + FTimespan::FromDays(TermDays)).ToUnixTimestamp();
+
+	// THE CONDITION IS THE AXIS, NOT THE SKU. All three terms write the SAME condition -- "League" --
+	// because a player holds one League standing, not three. Buying Annual after Monthly extends the
+	// same right; keying on the SKU would give a player who bought two terms two independent
+	// subscriptions and no defined answer for which one counts.
+	static const TCHAR* LeagueConditionId = TEXT("League");
+
+	const FString Body = FString::Printf(
+		TEXT("{\"playFabId\":\"%s\",\"op\":\"set\",\"conditionId\":\"%s\",\"state\":\"Held\",\"expiresAt\":%lld,\"nonce\":\"%s\",\"ts\":%lld}"),
+		*PlayFabId, LeagueConditionId, static_cast<long long>(ExpiresAt),
+		*FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens),
+		static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
+
+	UE_LOG(LogAFLWalletDiag, Log,
+		TEXT("%sSUBSCRIPTION POST set %s Held +%dd (expires %lld) pfid=%s -> /conditional-entitlement"),
+		*WalletPrefix(this), *CosmeticId.ToString(), TermDays, static_cast<long long>(ExpiresAt), *PlayFabId);
+
+	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
+	Online->PostServerConditionalEntitlement(Body, [WeakThis, CosmeticId, TermDays](bool bOk, const FString& Resp)
+	{
+		UAFLWalletComponent* Self = WeakThis.Get();
+		if (!Self) { return; }
+
+		if (!bOk)
+		{
+			// FAIL LOUD. The deduct has already committed by the time this runs, so a failed write is
+			// a player who paid for League and does not have it. Everything needed to repair it by
+			// hand is logged, because there is nothing safe to do automatically: a blind retry could
+			// double-extend, and refunding here would need the refund path this component does not
+			// own.
+			UE_LOG(LogAFLWalletDiag, Error,
+				TEXT("%sSUBSCRIPTION WRITE FAILED %s (+%dd) -- PAID, NOT GRANTED. resp=%s"),
+				*WalletPrefix(Self), *CosmeticId.ToString(), TermDays, *Resp);
+			return;
+		}
+
+		UE_LOG(LogAFLWalletDiag, Log, TEXT("%sSUBSCRIPTION WRITE OK %s (+%dd)"),
+			*WalletPrefix(Self), *CosmeticId.ToString(), TermDays);
+
+		// Pull the authoritative condition set straight back, so the UI reflects it without waiting
+		// for the next hydration AND so the value the player sees came from the backend rather than
+		// from what we just asked it to store.
+		if (AActor* OwnerActor = Self->GetOwner())
+		{
+			if (UAFLCosmeticLoadoutComponent* Loadout = OwnerActor->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
+			{
+				Loadout->RefreshConditionalEntitlement();
+			}
+		}
+	});
 }

@@ -156,6 +156,20 @@ public:
 	void GrantCountedEntitlement(FName Key, int32 Quantity);
 
 	/**
+	 * Write the League CONDITIONAL entitlement with its expiry.
+	 *
+	 * Distinct from GrantCountedEntitlement because a subscription is not a count. A counted grant
+	 * INCREMENTS a number that never decreases; this writes one row whose whole meaning is when it
+	 * STOPS being true. Reusing the counted path would have made "how many leagues do you own" the
+	 * question, when the question is "is your league current".
+	 */
+	void GrantSubscriptionEntitlement(FName CosmeticId, int32 TermDays);
+
+	/** Days of League for a subscription row, or 0 if the id is not one. Table-driven: nothing here
+	 *  parses a term out of an id, so a term nobody configured grants nothing. */
+	static int32 SubscriptionTermDays(FName CosmeticId);
+
+	/**
 	 * CC-X30: spend one AFL.WeaponCredit on CosmeticId.
 	 *
 	 * A Server RPC because the PLAYER initiates it -- unlike the counted GRANT, which is authority-only
