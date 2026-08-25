@@ -151,23 +151,60 @@ void UAFLW_FrontEndMarket::ApplyShowroomMode()
 
 namespace
 {
-	// Each store tab -> the CosmeticId namespace prefix(es) it shows. The catalog's EAFLCosmeticType values don't
-	// map 1:1 to the six marketing tabs, so this is the (operator-tunable) taxonomy: change a prefix and rebuild.
-	// A tab whose prefixes match nothing in the catalog simply shows empty. The trailing '.' matters -- it stops
-	// "AFL.Weapon." from also swallowing "AFL.WeaponSkin.".
-	struct FStoreTabDef { const TCHAR* TabName; const TCHAR* LabelName; const TCHAR* Prefixes[3]; };
-	// TAXONOMY (operator-ruled): each tab holds what its label says. EAFLCosmeticType doesn't map 1:1 to the six
-	// tabs, so this IS the taxonomy. Two tabs are REPURPOSED -- the widget NAME is kept, only the caption is
-	// relabeled (in EnterStoreMode): Tab_HELMETS -> "CAMOS" (weapon-skins, all NeonCamo), Tab_EMOTES -> "BEAMS".
-	// Identities aren't sold (free/earned -> loadout), so no store tab holds them.
-	static const FStoreTabDef GStoreTabs[6] = {
-		{ TEXT("Tab_WEAPONS"), TEXT("TabLabel_WEAPONS"), { TEXT("AFL.Weapon."),     TEXT("AFL.Ability."), nullptr           } },
-		{ TEXT("Tab_SKINS"),   TEXT("TabLabel_SKINS"),   { TEXT("AFL.Finish."),     TEXT("AFL.Body."),    TEXT("AFL.Edge.")  } },
-		{ TEXT("Tab_HELMETS"), TEXT("TabLabel_HELMETS"), { TEXT("AFL.WeaponSkin."), nullptr,              nullptr           } }, // -> CAMOS
-		{ TEXT("Tab_VISORS"),  TEXT("TabLabel_VISORS"),  { TEXT("AFL.Facemask."),   nullptr,              nullptr           } },
-		{ TEXT("Tab_EMOTES"),  TEXT("TabLabel_EMOTES"),  { TEXT("AFL.Beam."),       nullptr,              nullptr           } }, // -> BEAMS
-		{ TEXT("Tab_BUNDLES"), TEXT("TabLabel_BUNDLES"), { TEXT("AFL.Bundle."),     nullptr,              nullptr           } },
+	// ================================================================================================
+	// THE STORE IS A PRODUCT LIST. It renders the CURRENT ECONOMY and nothing else.
+	//
+	// FREE IS NOT THE SAME AS LISTED. Colours, edges, beams, weapon-skins, identities and abilities are
+	// real cosmetics that a player owns and equips -- they are simply not things anyone buys. They
+	// belong to the LOADOUT, which is owned-only and has entirely different rules. Rendering them here
+	// put three whole tabs of non-products in front of players: SKINS (finishes/bodies/edges), CAMOS
+	// (weapon-skins) and BEAMS. Each was found and reported separately, as if it were a new defect.
+	// It was the same defect three times, which is why the allowlist below is now the mechanism rather
+	// than a set of literals someone remembers to keep correct.
+	//
+	// GAFLStoreNamespaces IS THE RULED SET. A namespace absent from it can never reach the store,
+	// whatever a tab declares -- and `AFL_Lint_StoreTaxonomy` fails the build if a tab declares one
+	// that is not here. Two independent statements of one fact, cross-checked, because one statement
+	// can be forgotten silently.
+	//
+	// The trailing '.' matters: it stops "AFL.Weapon." from also swallowing "AFL.WeaponSkin.".
+	// ================================================================================================
+	static const TCHAR* GAFLStoreNamespaces[] = {
+		TEXT("AFL.CreatorSlot."),    // robot packs x1/x3/x8, slot SKUs, the max upgrade
+		TEXT("AFL.Weapon."),         // weapons
+		TEXT("AFL.WeaponCredit."),   // weapon credits x3
+		TEXT("AFL.StickerCredit."),  // sticker credits x5 / x10
+		TEXT("AFL.FacemaskCredit"),  // facemask credits x5 -- NO trailing dot, this id has no suffix
+		TEXT("AFL.Facemask."),       // facemasks
+		TEXT("AFL.Accessory."),      // jewellery
+		TEXT("AFL.Emblem."),         // emblems
+		TEXT("AFL.Bundle."),         // hand cannon pairs (.XT), and bundles generally
 	};
+
+	struct FStoreTabDef { const TCHAR* TabName; const TCHAR* LabelName; const TCHAR* Prefixes[3]; };
+
+	// Six PHYSICAL tab widgets exist in the WBP, so the nine ruled namespaces are grouped into six.
+	// Nothing is merged that the ruling separates except the three credit kinds, which share a tab
+	// because they are the same product shape -- a credit is a credit.
+	static const FStoreTabDef GStoreTabs[6] = {
+		{ TEXT("Tab_WEAPONS"), TEXT("TabLabel_WEAPONS"), { TEXT("AFL.CreatorSlot."),  nullptr,                    nullptr                   } }, // -> ROBOTS
+		{ TEXT("Tab_SKINS"),   TEXT("TabLabel_SKINS"),   { TEXT("AFL.Weapon."),       nullptr,                    nullptr                   } }, // -> WEAPONS
+		{ TEXT("Tab_HELMETS"), TEXT("TabLabel_HELMETS"), { TEXT("AFL.WeaponCredit."), TEXT("AFL.StickerCredit."), TEXT("AFL.FacemaskCredit") } }, // -> CREDITS
+		{ TEXT("Tab_VISORS"),  TEXT("TabLabel_VISORS"),  { TEXT("AFL.Facemask."),     nullptr,                    nullptr                   } }, // -> FACEMASKS
+		{ TEXT("Tab_EMOTES"),  TEXT("TabLabel_EMOTES"),  { TEXT("AFL.Accessory."),    TEXT("AFL.Emblem."),        nullptr                   } }, // -> JEWELLERY
+		{ TEXT("Tab_BUNDLES"), TEXT("TabLabel_BUNDLES"), { TEXT("AFL.Bundle."),       nullptr,                    nullptr                   } }, // -> BUNDLES
+	};
+
+	/** Is this cosmetic id a PRODUCT at all? Anything outside the ruled set is invisible to the store,
+	 *  whatever tab it might otherwise have matched. */
+	static bool IsStoreNamespace(const FString& IdStr)
+	{
+		for (const TCHAR* Ns : GAFLStoreNamespaces)
+		{
+			if (IdStr.StartsWith(Ns, ESearchCase::IgnoreCase)) { return true; }
+		}
+		return false;
+	}
 }
 
 void UAFLW_FrontEndMarket::EnterStoreMode()
@@ -194,8 +231,17 @@ void UAFLW_FrontEndMarket::EnterStoreMode()
 
 	// TAXONOMY: relabel the two repurposed tabs (the widget names stay Tab_HELMETS/Tab_EMOTES; only the caption
 	// changes). CAMOS = weapon-skins (all NeonCamo, so the label reads true); BEAMS = the beam VFX (was EMOTES).
-	if (UTextBlock* L = Cast<UTextBlock>(GetWidgetFromName(TEXT("TabLabel_HELMETS")))) { L->SetText(FText::FromString(TEXT("CAMOS"))); }
-	if (UTextBlock* L = Cast<UTextBlock>(GetWidgetFromName(TEXT("TabLabel_EMOTES")))) { L->SetText(FText::FromString(TEXT("BEAMS"))); }
+	// EVERY caption is set here, not just the repurposed ones. The widget NAMES are historical and no
+	// longer describe what they hold, so a caption left to the WBP would be a lie that survives a
+	// taxonomy change -- which is exactly how "CAMOS" outlived weapon-skins being products.
+	static const TCHAR* GTabCaptions[6] = { TEXT("ROBOTS"), TEXT("WEAPONS"), TEXT("CREDITS"), TEXT("FACEMASKS"), TEXT("JEWELLERY"), TEXT("BUNDLES") };
+	for (int32 i = 0; i < 6; ++i)
+	{
+		if (UTextBlock* L = Cast<UTextBlock>(GetWidgetFromName(FName(GStoreTabs[i].LabelName))))
+		{
+			L->SetText(FText::FromString(GTabCaptions[i]));
+		}
+	}
 
 	// STORE PREVIEW: bind the ListView's NATIVE selection event (the BP one is private) so selecting a card
 	// previews it on the display robot. AddUObject (native multicast) is additive -> the store's own BP selection
@@ -302,6 +348,13 @@ void UAFLW_FrontEndMarket::FilterStore(int32 TabIndex)
 	for (const TObjectPtr<UObject>& Obj : StoreFullItems)
 	{
 		const FString IdStr = ReadEntryCosmeticId(Obj.Get()).ToString();
+		// THE ALLOWLIST FIRST, and it is not redundant with the tab prefixes. The BP populates the full
+		// list; if a non-product namespace is ever added to a tab -- or the BP starts supplying one --
+		// this refuses it without anyone having to notice the tab table changed.
+		if (!IsStoreNamespace(IdStr))
+		{
+			continue;
+		}
 		for (const TCHAR* Pfx : Def.Prefixes)
 		{
 			if (Pfx && IdStr.StartsWith(Pfx, ESearchCase::IgnoreCase))
