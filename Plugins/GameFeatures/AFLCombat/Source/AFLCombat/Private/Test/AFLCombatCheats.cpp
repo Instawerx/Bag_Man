@@ -57,7 +57,8 @@
 #include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
 #include "Cosmetics/AFLCharacterPartMap.h"            // CC-1.2-P EmblemProbe: identity id -> body class (part-map resolver)
 #include "Components/DecalComponent.h"                // CC-1.2-P EmblemProbe: the chest-emblem decal readback
-#include "Components/SkeletalMeshComponent.h"         // CC-1.1-P Slot1Probe: direct Mesh->GetMaterial(1) readback
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/CapsuleComponent.h"         // CC-1.1-P Slot1Probe: direct Mesh->GetMaterial(1) readback
 #include "Materials/MaterialInstanceConstant.h"       // CC-1.1-P Slot1Probe: the facemask MIC passed to ApplyFacemask
 #include "Cosmetics/AFLBrandEdgeMap.h"                 // RosterTest: brand -> authored finish (the identity sweep source)
 #include "Cosmetics/AFLSkinColorAsset.h"               // RosterTest: the preset type ApplySkinColor consumes
@@ -6648,6 +6649,87 @@ namespace
 						break;   // one client is enough; both carry the same geometry
 					}
 
+					// ---- SURFACE OFFSETS -------------------------------------------------------------
+					// HOW DEEP IS EACH SOCKET, MEASURED -- not adopted from the LOS trace's incidental
+					// 6.5 cm, which was whatever that one ray happened to hit. For each socket, cast
+					// INWARD from 120 cm out along six axes and record where the body surface is; the
+					// distance from the surface hit back to the socket is how far the piece is buried
+					// along that direction. The SHALLOWEST direction is the cheapest way out.
+					//
+					// THE CAPSULE IS EXCLUDED. The earlier neck and pendant rays stopped on
+					// CollisionCylinder, which does not render, so those two were consistent with
+					// occlusion but unproven. Ignoring it puts every socket on the same standard as the
+					// wrists: blocked by CharacterMesh0 or not blocked at all.
+					for (const FJewelWorld& JW : Worlds)
+					{
+						if (!JW.bClient || !JW.Pawn) { continue; }
+						UWorld* TW = JW.Pawn->GetWorld();
+						const FVector F = JW.Pawn->GetActorForwardVector();
+						const FVector R = JW.Pawn->GetActorRightVector();
+						const FVector U = JW.Pawn->GetActorUpVector();
+						const TCHAR* DirNames[6] = { TEXT("fwd"), TEXT("back"), TEXT("right"), TEXT("left"), TEXT("up"), TEXT("down") };
+						const FVector Dirs[6] = { F, -F, R, -R, U, -U };
+
+						FCollisionQueryParams Q(SCENE_QUERY_STAT(AFLJewelDepth), /*bTraceComplex=*/true);
+						if (const UCapsuleComponent* Cap = JW.Pawn->FindComponentByClass<UCapsuleComponent>())
+						{
+							Q.AddIgnoredComponent(Cap);   // the capsule does not render; it must not answer for the mesh
+						}
+
+						for (const FJewelPart& P : JW.Parts)
+						{
+							double BestDepth = -1.0; int32 BestIdx = -1; FString BestComp;
+							FString All;
+							for (int32 i = 0; i < 6; ++i)
+							{
+								const FVector Start = P.WorldLoc + Dirs[i] * 120.f;
+								FHitResult H;
+								const bool bH = TW->LineTraceSingleByChannel(H, Start, P.WorldLoc, ECC_Visibility, Q);
+								if (bH)
+								{
+									// depth = how far INSIDE the surface the socket sits along this axis
+									const double Depth = (P.WorldLoc - H.Location).Size();
+									All += FString::Printf(TEXT("[%s %.2f]"), DirNames[i], Depth);
+									if (BestDepth < 0.0 || Depth < BestDepth)
+									{
+										BestDepth = Depth; BestIdx = i; BestComp = GetNameSafe(H.GetComponent());
+									}
+								}
+								else
+								{
+									All += FString::Printf(TEXT("[%s CLEAR]"), DirNames[i]);
+									if (BestDepth < 0.0 || 0.0 < BestDepth) { BestDepth = 0.0; BestIdx = i; BestComp = TEXT("(none)"); }
+								}
+							}
+							UE_LOG(LogAFLCombat, Display,
+								TEXT("AFL_TEST[JEWEL] DEPTH %-18s pos=%s | shallowest=%s %.2fcm via %s | all=%s"),
+								*P.Socket.ToString(), *P.WorldLoc.ToCompactString(),
+								BestIdx >= 0 ? DirNames[BestIdx] : TEXT("-"),
+								BestDepth < 0.0 ? 0.0 : BestDepth, *BestComp, *All);
+						}
+
+						// ---- WHAT ELSE RIDES THIS SKELETON? -----------------------------------------
+						// The sockets are on SKM_Manny_Invis and the visible body is a part mesh, so this
+						// is not a jewellery defect -- it is true of ANYTHING attached there. If weapons
+						// sit on the same mesh and read correctly, the difference is the cleaner fix.
+						if (const USkeletalMeshComponent* BM = JW.Pawn->FindComponentByClass<USkeletalMeshComponent>())
+						{
+							UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL] BASEMESH %s asset=%s"),
+								*BM->GetName(), *GetNameSafe(BM->GetSkeletalMeshAsset()));
+							TArray<USceneComponent*> Kids;
+							BM->GetChildrenComponents(/*bIncludeAllDescendants=*/false, Kids);
+							for (USceneComponent* K : Kids)
+							{
+								if (!K) { continue; }
+								UE_LOG(LogAFLCombat, Display,
+									TEXT("AFL_TEST[JEWEL] ATTACHED socket='%s' comp=%s (%s) owner=%s"),
+									*K->GetAttachSocketName().ToString(), *K->GetName(),
+									*K->GetClass()->GetName(), *GetNameSafe(K->GetOwner()));
+							}
+						}
+						break;
+					}
+
 					const bool bArm13 = (CliParts > 0) && (CliDrawn == CliParts);
 					Arm(TEXT("13 every part on a CLIENT is actually DRAWN"), bArm13,
 						FString::Printf(TEXT("clientParts=%d drawn=%d noMeshAsset=%d%s%s"),
@@ -6693,10 +6775,11 @@ namespace
 							// disagreed for so long.
 							struct FShotDef { const TCHAR* Name; FName Socket; float Dist; float FOV; };
 							const FShotDef Defs[] = {
-								{ TEXT("neck"),    NeckS,   55.f, 32.f },
-								{ TEXT("wrist_l"), WristLS, 32.f, 28.f },
-								{ TEXT("wrist_r"), WristRS, 32.f, 28.f },
+								{ TEXT("neck"),    NeckS,   70.f, 34.f },
+								{ TEXT("wrist_l"), WristLS, 60.f, 30.f },
+								{ TEXT("wrist_r"), WristRS, 60.f, 30.f },
 								{ TEXT("upper"),   NeckS,  140.f, 42.f },
+								{ TEXT("wide"),    NeckS,  400.f, 45.f },
 							};
 							for (const FShotDef& D : Defs)
 							{
@@ -6706,7 +6789,10 @@ namespace
 								if (!Cap) { continue; }
 								USceneCaptureComponent2D* CC = Cap->GetCaptureComponent2D();
 								CC->TextureTarget = RT;
-								CC->CaptureSource = SCS_FinalColorLDR;
+								// ALBEDO for the framed shots. L_Expanse is near-black and the lit frames
+								// came back unreadable; the question here is WHERE the piece sits, not how
+								// it is lit, and BaseColor answers that without an exposure argument.
+								CC->CaptureSource = SCS_BaseColor;
 								CC->FOVAngle = D.FOV;
 								CC->bCaptureEveryFrame = false;
 								CC->CaptureScene();
