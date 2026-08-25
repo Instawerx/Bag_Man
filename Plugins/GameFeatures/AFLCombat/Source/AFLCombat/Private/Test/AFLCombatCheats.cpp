@@ -5988,6 +5988,18 @@ namespace
 		FName Socket; FString ActorClass; FVector WorldLoc; FVector Up; bool bHasPostProcess;
 		FRotator RelRot = FRotator::ZeroRotator;   // what the correction actually left behind
 		FString BoneTrace;                          // chains: where each bone really is, in world Z
+
+		// RENDER STATE. Every arm above this line asks whether a PART EXISTS -- a ChildActorComponent
+		// resolving to an AAFLAccessoryPartActor at a socket. None of them asks whether a MESH IS
+		// DRAWN. Those are different claims, and the operator ran a 21/21 pass and saw no jewellery,
+		// which is the only evidence that matters and the one thing the harness could not contradict.
+		// A part with no mesh asset, a hidden component, or degenerate bounds satisfies every
+		// existing arm and renders nothing.
+		int32 MeshComps = 0;       // mesh components found on the part actor
+		int32 WithAsset = 0;       // ...that actually reference a mesh asset
+		int32 Drawn = 0;           // ...that are visible, registered and not hidden-in-game
+		double MaxRadius = 0.0;    // largest bounds sphere radius; 0 = nothing to see
+		FString RenderWhy;         // the first reason a component is not drawn, named
 	};
 
 	static const TCHAR* AFLNetModeName(ENetMode NM)
@@ -6052,6 +6064,44 @@ namespace
 				}
 			}
 			P.bHasPostProcess = false;
+
+			// IS ANY OF THIS ACTUALLY DRAWN? Asked of every mesh component on the part, and the first
+			// failing reason is kept rather than a bare count -- "no mesh asset" and "hidden in game"
+			// are different bugs with different fixes, and a count cannot tell them apart.
+			{
+				TInlineComponentArray<UMeshComponent*> RMs(Child);
+				for (UMeshComponent* M : RMs)
+				{
+					if (!M) { continue; }
+					++P.MeshComps;
+
+					bool bAsset = false;
+					if (const USkeletalMeshComponent* SkM = Cast<USkeletalMeshComponent>(M))
+					{
+						bAsset = (SkM->GetSkeletalMeshAsset() != nullptr);
+					}
+					else if (const UStaticMeshComponent* StM = Cast<UStaticMeshComponent>(M))
+					{
+						bAsset = (StM->GetStaticMesh() != nullptr);
+					}
+					if (bAsset) { ++P.WithAsset; }
+
+					const double R = M->Bounds.SphereRadius;
+					P.MaxRadius = FMath::Max(P.MaxRadius, R);
+
+					const bool bDrawn = bAsset && M->IsRegistered() && M->IsVisible()
+					                 && !M->bHiddenInGame && R > KINDA_SMALL_NUMBER;
+					if (bDrawn) { ++P.Drawn; }
+					else if (P.RenderWhy.IsEmpty())
+					{
+						P.RenderWhy = !bAsset            ? TEXT("no mesh asset")
+						            : !M->IsRegistered() ? TEXT("component not registered")
+						            : !M->IsVisible()    ? TEXT("component not visible")
+						            : M->bHiddenInGame   ? TEXT("hidden in game")
+						            :                      TEXT("degenerate bounds (radius ~0)");
+					}
+				}
+			}
 
 			TArray<USkeletalMeshComponent*> SKMs;
 			Child->GetComponents<USkeletalMeshComponent>(SKMs);
@@ -6499,6 +6549,49 @@ namespace
 					SwayClients > 0 && SwayLive == SwayClients,
 					FString::Printf(TEXT("clients=%d withSway=%d %s -- differing positions are CORRECT, not a fault"),
 						SwayClients, SwayLive, *Positions));
+
+				// ---- ARM 13: IS ANY OF IT ACTUALLY DRAWN? ------------------------------------------
+				// THE ARM THIS SUITE WAS MISSING. Arms 1-12 ask whether a PART EXISTS at a socket;
+				// none asks whether a MESH IS DRAWN. The operator ran a 21/21 pass and saw no
+				// jewellery -- and not one arm could contradict that, because a part with no mesh
+				// asset, an unregistered or hidden component, or degenerate bounds satisfies all of
+				// them. Existence and visibility are different claims and this suite only made one.
+				//
+				// Asserted on the CLIENT worlds, because that is where a player's eye is. The
+				// dedicated server is excluded by arm 11's own ruling: Lyra suppresses character
+				// parts there, so "nothing drawn" is correct on the server and a defect on a client.
+				{
+					int32 CliParts = 0, CliDrawn = 0, CliNoAsset = 0;
+					FString Why;
+					for (const FJewelWorld& JW : Worlds)
+					{
+						if (!JW.bClient) { continue; }
+						for (const FJewelPart& P : JW.Parts)
+						{
+							++CliParts;
+							if (P.Drawn > 0) { ++CliDrawn; }
+							if (P.WithAsset == 0) { ++CliNoAsset; }
+							if (P.Drawn == 0 && Why.IsEmpty())
+							{
+								Why = FString::Printf(TEXT("%s at '%s': %s (meshComps=%d withAsset=%d radius=%.2f)"),
+									*P.ActorClass, *P.Socket.ToString(),
+									P.RenderWhy.IsEmpty() ? TEXT("not drawn") : *P.RenderWhy,
+									P.MeshComps, P.WithAsset, P.MaxRadius);
+							}
+						}
+					}
+					const bool bArm13 = (CliParts > 0) && (CliDrawn == CliParts);
+					Arm(TEXT("13 every part on a CLIENT is actually DRAWN"), bArm13,
+						FString::Printf(TEXT("clientParts=%d drawn=%d noMeshAsset=%d%s%s"),
+							CliParts, CliDrawn, CliNoAsset,
+							Why.IsEmpty() ? TEXT("") : TEXT(" | first undrawn: "), *Why));
+					if (!bArm13)
+					{
+						UE_LOG(LogAFLCombat, Error,
+							TEXT("AFL_TEST[JEWEL] ARM13 PARTS EXIST BUT ARE NOT DRAWN -- this is what the "
+							     "operator sees. Every other arm passes on presence alone."));
+					}
+				}
 
 				UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL] END arms=%d passed=%d %s"),
 					*Ran, *Pass, (*Ran > 0 && *Ran == *Pass) ? TEXT("PASS") : TEXT("PARTIAL/FAIL"));
