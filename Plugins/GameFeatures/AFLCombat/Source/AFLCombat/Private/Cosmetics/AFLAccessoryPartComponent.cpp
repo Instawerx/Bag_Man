@@ -6,6 +6,7 @@
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "AFLCosmeticCoreTypes.h"
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
@@ -106,6 +107,13 @@ void UAFLAccessoryPartComponent::RefreshAccessoriesForPawn(APawn* Pawn)
 	static const EAFLAccessorySlot PawnSlots[] = {
 		EAFLAccessorySlot::Neck, EAFLAccessorySlot::WristL, EAFLAccessorySlot::WristR };
 
+	// ASK THE COMPONENT THE ENGINE WILL ACTUALLY ATTACH TO, not a component of our choosing. Lyra's
+	// ULyraPawnComponent_CharacterParts::GetSceneComponentToAttachTo returns Cast<ACharacter>(Owner)->GetMesh(),
+	// so resolving the mesh any other way would guard a component the attach never touches -- the guard
+	// would pass and the part would still land at the origin.
+	const ACharacter* AsCharacter = Cast<ACharacter>(Pawn);
+	const USkeletalMeshComponent* PawnMesh = AsCharacter ? AsCharacter->GetMesh() : nullptr;
+
 	const FAFLCosmeticSelection& Sel = Loadout->GetSelection();
 	int32 Attached = 0, Skipped = 0;
 	for (const EAFLAccessorySlot Slot : PawnSlots)
@@ -131,6 +139,25 @@ void UAFLAccessoryPartComponent::RefreshAccessoriesForPawn(APawn* Pawn)
 
 		const FName Socket = AFLAccessorySockets::ResolveSocket(Slot);
 		if (Socket.IsNone()) { ++Skipped; continue; }
+
+		// FAIL LOUDLY, NEVER FALL BACK TO THE ROOT. AddCharacterPart hands this name to
+		// FLyraCharacterPartList::SpawnActorForEntry, which calls
+		// SetupAttachment(GetSceneComponentToAttachTo(), SocketName). USceneComponent::SetupAttachment
+		// does NOT fail on an unknown socket -- it parents at the component's ORIGIN. Nothing errors,
+		// and the piece renders at the pawn's feet looking like an art bug rather than a missing socket.
+		// The pendant path has guarded this since it was written (AFLAccessoryChainActor: DoesSocketExist
+		// -> "pendant NOT spawned"); this is the same guard on the path that rides the engine's attach,
+		// which was the only one still unguarded. A refused attach is recoverable; an invisible silent
+		// one is the shape CC-X37 was about.
+		if (!PawnMesh || !PawnMesh->DoesSocketExist(Socket))
+		{
+			++Skipped;
+			UE_LOG(LogAFLCombat, Error,
+				TEXT("[AFLAccessoryPart] socket '%s' is NOT on %s (mesh=%s) -- %s NOT attached. A silent "
+				     "attach would have rendered it at the pawn origin."),
+				*Socket.ToString(), *GetNameSafe(Pawn), *GetNameSafe(PawnMesh), *P->AccessoryId.ToString());
+			continue;
+		}
 
 		FPartArgs Args;
 		Args.Part.PartClass = PartClass;
