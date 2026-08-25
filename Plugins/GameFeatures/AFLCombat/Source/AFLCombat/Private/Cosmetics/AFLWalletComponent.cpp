@@ -1841,10 +1841,17 @@ void UAFLWalletComponent::GrantSubscriptionEntitlement(const FName CosmeticId, c
 		return;
 	}
 
-	// EXPIRY COMPUTED HERE AND SENT ABSOLUTE. The backend stores what it is given and derives Lapsed
-	// from it on read; sending a duration instead would make the expiry depend on when the request
-	// happened to arrive, which is a different subscription length for a slow network.
-	const int64 ExpiresAt = (FDateTime::UtcNow() + FTimespan::FromDays(TermDays)).ToUnixTimestamp();
+	// THE TERM IS SENT. THE EXPIRY IS NOT, and this is the whole security property of the call.
+	//
+	// `set` stores the expiry it is handed, which is correct for an operator writing a known state and
+	// catastrophic here: a client that computes its own extension can send now + 10 years, and nothing
+	// downstream would look wrong. So the purchase path calls `grant`, which reads the existing row
+	// server-side and does the arithmetic where the client cannot reach it.
+	//
+	// Extension is from max(now, existing expiry), computed THERE: a live subscription extends from
+	// its own end, so buying a year in month eleven adds a year rather than discarding eleven months;
+	// an expired one extends from now, so renewing after a lapse does not buy time already elapsed.
+	// Neither of those decisions belongs on a machine the player controls.
 
 	// THE CONDITION IS THE AXIS, NOT THE SKU. All three terms write the SAME condition -- "League" --
 	// because a player holds one League standing, not three. Buying Annual after Monthly extends the
@@ -1853,14 +1860,14 @@ void UAFLWalletComponent::GrantSubscriptionEntitlement(const FName CosmeticId, c
 	static const TCHAR* LeagueConditionId = TEXT("League");
 
 	const FString Body = FString::Printf(
-		TEXT("{\"playFabId\":\"%s\",\"op\":\"set\",\"conditionId\":\"%s\",\"state\":\"Held\",\"expiresAt\":%lld,\"nonce\":\"%s\",\"ts\":%lld}"),
-		*PlayFabId, LeagueConditionId, static_cast<long long>(ExpiresAt),
+		TEXT("{\"playFabId\":\"%s\",\"op\":\"grant\",\"conditionId\":\"%s\",\"termDays\":%d,\"nonce\":\"%s\",\"ts\":%lld}"),
+		*PlayFabId, LeagueConditionId, TermDays,
 		*FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens),
 		static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
 
 	UE_LOG(LogAFLWalletDiag, Log,
-		TEXT("%sSUBSCRIPTION POST set %s Held +%dd (expires %lld) pfid=%s -> /conditional-entitlement"),
-		*WalletPrefix(this), *CosmeticId.ToString(), TermDays, static_cast<long long>(ExpiresAt), *PlayFabId);
+		TEXT("%sSUBSCRIPTION POST grant %s +%dd pfid=%s -> /conditional-entitlement (server computes the expiry)"),
+		*WalletPrefix(this), *CosmeticId.ToString(), TermDays, *PlayFabId);
 
 	TWeakObjectPtr<UAFLWalletComponent> WeakThis(this);
 	Online->PostServerConditionalEntitlement(Body, [WeakThis, CosmeticId, TermDays](bool bOk, const FString& Resp)
