@@ -226,17 +226,18 @@ protected:
 	// chassis, so a picker placed after it would let a player choose from a list that is about to be
 	// replaced.
 	//
-	// BindWidgetOptional throughout: an unauthored WBP must still compile, and a missing region has
-	// to report itself rather than crash a screen that otherwise works.
+	// The picker and its two tiles are REQUIRED (BindWidget) as of the CC-E authoring pass -- the WBP
+	// carries them and a compile without them is a broken screen, not a pending one. The label/reason
+	// texts stay Optional: the code null-guards each, and a redesign may legitimately restyle them.
 
 	/** Container for the two chassis tiles. */
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget), Category = "AFL|Creator|A")
 	TObjectPtr<class UPanelWidget> A_ChassisPicker;
 
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget), Category = "AFL|Creator|A")
 	TObjectPtr<class UButton> A_ChassisManny;
 
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget), Category = "AFL|Creator|A")
 	TObjectPtr<class UButton> A_ChassisProMod;
 
 	/** Display face, ALL-CAPS -- section 3 reserves Orbitron for identity-carrying text. */
@@ -265,14 +266,14 @@ protected:
 	// CREATOR_SSOT section 5.3: the preview IS the product; a stand-in reads as bait-and-switch on the
 	// first match load. So this binds the EXISTING capture on UAFLW_LoadoutBase rather than making a
 	// second one.
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|B")
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget), Category = "AFL|Creator|B")
 	TObjectPtr<class UImage> B_PreviewImage;
 
 	// ===== REGION F -- COMMIT BAR, SECOND HALF ====================================================
 	//
 	// "UCommonButtonBase x2" -- save AND revert. Revert existed in the WBP and was never bound, so
 	// CREATOR_SSOT section 5.3's "every choice reversible without loss" had no code behind it.
-	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|F")
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidget), Category = "AFL|Creator|F")
 	TObjectPtr<class UButton> F_Revert;
 
 public:
