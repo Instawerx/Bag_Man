@@ -2,8 +2,10 @@
 
 #include "AFLLiveOps.h"
 #include "AFLPassProgressComponent.h"
+#include "AFLPassRewardSink.h"
 #include "AFLPassSeasonAsset.h"
 #include "GameFramework/Actor.h"
+#include "AFLPassSpineTests.h"
 
 #if !UE_BUILD_SHIPPING
 
@@ -161,6 +163,108 @@ namespace
 			C->ServerSetSeason(Next);
 			Arm(TEXT("component: re-setting the SAME season preserves progress"),
 				C->GetCurrentTier() == 7, FString::Printf(TEXT("tier=%d (want 7)"), C->GetCurrentTier()));
+
+			// ── CLAIM (slice 2) ─────────────────────────────────────────────────────────────────
+			//
+			// Fresh component and a fresh season so claim state is not inherited from the XP arms.
+			UAFLPassSeasonAsset* CS = MakeGoodSeason();
+			CS->SeasonId = TEXT("S_CLAIM");
+			UAFLPassProgressComponent* CC = NewObject<UAFLPassProgressComponent>(Host);
+			CC->RegisterComponent();
+			CC->ServerSetSeason(CS);
+
+			UAFLPassSpineSinkHolder* Sink = NewObject<UAFLPassSpineSinkHolder>(Host);
+			CC->SetRewardSink(TScriptInterface<IAFLPassRewardSink>(Sink));
+
+			// Tier 10 carries BOTH a free reward (every 10th) and a premium reward.
+			CC->ServerGrantXp(CS->XpForTier(10));
+
+			// CONTROL: an earned tier with a working sink actually hands something over. Every arm
+			// below asserts a REFUSAL, and a claim path that granted nothing would satisfy them all.
+			Sink->Granted.Reset();
+			const int32 G1 = CC->ServerClaimTier(10);
+			Arm(TEXT("CONTROL claim: earned tier grants"),
+				G1 > 0 && Sink->Granted.Num() == G1,
+				FString::Printf(TEXT("granted=%d recorded=%d"), G1, Sink->Granted.Num()));
+
+			// IDEMPOTENT. A retried packet or a double-tapped button must not pay twice.
+			Sink->Granted.Reset();
+			const int32 G2 = CC->ServerClaimTier(10);
+			Arm(TEXT("claim: re-claiming the same tier grants nothing"),
+				G2 == 0 && Sink->Granted.Num() == 0,
+				FString::Printf(TEXT("granted=%d recorded=%d"), G2, Sink->Granted.Num()));
+
+			// UNEARNED. The server checks against its own XP; this is what stops tier 99 on match one.
+			Sink->Granted.Reset();
+			const int32 G3 = CC->ServerClaimTier(80);
+			Arm(TEXT("claim: unearned tier is REFUSED and grants nothing"),
+				G3 == 0 && Sink->Granted.Num() == 0,
+				FString::Printf(TEXT("granted=%d recorded=%d"), G3, Sink->Granted.Num()));
+
+			// OUT OF RANGE.
+			Sink->Granted.Reset();
+			Arm(TEXT("claim: out-of-range tier is REFUSED"),
+				CC->ServerClaimTier(9999) == 0 && CC->ServerClaimTier(-1) == 0
+					&& Sink->Granted.Num() == 0,
+				FString::Printf(TEXT("recorded=%d"), Sink->Granted.Num()));
+
+			// ── ENTITLEMENT MOVES HERE -- the mutation arms that matter ─────────────────────────
+			//
+			// Tier 20 unclaimed, premium NOT held. The free half must settle and the premium half
+			// must NOT -- and crucially must NOT be marked, or subscribing later finds it consumed.
+			CC->ServerGrantXp(CS->XpForTier(20) - CS->XpForTier(10));
+			Sink->Granted.Reset();
+			const int32 G4 = CC->ServerClaimTier(20);
+			const bool bOnlyFree = (G4 == 1) && Sink->Granted.Num() == 1
+				&& Sink->Granted[0].Key == CS->Tiers[20].FreeReward.CosmeticId;
+			Arm(TEXT("entitlement: premium refused without the subscription"),
+				bOnlyFree,
+				FString::Printf(TEXT("granted=%d first=%s"), G4,
+					Sink->Granted.Num() ? *Sink->Granted[0].Key.ToString() : TEXT("<none>")));
+
+			// THE ARM THIS WHOLE DESIGN EXISTS FOR: subscribe afterwards and the premium half is
+			// still there. If the refusal above had set the bit, this grants nothing and a paying
+			// player has silently lost the reward.
+			CC->ServerSetPremiumHeld(true);
+			Sink->Granted.Reset();
+			const int32 G5 = CC->ServerClaimTier(20);
+			Arm(TEXT("entitlement: premium claimable AFTER subscribing (bit was not consumed)"),
+				G5 == 1 && Sink->Granted.Num() == 1
+					&& Sink->Granted[0].Key == CS->Tiers[20].PremiumReward.CosmeticId,
+				FString::Printf(TEXT("granted=%d first=%s"), G5,
+					Sink->Granted.Num() ? *Sink->Granted[0].Key.ToString() : TEXT("<none>")));
+
+			// A FAILED GRANT MUST NOT CONSUME THE TIER. Otherwise a transient failure costs the
+			// player the reward permanently.
+			CC->ServerGrantXp(CS->XpForTier(30) - CS->XpForTier(20));
+			Sink->bRefuse = true;
+			Sink->Granted.Reset();
+			const int32 G6 = CC->ServerClaimTier(30);
+			Sink->bRefuse = false;
+			const int32 G7 = CC->ServerClaimTier(30);
+			Arm(TEXT("failure: refused grant leaves the tier claimable (retry succeeds)"),
+				G6 == 0 && G7 > 0,
+				FString::Printf(TEXT("refused-claim=%d retry=%d"), G6, G7));
+
+			// NO SINK. Must grant nothing and say so, rather than appearing to work.
+			UAFLPassProgressComponent* NC = NewObject<UAFLPassProgressComponent>(Host);
+			NC->RegisterComponent();
+			NC->ServerSetSeason(CS);
+			NC->ServerGrantXp(CS->XpForTier(10));
+			Arm(TEXT("failure: no reward sink grants nothing"),
+				NC->ServerClaimTier(10) == 0, TEXT("see the Error line naming SetRewardSink"));
+
+			// CLAIM-ALL settles every earned, unclaimed tier.
+			Sink->Granted.Reset();
+			const int32 GAll = CC->ServerClaimAllEarned();
+			Arm(TEXT("claim-all: settles remaining earned tiers"),
+				GAll > 0 && Sink->Granted.Num() == GAll,
+				FString::Printf(TEXT("granted=%d recorded=%d"), GAll, Sink->Granted.Num()));
+
+			Sink->Granted.Reset();
+			Arm(TEXT("claim-all: is idempotent once everything is settled"),
+				CC->ServerClaimAllEarned() == 0 && Sink->Granted.Num() == 0,
+				FString::Printf(TEXT("recorded=%d"), Sink->Granted.Num()));
 
 			Host->Destroy();
 		}

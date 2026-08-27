@@ -75,6 +75,35 @@ public:
 	/** Mirror the conditional entitlement. Server only; see the class note on why there is no setter. */
 	void ServerSetPremiumHeld(bool bHeld);
 
+	/**
+	 * Where granted rewards go. Set by whatever owns the wallet (AFLCombat) at init.
+	 *
+	 * A SEAM, not a dependency: AFLLiveOps is Default-phase and the wallet lives in a GameFeature.
+	 * See IAFLPassRewardSink for why the direction is this way round.
+	 */
+	void SetRewardSink(TScriptInterface<class IAFLPassRewardSink> InSink) { RewardSink = InSink; }
+
+	/**
+	 * Claim what tier @TierIndex owes this player. SERVER ONLY.
+	 *
+	 * TAKES A TIER, NEVER A REWARD. The client asks "settle tier 12"; the server decides what tier 12
+	 * contains, whether it was earned, whether the premium half is held, and what has already been
+	 * handed over. A claim that named a reward or a quantity would let a client choose its own prize.
+	 *
+	 * IDEMPOTENT. Claiming an already-claimed tier grants nothing and is not an error -- a retried
+	 * packet or a double-tapped button must not double-grant.
+	 *
+	 * PARTIAL BY DESIGN. Free and premium are settled independently, so a player who earns a tier
+	 * unsubscribed can take the free half now and the premium half after subscribing. The premium bit
+	 * is NOT set when the entitlement is absent, or subscribing later would find the tier consumed.
+	 *
+	 * @return how many rewards were actually handed over (0 is a normal outcome).
+	 */
+	int32 ServerClaimTier(int32 TierIndex);
+
+	/** Everything earned and unclaimed, lowest tier first. Server-side helper for a claim-all. */
+	int32 ServerClaimAllEarned();
+
 protected:
 	UPROPERTY(ReplicatedUsing = OnRep_Progress)
 	FAFLPassProgress Progress;
@@ -88,6 +117,19 @@ protected:
 	 */
 	UPROPERTY(Replicated)
 	TObjectPtr<UAFLPassSeasonAsset> Season = nullptr;
+
+	/** Set by AFLCombat; null on a client and on a server that has not wired it yet. */
+	UPROPERTY()
+	TScriptInterface<class IAFLPassRewardSink> RewardSink;
+
+	/**
+	 * Settle ONE track of one tier.
+	 *
+	 * ORDER MATTERS AND IS DELIBERATE: grant FIRST, mark claimed only if the grant SUCCEEDED. Marking
+	 * first would make a failed grant permanent -- the tier would read as claimed and the player would
+	 * have nothing to show for it, with no way back short of support.
+	 */
+	bool ClaimOneTrack(int32 TierIndex, EAFLPassTrack Track);
 
 	UFUNCTION()
 	void OnRep_Progress();

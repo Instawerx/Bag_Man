@@ -112,8 +112,48 @@ struct AFLLIVEOPS_API FAFLPassProgress
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Pass|Progress")
 	bool bPremiumHeld = false;
 
+	/**
+	 * Which tiers have had their FREE / PREMIUM reward handed over, one bit per tier.
+	 *
+	 * A BITMASK, NOT A LIST OF CLAIMED TIERS. 100 tiers is 13 bytes per track replicated; a sparse
+	 * TArray<int32> would be 4 bytes per claim and would grow past the mask by tier 4. It is also
+	 * order-independent -- a list invites "is it sorted?" questions that a bitset cannot raise.
+	 *
+	 * TWO MASKS, NOT ONE. A player can earn a tier while unsubscribed, claim the free half, then
+	 * subscribe and claim the premium half of that same tier. One mask would make the tier "claimed"
+	 * and silently eat the premium reward they later paid for.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Pass|Progress")
+	TArray<uint8> ClaimedFree;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Pass|Progress")
+	TArray<uint8> ClaimedPremium;
+
 	bool IsForSeason(const FName InSeasonId) const
 	{
 		return !SeasonId.IsNone() && SeasonId == InSeasonId;
+	}
+
+	static bool MaskHas(const TArray<uint8>& Mask, const int32 Index)
+	{
+		if (Index < 0) { return false; }
+		const int32 Byte = Index / 8;
+		// An absent byte reads as NOT claimed. That direction is deliberate: the failure mode of
+		// guessing "claimed" is a player losing a reward they earned, which is unrecoverable without
+		// support; guessing "unclaimed" is caught by the grant path's own idempotency.
+		return Mask.IsValidIndex(Byte) && (Mask[Byte] & (1 << (Index % 8))) != 0;
+	}
+
+	static void MaskSet(TArray<uint8>& Mask, const int32 Index)
+	{
+		if (Index < 0) { return; }
+		const int32 Byte = Index / 8;
+		if (!Mask.IsValidIndex(Byte)) { Mask.SetNumZeroed(Byte + 1); }
+		Mask[Byte] |= (1 << (Index % 8));
+	}
+
+	bool HasClaimed(const EAFLPassTrack Track, const int32 TierIndex) const
+	{
+		return MaskHas(Track == EAFLPassTrack::Free ? ClaimedFree : ClaimedPremium, TierIndex);
 	}
 };

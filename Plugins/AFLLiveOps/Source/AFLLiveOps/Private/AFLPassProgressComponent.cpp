@@ -3,6 +3,7 @@
 #include "AFLPassProgressComponent.h"
 
 #include "AFLLiveOps.h"
+#include "AFLPassRewardSink.h"
 #include "AFLPassSeasonAsset.h"
 #include "Net/UnrealNetwork.h"
 
@@ -157,4 +158,127 @@ void UAFLPassProgressComponent::ServerSetPremiumHeld(const bool bHeld)
 void UAFLPassProgressComponent::OnRep_Progress()
 {
 	OnProgressChanged.Broadcast();
+}
+
+
+// ===== CLAIM (S21 slice 2) ==========================================================================
+
+bool UAFLPassProgressComponent::ClaimOneTrack(const int32 TierIndex, const EAFLPassTrack Track)
+{
+	const FAFLPassTier& Tier = Season->Tiers[TierIndex];
+	const FAFLPassReward& Reward =
+		(Track == EAFLPassTrack::Free) ? Tier.FreeReward : Tier.PremiumReward;
+
+	if (Reward.IsEmpty())
+	{
+		return false;   // nothing owed on this track -- not an error, and not a claim
+	}
+	if (Progress.HasClaimed(Track, TierIndex))
+	{
+		return false;   // idempotent: already handed over
+	}
+
+	// PREMIUM REQUIRES THE ENTITLEMENT, and a refusal must NOT mark the tier claimed.
+	//
+	// bPremiumHeld mirrors the conditional entitlement, which is fail-closed on the proven path --
+	// AwaitingActivation means paid-but-not-live and grants nothing. Setting the bit here on a refusal
+	// would consume the tier, and a player who subscribed afterwards would find the reward they paid
+	// for already "claimed".
+	if (Track == EAFLPassTrack::Premium && !Progress.bPremiumHeld)
+	{
+		return false;
+	}
+
+	if (!RewardSink)
+	{
+		// LOUD. A missing sink means the server can score a pass and hand nothing over -- the whole
+		// system would look like it worked. Never silently skipped.
+		UE_LOG(LogAFLLiveOps, Error,
+			TEXT("AFL_PASS: claim tier %d (%s) has no reward sink -- NOTHING GRANTED. "
+			     "SetRewardSink was never called on %s."),
+			TierIndex, Track == EAFLPassTrack::Free ? TEXT("free") : TEXT("premium"),
+			*GetNameSafe(GetOwner()));
+		return false;
+	}
+
+	// GRANT FIRST, MARK SECOND. Marking first would make a failed grant permanent.
+	const bool bGranted = RewardSink->GrantPassReward(
+		Reward.CosmeticId, Reward.Quantity, TEXT("PassClaim"));
+
+	if (!bGranted)
+	{
+		UE_LOG(LogAFLLiveOps, Warning,
+			TEXT("AFL_PASS: grant REFUSED for tier %d (%s) reward=%s x%d -- tier stays UNCLAIMED."),
+			TierIndex, Track == EAFLPassTrack::Free ? TEXT("free") : TEXT("premium"),
+			*Reward.CosmeticId.ToString(), Reward.Quantity);
+		return false;
+	}
+
+	FAFLPassProgress::MaskSet(
+		Track == EAFLPassTrack::Free ? Progress.ClaimedFree : Progress.ClaimedPremium, TierIndex);
+
+	UE_LOG(LogAFLLiveOps, Display, TEXT("AFL_PASS: claimed tier %d (%s) -> %s x%d"),
+		TierIndex, Track == EAFLPassTrack::Free ? TEXT("free") : TEXT("premium"),
+		*Reward.CosmeticId.ToString(), Reward.Quantity);
+	return true;
+}
+
+int32 UAFLPassProgressComponent::ServerClaimTier(const int32 TierIndex)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		UE_LOG(LogAFLLiveOps, Warning, TEXT("ServerClaimTier called without authority -- ignored."));
+		return 0;
+	}
+	if (!Season)
+	{
+		UE_LOG(LogAFLLiveOps, Warning, TEXT("ServerClaimTier with no season -- nothing to claim."));
+		return 0;
+	}
+	if (!Season->Tiers.IsValidIndex(TierIndex))
+	{
+		UE_LOG(LogAFLLiveOps, Warning,
+			TEXT("AFL_PASS: claim REFUSED -- tier %d out of range (0..%d)."),
+			TierIndex, Season->GetTierCount() - 1);
+		return 0;
+	}
+
+	// EARNED IS CHECKED SERVER-SIDE, against the server's own XP. This is the arm that stops a client
+	// claiming tier 99 on its first match: the request names a tier, and the server decides whether
+	// that tier has been reached.
+	const int32 Earned = Season->TierForXp(GetProgressForCurrentSeason().Xp);
+	if (TierIndex > Earned)
+	{
+		UE_LOG(LogAFLLiveOps, Warning,
+			TEXT("AFL_PASS: claim REFUSED -- tier %d not earned (at tier %d)."), TierIndex, Earned);
+		return 0;
+	}
+
+	int32 Granted = 0;
+	if (ClaimOneTrack(TierIndex, EAFLPassTrack::Free))    { ++Granted; }
+	if (ClaimOneTrack(TierIndex, EAFLPassTrack::Premium)) { ++Granted; }
+
+	if (Granted > 0)
+	{
+		OnProgressChanged.Broadcast();
+	}
+	return Granted;
+}
+
+int32 UAFLPassProgressComponent::ServerClaimAllEarned()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !Season)
+	{
+		return 0;
+	}
+
+	// LOWEST FIRST. Order is visible to the player through the grant log, and settling a ladder
+	// top-down reads as arbitrary.
+	const int32 Earned = Season->TierForXp(GetProgressForCurrentSeason().Xp);
+	int32 Total = 0;
+	for (int32 i = 0; i <= Earned && Season->Tiers.IsValidIndex(i); ++i)
+	{
+		Total += ServerClaimTier(i);
+	}
+	return Total;
 }
