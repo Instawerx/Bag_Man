@@ -1,5 +1,11 @@
 # IRONICS — League, Advancement, Achievements & Rankings SSOT
 
+<!-- PRECEDENCE BLOCK -- keep at the top; update the commit line when this doc's CONTENT changes. -->
+> **PRECEDENCE** (rule ruled 2026-08-24: newest economy doc wins; where it is silent, the prior doc fills the gap)
+> - **This doc's last CONTENT commit:** `7f1a05eb` (2026-08-24) — a directory move is not a content change and must not be cited here.
+> - **Authority on pricing:** `IRONICS_PRICING_SSOT.md` — Battle Pass is **$5/month, real money** (ruled 2026-08-27). No Volts, no Watts.
+> - **Superseded:** its Battle-Pass PRICE references are superseded by `IRONICS_PRICING_SSOT.md` §6. Its ladder/season-cadence content stands.
+
 > **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-08-05** (`1c072a49`). Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
 
 > **Status: SCOPING / DESIGN PASS — v0.2 (2026-07-09).** This is the **owed "progression / ranking

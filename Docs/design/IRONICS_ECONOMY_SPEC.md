@@ -1,5 +1,11 @@
 # IRONICS — Canonical Economy Spec (v1)
 
+<!-- PRECEDENCE BLOCK -- keep at the top; update the commit line when this doc's CONTENT changes. -->
+> **PRECEDENCE** (rule ruled 2026-08-24: newest economy doc wins; where it is silent, the prior doc fills the gap)
+> - **This doc's last CONTENT commit:** `e7e6ae63` (2026-08-27) — a directory move is not a content change and must not be cited here.
+> - **Authority on pricing:** `IRONICS_PRICING_SSOT.md` — Battle Pass is **$5/month, real money** (ruled 2026-08-27). No Volts, no Watts.
+> - **Superseded:** **§4 (Battle Pass) is SUPERSEDED IN FULL** by `IRONICS_PRICING_SSOT.md` §6. The rest fills gaps the newer doc is silent on (e.g. Volt packs).
+
 > **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-07-09** (`0c5c88c3`) — corrected 2026-08-27; the previously cited `1c072a49` (2026-08-05) is a directory move with zero line changes, and citing it made this doc look 27 days newer than it is. Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
 
 > **This is the canonical economy model.** It was built from operator decisions +
@@ -151,7 +157,10 @@ your own body).
 
 ## 4. Battle Pass
 
-> ⚠ **PRICE SUPERSEDED 2026-08-27 — see `IRONICS_PRICING_SSOT.md` §6.**
+> # ⛔ SECTION 4 IS SUPERSEDED IN FULL — DO NOT SCOPE FROM IT
+>
+> **RULED 2026-08-27: the Battle Pass is $5/month, REAL MONEY. No Volts. No Watts.**
+> `IRONICS_PRICING_SSOT.md` §6 governs. This section's pricing and its economics are dead.
 >
 > The ~8,000 V figure below is **no longer the pass price** and must not be quoted. Under the
 > precedence rule (ruled 2026-08-24: newest economy doc wins, prior fills gaps),
@@ -190,9 +199,17 @@ it clean; revisit later.
 
 ---
 
-### 4.1 · OPEN — the self-sustaining arithmetic does not survive the new price
+### 4.1 · CLOSED — self-sustaining is dead, and so is the Volts pass
 
-**Reported 2026-08-27, deliberately NOT resolved. Operator's call.**
+> **RULED 2026-08-27. NOT AN OPEN QUESTION. Do not re-derive this.**
+>
+> The Battle Pass is **$5/month, real money**. It is not bought with Volts, so there is no
+> "earn back the pass" arithmetic to balance and **"exactly self-sustaining" no longer applies at
+> all**. The trade-off table below is retained only as a record of why the old model was abandoned.
+>
+> This section previously read as an OPEN economy question. That framing caused the same
+> reconciliation to be re-run three times across sessions, each time reaching the same dead end,
+> because a stale price sat in a doc that read as current.
 
 §4 locked "exactly self-sustaining" as an operator ruling with a stated rationale: complete the
 premium track, earn back exactly the next pass, so IRONICS never creates a currency-surplus

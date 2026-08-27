@@ -1,5 +1,11 @@
 # IRONICS_PRICING_SSOT
 
+<!-- PRECEDENCE BLOCK -- keep at the top; update the commit line when this doc's CONTENT changes. -->
+> **PRECEDENCE** (rule ruled 2026-08-24: newest economy doc wins; where it is silent, the prior doc fills the gap)
+> - **This doc's last CONTENT commit:** `e7e6ae63` (2026-08-27) — a directory move is not a content change and must not be cited here.
+> - **Authority on pricing:** `IRONICS_PRICING_SSOT.md` — Battle Pass is **$5/month, real money** (ruled 2026-08-27). No Volts, no Watts.
+> - **Superseded:** nothing — THIS DOC GOVERNS pricing.
+
 > **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-08-19** (`a61d9e43`). Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
 
 **Status:** REPLACEMENT. Supersedes `IRONICS_PRICING_SCARCITY_SSOT.md` in full.
@@ -234,6 +240,18 @@ double-charge or double-grant.
 
 ## 6 · Battle Pass subscription
 
+> # ⭐ RULED 2026-08-27 — THE BATTLE PASS IS $5/MONTH, REAL MONEY
+>
+> **No Volts. No Watts.** This doc governs; `IRONICS_ECONOMY_SPEC.md` §4 is superseded in full and
+> its ~8,000 V pass price is dead. That stale price produced the same false reconciliation three
+> times, which is why §4 is now marked at the top rather than corrected in place.
+>
+> ⚠ **THE LIVE CATALOG ROWS CONTRADICT THIS RULING AND ARE A REAL FINDING, not a doc problem.**
+> `AFL.League.Monthly` / `.Quarterly` / `.Annual` are priced in **Volts** (5,000 / 10,000 / 30,000)
+> with `type=SUBSCRIPTION`. Under this ruling the pass is real-money, so those rows either need a
+> real-money SKU path or they are selling a subscription for soft currency. Reported, not changed:
+> they are live commerce rows on the shipping title and rewriting them is a migration, not an edit.
+>
 > **NAMING — RULED 2026-08-27.** `LeaguePlay` is the **free, unstaked** match tier
 > (`IsStaked() = Tier != LeaguePlay`, `IRONICS_LEAGUE_DOOR_SPEC.md:14`). The **paid tier is the
 > BATTLE PASS**. The collision is resolved by naming the paid product, not by renaming the free

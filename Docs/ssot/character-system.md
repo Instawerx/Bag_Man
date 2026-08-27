@@ -444,10 +444,13 @@ it** (L8). The authoritative chain is `account → characters owned → characte
 player-authored display string, which is designed to change. Keying anything durable off a mutable string
 means a rename silently orphans it, and the orphaning is discovered by the player, later, as lost property.
 
-**A player-authored name that other players see requires a profanity filter, a uniqueness rule and a report
-path.** These are not polish. A free-text field visible to strangers is a moderation surface the moment it
+~~A player-authored name that other players see requires a profanity filter, a uniqueness rule and a report
+path. These are not polish. A free-text field visible to strangers is a moderation surface the moment it
 ships, and retrofitting moderation onto names already in circulation means changing names players have
-already attached to.
+already attached to.~~
+
+> ⛔ **STRUCK 2026-08-27 BY RULING: the profanity filter, uniqueness rule and report path are NOT NEEDED.** Removed from every open list; do not raise again.
+
 
 ### 8.4 Creator design properties
 

@@ -1,5 +1,11 @@
 # AFL Economy — Architecture Decision Record (ADR)
 
+<!-- PRECEDENCE BLOCK -- keep at the top; update the commit line when this doc's CONTENT changes. -->
+> **PRECEDENCE** (rule ruled 2026-08-24: newest economy doc wins; where it is silent, the prior doc fills the gap)
+> - **This doc's last CONTENT commit:** `0cf0661e` (2026-07-08) — a directory move is not a content change and must not be cited here.
+> - **Authority on pricing:** `IRONICS_PRICING_SSOT.md` — Battle Pass is **$5/month, real money** (ruled 2026-08-27). No Volts, no Watts.
+> - **Superseded:** its Battle-Pass pricing is superseded by `IRONICS_PRICING_SSOT.md` §6. Architectural decisions stand.
+
 **Status:** LOCKED · **Date:** 2026-06-15 · **Scope:** the unified customizable-item economy
 (CHARACTERS · WEAPONS · SKIN-COLOR COMBOS · FACE MASKS — all buy/earn/use/**trade**).
 

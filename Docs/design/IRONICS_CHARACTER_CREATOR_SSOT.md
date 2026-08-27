@@ -1,5 +1,11 @@
 # IRONICS_CHARACTER_CREATOR_SSOT
 
+<!-- PRECEDENCE BLOCK -- keep at the top; update the commit line when this doc's CONTENT changes. -->
+> **PRECEDENCE** (rule ruled 2026-08-24: newest economy doc wins; where it is silent, the prior doc fills the gap)
+> - **This doc's last CONTENT commit:** `86e1b7ae` (2026-08-27) — a directory move is not a content change and must not be cited here.
+> - **Authority on pricing:** `IRONICS_PRICING_SSOT.md` — Battle Pass is **$5/month, real money** (ruled 2026-08-27). No Volts, no Watts.
+> - **Superseded:** nothing on the creator. Defers to `IRONICS_PRICING_SSOT.md` on price and to itself §7 on chassis naming.
+
 **Status:** NEW. System and flow definition for the player character creator.
 **Date:** 2026-08-17
 **Basis:** CC-READ-1 through CC-READ-4. Every mechanism claim cites a file and line, or is
@@ -389,7 +395,7 @@ renders identically with no recomputation — which is what makes the freeze rul
 ```
 FAFLCreatorBuild
     FName                 BuildId
-    FString               DisplayName     // profanity-filtered, see §8
+    FString               DisplayName     // free text -- filter/uniqueness STRUCK 2026-08-27
     FName                 ChassisId       // AFL.Character.<NAME>_X
     FAFLChannelValue      Neon, Edge, Chassis, Visor, Emblem
     FName                 FacemaskId      // existing axis, 38 rows (measured 2026-08-20)
@@ -633,13 +639,14 @@ paid product, not by renaming the free one.
 
 ⚠ **This rename surfaces an unresolved product question — see §8.4. It is not resolved here.**
 
-### 8.4 · OPEN — Battle Pass shape vs subscription shape
+### 8.4 · CLOSED — Battle Pass is $5/month real money (ruled 2026-08-27)
 
 Naming the paid tier "Battle Pass" collides two documents that describe **differently shaped
 products**. Reported, deliberately not resolved:
 
-> **RESOLVED 2026-08-27 on the naming and the product; the ECONOMICS remain open — see
-> `IRONICS_ECONOMY_SPEC.md` §4.1.** They are ONE product: the subscription grants the current
+> **FULLY RULED 2026-08-27. NOTHING HERE IS OPEN.** The Battle Pass is **$5/month, real money** —
+> no Volts, no Watts. `IRONICS_PRICING_SSOT.md` §6 governs; `ECONOMY_SPEC` §4 is superseded in full.
+> The table below records the superseded model; it is not a live comparison. They are ONE product: the subscription grants the current
 > season's pass. `PRICING_SSOT` §6 governs the price (precedence verified by last content commit).
 > What is NOT resolved is the self-sustaining payout, which was tuned to the superseded ~8,000 V.
 
@@ -661,9 +668,12 @@ Two mismatches, both real:
 
 **Owner: operator.** Nothing downstream should be scoped from either figure until it is ruled.
 
-**Display names** require a profanity filter, a uniqueness rule, and a report path before
+~~Display names require a profanity filter, a uniqueness rule, and a report path before
 any player sees another player's build name. Not glamorous; genuinely required before
-launch.
+launch.~~
+
+> ⛔ **STRUCK 2026-08-27 BY RULING: the profanity filter, uniqueness rule and report path are NOT NEEDED.** Removed from every open list; do not raise again.
+
 
 ---
 

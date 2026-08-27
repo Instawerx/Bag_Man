@@ -1,5 +1,11 @@
 # IRONICS — PRO MOD CHARACTER PHASE: SCOPE & BUILD SSOT
 
+<!-- PRECEDENCE BLOCK -- keep at the top; update the commit line when this doc's CONTENT changes. -->
+> **PRECEDENCE** (rule ruled 2026-08-24: newest economy doc wins; where it is silent, the prior doc fills the gap)
+> - **This doc's last CONTENT commit:** `86e1b7ae` (2026-08-27) — a directory move is not a content change and must not be cited here.
+> - **Authority on pricing:** `IRONICS_PRICING_SSOT.md` — Battle Pass is **$5/month, real money** (ruled 2026-08-27). No Volts, no Watts.
+> - **Superseded:** its "two-line fork" naming is clarified by `IRONICS_CHARACTER_CREATOR_SSOT.md` §7 — "X-line" is the LEGACY NAME for Pro Mod, not a third chassis.
+
 **Status:** Guiding-doc SSOT for the Pro Mod character line and creator. Authored 2026-07-31.
 
 **Rule of use:** Every AIK / Claude Code / Operator block on a Pro Mod character item reads
@@ -203,8 +209,11 @@ fiddly**, and it is suit-authoring work that must land with the base pair (CC-1)
 ## 5. NAME, SAVES, AND PERSISTENCE (CC-5)
 
 **Name (L8):** the **player chooses it**, and it sits alongside the account display name.
-Requires a profanity filter, a uniqueness rule, and a report path before any player sees
-another player's name. Not glamorous; genuinely required.
+~~Requires a profanity filter, a uniqueness rule, and a report path before any player sees
+another player's name. Not glamorous; genuinely required.~~
+
+> ⛔ **STRUCK 2026-08-27 BY RULING: the profanity filter, uniqueness rule and report path are NOT NEEDED.** Removed from every open list; do not raise again.
+
 
 **Identity ledger (L8):** internally the authoritative chain is
 `registered account → characters owned → character names`. The account is the durable key;
