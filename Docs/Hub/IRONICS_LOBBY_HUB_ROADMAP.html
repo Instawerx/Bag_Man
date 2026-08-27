@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IRONICS · Lobby Hub Roadmap</title>
+<style>
+:root{
+  --bg-0:#07080B; --bg-1:#0E122B; --bg-2:#151B33; --bg-3:#222A3A;
+  --line:#2C3550; --line-2:#3A4666;
+  --text:#E8ECF7; --text-mute:#9AA4C4; --text-dim:#6B7599;
+  --blue:#1E5AFF; --magenta:#FF00D5; --cyan:#00E5FF;
+  --green:#3DDC84; --amber:#FFB020; --red:#FF3355;
+  --mono:'DroidSansMono','SFMono-Regular',ui-monospace,Consolas,monospace;
+  --sans:'NotoSans',-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg-0);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.6;padding:32px 20px 80px}
+.wrap{max-width:1180px;margin:0 auto}
+code{font-family:var(--mono);font-size:.86em;color:var(--cyan);background:rgba(0,229,255,.07);padding:1px 5px;border-radius:3px}
+header{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:28px}
+.brand{font-family:var(--mono);font-size:12px;letter-spacing:.22em;color:var(--blue)}
+h1{font-size:27px;font-weight:600;margin:8px 0 10px;letter-spacing:-.01em}
+.sub{color:var(--text-mute);font-size:14px;max-width:72ch}
+.meta{font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:12px}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin:22px 0 30px;padding:12px 16px;background:var(--bg-1);border:1px solid var(--line);border-radius:8px}
+.lg{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-mute)}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+h2{font-size:12px;font-family:var(--mono);letter-spacing:.18em;color:var(--text-dim);margin:38px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.stage{margin-bottom:26px;background:var(--bg-1);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stage-hd{padding:14px 18px;background:var(--bg-2);border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.stage-id{font-family:var(--mono);font-size:12px;color:var(--blue);letter-spacing:.1em}
+.stage-nm{font-size:16px;font-weight:600}
+.stage-goal{flex-basis:100%;color:var(--text-mute);font-size:13px;margin-top:2px}
+.row{display:grid;grid-template-columns:74px 1fr 108px 96px;gap:14px;padding:13px 18px;border-bottom:1px solid var(--line);align-items:start}
+.row:last-child{border-bottom:none}
+.row:hover{background:var(--bg-2)}
+.rid{font-family:var(--mono);font-size:12px;color:var(--cyan);padding-top:2px}
+.rt{font-size:14px}
+.rt .d{display:block;color:var(--text-mute);font-size:12.5px;margin-top:4px}
+.pill{font-family:var(--mono);font-size:10px;letter-spacing:.07em;padding:3px 8px;border-radius:20px;text-align:center;white-space:nowrap;align-self:start}
+.lane{background:var(--bg-3);color:var(--text-mute);border:1px solid var(--line-2)}
+.st-open{background:rgba(154,164,196,.1);color:var(--text-mute);border:1px solid var(--line-2)}
+.st-block{background:rgba(255,51,85,.12);color:var(--red);border:1px solid rgba(255,51,85,.35)}
+.st-new{background:rgba(255,176,32,.12);color:var(--amber);border:1px solid rgba(255,176,32,.35)}
+.st-data{background:rgba(61,220,132,.12);color:var(--green);border:1px solid rgba(61,220,132,.35)}
+.gate{padding:11px 18px;background:rgba(30,90,255,.07);border-top:1px solid var(--line);font-size:12.5px;color:var(--text-mute)}
+.gate b{color:var(--blue);font-family:var(--mono);font-size:11px;letter-spacing:.1em}
+.note{background:var(--bg-1);border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:0 8px 8px 0;padding:14px 18px;margin:18px 0;font-size:13.5px;color:var(--text-mute)}
+.note.red{border-left-color:var(--red)}
+.note.blue{border-left-color:var(--blue)}
+.note.mag{border-left-color:var(--magenta)}
+.note b{color:var(--text)}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0}
+th{text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;color:var(--text-dim);font-weight:400;padding:9px 12px;border-bottom:1px solid var(--line-2)}
+td{padding:10px 12px;border-bottom:1px solid var(--line);color:var(--text-mute);vertical-align:top}
+td:first-child{color:var(--text)}
+tr:last-child td{border-bottom:none}
+footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--text-dim)}
+@media(max-width:720px){.row{grid-template-columns:1fr;gap:7px}.pill{justify-self:start}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="brand">IRONICS / PROGRAMME</div>
+  <h1>Lobby Hub — "Outpost Earth MWR" — roadmap and tracker</h1>
+  <p class="sub">Build order for the walkable social entrance to every existing IRONICS system.
+  Each phase carries an entry gate; no phase starts until its gate is green. The hub calls proven
+  seams — matchmaking, purchase, selection, creator, loadout — and never re-implements one.
+  Status reflects what disk proves, not what documents assert.</p>
+  <div class="meta">2026-08-26 · basis: operator Lobby_Upgrade_Doc + Main_Map_Lobby_System_Helper_Doc ·
+  companions <b>IRONICS_LOBBY_UX_FLOW_SSOT.md (the flow — governs)</b> · <b>IRONICS_HUB_MAP_BUILD_SPEC.md (the map)</b> · IRONICS_LOBBY_HUB_SSOT.md · IRONICS_LOBBY_HUB_TASKS.md · IRONICS_LOBBY_HUB_CLAUDE_CODE_BRIEF.md · IRONICS_CC_INTEGRATION_PLAN.md (Track C) · IRONICS_CC_DESIGN_BRIEF.md (Claude Design input)</div>
+</header>
+
+<div class="legend">
+  <span class="lg"><span class="dot" style="background:var(--green)"></span>Data / content only — no build</span>
+  <span class="lg"><span class="dot" style="background:var(--text-mute)"></span>Code, conforms to proven pattern</span>
+  <span class="lg"><span class="dot" style="background:var(--amber)"></span>New construction — no precedent</span>
+  <span class="lg"><span class="dot" style="background:var(--red)"></span>Blocked / gated</span>
+</div>
+
+<div class="note blue">
+  <b>Lanes (amended 2026-08-26).</b> Claude Code owns nearly everything. <code>CC (worktree)</code> = runs in a git
+  worktree with no editor — safe to parallelise with other worktree sessions. <code>CC (editor)</code> = needs the
+  editor-connected checkout (asset edits, placement, PIE harness) — one such session at a time, because there is
+  one editor. <code>CC (backend)</code> = <code>Bag_Man_Backend</code>, always parallel. <b>AIK only where the editor
+  connection lacks a required tool</b> (confirmed by the H0 capability probe) — e.g. Niagara module internals,
+  Tripo/genAI. Operator: PIE watching, editor-checkout builds, commits, rulings.
+</div>
+
+<div class="note blue">
+  <b>Proof standard.</b> ✅ means watched in PIE on a controllable pawn — two clients wherever
+  replication is claimed, a dedicated server wherever join or travel is claimed. Never "compiles".
+  Each phase ends with a commit, push to <code>personal/main</code>, triple-hash verification, clean tree.
+</div>
+
+<div class="note red">
+  <b>Two things never regress.</b> The match loop and the matchmaking pipeline. No match experience,
+  FlexMatch rule set, queue, SSM routing value, or League/Staked door code path is edited anywhere in
+  this programme. Every gate from H1 onward re-runs the 2-client match fire proof.
+</div>
+
+<div class="note mag">
+  <b>Operator intent is fixed.</b> Zones, flows, map choice, and the "weapon-spawner-as-display" model
+  come from <code>Lobby_Upgrade_Doc.docx</code> and are not reopened. Where the helper doc's mechanism
+  would break a proven system, the SSOT §2 records a conformance ruling — same behaviour, delivered
+  through the existing seam.
+</div>
+
+<h2>THE FLOW — THE OPERATOR'S DIAGRAM, TRANSCRIBED</h2>
+<div class="note mag">
+  <b>This governs everything below.</b> Two entry branches, one base, two loops that end and return.
+  Every phase gate is a set of these edges walked with no cheat. Transcription with node/edge ids:
+  <code>IRONICS_LOBBY_UX_FLOW_SSOT.md</code>. One reading to confirm (§1.2): the new-player arrow meets the
+  base at Robo Labs; the return-player arrow at the lounges.
+</div>
+<div class="stage" style="padding:14px 10px 6px">
+<svg viewBox="0 0 1160 640" xmlns="http://www.w3.org/2000/svg" font-family="NotoSans,-apple-system,Segoe UI,sans-serif" font-size="13">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1E5AFF"/></marker>
+    <marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#FF00D5"/></marker>
+  </defs>
+  <style>
+    .box{fill:#0E122B;stroke:#3A4666;stroke-width:1.2}
+    .node{fill:#151B33;stroke:#1E5AFF;stroke-width:1.4}
+    .out{fill:#151B33;stroke:#FF00D5;stroke-width:1.4}
+    .lbl{fill:#E8ECF7;text-anchor:middle}
+    .sub{fill:#9AA4C4;text-anchor:middle;font-size:11px}
+    .id{fill:#00E5FF;font-family:DroidSansMono,ui-monospace,monospace;font-size:10px}
+    .edge{fill:none;stroke:#1E5AFF;stroke-width:1.8;marker-end:url(#ah)}
+    .edge2{fill:none;stroke:#1E5AFF;stroke-width:1.8;marker-end:url(#ah);marker-start:url(#ah)}
+    .loop{fill:none;stroke:#FF00D5;stroke-width:1.8;marker-end:url(#ahm)}
+    .elbl{fill:#9AA4C4;font-size:10.5px;text-anchor:middle}
+  </style>
+
+  <!-- N1 Landing -->
+  <rect x="380" y="18" width="400" height="58" rx="6" class="node"/>
+  <text x="580" y="42" class="lbl">LANDING PAGE — Sign in or Sign Up</text>
+  <text x="580" y="60" class="sub">Backdrop: 3D Map Shot of the base</text>
+  <text x="388" y="32" class="id">N1</text>
+
+  <!-- N2 / N3 -->
+  <rect x="150" y="120" width="250" height="56" rx="6" class="node"/>
+  <text x="275" y="142" class="lbl">NEW PLAYER</text>
+  <text x="275" y="160" class="sub">Load Wallet with Free Starters</text>
+  <text x="158" y="134" class="id">N2</text>
+  <rect x="760" y="120" width="250" height="56" rx="6" class="node"/>
+  <text x="885" y="142" class="lbl">RETURN PLAYER</text>
+  <text x="885" y="160" class="sub">Wallet · Load Last Set Character</text>
+  <text x="768" y="134" class="id">N3</text>
+
+  <path d="M470,76 C420,90 330,95 275,120" class="edge"/><text x="350" y="92" class="elbl">E1</text>
+  <path d="M690,76 C740,90 830,95 885,120" class="edge"/><text x="810" y="92" class="elbl">E2</text>
+
+  <!-- N4 Super Lobby -->
+  <rect x="60" y="215" width="1040" height="235" rx="8" class="box"/>
+  <text x="580" y="240" class="lbl" font-size="15" font-weight="600" font-family="Orbitron,NotoSans,sans-serif">SUPER LOBBY MAP — "OUTPOST EARTH MWR" (Main Zone)</text>
+  <text x="580" y="258" class="sub">Walkable · interactable · chat · players &amp; friends shown · wear accessories · carry weapons · NO FIRE except authorised zones</text>
+  <text x="68" y="229" class="id">N4</text>
+
+  <path d="M275,176 L275,214" class="edge2"/><text x="292" y="200" class="elbl">E3</text>
+  <path d="M885,176 L885,214" class="edge2"/><text x="902" y="200" class="elbl">E4</text>
+
+  <!-- row 1 in-lobby -->
+  <g>
+    <rect x="110" y="278" width="150" height="46" rx="5" class="node"/><text x="185" y="306" class="lbl">ROBO LABS</text><text x="116" y="291" class="id">N4a</text>
+    <rect x="360" y="278" width="150" height="46" rx="5" class="node"/><text x="435" y="306" class="lbl">PATRIOT CAFÉ</text><text x="366" y="291" class="id">N4b</text>
+    <rect x="650" y="278" width="150" height="46" rx="5" class="node"/><text x="725" y="306" class="lbl">EM LOUNGE</text><text x="656" y="291" class="id">N4c</text>
+    <rect x="900" y="278" width="150" height="46" rx="5" class="node"/><text x="975" y="306" class="lbl">LOADOUT BARRACKS</text><text x="906" y="291" class="id">N4d</text>
+  </g>
+  <!-- row 2 -->
+  <g>
+    <rect x="110" y="370" width="150" height="46" rx="5" class="out"/><text x="185" y="391" class="lbl">TOURNAMENTS</text><text x="185" y="406" class="sub">MINI GAMES</text><text x="116" y="383" class="id">N4e</text>
+    <rect x="300" y="370" width="150" height="46" rx="5" class="out"/><text x="375" y="391" class="lbl">SHOOTING RANGE</text><text x="375" y="406" class="sub">separate map · fire OK</text><text x="306" y="383" class="id">N4f</text>
+    <rect x="500" y="370" width="150" height="46" rx="5" class="node"/><text x="575" y="397" class="lbl">PX STORE</text><text x="506" y="383" class="id">N4g</text>
+    <rect x="850" y="370" width="200" height="46" rx="5" class="out"/><text x="950" y="397" class="lbl">DEPLOYMENTS</text><text x="856" y="383" class="id">N4h</text>
+  </g>
+
+  <!-- left loop -->
+  <path d="M185,416 L185,490" class="loop"/><text x="200" y="460" class="elbl">E6</text>
+  <rect x="80" y="490" width="260" height="56" rx="6" class="out"/>
+  <text x="210" y="512" class="lbl">TOURNAMENTS / CHALLENGES</text>
+  <text x="210" y="530" class="sub">PLAY  →  ENDS</text>
+  <text x="88" y="504" class="id">N5</text>
+  <path d="M340,518 C420,518 470,480 470,451" class="loop"/><text x="430" y="500" class="elbl">E7 back to base</text>
+
+  <!-- range mini loop -->
+  <path d="M340,416 C300,470 380,480 400,451" class="loop"/><text x="395" y="478" class="elbl">E8 there &amp; back</text>
+
+  <!-- right loop -->
+  <path d="M950,416 L950,490" class="loop"/><text x="965" y="460" class="elbl">E9</text>
+  <rect x="740" y="490" width="360" height="52" rx="6" class="node"/>
+  <line x1="920" y1="490" x2="920" y2="542" stroke="#3A4666"/>
+  <text x="830" y="521" class="lbl">LEAGUE LOBBY</text>
+  <text x="1010" y="521" class="lbl">STAKED LOBBY</text>
+  <text x="748" y="504" class="id">N6</text>
+  <path d="M920,542 L920,575" class="loop"/><text x="936" y="563" class="elbl">E10</text>
+  <rect x="790" y="575" width="260" height="46" rx="6" class="out"/>
+  <text x="920" y="603" class="lbl">ASSIGNED MATCH / ENDS</text>
+  <text x="798" y="589" class="id">N7</text>
+  <path d="M790,598 C660,598 640,520 660,451" class="loop"/><text x="640" y="560" class="elbl">E11 back to base</text>
+  <path d="M1050,598 C1130,598 1120,480 1080,451" class="loop"/>
+  <text x="1110" y="560" class="elbl">E11</text>
+
+  <text x="60" y="632" class="id">blue = entry / in-lobby edges · magenta = leave-and-return loops · every leaving arrow returns to the base — there is no menu after a match</text>
+</svg>
+</div>
+
+<h2>H0 · READ AND FACT-LOCK</h2>
+<div class="stage">
+  <div class="stage-hd"><span class="stage-id">H0</span><span class="stage-nm">Clean tree, read passes, rulings</span>
+    <span class="stage-goal">Nothing is authored on a dirty tree or an unverified name. Four read passes turn every [VERIFY] in the SSOT into a cited fact.</span></div>
+  <div class="row"><span class="rid">H0.1</span><span class="rt">Clean-tree triage execute<span class="d">Owed from the CC programme: revert confirmed Config/code churn, gitignore tooling dirs, resolve stash@{0} umap/uasset question. No phase commits onto a dirty tree.</span></span><span class="pill lane">OP + CC</span><span class="pill st-open">OWED</span></div>
+  <div class="row"><span class="rid">H0.2</span><span class="rt">HUB-READ-0 capability probe folded in: enumerate what the editor connection can do (open map, place/delete actors, set properties, create BP/DA/GE/MI, save, launch PIE, read logs) — the AIK-necessary list is derived from that, never assumed. Then HUB-READ-1 — world<span class="d">Mega Base pack on disk (path, demo map name, actor census); hero <code>ULyraPawnData</code> used by match experiences; Lyra weapon spawner class + path; interact-verb interface. Report cites path:line for each.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-data">READ</span></div>
+  <div class="row"><span class="rid">H0.3</span><span class="rt">HUB-READ-2 — doors<span class="d">Every AFL fire ability (list); League/Staked door widget class + open path; match-end client path; <code>afl.Store.Open</code> push site; loadout widget entry; product-page widget state from the design pipeline.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-data">READ</span></div>
+  <div class="row"><span class="rid">H0.4</span><span class="rt">HUB-READ-3 — online<span class="d">EOS-AUTH-C2 status; EOS lobby/friends OSS availability in the build; start-matchmaking Lambda request shape; match fleet OS/instance family; existing return-to-front-end flow.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-data">READ</span></div>
+  <div class="row"><span class="rid">H0.5</span><span class="rt">Operator rulings — SSOT §11<span class="d">Shard model @64 · asset names · chat model · club fallback · which doors ship Disabled at first beta.</span></span><span class="pill lane">Operator</span><span class="pill st-open">RULING</span></div>
+  <div class="gate"><b>GATE</b>&nbsp; Tree clean. All twelve SSOT §12 open items replaced by cited facts. Rulings recorded. Tracker rows H0.* written with lane attribution.</div>
+</div>
+
+<h2>H1 · THE MAP — OUTPOST EARTH MWR EXISTS</h2>
+<div class="note mag">
+  <b>This is the phase.</b> Take the Military Mega Base Pack demo map, make it ours, rename it, assign its
+  buildings to our zones, and stand two players on it as their own robots with no fire. Full build order
+  in <code>IRONICS_HUB_MAP_BUILD_SPEC.md</code> (M1–M4 here; M5–M9 in H2/H3/H5). Code rows exist only to
+  support the map and are small.
+</div>
+<div class="stage">
+  <div class="stage-hd"><span class="stage-id">H1</span><span class="stage-nm">Import → sanitise → assign → skeleton → two players on the base</span>
+    <span class="stage-goal">A dedicated hub server running <code>L_AFL_OutpostEarth</code> that two clients join, see each other with correct cosmetics and carried weapons, walk zone to zone with no loads, and cannot fire anywhere. Match untouched.</span></div>
+  <div class="row"><span class="rid">M1</span><span class="rt"><b>Import the pack</b> — Fab → project → census → migrate into <code>AFLHub</code><span class="d">Operator adds via Fab (LFS budget recorded). Census: demo map name, map type (single / sublevel / WP), pack UE version, asset counts, lighting scenario. Migrate to <code>AFLHub/Content/MegaBase/</code>, redirectors fixed, nothing left in <code>/Game</code>. Duplicate demo map → <code>L_AFL_OutpostEarth</code>. Spec §1.</span></span><span class="pill lane">OP → CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">M2</span><span class="rt"><b>Sanitise + rename</b> — make it ours<span class="d">Delete demo AI, ticking targets, sequences, physics props, demo GameMode (counts before/after). <code>ALyraWorldSettings::DefaultGameplayExperience = B_AFL_Experience_Hub</code>. Player-facing name "Outpost Earth MWR"; no pack string visible. KillZ + perimeter. Spec §2.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">M3</span><span class="rt"><b>Assign the base</b> — which building is which zone<span class="d">Claude Code walks the map with screenshots and proposes: hangar/depot → PX, tech/HQ → Robo Labs, barracks block → Loadout Barracks, mess hall → Patriot Café, rec room → EM Lounge, gate/helipad → Deployments, tents → Tournament/Mini Game/Assigned doors, range → range door, best establishing shot → Landing camera. <b>Operator ratifies every row</b> before anything is placed. Spec §3.</span></span><span class="pill lane">CC (editor) → OP</span><span class="pill st-open">RULING</span></div>
+  <div class="row"><span class="rid">M4</span><span class="rt"><b>Skeleton</b> — spawn plaza, zone volumes, nav<span class="d">≥16 staggered PlayerStarts on the plaza; <code>AAFLHubZoneVolume</code> per interior zone from the ratified table; NavMesh on the plaza. Spec §4.1–4.2.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">H1.1</span><span class="rt"><code>AFLHub</code> GameFeature shell — the home for the map<span class="d">uplugin, Build.cs, module, tag ini (<code>Hub.Zone.*</code>, <code>Hub.Restriction.NoFire</code>). Must exist before M1's migrate. Operator UBT build, editor closed.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H1.2</span><span class="rt"><code>B_AFL_Experience_Hub</code> + hub ability set + hub HUD layout<span class="d">Hero pawn data, movement/interact/dash + loadout AbilitySet (weapons carried), <code>NoFire</code> GE on possession, AddComponents for the net profile. Conforms to the match experience structure.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">H1.3</span><span class="rt"><code>UAFLHubNetProfileComponent</code><span class="d">NetUpdateFrequency 15 / Min 5, FRepMovement quantisation, per-zone NetCullDistanceSquared from <code>DA_AFL_HubZoneProfiles</code>. No custom net struct. SSOT §2.2.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H1.4</span><span class="rt">Fail-closed fire block<span class="d">One <code>ActivationBlockedTags</code> entry per fire ability; infinite GE granting <code>Hub.Restriction.NoFire</code> on hub possession. Proven-Sibling diff per ability file. Fire authorisation is by experience — the Range map never applies the GE.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H1.5</span><span class="rt"><code>AAFLHubZoneVolume</code> (class)<span class="d">Server-auth overlap → zone tag GE; the net profile swaps cull distance on the tag. Never touches NoFire. M4 places the instances.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-new">NEW</span></div>
+  <div class="row"><span class="rid">H1.6</span><span class="rt">Hub HUD — zone prompt widget<span class="d">Zone display name on tag change; fades. Brand tokens only.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">H1.7</span><span class="rt">Dedicated-server run on Outpost Earth<span class="d">LyraServer target on D:, two clients by IP. Log ledger. C: launcher rebuild afterwards.</span></span><span class="pill lane">CC + OP</span><span class="pill st-open">PROOF</span></div>
+  <div class="gate"><b>PROOF · N4 exists</b>&nbsp; Dedicated server + 2 clients <b>on <code>L_AFL_OutpostEarth</code></b>: both spawn on the plaza as their own robots (body, facemask, finish, carried weapon visible to each other); walk plaza → PX → Labs → Barracks → Café with no load and zone markers on both; fire refused everywhere. Match PIE (2-client, live Pulse → damage) unchanged.</div>
+</div>
+
+<h2>H2 · DOORS — EVERY DESTINATION REACHABLE</h2>
+<div class="stage">
+  <div class="stage-hd"><span class="stage-id">H2</span><span class="stage-nm">Destinations, deployment gateway, landing page, return-to-hub</span>
+    <span class="stage-goal">Walk into any zone and the right existing system opens. Deploy → real match → return to the hub. The full loop with zero cheat commands.</span></div>
+  <div class="row"><span class="rid">M5</span><span class="rt"><b>Doors at real doorways</b><span class="d"><code>AAFLHubDestinationVolume</code> at every door, tent flap and gate from the ratified assignment; DA rows per destination; world prompts; unproven backends <code>Disabled</code>. Spec §4.3.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">M6</span><span class="rt"><b>Shooting Range map</b> from the pack's range pieces<span class="d">Own experience, no NoFire GE, dummies, exit door. The travel canary (H2.6). Spec §5.6.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">H2.1</span><span class="rt"><code>AAFLHubDestinationVolume</code> + <code>DA_AFL_HubDestinations</code><span class="d">Actions: PushWidget / ExperienceTravel / JoinClub / Disabled. Push via the <code>afl.Store.Open</code> pattern. Unproven backends ship Disabled.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-new">NEW</span></div>
+  <div class="row"><span class="rid">H2.2</span><span class="rt">Deployments door → existing League/Staked surface<span class="d">The existing door widget pushed in-hub; confirm → existing FlexMatch flow; match found → client travels to the match server exactly as today.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H2.3</span><span class="rt">Return-to-hub<span class="d">Match end / travel end → hub rejoin instead of front-end menu. Dev path: direct IP; real path arrives with H5 join service. SSOT §4.3.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H2.4</span><span class="rt">Robo Labs → creator · Barracks → loadout · PX → store overlay<span class="d">Three PushWidget rows. Labs reads <code>Disabled</code> until Track C3 is green, then opens <code>AFLW_Creator</code>. Barracks/PX open the widgets that exist today until C4/C5 replace them.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">DATA</span></div>
+  <div class="row"><span class="rid">H2.5</span><span class="rt">Landing Page<span class="d">Sign in / Sign up (existing identity), 3D map-shot backdrop, new-player wallet via <code>GrantedFree</code>, return-player last-set-character via persistence read-back, "Enter Base". Front-end map stays the cold-boot entry.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-open">UI</span></div>
+  <div class="row"><span class="rid">H2.6</span><span class="rt"><b>Shooting Range map — the travel canary</b><span class="d"><code>L_AFL_ShootingRange</code> in <code>AFLHub</code> with its own experience (full loadout, no NoFire GE), existing target dummies, an exit door. Range door row = ExperienceTravel with ReturnToHub. Proves travel + fire-by-experience + return in one loop.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H2.7</span><span class="rt">Tournaments / Mini Games / Assigned Match doors<span class="d">ExperienceTravel rows pointing at whatever partition map exists on disk; else Disabled with prompt text.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">DATA</span></div>
+  <div class="gate"><b>PROOF · right-hand loop closed: E1/E2 → E3/E4 → E8 → E9 → E10 → E11, plus E5</b>&nbsp; Cold boot → Landing → Enter Base → hub (dedicated) → Range door → Range map: fire lands on a dummy on both clients → exit → hub: fire refused again → Deployments → real FlexMatch match (solo, existing queue) → match ends → back in the hub, cosmetics intact. Labs/Barracks/PX open their widgets. No cheat command anywhere. Match proof re-run.</div>
+</div>
+
+<h2>H3 · PX STORE AND BARRACKS — THE SPATIAL RETAIL LAYER</h2>
+<div class="stage">
+  <div class="stage-hd"><span class="stage-id">H3</span><span class="stage-nm">Pedestals, racks, preview anchor, try-on, mirrors, product page</span>
+    <span class="stage-goal">Browse, hold, try on, see yourself, buy — client-local until the one server RPC. Weapon-spawner reuse, recoloured. Replace the old store entry only after this proves. <b>Entry gate adds: Track C3 green</b> — the preview spine (C1), kit (C2) and creator shell (C3) are what the pedestals open.</span></div>
+  <div class="row"><span class="rid">M7</span><span class="rt"><b>Dress the zones</b> — PX, Labs, Barracks, lounges, Deployments<span class="d">Canary-first per zone: one rack + one pedestal + one anchor pair + one mirror in the PX, proven, then weapons wall / mask wall / jewellery counter / robots; creator station in Labs; owned-racks in Barracks; seating + club doors in the lounges; threshold + board space at Deployments. Spec §5.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">M8</span><span class="rt"><b>Signage + branding + landing backdrop</b><span class="d">Seven zone signs and the gate lockup in brand tokens (blender-bridge signage flow); pack-branded textures replaced; CineCamera at the ratified establishing shot. Spec §5.7–5.8.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">H3.1</span><span class="rt"><code>AAFLDisplayPedestal</code> — weapon spawner child<span class="d">Grant-on-overlap replaced by interact-to-inspect; spinning display mesh from the catalog row; pad MI in brand palette. One pedestal, one SKU (<code>AFL.Facemask.Flag.Japan</code> canary).</span></span><span class="pill lane">CC (editor)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H3.2</span><span class="rt"><code>AAFLHubPreviewAnchor</code> + camera blend<span class="d"><b>Delivered by Track C1</b> (AFL-3211). Consumed here: PX stations get Portrait + CombatRange anchors.</span></span><span class="pill lane">Track C</span><span class="pill st-data">CONSUME</span></div>
+  <div class="row"><span class="rid">H3.3</span><span class="rt">Product page pre-focus + <code>ClientRequestPurchase</code> wiring<span class="d"><b>Delivered by Track C5</b> (AFL-3250) — the product page is a kit shell. Pedestal → page on that SKU; Buy → the existing wallet RPC. Closes the owed "buy-button → purchase UI" item.</span></span><span class="pill lane">Track C</span><span class="pill st-data">CONSUME</span></div>
+  <div class="row"><span class="rid">H3.4</span><span class="rt"><code>UAFLCosmeticPreviewComponent</code> — client-local try-on / hold<span class="d"><b>Delivered by Track C1</b> (AFL-3210). The creator, loadout and store all preview through this one component on the local pawn. SSOT §5.2.</span></span><span class="pill lane">Track C</span><span class="pill st-data">CONSUME</span></div>
+  <div class="row"><span class="rid">H3.5</span><span class="rt"><code>AAFLHubMirror</code><span class="d"><b>Delivered by Track C1</b> (AFL-3212). Placed at PX (jewellery counter, mask wall) and at the Labs station. Helper §5 exactly.</span></span><span class="pill lane">Track C</span><span class="pill st-data">CONSUME</span></div>
+  <div class="row"><span class="rid">H3.6</span><span class="rt"><code>AAFLDisplayRack</code> — catalog-driven spawn<span class="d">Filter + spawn transforms → pedestals at BeginPlay. Walls: weapons, masks, robots; jewellery counter populated by Track C6; stickers Disabled until CC-7. Barracks = filter OwnedByLocalPlayer, opening the C4 loadout shell.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H3.7</span><span class="rt">Retail trace channel <code>ECC_HubRetail</code><span class="d">Shelving on a lightweight client-only channel (helper §8). Channel declared in config; assignment on the rack meshes.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">DATA</span></div>
+  <div class="row"><span class="rid">H3.8</span><span class="rt">Cutover — old store/loadout entry points removed<span class="d">Only after the gate below is green. The widgets stay; only their old entry points go.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">DATA</span></div>
+  <div class="gate"><b>PROOF · N4g + N4d, surviving E11</b>&nbsp; Two clients in the PX zone: A tries on a mask (B sees no change), A buys the canary at a pedestal via the product page → deduct → grant → entitled → equip → B sees the new visor; survives A's respawn. Barracks equips an owned weapon and it is carried. Match proof re-run.</div>
+</div>
+
+<h2>H4 · SOCIAL — CHAT, FRIENDS, CLUBS, PARTY DEPLOY</h2>
+<div class="stage">
+  <div class="stage-hd"><span class="stage-id">H4</span><span class="stage-nm">Chat, nameplates, lounges as EOS sub-lobbies, party matchmaking</span>
+    <span class="stage-goal">The hub is social: talk, see who is here, pull friends into a private room, and deploy together into the existing matchmaker as one ticket.</span></div>
+  <div class="row"><span class="rid">H4.1</span><span class="rt">Nameplates + presence (hub HUD)<span class="d">Display name, friend marker, club marker. World-space, distance-faded, budgeted.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-open">UI</span></div>
+  <div class="row"><span class="rid">H4.2</span><span class="rt"><code>UAFLHubChatComponent</code> — server-relayed text chat<span class="d">Proximity / Club / Party channels; server validates rate, length, profanity (shared filter with CC-5.4 — build once). Chat widget on the hub HUD.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-new">NEW</span></div>
+  <div class="row"><span class="rid">H4.3</span><span class="rt"><code>UAFLHubClubComponent</code> + visibility mask<span class="d">Replicated ClubId + privacy; local mask hides non-club pawns inside a lounge via the part-actor visibility path. Server-auth create/join from the lounge door. Works without EOS.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-new">NEW</span></div>
+  <div class="row"><span class="rid">H4.4</span><span class="rt">EOS lobby binding — Patriot Café / EM Lounge<span class="d">ClubId ↔ EOS lobby id; FriendsOnly / InviteOnly; friends list; invites; EOS RTC voice. <b>Gated on EOS-AUTH-C2 green.</b></span></span><span class="pill lane">CC (worktree)</span><span class="pill st-block">GATED</span></div>
+  <div class="row"><span class="rid">H4.5</span><span class="rt">Party deploy — FlexMatch multi-player ticket<span class="d">Leader submits one ticket with all party PlayerIds (additive backend field); ticket id on lobby attributes; members follow to the match. No rule set / queue change.</span></span><span class="pill lane">CC (worktree + backend)</span><span class="pill st-new">NEW</span></div>
+  <div class="gate"><b>PROOF · N4b/N4c, party through E9→E10→E11</b>&nbsp; Two dev accounts: chat in proximity, form a club in the Café — a third client outside the club cannot see them; leader deploys the party → both land in the same real match → both return to the hub. Match proof re-run.</div>
+</div>
+
+<h2>H5 · SCALE AND INFRASTRUCTURE</h2>
+<div class="stage">
+  <div class="stage-hd"><span class="stage-id">H5</span><span class="stage-nm">Map optimisation, hub join service, hub fleet, load measurement</span>
+    <span class="stage-goal">Real numbers under load, a separate hub queue that can never starve match capacity, and shard placement that keeps friends together.</span></div>
+  <div class="row"><span class="rid">M9</span><span class="rt"><b>Optimisation pass — measured</b><span class="d">HISM merge, NavMesh restriction, ECC_HubRetail collision, streaming/WP by measurement, Nanite/LOD, lighting, server-tick audit. Helper §8; Spec §6. Numbers before/after.</span></span><span class="pill lane">CC (editor) + OP PIE</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">H5.2</span><span class="rt"><code>POST /hub/join</code> Lambda + <code>HubPresence</code> table<span class="d">Friend-shard preference → least-empty → placement on <code>IronicsHubQueue</code>. Separate repo, separate commits. SSOT §6.</span></span><span class="pill lane">CC (backend)</span><span class="pill st-new">NEW</span></div>
+  <div class="row"><span class="rid">H5.3</span><span class="rt">Hub fleet + queue in <code>BagManTentpoleStack</code><span class="d">Own alias/queue; max players = <code>Hub.MaxPlayersPerShard</code> (64); target-tracking scale-to-zero. No FlexMatch touch.</span></span><span class="pill lane">CC (backend)</span><span class="pill st-new">NEW</span></div>
+  <div class="row"><span class="rid">H5.4</span><span class="rt">Landing + return wired to the join service<span class="d">Replaces the H2 dev IP path. Presence written on hub join/leave.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H5.5</span><span class="rt">Load measurement<span class="d">Simulated clients (Gauntlet or headless -game instances) at 16/32/64: server CPU, per-connection bandwidth, tick time. Numbers on the tracker, not adjectives.</span></span><span class="pill lane">CC + OP</span><span class="pill st-open">PROOF</span></div>
+  <div class="row"><span class="rid">H5.6</span><span class="rt">Replication Graph — only if H5.5 says so<span class="d">2D spatial grid node for hub pawns; pedestals/mirrors/volumes always-relevant-static. Pulled by measurement, not by assumption.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-block">COND</span></div>
+  <div class="row"><span class="rid">H5.7</span><span class="rt">Linux/Graviton hub fleet (helper cost model)<span class="d">Separate infra ticket; requires a Linux server cross-compile. Not in this programme's gate.</span></span><span class="pill lane">Operator</span><span class="pill st-block">DEFERRED</span></div>
+  <div class="gate"><b>PROOF · E3/E4 real, E10 untouched under load</b>&nbsp; 64 simulated clients in one shard hold a stable tick with measured CPU/bandwidth on the tracker; a real client joining lands in a friend's shard; a full shard spills to a new one; match queues unaffected (a solo match completes during the soak).</div>
+</div>
+
+<h2>H6 · CLOSE-OUT</h2>
+<div class="stage">
+  <div class="stage-hd"><span class="stage-id">H6</span><span class="stage-nm">Remaining doors, polish, first-beta cut</span>
+    <span class="stage-goal">Every door either real or honestly Disabled; the operator walks the whole flow they designed, end to end, with no cheat.</span></div>
+  <div class="row"><span class="rid">H6.1</span><span class="rt">Tournament / Mini-game partition map canary<span class="d">One partition map reached from a tent, plays, ends, returns. Content beyond the canary is the S19 mini-game lane, not this programme.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H6.2</span><span class="rt">Assigned Match door<span class="d">ExperienceTravel to an assigned session id (backend supplies). Ends → return.</span></span><span class="pill lane">CC (worktree)</span><span class="pill st-open">CODE</span></div>
+  <div class="row"><span class="rid">H6.3</span><span class="rt">Zone prompts, transition beats, audio hooks<span class="d">Door prompts, camera blends, ambient per zone. Polish only after everything above is green.</span></span><span class="pill lane">CC (editor)</span><span class="pill st-data">CONTENT</span></div>
+  <div class="row"><span class="rid">H6.4</span><span class="rt">Tracker sync + doc archive<span class="d">Hub rows onto the live tracker; the two operator docs archived under <code>Docs/Hub/</code> by <code>git mv</code> precedent.</span></span><span class="pill lane">Claude</span><span class="pill st-open">DOC</span></div>
+  <div class="gate"><b>PROOF · left-hand loop closed (E6 → N5 → E7), then the whole diagram</b>&nbsp; Operator walk-through of the entire designed flow — Landing → hub → every zone → deploy → match → return — watched, no cheat, on the dedicated fleet. Shipping cook still succeeds.</div>
+</div>
+
+<h2>TRACK C · CHARACTER CREATOR — RUNS IN PARALLEL, GATES H3</h2>
+
+<div class="note red">
+  <b>Reset.</b> The operator has never seen the creator live as designed; prior attempts drifted. Track C
+  builds against a numbered <b>intent lock</b> (<code>IRONICS_CC_INTEGRATION_PLAN.md</code> §1) — every
+  acceptance criterion cites an intent ID or is deleted. C0 diagnoses the failure on disk before anything
+  is authored; drifted work is quarantined, not patched.
+</div>
+
+<div class="stage">
+  <div class="stage-hd"><span class="stage-id">C</span><span class="stage-nm">One preview spine, one widget kit, three thin shells</span>
+    <span class="stage-goal">Creator (Robo Labs), Loadout (Barracks) and Product Page (PX) show the same robot through the same client-local preview on the <b>local pawn</b> and commit through the same three seams. The pedestals in H3 open these shells.</span></div>
+  <div class="row"><span class="rid">C0</span><span class="rt">CC-READ-5 true-state pass · divergence table · quarantine rulings · intent table ratified · <b>stale skill brand fixed · Claude Design mock + spec produced from <code>IRONICS_CC_DESIGN_BRIEF.md</code> and ratified</b><span class="d">Every CC row: on disk? proven? which intent ID? Hypotheses F1–F7 (stand-in preview, RGB sliders, new screen family, UI above unproven channels, scope drift, seam bypass, Original-line MIs) each answered with evidence.</span></span><span class="pill lane">CC (worktree+editor) · OP</span><span class="pill st-data">READ</span></div>
+  <div class="row"><span class="rid">C1</span><span class="rt">Preview spine<span class="d"><code>UAFLCosmeticPreviewComponent</code> (undo stack, restore from authoritative), Portrait + CombatRange anchors, mirror, front-end capture-of-pawn fallback. <b>H3.2 / H3.4 / H3.5 are consumed from here.</b></span></span><span class="pill lane">CC (worktree)</span><span class="pill st-new">NEW</span></div>
+  <div class="row"><span class="rid">C2</span><span class="rt">Widget kit<span class="d">Hue arc (clamped, chroma stops, Neon+Edge linked/unlink; discrete-SKU mode for free players), part picker (extends the market tile), build-slot strip (saved-locked over cap), chassis picker, data-driven channel panel, action bar.</span></span><span class="pill lane">CC (worktree+editor) · CD</span><span class="pill st-open">UI</span></div>
+  <div class="row"><span class="rid">C3</span><span class="rt"><b>Creator shell — ENTRY → CHASSIS → BUILD → SAVE → EQUIP → MATCH</b><span class="d">Pushed via the <code>afl.Store.Open</code> pattern; save through the persistence seam with name filter; equip through <code>ServerSetCosmeticSelection</code>; everyone builds, purchase gates saving/carrying. Labs door switches from Disabled to this.</span></span><span class="pill lane">CC (worktree+editor) · CD</span><span class="pill st-open">UI</span></div>
+  <div class="row"><span class="rid">C4</span><span class="rt">Loadout shell on the kit → Barracks<span class="d">Product-page layout; pick a saved build / owned part → Equip. H3.6 racks open it.</span></span><span class="pill lane">CC · CD</span><span class="pill st-open">UI</span></div>
+  <div class="row"><span class="rid">C5</span><span class="rt">Product page on the kit → PX<span class="d">Try-on/hold + Buy → <code>ClientRequestPurchase</code> → Equip. Delivers H3.3; H3 canary runs through it.</span></span><span class="pill lane">CC · CD</span><span class="pill st-open">UI</span></div>
+  <div class="row"><span class="rid">C6</span><span class="rt">Stickers behind flag<span class="d">Accessories/jewellery are <b>closed</b> (operator 2026-08-26) — C0 cites the proof, nothing further. Stickers placement UI gated on CC-7.1 UV derivation.</span></span><span class="pill lane">CC (worktree+editor)</span><span class="pill st-new">NEW</span></div>
+  <div class="gate"><b>C3 GATE · N4a, then E9→E10→E11 shows the build in a match (opens H3)</b>&nbsp; The operator drives the designed flow, no cheat, X line: build → save ×2 named → switch → equip → respawn → relaunch → both builds return from the backend → over-cap save is saved-locked, not refused → deploy → the match spawns the equipped build. The operator's verdict, in their words, on the tracker.</div>
+</div>
+
+<h2>TRACK S · SCORE TRACKING AND RANKING — DEFERRED BY RULING</h2>
+
+<div class="note">
+  <b>Not a priority until the main map / lobby system is working.</b> Track S does not start before the H2
+  gate and an explicit operator GO. Its <em>shape</em> is fixed now (SSOT §10b) so H5's backend and the hub's
+  surfaces are cut once: server-authoritative score events only · period-keyed leaderboard table
+  (Day / Week / Month, monthly reset on the 1st) · <code>BestMatchScore</code> and <code>CumulativePoints</code>
+  side by side · loot bonuses granted at period close through the existing earn seam · League scope only.
+</div>
+
+<div class="stage">
+  <div class="stage-hd"><span class="stage-id">S</span><span class="stage-nm">League leaderboards + loot bonuses</span>
+    <span class="stage-goal">Top score of Day, Week, Month; fresh start on the 1st; bonuses land in the wallet the same way every other authoritative grant does.</span></div>
+  <div class="row"><span class="rid">S0</span><span class="rt">Rulings<span class="d">Per bonus: best-single-match or cumulative. Period boundaries (default UTC, ISO week). Cross-link P-SCORING / S22 AFL-2201..2206.</span></span><span class="pill lane">OP</span><span class="pill st-open">RULING</span></div>
+  <div class="row"><span class="rid">S1</span><span class="rt">Match-end score event → <code>Leaderboard</code> table<span class="d">From the HMAC-signed match-result path; never client-submitted.</span></span><span class="pill lane">CC (backend)</span><span class="pill st-block">DEFERRED</span></div>
+  <div class="row"><span class="rid">S2</span><span class="rt">Period close + grants<span class="d">EventBridge-scheduled Lambda snapshots top-N and grants via <code>EarnThroughBackend</code> → <code>/earn</code>; idempotent per period+player.</span></span><span class="pill lane">CC (backend)</span><span class="pill st-block">DEFERRED</span></div>
+  <div class="row"><span class="rid">S3</span><span class="rt">Boards<span class="d">Hub board (data row, Disabled until S), Range board, match-end summary — read-only views.</span></span><span class="pill lane">CC (editor) · CD</span><span class="pill st-block">DEFERRED</span></div>
+  <div class="gate"><b>PROOF (when opened)</b>&nbsp; Two dev accounts, two matches, boards correct on both clients; force a period close; bonus lands through the seam; re-run is a no-op.</div>
+</div>
+
+<h2>SEQUENCING</h2>
+<table>
+  <tr><th>Phase</th><th>Delivers</th><th>Risk</th><th>Depends on</th><th>Lanes</th></tr>
+  <tr><td>H0</td><td>Clean tree, cited facts, rulings</td><td>Low</td><td>—</td><td>CC subagent reads (fan-out) · OP triage</td></tr>
+  <tr><td>H1</td><td><b>The map</b>: pack imported and migrated, sanitised, renamed, buildings assigned to zones (operator ruling), spawn plaza + zone volumes, two players on it</td><td>Medium — pack size/version unknowns; fire-block touches every fire ability by one line</td><td>H0</td><td>OP Fab import → CC editor M1–M4 ∥ CC worktree C++ · OP rules M3, builds, DS run</td></tr>
+  <tr><td>H2</td><td>Every door reachable; Range map travel canary; full loop with real matchmaking</td><td>Medium — travel/return paths</td><td>H1</td><td>CC worktree code ∥ CC editor data · OP PIE</td></tr>
+  <tr><td>C0–C3</td><td>Diagnosed creator; preview spine; kit; creator shell the operator has watched</td><td>High — the thing that has failed before; mitigated by intent-lock + C0 quarantine</td><td>C0 with H0; C1–C2 during H1–H2; C3 after H2 loop</td><td>CC worktrees <code>cc-c1-preview</code>, <code>cc-c2-kit</code> ∥ CC editor tails · Claude Design · OP watches C3</td></tr>
+  <tr><td>H3</td><td>Spatial store + barracks; old entries replaced</td><td>Medium — UI volume; try-on must never leak to the seam</td><td>H2 <b>and C3</b>; C4/C5 run inside H3</td><td>CC worktree + editor · Claude Design</td></tr>
+  <tr><td>H4</td><td>Chat, clubs, party deploy</td><td>High — EOS C2 external gate; new replicated components</td><td>H2 (H3 independent)</td><td>CC worktree + backend · OP (Epic verification)</td></tr>
+  <tr><td>H5</td><td>Join service, hub fleet, measured scale</td><td>Medium — backend + CDK; measurement may pull Replication Graph</td><td>H2 (runs parallel to H3/H4)</td><td>CC backend + worktree · OP AWS</td></tr>
+  <tr><td>H6</td><td>Remaining doors, polish, beta cut</td><td>Low</td><td>H3, H4, H5</td><td>All</td></tr>
+</table>
+
+<div class="note">
+  <b>Parallelism.</b> H3 (retail), H4 (social) and H5 (infra) are independent of each other once H2 is
+  green and run as parallel Claude Code sessions in separate <b>git worktrees</b> — each with its own
+  Intermediate/Binaries, its own tracker rows and its own proof. Within a phase, <code>CC (worktree)</code>
+  rows run concurrently with each other; <code>CC (editor)</code> rows queue on the single editor checkout.
+  Content commits happen only from the editor checkout (binary assets do not merge). H1 → H2 is strictly serial. The creator is no longer a side programme: Track C above owns the preview spine, the kit, and the
+  three shells; C0 runs with H0, C1–C2 during H1–H2 in their own worktrees, and <b>H3 does not open until
+  the operator has watched C3</b>. The CC roadmap's Stage A/B (channels, persistence, slots) is verified by C0
+  rather than assumed; whatever C0 proves is kept and cited, whatever it cannot is quarantined.
+</div>
+
+<footer>
+  IRONICS · C12 AI Gaming · programme tracker for the Lobby Hub. Feeds rows into
+  <code>BAG_MAN_LIVE_TRACKER.html</code> at each gate. Status here reflects disk evidence only.
+</footer>
+
+</div>
+</body>
+</html>
