@@ -10,6 +10,10 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
+#include "Components/ChildActorComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Cosmetics/AFLAccessoryIKComponent.h"
+#include "Cosmetics/AFLAccessoryPartActor.h"
 
 void UAFLAccessoryPartComponent::BeginPlay()
 {
@@ -167,6 +171,47 @@ void UAFLAccessoryPartComponent::RefreshAccessoriesForPawn(APawn* Pawn)
 
 		AddedParts.Add(static_cast<uint8>(Slot), Args.Part);
 		++Attached;
+	}
+
+	// ---- BRIDGE HOOK 1 of 2: publish the VISIBLE BODY surface ------------------------------------
+	// The accessories now fit a surface rather than a fixed offset, and the surface is whatever body
+	// part is equipped -- the pawn's own mesh is SKM_Manny_Invis, which carries collision and draws
+	// nothing. Registering here rather than inside Lyra's SpawnActorForEntry keeps the hook in AFL
+	// code: this runs on every re-resolve, which is exactly when the body could have changed.
+	//
+	// The body part is the child actor that is NOT one of ours. Identified by class, not by socket:
+	// it attaches at socket None, and so would anything else added without one.
+	{
+		USkeletalMeshComponent* BodyMesh = nullptr;
+		TArray<UChildActorComponent*> CACs;
+		Pawn->GetComponents<UChildActorComponent>(CACs);
+		// PRESENCE OF OUTPUT: the hook running and finding nothing must be distinguishable from the
+		// hook never running. The first pass of this block logged only on failure, so a silent
+		// RegisterSurface produced no line at all and the two cases were indistinguishable.
+		UE_LOG(LogAFLCombat, Log, TEXT("[AFLAccessoryPart] IK hook: scanning %d child-actor component(s) on %s"),
+			CACs.Num(), *GetNameSafe(Pawn));
+		for (UChildActorComponent* CAC : CACs)
+		{
+			AActor* Child = CAC ? CAC->GetChildActor() : nullptr;
+			if (!Child || Child->IsA<AAFLAccessoryPartActor>()) { continue; }   // ours, not the body
+			if (USkeletalMeshComponent* M = Child->FindComponentByClass<USkeletalMeshComponent>())
+			{
+				BodyMesh = M;
+				break;
+			}
+		}
+		if (BodyMesh)
+		{
+			UAFLAccessoryIKComponent::RegisterSurface(Pawn, FName(TEXT("Body")), BodyMesh);
+		}
+		else
+		{
+			// Distinct from "registered and found nothing": if no body part is resolvable the IK has
+			// no surface at all, and four zero offsets would otherwise read as a clean fit.
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("[AFLAccessoryPart] %s: no VISIBLE body part found to register as the IK surface."),
+				*GetNameSafe(Pawn));
+		}
 	}
 
 	// PRESENCE OF OUTPUT: a run that attached nothing and a run that never happened must not look alike.

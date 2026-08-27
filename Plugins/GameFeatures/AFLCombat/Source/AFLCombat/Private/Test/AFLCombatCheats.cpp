@@ -73,6 +73,10 @@
 #include "Equipment/LyraEquipmentManagerComponent.h" // WeaponSkin: resolve the equipped weapon instance
 #include "Equipment/LyraEquipmentInstance.h"          // WeaponSkin: GetSpawnedActors (the weapon display actor)
 #include "Weapons/LyraRangedWeaponInstance.h"         // WeaponSkin: the equipped ranged weapon type
+#include "Weapons/LyraWeaponInstance.h"                // A-pose probe: PickBestAnimLayer
+#include "Cosmetics/LyraPawnComponent_CharacterParts.h" // A-pose probe: GetCombinedTags
+#include "Animation/AnimInstance.h"                     // A-pose probe: linked layer classes
+#include "Engine/SkeletalMesh.h"                        // A-pose probe: GetRefSkeleton
 #include "Components/MeshComponent.h"                 // WeaponSkin: the mesh to MID
 #include "Materials/MaterialInstanceDynamic.h"        // WeaponSkin: runtime AccentColor MID
 #include "Effects/GE_AFL_Damage_Pulse.h"
@@ -87,6 +91,9 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Engine/SceneCapture2D.h"                    // afl.Thumbnail.Canary: framing-proof scene-capture actor
+#include "Engine/PointLight.h"                          // JewelShots: light the metal so it reads
+#include "Animation/AnimSequence.h"                    // JewelShots: capture-time locomotion cycle
+#include "Components/PointLightComponent.h"             // JewelShots: intensity/radius on the key light
 #include "Components/SceneCaptureComponent2D.h"       // afl.Thumbnail.Canary: capture component config
 #include "Engine/TextureRenderTarget2D.h"             // afl.Thumbnail.Canary: the capture render target
 #include "Kismet/KismetRenderingLibrary.h"            // afl.Thumbnail.Canary: ExportRenderTarget (RT -> PNG)
@@ -6229,6 +6236,50 @@ namespace
 		const int32 PlayerId = PS->GetPlayerId();
 		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[JEWEL] BEGIN on %s (playerId=%d)"), *GetNameSafe(PC->GetPawn()), PlayerId);
 
+		// ---- WAKE THE POSE -------------------------------------------------------------------------
+		// NOT A DEFECT -- CLOSED BY OPERATOR RULING. Characters read as A-pose until moved because
+		// Manny's REFERENCE POSE IS AN A-POSE: an idle character and a broken graph are the same
+		// picture. The socket tracks animation correctly (WristSocketMoved=1, delta 45.98cm), so there
+		// is nothing to fix, and VisibilityBasedAnimTickOption and the anim graph are BOTH off limits.
+		//
+		// What IS real: a socket queried on an idle pawn returns the reference pose, so every offset
+		// and every capture taken that way describes a pose no player sees. That is a MEASUREMENT
+		// hazard, not a bug -- the answer is to move the pawn before reading, which afl.Test.JewelShots
+		// does and records per frame.
+		//
+		// That makes the capture a photograph of the bug rather than of the jewellery, and it makes
+		// every socket-derived offset correct for a pose no player ever sees. So the run nudges each
+		// pawn once, here at BEGIN, giving the graph the whole ~40s FSM to settle before the frame is
+		// taken at END.
+		//
+		// LaunchCharacter rather than a teleport: a SetActorLocation moves the actor without producing
+		// velocity, and it is velocity that drives the movement-mode change the anim graph is waiting
+		// on. Small and vertical so the pawn lands where it started and the framing still holds.
+		{
+			int32 Nudged = 0;
+			for (const FWorldContext& WCtx : GEngine->GetWorldContexts())
+			{
+				UWorld* NW = WCtx.World();
+				if (!NW || !NW->IsGameWorld()) { continue; }
+				for (FConstPlayerControllerIterator It = NW->GetPlayerControllerIterator(); It; ++It)
+				{
+					if (APlayerController* NPC = It->Get())
+					{
+						if (ACharacter* Ch = Cast<ACharacter>(NPC->GetPawn()))
+						{
+							// The vertical launch is REMOVED. It moved the socket by exactly zero, so it
+							// woke nothing, and its Z displacement confounded the pose measurement.
+							// Horizontal locomotion input in the ticker is the real wake attempt.
+							++Nudged;
+						}
+					}
+				}
+			}
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[JEWEL] POSE WAKE -- nudged %d pawn(s); A-pose-until-moved is a known "
+				     "regression and a socket queried under it returns BIND pose."), Nudged);
+		}
+
 		const FName CHAIN(TEXT("AFL.Accessory.Chain.FoundersLink"));
 		const FName PEND(TEXT("AFL.Accessory.Pendant.TTG"));
 		const FName WATCH(TEXT("AFL.Accessory.Watch.Quantum"));
@@ -6270,6 +6321,66 @@ namespace
 
 			UAFLCosmeticLoadoutComponent* L = WL.Get();
 			if (!L) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[JEWEL] loadout gone -- END")); return false; }
+
+			// ---- THE ONE TEST THAT SEPARATES A REGRESSION FROM A STATIONARY PAWN --------------------
+			// Manny's reference pose IS an A-pose, so "renders A-pose" and "socket returns reference
+			// pose" may be the SAME state rather than two conflicting ones -- a pawn that spawned and
+			// never moved sitting in its idle pose, with nothing broken at all.
+			//
+			// Walking the pawn and re-reading the socket settles it, and costs nothing:
+			//   socketWorld MOVES -> the graph drives the skeleton, the A-pose was idle, and the
+			//                        pipeline has been correct the whole time.
+			//   socketWorld FROZEN -> the graph is not driving the skeleton and it is a real regression.
+			// Horizontal input, because a vertical LaunchCharacter changed nothing -- locomotion is
+			// what the state machine is waiting on, not airborne velocity.
+			{
+				static FVector SpawnSocket = FVector::ZeroVector;
+				static bool bHaveSpawnSocket = false;
+				for (const FWorldContext& WCtx : GEngine->GetWorldContexts())
+				{
+					UWorld* MW = WCtx.World();
+					if (!MW || !MW->IsGameWorld() || MW->GetNetMode() == NM_DedicatedServer) { continue; }
+					for (FConstPlayerControllerIterator It = MW->GetPlayerControllerIterator(); It; ++It)
+					{
+						APlayerController* MPC = It->Get();
+						ACharacter* Ch = MPC ? Cast<ACharacter>(MPC->GetPawn()) : nullptr;
+						if (!Ch) { continue; }
+						USkeletalMeshComponent* CM = Ch->GetMesh();
+						if (!CM || !CM->DoesSocketExist(WristLS)) { continue; }
+
+						// RELATIVE TO THE PAWN. The first cut of this compared WORLD positions and
+						// reported "moved 2016cm" -- which was the character walking 20 metres, not the
+						// arm moving. Absolute displacement cannot see a pose change at all; only the
+						// socket's offset from the actor can.
+						if (!bHaveSpawnSocket)
+						{
+							SpawnSocket = CM->GetSocketLocation(WristLS) - Ch->GetActorLocation();
+							bHaveSpawnSocket = true;
+							UE_LOG(LogAFLCombat, Display,
+								TEXT("AFL_TEST[POSEWALK] spawn wrist socket relToPawn = %s"),
+								*SpawnSocket.ToCompactString());
+						}
+
+						// Drive locomotion for the first ~2s of the run.
+						if ((*Total) < 120)
+						{
+							Ch->AddMovementInput(Ch->GetActorForwardVector(), 1.0f);
+						}
+						else if ((*Total) == 120)
+						{
+							const FVector Now = CM->GetSocketLocation(WristLS) - Ch->GetActorLocation();
+							const double Moved = (Now - SpawnSocket).Size();
+							UE_LOG(LogAFLCombat, Display,
+								TEXT("AFL_TEST[POSEWALK] after walking: relToPawn = %s (spawn %s) | arm moved %.2fcm -> %s"),
+								*Now.ToCompactString(), *SpawnSocket.ToCompactString(), Moved,
+								Moved > 1.0 ? TEXT("SKELETON IS ANIMATING (the A-pose was an idle state)")
+								            : TEXT("SOCKET FROZEN relative to the pawn -- the graph is NOT driving the skeleton"));
+						}
+						break;
+					}
+					break;
+				}
+			}
 
 			(*Sub)++; (*Total)++;
 			if ((*Total) > HARDCAP)
@@ -6919,6 +7030,504 @@ namespace
 		}), 0.016f);
 	}
 
+	// === afl.Test.JewelShots ======================================================================
+	// THE CAPTURE afl.Test.JewelProof COULD NOT TAKE.
+	//
+	// The proof shoots ONE frame at the end of its FSM with the pawn standing still, and a still of a
+	// stationary pawn is what sent this axis chasing a pose "regression" that was never a defect:
+	// Manny's reference pose IS an A-pose, so an idle character and a broken graph look identical in
+	// a photograph. Operator ruling, with the evidence -- WristSocketMoved=1, socket delta 45.98cm:
+	// the socket tracks animation, nothing is broken, and the anim graph is not to be touched.
+	//
+	// So this command does the three things one still cannot:
+	//   MOVES the pawn and keeps it moving THROUGH the shot. Motion is not asserted, it is RECORDED
+	//     beside every frame as the wrist delta measured RELATIVE TO THE PAWN -- a world delta is
+	//     satisfied by the pawn walking with a frozen arm, which is exactly the reading that misled
+	//     this axis once already. A frame whose delta is ~0 prints as STILL, not as a moving one.
+	//   SHOOTS A SEQUENCE, so AnimDynamics sway shows as change ACROSS frames instead of one pose.
+	//   COVERS BOTH CHAINS -- FoundersLink and FoundersPurps, now that Purps is shippable.
+	//
+	// Captures come from a CLIENT world by necessity: Lyra suppresses character parts on a dedicated
+	// server (the proof's arm 11 asserts exactly that), so the server pawn wears nothing to shoot.
+	// Movement is driven on the AUTHORITY pawn and replicates -- driving the client pawn directly
+	// would animate a proxy the server disagrees with.
+
+	/**
+	 * The client-side copy of ONE SPECIFIC player, matched by replicated PlayerId.
+	 *
+	 * Taking "the first client pawn" is an attribution bug this project already has on record: with
+	 * two PIE clients the server's first controller and the first client world's own pawn need not
+	 * be the same player, so the harness moved one pawn and photographed another. Measured
+	 * consequence: eight consecutive frames reported wristRelToPawn identical to 0.01cm -- the
+	 * reference pose -- while the pawn being driven was walking. PlayerId is the only identifier that
+	 * survives the trip across worlds; names and pointers do not.
+	 */
+	static ACharacter* AFLClientPawnForPlayer(int32 PlayerId)
+	{
+		if (!GEngine) { return nullptr; }
+		for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+		{
+			UWorld* W = Ctx.World();
+			if (!W || !W->IsGameWorld() || W->GetNetMode() != NM_Client) { continue; }
+			for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
+			{
+				APlayerController* CPC = It->Get();
+				APlayerState* CPS = CPC ? CPC->PlayerState : nullptr;
+				if (!CPS || CPS->GetPlayerId() != PlayerId) { continue; }
+				if (ACharacter* Ch = Cast<ACharacter>(CPC->GetPawn())) { return Ch; }
+			}
+			// The observed player is not always locally controlled -- look at every pawn in the world.
+			for (TActorIterator<ACharacter> It(W); It; ++It)
+			{
+				ACharacter* Ch = *It;
+				APlayerState* CPS = Ch ? Ch->GetPlayerState() : nullptr;
+				if (CPS && CPS->GetPlayerId() == PlayerId) { return Ch; }
+			}
+		}
+		return nullptr;
+	}
+
+	/**
+	 * Where the PIECE actually is, and how big it is -- not where its socket is.
+	 *
+	 * The first capture framed on socket locations and produced an abdomen instead of a neckline:
+	 * accessory_neck sits on spine_03, which is mid-chest, so the socket is nowhere near what a
+	 * viewer would call the neck. Framing on the accessory's own bounds photographs the subject
+	 * rather than its anchor, and the radius gives a distance that fills the frame for a 5cm pendant
+	 * and a 25cm chain alike.
+	 *
+	 * Searches one level deep as well: the pendant is a child actor of the CHAIN, never of the pawn.
+	 */
+	struct FAFLJewelSubject { FVector Center = FVector::ZeroVector; float Radius = 0.0f; bool bFound = false; };
+
+	static FAFLJewelSubject AFLFindAccessorySubject(ACharacter* Pawn, FName Socket)
+	{
+		FAFLJewelSubject Out;
+		if (!Pawn) { return Out; }
+
+		auto Consider = [&Out, Socket](AActor* Child) -> bool
+		{
+			AAFLAccessoryPartActor* Part = Cast<AAFLAccessoryPartActor>(Child);
+			if (!Part || Part->GetAttachedSocketName() != Socket) { return false; }
+			// THE PIECE'S OWN MESH, not GetActorBounds. Actor bounds swallow attached child actors --
+			// measured: the FoundersLink chain reported radius 100.0 and a bracelet 154.3, while the
+			// SAME bracelet on the other chain reported 5.2. A radius that large clamps the camera to
+			// its far stop and frames the room instead of the jewellery.
+			const UMeshComponent* PieceMesh = Part->FindComponentByClass<UMeshComponent>();
+			if (!PieceMesh) { return false; }
+			const FBoxSphereBounds B = PieceMesh->Bounds;
+			Out.Center = B.Origin;
+			Out.Radius = FMath::Max(3.0f, (float)FMath::Max3(B.BoxExtent.X, B.BoxExtent.Y, B.BoxExtent.Z));
+			Out.bFound = true;
+			return true;
+		};
+
+		TArray<UChildActorComponent*> CACs;
+		Pawn->GetComponents<UChildActorComponent>(CACs);
+		for (UChildActorComponent* CAC : CACs)
+		{
+			AActor* Child = CAC ? CAC->GetChildActor() : nullptr;
+			if (!Child) { continue; }
+			if (Consider(Child)) { return Out; }
+
+			TArray<UChildActorComponent*> Inner;
+			Child->GetComponents<UChildActorComponent>(Inner);
+			for (UChildActorComponent* IC : Inner)
+			{
+				if (IC && Consider(IC->GetChildActor())) { return Out; }
+			}
+		}
+		return Out;
+	}
+
+	/** Every accessory mesh on the pawn, including the pendant one level down on the chain. */
+	static void AFLCollectAccessoryMeshes(ACharacter* Pawn, TArray<UPrimitiveComponent*>& Out)
+	{
+		if (!Pawn) { return; }
+		TArray<UChildActorComponent*> CACs;
+		Pawn->GetComponents<UChildActorComponent>(CACs);
+		for (UChildActorComponent* CAC : CACs)
+		{
+			AActor* Child = CAC ? CAC->GetChildActor() : nullptr;
+			if (!Child) { continue; }
+			auto Take = [&Out](AActor* A)
+			{
+				if (!Cast<AAFLAccessoryPartActor>(A)) { return; }
+				TInlineComponentArray<UPrimitiveComponent*> Prims(A);
+				for (UPrimitiveComponent* Pr : Prims) { if (Pr) { Out.Add(Pr); } }
+			};
+			Take(Child);
+			TArray<UChildActorComponent*> Inner;
+			Child->GetComponents<UChildActorComponent>(Inner);
+			for (UChildActorComponent* IC : Inner) { if (IC) { Take(IC->GetChildActor()); } }
+		}
+	}
+
+	static void AFLShootJewel(ACharacter* Subject, const FString& Tag, const TCHAR* Name,
+	                          FName Socket, float FallbackDist, float FOV)
+	{
+		UWorld* SW = Subject ? Subject->GetWorld() : nullptr;
+		const USkeletalMeshComponent* SM = Subject ? Subject->GetMesh() : nullptr;
+		if (!SW || !SM) { return; }
+
+		const FAFLJewelSubject Found = AFLFindAccessorySubject(Subject, Socket);
+		const FVector Subj = Found.bFound
+			? Found.Center
+			: (SM->DoesSocketExist(Socket) ? SM->GetSocketLocation(Socket) : Subject->GetActorLocation());
+
+		// Distance from the PIECE's own size, so a 5cm pendant and a 25cm chain both fill the frame.
+		const float Dist = Found.bFound ? FMath::Clamp(Found.Radius * 7.0f, 22.0f, 95.0f) : FallbackDist;
+
+		// Framed from the front-left and slightly above. Dead-on puts a forearm edge-on and a watch
+		// face reads as a line; the offset presents both the top of the wrist and the chest.
+		const FVector Eye = Subj + Subject->GetActorForwardVector() * Dist * 0.82
+		                         - Subject->GetActorRightVector()   * Dist * 0.42
+		                         + FVector(0.0, 0.0, Dist * 0.30);
+
+		// LIGHT IT. The first pass shot SCS_BaseColor because L_Expanse is near-black and lit frames
+		// came back empty -- but albedo of dark metal on a black neon-lined body is equally
+		// unreadable, which is why 8 confirmed-drawn pieces still could not be seen. A light at the
+		// camera plus a LIT capture is what makes metal read as metal. The light is transient and
+		// destroyed with the camera, so nothing about the level survives the shot.
+		APointLight* Lamp = SW->SpawnActor<APointLight>(Eye + FVector(0, 0, 12.0), FRotator::ZeroRotator);
+		if (Lamp)
+		{
+			if (UPointLightComponent* LC = Cast<UPointLightComponent>(Lamp->GetLightComponent()))
+			{
+				LC->SetMobility(EComponentMobility::Movable);
+				LC->SetIntensity(45000.0f);
+				LC->SetAttenuationRadius(900.0f);
+				LC->SetCastShadows(false);   // shadows from a single hot key just hide the piece again
+			}
+		}
+
+		UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(SW);
+		RT->RenderTargetFormat = RTF_RGBA8;
+		RT->InitAutoFormat(1600, 1600);
+		RT->UpdateResourceImmediate(true);
+
+		ASceneCapture2D* Cap = SW->SpawnActor<ASceneCapture2D>(Eye, (Subj - Eye).Rotation());
+		if (Cap)
+		{
+			USceneCaptureComponent2D* CC = Cap->GetCaptureComponent2D();
+			CC->TextureTarget = RT;
+			CC->CaptureSource = SCS_FinalColorLDR;
+			CC->FOVAngle = FOV;
+			CC->bCaptureEveryFrame = false;
+			CC->CaptureScene();
+
+			const FString File = FString::Printf(TEXT("shot_%s_%s.png"), *Tag, Name);
+			UKismetRenderingLibrary::ExportRenderTarget(
+				SW, RT, FPaths::ProjectSavedDir() / TEXT("Screenshots/JEWELSHOTS"), File);
+			// SOLO PASS: the SAME camera, rendering ONLY the accessory components.
+			//
+			// The lit frame shows an armoured chest and no chain, and the measured neck burial depth is
+			// 11.22cm -- consistent with the piece sitting INSIDE the shell. "Buried" and "absent" are
+			// different defects with different fixes and a normal frame cannot tell them apart. A
+			// show-only pass can: geometry that exists MUST appear here, at the position it actually
+			// occupies, with nothing in front of it.
+			//
+			// This is NOT the deliverable frame -- it is the discriminator that says what the
+			// deliverable frame is failing to show.
+			{
+				TArray<UPrimitiveComponent*> Jewels;
+				AFLCollectAccessoryMeshes(Subject, Jewels);
+				ASceneCapture2D* Solo = SW->SpawnActor<ASceneCapture2D>(Eye, (Subj - Eye).Rotation());
+				if (Solo)
+				{
+					USceneCaptureComponent2D* SC = Solo->GetCaptureComponent2D();
+					SC->TextureTarget = RT;
+					SC->CaptureSource = SCS_FinalColorLDR;
+					SC->FOVAngle = FOV;
+					SC->bCaptureEveryFrame = false;
+					SC->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+					for (UPrimitiveComponent* Pr : Jewels) { SC->ShowOnlyComponents.Add(Pr); }
+					SC->CaptureScene();
+					UKismetRenderingLibrary::ExportRenderTarget(
+						SW, RT, FPaths::ProjectSavedDir() / TEXT("Screenshots/JEWELSHOTS"),
+						FString::Printf(TEXT("solo_%s_%s.png"), *Tag, Name));
+					Solo->Destroy();
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[SHOTS] solo_%s_%s.png -- %d accessory primitive(s) shown"),
+						*Tag, Name, Jewels.Num());
+				}
+			}
+
+			Cap->Destroy();
+
+			// PRESENCE OF OUTPUT: whether the piece was FOUND decides whether this frame is of the
+			// accessory or merely of the place its socket happens to be. Those are different pictures
+			// and the log must say which one was taken.
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[SHOTS] wrote %s  subject=%s dist=%.1f radius=%.1f"),
+				*File, Found.bFound ? TEXT("PIECE") : TEXT("socket-fallback(PIECE NOT FOUND)"),
+				Dist, Found.Radius);
+		}
+		if (Lamp) { Lamp->Destroy(); }
+	}
+
+	/**
+	 * Undo the capture-time animation.
+	 *
+	 * SetAnimationMode(AnimationBlueprint) + InitAnim, because PlayAnimation left the mesh in
+	 * AnimationSingleNode and simply stopping the sequence would freeze it on a pose rather than hand
+	 * control back to the AnimBP. Called on EVERY exit from the FSM -- the hardcap and the
+	 * subject-gone paths leave a jogging pawn just as surely as the happy path does.
+	 */
+	static void AFLRestoreSubjectAnim(int32 PlayerId)
+	{
+		ACharacter* Subj = AFLClientPawnForPlayer(PlayerId);
+		USkeletalMeshComponent* M = Subj ? Subj->GetMesh() : nullptr;
+		if (!M) { return; }
+		M->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+		M->InitAnim(true);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[SHOTS] restored %s to AnimationBlueprint (anim=%s)"),
+			*GetNameSafe(Subj), *GetNameSafe(M->GetAnimInstance() ? M->GetAnimInstance()->GetClass() : nullptr));
+	}
+
+	void RunAFLJewelShots(UWorld* World)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		APlayerState* PS = PC ? PC->PlayerState : nullptr;
+		UAFLCosmeticLoadoutComponent* L = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+		UAFLWalletComponent* W = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+		if (!L || !W || !PS->HasAuthority())
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[SHOTS] ABORT -- loadout=%s wallet=%s authority=%s. NOTHING CAPTURED."),
+				L ? TEXT("ok") : TEXT("MISSING"), W ? TEXT("ok") : TEXT("MISSING"),
+				(PS && PS->HasAuthority()) ? TEXT("y") : TEXT("N"));
+			return;
+		}
+
+		static const FName CHAIN_A(TEXT("AFL.Accessory.Chain.FoundersLink"));
+		static const FName CHAIN_B(TEXT("AFL.Accessory.Chain.FoundersPurps"));
+		static const FName PEND   (TEXT("AFL.Accessory.Pendant.TTG"));
+		static const FName WATCH  (TEXT("AFL.Accessory.Watch.Quantum"));
+		static const FName BRACE  (TEXT("AFL.Accessory.Bracelet.QuantumUniverse"));
+
+		for (const FName Id : { CHAIN_A, CHAIN_B, PEND, WATCH, BRACE }) { W->DebugGrantOwnership(Id); }
+
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SHOTS] BEGIN -- both chains, moving, sequence."));
+
+		TWeakObjectPtr<UAFLCosmeticLoadoutComponent> WL(L);
+		TWeakObjectPtr<APlayerController> WPC(PC);
+		// The subject is pinned by PlayerId, resolved ONCE here on the authority: the pawn we drive and
+		// the pawn we photograph must be the same player or the motion reading is of someone else.
+		TSharedPtr<int32> ShotPlayerId = MakeShared<int32>(PS->GetPlayerId());
+		TSharedPtr<int32> Phase     = MakeShared<int32>(0);
+		TSharedPtr<int32> T         = MakeShared<int32>(0);
+		TSharedPtr<int32> ChainIdx  = MakeShared<int32>(0);
+		TSharedPtr<int32> Frame     = MakeShared<int32>(0);
+		TSharedPtr<FVector> PrevRel = MakeShared<FVector>(FVector::ZeroVector);
+		TSharedPtr<int32> Guard     = MakeShared<int32>(0);
+
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+			[Phase, T, ChainIdx, Frame, PrevRel, Guard, WL, WPC, ShotPlayerId](float) -> bool
+		{
+			static const FName WristLS(TEXT("accessory_wrist_l"));
+			static const FName WristRS(TEXT("accessory_wrist_r"));
+			static const FName NeckS  (TEXT("accessory_neck"));
+
+			// TERMINATOR. Every wait in this programme needs one; a capture FSM that never ends holds
+			// PIE open and produces nothing.
+			if (++(*Guard) > 4000)
+			{
+				AFLRestoreSubjectAnim(*ShotPlayerId);
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SHOTS] HARDCAP -- ending, anim mode restored."));
+				return false;
+			}
+
+			UAFLCosmeticLoadoutComponent* Loadout = WL.Get();
+			APlayerController* SPC = WPC.Get();
+			ACharacter* SrvPawn = SPC ? Cast<ACharacter>(SPC->GetPawn()) : nullptr;
+			if (!Loadout || !SrvPawn)
+			{
+				AFLRestoreSubjectAnim(*ShotPlayerId);
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SHOTS] subject gone -- END"));
+				return false;
+			}
+
+			const FName Chain = (*ChainIdx == 0)
+				? FName(TEXT("AFL.Accessory.Chain.FoundersLink"))
+				: FName(TEXT("AFL.Accessory.Chain.FoundersPurps"));
+			const FString Tag = (*ChainIdx == 0) ? FString(TEXT("link")) : FString(TEXT("purps"));
+
+			++(*T);
+			switch (*Phase)
+			{
+			case 0:
+			{
+				// PRODUCTION PATH ONLY. Nothing here calls AddCharacterPart or writes AccessorySet --
+				// a capture that injected its own parts would be photographing its own injection.
+				for (int32 i = 0; i < (int32)EAFLAccessorySlot::MAX; ++i)
+				{
+					Loadout->ServerClearAccessory((EAFLAccessorySlot)i);
+				}
+				Loadout->ServerEquipWearable(Chain);
+				Loadout->ServerEquipWearable(FName(TEXT("AFL.Accessory.Pendant.TTG")));
+				Loadout->ServerEquipWearable(FName(TEXT("AFL.Accessory.Watch.Quantum")));
+				Loadout->ServerEquipWearable(FName(TEXT("AFL.Accessory.Bracelet.QuantumUniverse")));
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SHOTS] [%s] equipped chain + pendant + watch + bracelet"), *Tag);
+				*Phase = 1; *T = 0;
+				break;
+			}
+
+			case 1:   // SETTLE: replication, child-actor spawn, and let the drape hang
+				if (*T > 90) { *Phase = 2; *T = 0; }
+				break;
+
+			case 2:   // ANIMATE, then leave idle before ANY frame is taken
+			{
+				// PLAY A REAL LOCOMOTION CYCLE ON THE SUBJECT.
+				//
+				// Synthetic AddMovementInput does not animate this character -- measured over three
+				// runs, on the server copy AND on the locally-controlled client copy: the pawn
+				// translates, and wristRelToPawn stays identical to 0.01cm. Chasing why is the pose
+				// rabbit-hole that is CLOSED (operator ruling: not a defect, do not touch the anim
+				// graph), so this takes the operator's second option -- "walk OR ANIMATE the pawn".
+				//
+				// MF_Pistol_Jog_Fwd is chosen to match the equipped weapon so the arms carry a pistol
+				// the way they would in play. This drives the PAWN mesh only; each accessory keeps its
+				// OWN post-process AnimDynamics instance on its OWN component, so the sway is not
+				// bypassed -- it reacts to this motion, which is the whole point of a sequence.
+				//
+				// STATED PLAINLY: this is a capture-time animation, not gameplay locomotion. The frames
+				// show the jewellery on a moving skeleton, which is what a still could never show.
+				if (*T == 1)
+				{
+					ACharacter* Subj = AFLClientPawnForPlayer(*ShotPlayerId);
+					USkeletalMeshComponent* SubjMesh = Subj ? Subj->GetMesh() : nullptr;
+					UAnimSequence* Jog = LoadObject<UAnimSequence>(nullptr,
+						TEXT("/Game/Characters/Heroes/Mannequin/Animations/Locomotion/Pistol/MF_Pistol_Jog_Fwd.MF_Pistol_Jog_Fwd"));
+					if (SubjMesh && Jog)
+					{
+						SubjMesh->PlayAnimation(Jog, /*bLooping=*/true);
+						UE_LOG(LogAFLCombat, Display,
+							TEXT("AFL_TEST[SHOTS] driving %s with %s (capture-time animation)"),
+							*GetNameSafe(Subj), *Jog->GetName());
+					}
+					else
+					{
+						UE_LOG(LogAFLCombat, Error,
+							TEXT("AFL_TEST[SHOTS] could NOT animate the subject (mesh=%s anim=%s) -- "
+							     "every frame below will be STILL and is not a moving capture."),
+							SubjMesh ? TEXT("ok") : TEXT("MISSING"), Jog ? TEXT("ok") : TEXT("NOT LOADED"));
+					}
+				}
+				// DRIVE THE CLIENT COPY, NOT THE SERVER ONE. AddMovementInput on the server's copy of a
+				// CLIENT-CONTROLLED pawn is thrown away: the owning client keeps sending its own moves
+				// (which carry no input) and the movement component's correction wins. Measured across
+				// two runs -- the driven pawn read wristRelToPawn identical to 0.01cm for eight straight
+				// frames while the harness believed it was walking. Input has to enter where a player's
+				// input enters, on the locally-controlled client pawn, and replicate up from there.
+				ACharacter* Drive = AFLClientPawnForPlayer(*ShotPlayerId);
+				if (Drive && Drive->IsLocallyControlled())
+				{
+					Drive->AddMovementInput(Drive->GetActorForwardVector(), 1.0f);
+				}
+				else
+				{
+					// Not silent: a subject that cannot be driven produces a still capture, and a still
+					// capture is what this whole command exists to stop passing as a moving one.
+					SrvPawn->AddMovementInput(SrvPawn->GetActorForwardVector(), 1.0f);
+					if (*T == 1)
+					{
+						UE_LOG(LogAFLCombat, Warning,
+							TEXT("AFL_TEST[SHOTS] playerId=%d has no LOCALLY-CONTROLLED client pawn "
+							     "(drive=%s) -- falling back to server input, which a client-controlled "
+							     "pawn will IGNORE. Expect STILL frames."),
+							*ShotPlayerId, Drive ? TEXT("present-but-remote") : TEXT("MISSING"));
+					}
+				}
+				if (*T > 45) { *Phase = 3; *T = 0; *Frame = 0; *PrevRel = FVector::ZeroVector; }
+				break;
+			}
+
+			case 3:   // SHOOT THE SEQUENCE, still walking
+			{
+				if (ACharacter* Drive = AFLClientPawnForPlayer(*ShotPlayerId))
+				{
+					if (Drive->IsLocallyControlled()) { Drive->AddMovementInput(Drive->GetActorForwardVector(), 1.0f); }
+					else { SrvPawn->AddMovementInput(SrvPawn->GetActorForwardVector(), 1.0f); }
+				}
+				if (*T < 8) { break; }
+				*T = 0;
+
+				ACharacter* CliPawn = AFLClientPawnForPlayer(*ShotPlayerId);
+				const USkeletalMeshComponent* SM = CliPawn ? CliPawn->GetMesh() : nullptr;
+				if (!SM)
+				{
+					UE_LOG(LogAFLCombat, Warning,
+						TEXT("AFL_TEST[SHOTS] no CLIENT pawn for playerId=%d -- the subject never replicated "
+						     "to a client world. NOTHING CAPTURED for this chain."), *ShotPlayerId);
+					return false;
+				}
+
+				const FVector Rel = CliPawn->GetActorTransform().InverseTransformPosition(
+					SM->GetSocketLocation(WristLS));
+				const float Moved = (*Frame == 0) ? 0.0f : (float)(Rel - *PrevRel).Size();
+				*PrevRel = Rel;
+
+				const TCHAR* Motion = (*Frame == 0)
+					? TEXT("(first)")
+					: (Moved > 0.5f ? TEXT("MOVING") : TEXT("STILL -- this frame is NOT evidence of animation"));
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SHOTS] [%s] frame %d  wristRelToPawn=%s  delta=%.2fcm  %s"),
+					*Tag, *Frame, *Rel.ToCompactString(), Moved, Motion);
+
+				const FString FrameTag = FString::Printf(TEXT("%s_f%d"), *Tag, *Frame);
+				AFLShootJewel(CliPawn, FrameTag, TEXT("neck"), NeckS, 70.0f, 34.0f);
+				if (*Frame == 0)
+				{
+					AFLShootJewel(CliPawn, Tag, TEXT("wrist_l"), WristLS, 55.0f, 30.0f);
+					AFLShootJewel(CliPawn, Tag, TEXT("wrist_r"), WristRS, 55.0f, 30.0f);
+					AFLShootJewel(CliPawn, Tag, TEXT("upper"),   NeckS,  150.0f, 42.0f);
+					AFLShootJewel(CliPawn, Tag, TEXT("pendant"), FName(TEXT("accessory_pendant")), 40.0f, 30.0f);
+				}
+
+				if (++(*Frame) >= 4)
+				{
+					if (++(*ChainIdx) >= 2)
+					{
+						// PUT THE PAWN BACK. PlayAnimation switches the mesh to AnimationSingleNode and
+						// it STAYS there -- the character keeps jogging on spawn long after the harness
+						// is done. A test that leaves the pawn animating is a test that shipped a bug.
+						AFLRestoreSubjectAnim(*ShotPlayerId);
+						UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[SHOTS] END -- both chains captured; anim mode restored."));
+						return false;
+					}
+					*Phase = 0; *T = 0;
+				}
+				break;
+			}
+
+			default:
+				return false;
+			}
+			return true;
+		}), 0.016f);
+	}
+
+	void HandleAFLJewelShots(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())
+		{
+			AFLArmForPieAuthority(TEXT("AFL_TEST[SHOTS]"), [](UWorld* Wd) { RunAFLJewelShots(Wd); });
+			Ar.Log(TEXT("afl.Test.JewelShots ARMED -- start PIE; see AFL_TEST[SHOTS]."));
+			return;
+		}
+		RunAFLJewelShots(World);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLJewelShotsCmd(TEXT("afl.Test.JewelShots"),
+		TEXT("Capture jewellery on a MOVING character: both chains, a 4-frame sequence each, with the "
+		     "pawn-relative wrist delta recorded beside every frame so a still frame cannot pass as a "
+		     "moving one. Arms before PIE."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLJewelShots));
+
 	void HandleAFLJewelProof(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
 	{
 		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())
@@ -6935,6 +7544,264 @@ namespace
 		TEXT("attach at the right sockets, pendant rides the chain, un-equip/re-equip, wrist selection + ")
 		TEXT("third refused, and replication to a client world. Arms before PIE. Operator watches sway."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLJewelProof));
+
+	// === afl.Test.AnimLayers ======================================================================
+	// THE A-POSE REGRESSION. Operator: characters spawn in a stiff reference pose "until I move or
+	// cycle weapons". Those two actions share exactly one mechanism -- both end with the weapon's
+	// ANIM LAYER linked onto the mesh's anim instance. The arms are posed by that layer; the base
+	// graph on its own leaves them at the reference pose, which is what the A-pose IS.
+	//
+	// SUSPECTED CAUSE IS AN ORDERING RACE, NOT A BROKEN GRAPH:
+	//   ULyraPawnComponent_CharacterParts::BroadcastChanged
+	//     -> MeshComponent->SetSkeletalMesh(DesiredMesh, /*bReinitPose=*/ true)
+	// Re-creating the anim instance DROPS every linked layer. The engine early-outs only when the
+	// mesh is UNCHANGED (SkeletalMeshComponent.cpp:3327, read, not assumed), so routine part-adds are
+	// free -- but the FIRST body-style resolve at spawn is a real swap. If parts resolve AFTER the
+	// weapon equipped, the layer that equip linked is thrown away and nothing re-links it.
+	//
+	// THIS COMMAND MEASURES, AND CARRIES ITS OWN CONTROL:
+	//   READ 1  spawn, untouched      -> linked-layer count + is the arm AT the reference pose
+	//   READ 2  after re-linking      -> if the arm LEAVES the reference pose, the cause is proven
+	//                                    and the remedy is identified in the same step
+	// The pose fingerprint is taken against the mesh's OWN ref skeleton composed to component space,
+	// not against a stiffness threshold: "looks stiff" is not a measurement, "equals the reference
+	// pose to 0.01 cm" is. Read 1 alone is inconclusive by design -- a probe that can only report
+	// absence is the failure mode this programme keeps paying for, so read 2 must be able to flip it.
+
+	static FTransform AFLRefPoseComponentSpace(const USkeletalMeshComponent* Mesh, FName BoneName)
+	{
+		FTransform Out = FTransform::Identity;
+		const USkeletalMesh* Asset = Mesh ? Mesh->GetSkeletalMeshAsset() : nullptr;
+		if (!Asset) { return Out; }
+
+		const FReferenceSkeleton& Ref = Asset->GetRefSkeleton();
+		const TArray<FTransform>& Pose = Ref.GetRefBonePose();
+		int32 Idx = Ref.FindBoneIndex(BoneName);
+		if (Idx == INDEX_NONE || !Pose.IsValidIndex(Idx)) { return Out; }
+
+		// component = local(bone) * local(parent) * ... * local(root)
+		while (Idx != INDEX_NONE && Pose.IsValidIndex(Idx))
+		{
+			Out = Out * Pose[Idx];
+			Idx = Ref.GetParentIndex(Idx);
+		}
+		return Out;
+	}
+
+	/** Every PIE game world, labelled by netmode. The A-pose the operator SEES is the CLIENT's, and
+	 *  parts reach a client by replication -- strictly LATER than the authority add, so the race is more
+	 *  likely there. An authority-only probe could return a confident false negative. */
+	static void AFLForEachGameWorld(TFunction<void(UWorld*, const FString&)> Fn)
+	{
+		if (!GEngine) { return; }
+		for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+		{
+			UWorld* W = Ctx.World();
+			if (!W || !W->IsGameWorld()) { continue; }
+			const TCHAR* Kind =
+				(W->GetNetMode() == NM_Client) ? TEXT("CLIENT") :
+				(W->GetNetMode() == NM_DedicatedServer) ? TEXT("DEDSRV") :
+				(W->GetNetMode() == NM_ListenServer) ? TEXT("LISTEN") : TEXT("STANDALONE");
+			Fn(W, FString::Printf(TEXT("%s/%s"), Kind, *W->GetName()));
+		}
+	}
+
+	static void AFLReportAnimLayersForWorld(UWorld* World, const FString& WorldLabel, const TCHAR* Phase)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		ACharacter* Ch = PC ? Cast<ACharacter>(PC->GetPawn()) : nullptr;
+		USkeletalMeshComponent* Mesh = Ch ? Ch->GetMesh() : nullptr;
+		if (!Mesh)
+		{
+			UE_LOG(LogAFLCombat, Error, TEXT("AFL_TEST[APOSE] %-18s %s: NO PAWN MESH -- nothing measured."), *WorldLabel, Phase);
+			return;
+		}
+
+		// CONST ON PURPOSE: GetLinkedAnimInstances has two overloads and only the const one is public.
+		const USkeletalMeshComponent* CMesh = Mesh;
+		const UAnimInstance* Anim = Mesh->GetAnimInstance();
+		const TArray<UAnimInstance*>& Linked = CMesh->GetLinkedAnimInstances();
+
+		FString LinkedNames;
+		for (const UAnimInstance* L : Linked)
+		{
+			LinkedNames += FString::Printf(TEXT("%s "), *GetNameSafe(L ? L->GetClass() : nullptr));
+		}
+		if (LinkedNames.IsEmpty()) { LinkedNames = TEXT("<none>"); }
+
+		// Arms are the reported symptom; thigh_l is a CONTROL BONE. If the WHOLE skeleton reads as
+		// reference pose the finding is "graph not evaluating", a different defect from "upper body
+		// unposed" -- 100% of one bucket has misled this programme before and is checked for here.
+		// PELVIS-RELATIVE, because component space carries a rigid ROOT offset that the first run showed
+		// swamping the signal: four bones at completely different skeletal positions all reported the
+		// SAME distance (4.15 cm), which is a whole-skeleton translation, not posing. Cancelling the
+		// pelvis removes it, so what remains is the pose itself. The control bone that exposed this
+		// stays in the list for exactly the same reason.
+		const FTransform PelvisLive = Mesh->GetSocketTransform(FName(TEXT("pelvis")), RTS_Component);
+		const FTransform PelvisRef  = AFLRefPoseComponentSpace(Mesh, FName(TEXT("pelvis")));
+		const FTransform PelvisLiveInv = PelvisLive.Inverse();
+		const FTransform PelvisRefInv  = PelvisRef.Inverse();
+
+		FString Poses;
+		static const FName Bones[] = { TEXT("upperarm_l"), TEXT("hand_l"), TEXT("hand_r"), TEXT("thigh_l") };
+		for (const FName Bone : Bones)
+		{
+			const FVector Live = (Mesh->GetSocketTransform(Bone, RTS_Component) * PelvisLiveInv).GetLocation();
+			const FVector Ref  = (AFLRefPoseComponentSpace(Mesh, Bone) * PelvisRefInv).GetLocation();
+			const float D = FVector::Dist(Live, Ref);
+			Poses += FString::Printf(TEXT("%s=%.2f%s "), *Bone.ToString(), D, D < 0.01f ? TEXT("REF") : TEXT(""));
+		}
+
+		// ANIM INSTANCE IDENTITY, not just its class. The mesh never changes (measured: SKM_Manny_Invis
+		// every sample), so the swap-reinit theory is dead and two candidates remain -- the instance is
+		// RE-CREATED, or the SAME instance has its layers explicitly cleared by equip/unequip churn.
+		// The class name cannot tell those apart; the object id can, and they need different fixes.
+		const uint32 AnimId = Anim ? Anim->GetUniqueID() : 0;
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_TEST[APOSE] %-18s %-8s linked=%d [%s] anim=%s#%u mesh=%s | dist-from-refpose(cm): %s"),
+			*WorldLabel, Phase, Linked.Num(), *LinkedNames,
+			*GetNameSafe(Anim ? Anim->GetClass() : nullptr), AnimId,
+			*GetNameSafe(Mesh->GetSkeletalMeshAsset()), *Poses);
+	}
+
+	/** Reads EquippedAnimSet's choice through the SHIPPING selector. Protected, so reached by reflection
+	 *  rather than reimplemented -- a parallel classifier would be testing my copy, not the game's. */
+	static TSubclassOf<UAnimInstance> AFLPickBestAnimLayer(ULyraWeaponInstance* Weapon, const FGameplayTagContainer& CosmeticTags)
+	{
+		UFunction* Fn = Weapon ? Weapon->FindFunction(FName(TEXT("PickBestAnimLayer"))) : nullptr;
+		if (!Fn) { return nullptr; }
+		struct FPickArgs
+		{
+			bool bEquipped;
+			FGameplayTagContainer CosmeticTags;
+			TSubclassOf<UAnimInstance> ReturnValue;
+		};
+		FPickArgs Args;
+		Args.bEquipped = true;
+		Args.CosmeticTags = CosmeticTags;
+		Weapon->ProcessEvent(Fn, &Args);
+		return Args.ReturnValue;
+	}
+
+	static void AFLAnimLayerRelinkControlForWorld(UWorld* World, const FString& WorldLabel)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		ACharacter* Ch = PC ? Cast<ACharacter>(PC->GetPawn()) : nullptr;
+		USkeletalMeshComponent* Mesh = Ch ? Ch->GetMesh() : nullptr;
+		if (!Mesh) { return; }
+
+		ULyraEquipmentManagerComponent* EM = Ch->FindComponentByClass<ULyraEquipmentManagerComponent>();
+		ULyraWeaponInstance* Weapon = EM
+			? Cast<ULyraWeaponInstance>(EM->GetFirstInstanceOfType(ULyraWeaponInstance::StaticClass()))
+			: nullptr;
+		if (!Weapon)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[APOSE] %-18s RELINK SKIPPED: no ULyraWeaponInstance equipped (EM=%s). The "
+				     "control did not run, so the time series above stands UNINTERPRETED for this world."),
+				*WorldLabel, EM ? TEXT("present") : TEXT("MISSING"));
+			return;
+		}
+
+		// REFLECTION, NOT A DIRECT CALL: GetCombinedTags carries no export macro, so a plugin linking it
+		// fails at LNK2019 -- the same Lyra trap already on record for ALyraPlayerBotController. It IS a
+		// UFUNCTION, so the shipping implementation is still what runs; only the call path differs.
+		FGameplayTagContainer CosmeticTags;
+		if (ULyraPawnComponent_CharacterParts* Parts = Ch->FindComponentByClass<ULyraPawnComponent_CharacterParts>())
+		{
+			if (UFunction* TagFn = Parts->FindFunction(FName(TEXT("GetCombinedTags"))))
+			{
+				struct FTagArgs { FGameplayTag RequiredPrefix; FGameplayTagContainer ReturnValue; };
+				FTagArgs TagArgs;
+				Parts->ProcessEvent(TagFn, &TagArgs);
+				CosmeticTags = TagArgs.ReturnValue;
+			}
+		}
+
+		const TSubclassOf<UAnimInstance> Layer = AFLPickBestAnimLayer(Weapon, CosmeticTags);
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_TEST[APOSE] %-18s weapon=%s cosmeticTags=%d pickBestAnimLayer=%s"),
+			*WorldLabel, *GetNameSafe(Weapon), CosmeticTags.Num(), *GetNameSafe(Layer));
+
+		if (!Layer)
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("AFL_TEST[APOSE] %-18s RELINK SKIPPED: PickBestAnimLayer returned NULL -- "
+				     "EquippedAnimSet has no rule matching these tags and no DefaultLayer. CONTENT finding, "
+				     "not timing."), *WorldLabel);
+			return;
+		}
+
+		Mesh->LinkAnimClassLayers(Layer);
+		AFLReportAnimLayersForWorld(World, WorldLabel, TEXT("RELINK+0"));
+
+		// READ IT AGAIN A SECOND LATER. The same-frame read happens BEFORE the graph re-evaluates, so it
+		// can only ever show the pose we already had -- it cannot distinguish a working re-link from a
+		// useless one. The delayed read is the one that carries the verdict.
+		TWeakObjectPtr<UWorld> WeakW(World);
+		FString Label = WorldLabel;
+		TSharedPtr<double> T = MakeShared<double>(0.0);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+			[WeakW, Label, T](float Dt) -> bool
+			{
+				*T += Dt;
+				if (*T < 1.0) { return true; }
+				if (UWorld* W2 = WeakW.Get())
+				{
+					AFLReportAnimLayersForWorld(W2, Label, TEXT("RELINK+1s"));
+				}
+				return false;
+			}), 0.1f);
+	}
+
+	static void AFLRunAnimLayerProbe(UWorld* World)
+	{
+		// A TIME SERIES, NOT A SNAPSHOT. The suspected defect is a RACE: the weapon links its layer on
+		// equip, then the first body-style resolve re-creates the anim instance and drops it. A single
+		// read cannot distinguish "never linked" from "linked then dropped", and those have different
+		// fixes. Sampling once a second makes the drop itself visible.
+		TWeakObjectPtr<UWorld> WeakWorld(World);
+		TSharedPtr<double> Elapsed = MakeShared<double>(0.0);
+		TSharedPtr<int32> Next = MakeShared<int32>(0);
+
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+			[WeakWorld, Elapsed, Next](float Dt) -> bool
+			{
+				*Elapsed += Dt;
+				UWorld* W = WeakWorld.Get();
+				if (!W) { return false; }
+
+				if (*Elapsed >= (double)(*Next))
+				{
+					const FString Stamp = FString::Printf(TEXT("t=%ds"), *Next);
+					AFLForEachGameWorld([&Stamp](UWorld* GW, const FString& L)
+						{ AFLReportAnimLayersForWorld(GW, L, *Stamp); });
+					++(*Next);
+				}
+				if (*Elapsed < 8.0) { return true; }
+
+				// TERMINATOR, then the control -- which is also the candidate remedy.
+				AFLForEachGameWorld([](UWorld* GW, const FString& L)
+					{ AFLAnimLayerRelinkControlForWorld(GW, L); });
+				UE_LOG(LogAFLCombat, Log, TEXT("AFL_TEST[APOSE] END"));
+				return false;
+			}), 0.1f);
+	}
+
+	void HandleAFLAnimLayers(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())
+		{
+			AFLArmForPieAuthority(TEXT("AFL_TEST[APOSE]"), [](UWorld* Wd) { AFLRunAnimLayerProbe(Wd); });
+			Ar.Log(TEXT("afl.Test.AnimLayers ARMED -- start PIE; see AFL_TEST[APOSE]."));
+			return;
+		}
+		AFLRunAnimLayerProbe(World);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLAnimLayersCmd(TEXT("afl.Test.AnimLayers"),
+		TEXT("A-pose regression: reports linked anim-layer count and whether the arm bones equal the "
+		     "reference pose, then re-links the weapon's layer by hand as a control. Arms before PIE."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLAnimLayers));
 #endif // WITH_EDITOR
 
 #if WITH_EDITOR

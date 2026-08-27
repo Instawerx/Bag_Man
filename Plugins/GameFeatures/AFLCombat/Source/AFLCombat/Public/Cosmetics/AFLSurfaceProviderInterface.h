@@ -38,16 +38,27 @@ public:
 	/**
 	 * The visible skeletal mesh a piece in this slot must conform to.
 	 *
-	 * SlotName is the ACCESSORY slot being fitted, not the part that provides the surface:
-	 *   accessory_wrist_l / accessory_wrist_r / accessory_neck  -> the equipped BODY part's mesh
-	 *   accessory_pendant                                       -> the equipped CHAIN's mesh
+	 * SlotName is the surface KEY, not the accessory socket:
+	 *   "Body"  -> the equipped body character part's mesh (wrists and neck fit to this)
+	 *   "Neck"  -> the equipped CHAIN's mesh (the pendant fits to this)
 	 *
-	 * The pendant case is the two-level one and it is structural, not a special case: a pendant hangs
-	 * from a chain, and AddCharacterPart can only ever attach to the pawn's mesh
+	 * The pendant case is structural, not a special case: a pendant hangs from a chain, and
+	 * AddCharacterPart can only ever attach to the pawn's mesh
 	 * (ULyraPawnComponent_CharacterParts::GetSceneComponentToAttachTo returns
 	 * Cast<ACharacter>(Owner)->GetMesh()). So the chain spawns the pendant onto its own mesh, and the
-	 * surface the pendant fits is the chain, not the body.
+	 * surface the pendant fits is the chain.
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AFL|AccessoryIK")
 	USkeletalMeshComponent* GetVisibleMeshForSlot(FName SlotName);
+
+	/**
+	 * Publish the visible mesh for a slot. Called from the SPAWN pipelines, which are asymmetric:
+	 * body parts arrive through Lyra's AddCharacterPart, the pendant through the chain actor's own
+	 * RefreshPendant. Registration must therefore happen at two places, not one.
+	 *
+	 * Implementers MUST refuse the pawn's own mesh -- that is the invisible base, and accepting it
+	 * silently pins every piece to a boundary nothing renders.
+	 */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "AFL|AccessoryIK")
+	void RegisterMeshForSlot(FName SlotName, USkeletalMeshComponent* VisibleMesh);
 };

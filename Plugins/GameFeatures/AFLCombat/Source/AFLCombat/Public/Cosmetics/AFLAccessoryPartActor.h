@@ -49,6 +49,26 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Accessory")
 	void ApplyWristCorrection();
 
+	/**
+	 * STATIC PIECES ONLY. Watches and pendants have no skeleton -- measured, all six -- so they cannot
+	 * take a Transform (Modify) Bone node and must be moved at the component level instead.
+	 * Pulls the offset for this actor's own socket from the pawn's UAFLAccessoryIKComponent.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|AccessoryIK")
+	void ApplyIKOffset();
+
+private:
+	/** The mesh's authored relative location, captured once, so the IK offset is applied to the
+	 *  AUTHORED pose every time rather than accumulating on top of the previous frame's answer. */
+	FVector AuthoredMeshRelativeLocation = FVector::ZeroVector;
+
+	/** True while an IK write is waiting for the piece's attach into the pawn hierarchy to land. */
+	bool bAwaitingAttach = false;
+	FTimerHandle AttachRetryHandle;
+	bool bAuthoredMeshLocationCaptured = false;
+
+public:
+
 	/** True once the correction has been applied. Lets a test assert the mechanism ran rather than
 	 *  inferring it from a transform that might look right for another reason. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Accessory")
