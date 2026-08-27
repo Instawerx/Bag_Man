@@ -552,7 +552,7 @@ values.
 | Fact | Shape | Status |
 |---|---|---|
 | Owns a colour SKU | Boolean | **EXISTS** — `OwnedCosmeticIds` |
-| League membership | Conditional | **SHIPPED** — see below |
+| Battle Pass subscription | Conditional | **SHIPPED** — see below |
 | Purchased build slots | Counted | **PROVEN** — see below |
 | Max-slot upgrade | Boolean | **EXISTS** — `OwnedCosmeticIds` |
 
@@ -612,9 +612,14 @@ paid product, not by renaming the free one.
 Naming the paid tier "Battle Pass" collides two documents that describe **differently shaped
 products**. Reported, deliberately not resolved:
 
-| | `IRONICS_ECONOMY_SPEC.md` §4 | `IRONICS_PRICING_SSOT.md` §6 |
+> **RESOLVED 2026-08-27 on the naming and the product; the ECONOMICS remain open — see
+> `IRONICS_ECONOMY_SPEC.md` §4.1.** They are ONE product: the subscription grants the current
+> season's pass. `PRICING_SSOT` §6 governs the price (precedence verified by last content commit).
+> What is NOT resolved is the self-sustaining payout, which was tuned to the superseded ~8,000 V.
+
+| | `IRONICS_ECONOMY_SPEC.md` §4 (superseded price) | `IRONICS_PRICING_SSOT.md` §6 (governs) |
 |---|---|---|
-| Name | Battle Pass | League subscription |
+| Name | Battle Pass | Battle Pass subscription (was "League subscription") |
 | Shape | **Seasonal**, one-off | **Recurring subscription** |
 | Price | ~8,000 V (≈$8) / season | $5/mo · $30/yr · $10/qtr on annual ($40) |
 | Structure | ~100 tiers, free + premium track, claim flow | grants the clamped hue continuum |

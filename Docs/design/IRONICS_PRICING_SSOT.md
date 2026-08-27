@@ -232,16 +232,46 @@ double-charge or double-grant.
 
 ---
 
-## 6 · League subscription
+## 6 · Battle Pass subscription
 
-| Term | Price | Effective annual |
-|---|---|---|
-| Monthly | $5.00 | $60.00 |
-| Annual, paid up front | $30.00 | $30.00 |
-| Annual commit, paid quarterly | $10.00 / quarter | $40.00 |
+> **NAMING — RULED 2026-08-27.** `LeaguePlay` is the **free, unstaked** match tier
+> (`IsStaked() = Tier != LeaguePlay`, `IRONICS_LEAGUE_DOOR_SPEC.md:14`). The **paid tier is the
+> BATTLE PASS**. The collision is resolved by naming the paid product, not by renaming the free
+> one — renaming the free tier would have churned gameplay code, the front end and player language
+> to fix a commerce-side name.
+>
+> **ONE PRODUCT — RULED 2026-08-27.** The subscription **and** the Battle Pass are the same
+> product: *the subscription grants the current season's pass.* They were previously documented as
+> two (a recurring subscription here, a ~8,000 V seasonal pass at `ECONOMY_SPEC` §4). That price is
+> now superseded and points here.
+>
+> **PRECEDENCE, verified 2026-08-27 rather than assumed.** This doc governs pricing: last CONTENT
+> commit `a61d9e43` (2026-08-19, +13/−4) against `ECONOMY_SPEC`'s `0c5c88c3` (2026-07-09, +5/−0).
+> `ECONOMY_SPEC`'s header cited `1c072a49` (2026-08-05), which is a directory move with zero line
+> changes — so the gap is 41 days, not 14.
+>
+> ⚠ **`ECONOMY_SPEC` §4.1 records an OPEN economy question this ruling creates:** the pass's
+> "exactly self-sustaining" payout was tuned to ~8,000 V/season and does not survive a recurring
+> price (~15–16k V/season on monthly, ~7.5k on annual). Operator's call; nothing here resolves it.
+
+| Term | Price | Effective annual | Catalog SKU (verified 2026-08-27) |
+|---|---|---|---|
+| Monthly | $5.00 | $60.00 | `AFL.League.Monthly` — 5,000 V |
+| Annual, paid up front | $30.00 | $30.00 | `AFL.League.Annual` — 30,000 V |
+| Annual commit, paid quarterly | $10.00 / quarter | $40.00 | `AFL.League.Quarterly` — 10,000 V |
 
 The quarterly path costs $10 more than paying up front. Intentional financing spread,
 recorded so it is not later read as an error.
+
+**Catalog prices MATCH this table** at the 1,000 V = $1 peg, verified against
+`Docs/reference/catalog-export.json`.
+
+⚠ **The SKU ids and display names still say "League"** — `AFL.League.Monthly`, *"League — Monthly"*
+— which now contradicts the naming ruling above. These are **live commerce rows** on the shipping
+title, so they are reported here rather than rewritten: changing a live SKU id is a commerce
+migration with entitlement consequences, not a rename. **Operator's call**, and the two halves are
+separable — display names can be restyled to "Battle Pass" without touching the ids that
+entitlements key off.
 
 ### 6.1 What the subscription grants
 

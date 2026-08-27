@@ -1,6 +1,6 @@
 # IRONICS — Canonical Economy Spec (v1)
 
-> **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-08-05** (`1c072a49`). Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
+> **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-07-09** (`0c5c88c3`) — corrected 2026-08-27; the previously cited `1c072a49` (2026-08-05) is a directory move with zero line changes, and citing it made this doc look 27 days newer than it is. Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
 
 > **This is the canonical economy model.** It was built from operator decisions +
 > researched against current (June 2026) proven models (Valorant premium-direct,
@@ -151,7 +151,30 @@ your own body).
 
 ## 4. Battle Pass
 
-Price: ~8,000 Volts (≈$8) — matches the proven ~$8 pass price point.
+> ⚠ **PRICE SUPERSEDED 2026-08-27 — see `IRONICS_PRICING_SSOT.md` §6.**
+>
+> The ~8,000 V figure below is **no longer the pass price** and must not be quoted. Under the
+> precedence rule (ruled 2026-08-24: newest economy doc wins, prior fills gaps),
+> `IRONICS_PRICING_SSOT.md` governs pricing. Verified 2026-08-27 by last CONTENT commit rather
+> than by file date: PRICING_SSOT `a61d9e43` (2026-08-19, +13/−4) against this doc's `0c5c88c3`
+> (2026-07-09, +5/−0). This doc's own header cites `1c072a49` (2026-08-05), but that commit is
+> `Docs/{ => design}/` — a directory move with **zero line changes** — so this doc is 41 days
+> older than its header implies, not 14.
+>
+> **The ruled price is the subscription: $5/mo · $30/yr · $10/quarter on annual commit**, live in
+> the catalog as `AFL.League.Monthly` 5,000 V · `AFL.League.Quarterly` 10,000 V ·
+> `AFL.League.Annual` 30,000 V (verified against `Docs/reference/catalog-export.json`).
+>
+> **The subscription and the Battle Pass are ONE product** — the subscription grants the current
+> season's pass. Ruled 2026-08-27.
+>
+> **NAMING (ruled 2026-08-27):** `LeaguePlay` is the **free, unstaked** match tier. The **paid tier
+> is the BATTLE PASS**. Resolved by naming the paid product, not by renaming the free one.
+>
+> ⚠ **The self-sustaining arithmetic below does NOT survive this change — see §4.1.** Everything
+> else in this section (tier count, free track, no paid skips) stands.
+
+Price: ~8,000 Volts (≈$8) — matches the proven ~$8 pass price point.  **← SUPERSEDED, see above.**
 Structure: EXACTLY self-sustaining — complete the premium track, earn back
 exactly 8,000 Volts (enough for the next season's pass, no surplus).
 Rationale (operator-locked): launching exactly-self-sustaining from day one
@@ -164,6 +187,44 @@ player each season (the proven free-track hook; à la Fortnite's free-track gran
 Tiers: ~100 tiers, free + premium track, unlocked by play (XP/challenges).
 No paid tier-skips at launch beyond a standard bundle (pass + N tiers) — keep
 it clean; revisit later.
+
+---
+
+### 4.1 · OPEN — the self-sustaining arithmetic does not survive the new price
+
+**Reported 2026-08-27, deliberately NOT resolved. Operator's call.**
+
+§4 locked "exactly self-sustaining" as an operator ruling with a stated rationale: complete the
+premium track, earn back exactly the next pass, so IRONICS never creates a currency-surplus
+expectation it would later have to remove — explicitly framed against the 2026 Fortnite backlash,
+where the harm was the *takeaway*, not the margin.
+
+That design is **price-coupled**, and the price changed:
+
+| | old (§4) | new (`PRICING_SSOT` §6) |
+|---|---|---|
+| Cost | ~8,000 V once per season | 5,000 V/mo · 10,000 V/qtr · 30,000 V/yr |
+| Cadence | seasonal | recurring |
+| Season length | — | ~9–13 weeks (`ECON §7`, `LEAGUE_ADVANCEMENT §3`) |
+| **Cost per season at monthly** | **~8,000 V** | **~15,000–16,000 V** |
+
+So the premium track would have to pay back roughly **twice** what it was tuned to, and it must now
+do so against a *recurring* charge rather than a single seasonal one. Three consequences, none of
+them decided here:
+
+1. **Annual breaks it in the other direction.** 30,000 V/yr across ~4 seasons is ~7,500 V/season —
+   *below* the old 8,000. A track that returns 8,000 would make the annual plan net-positive, which
+   is the currency surplus §4 exists to avoid.
+2. **Self-sustaining is now plan-dependent.** The same track is a loss on monthly and a profit on
+   annual. "Exactly self-sustaining" no longer names one number.
+3. **The anti-backlash rationale is the load-bearing part.** Whatever is chosen, the risk §4 was
+   guarding against is *creating an expectation and later removing it*. Setting the payout too
+   generously now is the same trap one step later.
+
+**Not resolved here.** Four coherent options exist — retune the payout per plan, decouple the pass
+economy from the subscription price, keep the pass as a separate ~8,000 V purchase that the
+subscription merely *grants*, or drop exact self-sustainment as a goal — and choosing among them is
+an economy ruling, not a documentation fix.
 
 ---
 

@@ -96,7 +96,9 @@ bar, and an **always-visible exit**. See the non-negotiable below.
 ## R3.4 · THE STORE IS A PRODUCT PAGE, NOT A FILTERED GRID
 
 The ruled product list: robot packs · slot SKUs · weapon credits · sticker credits · hand-cannon pairs ·
-emblems · League membership · jewellery when the accessory line lands.
+emblems · Battle Pass subscription · jewellery when the accessory line lands.
+<!-- NAMING (ruled 2026-08-27): was "League membership". LeaguePlay is the FREE unstaked match
+     tier; the PAID tier is the Battle Pass. See IRONICS_PRICING_SSOT.md section 6. -->
 
 **Four of those eight are ENTITLEMENTS that map to no axis** — `CreatorSlot` is literally typed
 *"Creator Slot / Robot Pack"*. **Tabs have nothing left to filter.** The store becomes a small set of
