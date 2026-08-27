@@ -1,0 +1,199 @@
+{
+  "recorded_utc": "2026-08-27T01:53:27.002398Z",
+  "status": "OPERATOR LAW. These values are final and authoritative. Do NOT write them back automatically. Restore only on an explicit request, and re-record after any operator edit.",
+  "geometry": "closed-loop procedural chain, dims (14.2, 16.3, 27.2) cm, no cloth",
+  "body_mesh": "/Game/Characters/Heroes/Mannequin/Meshes/SKM_Manny",
+  "body_sockets": [
+    {
+      "socket": "accessory_neck",
+      "bone": "spine_03",
+      "relative_location": [
+        45.11843690846752,
+        3.1677924340783714,
+        -0.3636082686511367
+      ],
+      "relative_rotation_pyr": [
+        -1.9422646446223635,
+        87.81104532294262,
+        -91.7765185532104
+      ],
+      "relative_scale": [
+        1.880594809804729,
+        1.3806945423761643,
+        1.1873910007943305
+      ]
+    },
+    {
+      "socket": "accessory_pendant",
+      "bone": "spine_03",
+      "relative_location": [
+        16.062350458856343,
+        16.40880243873044,
+        5.120773596822836e-14
+      ],
+      "relative_rotation_pyr": [
+        1.8129161684342046e-13,
+        93.58633255841285,
+        -90.00000000000001
+      ],
+      "relative_scale": [
+        2.434676309627214,
+        2.7657928759657397,
+        2.359982607612743
+      ]
+    },
+    {
+      "socket": "accessory_wrist_l",
+      "bone": "hand_l",
+      "relative_location": [
+        -0.21496363866238447,
+        2.9556824396892054,
+        -3.3564610375630415
+      ],
+      "relative_rotation_pyr": [
+        20.21172536735683,
+        85.7113519689074,
+        -171.1361967385406
+      ],
+      "relative_scale": [
+        1.6803307260313123,
+        1.0,
+        1.5340798161595457
+      ]
+    },
+    {
+      "socket": "accessory_wrist_r",
+      "bone": "hand_r",
+      "relative_location": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "relative_rotation_pyr": [
+        -44.636169881023875,
+        -89.07655160610564,
+        41.12182193616394
+      ],
+      "relative_scale": [
+        1.4338641083480619,
+        0.3769473447806596,
+        1.0020033250012674
+      ]
+    },
+    {
+      "socket": "accessory_clavicle_l",
+      "bone": "clavicle_l",
+      "relative_location": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "relative_rotation_pyr": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "relative_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "socket": "accessory_clavicle_r",
+      "bone": "clavicle_r",
+      "relative_location": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "relative_rotation_pyr": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "relative_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "socket": "accessory_head",
+      "bone": "head",
+      "relative_location": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "relative_rotation_pyr": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "relative_scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "chain_sockets": {
+    "SK_BagMan_Chain_FoundersLink": {
+      "bounds_extent_cm": [
+        7.1211769580841064,
+        8.125578880310059,
+        13.611019521951675
+      ],
+      "sockets": [
+        {
+          "socket": "accessory_pendant",
+          "bone": "chain_04",
+          "relative_location": [
+            -0.028168603498253092,
+            -0.028884217825527667,
+            -3.0491708231733107e-05
+          ],
+          "relative_rotation_pyr": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "relative_scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      ]
+    },
+    "SK_BagMan_Chain_FoundersPurps": {
+      "bounds_extent_cm": [
+        7.1211769580841064,
+        8.125578880310059,
+        13.611019521951675
+      ],
+      "sockets": [
+        {
+          "socket": "accessory_pendant",
+          "bone": "chain_04",
+          "relative_location": [
+            -0.028168603498253092,
+            -0.028884217825527667,
+            -3.0491708231733107e-05
+          ],
+          "relative_rotation_pyr": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "relative_scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      ]
+    }
+  }
+}
