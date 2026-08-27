@@ -392,18 +392,39 @@ void UAFLW_LoadoutBase::EquipForAxis(EAFLLoadoutAxis Axis, FName CosmeticId)
 	case EAFLLoadoutAxis::WeaponSkin:  Sel.WeaponSkinId = CosmeticId; break;
 	case EAFLLoadoutAxis::Beam:        Sel.BeamId = CosmeticId; break;
 	case EAFLLoadoutAxis::Identity:
+	{
 		// Identity is either/or, resolved by the id's namespace (AFL.Character.* vs AFL.Team.*).
-		if (CosmeticId.ToString().StartsWith(TEXT("AFL.Character."), ESearchCase::IgnoreCase))
+		//
+		// ⚠ THE ELSE USED TO BE A CATCH-ALL, and it silently coerced every unrecognised namespace into
+		// a Team. AFL.Chassis.Creator -- the shared Pro Mod blank base -- was stored as TeamId and the
+		// equip reported success while the identity meant something nobody intended. An id whose
+		// namespace is not understood must be REFUSED, not filed under whichever branch is last.
+		const FString Id = CosmeticId.ToString();
+		if (Id.StartsWith(TEXT("AFL.Character."), ESearchCase::IgnoreCase))
 		{
 			Sel.IdentityType = EAFLIdentityType::Character;
 			Sel.CharacterId = CosmeticId;
 		}
-		else
+		else if (Id.StartsWith(TEXT("AFL.Team."), ESearchCase::IgnoreCase)
+			  || Id.StartsWith(TEXT("AFL.Chassis."), ESearchCase::IgnoreCase))
 		{
+			// AFL.Chassis.* rides the Team slot deliberately: GetActiveIdentityId() reads TeamId for
+			// this type and the part map keys off that id, so the blank base resolves through the
+			// SAME path as every other identity rather than needing a fourth mechanism. Named here so
+			// it is a decision on the record, not a coincidence of the fallthrough.
 			Sel.IdentityType = EAFLIdentityType::Team;
 			Sel.TeamId = CosmeticId;
 		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("[AFLLoadout] EquipForAxis(Identity) REFUSED '%s' -- unrecognised namespace. "
+				     "Expected AFL.Character.*, AFL.Team.* or AFL.Chassis.*. Nothing equipped."),
+				*Id);
+			return;
+		}
 		break;
+	}
 	case EAFLLoadoutAxis::BodyColor:   Sel.BodyId = CosmeticId; break;
 	case EAFLLoadoutAxis::EdgeColor:   Sel.EdgeId = CosmeticId; break;
 	case EAFLLoadoutAxis::Facemask:    Sel.FacemaskId = CosmeticId; break;

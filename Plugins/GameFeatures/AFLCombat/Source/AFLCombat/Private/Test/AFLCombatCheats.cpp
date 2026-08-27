@@ -7524,8 +7524,14 @@ namespace
 	// make the shot depend on loadout state that has nothing to do with what is being judged.
 	// Consequence, stated rather than discovered: data-bound fields will read empty. That is expected
 	// and is not a defect in the creator.
-	void HandleAFLCreatorShot(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	void HandleAFLCreatorShot(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 	{
+		// Optional chassis argument: afl.Creator.Shot [manny|promod]. The switch must happen INSIDE
+		// PIE, and the standing rule forbids tooling calls into a live session -- so it rides in on
+		// the command that already arms before PIE rather than being poked in afterwards.
+		const bool bWantChassis = Args.Num() > 0;
+		const bool bWantProMod  = bWantChassis && Args[0].StartsWith(TEXT("p"), ESearchCase::IgnoreCase);
+
 		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
 
 		// ARM ON THE PRIMARY GAME LAYOUT, NOT ON A PAWN.
@@ -7542,8 +7548,12 @@ namespace
 		if (!PC || !UPrimaryGameLayout::GetPrimaryGameLayout(PC))
 		{
 			TSharedPtr<double> Elapsed = MakeShared<double>(0.0);
+			// CAPTURED BY VALUE. The armed path re-enters this function on a later tick; dropping the
+			// args there would silently ignore the requested chassis, and the command would report
+			// success having shot the wrong one.
+			const TArray<FString> ArgsCopy = Args;
 			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
-				[Elapsed](float Dt) -> bool
+				[Elapsed, ArgsCopy](float Dt) -> bool
 				{
 					*Elapsed += Dt;
 					if (*Elapsed > 60.0)
@@ -7563,7 +7573,7 @@ namespace
 						if (Ready && UPrimaryGameLayout::GetPrimaryGameLayout(Ready))
 						{
 							FOutputDeviceNull Null;
-							HandleAFLCreatorShot(TArray<FString>(), W, Null);
+							HandleAFLCreatorShot(ArgsCopy, W, Null);
 							return false;
 						}
 					}
@@ -7641,12 +7651,38 @@ namespace
 			TEXT("AFL_TEST[CREATORSHOT] creator OPEN (%s) through the real path; shooting in 3s"),
 			*Creator->GetName());
 
+		if (bWantChassis)
+		{
+			const EAFLChassisLine Want = bWantProMod ? EAFLChassisLine::ProMod : EAFLChassisLine::Manny;
+			FText Reason;
+			const bool bAvail = Creator->IsChassisLineAvailable(Want, Reason);
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[CREATORSHOT] chassis requested=%s available=%d reason='%s'"),
+				bWantProMod ? TEXT("ProMod") : TEXT("Manny"), bAvail ? 1 : 0, *Reason.ToString());
+
+			const bool bSwitched = Creator->SelectChassisLine(Want);
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[CREATORSHOT] SelectChassisLine -> %d; now wearing %s"),
+				bSwitched ? 1 : 0,
+				Creator->GetCurrentChassisLine() == EAFLChassisLine::ProMod
+					? TEXT("ProMod") : TEXT("Manny"));
+
+			// ⚠ THE LINE ABOVE READS THE PAWN ON THE SAME TICK AS THE EQUIP, AND IS THEREFORE EARLY.
+			// Equipping an identity respawns the body through a soft class load and a child-actor spawn,
+			// so the mesh still reports the OLD chassis here -- SelectChassisLine returned 1 while the
+			// same log line said "now wearing Manny". Reporting only the return value would have called
+			// that a pass, and every channel count after it would have been the old chassis under the new
+			// label. The settled read below is the one to believe.
+
+		}
+
 		// 3s, not 1.5: this path also spins up the preview pawn and pulls the channel schema. A shot
 		// taken before those land photographs a half-populated screen, which reads as a data defect
 		// rather than the timing artefact it would actually be.
 		TWeakObjectPtr<UWorld> WeakWorld(World);
+		TWeakObjectPtr<UAFLW_Creator> WeakCreator(Creator);
 		FTimerHandle H;
-		World->GetTimerManager().SetTimer(H, FTimerDelegate::CreateLambda([WeakWorld]()
+		World->GetTimerManager().SetTimer(H, FTimerDelegate::CreateLambda([WeakWorld, WeakCreator]()
 		{
 			if (UWorld* Wd = WeakWorld.Get())
 			{
@@ -7659,6 +7695,37 @@ namespace
 				// is silent by nature: a screenshot always lands, so "a file appeared" proves nothing.
 				//
 				// bShowUI = true is the whole point here -- the subject IS the UI.
+				// SETTLED READ -- 3s after the equip, once the body has actually respawned.
+				if (UAFLW_Creator* C = WeakCreator.Get())
+				{
+					UE_LOG(LogAFLCombat, Display,
+						TEXT("AFL_TEST[CREATORSHOT] SETTLED: wearing %s"),
+						C->GetCurrentChassisLine() == EAFLChassisLine::ProMod ? TEXT("ProMod") : TEXT("Manny"));
+
+					// SCHEMA FROM THE COMPONENT, not from the widget's cached rows. The rail was rebuilt at
+					// switch time, which was before the body respawned, so its row count describes the OUTGOING
+					// chassis. Asking the component re-derives from whatever the pawn is wearing NOW.
+					if (APlayerController* SPC = Wd->GetFirstPlayerController())
+					{
+						if (APlayerState* SPS = SPC->PlayerState)
+						{
+							if (UAFLCosmeticLoadoutComponent* LC =
+								SPS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
+							{
+								const FAFLCreatorChannelSchema S = LC->GetChannelSchemaForPawn(SPC->GetPawn());
+								const UEnum* E = StaticEnum<EAFLChannelAvailability>();
+								auto St = [E](EAFLChannelAvailability V) {
+									return E ? E->GetNameStringByValue(static_cast<int64>(V)) : FString(); };
+								UE_LOG(LogAFLCombat, Display,
+									TEXT("AFL_TEST[CREATORSHOT] SETTLED SCHEMA master=%s body=%d edge=%d glow=%d ")
+									TEXT("visor=%d count=%d | body=%s edge=%s glow=%s visor=%s"),
+									*S.ResolvedFromMaster.ToString(), S.bBodyAvailable ? 1 : 0, S.bEdgeAvailable ? 1 : 0,
+									S.bGlowAvailable ? 1 : 0, S.bVisorAvailable ? 1 : 0, S.AvailableCount(),
+									*St(S.BodyState), *St(S.EdgeState), *St(S.GlowState), *St(S.VisorState));
+							}
+						}
+					}
+				}
 				FScreenshotRequest::RequestScreenshot(FString(), /*bShowUI=*/true, /*bAddUniqueSuffix=*/true);
 				UE_LOG(LogAFLCombat, Display,
 					TEXT("AFL_TEST[CREATORSHOT] screenshot requested (game viewport, UI shown)"));
