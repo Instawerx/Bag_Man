@@ -427,6 +427,10 @@
 		{
 			"Name": "GameLiftServerSDK",
 			"Enabled": true
+		},
+		{
+			"Name": "AFLLiveOps",
+			"Enabled": true
 		}
 	],
 	"EpicSampleNameHash": "451731683"

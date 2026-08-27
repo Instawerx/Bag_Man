@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "AFL Live Ops",
+	"Description": "S21 live-ops spine: the Battle Pass season definition, tier/reward model, XP curve, and the server-authoritative per-player progress component. A plain Default-phase RUNTIME plugin, not a GameFeature, for the same load-order reason AFLCosmeticCore is one: UAFLPassSeasonAsset registers as an AssetManager primary-asset type and AssetManager scans PrimaryAssetTypesToScan at engine startup, before any GameFeature module loads. The reward ASSETS a season points at stay soft-referenced and load on demand; only the season/tier vocabulary needs to be early. Pricing is NOT here and never will be: the pass is $5/month real money (IRONICS_PRICING_SSOT), entitlement lives on the existing conditional/counted paths, and duplicating a price into a data asset is how a superseded number survives.",
+	"Category": "AFL",
+	"CreatedBy": "C12 AI Gaming",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AFLLiveOps",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "AFLCosmeticCore",
+			"Enabled": true
+		}
+	]
+}
