@@ -25,6 +25,14 @@ namespace
 		TEXT("Docs/design/IRONICS_Home_Screen_Mockup.html"),
 		TEXT("Docs/design/IRONICS_League_Door_Mockup.html"),
 		TEXT("Docs/design/IRONICS_Staked_Door_Mockup.html"),
+		// The creator had NO page here, which is the root cause of the orphan styles: it needed a token
+		// no approved page declared, so styles were hand-made outside the pipeline. A surface with no
+		// page cannot track the palette by construction.
+		//
+		// BEFORE the lobby, not after: CompileAllDesignPages writes every page into the SAME asset folder,
+		// so the last page compiled is the final word on colour. "LOBBY LAST" below is a ruling, and
+		// appending the creator after it would have quietly handed house authority to the newest page.
+		TEXT("Docs/design/IRONICS_Creator_Mockup.html"),
 		TEXT("Docs/design/IRONICS_Lobby_Mockup.html"),
 	};
 
@@ -263,6 +271,13 @@ namespace
 			{ TEXT("TS_IRONICS_Text_Primary"),   { TEXT("--text-1"), TEXT("--t1") },                  EFaceRole::Body, 14.f },
 			{ TEXT("TS_IRONICS_Text_Secondary"), { TEXT("--text-2"), TEXT("--t2") },                  EFaceRole::Body, 13.f },
 			{ TEXT("TS_IRONICS_Text_Tertiary"),  { TEXT("--text-3"), TEXT("--t3") },                  EFaceRole::Body, 12.f },
+			// Body face, PRIMARY ink, 12pt. The one style the creator genuinely needed and no spec
+			// produced -- Text_Tertiary is the same face and size but carries --text-3 at 45% alpha, so
+			// it is not a substitute for a caption that has to stay readable. Its absence is why three
+			// hand-made TS_IRONICS_Creator_* styles were authored outside this compiler and therefore
+			// stopped tracking the palette; two of those were accidental duplicates of Display_Primary
+			// and Data_Primary. Adding it here is what lets all three be deleted.
+			{ TEXT("TS_IRONICS_Text_Small"),      { TEXT("--text-1"), TEXT("--t1") },                  EFaceRole::Body, 12.f },
 			{ TEXT("TS_IRONICS_Text_Electric"),  { TEXT("--house-electric"), TEXT("--electric") },    EFaceRole::Body, 13.f },
 			// The band readout when the value matches no band -- `outside all bands`. Paired with the tint;
 			// both are semantic, neither is the accent.

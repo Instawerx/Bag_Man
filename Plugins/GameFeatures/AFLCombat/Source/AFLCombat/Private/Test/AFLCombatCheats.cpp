@@ -7511,6 +7511,75 @@ namespace
 		}), 0.016f);
 	}
 
+	void HandleAFLCreatorShot(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar);
+
+	// === afl.Creator.Shot =========================================================================
+	// PUT THE CREATOR ON SCREEN AND SHOOT IT. The operator has never seen this surface, and there is no
+	// scriptable widget renderer in 5.6 (probed: WidgetRenderer and WidgetBlueprintLibrary are not
+	// exposed to Python, and the AIK Lua bridge publishes no UMG surface at all).
+	//
+	// The widget is created directly rather than driven through Loadout::OpenCreator: the goal is a
+	// picture of the SURFACE -- its layout, styles and palette -- and routing through the loadout would
+	// make the shot depend on loadout state that has nothing to do with what is being judged.
+	// Consequence, stated rather than discovered: data-bound fields will read empty. That is expected
+	// and is not a defect in the creator.
+	void HandleAFLCreatorShot(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		if (!PC)
+		{
+			// ARM, do not refuse. The bridge cannot inject a console command mid-PIE (standing rule:
+			// zero tooling calls into a live session), so a command that only works once PIE is up can
+			// never be fired at all. Same arm-and-wait shape the jewellery harnesses use.
+			AFLArmForPie(TEXT("AFL_TEST[CREATORSHOT]"), [](UWorld* Wd)
+			{
+				FOutputDeviceNull Null;
+				HandleAFLCreatorShot(TArray<FString>(), Wd, Null);
+			});
+			Ar.Log(TEXT("afl.Creator.Shot ARMED -- start PIE; the shot fires once a player controller exists."));
+			return;
+		}
+
+		UClass* WBP = LoadObject<UClass>(nullptr,
+			TEXT("/Game/BagMan/UI/Creator/WBP_AFL_Creator.WBP_AFL_Creator_C"));
+		if (!WBP)
+		{
+			Ar.Log(TEXT("afl.Creator.Shot -- could not load WBP_AFL_Creator_C."));
+			return;
+		}
+
+		UUserWidget* W = CreateWidget<UUserWidget>(PC, WBP);
+		if (!W)
+		{
+			Ar.Log(TEXT("afl.Creator.Shot -- CreateWidget returned null."));
+			return;
+		}
+		W->AddToViewport(1000);
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CREATORSHOT] widget added to viewport; shooting in 1.5s"));
+
+		// A single frame is not enough: CommonUI resolves styles and the layout settles over the first
+		// couple of ticks, and a shot taken immediately catches an unstyled skeleton.
+		TWeakObjectPtr<UWorld> WeakWorld(World);
+		FTimerHandle H;
+		World->GetTimerManager().SetTimer(H, FTimerDelegate::CreateLambda([WeakWorld]()
+		{
+			if (UWorld* Wd = WeakWorld.Get())
+			{
+				GEngine->Exec(Wd, TEXT("HighResShot 1920x1080"));
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[CREATORSHOT] HighResShot fired -- Saved/Screenshots/WindowsEditor"));
+			}
+		}), 1.5f, false);
+
+		Ar.Log(TEXT("afl.Creator.Shot -- creator pushed; screenshot in ~1.5s."));
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorShotCmd(TEXT("afl.Creator.Shot"),
+		TEXT("Push WBP_AFL_Creator to the viewport and take a HighResShot. Run inside PIE. Data-bound "
+		     "fields read empty by design -- this shoots the SURFACE, not a populated session."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorShot));
+
 	void HandleAFLJewelShots(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
 	{
 		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())

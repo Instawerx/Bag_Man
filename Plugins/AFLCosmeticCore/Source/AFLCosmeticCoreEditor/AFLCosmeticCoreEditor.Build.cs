@@ -40,6 +40,14 @@ public class AFLCosmeticCoreEditor : ModuleRules
 				"AnimGraph",        // UAnimGraphNode_AnimDynamics/_Root, UAnimationGraphSchema
 				"AnimGraphRuntime", // FAnimNode_AnimDynamics
 				"BlueprintGraph",   // EdGraph node/pin plumbing
+
+				// AFLWidgetAuditLibrary: read-only token-conformance audit of Widget Blueprints.
+				// UWidgetBlueprint::WidgetTree is not exposed to Python and the AIK Lua bridge has no
+				// UMG surface, so "is this colour from a compiled style or a typed literal" is only
+				// answerable from C++.
+				"UMG",              // UWidgetBlueprint, UWidgetTree, UWidget
+				"UMGEditor",        // UWidgetBlueprint (editor-side)
+				"CommonUI",         // UCommonTextBlock/UCommonBorder style classes
 			}
 		);
 	}
