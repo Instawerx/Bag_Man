@@ -246,11 +246,22 @@ double-charge or double-grant.
 > its ~8,000 V pass price is dead. That stale price produced the same false reconciliation three
 > times, which is why §4 is now marked at the top rather than corrected in place.
 >
-> ⚠ **THE LIVE CATALOG ROWS CONTRADICT THIS RULING AND ARE A REAL FINDING, not a doc problem.**
-> `AFL.League.Monthly` / `.Quarterly` / `.Annual` are priced in **Volts** (5,000 / 10,000 / 30,000)
-> with `type=SUBSCRIPTION`. Under this ruling the pass is real-money, so those rows either need a
-> real-money SKU path or they are selling a subscription for soft currency. Reported, not changed:
-> they are live commerce rows on the shipping title and rewriting them is a migration, not an edit.
+> ✅ **WATTS AND VOLTS ARE ALLOWED, PROVIDED THEY MATCH THE REAL DOLLAR PRICE. VERIFIED — CLOSED
+> 2026-08-27.** Clarified by ruling after this was briefly raised as a contradiction; it is not one.
+>
+> | SKU | Volts | implied USD | ruled USD | |
+> |---|---|---|---|---|
+> | `AFL.League.Monthly` | 5,000 | $5.00 | $5.00 | ✅ |
+> | `AFL.League.Quarterly` | 10,000 | $10.00 | $10.00 | ✅ |
+> | `AFL.League.Annual` | 30,000 | $30.00 | $30.00 | ✅ |
+>
+> Checked against the peg the docs actually state — **1 Volt = $0.001 · 10 Watts = 1 Volt**
+> (this doc §"Peg", and `ECONOMY_SPEC` agrees) — not against an assumed 1,000:1. All three rows
+> match exactly. No migration needed; nothing to change. **DONE.**
+>
+> The standing requirement is the *invariant*, not the audit: a soft-currency price on a
+> real-money SKU must equal the dollar price at the peg. Any future row that does not is the
+> finding.
 >
 > **NAMING — RULED 2026-08-27.** `LeaguePlay` is the **free, unstaked** match tier
 > (`IsStaked() = Tier != LeaguePlay`, `IRONICS_LEAGUE_DOOR_SPEC.md:14`). The **paid tier is the
