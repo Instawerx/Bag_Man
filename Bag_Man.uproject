@@ -396,6 +396,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "AFLHub",
+			"Enabled": true
+		},
+		{
 			"Name": "AFLBagMan",
 			"Enabled": true
 		},
