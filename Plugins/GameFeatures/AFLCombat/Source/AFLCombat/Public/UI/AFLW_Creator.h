@@ -30,6 +30,27 @@ class UAFLWalletComponent;
  * One rail row. Everything the WBP needs to draw a channel WITHOUT re-deriving anything -- including
  * the reason text, because a disabled control with no reason is indistinguishable from a broken one.
  */
+/**
+ * THE TWO CHASSIS. Ruled 2026-08-27; there are exactly two and they have three names between them.
+ *
+ *   MANNY    SKM_Manny         / M_Mannequin       -- older docs call this the "Original line"
+ *   PRO MOD  SKM_IRONICS_Blank / M_AFL_Character   -- older docs call this the "X line". FBIK blank base.
+ *
+ * "X" IS THE LEGACY NAME FOR PRO MOD -- one chassis, not two. Reading PROMOD_CHARACTER_SSOT 2 beside
+ * CHARACTER_CREATOR_SSOT 7 suggests a third chassis only because they name this one differently.
+ *
+ * ⚠ AFL.Character.<Name>_X ids are CHARACTER-ERA LEGACY, a per-character variant marker from when the
+ * game shipped named characters. They do NOT select a chassis. A first version of this enum swapped
+ * that suffix and was wrong twice: it treated legacy variants as lines, and it offered Manny as a
+ * destination when SSOT 7 defers it. The chassis is decided by the BODY BASE, never by an id suffix.
+ */
+UENUM(BlueprintType)
+enum class EAFLChassisLine : uint8
+{
+	Manny  UMETA(DisplayName = "Manny"),
+	ProMod UMETA(DisplayName = "Pro Mod")
+};
+
 USTRUCT(BlueprintType)
 struct FAFLCreatorChannelRow
 {
@@ -46,6 +67,19 @@ struct FAFLCreatorChannelRow
 
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Row")
 	EAFLChannelAvailability State = EAFLChannelAvailability::Absent;
+
+	/**
+	 * The chassis is already WEARING this colour, but the player has not chosen it.
+	 *
+	 * SEPARATE FROM bHasValue ON PURPOSE, and the separation is load-bearing. bHasValue gates the SAVE
+	 * path -- CommitRowsToBuild skips rows without it so that "never touched" cannot be written out as
+	 * "deliberately chose this". Seeding inherited colours into bHasValue would display correctly and
+	 * silently turn every untouched channel into an explicit choice on the first save.
+	 *
+	 * So: DISPLAY reads (bHasValue || bInherited). COMMIT reads bHasValue alone, unchanged.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Row")
+	bool bInherited = false;
 
 	/** Only Connected is interactive. PresentButInert and Absent BOTH render -- disabled, with a
 	 *  reason, and visually distinct from each other (they have different futures: inert is restorable
@@ -324,6 +358,49 @@ public:
 	/** Saved builds occupied. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Slots")
 	int32 GetSlotsUsed() const;
+
+	// ===== CHASSIS LINE (C2) ========================================================================
+	//
+	// SSOT 5.1 makes the line a first-class choice: Original and X are genuinely different products,
+	// and the channel count differs between them, so presenting one as a variant of the other would
+	// read the difference as a fault.
+
+	/**
+	 * The identity id that resolves to the SHARED PRO MOD BLANK BASE.
+	 *
+	 * ONE shared blank base, not a body per identity: the creator "produces a selection record over a
+	 * generic chassis" (SSOT 1), so Pro Mod needs one base class, not six.
+	 *
+	 * EXPOSED RATHER THAN HARD-CODED, and left EMPTY by default, because the row does not exist yet:
+	 * B_AFL_Robot_Chassis_X (which wears SKM_IRONICS_Blank) is REFERENCED by
+	 * DA_AFL_CharacterPartMap but carries no identity key, so nothing can address it. Inventing an id
+	 * here would produce a control that resolves to nothing -- the exact silent no-op this picker
+	 * exists to avoid. Point this at the key once the map has one and the Pro Mod card lights up with
+	 * no code change.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Creator|Chassis")
+	FName ProModChassisIdentityId;
+
+	/** Which chassis the pawn is WEARING -- read from the body mesh, not from an id. */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Chassis")
+	EAFLChassisLine GetCurrentChassisLine() const;
+
+	/**
+	 * Can the player move to @Line right now, and if not, WHY.
+	 *
+	 * NEVER A DEAD CONTROL. The X card is currently unavailable for a measured reason:
+	 * DA_AFL_CharacterPartMap carries 33 identity keys and ZERO ending in _X, so an X id resolves to
+	 * an empty body class and the pawn silently keeps its original chassis. The reason travels with
+	 * the refusal so the card explains itself instead of looking broken, and it lights up on its own
+	 * the moment the map gains _X entries -- no code change.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Chassis")
+	bool IsChassisLineAvailable(EAFLChassisLine Line, FText& OutReason) const;
+
+	/** Move the working selection to @Line, then re-derive the rail. False (and nothing changed) if
+	 *  the line is unavailable -- the caller should be showing the reason rather than the control. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Chassis")
+	bool SelectChassisLine(EAFLChassisLine Line);
 
 	/** Baseline + purchased, ceiling-clamped. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Slots")

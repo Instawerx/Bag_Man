@@ -1,6 +1,10 @@
 // CC-5.2 -- the creator widget's behaviour layer. See AFLW_Creator.h for why the rail is data.
 #include "UI/AFLW_Creator.h"
 
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "Cosmetics/AFLCharacterPartMap.h"   // ResolveCharacterPart -- the line-availability query
+
 #include "UI/AFLW_LoadoutBase.h"
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
 #include "Cosmetics/AFLWalletComponent.h"
@@ -55,16 +59,53 @@ UWidget* UAFLW_Creator::NativeGetDesiredFocusTarget() const
 	//
 	// So the guarantee no longer depends on a name. Named regions are a PREFERENCE, tried in order and
 	// logged when none hit; the widget ITSELF is the last resort, and it is always present.
-	static const TCHAR* const Preferred[] = { TEXT("C_ChannelRail"), TEXT("ChannelRail"), TEXT("Root_Shell") };
+	// CORRECTED 2026-08-27: EXISTENCE IS NOT FOCUSABILITY.
+	//
+	// The list used to end in "Root_Shell", and the loop accepted any widget it FOUND. Root_Shell
+	// exists -- it is the root CanvasPanel -- so the lookup succeeded, handed CommonUI a widget that
+	// can never take focus, and the log read "Root_Shell in WBP_AFL_Creator does not support focus".
+	// The fallback that was meant to guarantee focus is what prevented it: a panel always resolves, so
+	// the genuinely focusable candidates after it were never reached.
+	//
+	// Now the candidate must SUPPORT focus, not merely exist, and the panels are gone from the list --
+	// a CanvasPanel is never a focus target, so naming one is always a bug.
+	static const TCHAR* const Preferred[] = {
+		TEXT("C_ChannelRail"),   // the rail, if a focusable container is ever authored
+		TEXT("ChannelRail"),
+		TEXT("E_BuildName"),     // the name field -- the first thing a new build wants
+		TEXT("F_Save"),
+		TEXT("CloseButton"),
+	};
 	for (const TCHAR* Name : Preferred)
 	{
-		if (UWidget* W = GetWidgetFromName(FName(Name)))
+		UWidget* W = GetWidgetFromName(FName(Name));
+		if (!W)
+		{
+			continue;
+		}
+
+		// ASK SLATE, NOT UMG. UWidget publishes no IsFocusable in 5.6 -- focusability is a property of
+		// the underlying SWidget, so SupportsKeyboardFocus() is the only honest test. Belt and braces:
+		// a UPanelWidget is excluded structurally, because a container is never a focus target and
+		// naming one is always an authoring mistake, cached widget or not.
+		const bool bIsPanel = W->IsA<UPanelWidget>();
+		const TSharedPtr<SWidget> Slate = W->GetCachedWidget();
+		const bool bCanFocus = !bIsPanel && Slate.IsValid() && Slate->SupportsKeyboardFocus();
+
+		if (bCanFocus)
 		{
 			return W;
 		}
+		{
+			// Named, not skipped in silence: a candidate that exists but cannot take focus is a
+			// mis-authored preference, and it is invisible unless it says so.
+			UE_LOG(LogAFLCombat, Verbose,
+				TEXT("[Creator] focus candidate '%s' exists but does not support focus -- skipping."),
+				Name);
+		}
 	}
 	UE_LOG(LogAFLCombat, Verbose,
-		TEXT("[Creator] no preferred focus region present -- focusing the creator itself."));
+		TEXT("[Creator] no focusable preferred region present -- focusing the creator itself."));
 	return const_cast<UAFLW_Creator*>(this);
 }
 
@@ -117,17 +158,27 @@ void UAFLW_CreatorChannelRowBase::SetRowData(const FAFLCreatorChannelRow& InRow)
 	}
 	if (Row_StateBadge)
 	{
-		const UEnum* E = StaticEnum<EAFLChannelAvailability>();
-		Row_StateBadge->SetText(E
-			? E->GetDisplayNameTextByValue(static_cast<int64>(Row.State))
-			: FText::GetEmpty());
+		// COLLAPSED WHEN CONNECTED, and never showing an enum name.
+		//
+		// This printed GetDisplayNameTextByValue straight onto the screen, so every working row read
+		// "Connected" -- engineering vocabulary as the most prominent text on a colour editor, and on
+		// other rows it would have read "PresentButInert" or "Absent". A working control does not
+		// announce that it works. Non-connected rows explain themselves through Row_Reason, which
+		// already exists and already collapses when empty; the badge was competing with it.
+		const bool bShowBadge = (Row.State != EAFLChannelAvailability::Connected);
+		Row_StateBadge->SetVisibility(bShowBadge
+			? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		Row_StateBadge->SetText(FText::GetEmpty());
 	}
 	if (Row_Swatch)
 	{
 		// UNSET IS SHOWN AS UNSET. Painting FLinearColor::White on a channel the player has not touched
 		// would claim they chose white, which is a colour they can actually choose.
+		// Inherited colours SHOW. The swatch answers "what colour is this channel", and the robot is
+		// wearing one whether or not the player picked it. The unset-is-unset rule above still holds
+		// where nothing is worn either -- bInherited is false then and the swatch stays hidden.
 		Row_Swatch->SetColorAndOpacity(Row.Colour);
-		Row_Swatch->SetVisibility(Row.bHasValue
+		Row_Swatch->SetVisibility((Row.bHasValue || Row.bInherited)
 			? ESlateVisibility::Visible : ESlateVisibility::Hidden);
 	}
 	if (Row_LinkToggle)
@@ -394,6 +445,57 @@ EAFLChannelAvailability UAFLW_Creator::StateFor(const EAFLCreatorChannel Channel
 	return EAFLChannelAvailability::Absent;   // fails closed
 }
 
+namespace
+{
+	/**
+	 * The colour the chassis is ALREADY WEARING, read from the material that renders it.
+	 *
+	 * The worn colour is not in FAFLCosmeticSelection -- it is baked into the identity's material
+	 * instance -- so a new build legitimately has no selection value and the rail showed four labels,
+	 * no swatches and "--" on a COLOUR EDITOR. The value IS reachable: the same slot-0 / slot-1
+	 * materials the schema derives from carry these parameters, which is how SchemaProbe read
+	 * TeamColor off M_AFL_Character.
+	 *
+	 * Same slot split as the schema, for the same reason: a channel's value must come from the
+	 * material that renders it, or the rail shows a colour the robot is not wearing.
+	 */
+	bool AFLReadWornChannel(const APawn* Pawn, EAFLCreatorChannel Channel, FLinearColor& Out)
+	{
+		if (!Pawn) { return false; }
+
+		const int32 Slot = (Channel == EAFLCreatorChannel::Visor) ? 1 : 0;
+		const TCHAR* Param =
+			(Channel == EAFLCreatorChannel::Body)  ? TEXT("TeamColor")     :
+			(Channel == EAFLCreatorChannel::Edge)  ? TEXT("EdgeGlowColor") :
+			(Channel == EAFLCreatorChannel::Glow)  ? TEXT("EmissiveColor") :
+			                                         TEXT("BaseTint");
+
+		TArray<UChildActorComponent*> CACs;
+		const_cast<APawn*>(Pawn)->GetComponents<UChildActorComponent>(CACs);
+		for (const UChildActorComponent* CAC : CACs)
+		{
+			AActor* Child = CAC ? CAC->GetChildActor() : nullptr;
+			if (!Child) { continue; }
+			TArray<UMeshComponent*> Meshes;
+			Child->GetComponents<UMeshComponent>(Meshes);
+			for (UMeshComponent* Mesh : Meshes)
+			{
+				if (!Mesh || Mesh->GetNumMaterials() <= Slot) { continue; }
+				if (UMaterialInterface* Mat = Mesh->GetMaterial(Slot))
+				{
+					FLinearColor V(ForceInit);
+					if (Mat->GetVectorParameterValue(FMaterialParameterInfo(FName(Param)), V))
+					{
+						Out = V;
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+}
+
 FLinearColor UAFLW_Creator::ColourFor(const EAFLCreatorChannel Channel, bool& bOutHasValue) const
 {
 	bOutHasValue = false;
@@ -537,8 +639,25 @@ void UAFLW_Creator::RebuildRows()
 		Row.bInteractive  = (State == EAFLChannelAvailability::Connected);
 		Row.Reason        = ReasonFor(Ch, State);
 		Row.Colour        = ColourFor(Ch, Row.bHasValue);
-		Row.HueDegrees    = Row.bHasValue ? AFLCreatorGamut::HueOf(Row.Colour) : 0.0f;
-		Row.Readout       = BuildReadout(Row.Colour, Row.bHasValue);
+
+		// INHERITED, NOT CHOSEN. With nothing picked, fall back to what the robot is actually wearing
+		// so the rail reads "your robot's colour, change it" rather than four blanks on a colour
+		// editor. bHasValue stays FALSE: CommitRowsToBuild keys off it, and an inherited colour is not
+		// a choice -- seeding it would turn "never touched" into "deliberately chose this" on save.
+		Row.bInherited = false;
+		if (!Row.bHasValue)
+		{
+			FLinearColor Worn;
+			if (AFLReadWornChannel(L ? L->GetPreviewPawn() : nullptr, Ch, Worn))
+			{
+				Row.Colour     = Worn;
+				Row.bInherited = true;
+			}
+		}
+
+		const bool bShowValue = Row.bHasValue || Row.bInherited;
+		Row.HueDegrees    = bShowValue ? AFLCreatorGamut::HueOf(Row.Colour) : 0.0f;
+		Row.Readout       = BuildReadout(Row.Colour, bShowValue);
 		Row.bLinked       = L ? L->CreatorLinks.IsLinked(Ch) : false;
 
 		// Connected on an unaudited master is "present, inertness unknown" -- NOT "measured to
@@ -663,4 +782,143 @@ int32 UAFLW_Creator::GetSlotCap() const
 FText UAFLW_Creator::GetSlotCounterText() const
 {
 	return FText::FromString(FString::Printf(TEXT("%d / %d"), GetSlotsUsed(), GetSlotCap()));
+}
+
+
+// ===== CHASSIS (C2) =================================================================================
+
+namespace
+{
+	/** The Pro Mod blank base wears this mesh. The chassis IS the body base, so the mesh is the read. */
+	const TCHAR* GAFLProModMesh = TEXT("SKM_IRONICS_Blank");
+
+	/** Which chassis a pawn is WEARING, from the skeletal mesh its part actors carry.
+	 *
+	 *  Read from the MESH rather than from the identity id, because the id proved to be the wrong
+	 *  instrument twice: _X suffixes are character-era legacy, and a MID name (MID_MI_IRONICS_Body_Red_0)
+	 *  tells you nothing reliable about the base. The mesh is what the ruling defines the chassis by. */
+	EAFLChassisLine AFLChassisOfPawn(const APawn* Pawn)
+	{
+		if (!Pawn) { return EAFLChassisLine::Manny; }
+
+		TArray<UChildActorComponent*> CACs;
+		const_cast<APawn*>(Pawn)->GetComponents<UChildActorComponent>(CACs);
+		for (const UChildActorComponent* CAC : CACs)
+		{
+			AActor* Child = CAC ? CAC->GetChildActor() : nullptr;
+			if (!Child) { continue; }
+			TArray<USkeletalMeshComponent*> Meshes;
+			Child->GetComponents<USkeletalMeshComponent>(Meshes);
+			for (const USkeletalMeshComponent* SK : Meshes)
+			{
+				const USkeletalMesh* M = SK ? SK->GetSkeletalMeshAsset() : nullptr;
+				if (M && M->GetName().Contains(GAFLProModMesh))
+				{
+					return EAFLChassisLine::ProMod;
+				}
+			}
+		}
+		return EAFLChassisLine::Manny;
+	}
+}
+
+EAFLChassisLine UAFLW_Creator::GetCurrentChassisLine() const
+{
+	UAFLW_LoadoutBase* L = const_cast<UAFLW_LoadoutBase*>(Loadout.Get());
+	return AFLChassisOfPawn(L ? L->GetPreviewPawn() : nullptr);
+}
+
+bool UAFLW_Creator::IsChassisLineAvailable(const EAFLChassisLine Line, FText& OutReason) const
+{
+	OutReason = FText::GetEmpty();
+
+	if (Line == GetCurrentChassisLine())
+	{
+		return true;   // already worn; the card renders as the current selection
+	}
+
+	UAFLW_LoadoutBase* L = const_cast<UAFLW_LoadoutBase*>(Loadout.Get());
+	if (!L)
+	{
+		OutReason = NSLOCTEXT("AFLCreator", "ChassisNoLoadout", "Not available right now.");
+		return false;
+	}
+	const UAFLCharacterPartMap* Map = L->GetDisplayPartMap();
+	if (!Map)
+	{
+		OutReason = NSLOCTEXT("AFLCreator", "ChassisNoMap", "Chassis data is not loaded.");
+		return false;
+	}
+
+	// PRO MOD -- one shared blank base, addressed by whichever identity key the part map gives it.
+	if (Line == EAFLChassisLine::ProMod)
+	{
+		if (ProModChassisIdentityId.IsNone())
+		{
+			OutReason = NSLOCTEXT("AFLCreator", "ChassisProModUnmapped",
+				"The Pro Mod chassis isn't available yet.");
+			UE_LOG(LogAFLCombat, Verbose,
+				TEXT("[Creator] Pro Mod unavailable: ProModChassisIdentityId unset. "
+				     "B_AFL_Robot_Chassis_X is referenced by the part map but has no identity key."));
+			return false;
+		}
+		if (Map->ResolveCharacterPart(ProModChassisIdentityId).IsNull())
+		{
+			OutReason = NSLOCTEXT("AFLCreator", "ChassisProModNoBody",
+				"The Pro Mod chassis isn't available yet.");
+			UE_LOG(LogAFLCombat, Verbose,
+				TEXT("[Creator] Pro Mod unavailable: '%s' is not in the part map."),
+				*ProModChassisIdentityId.ToString());
+			return false;
+		}
+		return true;
+	}
+
+	// MANNY -- per-identity bodies. Reachable when the working identity maps to one.
+	const FName Id = L->CreatorGetWorkingSelection().CharacterId;
+	if (Map->ResolveCharacterPart(Id).IsNull())
+	{
+		OutReason = NSLOCTEXT("AFLCreator", "ChassisMannyNoBody",
+			"This chassis has no body for your robot yet.");
+		UE_LOG(LogAFLCombat, Verbose,
+			TEXT("[Creator] Manny unavailable: '%s' is not in the part map."), *Id.ToString());
+		return false;
+	}
+	return true;
+}
+
+bool UAFLW_Creator::SelectChassisLine(const EAFLChassisLine Line)
+{
+	FText Reason;
+	if (!IsChassisLineAvailable(Line, Reason))
+	{
+		// Refuses rather than half-applying. Equipping an id the map cannot resolve would leave the
+		// selection claiming a chassis the pawn is not wearing, and the rail would then derive its
+		// channels from the OLD body while the card showed the new one -- which looks like it worked.
+		UE_LOG(LogAFLCombat, Warning, TEXT("[Creator] SelectChassisLine REFUSED: %s"), *Reason.ToString());
+		return false;
+	}
+	if (Line == GetCurrentChassisLine())
+	{
+		return true;
+	}
+
+	UAFLW_LoadoutBase* L = Loadout.Get();
+	if (!L) { return false; }
+
+	const FName Target = (Line == EAFLChassisLine::ProMod)
+		? ProModChassisIdentityId
+		: L->CreatorGetWorkingSelection().CharacterId;
+
+	L->EquipForAxis(EAFLLoadoutAxis::Identity, Target);
+
+	// The channel count is a property of the chassis -- Manny offers three body channels, Pro Mod two
+	// (TeamColor is inert on M_AFL_Character). So the rail MUST be re-derived here; this is the
+	// "call on chassis change" the RebuildRows contract already asks for.
+	RefreshFromSchema();
+	RebuildChannelRows();
+
+	UE_LOG(LogAFLCombat, Display, TEXT("[Creator] chassis -> %s (identity %s); rail re-derived"),
+		Line == EAFLChassisLine::ProMod ? TEXT("ProMod") : TEXT("Manny"), *Target.ToString());
+	return true;
 }

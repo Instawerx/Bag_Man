@@ -360,7 +360,23 @@ private:
 	/** The pawn the preview CAPTURES: the ASC-less display pawn (spawned on first call + given the IRONICS body).
 	 *  Replaces GetLocalPawn() as the capture target so the pod shows a display robot, not the gameplay pawn --
 	 *  which is what lets the preview work with no live pawn (the front-end fix under B). */
+public:
+	/** The display pawn, spawning one if needed.
+	 *
+	 *  PUBLIC as of 2026-08-27: the creator reads the chassis's WORN channel colours off this pawn's
+	 *  materials to seed the rail, which is a product path, not a test one. It was private with a
+	 *  public GetPreviewPawnForTest() twin -- and reaching for a "ForTest" accessor from shipping UI
+	 *  would misname the dependency for every later reader. */
 	APawn* GetPreviewPawn();
+
+	/** The identity->body map, READ ONLY.
+	 *
+	 *  A const getter rather than making DisplayPartMap public: the creator needs to ASK whether a
+	 *  chassis line can resolve to a body, not to hold or replace the map. Widening the property
+	 *  itself would hand every caller a settable pointer to answer a question. */
+	const class UAFLCharacterPartMap* GetDisplayPartMap() const { return DisplayPartMap; }
+
+private:
 
 	/** Apply the player's CURRENT selection to the display pawn via the PROVEN 3-tier fan-out: resolve the
 	 *  identity -> robot body (IRONICS fallback; re-spawned only on change) + drive the controller's

@@ -1198,8 +1198,19 @@ FAFLCreatorChannelSchema UAFLCosmeticLoadoutComponent::GetChannelSchemaForPawn(A
 	FAFLCreatorChannelSchema Out;
 	if (!Pawn) { return Out; }
 
-	// Find the slot-1 material on the first part actor that has one. Slot 1 is the visor/facemask slot
-	// whose master determines coverage; slot 0 is the body master and is the same for every chassis.
+	// TWO SLOTS, TWO QUESTIONS -- CORRECTED 2026-08-27.
+	//
+	// This derived ALL FOUR channels from slot 1, on the stated premise that "slot 0 is the body master
+	// and is the same for every chassis". That premise died when the X line landed. The result, measured:
+	// the runtime resolved from MID_MI_AFL_FaceMask_Pink_0 and reported body=1 available=4, so the
+	// creator offered a Body channel on an X-line chassis whose TeamColor is declared and never consumed
+	// (CREATOR SSOT 3.4). A control that writes nowhere is exactly what section 8.1 forbids.
+	//
+	// Each channel's availability now comes from the material that actually RENDERS it:
+	//   slot 0 -- the body master  -> body, edge, glow
+	//   slot 1 -- the visor master -> visor
+	// Probed at the material level: M_AFL_Character gives body=0 count=2 bodyState=PresentButInert;
+	// M_Mannequin gives body=1 count=3. Two on the X line, three on Manny-based, as ruled.
 	TArray<UChildActorComponent*> CACs;
 	Pawn->GetComponents<UChildActorComponent>(CACs);
 	for (const UChildActorComponent* CAC : CACs)
@@ -1211,9 +1222,22 @@ FAFLCreatorChannelSchema UAFLCosmeticLoadoutComponent::GetChannelSchemaForPawn(A
 		for (UMeshComponent* Mesh : Meshes)
 		{
 			if (!Mesh || Mesh->GetNumMaterials() < 2) { continue; }
-			if (UMaterialInterface* Slot1 = Mesh->GetMaterial(1))
+			UMaterialInterface* Slot0 = Mesh->GetMaterial(0);
+			UMaterialInterface* Slot1 = Mesh->GetMaterial(1);
+			if (Slot0 && Slot1)
 			{
-				Out = FAFLCreatorChannelSchema::DeriveFromMaterial(Slot1);
+				// BODY / EDGE / GLOW from the body master.
+				Out = FAFLCreatorChannelSchema::DeriveFromMaterial(Slot0);
+
+				// VISOR from the visor master -- the only channel slot 1 legitimately governs.
+				const FAFLCreatorChannelSchema VisorSchema =
+					FAFLCreatorChannelSchema::DeriveFromMaterial(Slot1);
+				Out.bVisorAvailable = VisorSchema.bVisorAvailable;
+				Out.VisorState      = VisorSchema.VisorState;
+
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("AFL_TEST[SCHEMA] slot0=%s slot1=%s -- body/edge/glow from slot0, visor from slot1"),
+					*GetNameSafe(Slot0), *GetNameSafe(Slot1));
 				UE_LOG(LogAFLCombat, Display,
 					TEXT("AFL_TEST[SCHEMA] master=%s body=%d edge=%d glow=%d available=%d"),
 					*Out.ResolvedFromMaster.ToString(), Out.bBodyAvailable ? 1 : 0,

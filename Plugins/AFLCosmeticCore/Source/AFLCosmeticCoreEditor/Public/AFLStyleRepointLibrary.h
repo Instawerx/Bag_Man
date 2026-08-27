@@ -44,4 +44,43 @@ public:
 		const FString& FromStyleClassName,
 		const FString& ToStyleObjectPath,
 		bool bApply = false);
+
+	/**
+	 * Set a named Border's BrushColor to a token value.
+	 *
+	 * EXISTS BECAUSE "ON-TOKEN" IS NOT THE SAME AS "CORRECTLY USED". The creator's three panel grounds
+	 * were filled with House.Electric at 94%, and the colour audit passed them: Electric IS a house
+	 * colour. It is the EDGE colour. As a panel fill it renders the whole surface as flat blue slabs and
+	 * breaks the lobby page's contrast ruling, where Electric on black measures 3.75:1 and is permitted
+	 * for text in exactly two inactive states. A palette check cannot see a role error, which is why the
+	 * screen looked wrong while the audit read clean.
+	 *
+	 * These are plain UMG Borders, not UCommonBorders, so they cannot reference a BS_IRONICS_* style and
+	 * the token value has to be written onto the brush directly.
+	 *
+	 * Dry-run by default, like RepointTextStyle. Verify with the READ-ONLY auditor afterwards.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|UI Repoint")
+	static TArray<FString> RetintBorder(
+		const FString& BlueprintPath,
+		const FString& WidgetName,
+		FLinearColor TokenColor,
+		bool bApply = false);
+
+	/**
+	 * Insert a full-bleed depth scrim as the FIRST child of the root panel, behind everything.
+	 *
+	 * The design page puts glass panels on a `--depth` #05080F ground. In-game the creator has no such
+	 * ground -- probed by name, thirteen candidates, none present -- so the front-end scene shows
+	 * straight through and glass at 12% white washes out over a bright station interior. Glass is a
+	 * LIFT off a dark ground; without the ground it is just haze.
+	 *
+	 * ADDITIVE and idempotent: if a Border of this name already exists it is retinted rather than
+	 * duplicated, so running twice cannot stack two scrims.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|UI Repoint")
+	static TArray<FString> AddDepthScrim(
+		const FString& BlueprintPath,
+		FLinearColor DepthColor,
+		bool bApply = false);
 };

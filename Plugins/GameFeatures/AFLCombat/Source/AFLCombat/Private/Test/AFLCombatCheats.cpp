@@ -127,6 +127,7 @@
 #include "GameplayTagContainer.h"
 #include "HAL/IConsoleManager.h"
 #include "NativeGameplayTags.h"
+#include "UnrealClient.h"                         // FScreenshotRequest -- game viewport, not the editor one
 #include "CommonUIExtensions.h"                        // S-ECON-STORE: PushContentToLayer_ForPlayer (afl.Store.Open)
 #include "CommonActivatableWidget.h"                   // S-ECON-STORE: the store widget class type to push
 #include "Engine/LocalPlayer.h"                        // S-ECON-STORE: GetLocalPlayer() for the per-player push
@@ -7526,58 +7527,151 @@ namespace
 	void HandleAFLCreatorShot(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
 	{
 		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
-		if (!PC)
+
+		// ARM ON THE PRIMARY GAME LAYOUT, NOT ON A PAWN.
+		//
+		// AFLArmForPie waits for an ACharacter, because it was built for the jewellery and FBIK probes
+		// and those measure a body. A UI surface needs a LAYOUT. Arming on a pawn pushed this command
+		// onto a gameplay map to satisfy the helper -- and a gameplay map has no PrimaryGameLayout, so
+		// the creator could never open there: the run failed with "no PrimaryGameLayout for
+		// LyraPlayerController_0". The front end is the exact inverse -- a layout and no pawn -- and the
+		// front end is where the creator belongs anyway (CREATOR SSOT 5.1: entry is a full-screen menu,
+		// sibling of the Digital Market; 5.2: out-of-match by construction).
+		//
+		// Same shape the dev-menu summon already uses: wait for the local player, not for a body.
+		if (!PC || !UPrimaryGameLayout::GetPrimaryGameLayout(PC))
 		{
-			// ARM, do not refuse. The bridge cannot inject a console command mid-PIE (standing rule:
-			// zero tooling calls into a live session), so a command that only works once PIE is up can
-			// never be fired at all. Same arm-and-wait shape the jewellery harnesses use.
-			AFLArmForPie(TEXT("AFL_TEST[CREATORSHOT]"), [](UWorld* Wd)
-			{
-				FOutputDeviceNull Null;
-				HandleAFLCreatorShot(TArray<FString>(), Wd, Null);
-			});
-			Ar.Log(TEXT("afl.Creator.Shot ARMED -- start PIE; the shot fires once a player controller exists."));
+			TSharedPtr<double> Elapsed = MakeShared<double>(0.0);
+			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+				[Elapsed](float Dt) -> bool
+				{
+					*Elapsed += Dt;
+					if (*Elapsed > 60.0)
+					{
+						UE_LOG(LogAFLCombat, Error,
+							TEXT("AFL_TEST[CREATORSHOT] GAVE UP after 60s -- no player controller with a "
+							     "PrimaryGameLayout appeared. Run this on the FRONT END "
+							     "(L_LyraFrontEnd); a gameplay map has no layout to push onto."));
+						return false;
+					}
+					if (!GEngine) { return true; }
+					for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+					{
+						UWorld* W = Ctx.World();
+						if (!W || !W->IsGameWorld()) { continue; }
+						APlayerController* Ready = W->GetFirstPlayerController();
+						if (Ready && UPrimaryGameLayout::GetPrimaryGameLayout(Ready))
+						{
+							FOutputDeviceNull Null;
+							HandleAFLCreatorShot(TArray<FString>(), W, Null);
+							return false;
+						}
+					}
+					return true;
+				}), 0.5f);
+
+			UE_LOG(LogAFLCombat, Display,
+				TEXT("AFL_TEST[CREATORSHOT] ARMED -- waiting for a player controller WITH a "
+				     "PrimaryGameLayout (i.e. the front end), giving up after 60s."));
+			Ar.Log(TEXT("afl.Creator.Shot ARMED -- start PIE on the FRONT END (L_LyraFrontEnd)."));
 			return;
 		}
 
-		UClass* WBP = LoadObject<UClass>(nullptr,
-			TEXT("/Game/BagMan/UI/Creator/WBP_AFL_Creator.WBP_AFL_Creator_C"));
-		if (!WBP)
+		// UE_LOG, NOT Ar.Log, FOR EVERY FAILURE PATH BELOW.
+		//
+		// When this runs armed, the caller hands in an FOutputDeviceNull, so anything written to Ar is
+		// discarded. Two PIE runs produced no screenshot, no "widget added" line and no "GAVE UP" --
+		// a combination only possible if the shot fired and failed early with its reason thrown away.
+		// A harness whose failure path is invisible reports the same silence as one that never ran.
+
+		// THE REAL FRONT-END PATH, not a direct CreateWidget.
+		//
+		// The first version pushed WBP_AFL_Creator straight to the viewport. That renders the SURFACE and
+		// nothing else: the creator takes its channel schema, preview pawn and slot counter FROM the
+		// loadout that opens it, so a directly-created one draws an empty rail. A picture of that proves
+		// the styling landed and says nothing about whether the creator works -- and worse, an empty rail
+		// photographs exactly like a data defect.
+		//
+		// The real chain is the one the New Build button runs: push the loadout onto UI.Layer.Menu the
+		// way afl.Loadout.Open does, then call OpenCreator(-1), which runs InitializeCreator and
+		// BeginNewBuild in the push init-hook BEFORE the widget draws a frame.
+		UPrimaryGameLayout* Layout = UPrimaryGameLayout::GetPrimaryGameLayout(PC);
+		if (!Layout)
 		{
-			Ar.Log(TEXT("afl.Creator.Shot -- could not load WBP_AFL_Creator_C."));
+			UE_LOG(LogAFLCombat, Error,
+				TEXT("AFL_TEST[CREATORSHOT] FAILED -- no PrimaryGameLayout for %s."), *GetNameSafe(PC));
 			return;
 		}
 
-		UUserWidget* W = CreateWidget<UUserWidget>(PC, WBP);
-		if (!W)
+		UClass* LoadoutClass = LoadObject<UClass>(nullptr,
+			TEXT("/Game/BagMan/UI/Loadout/WBP_AFL_Loadout.WBP_AFL_Loadout_C"));
+		if (!LoadoutClass)
 		{
-			Ar.Log(TEXT("afl.Creator.Shot -- CreateWidget returned null."));
+			UE_LOG(LogAFLCombat, Error,
+				TEXT("AFL_TEST[CREATORSHOT] FAILED -- WBP_AFL_Loadout_C did not load."));
 			return;
 		}
-		W->AddToViewport(1000);
+
+		static const FGameplayTag CreatorShotMenuLayer =
+			FGameplayTag::RequestGameplayTag(TEXT("UI.Layer.Menu"));
+		UAFLW_LoadoutBase* Loadout =
+			Layout->PushWidgetToLayerStack<UAFLW_LoadoutBase>(CreatorShotMenuLayer, LoadoutClass);
+		if (!Loadout)
+		{
+			UE_LOG(LogAFLCombat, Error,
+				TEXT("AFL_TEST[CREATORSHOT] FAILED -- pushing WBP_AFL_Loadout returned null."));
+			return;
+		}
 		UE_LOG(LogAFLCombat, Display,
-			TEXT("AFL_TEST[CREATORSHOT] widget added to viewport; shooting in 1.5s"));
+			TEXT("AFL_TEST[CREATORSHOT] loadout pushed (%s); opening creator via OpenCreator(-1)"),
+			*Loadout->GetName());
 
-		// A single frame is not enough: CommonUI resolves styles and the layout settles over the first
-		// couple of ticks, and a shot taken immediately catches an unstyled skeleton.
+		UAFLW_Creator* Creator = Loadout->OpenCreator(INDEX_NONE);
+		if (!Creator)
+		{
+			// OpenCreator logs its own [Loadout] OpenCreator REFUSED line naming the reason -- an unset
+			// CreatorWidgetClass, a class that would not load, or a missing layout. Point at it rather
+			// than restating a guess.
+			UE_LOG(LogAFLCombat, Error,
+				TEXT("AFL_TEST[CREATORSHOT] FAILED -- OpenCreator returned null; the preceding "
+				     "'[Loadout] OpenCreator REFUSED' line carries the reason."));
+			return;
+		}
+		UE_LOG(LogAFLCombat, Display,
+			TEXT("AFL_TEST[CREATORSHOT] creator OPEN (%s) through the real path; shooting in 3s"),
+			*Creator->GetName());
+
+		// 3s, not 1.5: this path also spins up the preview pawn and pulls the channel schema. A shot
+		// taken before those land photographs a half-populated screen, which reads as a data defect
+		// rather than the timing artefact it would actually be.
 		TWeakObjectPtr<UWorld> WeakWorld(World);
 		FTimerHandle H;
 		World->GetTimerManager().SetTimer(H, FTimerDelegate::CreateLambda([WeakWorld]()
 		{
 			if (UWorld* Wd = WeakWorld.Get())
 			{
-				GEngine->Exec(Wd, TEXT("HighResShot 1920x1080"));
+				// FScreenshotRequest, NOT `HighResShot`.
+				//
+				// Two runs of this command produced a picture of the EDITOR's perspective viewport --
+				// grid, axis gizmo, empty scene -- while the log proved the creator was open. HighResShot
+				// execs against the active EDITOR viewport, and PIE-in-editor does not make the game
+				// viewport active, so the command succeeded and photographed the wrong thing. The failure
+				// is silent by nature: a screenshot always lands, so "a file appeared" proves nothing.
+				//
+				// bShowUI = true is the whole point here -- the subject IS the UI.
+				FScreenshotRequest::RequestScreenshot(FString(), /*bShowUI=*/true, /*bAddUniqueSuffix=*/true);
 				UE_LOG(LogAFLCombat, Display,
-					TEXT("AFL_TEST[CREATORSHOT] HighResShot fired -- Saved/Screenshots/WindowsEditor"));
+					TEXT("AFL_TEST[CREATORSHOT] screenshot requested (game viewport, UI shown)"));
 			}
-		}), 1.5f, false);
+		}), 3.0f, false);
 
-		Ar.Log(TEXT("afl.Creator.Shot -- creator pushed; screenshot in ~1.5s."));
+		Ar.Log(TEXT("afl.Creator.Shot -- creator opened through the loadout; screenshot in ~3s."));
 	}
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLCreatorShotCmd(TEXT("afl.Creator.Shot"),
-		TEXT("Push WBP_AFL_Creator to the viewport and take a HighResShot. Run inside PIE. Data-bound "
-		     "fields read empty by design -- this shoots the SURFACE, not a populated session."),
+		TEXT("Open the creator through the REAL front-end path -- push WBP_AFL_Loadout to UI.Layer.Menu, "
+		     "then OpenCreator(-1) as the New Build button does -- and take a HighResShot. Arms before "
+		     "PIE and fires once a pawn exists."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLCreatorShot));
 
 	void HandleAFLJewelShots(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
