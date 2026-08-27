@@ -516,6 +516,32 @@ Consequences that must be designed, not discovered:
 
 ## 7 · Two lines, one shell
 
+> **NAMING RULED 2026-08-27 — THERE ARE EXACTLY TWO CHASSIS, AND THEY HAVE THREE NAMES BETWEEN THEM.**
+>
+> | Chassis | Mesh / master | Also called | Status |
+> |---|---|---|---|
+> | **MANNY** | `SKM_Manny` / `M_Mannequin` | "Original line" | ships second (see below) |
+> | **PRO MOD** | `SKM_IRONICS_Blank` / `M_AFL_Character`, FBIK | "X line", "X-line robot" | the creator's line |
+>
+> **"X" is the legacy name for PRO MOD.** They are the same chassis. `PROMOD_CHARACTER_SSOT` §2 reads
+> as a THIRD line only because it names this one "Pro Mod" while this doc names it "X" — one fork,
+> two vocabularies, a generation apart. Nothing is missing and nothing needs unifying.
+>
+> **`AFL.Character.<Name>` / `AFL.Character.<Name>_X` pairs are CHARACTER-ERA LEGACY**, not a line
+> fork. The `_X` suffix distinguished per-character variants when the game shipped named characters;
+> it does not select a chassis. Six such pairs remain in the shipped catalog and are contamination to
+> be cleaned up, NOT a mechanism to build against.
+>
+> ⚠ **A chassis picker must therefore switch the BODY BASE, never swap an id suffix.** A suffix swap
+> was scoped on 2026-08-27 and was wrong twice over: it offered Manny (deferred) as a destination and
+> treated legacy character variants as lines. Measured while scoping it: the part map holds 33
+> identity keys and **zero** ending `_X`, so a suffix swap could not have resolved to a body anyway.
+>
+> **Pro Mod character content status, measured 2026-08-27:** 0 `AFL.Mask.*` catalog rows, 0 Pro Mod
+> identity SKUs. The only `*ProMod*` assets on disk are PLAYLISTS (`DA_AFL_*_ProMod`) — those are
+> GAME-MODE configs and are unrelated to the character line.
+
+
 Original and X differ on mesh, master, branding channel, and component set (§2). That is a
 fork in the data, not a reason for two screens.
 

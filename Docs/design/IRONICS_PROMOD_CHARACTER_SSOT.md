@@ -68,6 +68,19 @@ values per line.
 
 ## 2. THE TWO-LINE FORK (L4) — recorded so nobody "unifies" it later
 
+> **NAMING RULED 2026-08-27.** The two chassis are **MANNY** (`SKM_Manny` / `M_Mannequin`) and
+> **PRO MOD** (`SKM_IRONICS_Blank` / `M_AFL_Character`, FBIK Blank Base). **"X-line" in the tables
+> below is the LEGACY NAME FOR PRO MOD** — it is this same chassis, not a third one.
+>
+> The `AFL.Character.<Name>` / `<Name>_X` pairs in the catalog are **character-era legacy** from when
+> the game shipped named characters. The `_X` suffix is a per-character variant marker, NOT a chassis
+> selector, and it is contamination to be cleaned up.
+>
+> This matters because reading "X-line robots vs Pro Mod humans" as two SEPARATE lines produces a
+> phantom third chassis. A scoping pass on 2026-08-27 did exactly that and built a picker against the
+> `_X` suffix before the naming was reconciled. See `IRONICS_CHARACTER_CREATOR_SSOT.md` §7.
+
+
 Two character lines ship. **A Pro Mod character and an X-line robot are separate characters
 with separate mods (L10).** Owning a robot finish does not grant the equivalent Pro Mod suit
 colour, and vice versa.
