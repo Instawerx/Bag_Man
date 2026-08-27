@@ -1,0 +1,38 @@
+<title>PROBE — deliberately missing --text-3</title>
+
+<!--
+  NOT A DESIGN PAGE. A test fixture, and never added to GApprovedPages.
+
+  Exists to prove the compiler's new "required text style" failure can actually FIRE. A guard that
+  has only ever been observed staying quiet is indistinguishable from a guard that does nothing:
+  the whole defect it replaces was a null being swallowed in silence.
+
+  This page declares everything the BUTTON pass gates on -- electric, violet, neon, neon-hot,
+  glass-2 -- so the button block definitely runs. It declares --text-1 so Text_Primary is emitted.
+  It deliberately OMITS --text-3, so TS_IRONICS_Text_Tertiary is never emitted, and the button pass
+  must therefore fail loudly naming both the button and the missing style.
+
+  Compile this to a THROWAWAY output path, never to /Game/UI/IRONICS/Styles.
+-->
+
+<style>
+:root{
+  /* button-pass gate: all five present so the block runs */
+  --electric:#1E5AFF;
+  --violet:#A855F7;
+  --neon:rgba(30,90,255,.40);
+  --neon-hot:rgba(30,90,255,.95);
+  --glass-2:rgba(255,255,255,.08);
+
+  /* present, so Text_Primary IS emitted */
+  --text-1:rgba(255,255,255,1);
+
+  /* --text-3 / --t3 DELIBERATELY ABSENT -- this is the whole point of the fixture */
+
+  /* geometry, so the button has a radius to write */
+  --r-panel:20px;
+  --r-button:12px;
+  --r-input:8px;
+  --blur:28px;
+}
+</style>

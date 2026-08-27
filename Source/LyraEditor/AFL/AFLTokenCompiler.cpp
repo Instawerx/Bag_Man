@@ -670,6 +670,16 @@ bool UAFLTokenCompilerLibrary::CompileDesignPage(const FString& PageRelativePath
 		Created += bCreated ? 1 : 0;
 	}
 
+	// WHAT THE TEXT PASS PRODUCED, HANDED FORWARD BY REFERENCE.
+	//
+	// The button pass below needs three of these styles. It used to re-find them by path with
+	// LoadClass(LOAD_NoWarn|LOAD_Quiet), which answers "not loadable right now" and "does not exist"
+	// with the same null -- and the null was then swallowed by an `if (Style)` guard, so a button
+	// silently kept whatever text style it happened to already have. That makes the emitted asset a
+	// function of what had been compiled before it, with no diagnostic. Carrying the classes forward
+	// in memory removes the question instead of answering it more carefully.
+	TMap<FString, TSubclassOf<UCommonTextStyle>> EmittedTextStyles;
+
 	for (const FTextStyleSpec& Spec : TextSpecs())
 	{
 		const FLinearColor* Found = TextColors.Find(Spec.AssetName);
@@ -692,6 +702,9 @@ bool UAFLTokenCompilerLibrary::CompileDesignPage(const FString& PageRelativePath
 		{
 			UCommonTextStyle* Style = CastChecked<UCommonTextStyle>(CDO);
 			Style->Color = Color;
+
+			// The CDO's own class IS the generated class the button pass needs -- no path, no load.
+			EmittedTextStyles.Add(Spec.AssetName, CDO->GetClass());
 
 			// THE RULED FACE. Loaded rather than assumed present: a missing font is reported and the style
 			// keeps its colour, because a text style with the wrong face is still readable while one that
@@ -729,7 +742,46 @@ bool UAFLTokenCompilerLibrary::CompileDesignPage(const FString& PageRelativePath
 	const bool bHaveHot      = Tokens.TryGetColorAny({ TEXT("--neon-hot") }, NeonHot);
 	const bool bHaveGlass2   = Tokens.TryGetColorAny({ TEXT("--glass-2"), TEXT("--g2") }, Glass2);
 
-	if (bHaveElectric && bHaveViolet && bHaveNeon && bHaveHot && bHaveGlass2)
+	// A button that cannot resolve its text styles is a COMPILE FAILURE, not a quiet partial write.
+	bool bButtonTextUnresolved = false;
+
+	// ── TEXT STYLES THE BUTTONS DEPEND ON, RESOLVED BEFORE ANY BUTTON IS TOUCHED ─────────────────────
+	//
+	// Hoisted above the loop, and above FindOrCreateStyleCDO, because CREATING the asset is itself a
+	// write. A first attempt resolved per button after the CDO existed; the probe page then reported
+	// all three buttons as existing on a page the compiler had just REFUSED -- created, unconfigured,
+	// and contradicting an error message that claimed nothing was written. The three styles are
+	// identical for every button, so there is no reason to ask three times or to ask late.
+	//
+	// REQUIRED, not optional. This runs only when the page carries Electric, and the text pass emits
+	// Text_Electric from that same token, so a miss means the page is genuinely short a colour the
+	// buttons are built from.
+	const auto RequireTextStyle = [&](const TCHAR* AssetName) -> TSubclassOf<UCommonTextStyle>
+	{
+		if (const TSubclassOf<UCommonTextStyle>* FoundStyle = EmittedTextStyles.Find(AssetName))
+		{
+			return *FoundStyle;
+		}
+		UE_LOG(LogAFLTokens, Error,
+			TEXT("AFL_TOKENS: button styles require text style %s, which page '%s' did not emit -- ")
+			TEXT("it is missing the colour token that style is built from. NO button style emitted."),
+			AssetName, *PageRelativePath);
+		bButtonTextUnresolved = true;
+		return nullptr;
+	};
+
+	// Every one is requested before any is tested, so a page short two styles reports both rather than
+	// one per compile.
+	TSubclassOf<UCommonTextStyle> TxtPrimary, TxtTertiary, TxtElectric;
+	if (bHaveElectric && bHaveViolet && bHaveNeon && bHaveHot && bHaveGlass2 && !bDryRun)
+	{
+		TxtPrimary  = RequireTextStyle(TEXT("TS_IRONICS_Text_Primary"));
+		TxtTertiary = RequireTextStyle(TEXT("TS_IRONICS_Text_Tertiary"));
+		TxtElectric = RequireTextStyle(TEXT("TS_IRONICS_Text_Electric"));
+	}
+
+	if (bHaveElectric && bHaveViolet && bHaveNeon && bHaveHot && bHaveGlass2
+		&& (bDryRun || (TxtPrimary && TxtTertiary && TxtElectric)))
 	{
 		const float R = Geo.Button > 0.f ? Geo.Button : Geo.Panel;
 
@@ -844,26 +896,14 @@ bool UAFLTokenCompilerLibrary::CompileDesignPage(const FString& PageRelativePath
 			// the lit edge and the fill carry the signal. Every active and every readable value is white at
 			// 18:1."* So Electric labels the resting Control and Tab, and white takes over the moment the
 			// control is hovered or selected. The Lead is white throughout: it is never inactive.
-			const auto StyleClassFor = [](const TCHAR* AssetName) -> TSubclassOf<UCommonTextStyle>
-			{
-				const FString Path = FString::Printf(TEXT("/Game/UI/IRONICS/Styles/%s.%s_C"), AssetName, AssetName);
-				return LoadClass<UCommonTextStyle>(nullptr, *Path, nullptr, LOAD_NoWarn | LOAD_Quiet, nullptr);
-			};
-			const TSubclassOf<UCommonTextStyle> TxtPrimary  = StyleClassFor(TEXT("TS_IRONICS_Text_Primary"));
-			const TSubclassOf<UCommonTextStyle> TxtTertiary = StyleClassFor(TEXT("TS_IRONICS_Text_Tertiary"));
-			const TSubclassOf<UCommonTextStyle> TxtElectric = StyleClassFor(TEXT("TS_IRONICS_Text_Electric"));
-
-			const TSubclassOf<UCommonTextStyle> RestingText =
+			// UNCONDITIONAL. All three were proven present above, so there is nothing left to guard
+			// against -- and a guard here would re-introduce exactly the silence this fix removes.
+			Style->NormalTextStyle =
 				(Spec.Role == EButtonRole::Lead) ? TxtPrimary : TxtElectric;
-
-			if (RestingText) { Style->NormalTextStyle = RestingText; }
-			if (TxtPrimary)
-			{
-				Style->NormalHoveredTextStyle   = TxtPrimary;
-				Style->SelectedTextStyle        = TxtPrimary;
-				Style->SelectedHoveredTextStyle = TxtPrimary;
-			}
-			if (TxtTertiary) { Style->DisabledTextStyle = TxtTertiary; }
+			Style->NormalHoveredTextStyle   = TxtPrimary;
+			Style->SelectedTextStyle        = TxtPrimary;
+			Style->SelectedHoveredTextStyle = TxtPrimary;
+			Style->DisabledTextStyle        = TxtTertiary;
 
 			SaveIfDirty(BP);
 			++Written;
@@ -901,6 +941,16 @@ bool UAFLTokenCompilerLibrary::CompileDesignPage(const FString& PageRelativePath
 
 	UE_LOG(LogAFLTokens, Log, TEXT("AFL_TOKENS: %s -- %d written, %d new, %d token(s) absent from this page%s"),
 		*PageRelativePath, Written, Created, Missing, bDryRun ? TEXT("  [DRY RUN -- nothing saved]") : TEXT(""));
+
+	// Reported as a failed compile, not as a warning buried in a successful one. The whole defect this
+	// guards against was invisible precisely because the run said it succeeded.
+	if (bButtonTextUnresolved)
+	{
+		UE_LOG(LogAFLTokens, Error,
+			TEXT("AFL_TOKENS: %s FAILED -- one or more button styles could not resolve their text styles."),
+			*PageRelativePath);
+		return false;
+	}
 	return true;
 }
 
