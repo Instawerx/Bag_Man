@@ -2,46 +2,58 @@
 
 ## When AFL Context is Detected
 
-Apply these AFL-specific overrides on top of the general design system.
+Apply these AFL-specific overrides on top of the general design system. **They REPLACE the
+general Apple-Glass aesthetic entirely for AFL / BAG MAN / IRONICS work — no frosted glass, no
+white panels, no `#64B4FF`, no SF Pro.** (Brand corrected to cyber/neon per the tracker's
+2026-06-07 store ruling; locked in `Docs/Hub/IRONICS_CC_DESIGN_BRIEF.md` §0 and intent I-24 in
+`Docs/Hub/IRONICS_CC_INTEGRATION_PLAN.md`. This file previously carried the retired Apple-Glass
+direction — that drift is what AFL-3202 removed.)
 
 ---
 
 ## AFL Visual Identity
 
 ```
-Studio/Project:  AFL
-Engine:          UE5 / Lyra Starter Game
+Studio/Project:  AFL (BAG MAN · IRONICS)
+Engine:          UE5.6 / Lyra Starter Game
 Platforms:       PC, PS5, XSX, iOS, Android
 UI Stack:        CommonUI + LyraPrimaryGameLayout
-Design Language: Apple Glass — translucent, spatial, luminous, minimal
+Design Language: Cyber / neon — emissive rim-glow, gradient panels, subtle grid, scan-line restraint
 ```
 
 ---
 
-## AFL Design Tokens (Canonical)
+## AFL Design Tokens (Canonical — brand lock, I-24)
 
-### Brand Colors
+### Brand Colors (ruled in `AFLTokenCompiler.cpp`; supersedes anything else you may read)
 ```
-AFL/Brand/Primary:    #64B4FF  — main accent, CTA buttons, highlights
-AFL/Brand/Secondary:  #8066FF  — secondary accent, special abilities
-AFL/Brand/Danger:     #FF5050  — damage, warnings, enemy indicators
-AFL/Brand/Success:    #50FF8C  — pickups, healing, positive feedback
-AFL/Brand/Gold:       #FFD060  — premium, legendary, ranked
+ground:        #222A3A  — page/scene ground, viewport backdrop
+surface-card:  #0E122B  — panels, cards, rails, bars
+accent:        #1E5AFF  — Electric Neon Blue: focus, primary CTA, active state, selection ring
+watts:         #FF00D5  — Magenta: Watts currency, staked/premium marking — NEVER a general accent
 ```
 
-### Glass Panel System (AFL-tuned)
+### Support colors (from the ratified roadmap CSS — data/status use only)
 ```
-AFL/Glass/Panel:      rgba(255,255,255, 0.11) + blur 24px
-AFL/Glass/Card:       rgba(255,255,255, 0.08) + blur 16px
-AFL/Glass/Button:     rgba(255,255,255, 0.16) hover→0.22, border 0.24
-AFL/Glass/Input:      rgba(255,255,255, 0.07) focus→border AFL/Brand/Primary
-AFL/Glass/Overlay:    rgba(10, 14, 24, 0.72) — modal/menu background scrim
-AFL/Glass/Blur:       24px standard | 16px compact | 36px hero panels
+green #3DDC84 · amber #FFB020 · red #FF3355 · cyan #00E5FF
+HARD RULE: cyan is DATA-ONLY (rarity/colour-identity values) — never UI chrome.
+Rarity is a badge axis (frame colour via GetRarityColor), never the identity colour.
+Anything not listed here is PROPOSED and must be ratified before use — never invented.
+```
+
+### Surface system (replaces the retired Glass Panel System)
+```
+Panels/cards:  surface-card fills, 1px line borders (#2C3550 family), emissive accent rim on
+               focus/active; gradient panels allowed; subtle grid; scan-line restraint.
+Mobile:        no blur-dependent surfaces; solid surface-card fallbacks (GPU overdraw rules below).
 ```
 
 ### Typography Scale
 ```
-AFL uses SF Pro Display (or Nunito Sans as web fallback)
+Display: Orbitron        — titles, region headers, build name, big numbers (identity-carrying text)
+Body:    NotoSans        — labels, descriptions, prompts
+Data:    DroidSansMono   — prices, slot counters "n / cap", ids, stats (tabular; digits must not jitter)
+
 Display:    48px / SemiBold  — hero headers, game over screens
 H1:         32px / SemiBold  — menu headers
 H2:         24px / Medium    — section titles
@@ -74,7 +86,7 @@ UI.Layer.Modal     → AFLW_Modal_Confirm, AFLW_Modal_Alert, AFLW_Modal_Reward
 | Widget Blueprint | `AFLW_[Layer]_[Name]` | `AFLW_HUD_HealthBar` |
 | Widget Style | `AFLS_[Type]_[Name]` | `AFLS_Btn_Primary` |
 | UI Texture Atlas | `T_AFL_UI_[Category]` | `T_AFL_UI_Icons` |
-| UI Material | `M_AFL_UI_[Name]` | `M_AFL_UI_Glass` |
+| UI Material | `M_AFL_UI_[Name]` | `M_AFL_UI_NeonPanel` |
 | Environment Material | `M_AFL_Env_[Name]` | `M_AFL_Env_WetConcrete` |
 | Character Material | `M_AFL_Char_[Name]` | `M_AFL_Char_PlayerArmor` |
 | Post Process Material | `M_AFL_PP_[Name]` | `M_AFL_PP_ScanLine` |
@@ -100,7 +112,7 @@ UI.Layer.Modal     → AFLW_Modal_Confirm, AFLW_Modal_Alert, AFLW_Modal_Reward
 [ ] Overscan safe area: 5% inset from all edges (TV safe zone)
 [ ] Button prompts use UCommonActionWidget — platform-adaptive icons
 [ ] No hover states — only focus states (no mouse cursor)
-[ ] Focus highlight: Glass/Button border brightens + subtle scale 1.02
+[ ] Focus highlight: accent (#1E5AFF) rim brightens + subtle scale 1.02
 [ ] Navigation: all menus fully navigable with D-pad
 [ ] Font minimum: 20px at 1080p for comfortable 3-meter viewing
 ```
@@ -111,33 +123,4 @@ UI.Layer.Modal     → AFLW_Modal_Confirm, AFLW_Modal_Alert, AFLW_Modal_Reward
 [ ] Hover states enabled for all interactive elements
 [ ] Keyboard shortcut indicators shown (Esc, Tab, etc.)
 [ ] Adjustable HUD scale option in settings (0.8x – 1.4x)
-```
-
----
-
-## AFL Design → Sprint Handoff Template
-
-```markdown
-## AFL Design Handoff: [Feature Name]
-Date:       [Date]
-Designer:   @name
-Sprint:     AFL Sprint [N]
-
-### Approved Designs
-- [Link to SVG/mockup artifact]
-- [Link to Midjourney hi-fi concept]
-
-### Generated AIK Assets (needs polish)
-- AFLW_[Name] — created via NeoStack, needs review
-- M_AFL_[Name] — material params to verify
-
-### Sprint Tasks Generated
-AFL-XXX Implement AFLW_[Name] UMG widget (M) @engineer
-AFL-XXX Create T_AFL_UI_[Name] texture atlas (S) @artist
-AFL-XXX Wire AFLW_[Name] to LyraPrimaryGameLayout Game layer (S) @engineer
-AFL-XXX Mobile: implement LowQualityFallback for AFLW_[Name] (S) @engineer
-AFL-XXX QA: AFLW_[Name] on Win64 + PS5 + iOS (M) @qa
-
-### Open Questions
-- [ ] [Any unresolved design decision]
 ```

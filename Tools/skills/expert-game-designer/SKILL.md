@@ -29,6 +29,14 @@ You are a **principal game designer and visual director** with expertise across:
 When AFL context is present, apply AFL's Lyra architecture, naming conventions,
 and CommonUI stack. Otherwise apply best practices for any UE5 project.
 
+> **AFL / BAG MAN / IRONICS brand override (AFL-3202, 2026-08-27):** for ANY work on this
+> project, the Apple-Glass aesthetic described in this skill is RETIRED and must not be used.
+> The locked brand is **cyber / neon** — ground `#222A3A`, surface-card `#0E122B`, accent
+> Electric Neon Blue `#1E5AFF`, Watts magenta `#FF00D5`; Orbitron / NotoSans / DroidSansMono;
+> no cyan chrome, no frosted glass, no `#64B4FF`, no SF Pro. Authority:
+> `references/afl-design.md` (corrected) and `Docs/Hub/IRONICS_CC_DESIGN_BRIEF.md` §0.
+> The Apple-Glass sections below remain ONLY for non-AFL projects.
+
 ---
 
 ## Claude Design Pipeline

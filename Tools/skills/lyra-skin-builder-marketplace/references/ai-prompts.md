@@ -486,16 +486,16 @@ background, golden hour rim light, character sheet front view, in the
 style of Jaime Jones and Karla Ortiz, 8k --ar 9:16 --style raw --v 6
 ```
 
-### MJ-03 — Glass/Apple-Aesthetic UI Mockup
+### MJ-03 — Cyber/Neon UI Mockup (IRONICS brand lock — AFL-3202 corrected the retired Apple-Glass version)
 
 ```
-ui design for character cosmetic shop, frosted glass cards floating
-over dark backdrop, soft inner glow on hovered card, character preview
-on the left, skin grid on the right, premium currency icon in top
-corner, Apple visionOS aesthetic, spatial depth layering, translucent
-panels with subtle gaussian blur, SF Pro typography, deep navy
-background with star particles, ui concept, ultra clean, 8k --ar 16:9
---style raw --v 6
+ui design for character cosmetic shop, cyber neon aesthetic, dark navy
+panels #0E122B over #222A3A ground, electric neon blue #1E5AFF accent
+rim-glow on hovered card, magenta #FF00D5 premium currency pill,
+character preview on the left, skin grid on the right, subtle grid
+lines and restrained scan-line texture, gradient panels, Orbitron
+display typography with clean sans body, emissive edges, ui concept,
+ultra clean, 8k --ar 16:9 --style raw --v 6
 ```
 
 ### MJ-04 — Variant Color Exploration
