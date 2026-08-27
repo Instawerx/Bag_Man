@@ -437,6 +437,29 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Preview")
 	FAFLCosmeticSelection CreatorGetWorkingSelection() const { return CreatorWorking; }
 
+	/**
+	 * Discard the working selection so the creator falls back to what is SAVED.
+	 *
+	 * CREATOR_SSOT 5.3: every choice reversible without loss. Clearing the SEEDED flag rather than
+	 * copying the saved selection over is what makes this a true revert -- the next read re-seeds
+	 * from the component, so revert and never-touched become the same state instead of two states
+	 * that merely look alike.
+	 */
+	void CreatorRevertWorking()
+	{
+		CreatorWorking = FAFLCosmeticSelection();
+		bCreatorWorkingSeeded = false;
+	}
+
+	/**
+	 * The preview render target, READ ONLY.
+	 *
+	 * A getter rather than making PreviewRT public: the creator needs to DISPLAY the capture, not to
+	 * own or replace it. CREATOR_SSOT 5.3 requires the preview to be the same thing that spawns, and
+	 * a settable pointer invites a second capture that drifts in lighting or pose.
+	 */
+	class UTextureRenderTarget2D* GetPreviewRenderTarget() const { return PreviewRT; }
+
 	/** Which channels are real on the bound chassis, and why each is not. Straight from the measured
 	 *  schema so the widget disables rather than hides (CC-X24). */
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Preview")

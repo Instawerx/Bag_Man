@@ -15,6 +15,7 @@
 #include "Components/CheckBox.h"     // the link toggle
 #include "Components/Image.h"        // the channel swatch        // the slot readout   // the build name the player types
 #include "Components/PanelWidget.h"       // the rail the rows are spawned into           // CC-5: the creator's own way out
+#include "Engine/TextureRenderTarget2D.h"   // region B: the preview capture the creator displays
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 
@@ -127,6 +128,24 @@ void UAFLW_Creator::NativeOnInitialized()
 	{
 		F_Save->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleSaveClicked);
 	}
+
+	// REGIONS A and F, wired where the existing buttons are wired -- one place, so a future reader
+	// finds every binding together rather than discovering region A was hooked up somewhere else.
+	if (F_Revert)
+	{
+		F_Revert->OnClicked.RemoveDynamic(this, &UAFLW_Creator::HandleRevertClicked);
+		F_Revert->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleRevertClicked);
+	}
+	if (A_ChassisManny)
+	{
+		A_ChassisManny->OnClicked.RemoveDynamic(this, &UAFLW_Creator::HandleChassisMannyClicked);
+		A_ChassisManny->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleChassisMannyClicked);
+	}
+	if (A_ChassisProMod)
+	{
+		A_ChassisProMod->OnClicked.RemoveDynamic(this, &UAFLW_Creator::HandleChassisProModClicked);
+		A_ChassisProMod->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleChassisProModClicked);
+	}
 	else
 	{
 		// SAYS SO. An unbound commit button is exactly the "built, correct, unreachable" shape this
@@ -202,6 +221,11 @@ void UAFLW_Creator::NativeOnActivated()
 	// reporting channels against whatever material happened to be reachable.
 	RefreshFromSchema();
 	RebuildChannelRows();
+
+	// Regions A and B paint with the rail, not after it. Region A DETERMINES the rail contents
+	// (CC_UI_HANDOFF 2), so a picker painted later would describe a chassis the rail has moved past.
+	RefreshChassisPicker();
+	RefreshPreviewViewport();
 
 	// Paint once now (a set that replicated before this screen opened produces no edge to listen for),
 	// then follow the authoritative set from here on.
@@ -921,4 +945,155 @@ bool UAFLW_Creator::SelectChassisLine(const EAFLChassisLine Line)
 	UE_LOG(LogAFLCombat, Display, TEXT("[Creator] chassis -> %s (identity %s); rail re-derived"),
 		Line == EAFLChassisLine::ProMod ? TEXT("ProMod") : TEXT("Manny"), *Target.ToString());
 	return true;
+}
+
+
+// ===== REGION A -- CHASSIS PICKER ===================================================================
+
+void UAFLW_Creator::RefreshChassisPicker()
+{
+	if (!A_ChassisPicker && !A_ChassisManny && !A_ChassisProMod)
+	{
+		// Reported once, not per tile: an unauthored region A is a WBP gap, not a runtime fault, and
+		// the screen still works without it.
+		UE_LOG(LogAFLCombat, Verbose,
+			TEXT("[Creator] region A not authored -- no chassis picker bound."));
+		return;
+	}
+
+	const EAFLChassisLine Current = GetCurrentChassisLine();
+
+	FText MannyReason, ProModReason;
+	const bool bMannyOk  = IsChassisLineAvailable(EAFLChassisLine::Manny,  MannyReason);
+	const bool bProModOk = IsChassisLineAvailable(EAFLChassisLine::ProMod, ProModReason);
+
+	// LABELS ARE ALL-CAPS DISPLAY TEXT. Section 3 reserves Orbitron for identity-carrying text, and a
+	// chassis name is exactly that -- it names the product line, not a control.
+	if (A_ChassisMannyLabel)
+	{
+		A_ChassisMannyLabel->SetText(NSLOCTEXT("AFLCreator", "ChassisManny", "MANNY"));
+	}
+	if (A_ChassisProModLabel)
+	{
+		A_ChassisProModLabel->SetText(NSLOCTEXT("AFLCreator", "ChassisProMod", "PRO MOD"));
+	}
+
+	// A tile is interactive only if switching to it would actually WORK. Enabling on anything weaker
+	// produces a tile that accepts a click and does nothing -- the states table forbids it, and this
+	// is the same rule the claim button follows.
+	// PRO MOD IS THE DEFAULT LINE; MANNY IS PRESENT BUT GATED ON ITS OWN AVAILABILITY.
+	//
+	// Shown-and-disabled, never hidden: CC_UI_HANDOFF 5.1 treats an unavailable option as dimmed WITH
+	// A REASON, because a line that vanishes reads as a missing feature while a dimmed one reads as
+	// not-yet. Same treatment the PresentButInert channel row gets.
+	if (A_ChassisManny)
+	{
+		A_ChassisManny->SetIsEnabled(bMannyOk && Current != EAFLChassisLine::Manny);
+	}
+	if (A_ChassisProMod)
+	{
+		A_ChassisProMod->SetIsEnabled(bProModOk && Current != EAFLChassisLine::ProMod);
+	}
+	if (A_ChassisMannyReason)
+	{
+		const bool bShow = !bMannyOk && Current != EAFLChassisLine::Manny;
+		A_ChassisMannyReason->SetText(bShow ? MannyReason : FText::GetEmpty());
+		A_ChassisMannyReason->SetVisibility(bShow
+			? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+
+	// THE REASON TRAVELS WITH THE REFUSAL. A dimmed tile with no explanation reads as broken; with a
+	// reason it reads as not-yet-available, which is what it is.
+	if (A_ChassisProModReason)
+	{
+		const bool bShow = !bProModOk && Current != EAFLChassisLine::ProMod;
+		A_ChassisProModReason->SetText(bShow ? ProModReason : FText::GetEmpty());
+		A_ChassisProModReason->SetVisibility(bShow
+			? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+}
+
+void UAFLW_Creator::HandleChassisMannyClicked()
+{
+	if (SelectChassisLine(EAFLChassisLine::Manny))
+	{
+		// The rail length is a property of the chassis, so both regions refresh together. Refreshing
+		// only the picker would leave region C describing the chassis the player just left.
+		RefreshChassisPicker();
+		RefreshPreviewViewport();
+	}
+}
+
+void UAFLW_Creator::HandleChassisProModClicked()
+{
+	if (SelectChassisLine(EAFLChassisLine::ProMod))
+	{
+		RefreshChassisPicker();
+		RefreshPreviewViewport();
+	}
+}
+
+// ===== REGION B -- PREVIEW VIEWPORT =================================================================
+
+void UAFLW_Creator::RefreshPreviewViewport()
+{
+	if (!B_PreviewImage)
+	{
+		UE_LOG(LogAFLCombat, Verbose, TEXT("[Creator] region B not authored -- no preview image bound."));
+		return;
+	}
+
+	UAFLW_LoadoutBase* L = Loadout.Get();
+	if (!L)
+	{
+		return;
+	}
+
+	// THE EXISTING CAPTURE, not a second one. CREATOR_SSOT 5.3: the preview IS the product, and a
+	// separate capture would drift from the loadout's in lighting or pose -- which reads as
+	// bait-and-switch on the first match load.
+	UTextureRenderTarget2D* RT = L->GetPreviewRenderTarget();
+	if (!RT)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[Creator] region B bound but the loadout has no PreviewRT -- the viewport would "
+			     "render nothing. SetupPreviewCapture has not run."));
+		return;
+	}
+
+	// SetBrushResourceObject, not SetBrushFromTexture: the latter takes a UTexture2D and a render
+	// target is not one. The brush accepts any UObject resource, which is how the loadout already
+	// displays this same capture.
+	B_PreviewImage->SetBrushResourceObject(RT);
+}
+
+// ===== REGION F -- REVERT ===========================================================================
+
+void UAFLW_Creator::HandleRevertClicked()
+{
+	// CREATOR_SSOT 5.3: every choice reversible without loss. Revert existed in the WBP and was never
+	// bound, so the promise had no code behind it.
+	UAFLW_LoadoutBase* L = Loadout.Get();
+	if (!L)
+	{
+		return;
+	}
+
+	// DISCARD, THEN RE-RUN THE NORMAL APPLY -- never restore from a cached copy.
+	//
+	// CreatorRevertWorking clears the working selection AND its seeded flag, so the next read
+	// re-seeds from the authoritative component rather than from anything this widget held. Then
+	// CreatorApplyPreview pushes that through the SHIPPING resolve path (SetPreviewSelection ->
+	// GetEffectiveSelection -> BuildColorOverride), which is the same route the gameplay pawn takes
+	// on possession.
+	//
+	// Without the apply the pawn keeps showing the reverted-away colours while the rail reads
+	// correct -- the screen would say one thing and the robot another, which is the exact
+	// bait-and-switch CREATOR_SSOT 5.3 forbids.
+	L->CreatorRevertWorking();
+	L->CreatorApplyPreview();
+
+	RebuildRows();
+	RefreshChassisPicker();
+	RefreshPreviewViewport();
 }

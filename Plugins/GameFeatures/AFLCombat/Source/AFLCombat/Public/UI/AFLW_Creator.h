@@ -220,6 +220,75 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UTextBlock> D_SlotCounter;
 
+	// ===== REGION A -- CHASSIS PICKER (CC_UI_HANDOFF section 2) ====================================
+	//
+	// "Ordered first because it determines the channel rail's contents." The rail length varies by
+	// chassis, so a picker placed after it would let a player choose from a list that is about to be
+	// replaced.
+	//
+	// BindWidgetOptional throughout: an unauthored WBP must still compile, and a missing region has
+	// to report itself rather than crash a screen that otherwise works.
+
+	/** Container for the two chassis tiles. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	TObjectPtr<class UPanelWidget> A_ChassisPicker;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	TObjectPtr<class UButton> A_ChassisManny;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	TObjectPtr<class UButton> A_ChassisProMod;
+
+	/** Display face, ALL-CAPS -- section 3 reserves Orbitron for identity-carrying text. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	TObjectPtr<class UTextBlock> A_ChassisMannyLabel;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	TObjectPtr<class UTextBlock> A_ChassisProModLabel;
+
+	/**
+	 * Why a chassis cannot be chosen. Body face, sentence case.
+	 *
+	 * NEVER A DEAD TILE: the states table forbids a control that accepts a click and goes nowhere, so
+	 * an unavailable chassis carries its reason exactly as a disabled channel row does.
+	 */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	TObjectPtr<class UTextBlock> A_ChassisProModReason;
+
+	/** Same treatment for the other line -- neither is hidden when unavailable. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|A")
+	TObjectPtr<class UTextBlock> A_ChassisMannyReason;
+
+	// ===== REGION B -- PREVIEW VIEWPORT ===========================================================
+	//
+	// "The PreviewRT render target. Largest element by area -- it is the product." (section 2)
+	// CREATOR_SSOT section 5.3: the preview IS the product; a stand-in reads as bait-and-switch on the
+	// first match load. So this binds the EXISTING capture on UAFLW_LoadoutBase rather than making a
+	// second one.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|B")
+	TObjectPtr<class UImage> B_PreviewImage;
+
+	// ===== REGION F -- COMMIT BAR, SECOND HALF ====================================================
+	//
+	// "UCommonButtonBase x2" -- save AND revert. Revert existed in the WBP and was never bound, so
+	// CREATOR_SSOT section 5.3's "every choice reversible without loss" had no code behind it.
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|F")
+	TObjectPtr<class UButton> F_Revert;
+
+public:
+	/** Point the chassis tiles at the current state: which is worn, which is available, and why not. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|A")
+	void RefreshChassisPicker();
+
+	/** Bind the preview render target into region B. Safe to call repeatedly. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|B")
+	void RefreshPreviewViewport();
+
+protected:
+	UFUNCTION() void HandleChassisMannyClicked();
+	UFUNCTION() void HandleChassisProModClicked();
+	UFUNCTION() void HandleRevertClicked();
+
 	/** Paint the counter from the authoritative set. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Slots")
 	void RefreshSlotCounter();
