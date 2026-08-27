@@ -35,7 +35,7 @@ operator adds it, Claude Code migrates it.
 
 | Step | Who | What | Proof |
 |---|---|---|---|
-| 1.1 | OP | Fab → Add to Project (`Bag_Man`, UE 5.6). Record the pack's version and size before adding. **LFS budget check:** 250 GB quota; note the pack's on-disk size against current usage | Launcher shows it in the project; size recorded on the tracker |
+| 1.1 | **CC-E** (editor connection, Fab panel; the signed-in Epic account is the operator's) | **Editor on the C: launcher engine** → Window → Fab → library → Military Mega Base Pack → Add to Project (`Bag_Man`, UE 5.6). Record the pack's version and size before adding. **LFS budget check:** 250 GB quota; note the pack's on-disk size against current usage | Pack directory appears under `Content/`; size recorded on the tracker |
 | 1.2 | CC-E | Open the editor. Content Browser census of `Content/<Pack>/`: the demo map asset name, map type (single level / sublevels / World Partition), static-mesh count, material count, any Blueprints, sequences, Niagara, sounds. Written to `Docs/Hub/HUB-MAP-CENSUS.md` | Census committed (doc) |
 | 1.3 | CC-E | **Migrate** `Content/<Pack>/` → `Plugins/GameFeatures/AFLHub/Content/MegaBase/` (Asset Tools migrate, then fix-up redirectors, then delete the `/Game` copy). The pack's own folder structure is kept under `MegaBase/` so future pack updates diff cleanly | Zero assets left under `/Game/<Pack>`; zero broken references (Reference Viewer on the map) |
 | 1.4 | CC-E | Duplicate the demo map to `AFLHub/Content/Maps/L_AFL_OutpostEarth`. The pack's original demo map stays untouched under `MegaBase/` as the reference copy | Both maps open |
@@ -191,8 +191,9 @@ code lands. They are the critical path and they are not interleaved with creator
 
 ```
 [AFL-3400] Fab import + LFS budget
-Type: Pipeline · Discipline: Art · Priority: P0 · Estimate: S · Sprint: HUB-H1 · Lane: OP
-- [ ] Pack added to Bag_Man via Fab; version + on-disk size recorded; LFS usage before/after on the tracker
+Type: Pipeline · Discipline: Art · Priority: P0 · Estimate: S · Sprint: HUB-H1 · Lane: CC-E (Fab panel over the editor connection; operator's Epic session)
+- [ ] **Engine gate:** editor is running on the C: launcher engine (never D: — D: is the GameLift `LyraServer` / shipping engine). If the C: binaries were overwritten by a D: `LyraEditor` build, the operator rebuilds C: first
+- [ ] Pack added to Bag_Man via the editor's Fab panel; version + on-disk size recorded; LFS usage before/after on the tracker
 ```
 ```
 [AFL-3401] Pack census + migrate into AFLHub GameFeature

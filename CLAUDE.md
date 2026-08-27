@@ -29,24 +29,29 @@ detail lives in the skills referenced below — open those on demand, don't inli
 6. **Multi-platform:** PC + PS5/XSX + iOS/Android. Every shipped material needs a PC master
    and a `_Mobile` instance. Guard platform code with `#if PLATFORM_*`.
 
-## Build / verify
+## Build / verify — TWO-ENGINE PARTITION (re-ruled 2026-08-27; supersedes the 2026-08-11 one-engine note)
 
-**ONE ENGINE: `D:\UE5.6-source`** — editor, PIE, AIK, dedicated servers and shipping cooks.
-Ratified 2026-08-11; the old C:-launcher / D:-source split is RETIRED. The `C:\Program Files\Epic
-Games\UE_5.6` install is dead weight, retained but unused.
+- **C: launcher `C:\Program Files\Epic Games\UE_5.6`** — the EDITOR engine: editor, PIE, AIK/bridge,
+  Fab, all content authoring and content commits, and `LyraEditor` builds of the editor checkout
+  (operator-owned).
+- **D: `D:\UE5.6-source`** — the GAMELIFT engine: `LyraServer` dedicated-server builds and shipping
+  cooks, NOTHING else. **Never launch the editor on D:.** A D: `LyraEditor` build OVERWRITES the C:
+  editor binaries (same per-project output path) — recovery: close everything, C: launcher
+  `LyraEditor` rebuild, relaunch on C:. (2026-08-27: this happened; the rule exists because of it.)
 
-**Invoke the engine by EXPLICIT PATH, never by `EngineAssociation`.** The `.uproject` GUID happens
-to resolve to D: today; that is not why we use D:, and a bare `Build.bat` inherits whichever engine
-the shell or the association hands it.
+**Invoke the engine by EXPLICIT PATH, never by `EngineAssociation`.** ⚠ The `.uproject` GUID
+association resolves to D: — a double-click or bare `Build.bat` opens/builds the WRONG engine.
 
 ```powershell
-:: Build a plugin / the editor target (pattern used across AFL modules)
-& "D:\UE5.6-source\Engine\Build\BatchFiles\Build.bat" LyraEditor Win64 Development `
+:: Editor target -- C: launcher (operator-owned on the editor checkout, editor closed)
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" LyraEditor Win64 Development `
     -Project="C:\Dev\Bag_Man\Bag_Man.uproject" -WaitMutex
-:: append -Plugin=AFLCombat.uplugin to scope it to one plugin
+:: Dedicated server / shipping -- D: source (worktree or sanctioned D: session only)
+& "D:\UE5.6-source\Engine\Build\BatchFiles\Build.bat" LyraServer Win64 Development `
+    -Project="C:\Dev\Bag_Man\Bag_Man.uproject" -WaitMutex
 ```
-Never mark work done off a successful build alone — open PIE (listen server + 2 clients for
-anything networked) and watch it.
+Lane detail: `Docs/Hub/IRONICS_LOBBY_HUB_CLAUDE_CODE_BRIEF.md` §1–§2. Never mark work done off a
+successful build alone — open PIE (listen server + 2 clients for anything networked) and watch it.
 
 ## Skills — consult before acting in these domains
 

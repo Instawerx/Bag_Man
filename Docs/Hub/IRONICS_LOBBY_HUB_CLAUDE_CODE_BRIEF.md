@@ -15,9 +15,9 @@ drift, binary conflicts, or a dirty tree. Drop into `Docs/Hub/` and reference fr
 | Lane | What it is | Runs where | Parallel-safe? |
 |---|---|---|---|
 | **CC-W** | Claude Code in a git **worktree** — C++, config, docs, harness scripts, log ledgers, HUB-READ passes | `C:\Dev\Bag_Man_wt\<branch>` (one folder per branch) | **Yes** — any number, disjoint file sets |
-| **CC-E** | Claude Code through its **direct editor connection** — asset edits, actor placement, BP/DA/GE/MI authoring, PIE harness pre-arm, log reads after PIE | The editor checkout `C:\Dev\Bag_Man` on the C: launcher engine | **No** — one editor, one CC-E session at a time |
+| **CC-E** | Claude Code through its **direct editor connection** — asset edits, actor placement, BP/DA/GE/MI authoring, PIE harness pre-arm, log reads after PIE, **Fab panel adds** (operator's Epic session) | The editor checkout `C:\Dev\Bag_Man` on the **C: launcher engine — never D:** | **No** — one editor, one CC-E session at a time |
 | **CC-B** | Claude Code in `Bag_Man_Backend` — Lambdas, DynamoDB, CDK, unit tests, canaries | Separate repo | **Yes** — always |
-| **Operator** | PIE watching · the editor-checkout UBT build · commits, pushes, tags · Fab import · AWS console · Epic verification · §11 rulings | — | — |
+| **Operator** | PIE watching · the editor-checkout UBT build · commits, pushes, tags · AWS console · Epic verification · §11 rulings | — | — |
 | **Claude Design** | Visual layer from CC handoff docs — first job: `IRONICS_CC_DESIGN_BRIEF.md` §8 (creator / loadout / product page mock + spec); later Landing, HUD elements | — | Yes |
 | **AIK** | Used **only** for an operation the editor connection cannot perform, as proven by the HUB-READ-0 probe (e.g. Niagara module internals, Tripo/genAI). Each use is named on its ticket. | Editor | No |
 
@@ -62,8 +62,10 @@ UHT generated headers or the same build output, and neither can dirty the editor
    checkout → CC-E continues. Code lands *before* the content that references it.
 5. **One worktree per branch, one Claude Code session per worktree.** Remove it when the branch
    lands (`git worktree remove`). Never two sessions in one tree.
-6. **Engine rule still holds:** worktree builds use the **C: launcher** engine for `LyraEditor` and the
-   **D: source** engine for `LyraServer`, invoked by explicit path. A D: `LyraEditor` build is never
+6. **Engine rule still holds — and it is the GameLift rule.** D: source exists because GameLift dedicated
+   servers (`LyraServer`) and shipping cooks are built there. The editor, PIE, Fab, and every content
+   commit happen on the **C: launcher** engine. Worktree builds use C: for `LyraEditor` and D: for
+   `LyraServer`, invoked by explicit path. **Never launch the editor on D:.** A D: `LyraEditor` build is never
    run from a worktree either (it overwrites the C: editor binaries — same output-path trap).
    **[VERIFY: does a worktree's `Binaries/` isolate that trap? Output path is per-project-dir, so
    yes for the project; the engine-side binaries are shared. Confirm before the first D: worktree build.]**
@@ -179,7 +181,7 @@ that contradicts it and stops. It does not build the alternative.
   make it impossible; the §4 GATE line prints the lane so it's visible.
 - Two CC-E sessions racing the editor. One editor, one session; the session map queues them.
 - Building the editor checkout while the editor is open. Only worktrees build during editor sessions.
-- A D: `LyraEditor` build from anywhere but the sanctioned end-of-D:-session rebuild.
+- A D: `LyraEditor` build from anywhere but the sanctioned end-of-D:-session rebuild — and **never the editor launched on D:** (2026-08-27: it happened; recovery = close, C: launcher `LyraEditor` rebuild, relaunch on C:).
 - A subagent that writes. Reads only.
 - Content committed before the code it references has landed and been rebuilt into the editor.
 - AIK used for something the connection can do — every AIK use names the probe failure it covers.
