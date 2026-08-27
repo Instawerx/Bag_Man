@@ -424,9 +424,19 @@ ENTRY ──▶ CHASSIS ──▶ BUILD ──▶ SAVE ──▶ EQUIP ──▶
                   free movement, no commit until SAVE
 ```
 
-**ENTRY** — full-screen menu, sibling of the Digital Market, pushed via
-`UCommonUIExtensions::PushContentToLayer_ForPlayer` (the `afl.Store.Open` pattern).
-Empty state is an invitation: no builds yet, one action, "Start a build".
+**ENTRY** — **CORRECTED 2026-08-27.** This previously read *"full-screen menu, sibling of the
+Digital Market, pushed via `UCommonUIExtensions::PushContentToLayer_ForPlayer` (the
+`afl.Store.Open` pattern)"*. That description is withdrawn: read literally it says the creator is
+its own front-end destination, and a scoping pass duly went looking for a home-screen door to build
+— against two standing invariants that were never in conflict. See §8.1.
+
+The creator's entry is the **LOADOUT**, on a build: **New Build** (`OpenCreator(-1)`) or **Edit
+Build** (`OpenCreator(index)`), pushed onto `UI.Layer.Menu` with `PushWidgetToLayerStack` — the same
+call the loadout itself arrives by, so Back pops the creator and reveals the loadout underneath with
+its state intact. The loadout is **owned-only**: saved builds, the six free identities, and owned
+assets per surviving axis.
+
+Empty state is still an invitation: no builds yet, one action, "Start a build".
 
 **CHASSIS** — pick the line. Original and X are genuinely different products, so this is a
 first-class choice, not a hidden variant. Selecting a chassis determines which channel
@@ -533,19 +543,92 @@ values.
 
 ## 8 · Entitlement
 
-| Fact | Shape | Precedent |
+> **CORRECTED 2026-08-27. THIS SECTION WAS STALE AND THE STALENESS DID DAMAGE.** It listed two of
+> four privilege shapes as unbuilt, and a scoping pass read that as three open design questions —
+> whether the creator needed a Store SKU, a home-screen door, and a new entitlement model. All three
+> were already ruled and built. A doc that reports closed questions as open manufactures work.
+> Every row below now cites what was measured, not what was planned.
+
+| Fact | Shape | Status |
 |---|---|---|
-| Owns a colour SKU | Boolean | `OwnedCosmeticIds` — **exists** |
-| League membership | **Conditional** | **NONE** |
-| Purchased build slots | **Counted** | **NONE on this seam** |
-| Max-slot upgrade | Boolean | `OwnedCosmeticIds` — **exists** |
+| Owns a colour SKU | Boolean | **EXISTS** — `OwnedCosmeticIds` |
+| League membership | Conditional | **SHIPPED** — see below |
+| Purchased build slots | Counted | **PROVEN** — see below |
+| Max-slot upgrade | Boolean | **EXISTS** — `OwnedCosmeticIds` |
 
-Two of four shapes are new construction. See `IRONICS_PRICING_SSOT.md` §5.3.
+**All four shapes are built.** The previous claim that two were "new construction" is withdrawn.
 
-**Naming collision to resolve before implementation:** in code, `LeaguePlay` is the *free,
-unstaked* match tier — `IsStaked() = Tier != LeaguePlay`
-(`IRONICS_LEAGUE_DOOR_SPEC.md:14`). A paid tier named "League" will collide in code, in the
-front end, and in player language.
+- **Conditional — SHIPPED.** `EAFLConditionState::AwaitingActivation` is the fourth state
+  (`AFLCosmeticLoadoutComponent.cpp:416`), written through `/conditional-entitlement` via
+  `UAFLOnlineSubsystem::PostServerConditionalEntitlement` (`AFLOnlineSubsystem.cpp:827`), URL from
+  `AFL_CONDITIONAL_URL` (`:161`). It is **fail-closed**: `Held` is the only state that grants —
+  `Lapsed`, `AwaitingActivation` and `Unknown` all refuse, because AwaitingActivation means *paid
+  but not live* and granting on it would pay out an unactivated entitlement
+  (`AFLCosmeticLoadoutComponent.cpp:616-618`).
+- **Counted — PROVEN.** `CountedKey` accumulates across SKUs into one counter, so x1/x3/x8 of a
+  credit sum rather than shadowing each other (`AFLCosmeticCoreTypes.h:387`). Tagged `cc-join-done`
+  and `cc-x30-done`; both tags exist in this repo.
+
+### 8.1 · Access — RULED, not open
+
+**The creator opens from the LOADOUT, on a build — New Build or Edit Build.** It is **not** a
+footer nav item, **not** a Store tile, and **not** a third home-screen door.
+
+This follows the REPLAYS precedent: denied a footer slot and landed as a sub-tab inside an existing
+surface. Two standing invariants stay intact and are **not** in conflict with the creator —
+`EAFLNavTarget` is exactly the five items sec3 draws, and the home screen presents exactly two
+doors. The wiring already matches: `UAFLW_Creator::InitializeCreator` takes a `UAFLW_LoadoutBase*`,
+and `OpenCreator(-1)` / `OpenCreator(index)` are the New Build and Edit Build entries
+(`AFLW_LoadoutBase.cpp:1179`, `:1187`).
+
+Measured 2026-08-27: `W_IRONICS_Home` has all five nav destinations wired, `LoadoutScreenClass` →
+`WBP_AFL_Loadout_C`, and the loadout's `CreatorWidgetClass` → `WBP_AFL_Creator_C`. **The path from
+home screen to creator is live today.**
+
+### 8.2 · Nothing gates OPENING the creator
+
+**Everyone builds.** The gate is **saving and carrying**, enforced server-side — Option B:
+
+- `bReadOnly = (i >= Cap)`; builds outside the cap are locked, not deleted
+  (`AFLCosmeticLoadoutComponent.cpp:942`, re-evaluated at `:1009`).
+- `GetSlotsUsed()` counts **unlocked** builds only — `CountUnlockedBuilds()`
+  (`AFLW_Creator.cpp:634-641`).
+- `ServerSaveBuild_Validate` / `_Implementation` enforce it on the server, and a save into a
+  `bReadOnly` build is refused (`AFLCosmeticLoadoutComponent.cpp:849`, `:874`, `:880`).
+
+A gate on opening would have been the wrong shape anyway: it would hide the product from the
+players most likely to buy into it.
+
+### 8.3 · The League naming collision — RULED
+
+`LeaguePlay` stays the **free, unstaked** match tier — `IsStaked() = Tier != LeaguePlay`
+(`IRONICS_LEAGUE_DOOR_SPEC.md:14`). The paid tier is the **BATTLE PASS**. Resolved by naming the
+paid product, not by renaming the free one.
+
+⚠ **This rename surfaces an unresolved product question — see §8.4. It is not resolved here.**
+
+### 8.4 · OPEN — Battle Pass shape vs subscription shape
+
+Naming the paid tier "Battle Pass" collides two documents that describe **differently shaped
+products**. Reported, deliberately not resolved:
+
+| | `IRONICS_ECONOMY_SPEC.md` §4 | `IRONICS_PRICING_SSOT.md` §6 |
+|---|---|---|
+| Name | Battle Pass | League subscription |
+| Shape | **Seasonal**, one-off | **Recurring subscription** |
+| Price | ~8,000 V (≈$8) / season | $5/mo · $30/yr · $10/qtr on annual ($40) |
+| Structure | ~100 tiers, free + premium track, claim flow | grants the clamped hue continuum |
+| Economics | exactly self-sustaining — earn back the next pass | *"the continuum is the subscription"* |
+
+Two mismatches, both real:
+
+1. **Cadence.** A pass is seasonal; a subscription is recurring. They can be one product — a
+   subscription that grants the current season's pass — **but no one has made that design
+   statement**, and assuming it would be inventing the economy.
+2. **Price.** Seasons run ~9–13 weeks (`ECON §7`, `LEAGUE_ADVANCEMENT §3`). At $5/mo a season costs
+   ≈$15–16 against the pass's ≈$8. Those do not reconcile at any cadence.
+
+**Owner: operator.** Nothing downstream should be scoped from either figure until it is ruled.
 
 **Display names** require a profanity filter, a uniqueness rule, and a report path before
 any player sees another player's build name. Not glamorous; genuinely required before
