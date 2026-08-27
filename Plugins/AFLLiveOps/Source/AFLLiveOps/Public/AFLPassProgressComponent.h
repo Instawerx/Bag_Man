@@ -104,6 +104,39 @@ public:
 	/** Everything earned and unclaimed, lowest tier first. Server-side helper for a claim-all. */
 	int32 ServerClaimAllEarned();
 
+	// ===== TIER VIEWER / UPSELL (S21 slice 3) =====================================================
+	//
+	// READ-ONLY, and it answers what a UI needs in ONE call per tier. A viewer that assembled this
+	// from four separate getters would be four chances to ask about a different tier than it renders.
+
+	/** Is @TierIndex reached by the player's current XP? */
+	UFUNCTION(BlueprintPure, Category = "AFL|Pass|View")
+	bool IsTierEarned(int32 TierIndex) const;
+
+	/** Has this track of @TierIndex already been handed over? */
+	UFUNCTION(BlueprintPure, Category = "AFL|Pass|View")
+	bool IsTrackClaimed(int32 TierIndex, EAFLPassTrack Track) const;
+
+	/**
+	 * Is there something to collect on this track right now?
+	 *
+	 * TRUE ONLY IF IT WOULD ACTUALLY GRANT: earned, non-empty, unclaimed, and -- for premium -- held.
+	 * A viewer lighting a claim button on anything weaker would offer a button that refuses, which is
+	 * the silent no-op the states table forbids.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Pass|View")
+	bool IsTrackClaimable(int32 TierIndex, EAFLPassTrack Track) const;
+
+	/**
+	 * How many premium rewards this player has EARNED but cannot take because they are unsubscribed.
+	 *
+	 * THE UPSELL IS A COUNT, NOT A FLAG. "Subscribe" shown to someone owed nothing is noise;
+	 * "7 rewards waiting" is the honest version of the same prompt, and it is zero exactly when
+	 * there is nothing to sell. Returns 0 when premium is already held.
+	 */
+	UFUNCTION(BlueprintPure, Category = "AFL|Pass|View")
+	int32 GetUnclaimablePremiumCount() const;
+
 protected:
 	UPROPERTY(ReplicatedUsing = OnRep_Progress)
 	FAFLPassProgress Progress;

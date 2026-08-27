@@ -282,3 +282,67 @@ int32 UAFLPassProgressComponent::ServerClaimAllEarned()
 	}
 	return Total;
 }
+
+
+// ===== TIER VIEWER / UPSELL (S21 slice 3) ===========================================================
+
+bool UAFLPassProgressComponent::IsTierEarned(const int32 TierIndex) const
+{
+	if (!Season || !Season->Tiers.IsValidIndex(TierIndex))
+	{
+		return false;
+	}
+	return TierIndex <= Season->TierForXp(GetProgressForCurrentSeason().Xp);
+}
+
+bool UAFLPassProgressComponent::IsTrackClaimed(const int32 TierIndex, const EAFLPassTrack Track) const
+{
+	return GetProgressForCurrentSeason().HasClaimed(Track, TierIndex);
+}
+
+bool UAFLPassProgressComponent::IsTrackClaimable(const int32 TierIndex, const EAFLPassTrack Track) const
+{
+	if (!Season || !Season->Tiers.IsValidIndex(TierIndex) || !IsTierEarned(TierIndex))
+	{
+		return false;
+	}
+
+	const FAFLPassTier& Tier = Season->Tiers[TierIndex];
+	const FAFLPassReward& Reward =
+		(Track == EAFLPassTrack::Free) ? Tier.FreeReward : Tier.PremiumReward;
+
+	if (Reward.IsEmpty() || IsTrackClaimed(TierIndex, Track))
+	{
+		return false;
+	}
+
+	// MIRRORS ServerClaimTier's OWN CONDITIONS. If this answered yes where the claim would refuse,
+	// the viewer would light a button that does nothing -- and the two would drift the first time
+	// either changed. Kept adjacent deliberately.
+	if (Track == EAFLPassTrack::Premium && !GetProgressForCurrentSeason().bPremiumHeld)
+	{
+		return false;
+	}
+	return true;
+}
+
+int32 UAFLPassProgressComponent::GetUnclaimablePremiumCount() const
+{
+	const FAFLPassProgress P = GetProgressForCurrentSeason();
+	if (!Season || P.bPremiumHeld)
+	{
+		return 0;   // nothing to sell to someone who already holds it
+	}
+
+	const int32 Earned = Season->TierForXp(P.Xp);
+	int32 Count = 0;
+	for (int32 i = 0; i <= Earned && Season->Tiers.IsValidIndex(i); ++i)
+	{
+		const FAFLPassReward& R = Season->Tiers[i].PremiumReward;
+		if (!R.IsEmpty() && !P.HasClaimed(EAFLPassTrack::Premium, i))
+		{
+			++Count;
+		}
+	}
+	return Count;
+}

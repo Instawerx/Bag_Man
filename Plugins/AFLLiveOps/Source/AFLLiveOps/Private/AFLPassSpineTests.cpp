@@ -4,6 +4,7 @@
 #include "AFLPassProgressComponent.h"
 #include "AFLPassRewardSink.h"
 #include "AFLPassSeasonAsset.h"
+#include "AFLStoreRotationAsset.h"
 #include "GameFramework/Actor.h"
 #include "AFLPassSpineTests.h"
 
@@ -265,6 +266,170 @@ namespace
 			Arm(TEXT("claim-all: is idempotent once everything is settled"),
 				CC->ServerClaimAllEarned() == 0 && Sink->Granted.Num() == 0,
 				FString::Printf(TEXT("recorded=%d"), Sink->Granted.Num()));
+
+			// -- SLICE 3: TIER VIEWER / UPSELL -------------------------------------------------
+			//
+			// Fresh component: the claim arms above deliberately left tiers settled.
+			UAFLPassSeasonAsset* VS = MakeGoodSeason();
+			VS->SeasonId = TEXT("S_VIEW");
+			UAFLPassProgressComponent* VC = NewObject<UAFLPassProgressComponent>(Host);
+			VC->RegisterComponent();
+			VC->ServerSetSeason(VS);
+			UAFLPassSpineSinkHolder* VSink = NewObject<UAFLPassSpineSinkHolder>(Host);
+			VC->SetRewardSink(TScriptInterface<IAFLPassRewardSink>(VSink));
+			VC->ServerGrantXp(VS->XpForTier(20));
+
+			Arm(TEXT("view: earned tier reads earned, later tier does not"),
+				VC->IsTierEarned(20) && !VC->IsTierEarned(21),
+				FString::Printf(TEXT("t20=%d t21=%d"), VC->IsTierEarned(20), VC->IsTierEarned(21)));
+
+			// KEEPS THE BUTTON HONEST: claimable must agree with what the claim would do. Premium is
+			// unheld here, so it must NOT read claimable -- a viewer lighting it offers a button that
+			// refuses, which is the silent no-op the states table forbids.
+			Arm(TEXT("view: premium not claimable while unsubscribed"),
+				VC->IsTrackClaimable(20, EAFLPassTrack::Free)
+					&& !VC->IsTrackClaimable(20, EAFLPassTrack::Premium),
+				FString::Printf(TEXT("free=%d premium=%d"),
+					VC->IsTrackClaimable(20, EAFLPassTrack::Free) ? 1 : 0,
+					VC->IsTrackClaimable(20, EAFLPassTrack::Premium) ? 1 : 0));
+
+			// CLAIMABLE MUST PREDICT THE CLAIM. If these disagree, UI and server have drifted.
+			const bool bPredictedFree = VC->IsTrackClaimable(20, EAFLPassTrack::Free);
+			const int32 ActuallyGranted = VC->ServerClaimTier(20);
+			Arm(TEXT("view: claimable predicted what the claim granted"),
+				(bPredictedFree ? 1 : 0) == ActuallyGranted,
+				FString::Printf(TEXT("predicted=%d granted=%d"), bPredictedFree ? 1 : 0, ActuallyGranted));
+
+			Arm(TEXT("view: a claimed track stops reading claimable"),
+				!VC->IsTrackClaimable(20, EAFLPassTrack::Free)
+					&& VC->IsTrackClaimed(20, EAFLPassTrack::Free),
+				TEXT("free settled"));
+
+			// UPSELL IS A COUNT, not a flag: earned 0..20, premium on every tier, none claimed -> 21.
+			const int32 Owed = VC->GetUnclaimablePremiumCount();
+			Arm(TEXT("upsell: counts earned-but-unclaimable premium rewards"),
+				Owed == 21, FString::Printf(TEXT("owed=%d (want 21)"), Owed));
+
+			VC->ServerSetPremiumHeld(true);
+			Arm(TEXT("upsell: nothing to sell once premium is held"),
+				VC->GetUnclaimablePremiumCount() == 0,
+				FString::Printf(TEXT("owed=%d"), VC->GetUnclaimablePremiumCount()));
+
+			// -- SLICE 3: STORE ROTATION -------------------------------------------------------
+			UAFLStoreRotationAsset* Rot = NewObject<UAFLStoreRotationAsset>(GetTransientPackage());
+			Rot->EpochUtc = FDateTime(2026, 1, 1);
+			Rot->PeriodDays = 7;
+			Rot->SlotCount = 6;
+			Rot->FeaturedCount = 2;
+			for (int32 i = 0; i < 40; ++i)
+			{
+				Rot->Pool.Add(FName(*FString::Printf(TEXT("AFL.Finish.Rot%02d"), i)));
+			}
+
+			Arm(TEXT("CONTROL rotation: a valid rotation validates clean"),
+				Rot->ValidateRotation().Num() == 0,
+				FString::Printf(TEXT("%d failure(s)"), Rot->ValidateRotation().Num()));
+
+			// DETERMINISM is the design: reopening the store mid-window must not reshuffle.
+			Arm(TEXT("rotation: same window twice is identical"),
+				Rot->GetOfferForWindow(3) == Rot->GetOfferForWindow(3), TEXT("stable"));
+
+			Arm(TEXT("rotation: offer respects SlotCount"),
+				Rot->GetOfferForWindow(3).Num() == 6,
+				FString::Printf(TEXT("n=%d"), Rot->GetOfferForWindow(3).Num()));
+
+			{
+				const TArray<FName> W = Rot->GetOfferForWindow(3);
+				const TSet<FName> Uniq(W);
+				Arm(TEXT("rotation: no duplicate rows within a window"),
+					Uniq.Num() == W.Num(),
+					FString::Printf(TEXT("%d unique of %d"), Uniq.Num(), W.Num()));
+			}
+
+			{
+				// Identical consecutive offers would be a rotation that does not rotate -- and it
+				// would look like a working system.
+				int32 Differing = 0;
+				for (int32 w = 0; w < 12; ++w)
+				{
+					if (Rot->GetOfferForWindow(w) != Rot->GetOfferForWindow(w + 1)) { ++Differing; }
+				}
+				Arm(TEXT("rotation: consecutive windows differ"),
+					Differing >= 11, FString::Printf(TEXT("%d/12 boundaries changed"), Differing));
+			}
+
+			{
+				const TArray<FName> Off = Rot->GetOfferForWindow(5);
+				const TArray<FName> Feat = Rot->GetFeaturedForWindow(5);
+				bool bSubset = (Feat.Num() == 2);
+				for (const FName& F : Feat) { bSubset = bSubset && Off.Contains(F); }
+				Arm(TEXT("rotation: featured is a subset of the same offer"),
+					bSubset, FString::Printf(TEXT("featured=%d offer=%d"), Feat.Num(), Off.Num()));
+			}
+
+			{
+				// Truncating instead of flooring maps pre-epoch time onto window 0, so the first two
+				// windows would share an offer.
+				const int32 W0 = Rot->WindowIndexAt(Rot->EpochUtc);
+				const int32 W1 = Rot->WindowIndexAt(Rot->EpochUtc + FTimespan::FromDays(7));
+				const int32 WNeg = Rot->WindowIndexAt(Rot->EpochUtc - FTimespan::FromDays(1));
+				Arm(TEXT("rotation: window maths floors, including before the epoch"),
+					W0 == 0 && W1 == 1 && WNeg == -1,
+					FString::Printf(TEXT("epoch=%d plus7d=%d minus1d=%d"), W0, W1, WNeg));
+			}
+
+			{
+				UAFLStoreRotationAsset* Small = NewObject<UAFLStoreRotationAsset>(GetTransientPackage());
+				Small->EpochUtc = FDateTime(2026, 1, 1);
+				Small->PeriodDays = 7; Small->SlotCount = 6; Small->FeaturedCount = 2;
+				Small->Pool.Add(TEXT("A")); Small->Pool.Add(TEXT("B")); Small->Pool.Add(TEXT("C"));
+				const TArray<FName> W = Small->GetOfferForWindow(1);
+				const TSet<FName> U(W);
+				Arm(TEXT("rotation: pool under SlotCount offers the pool, no duplicates"),
+					W.Num() == 3 && U.Num() == 3,
+					FString::Printf(TEXT("n=%d unique=%d"), W.Num(), U.Num()));
+				Arm(TEXT("rotation: undersized pool is REPORTED, not silently short"),
+					Small->ValidateRotation().Num() > 0, TEXT("validator flags it"));
+			}
+
+			{
+				// Editing the pool must change the draw, or a removed row stays on sale.
+				const TArray<FName> Before = Rot->GetOfferForWindow(4);
+				Rot->Pool.Add(TEXT("AFL.Finish.RotNEW"));
+				Arm(TEXT("rotation: editing the pool changes the offer"),
+					Rot->GetOfferForWindow(4) != Before, TEXT("pool is part of the seed"));
+				Rot->Pool.Pop();
+			}
+
+			{
+				auto RotMut = [&](const TCHAR* Name, TFunctionRef<void(UAFLStoreRotationAsset&)> Break)
+				{
+					UAFLStoreRotationAsset* R = NewObject<UAFLStoreRotationAsset>(GetTransientPackage());
+					R->EpochUtc = FDateTime(2026, 1, 1);
+					R->PeriodDays = 7; R->SlotCount = 6; R->FeaturedCount = 2;
+					for (int32 i = 0; i < 40; ++i)
+					{
+						R->Pool.Add(FName(*FString::Printf(TEXT("R%02d"), i)));
+					}
+					Break(*R);
+					const TArray<FString> F = R->ValidateRotation();
+					Arm(Name, F.Num() > 0, F.Num() ? F[0].Left(70) : FString(TEXT("NOT CAUGHT")));
+				};
+				RotMut(TEXT("rot mutation: empty pool"),         [](UAFLStoreRotationAsset& R){ R.Pool.Reset(); });
+				RotMut(TEXT("rot mutation: zero period"),        [](UAFLStoreRotationAsset& R){ R.PeriodDays = 0; });
+				RotMut(TEXT("rot mutation: featured beyond slots"), [](UAFLStoreRotationAsset& R){ R.FeaturedCount = 99; });
+				RotMut(TEXT("rot mutation: duplicate pool row"), [](UAFLStoreRotationAsset& R)
+				{
+					// COPY FIRST. R.Pool.Add(R.Pool[0]) passes a REFERENCE INTO the array being
+					// grown; Add reallocates and the reference dangles. UE asserts on exactly this
+					// (Array.h: Addr < GetData() || Addr >= GetData()+ArrayMax) and it took the
+					// editor down mid-suite. Same aliasing family as the socket-transform capture:
+					// a reference into live data is not a value.
+					const FName First = R.Pool[0];
+					R.Pool.Add(First);
+				});
+				RotMut(TEXT("rot mutation: unset epoch"),        [](UAFLStoreRotationAsset& R){ R.EpochUtc = FDateTime(0); });
+			}
 
 			Host->Destroy();
 		}
