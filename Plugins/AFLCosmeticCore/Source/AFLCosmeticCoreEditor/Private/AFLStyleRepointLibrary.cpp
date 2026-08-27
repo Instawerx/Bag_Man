@@ -456,3 +456,118 @@ TArray<FString> UAFLStyleRepointLibrary::AuthorWidgetBlueprint(
 	             "BindWidgets, so a clean compile here proves nothing about the bindings."));
 	return Out;
 }
+
+
+namespace
+{
+	/** Shared by both authoring entry points so the two cannot disagree about what a type name means. */
+	UClass* AFLResolveWidgetClass(const FString& Type)
+	{
+		if (Type == TEXT("VerticalBox"))      { return UVerticalBox::StaticClass(); }
+		if (Type == TEXT("CanvasPanel"))      { return UCanvasPanel::StaticClass(); }
+		if (Type == TEXT("TextBlock"))        { return UTextBlock::StaticClass(); }
+		if (Type == TEXT("Image"))            { return UImage::StaticClass(); }
+		if (Type == TEXT("Border"))           { return UBorder::StaticClass(); }
+		if (Type == TEXT("Button"))           { return UButton::StaticClass(); }
+		if (Type == TEXT("CommonTextBlock"))
+		{
+			return LoadClass<UWidget>(nullptr, TEXT("/Script/CommonUI.CommonTextBlock"));
+		}
+		return nullptr;
+	}
+}
+
+TArray<FString> UAFLStyleRepointLibrary::AddWidgetsToBlueprint(
+	const FString& BlueprintPath,
+	const TArray<FString>& WidgetSpecs,
+	bool bApply)
+{
+	TArray<FString> Out;
+
+	UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr, *BlueprintPath);
+	if (!WBP || !WBP->WidgetTree)
+	{
+		Out.Add(FString::Printf(TEXT("FAIL could not load %s (or it has no WidgetTree)"), *BlueprintPath));
+		return Out;
+	}
+
+	UPanelWidget* Root = Cast<UPanelWidget>(WBP->WidgetTree->RootWidget);
+	if (!Root)
+	{
+		Out.Add(FString::Printf(TEXT("FAIL root of %s is not a panel -- cannot add children."),
+			*WBP->GetName()));
+		return Out;
+	}
+
+	// Existing names first: adding a duplicate would give the BindWidget two candidates and the
+	// binding would resolve to whichever the tree walked into first.
+	TSet<FName> Existing;
+	WBP->WidgetTree->ForEachWidget([&Existing](UWidget* W)
+	{
+		if (W) { Existing.Add(W->GetFName()); }
+	});
+
+	int32 Added = 0, Skipped = 0;
+	for (const FString& Spec : WidgetSpecs)
+	{
+		FString Name, Type;
+		if (!Spec.Split(TEXT("="), &Name, &Type))
+		{
+			Out.Add(FString::Printf(TEXT("  BAD SPEC '%s' -- expected Name=Type"), *Spec));
+			continue;
+		}
+
+		if (Existing.Contains(FName(*Name)))
+		{
+			Out.Add(FString::Printf(TEXT("  = %-24s already present -- left alone"), *Name));
+			++Skipped;
+			continue;
+		}
+
+		UClass* WidgetClass = AFLResolveWidgetClass(Type);
+		if (!WidgetClass)
+		{
+			// Named, never silently skipped: an unfulfilled bind target renders as a missing region
+			// with no error to find.
+			Out.Add(FString::Printf(TEXT("  UNKNOWN TYPE '%s' for '%s' -- NOT created."), *Type, *Name));
+			continue;
+		}
+
+		if (!bApply)
+		{
+			Out.Add(FString::Printf(TEXT("  + %-24s %s   [dry]"), *Name, *Type));
+			++Added;
+			continue;
+		}
+
+		UWidget* W = WBP->WidgetTree->ConstructWidget<UWidget>(WidgetClass, FName(*Name));
+		if (!W)
+		{
+			Out.Add(FString::Printf(TEXT("  FAILED to construct '%s' (%s)"), *Name, *Type));
+			continue;
+		}
+		Root->AddChild(W);
+		++Added;
+		Out.Add(FString::Printf(TEXT("  + %-24s %s"), *Name, *Type));
+	}
+
+	if (!bApply)
+	{
+		Out.Add(FString::Printf(TEXT("DRY RUN %s: %d would be added, %d already present."),
+			*WBP->GetName(), Added, Skipped));
+		return Out;
+	}
+
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WBP);
+	FKismetEditorUtilities::CompileBlueprint(WBP);
+
+	TArray<UPackage*> ToSave;
+	ToSave.Add(WBP->GetOutermost());
+	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(ToSave, false);
+
+	Out.Add(FString::Printf(TEXT("APPLIED %s: +%d, %d already present, compiled, save=%s"),
+		*WBP->GetName(), Added, Skipped, bSaved ? TEXT("OK") : TEXT("FAILED")));
+	Out.Add(TEXT("VERIFY with UAFLWidgetAuditLibrary -- compilation reports success on unfulfilled "
+	             "BindWidgets, so a clean compile proves nothing about the bindings."));
+	return Out;
+}

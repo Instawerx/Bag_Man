@@ -101,6 +101,22 @@ public:
 	 * blueprint compilation reports success on unfulfilled BindWidgets, which this project has
 	 * already been burned by.
 	 */
+	/**
+	 * Add named widgets to an EXISTING Widget Blueprint, skipping any that are already there.
+	 *
+	 * SEPARATE FROM AuthorWidgetBlueprint because the creator already exists and carries the
+	 * operator's dialled-in layout. Re-authoring it would discard that -- and this project has
+	 * already lost hand-tuned placement once by rebuilding an asset instead of extending it.
+	 *
+	 * IDEMPOTENT: an existing widget of the same name is reported and left alone, never duplicated
+	 * and never replaced. Running twice must not produce two of anything.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|UI Author")
+	static TArray<FString> AddWidgetsToBlueprint(
+		const FString& BlueprintPath,
+		const TArray<FString>& WidgetSpecs,
+		bool bApply = false);
+
 	UFUNCTION(BlueprintCallable, Category = "AFL|UI Author")
 	static TArray<FString> AuthorWidgetBlueprint(
 		const FString& PackagePath,
