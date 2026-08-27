@@ -45,6 +45,7 @@ public class AFLCosmeticCoreEditor : ModuleRules
 				// UWidgetBlueprint::WidgetTree is not exposed to Python and the AIK Lua bridge has no
 				// UMG surface, so "is this colour from a compiled style or a typed literal" is only
 				// answerable from C++.
+				"AssetTools",   // AuthorWidgetBlueprint: factory path that HONOURS ParentClass
 				"UMG",              // UWidgetBlueprint, UWidgetTree, UWidget
 				"UMGEditor",        // UWidgetBlueprint (editor-side)
 				"CommonUI",         // UCommonTextBlock/UCommonBorder style classes

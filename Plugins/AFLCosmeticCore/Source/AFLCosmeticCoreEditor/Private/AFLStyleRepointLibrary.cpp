@@ -7,6 +7,14 @@
 #include "Components/PanelWidget.h"
 #include "Components/BorderSlot.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/CanvasPanel.h"
+#include "Components/VerticalBox.h"
+#include "Components/TextBlock.h"
+#include "Components/Image.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "WidgetBlueprintFactory.h"
+#include "AssetToolsModule.h"
+#include "Components/Button.h"
 #include "Components/Widget.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -304,5 +312,147 @@ TArray<FString> UAFLStyleRepointLibrary::AddDepthScrim(
 
 	Out.Add(FString::Printf(TEXT("APPLIED DepthGround on %s, children now %d, save=%s"),
 		*WBP->GetName(), RootPanel->GetChildrenCount(), bSaved ? TEXT("OK") : TEXT("FAILED")));
+	return Out;
+}
+
+
+TArray<FString> UAFLStyleRepointLibrary::AuthorWidgetBlueprint(
+	const FString& PackagePath,
+	const FString& AssetName,
+	const FString& ParentClassPath,
+	const TArray<FString>& WidgetSpecs,
+	bool bApply)
+{
+	TArray<FString> Out;
+
+	// RESOLVE THE PARENT FIRST. Authoring against a parent that does not exist produces a WBP whose
+	// BindWidgets can never be fulfilled -- and it compiles clean, so nothing downstream complains.
+	UClass* ParentClass = LoadClass<UUserWidget>(nullptr, *ParentClassPath);
+	if (!ParentClass)
+	{
+		Out.Add(FString::Printf(
+			TEXT("FAIL parent class not found: %s -- nothing created. A WBP parented to UUserWidget "
+			     "instead would compile clean with every BindWidget unfulfilled."), *ParentClassPath));
+		return Out;
+	}
+	Out.Add(FString::Printf(TEXT("parent: %s"), *ParentClass->GetName()));
+
+	const FString FullPath = PackagePath / AssetName;
+	// FPackageName, not UEditorAssetLibrary: that lives in EditorScriptingUtilities, which the engine
+	// already warns is deprecated. Taking a dependency on a deprecated module to ask whether a file
+	// exists would be borrowing a problem.
+	if (FPackageName::DoesPackageExist(FullPath))
+	{
+		Out.Add(FString::Printf(TEXT("EXISTS %s -- not overwriting; delete it first to re-author."), *FullPath));
+		return Out;
+	}
+
+	for (const FString& Spec : WidgetSpecs)
+	{
+		FString Name, Type;
+		if (!Spec.Split(TEXT("="), &Name, &Type))
+		{
+			Out.Add(FString::Printf(TEXT("  BAD SPEC '%s' -- expected Name=Type"), *Spec));
+		}
+	}
+
+	if (!bApply)
+	{
+		Out.Add(FString::Printf(TEXT("DRY RUN would create %s with %d widget(s)."),
+			*FullPath, WidgetSpecs.Num()));
+		return Out;
+	}
+
+	// FACTORY WITH AN EXPLICIT PARENT. AssetTools::CreateAsset honours the factory's ParentClass;
+	// the Python create_asset path is what ignores it, which is the banked trap this routes around.
+	UWidgetBlueprintFactory* Factory = NewObject<UWidgetBlueprintFactory>();
+	Factory->ParentClass = ParentClass;
+
+	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+	UObject* Created = AssetTools.CreateAsset(AssetName, PackagePath, UWidgetBlueprint::StaticClass(), Factory);
+	UWidgetBlueprint* WBP = Cast<UWidgetBlueprint>(Created);
+	if (!WBP)
+	{
+		Out.Add(TEXT("FAIL CreateAsset returned no WidgetBlueprint."));
+		return Out;
+	}
+
+	// VERIFY THE PARENT TOOK. This is the whole reason the function exists, so it is asserted rather
+	// than assumed -- the factory silently falling back to UUserWidget is the failure being guarded.
+	const FString ActualParent = WBP->ParentClass ? WBP->ParentClass->GetName() : TEXT("<null>");
+	Out.Add(FString::Printf(TEXT("created %s, parent reads back as %s"), *WBP->GetName(), *ActualParent));
+	if (WBP->ParentClass != ParentClass)
+	{
+		Out.Add(FString::Printf(
+			TEXT("FAIL parent did NOT take (wanted %s, got %s) -- every BindWidget would be unfulfilled."),
+			*ParentClass->GetName(), *ActualParent));
+		return Out;
+	}
+
+	if (!WBP->WidgetTree)
+	{
+		Out.Add(TEXT("FAIL no WidgetTree on the new blueprint."));
+		return Out;
+	}
+
+	// Root canvas: every bind target parents under it so the WBP opens with a usable layout.
+	UCanvasPanel* Root = Cast<UCanvasPanel>(WBP->WidgetTree->RootWidget);
+	if (!Root)
+	{
+		Root = WBP->WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+		WBP->WidgetTree->RootWidget = Root;
+	}
+
+	int32 Made = 0;
+	for (const FString& Spec : WidgetSpecs)
+	{
+		FString Name, Type;
+		if (!Spec.Split(TEXT("="), &Name, &Type))
+		{
+			continue;
+		}
+
+		UClass* WidgetClass = nullptr;
+		if (Type == TEXT("VerticalBox"))      { WidgetClass = UVerticalBox::StaticClass(); }
+		else if (Type == TEXT("CanvasPanel")) { WidgetClass = UCanvasPanel::StaticClass(); }
+		else if (Type == TEXT("TextBlock"))   { WidgetClass = UTextBlock::StaticClass(); }
+		else if (Type == TEXT("Image"))       { WidgetClass = UImage::StaticClass(); }
+		else if (Type == TEXT("Border"))      { WidgetClass = UBorder::StaticClass(); }
+		else if (Type == TEXT("Button"))      { WidgetClass = UButton::StaticClass(); }
+		else if (Type == TEXT("CommonTextBlock"))
+		{
+			WidgetClass = LoadClass<UWidget>(nullptr, TEXT("/Script/CommonUI.CommonTextBlock"));
+		}
+
+		if (!WidgetClass)
+		{
+			// REPORTED, never skipped in silence: a missing bind target renders as an empty screen
+			// with no error anywhere.
+			Out.Add(FString::Printf(TEXT("  UNKNOWN TYPE '%s' for '%s' -- NOT created."), *Type, *Name));
+			continue;
+		}
+
+		UWidget* W = WBP->WidgetTree->ConstructWidget<UWidget>(WidgetClass, FName(*Name));
+		if (!W)
+		{
+			Out.Add(FString::Printf(TEXT("  FAILED to construct '%s' (%s)"), *Name, *Type));
+			continue;
+		}
+		Root->AddChild(W);
+		++Made;
+		Out.Add(FString::Printf(TEXT("  + %-22s %s"), *Name, *Type));
+	}
+
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WBP);
+	FKismetEditorUtilities::CompileBlueprint(WBP);
+
+	TArray<UPackage*> ToSave;
+	ToSave.Add(WBP->GetOutermost());
+	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(ToSave, false);
+
+	Out.Add(FString::Printf(TEXT("APPLIED %s: %d widget(s), compiled, save=%s"),
+		*WBP->GetName(), Made, bSaved ? TEXT("OK") : TEXT("FAILED")));
+	Out.Add(TEXT("VERIFY with UAFLWidgetAuditLibrary -- compilation reports success on unfulfilled "
+	             "BindWidgets, so a clean compile here proves nothing about the bindings."));
 	return Out;
 }

@@ -83,4 +83,29 @@ public:
 		const FString& BlueprintPath,
 		FLinearColor DepthColor,
 		bool bApply = false);
+
+	/**
+	 * Create a Widget Blueprint under @PackagePath with @ParentClassPath as its parent, and populate
+	 * it with the named widgets a C++ base expects to bind.
+	 *
+	 * EXISTS BECAUSE WidgetTree IS NOT REACHABLE FROM PYTHON and the asset-tools factory has a banked
+	 * trap here: create_asset IGNORES parent_class, so a WBP authored that way silently parents to
+	 * UUserWidget and every BindWidget on the intended base goes unfulfilled. The blueprint still
+	 * compiles. This sets the parent explicitly and reports what it actually created.
+	 *
+	 * @WidgetSpecs is "Name=Type" per entry, e.g. "TierListContainer=VerticalBox". Types are resolved
+	 * by name against the UMG widget classes; an unknown type is REPORTED and skipped rather than
+	 * quietly omitted, because a missing bind target renders as an empty screen with no error.
+	 *
+	 * Returns one line per widget plus a summary. Verify with UAFLWidgetAuditLibrary afterwards --
+	 * blueprint compilation reports success on unfulfilled BindWidgets, which this project has
+	 * already been burned by.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|UI Author")
+	static TArray<FString> AuthorWidgetBlueprint(
+		const FString& PackagePath,
+		const FString& AssetName,
+		const FString& ParentClassPath,
+		const TArray<FString>& WidgetSpecs,
+		bool bApply = false);
 };

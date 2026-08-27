@@ -46,6 +46,13 @@ public class AFLCombat : ModuleRules
 				// for the #43 resolve swap (UAFLCosmeticCatalogSubsystem) + EAFLCosmeticRarity (used by
 				// UAFLSkinColorAsset). Correct dependency direction: GameFeature -> always-loaded core.
 				"AFLCosmeticCore",
+
+				// S21 live-ops. A GameFeature MAY depend on a Default-phase runtime plugin; the reverse
+				// would break the load order AFLLiveOps exists to satisfy (its season asset must be
+				// loadable when AssetManager scans PrimaryAssetTypesToScan at engine startup). So the
+				// pass UI lives here with the rest of the front end and reads the spine, never the other
+				// way round.
+				"AFLLiveOps",
 				"ModularGameplay",
 				"ModularGameplayActors",
 			}
