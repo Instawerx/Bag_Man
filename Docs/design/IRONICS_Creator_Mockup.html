@@ -1,0 +1,258 @@
+<title>IRONICS — Character Creator Mockups C1 / C2 / C3</title>
+
+<style>
+/* ============================================================================
+   IRONICS CHARACTER CREATOR — C1 CreatorRoot / C2 ChassisPick / C3 BuildRoom
+   Rendered from Docs/design/IRONICS_CHARACTER_CREATOR_SSOT.md
+   Tokens from Docs/design/IRONICS_UI_STYLE_SSOT.md
+
+   WHY THIS PAGE EXISTS
+   The creator was the only front-end surface with no approved design page. It needed a
+   body-face caption at 12pt in PRIMARY ink, no page declared it, so three TS_IRONICS_Creator_*
+   styles were hand-made outside AFLTokenCompiler and stopped tracking the palette. Two of the
+   three were accidental duplicates of Display_Primary and Data_Primary. A surface with no page
+   cannot follow a palette recompile by construction -- this page closes that hole.
+
+   TOKEN VALUES ARE COPIED VERBATIM from the lobby page (the palette authority) and from the
+   door pages (geometry). Nothing here is a near-miss: CompileAllDesignPages writes every page
+   into the SAME asset folder, so a token stated differently here would silently repaint the
+   front end. This page is compiled BEFORE the lobby so the "LOBBY LAST" ruling still holds.
+
+   TWO SURFACES, per house convention:
+     .board  — the review surround. Theme-aware (light + dark).
+     .scr    — the game screen. Hard-pinned dark.
+   ========================================================================= */
+
+:root{
+  /* --- house tokens (the product) — verbatim from IRONICS_Lobby_Mockup.html ---------- */
+  --electric:#1E5AFF;
+  --house-electric:#1E5AFF;
+  --violet:#A855F7;
+  --depth:#05080F;
+
+  /* NEON EDGING — every value is --electric at a different burn. One blue only. */
+  --neon:rgba(30,90,255,.40);
+  --neon-lit:rgba(30,90,255,.70);
+  --neon-hot:rgba(30,90,255,.95);
+  --neon-bloom:rgba(30,90,255,.50);
+  --neon-text:0 0 12px rgba(30,90,255,.95),0 0 3px rgba(30,90,255,.85);
+
+  /* GLASS — panel fills and the edge highlight. --glass-3 from the door pages. */
+  --glass-1:rgba(255,255,255,.12);  --g1:rgba(255,255,255,.12);
+  --glass-2:rgba(255,255,255,.08);  --g2:rgba(255,255,255,.08);
+  --glass-3:rgba(255,255,255,.05);  --g3:rgba(255,255,255,.05);
+  --glass-border:rgba(255,255,255,.20); --gb:rgba(255,255,255,.20);
+
+  /* INK */
+  --text-1:rgba(255,255,255,1);   --t1:rgba(255,255,255,1);
+  --text-2:rgba(255,255,255,.70); --t2:rgba(255,255,255,.70);
+  --text-3:rgba(255,255,255,.45); --t3:rgba(255,255,255,.45);
+
+  /* DANGER — revert / discard only. Never a channel colour. */
+  --danger:rgba(255,80,80,.15);
+  --danger-ink:#FF8A8A;
+
+  /* GEOMETRY — house constants, identical on all three door pages (20/12/8/28).
+     Stated rather than omitted: an ABSENT token is not the value zero, and the compiler
+     resolves geometry house-wide by taking the last page that actually states each value. */
+  --r-panel:20px;
+  --r-button:12px;
+  --r-input:8px;
+  --blur:28px;
+
+  /* FACES */
+  --f-display:"Bahnschrift","DIN Alternate","DIN Condensed","Archivo Narrow","Oswald",system-ui,sans-serif;
+  --f-body:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  --f-data:"Cascadia Mono","Consolas","JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+
+  /* --- review surround, theme-aware. NOT product tokens. ---------------------------- */
+  --board-bg:#E9EDF5; --board-card:#FFFFFF; --board-ink:#0B111F; --board-mid:#48536A;
+  --board-mute:#6C7791; --board-line:rgba(11,17,31,.14); --board-hair:rgba(11,17,31,.08);
+  --board-inset:rgba(11,17,31,.04);
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --board-bg:#0A0D14; --board-card:#111621; --board-ink:#E7EBF3; --board-mid:#A6B0C4;
+    --board-mute:#7C8699; --board-line:rgba(231,235,243,.15); --board-hair:rgba(231,235,243,.08);
+    --board-inset:rgba(231,235,243,.04);
+  }
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--board-bg);color:var(--board-ink);font-family:var(--f-body)}
+.board{max-width:1180px;margin:0 auto;padding:32px 20px 72px}
+h1{font-family:var(--f-display);font-size:22px;letter-spacing:.04em;margin:0 0 4px;text-transform:uppercase}
+.sub{color:var(--board-mute);font-size:13px;margin:0 0 28px}
+h2{font-family:var(--f-display);font-size:15px;letter-spacing:.05em;text-transform:uppercase;
+   margin:34px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--board-line)}
+.note{font-size:12.5px;color:var(--board-mid);margin:0 0 14px;line-height:1.55}
+.note b{color:var(--board-ink)}
+code{font-family:var(--f-data);font-size:11.5px;background:var(--board-inset);
+     border:1px solid var(--board-hair);border-radius:4px;padding:1px 5px}
+
+/* ---- the game screen: hard dark, never inverts ------------------------------------ */
+.scr{position:relative;background:var(--depth);border:1px solid var(--glass-border);
+     border-radius:var(--r-panel);overflow:hidden;color:var(--text-1);
+     font-family:var(--f-body);aspect-ratio:16/9;width:100%;display:flex;flex-direction:column}
+.scr::before{content:"";position:absolute;inset:0;
+  background:radial-gradient(120% 90% at 50% -10%,rgba(30,90,255,.16),transparent 60%);
+  pointer-events:none}
+
+.hdr{display:flex;align-items:center;justify-content:space-between;
+     padding:16px 22px;border-bottom:1px solid var(--glass-border);position:relative}
+.ttl{font-family:var(--f-display);font-size:17px;letter-spacing:.08em;text-transform:uppercase;
+     text-shadow:var(--neon-text)}
+.slots{font-family:var(--f-data);font-size:14px;color:var(--text-1)}
+
+.body{display:flex;gap:16px;padding:18px 22px;flex:1;min-height:0;position:relative}
+
+/* C1 empty state */
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.empty .lead{font-family:var(--f-display);font-size:20px;letter-spacing:.05em;text-transform:uppercase}
+.empty .cap{font-size:12px;color:var(--text-1);max-width:420px;text-align:center;line-height:1.6}
+.cta{background:var(--glass-1);border:1px solid var(--neon-hot);border-radius:var(--r-button);
+     padding:11px 26px;font-family:var(--f-display);font-size:14px;letter-spacing:.07em;
+     text-transform:uppercase;box-shadow:0 0 18px var(--neon-bloom)}
+
+/* C2 chassis choice */
+.chassis{flex:1;display:flex;gap:16px}
+.card{flex:1;background:var(--glass-1);border:1px solid var(--glass-border);
+      border-radius:var(--r-panel);padding:18px;display:flex;flex-direction:column;gap:10px}
+.card.on{border-color:var(--neon-hot);box-shadow:0 0 22px var(--neon-bloom)}
+.card h3{font-family:var(--f-display);font-size:16px;letter-spacing:.06em;text-transform:uppercase;margin:0}
+.card p{font-size:12px;color:var(--text-2);margin:0;line-height:1.6}
+.spec{font-family:var(--f-data);font-size:12px;color:var(--text-2);line-height:1.7;
+      border-top:1px solid var(--glass-border);padding-top:9px;margin-top:auto}
+.spec b{color:var(--text-1);font-weight:400}
+
+/* C3 the builder */
+.stage{flex:1.35;background:var(--glass-3);border:1px solid var(--glass-border);
+       border-radius:var(--r-panel);position:relative;
+       display:flex;align-items:center;justify-content:center}
+.stage .blank{width:32%;height:74%;border-radius:14px;
+  background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.05));
+  border:1px solid var(--glass-border);position:relative}
+.stage .blank::after{content:"";position:absolute;left:12%;right:12%;top:22%;height:2px;
+  background:var(--neon-hot);box-shadow:0 0 14px var(--neon-hot)}
+.stage .tag{position:absolute;left:14px;top:12px;font-family:var(--f-data);font-size:12px;color:var(--text-2)}
+.range{position:absolute;right:14px;bottom:12px;display:flex;gap:8px}
+.range span{font-family:var(--f-data);font-size:12px;color:var(--text-2);
+  border:1px solid var(--glass-border);border-radius:var(--r-input);padding:5px 10px}
+.range span.on{color:var(--text-1);border-color:var(--neon-lit)}
+
+.rail{flex:1;display:flex;flex-direction:column;gap:9px;min-width:0}
+.row{background:var(--glass-2);border:1px solid var(--glass-border);
+     border-radius:var(--r-input);padding:10px 12px;display:flex;align-items:center;gap:11px}
+.sw{width:24px;height:24px;border-radius:7px;border:1px solid var(--glass-border);flex:none}
+.rname{font-family:var(--f-display);font-size:13px;letter-spacing:.05em;text-transform:uppercase;flex:1}
+.rval{font-family:var(--f-data);font-size:12px;color:var(--text-2)}
+.caption{font-size:12px;color:var(--text-1);line-height:1.55;margin:0}
+.foot{display:flex;gap:9px;margin-top:auto}
+.btn{flex:1;text-align:center;border-radius:var(--r-button);padding:10px;
+     font-family:var(--f-display);font-size:13px;letter-spacing:.06em;text-transform:uppercase;
+     background:var(--glass-1);border:1px solid var(--glass-border)}
+.btn.go{border-color:var(--neon-hot);box-shadow:0 0 16px var(--neon-bloom)}
+.btn.rev{border-color:var(--danger-ink);color:var(--danger-ink)}
+</style>
+
+<div class="board">
+
+<h1>IRONICS — Character Creator</h1>
+<p class="sub">C1 CreatorRoot · C2 ChassisPick · C3 BuildRoom — rendered from IRONICS_CHARACTER_CREATOR_SSOT.md</p>
+
+<p class="note"><b>This page is the creator's token authority.</b> Every colour, radius and blur
+below is a token copied verbatim from the lobby and door pages. It is compiled by
+<code>AFLTokenCompiler</code> before the lobby, so the lobby remains the final word on shared
+house colour while the creator finally has a page of its own to track.</p>
+
+<h2>C1 · CreatorRoot — entry</h2>
+<p class="note">Full-screen menu, sibling of the Digital Market. The empty state is an
+<b>invitation, not a warning</b>: no builds yet, one action. The slot counter is always visible
+(SSOT §5.1).</p>
+<div class="scr">
+  <div class="hdr"><div class="ttl">Character Creator</div><div class="slots">0 / 5 BUILDS</div></div>
+  <div class="body">
+    <div class="empty">
+      <div class="lead">Start a build</div>
+      <div class="cap">There is no roster. You start from a chassis and resolve it —
+        finish, mask, and the parts you earn.</div>
+      <div class="cta">New build</div>
+    </div>
+  </div>
+</div>
+
+<h2>C2 · ChassisPick — pick the line</h2>
+<p class="note">Original and X are <b>genuinely different products</b>, so this is a first-class
+choice and not a hidden variant. The chassis selected determines which channel schema C3 renders
+(SSOT §7).</p>
+<div class="scr">
+  <div class="hdr"><div class="ttl">Choose a chassis</div><div class="slots">0 / 5 BUILDS</div></div>
+  <div class="body">
+    <div class="chassis">
+      <div class="card">
+        <h3>Original line</h3>
+        <p>The shipped roster chassis. Two baked material instances per robot; colour arrives
+           through the mannequin master.</p>
+        <div class="spec">MESH <b>SKM_Manny</b><br>MASTER <b>M_Mannequin</b><br>ROBOTS <b>27</b></div>
+      </div>
+      <div class="card on">
+        <h3>X line</h3>
+        <p>The composable chassis — empty override materials by design, so the creator's channels
+           are what resolve it. Carries the chest emblem decal.</p>
+        <div class="spec">MESH <b>SKM_IRONICS_Blank</b><br>MASTER <b>M_AFL_Character</b><br>ROBOTS <b>28</b></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>C3 · BuildRoom — the builder</h2>
+<p class="note"><b>The preview is the product.</b> Live preview is the spawned pawn on the blank
+chassis, never a stand-in, and a combat-range zoom state is mandatory — things that read at
+portrait distance vanish in play (SSOT §5.3). Nothing commits until SAVE, which is what makes
+experimentation costless.</p>
+
+<p class="note"><b>The channel rail is chassis-dependent — X line shown.</b> Body colour is
+<b>absent from the X-line flow entirely</b>: it is not offered, not greyed, not explained.
+<code>M_AFL_Character</code> declares <code>TeamColor</code> and never consumes it, so a body
+swatch on this chassis would be a control that does nothing — and a disabled control still asks
+the player to wonder why. The original line, whose mannequin master does consume it, keeps the
+body channel. This is what SSOT §7 means by the chassis determining the channel schema: not the
+same panel with a warning bolted on, but a different set of rows.</p>
+<div class="scr">
+  <div class="hdr"><div class="ttl">Build — untitled</div><div class="slots">1 / 5 BUILDS</div></div>
+  <div class="body">
+    <div class="stage">
+      <div class="tag">SKM_IRONICS_Blank · live pawn</div>
+      <div class="blank"></div>
+      <div class="range"><span class="on">PORTRAIT</span><span>COMBAT RANGE</span></div>
+    </div>
+    <div class="rail">
+      <div class="row"><div class="sw" style="background:#A855F7"></div>
+        <div class="rname">Edge</div><div class="rval">#A855F7</div></div>
+      <div class="row"><div class="sw" style="background:#1E5AFF"></div>
+        <div class="rname">Glow</div><div class="rval">#1E5AFF</div></div>
+      <div class="row"><div class="sw" style="background:rgba(255,255,255,.08)"></div>
+        <div class="rname">Visor</div><div class="rval">Clean</div></div>
+      <div class="row"><div class="sw" style="background:rgba(255,255,255,.08)"></div>
+        <div class="rname">Emblem</div><div class="rval">None</div></div>
+      <p class="caption">Colour is server-clamped to the neon gamut on save.</p>
+      <div class="foot">
+        <div class="btn rev">Revert</div>
+        <div class="btn go">Save build</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>Style contract</h2>
+<p class="note">Every text run above maps to a compiler-emitted style. The 12pt primary-ink
+captions (<code>.cap</code>, <code>.caption</code>) are the case that had no spec and forced the
+hand-made <code>TS_IRONICS_Creator_Text</code>; they now compile as
+<code>TS_IRONICS_Text_Small</code>.</p>
+<p class="note">
+<code>.ttl</code> <code>.lead</code> <code>.rname</code> <code>.btn</code> → <b>Display</b> face ·
+<code>.slots</code> <code>.rval</code> <code>.spec</code> → <b>Data</b> face ·
+<code>.cap</code> <code>.caption</code> → <b>Body</b> face.
+</p>
+
+</div>
