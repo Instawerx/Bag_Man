@@ -925,8 +925,11 @@ bool UAFLW_Creator::IsChassisLineAvailable(const EAFLChassisLine Line, FText& Ou
 		return true;
 	}
 
-	// MANNY -- per-identity bodies. Reachable when the working identity maps to one.
-	const FName Id = L->CreatorGetWorkingSelection().CharacterId;
+	// MANNY -- per-identity bodies. Reachable when the working identity maps to one; a selection
+	// riding a Team/chassis identity has no CharacterId, so the free-House default steps in (I-27:
+	// the Original tile must work, not refuse into silence).
+	FName Id = L->CreatorGetWorkingSelection().CharacterId;
+	if (Id.IsNone()) { Id = DefaultMannyIdentityId; }
 	if (Map->ResolveCharacterPart(Id).IsNull())
 	{
 		OutReason = NSLOCTEXT("AFLCreator", "ChassisMannyNoBody",
@@ -957,9 +960,13 @@ bool UAFLW_Creator::SelectChassisLine(const EAFLChassisLine Line)
 	UAFLW_LoadoutBase* L = Loadout.Get();
 	if (!L) { return false; }
 
-	const FName Target = (Line == EAFLChassisLine::ProMod)
+	FName Target = (Line == EAFLChassisLine::ProMod)
 		? ProModChassisIdentityId
 		: L->CreatorGetWorkingSelection().CharacterId;
+	if (Line == EAFLChassisLine::Manny && Target.IsNone())
+	{
+		Target = DefaultMannyIdentityId; // same fallback the availability check passed on
+	}
 
 	L->EquipForAxis(EAFLLoadoutAxis::Identity, Target);
 
@@ -1042,6 +1049,8 @@ void UAFLW_Creator::RefreshChassisPicker()
 
 void UAFLW_Creator::HandleChassisMannyClicked()
 {
+	// Entry SAYS SO: a dead tile and an unbound tile were indistinguishable for a whole pass.
+	UE_LOG(LogAFLCombat, Display, TEXT("[Creator] A_ChassisManny clicked"));
 	if (SelectChassisLine(EAFLChassisLine::Manny))
 	{
 		// The rail length is a property of the chassis, so both regions refresh together. Refreshing
@@ -1053,6 +1062,7 @@ void UAFLW_Creator::HandleChassisMannyClicked()
 
 void UAFLW_Creator::HandleChassisProModClicked()
 {
+	UE_LOG(LogAFLCombat, Display, TEXT("[Creator] A_ChassisProMod clicked"));
 	if (SelectChassisLine(EAFLChassisLine::ProMod))
 	{
 		RefreshChassisPicker();

@@ -546,19 +546,28 @@ void UAFLW_LoadoutBase::ApplySelectionToDisplayPawn()
 	if (!bDisplayBodyApplied || IdentityId != LastAppliedBodyIdentity)
 	{
 		UClass* RobotCls = nullptr;
+		const TCHAR* ResolveVia = TEXT("none");
 		if (DisplayPartMap && IdentityId != NAME_None)
 		{
 			const TSoftClassPtr<AActor> Soft = DisplayPartMap->ResolveCharacterPart(IdentityId);
-			if (!Soft.IsNull()) { RobotCls = Soft.LoadSynchronous(); }
+			if (!Soft.IsNull()) { RobotCls = Soft.LoadSynchronous(); ResolveVia = TEXT("partMap"); }
 		}
 		if (!RobotCls)
 		{
 			RobotCls = DisplayFallbackRobotClass.IsNull() ? nullptr : DisplayFallbackRobotClass.LoadSynchronous();
+			if (RobotCls) { ResolveVia = TEXT("fallbackProp"); }
 			if (!RobotCls)
 			{
 				RobotCls = LoadClass<AActor>(nullptr, TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_IRONICS.B_AFL_Robot_IRONICS_C"));
+				if (RobotCls) { ResolveVia = TEXT("hardFallback"); }
 			}
 		}
+		// The resolve outcome SAYS SO either way (AFL-3214): a null class here previously vanished
+		// into a naked pawn with no trace.
+		UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] body resolve: identity=%s partMap=%s via=%s cls=%s"),
+			IdentityId.IsNone() ? TEXT("<none>") : *IdentityId.ToString(),
+			DisplayPartMap ? TEXT("set") : TEXT("NULL"), ResolveVia,
+			RobotCls ? *RobotCls->GetName() : TEXT("NULL"));
 		if (RobotCls)
 		{
 			Pawn->SetRobotBody(RobotCls);
@@ -648,6 +657,10 @@ void UAFLW_LoadoutBase::CreatorApplyPreview()
 		PC ? PC->FindComponentByClass<UAFLSkinColorControllerComponent>() : nullptr;
 	if (!Pawn || !SkinCtrl)
 	{
+		// SAYS SO (SILENT-ZERO family): a preview that silently applies to nothing reads as
+		// "the arc is broken" when the missing piece is the pawn or the controller component.
+		UE_LOG(LogTemp, Warning, TEXT("[Creator] ApplyPreview bail: pawn=%s skinCtrl=%s"),
+			Pawn ? TEXT("ok") : TEXT("NULL"), SkinCtrl ? TEXT("ok") : TEXT("NULL"));
 		return;
 	}
 	if (!bCreatorWorkingSeeded)

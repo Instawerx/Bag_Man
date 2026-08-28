@@ -473,6 +473,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Creator|Chassis")
 	FName ProModChassisIdentityId;
 
+	/** The Manny-line body equipped when the working selection carries no CharacterId -- a fresh
+	 *  player rides a Team/chassis identity, so the Original tile refused with nothing to resolve
+	 *  (measured: dead MANNY click). The free House per the canonical taxonomy; data, not code. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Creator|Chassis")
+	FName DefaultMannyIdentityId = FName(TEXT("AFL.Character.IRONICS"));
+
 	/** Which chassis the pawn is WEARING -- read from the body mesh, not from an id. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Chassis")
 	EAFLChassisLine GetCurrentChassisLine() const;

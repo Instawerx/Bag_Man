@@ -145,8 +145,11 @@ UActorComponent* AAFLLoadoutDisplayPawn::FindCharacterPartsComponent() const
 
 void AAFLLoadoutDisplayPawn::SetRobotBody(TSubclassOf<AActor> RobotPartClass)
 {
+	// EVERY early-out SAYS SO (AFL-3214 parity debugging law): this function returning silently is
+	// exactly how a naked display pawn shipped -- the caller records "applied" and nothing retries.
 	if (!RobotPartClass)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] SetRobotBody: null class on %s -- nothing to wear."), *GetName());
 		return;
 	}
 	// IDEMPOTENT: the remove+add below is a full robot re-spawn -> skip if the body is already this class (store-
@@ -158,6 +161,7 @@ void AAFLLoadoutDisplayPawn::SetRobotBody(TSubclassOf<AActor> RobotPartClass)
 	UActorComponent* PartsComp = FindCharacterPartsComponent();
 	if (!PartsComp)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] SetRobotBody: %s has NO CharacterParts component -- cannot dress."), *GetName());
 		return;
 	}
 
@@ -169,6 +173,7 @@ void AAFLLoadoutDisplayPawn::SetRobotBody(TSubclassOf<AActor> RobotPartClass)
 	UFunction* AddFn = PartsComp->FindFunction(FName(TEXT("AddCharacterPart")));
 	if (!AddFn)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] SetRobotBody: AddCharacterPart not found on %s."), *GetNameSafe(PartsComp));
 		return;
 	}
 	if (RemoveAllFn)
@@ -185,7 +190,33 @@ void AAFLLoadoutDisplayPawn::SetRobotBody(TSubclassOf<AActor> RobotPartClass)
 	Args.NewPart.SocketName = NAME_None;
 	Args.NewPart.CollisionMode = ECharacterCustomizationCollisionMode::NoCollision;
 	PartsComp->ProcessEvent(AddFn, &Args);
-	CurrentRobotClass = RobotPartClass; // track the applied body for the idempotency guard above
+
+	// GUARD ONLY A DRESS THAT ACTUALLY HAPPENED. The spawned part attaches as an attached actor;
+	// if it is not there, recording CurrentRobotClass would poison the idempotency guard and this
+	// pawn would stay naked forever with no retry and no log (measured: cacs=0 attached=0 while the
+	// apply loop reported success every frame).
+	int32 SpawnedCount = 0;
+	TArray<AActor*> AttachedAfter;
+	GetAttachedActors(AttachedAfter);
+	for (const AActor* Attached : AttachedAfter)
+	{
+		if (Attached && Attached->GetClass()->IsChildOf(RobotPartClass))
+		{
+			++SpawnedCount;
+		}
+	}
+	if (SpawnedCount == 0)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[AFLDisplayPawn] SetRobotBody: AddCharacterPart(%s) spawned NOTHING on %s -- guard left open for retry."),
+			*RobotPartClass->GetName(), *GetName());
+	}
+	else
+	{
+		CurrentRobotClass = RobotPartClass; // track the applied body for the idempotency guard above
+		UE_LOG(LogTemp, Log, TEXT("[AFLDisplayPawn] SetRobotBody: %s wearing %s (parts=%d)."),
+			*GetName(), *RobotPartClass->GetName(), SpawnedCount);
+	}
 
 	// The character-parts add (and the RemoveAll above) RESET GetMesh() to null -> re-apply the driving mesh so the
 	// equipped weapon's socket (weapon_r) resolves + the robot keeps a copy-pose leader. Root cause of the weapon

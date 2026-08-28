@@ -1211,12 +1211,31 @@ FAFLCreatorChannelSchema UAFLCosmeticLoadoutComponent::GetChannelSchemaForPawn(A
 	//   slot 1 -- the visor master -> visor
 	// Probed at the material level: M_AFL_Character gives body=0 count=2 bodyState=PresentButInert;
 	// M_Mannequin gives body=1 count=3. Two on the X line, three on Manny-based, as ruled.
+	TArray<AAFLCharacterPartActor*> CandidateParts;
 	TArray<UChildActorComponent*> CACs;
 	Pawn->GetComponents<UChildActorComponent>(CACs);
 	for (const UChildActorComponent* CAC : CACs)
 	{
-		AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr);
-		if (!Part) { continue; }
+		if (AAFLCharacterPartActor* CACPart = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
+		{
+			CandidateParts.Add(CACPart);
+		}
+	}
+	// FRONT-END DISPLAY-PAWN PARITY (AFL-3214, measured live): on the ASC-less display pawn the
+	// character-parts add attaches the spawned robot as a plain ATTACHED ACTOR -- cacs=0 while the
+	// robot renders. Walking only ChildActorComponents made the schema fail on exactly the pawn the
+	// creator fronts. Both attachment modes are legitimate; walk both.
+	TArray<AActor*> AttachedActors;
+	Pawn->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		if (AAFLCharacterPartActor* AttachedPart = Cast<AAFLCharacterPartActor>(Attached))
+		{
+			CandidateParts.AddUnique(AttachedPart);
+		}
+	}
+	for (AAFLCharacterPartActor* Part : CandidateParts)
+	{
 		TArray<UMeshComponent*> Meshes;
 		Part->GetComponents<UMeshComponent>(Meshes);
 		for (UMeshComponent* Mesh : Meshes)
