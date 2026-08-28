@@ -285,12 +285,17 @@ void UAFLSkinColorComponent::SetColorOverride(const FAFLColorOverride& NewOverri
 		// equal assignment never marks the property dirty anyway (replication diffs against shadow state), so the
 		// replicated value is unaffected either way. Late-arriving PARTS are NOT this function's job -- they self-apply
 		// at BeginPlay via GetColorOverride() (PATH 1), which is precisely why skipping the re-apply here is safe.
+		// CC-6.4 REGRESSION (measured, probe5 2026-08-28): this comparison predates VisorColor, so a
+		// VISOR-ONLY edit read as "unchanged" -- the new value was never stored and every reapply
+		// rewrote the stale visor (RAW BaseTint stayed at the seed while the incoming override printed
+		// the new tone). EVERY field of the override must appear here, or its channel is silently dead.
 		const bool bUnchanged =
 			(!ActiveColorOverride.bValid && !NewOverride.bValid) ||
 			(ActiveColorOverride.bValid == NewOverride.bValid &&
 			 ActiveColorOverride.BodyColor == NewOverride.BodyColor &&
 			 ActiveColorOverride.EdgeColor == NewOverride.EdgeColor &&
-			 ActiveColorOverride.GlowColor == NewOverride.GlowColor);
+			 ActiveColorOverride.GlowColor == NewOverride.GlowColor &&
+			 ActiveColorOverride.VisorColor == NewOverride.VisorColor);
 		if (bUnchanged)
 		{
 			return;
