@@ -364,6 +364,8 @@ protected:
 	void RebuildChannelRows();
 
 	virtual void NativeOnActivated() override;
+	virtual void NativeOnDeactivated() override;
+	virtual void BeginDestroy() override;
 
 	UFUNCTION()
 	void HandleCloseClicked();
@@ -537,6 +539,10 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator")
 	TWeakObjectPtr<UAFLW_LoadoutBase> Loadout;
+
+	/** This creator holds an RT borrow on the loadout (keeps its capture running while the loadout
+	 *  sits deactivated underneath). Taken in InitializeCreator, released on deactivate/destroy. */
+	bool bHoldsPreviewBorrow = false;
 
 	/** Fired after the rail changes so the WBP can rebind without polling. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Creator")

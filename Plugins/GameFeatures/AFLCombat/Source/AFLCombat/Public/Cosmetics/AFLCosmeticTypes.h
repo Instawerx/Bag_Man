@@ -71,15 +71,31 @@ struct FAFLColorOverride
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Cosmetic|Creator")
 	FLinearColor VisorColor = FLinearColor::White;
 
+	/** Emblem decal tint (chest emblem NeonColor). VALID ONLY WITH bEmblemSet -- there is no seeded
+	 *  mirror: an unset emblem writes NOTHING and the identity-registry tone keeps the decal. Kept
+	 *  OUT of FindOverrideForParam's key map on purpose (see FindEmblemTone). */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Cosmetic|Creator")
+	bool bEmblemSet = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Cosmetic|Creator")
+	FLinearColor EmblemColor = FLinearColor::White;
+
 	FAFLColorOverride() = default;
 	FAFLColorOverride(const FLinearColor& InBody, const FLinearColor& InEdge, const FLinearColor& InGlow)
 		: bValid(true), BodyColor(InBody), EdgeColor(InEdge), GlowColor(InGlow), VisorColor(InBody) {}
 
 	/** CC-6.4 four-channel ctor. The 3-arg form above SEEDS VisorColor FROM BodyColor deliberately, so
-	 *  every existing call site keeps producing pre-split rendering without being touched. */
+	 *  every existing call site keeps producing pre-split rendering without being touched. Both forms
+	 *  leave bEmblemSet FALSE -- byte-identical behaviour for every pre-emblem call site. */
 	FAFLColorOverride(const FLinearColor& InBody, const FLinearColor& InEdge, const FLinearColor& InGlow,
 		const FLinearColor& InVisor)
 		: bValid(true), BodyColor(InBody), EdgeColor(InEdge), GlowColor(InGlow), VisorColor(InVisor) {}
+
+	void SetEmblemTone(const FLinearColor& InEmblem)
+	{
+		bEmblemSet = true;
+		EmblemColor = InEmblem;
+	}
 
 	/** Colour param KEY -> the override tone, or nullptr if invalid / not one of the three creator channels.
 	 *  Same shape + precedence slot as FAFLSkinFinish::FindToneForParam. */
@@ -110,5 +126,16 @@ struct FAFLColorOverride
 		if (ParamName == NEdgeGlow) { return &EdgeColor; }
 		if (ParamName == NEmissive) { return &GlowColor; }
 		return nullptr;
+	}
+
+	/** The EMBLEM tone, consulted ONLY at the decal write site (AFLCharacterPartActor's emblem
+	 *  block). DELIBERATELY NOT a "NeonColor" key in the map above: the generic colour loop writes
+	 *  every mapped key to every slot MID, and NeonColor exists on the visor MIs (their tint) AND
+	 *  latently on M_AFL_Character (behind AlbedoRecolor 0.0) -- mapping it would spray the emblem
+	 *  colour across the visor today and flood the body the day AlbedoRecolor rises. Same
+	 *  out-of-map shape BaseTint used before CC-6.4, for the same reason. */
+	const FLinearColor* FindEmblemTone() const
+	{
+		return (bValid && bEmblemSet) ? &EmblemColor : nullptr;
 	}
 };

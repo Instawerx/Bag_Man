@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Materials/Material.h"          // base-master lineage walk in DeriveFromMaterial
+#include "Materials/MaterialInterface.h" // param-exists queries in DeriveFromMaterial
 
 #include "AFLCosmeticSelectionTypes.generated.h"
 
@@ -555,9 +557,19 @@ struct FAFLCosmeticSelection
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
 	uint8 bVisorColorSet : 1;
 
+	/** -> chest emblem decal "NeonColor" (M_AFL_Branding_Decal). NO mirror: while bEmblemColorSet is
+	 *  FALSE nothing is written and the identity-registry tone stands -- an unset emblem is the
+	 *  pre-channel rendering by construction. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
+	FLinearColor CreatorEmblemColor = FLinearColor::White;
+
+	/** TRUE = the player chose an emblem colour; the override wins over the registry tone. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Cosmetic|Creator")
+	uint8 bEmblemColorSet : 1;
+
 	/** Zeroes the creator bitfield (a UPROPERTY bitfield cannot carry an inline initializer). All other members
 	 *  keep their default-member-initializers, so the struct's default is byte-identical to before + overlay OFF. */
-	FAFLCosmeticSelection() : bUseCreatorColors(0), bVisorColorSet(0) {}
+	FAFLCosmeticSelection() : bUseCreatorColors(0), bVisorColorSet(0), bEmblemColorSet(0) {}
 
 	/**
 	 * THE VISOR COLOUR THAT ACTUALLY RENDERS -- always call this, never read CreatorVisorColor raw.
@@ -684,14 +696,17 @@ namespace AFLCreatorGamut
 	}
 }
 
-/** CC-5.2: the creator's four colour channels, as an addressable enum for the link model. */
+/** CC-5.2: the creator's colour channels, as an addressable enum for the link model.
+ *  APPEND ONLY -- FAFLCreatorChannelLinks::LinkedMask stores bit positions, so inserting a value
+ *  renumbers every mask ever serialized. */
 UENUM(BlueprintType)
 enum class EAFLCreatorChannel : uint8
 {
-	Body  UMETA(DisplayName = "Body"),
-	Edge  UMETA(DisplayName = "Edge"),
-	Glow  UMETA(DisplayName = "Glow"),
-	Visor UMETA(DisplayName = "Visor")
+	Body   UMETA(DisplayName = "Body"),
+	Edge   UMETA(DisplayName = "Edge"),
+	Glow   UMETA(DisplayName = "Glow"),
+	Visor  UMETA(DisplayName = "Visor"),
+	Emblem UMETA(DisplayName = "Emblem")
 };
 
 /**
@@ -731,8 +746,9 @@ struct FAFLCreatorChannelLinks
 	/** How many channels currently move together. 0 or 1 means dragging one moves only itself. */
 	int32 LinkedCount() const
 	{
-		return (IsLinked(EAFLCreatorChannel::Body)  ? 1 : 0) + (IsLinked(EAFLCreatorChannel::Edge)  ? 1 : 0)
-		     + (IsLinked(EAFLCreatorChannel::Glow)  ? 1 : 0) + (IsLinked(EAFLCreatorChannel::Visor) ? 1 : 0);
+		return (IsLinked(EAFLCreatorChannel::Body)  ? 1 : 0) + (IsLinked(EAFLCreatorChannel::Edge)   ? 1 : 0)
+		     + (IsLinked(EAFLCreatorChannel::Glow)  ? 1 : 0) + (IsLinked(EAFLCreatorChannel::Visor)  ? 1 : 0)
+		     + (IsLinked(EAFLCreatorChannel::Emblem) ? 1 : 0);
 	}
 };
 
@@ -798,6 +814,14 @@ namespace AFLMaterialConnectivity
 		{ TEXT("M_AFL_Character"), TEXT("TeamColor")      },
 		{ TEXT("M_AFL_Character"), TEXT("EmissiveColor2") },
 		{ TEXT("M_AFL_Character"), TEXT("EmissiveColor3") },
+		// ADMITTED BY OPERATOR RULING (2026-08-28), second admission criterion: VALUE-GATED DEAD, not
+		// graph-inert. EdgeGlowColor HAS consumers on M_AFL_Character, but its only gate --
+		// EdgeGlowMagnitude -- is authored 0.0 (MI_AFL_IRONICS_Body, DA_AFL_Finish_GlossBlack), and
+		// raising it is a BROAD SURFACE WASH that floods the whole chassis, not a rim (measured A/B
+		// 2026-07-25; ApplySkinColor already refuses to write the magnitude on unique bodies). The
+		// T3D graph audit would call this Connected -- do not "correct" this row by re-running it;
+		// the edge channel is dead on this chassis until the master grows a real rim parameter.
+		{ TEXT("M_AFL_Character"), TEXT("EdgeGlowColor")  },
 	};
 
 	/** Masters the audit has actually covered. Presence here is what licenses a Connected verdict. */
@@ -852,6 +876,12 @@ struct FAFLCreatorChannelSchema
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
 	bool bGlowAvailable = false;
 
+	/** Emblem tint reaches this chassis. NOT derived from a slot master -- the emblem is a DECAL
+	 *  (ChestEmblemDecal, M_AFL_Branding_Decal); GetChannelSchemaForPawn probes the worn parts'
+	 *  decal components for a NeonColor param. Fails closed when no decal answers. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	bool bEmblemAvailable = false;
+
 	/** The master this schema was derived FROM. Carried so a UI can say WHY a channel is missing
 	 *  instead of just hiding it -- an unexplained absent control is indistinguishable from a bug. */
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
@@ -871,6 +901,9 @@ struct FAFLCreatorChannelSchema
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
 	EAFLChannelAvailability VisorState = EAFLChannelAvailability::Absent;
 
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Creator|Schema")
+	EAFLChannelAvailability EmblemState = EAFLChannelAvailability::Absent;
+
 	/** FALSE = this master has never been through the connectivity audit, so a Connected verdict on it
 	 *  means "present, and inertness UNKNOWN" rather than "measured to render". Carried separately so
 	 *  the three channel states stay three, while never letting unaudited pass as verified. */
@@ -880,7 +913,7 @@ struct FAFLCreatorChannelSchema
 	int32 AvailableCount() const
 	{
 		return (bBodyAvailable ? 1 : 0) + (bEdgeAvailable ? 1 : 0) + (bGlowAvailable ? 1 : 0)
-			+ (bVisorAvailable ? 1 : 0);
+			+ (bVisorAvailable ? 1 : 0) + (bEmblemAvailable ? 1 : 0);
 	}
 
 	/**
@@ -901,7 +934,15 @@ struct FAFLCreatorChannelSchema
 		{
 			return Out; // nothing bound -> no channels claimed. Fails closed.
 		}
-		Out.ResolvedFromMaster = FName(*Slot1Master->GetName());
+		// NORMALIZE TO THE BASE MASTER before keying the connectivity table. At runtime a slot never
+		// holds the master: it holds an MI, or the runtime MID after the first ApplySkinColor -- and
+		// keying the table with "MID_MI_AFL_IRONICS_Body_0" misses every audited row, so the live X
+		// pawn read TeamColor as Connected while the cheat paths (which load the master asset
+		// directly) correctly said PresentButInert (measured 2026-08-28: the ProMod Body arc was
+		// interactive and wrote to a dead parameter). Param-exists queries stay on Slot1Master --
+		// instances inherit params, so the engine answer is identical either way.
+		const UMaterial* BaseMaster = Slot1Master->GetMaterial_Concurrent();
+		Out.ResolvedFromMaster = BaseMaster ? BaseMaster->GetFName() : FName(*Slot1Master->GetName());
 
 		auto HasVector = [Slot1Master](const TCHAR* ParamName)
 		{
@@ -1040,6 +1081,10 @@ struct FAFLCreatorBuild
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
 	FAFLChannelValue VisorChannel;
 
+	/** Emblem decal tint. Unset = no write; the identity-registry tone stands (no mirror). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AFL|Creator|Build")
+	FAFLChannelValue EmblemChannel;
+
 	/** CC-4.2 LAPSE RULE, at the data level: a build beyond the effective slot cap goes READ-ONLY.
 	 *  It is never deleted and never mutated -- it renders exactly as saved and refuses edits. Set by
 	 *  the server when the cap shrinks; cleared when entitlement restores it. */
@@ -1053,7 +1098,8 @@ struct FAFLCreatorBuild
 		return BodyChannel.Source == EAFLChannelSource::Continuum
 			|| EdgeChannel.Source == EAFLChannelSource::Continuum
 			|| GlowChannel.Source == EAFLChannelSource::Continuum
-			|| VisorChannel.Source == EAFLChannelSource::Continuum;
+			|| VisorChannel.Source == EAFLChannelSource::Continuum
+			|| EmblemChannel.Source == EAFLChannelSource::Continuum;
 	}
 
 	/**
@@ -1071,7 +1117,7 @@ struct FAFLCreatorBuild
 	{
 		FAFLCosmeticSelection Out = BaseSelection;
 		const bool bAnyColour = BodyChannel.IsSet() || EdgeChannel.IsSet() || GlowChannel.IsSet()
-			|| VisorChannel.IsSet();
+			|| VisorChannel.IsSet() || EmblemChannel.IsSet();
 		if (!bAnyColour)
 		{
 			return Out; // untouched -- the never-opened-the-creator path
@@ -1089,10 +1135,18 @@ struct FAFLCreatorBuild
 			Out.CreatorVisorColor = VisorChannel.Resolved;
 			Out.bVisorColorSet = 1;
 		}
+		// EMBLEM: explicit choice only, same per-channel flag shape as visor -- but NO mirror
+		// anywhere: unset means the identity-registry tone keeps the decal.
+		if (EmblemChannel.IsSet())
+		{
+			Out.CreatorEmblemColor = EmblemChannel.Resolved;
+			Out.bEmblemColorSet = 1;
+		}
 		// A channel sourced from a catalog SKU also carries its id onto the matching axis, so the
 		// existing preset/registry path still sees the SKU it expects.
 		if (BodyChannel.Source == EAFLChannelSource::CatalogId) { Out.BodyId = BodyChannel.CosmeticId; }
 		if (EdgeChannel.Source == EAFLChannelSource::CatalogId) { Out.EdgeId = EdgeChannel.CosmeticId; }
+		if (EmblemChannel.Source == EAFLChannelSource::CatalogId) { Out.EmblemId = EmblemChannel.CosmeticId; }
 		return Out;
 	}
 };

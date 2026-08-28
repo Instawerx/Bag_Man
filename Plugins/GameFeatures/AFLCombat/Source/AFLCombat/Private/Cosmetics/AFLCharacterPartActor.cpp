@@ -404,12 +404,20 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 	// resolved tone, so one identity choice tints body + edge + visor + emblem together.
 	//
 	// Only the tint is driven: M_AFL_Branding_Decal's BrandMaskTex (which brand mark) and BrandIntensity stay
-	// AUTHORED -- the emblem's SHAPE is the product, its COLOR is the axis. Unresolved identity -> skip
-	// entirely, leaving the authored MI exactly as-is (no regression for un-migrated bodies).
-	if (bIdentityResolved)
+	// AUTHORED -- the emblem's SHAPE is the product, its COLOR is the axis.
+	//
+	// EMBLEM CREATOR CHANNEL: precedence override > registry, the same expression the mesh loop uses.
+	// The override tone comes from FindEmblemTone (deliberately OUT of the generic key map -- NeonColor
+	// exists on the visor MIs and latently on M_AFL_Character, so a mapped key would spray). A creator
+	// pick lands even on an UNRESOLVED identity (the old bIdentityResolved gate covered only the
+	// registry arm); with neither source the decal keeps its authored MI untouched -- the un-migrated
+	// regression arm is "no write occurs", unchanged.
 	{
 		static const FName NeonColorParam(TEXT("NeonColor"));
-		if (const FLinearColor* EmblemTone = ResolvedIdentity.SkinFinish.FindToneForParam(NeonColorParam))
+		const FLinearColor* OverrideTone = ColorOverride.FindEmblemTone();
+		const FLinearColor* RegistryTone = bIdentityResolved
+			? ResolvedIdentity.SkinFinish.FindToneForParam(NeonColorParam) : nullptr;
+		if (const FLinearColor* EmblemTone = OverrideTone ? OverrideTone : RegistryTone)
 		{
 			TArray<UDecalComponent*> Decals;
 			GetComponents<UDecalComponent>(Decals);

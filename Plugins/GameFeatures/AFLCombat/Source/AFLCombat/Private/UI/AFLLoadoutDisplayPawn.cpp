@@ -179,6 +179,11 @@ void AAFLLoadoutDisplayPawn::SetRobotBody(TSubclassOf<AActor> RobotPartClass)
 	if (RemoveAllFn)
 	{
 		PartsComp->ProcessEvent(RemoveAllFn, nullptr);
+		// The pawn now verifiably wears NOTHING. Clear the guard here, or a failed Add below leaves
+		// it holding the OLD class -- and a switch BACK to that class then early-outs at the
+		// idempotency check into a permanently naked pawn (the A->B->A hard-fail). The success path
+		// re-records it below.
+		CurrentRobotClass = nullptr;
 	}
 	// The ProcessEvent arg buffer MUST include the RETURN slot: AddCharacterPart returns FLyraCharacterPartHandle
 	// (LyraPawnComponent_CharacterParts.h:138). A params-ONLY struct makes ProcessEvent write the handle PAST the

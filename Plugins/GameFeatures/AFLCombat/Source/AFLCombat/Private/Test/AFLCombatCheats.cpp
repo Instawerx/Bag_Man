@@ -5191,7 +5191,10 @@ namespace
 		// claim falsifiable instead of self-confirming.
 		struct FCase { const TCHAR* Path; const TCHAR* Nick; int32 WantInteractive; };
 		static const FCase Cases[] = {
-			{ TEXT("/Game/BagMan/Materials/M_AFL_Character"),                        TEXT("X-line"),      2 },
+			// X-line 2 -> 1 (2026-08-28): EdgeGlowColor admitted to GInertPairs by operator ruling
+			// (value-gated dead: EdgeGlowMagnitude authored 0.0, raising it floods). Rail from
+			// M_AFL_Character alone is Glow-only interactive; Body+Edge inert, Visor absent.
+			{ TEXT("/Game/BagMan/Materials/M_AFL_Character"),                        TEXT("X-line"),      1 },
 			{ TEXT("/Game/Characters/Heroes/Mannequin/Materials/M_Mannequin"),       TEXT("Manny-based"), 3 },
 		};
 
@@ -5226,9 +5229,12 @@ namespace
 			}
 
 			// ARM2 -- the rail LENGTH is the chassis's, and EVERY channel is still emitted.
+			// 4 -> 5 (2026-08-28): the EMBLEM channel joined the rail (operator request). This arm
+			// derives from a bare material (no pawn, no decal), so the emblem row is Absent here --
+			// still EMITTED, per the disabled-not-hidden law.
 			const bool bCase2 = (Interactive == Case.WantInteractive)
 			                 && (Interactive == Sch.AvailableCount())
-			                 && (Rows.Num() == 4);
+			                 && (Rows.Num() == 5);
 			bArm2 = bArm2 && bCase2;
 			UE_LOG(LogAFLCombat, Display,
 				TEXT("AFL_TEST[CRW] ARM2 %-12s master=%-18s audited=%d rows=%d interactive=%d (want %d) %s"),
@@ -5440,10 +5446,11 @@ namespace
 			FLinearColor Got = FLinearColor::White;
 			switch (Target)
 			{
-				case EAFLCreatorChannel::Body:  Got = Sel.CreatorBodyColor;  break;
-				case EAFLCreatorChannel::Edge:  Got = Sel.CreatorEdgeColor;  break;
-				case EAFLCreatorChannel::Glow:  Got = Sel.CreatorGlowColor;  break;
-				case EAFLCreatorChannel::Visor: Got = Sel.CreatorVisorColor; break;
+				case EAFLCreatorChannel::Body:   Got = Sel.CreatorBodyColor;   break;
+				case EAFLCreatorChannel::Edge:   Got = Sel.CreatorEdgeColor;   break;
+				case EAFLCreatorChannel::Glow:   Got = Sel.CreatorGlowColor;   break;
+				case EAFLCreatorChannel::Visor:  Got = Sel.CreatorVisorColor;  break;
+				case EAFLCreatorChannel::Emblem: Got = Sel.CreatorEmblemColor; break;
 			}
 			// THE ARC'S PROMISE IS HUE, NOT A WHOLE COLOUR. A first version of this arm expected
 			// FromHue(h) outright and FAILED on a correct result: the channel already carried a value

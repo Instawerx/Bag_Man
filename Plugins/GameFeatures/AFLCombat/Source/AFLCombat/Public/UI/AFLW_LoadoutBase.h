@@ -425,6 +425,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
 	void CreatorApplyPreview();
 
+	/** Copy the IDENTITY fields (type/team/character) from the COMMITTED selection into the working
+	 *  one. EquipForAxis writes the committed selection, but CreatorWorking is a seed-time snapshot --
+	 *  a chassis switch that then pushes the preview would dress the NEW chassis with the PRE-swap
+	 *  identity. Call after any committed identity change, before CreatorApplyPreview. */
+	void CreatorSyncIdentityFromCommitted();
+
 	/** Spin the model. Rotates the MESH, not the actor: the scene capture is ATTACHED to the actor, so
 	 *  rotating the actor would carry the camera around with it and the view would never change -- a
 	 *  rotate control that looks wired and does nothing. */
@@ -461,6 +467,13 @@ public:
 	 * a settable pointer invites a second capture that drifts in lighting or pose.
 	 */
 	class UTextureRenderTarget2D* GetPreviewRenderTarget() const { return PreviewRT; }
+
+	/** RT-borrow contract: the creator DISPLAYS this widget's PreviewRT while this widget sits
+	 *  deactivated under it. A borrow keeps the capture running through that deactivation; releasing
+	 *  the last borrow (with the widget still deactivated) pauses it. Without this, every stacked
+	 *  loadout instance kept a full scene capture rendering every frame for the whole session. */
+	void AddPreviewBorrow();
+	void ReleasePreviewBorrow();
 
 	/** Which channels are real on the bound chassis, and why each is not. Straight from the measured
 	 *  schema so the widget disables rather than hides (CC-X24). */
@@ -504,6 +517,13 @@ protected:
 
 private:
 	void TeardownPreviewCapture();
+
+	/** Run the capture only while someone can SEE its RT: this widget activated, or a borrow held.
+	 *  Pausing = bCaptureEveryFrame off; actor/RT/pawn/pod stay alive, the RT keeps its last frame. */
+	void UpdatePreviewCaptureActivity();
+
+	/** Live RT borrows (creator on top). Non-zero keeps the capture running while deactivated. */
+	int32 PreviewBorrowCount = 0;
 
 	/** The scene-capture actor framing the pawn (attached to it; captures every frame -> live). */
 	TWeakObjectPtr<ASceneCapture2D> PreviewCapture;

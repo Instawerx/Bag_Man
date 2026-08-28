@@ -15,6 +15,7 @@
 #include "Serialization/JsonSerializer.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
 #include "AFLCombat.h"
 #include "Cosmetics/AFLCharacterPartActor.h"           // CC-5.1: slot-1 master lookup
+#include "Components/DecalComponent.h" // emblem-channel schema probe (ChestEmblemDecal)
 #include "Components/MeshComponent.h"
 #include "Components/ChildActorComponent.h"
 #include "Materials/MaterialInterface.h"
@@ -285,6 +286,12 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 			{
 				NewSelection.CreatorVisorColor = AFLCreatorGamut::ClampToNeon(Requested.CreatorVisorColor);
 			}
+			// EMBLEM: same clamp-on-entry shape as visor -- client-supplied, must not escape the gamut.
+			NewSelection.bEmblemColorSet = Requested.bEmblemColorSet;
+			if (Requested.bEmblemColorSet)
+			{
+				NewSelection.CreatorEmblemColor = AFLCreatorGamut::ClampToNeon(Requested.CreatorEmblemColor);
+			}
 			// No else: an unchosen visor is NOT written to body here. EffectiveVisorColor() decides the
 			// fallback for every path at once -- writing it here as well would be a second mechanism.
 		}
@@ -336,13 +343,20 @@ FAFLColorOverride UAFLCosmeticLoadoutComponent::BuildColorOverride(const FAFLCos
 {
 	// CC-2.1: the ONE construction of the creator overlay -- shared by RefreshSkinForPawn (step 5, server push) and
 	// OnRep_Selection (step 6, client populate). Invalid unless bUseCreatorColors -> non-creator = no overlay.
-	return Sel.bUseCreatorColors
-		? FAFLColorOverride(Sel.CreatorBodyColor, Sel.CreatorEdgeColor, Sel.CreatorGlowColor,
-			// EffectiveVisorColor() applies the migration mirror regardless of HOW Sel was produced --
-			// resolved from a build, replicated, clamped through the server RPC, or loaded from
-			// persistence written before the field existed. That last path is the one that read White.
-			Sel.EffectiveVisorColor())
-		: FAFLColorOverride();
+	if (!Sel.bUseCreatorColors)
+	{
+		return FAFLColorOverride();
+	}
+	FAFLColorOverride Out(Sel.CreatorBodyColor, Sel.CreatorEdgeColor, Sel.CreatorGlowColor,
+		// EffectiveVisorColor() applies the migration mirror regardless of HOW Sel was produced --
+		// resolved from a build, replicated, clamped through the server RPC, or loaded from
+		// persistence written before the field existed. That last path is the one that read White.
+		Sel.EffectiveVisorColor());
+	if (Sel.bEmblemColorSet)
+	{
+		Out.SetEmblemTone(Sel.CreatorEmblemColor); // explicit choice only; unset = registry tone stands
+	}
+	return Out;
 }
 
 void UAFLCosmeticLoadoutComponent::OnRep_Selection()
@@ -905,6 +919,8 @@ void UAFLCosmeticLoadoutComponent::ServerSaveBuild_Implementation(FAFLCreatorBui
 	ClampChannel(Build.BodyChannel);
 	ClampChannel(Build.EdgeChannel);
 	ClampChannel(Build.GlowChannel);
+	ClampChannel(Build.VisorChannel);  // pre-existing hole: visor was never server-clamped on this path
+	ClampChannel(Build.EmblemChannel);
 	// CC-5.4: validate the NAME before storing. A refused name refuses the SAVE rather than being
 	// silently corrected -- a player who typed something must be told, not quietly overridden.
 	FString Sanitised;
@@ -1215,6 +1231,31 @@ FAFLCreatorChannelSchema UAFLCosmeticLoadoutComponent::GetChannelSchemaForPawn(A
 	// walks CACs AND attached actors, so the schema resolves on exactly the pawn the creator fronts.
 	TArray<AAFLCharacterPartActor*> CandidateParts;
 	AAFLCharacterPartActor::CollectPartsOn(Pawn, CandidateParts);
+
+	// EMBLEM: not a slot master -- a DECAL (ChestEmblemDecal, M_AFL_Branding_Decal). Probed across
+	// ALL candidate parts up front (the decal may ride a part whose meshes never pass the 2-slot
+	// gate below). Connected iff some decal's material answers a NeonColor param-exists query;
+	// otherwise Absent -- fails closed, and the Original line's legacy LogoTexture/UseLogo on
+	// M_Mannequin is deliberately NOT this channel.
+	FLinearColor UnusedNeon;
+	for (AAFLCharacterPartActor* Part : CandidateParts)
+	{
+		TArray<UDecalComponent*> Decals;
+		Part->GetComponents<UDecalComponent>(Decals);
+		for (const UDecalComponent* Decal : Decals)
+		{
+			UMaterialInterface* DecalMat = Decal ? Decal->GetDecalMaterial() : nullptr;
+			if (DecalMat && DecalMat->GetVectorParameterValue(
+					FMaterialParameterInfo(FName(TEXT("NeonColor"))), UnusedNeon))
+			{
+				Out.bEmblemAvailable = true;
+				Out.EmblemState = EAFLChannelAvailability::Connected;
+				break;
+			}
+		}
+		if (Out.bEmblemAvailable) { break; }
+	}
+
 	for (AAFLCharacterPartActor* Part : CandidateParts)
 	{
 		TArray<UMeshComponent*> Meshes;
@@ -1226,8 +1267,13 @@ FAFLCreatorChannelSchema UAFLCosmeticLoadoutComponent::GetChannelSchemaForPawn(A
 			UMaterialInterface* Slot1 = Mesh->GetMaterial(1);
 			if (Slot0 && Slot1)
 			{
-				// BODY / EDGE / GLOW from the body master.
+				// BODY / EDGE / GLOW from the body master. Derive REPLACES Out -- carry the
+				// decal-probed emblem verdict across it.
+				const bool bEmblemProbed = Out.bEmblemAvailable;
+				const EAFLChannelAvailability ProbedEmblemState = Out.EmblemState;
 				Out = FAFLCreatorChannelSchema::DeriveFromMaterial(Slot0);
+				Out.bEmblemAvailable = bEmblemProbed;
+				Out.EmblemState      = ProbedEmblemState;
 
 				// VISOR from the visor master -- the only channel slot 1 legitimately governs.
 				const FAFLCreatorChannelSchema VisorSchema =

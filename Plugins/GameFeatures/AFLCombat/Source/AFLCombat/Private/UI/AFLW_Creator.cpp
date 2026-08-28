@@ -11,6 +11,7 @@
 #include "Cosmetics/AFLWalletComponent.h"
 #include "AFLCombat.h"                  // LogAFLCombat -- this file never logged before
 #include "Components/Button.h"
+#include "Components/DecalComponent.h" // emblem channel: worn-tone readback off the chest decal
 #include "Components/EditableTextBox.h"
 #include "Components/TextBlock.h"
 #include "Components/CheckBox.h"     // the link toggle
@@ -32,16 +33,18 @@ namespace
 		EAFLCreatorChannel::Edge,
 		EAFLCreatorChannel::Glow,
 		EAFLCreatorChannel::Visor,
+		EAFLCreatorChannel::Emblem,
 	};
 
 	FText ChannelLabel(const EAFLCreatorChannel Ch)
 	{
 		switch (Ch)
 		{
-			case EAFLCreatorChannel::Body:  return NSLOCTEXT("AFLCreator", "ChBody",  "Body");
-			case EAFLCreatorChannel::Edge:  return NSLOCTEXT("AFLCreator", "ChEdge",  "Edge");
-			case EAFLCreatorChannel::Glow:  return NSLOCTEXT("AFLCreator", "ChGlow",  "Glow");
-			case EAFLCreatorChannel::Visor: return NSLOCTEXT("AFLCreator", "ChVisor", "Visor");
+			case EAFLCreatorChannel::Body:   return NSLOCTEXT("AFLCreator", "ChBody",   "Body");
+			case EAFLCreatorChannel::Edge:   return NSLOCTEXT("AFLCreator", "ChEdge",   "Edge");
+			case EAFLCreatorChannel::Glow:   return NSLOCTEXT("AFLCreator", "ChGlow",   "Glow");
+			case EAFLCreatorChannel::Visor:  return NSLOCTEXT("AFLCreator", "ChVisor",  "Visor");
+			case EAFLCreatorChannel::Emblem: return NSLOCTEXT("AFLCreator", "ChEmblem", "Emblem");
 		}
 		return FText::GetEmpty();
 	}
@@ -234,6 +237,17 @@ void UAFLW_Creator::NativeOnActivated()
 {
 	Super::NativeOnActivated();
 
+	// Pooled re-push: NativeOnDeactivated released the borrow, so a re-activated creator must take
+	// it again or the loadout's capture stays paused under it (frozen panel, the AFL-3211 class).
+	if (!bHoldsPreviewBorrow)
+	{
+		if (UAFLW_LoadoutBase* L = Loadout.Get())
+		{
+			L->AddPreviewBorrow();
+			bHoldsPreviewBorrow = true;
+		}
+	}
+
 	// ON ACTIVATE, NOT ON CONSTRUCT. The schema resolves against the loadout's DisplayPawn, which may not
 	// have spawned when this widget is constructed -- resolving early is how an earlier probe ended up
 	// reporting channels against whatever material happened to be reachable.
@@ -259,6 +273,36 @@ void UAFLW_Creator::NativeOnActivated()
 			}
 		}
 	}
+}
+
+void UAFLW_Creator::NativeOnDeactivated()
+{
+	// Popping this screen releases the RT borrow; CommonUI then re-activates the loadout underneath,
+	// whose own NativeOnActivated resumes its capture -- no gap either direction.
+	if (bHoldsPreviewBorrow)
+	{
+		if (UAFLW_LoadoutBase* L = Loadout.Get())
+		{
+			L->ReleasePreviewBorrow();
+		}
+		bHoldsPreviewBorrow = false;
+	}
+	Super::NativeOnDeactivated();
+}
+
+void UAFLW_Creator::BeginDestroy()
+{
+	// Leak backstop for cheat-built creators (CreateWidget + InitializeCreator, never pushed/popped):
+	// they take the borrow in InitializeCreator and only this releases it.
+	if (bHoldsPreviewBorrow)
+	{
+		if (UAFLW_LoadoutBase* L = Loadout.Get())
+		{
+			L->ReleasePreviewBorrow();
+		}
+		bHoldsPreviewBorrow = false;
+	}
+	Super::BeginDestroy();
 }
 
 void UAFLW_Creator::RebuildChannelRows()
@@ -331,10 +375,11 @@ FAFLCreatorBuild UAFLW_Creator::AssembleBuild() const
 		const FAFLChannelValue Value = FAFLChannelValue::MakeContinuum(Row.Colour);
 		switch (Row.Channel)
 		{
-		case EAFLCreatorChannel::Body:  Build.BodyChannel  = Value; break;
-		case EAFLCreatorChannel::Edge:  Build.EdgeChannel  = Value; break;
-		case EAFLCreatorChannel::Glow:  Build.GlowChannel  = Value; break;
-		case EAFLCreatorChannel::Visor: Build.VisorChannel = Value; break;
+		case EAFLCreatorChannel::Body:   Build.BodyChannel   = Value; break;
+		case EAFLCreatorChannel::Edge:   Build.EdgeChannel   = Value; break;
+		case EAFLCreatorChannel::Glow:   Build.GlowChannel   = Value; break;
+		case EAFLCreatorChannel::Visor:  Build.VisorChannel  = Value; break;
+		case EAFLCreatorChannel::Emblem: Build.EmblemChannel = Value; break;
 		default: break;
 		}
 	}
@@ -375,10 +420,11 @@ bool UAFLW_Creator::LoadBuild(int32 Index)
 	{
 		if (V.IsSet()) { L->CreatorSetChannel(Ch, V.Resolved); ++Pushed; }
 	};
-	Push(EAFLCreatorChannel::Body,  Build.BodyChannel);
-	Push(EAFLCreatorChannel::Edge,  Build.EdgeChannel);
-	Push(EAFLCreatorChannel::Glow,  Build.GlowChannel);
-	Push(EAFLCreatorChannel::Visor, Build.VisorChannel);
+	Push(EAFLCreatorChannel::Body,   Build.BodyChannel);
+	Push(EAFLCreatorChannel::Edge,   Build.EdgeChannel);
+	Push(EAFLCreatorChannel::Glow,   Build.GlowChannel);
+	Push(EAFLCreatorChannel::Visor,  Build.VisorChannel);
+	Push(EAFLCreatorChannel::Emblem, Build.EmblemChannel);
 
 	EditingIndex = Index;
 	if (E_BuildName)
@@ -469,6 +515,14 @@ void UAFLW_Creator::HandleCloseClicked()
 void UAFLW_Creator::InitializeCreator(UAFLW_LoadoutBase* InLoadout)
 {
 	Loadout = InLoadout;
+	// TAKE THE RT BORROW HERE, inside OpenCreator's PRE-ACTIVATION init hook -- guaranteed to run
+	// before the loadout's NativeOnDeactivated, so its capture (whose RT this screen displays)
+	// never pauses during the push handoff.
+	if (InLoadout && !bHoldsPreviewBorrow)
+	{
+		InLoadout->AddPreviewBorrow();
+		bHoldsPreviewBorrow = true;
+	}
 	RefreshFromSchema();
 }
 
@@ -483,10 +537,11 @@ EAFLChannelAvailability UAFLW_Creator::StateFor(const EAFLCreatorChannel Channel
 {
 	switch (Channel)
 	{
-		case EAFLCreatorChannel::Body:  return Schema.BodyState;
-		case EAFLCreatorChannel::Edge:  return Schema.EdgeState;
-		case EAFLCreatorChannel::Glow:  return Schema.GlowState;
-		case EAFLCreatorChannel::Visor: return Schema.VisorState;
+		case EAFLCreatorChannel::Body:   return Schema.BodyState;
+		case EAFLCreatorChannel::Edge:   return Schema.EdgeState;
+		case EAFLCreatorChannel::Glow:   return Schema.GlowState;
+		case EAFLCreatorChannel::Visor:  return Schema.VisorState;
+		case EAFLCreatorChannel::Emblem: return Schema.EmblemState;
 	}
 	return EAFLChannelAvailability::Absent;   // fails closed
 }
@@ -509,17 +564,42 @@ namespace
 	{
 		if (!Pawn) { return false; }
 
+		// DUAL-MODE WALK (AFL-3214): the display pawn wears parts as attached actors, not CACs --
+		// the CAC-only sniff read the worn channel off NOTHING on exactly the pawn the rail fronts.
+		TArray<AAFLCharacterPartActor*> WornParts;
+		AAFLCharacterPartActor::CollectPartsOn(Pawn, WornParts);
+
+		// EMBLEM lives on a DECAL, not a material slot -- the slot/param table below cannot express
+		// it. Read NeonColor off the worn parts' decal materials; no decal -> false (row shows unset,
+		// honest -- same contract as a slot param the material lacks).
+		if (Channel == EAFLCreatorChannel::Emblem)
+		{
+			for (const AAFLCharacterPartActor* Child : WornParts)
+			{
+				if (!Child) { continue; }
+				TArray<UDecalComponent*> Decals;
+				Child->GetComponents<UDecalComponent>(Decals);
+				for (const UDecalComponent* Decal : Decals)
+				{
+					UMaterialInterface* DecalMat = Decal ? Decal->GetDecalMaterial() : nullptr;
+					FLinearColor V(ForceInit);
+					if (DecalMat && DecalMat->GetVectorParameterValue(
+							FMaterialParameterInfo(FName(TEXT("NeonColor"))), V))
+					{
+						Out = V;
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
 		const int32 Slot = (Channel == EAFLCreatorChannel::Visor) ? 1 : 0;
 		const TCHAR* Param =
 			(Channel == EAFLCreatorChannel::Body)  ? TEXT("TeamColor")     :
 			(Channel == EAFLCreatorChannel::Edge)  ? TEXT("EdgeGlowColor") :
 			(Channel == EAFLCreatorChannel::Glow)  ? TEXT("EmissiveColor") :
 			                                         TEXT("BaseTint");
-
-		// DUAL-MODE WALK (AFL-3214): the display pawn wears parts as attached actors, not CACs --
-		// the CAC-only sniff read the worn channel off NOTHING on exactly the pawn the rail fronts.
-		TArray<AAFLCharacterPartActor*> WornParts;
-		AAFLCharacterPartActor::CollectPartsOn(Pawn, WornParts);
 		for (AAFLCharacterPartActor* Child : WornParts)
 		{
 			if (!Child) { continue; }
@@ -570,6 +650,9 @@ FLinearColor UAFLW_Creator::ColourFor(const EAFLCreatorChannel Channel, bool& bO
 		case EAFLCreatorChannel::Visor:
 			bOutHasValue = Sel.bVisorColorSet != 0;   // an EXPLICIT choice, distinct from the body mirror
 			return Sel.CreatorVisorColor;
+		case EAFLCreatorChannel::Emblem:
+			bOutHasValue = Sel.bEmblemColorSet != 0;  // explicit; unset = registry tone (no mirror)
+			return Sel.CreatorEmblemColor;
 	}
 	return FLinearColor::White;
 }
@@ -586,6 +669,14 @@ FText UAFLW_Creator::ReasonFor(const EAFLCreatorChannel Channel, const EAFLChann
 
 	if (State == EAFLChannelAvailability::PresentButInert)
 	{
+		// EDGE has its own wording: the parameter is live but its magnitude gate is authored shut
+		// (a rimless chassis), which is a different promise than "the material ignores this".
+		if (Channel == EAFLCreatorChannel::Edge)
+		{
+			return FText::Format(
+				NSLOCTEXT("AFLCreator", "ReasonInertEdge", "{0} has no rim on this chassis ({1})."),
+				Label, Master);
+		}
 		// Restorable by a material change -- deliberately worded as "not available on this chassis"
 		// rather than "missing", because the parameter IS there and a future material pass can wake it.
 		return FText::Format(
@@ -974,9 +1065,20 @@ bool UAFLW_Creator::SelectChassisLine(const EAFLChassisLine Line)
 
 	L->EquipForAxis(EAFLLoadoutAxis::Identity, Target);
 
+	// APPLY THE SWAP IN THE CLICK FRAME (measured defect: SelectChassisLine returned true four times
+	// in a row while the worn body never changed). EquipForAxis only writes the SELECTION; the body
+	// swap rode the loadout's NativeTick change-poll -- and the loadout is COLLAPSED and non-ticking
+	// under this pushed creator, so the click did nothing until the next hue drag. Sync the working
+	// identity first (CreatorWorking is a seed-time snapshot; pushing it stale would dress the new
+	// chassis with the pre-swap identity), then push through the shipping preview path now.
+	L->CreatorSyncIdentityFromCommitted();
+	L->CreatorApplyPreview();
+
 	// The channel count is a property of the chassis -- Manny offers three body channels, Pro Mod two
 	// (TeamColor is inert on M_AFL_Character). So the rail MUST be re-derived here; this is the
-	// "call on chassis change" the RebuildRows contract already asks for.
+	// "call on chassis change" the RebuildRows contract already asks for. Runs AFTER the apply, so
+	// the rail derives from the NEW body -- and the caller's RefreshChassisPicker reads the NEW
+	// chassis off the pawn, enabling the correct tile (the stale read was the dead switch-back).
 	RefreshFromSchema();
 	RebuildChannelRows();
 

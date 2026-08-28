@@ -468,6 +468,7 @@ void UAFLW_LoadoutBase::NativeOnActivated()
 	Super::NativeOnActivated();
 	RebuildTiles();        // populate the owned grid when the locker opens
 	SetupPreviewCapture(); // start the live 3D preview of the REAL pawn
+	UpdatePreviewCaptureActivity(); // pooled re-activation resumes a paused capture
 }
 
 void UAFLW_LoadoutBase::NativeOnDeactivated()
@@ -477,6 +478,9 @@ void UAFLW_LoadoutBase::NativeOnDeactivated()
 	// the capture on deactivate froze that RT into a still photograph: every drag recolored the pawn's
 	// MIDs while the panel showed the dead lens's last frame (measured: CAPS total=0 with the creator
 	// open, black panel, live SetColorOverride stream). The lens dies with the WIDGET, not the focus.
+	// It does PAUSE here, though, unless a creator holds a borrow -- an unwatched every-frame scene
+	// capture per stacked instance is pure GPU burn (operator-reported input lag).
+	UpdatePreviewCaptureActivity();
 	Super::NativeOnDeactivated();
 }
 
@@ -484,6 +488,30 @@ void UAFLW_LoadoutBase::NativeDestruct()
 {
 	TeardownPreviewCapture();
 	Super::NativeDestruct();
+}
+
+void UAFLW_LoadoutBase::UpdatePreviewCaptureActivity()
+{
+	const bool bRun = IsActivated() || PreviewBorrowCount > 0;
+	if (ASceneCapture2D* Cap = PreviewCapture.Get())
+	{
+		if (USceneCaptureComponent2D* CapComp = Cap->GetCaptureComponent2D())
+		{
+			CapComp->bCaptureEveryFrame = bRun;
+		}
+	}
+}
+
+void UAFLW_LoadoutBase::AddPreviewBorrow()
+{
+	++PreviewBorrowCount;
+	UpdatePreviewCaptureActivity();
+}
+
+void UAFLW_LoadoutBase::ReleasePreviewBorrow()
+{
+	PreviewBorrowCount = FMath::Max(0, PreviewBorrowCount - 1);
+	UpdatePreviewCaptureActivity();
 }
 
 APawn* UAFLW_LoadoutBase::GetLocalPawn() const
@@ -604,7 +632,8 @@ void UAFLW_LoadoutBase::ApplySelectionToDisplayPawn()
 	if (SkinCtrl)
 	{
 		SkinCtrl->RefreshFacemaskForPawn(Pawn); // slot-1 material swap (proven; before skin -- composition order)
-		SkinCtrl->RefreshSkinForPawn(Pawn);     // body finish (TeamColor) + edge emissive (proven)
+		SkinCtrl->RefreshEmblemForPawn(Pawn);   // emblem MIC swap (EmblemId axis) -- was the one omitted axis
+		SkinCtrl->RefreshSkinForPawn(Pawn);     // body finish (TeamColor) + edge emissive (proven; also re-tints the decal)
 		// WEAPON / WEAPONSKIN / BEAM: ASC-SAFE on this pawn -- Lyra's FLyraEquipmentList::AddEntry guards the
 		// ability grant with `if (ASC)` (LyraEquipmentManagerComponent.cpp:89) and GetAbilitySystemComponent
 		// returns null for an ASC-less pawn, so the equip spawns the weapon MESH + SKIPS the grant (no fault).
@@ -653,6 +682,10 @@ void UAFLW_LoadoutBase::CreatorSetChannel(const EAFLCreatorChannel Channel, cons
 				CreatorWorking.CreatorVisorColor = Clamped;
 				CreatorWorking.bVisorColorSet    = 1; // an EXPLICIT choice; stops the body mirror
 				break;
+			case EAFLCreatorChannel::Emblem:
+				CreatorWorking.CreatorEmblemColor = Clamped;
+				CreatorWorking.bEmblemColorSet    = 1; // explicit; unset = registry tone keeps the decal
+				break;
 		}
 	};
 
@@ -661,7 +694,8 @@ void UAFLW_LoadoutBase::CreatorSetChannel(const EAFLCreatorChannel Channel, cons
 	if (CreatorLinks.IsLinked(Channel))
 	{
 		for (const EAFLCreatorChannel Other : { EAFLCreatorChannel::Body, EAFLCreatorChannel::Edge,
-		                                        EAFLCreatorChannel::Glow, EAFLCreatorChannel::Visor })
+		                                        EAFLCreatorChannel::Glow, EAFLCreatorChannel::Visor,
+		                                        EAFLCreatorChannel::Emblem })
 		{
 			if (Other != Channel && CreatorLinks.IsLinked(Other)) { Assign(Other); }
 		}
@@ -694,6 +728,21 @@ void UAFLW_LoadoutBase::CreatorApplyPreview()
 	// -> BuildColorOverride -> SetColorOverride. Identical to what the gameplay pawn receives.
 	SkinCtrl->SetPreviewSelection(CreatorWorking);
 	ApplySelectionToDisplayPawn();
+}
+
+void UAFLW_LoadoutBase::CreatorSyncIdentityFromCommitted()
+{
+	if (!bCreatorWorkingSeeded)
+	{
+		return; // next CreatorApplyPreview seeds from the committed selection anyway -- already in sync
+	}
+	if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+	{
+		const FAFLCosmeticSelection& Committed = Loadout->GetSelection();
+		CreatorWorking.IdentityType = Committed.IdentityType;
+		CreatorWorking.TeamId       = Committed.TeamId;
+		CreatorWorking.CharacterId  = Committed.CharacterId;
+	}
 }
 
 void UAFLW_LoadoutBase::CreatorRotatePreview(const float DeltaYawDegrees)
@@ -826,6 +875,10 @@ void UAFLW_LoadoutBase::SetupPreviewCapture()
 		Brush.ImageSize = FVector2D(PreviewResolution.X, PreviewResolution.Y);
 		PreviewImage->SetBrush(Brush);
 	}
+
+	// A Setup on a widget that is not on screen (cheat-built, never pushed) must not arm an
+	// every-frame capture nobody watches.
+	UpdatePreviewCaptureActivity();
 }
 
 void UAFLW_LoadoutBase::TeardownPreviewCapture()

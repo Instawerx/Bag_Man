@@ -295,7 +295,9 @@ void UAFLSkinColorComponent::SetColorOverride(const FAFLColorOverride& NewOverri
 			 ActiveColorOverride.BodyColor == NewOverride.BodyColor &&
 			 ActiveColorOverride.EdgeColor == NewOverride.EdgeColor &&
 			 ActiveColorOverride.GlowColor == NewOverride.GlowColor &&
-			 ActiveColorOverride.VisorColor == NewOverride.VisorColor);
+			 ActiveColorOverride.VisorColor == NewOverride.VisorColor &&
+			 ActiveColorOverride.bEmblemSet == NewOverride.bEmblemSet &&
+			 ActiveColorOverride.EmblemColor == NewOverride.EmblemColor);
 		if (bUnchanged)
 		{
 			return;
