@@ -6,7 +6,7 @@
 
 #define LOCTEXT_NAMESPACE "AFLBuildSlotStrip"
 
-DEFINE_LOG_CATEGORY_STATIC(LogAFLKitUI, Log, All);
+DEFINE_LOG_CATEGORY_STATIC(LogAFLBuildSlotStrip, Log, All);
 
 void UAFLW_BuildSlotStrip::SetBuilds(const TArray<FAFLBuildSlotDesc>& InBuilds, const int32 UnlockedCount, const int32 UnlockedCap)
 {
@@ -19,7 +19,7 @@ void UAFLW_BuildSlotStrip::SetBuilds(const TArray<FAFLBuildSlotDesc>& InBuilds, 
 
 	if (!SlotsPanel)
 	{
-		UE_LOG(LogAFLKitUI, Warning, TEXT("[BuildSlotStrip] SlotsPanel not bound -- the strip cannot render."));
+		UE_LOG(LogAFLBuildSlotStrip, Warning, TEXT("[BuildSlotStrip] SlotsPanel not bound -- the strip cannot render."));
 		return;
 	}
 	SlotsPanel->ClearChildren();
@@ -28,7 +28,7 @@ void UAFLW_BuildSlotStrip::SetBuilds(const TArray<FAFLBuildSlotDesc>& InBuilds, 
 	{
 		// Says so rather than drawing nothing -- an unset class and an empty build set are
 		// indistinguishable on screen (the same ambiguity the rail's unset-row-class lesson names).
-		UE_LOG(LogAFLKitUI, Warning, TEXT("[BuildSlotStrip] SlotTileClass unset -- %d build(s) cannot be drawn."), InBuilds.Num());
+		UE_LOG(LogAFLBuildSlotStrip, Warning, TEXT("[BuildSlotStrip] SlotTileClass unset -- %d build(s) cannot be drawn."), InBuilds.Num());
 		return;
 	}
 

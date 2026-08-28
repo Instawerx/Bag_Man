@@ -6,7 +6,7 @@
 #include "GameFramework/PlayerState.h"
 #include "Player/LyraPlayerState.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogAFLKitUI, Log, All);
+DEFINE_LOG_CATEGORY_STATIC(LogAFLPartPicker, Log, All);
 
 void UAFLW_PartPicker::NativeOnInitialized()
 {
@@ -24,7 +24,7 @@ void UAFLW_PartPicker::SetCatalogFilter(const EAFLCosmeticType CatalogType, cons
 {
 	if (!PartsListView)
 	{
-		UE_LOG(LogAFLKitUI, Warning, TEXT("[PartPicker] PartsListView not bound -- nothing to fill."));
+		UE_LOG(LogAFLPartPicker, Warning, TEXT("[PartPicker] PartsListView not bound -- nothing to fill."));
 		return;
 	}
 
@@ -32,7 +32,7 @@ void UAFLW_PartPicker::SetCatalogFilter(const EAFLCosmeticType CatalogType, cons
 	UAFLCosmeticCatalogSubsystem* Catalog = GI ? GI->GetSubsystem<UAFLCosmeticCatalogSubsystem>() : nullptr;
 	if (!Catalog)
 	{
-		UE_LOG(LogAFLKitUI, Warning, TEXT("[PartPicker] catalog subsystem unavailable -- list left empty."));
+		UE_LOG(LogAFLPartPicker, Warning, TEXT("[PartPicker] catalog subsystem unavailable -- list left empty."));
 		PartsListView->ClearListItems();
 		return;
 	}
@@ -63,7 +63,7 @@ void UAFLW_PartPicker::SetCatalogFilter(const EAFLCosmeticType CatalogType, cons
 	}
 
 	PartsListView->SetListItems(Items);
-	UE_LOG(LogAFLKitUI, Log, TEXT("[PartPicker] filter type=%d axis=%d -> %d item(s), equipped=%s"),
+	UE_LOG(LogAFLPartPicker, Log, TEXT("[PartPicker] filter type=%d axis=%d -> %d item(s), equipped=%s"),
 		static_cast<int32>(CatalogType), static_cast<int32>(ListAxis), Items.Num(), *EquippedId.ToString());
 }
 
