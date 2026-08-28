@@ -1051,9 +1051,10 @@ void UAFLW_LoadoutBase::RepositionPreviewCamera()
 		? static_cast<float>(PreviewResolution.Y) / static_cast<float>(PreviewResolution.X) : 1.5f;
 	// FOVAngle is HORIZONTAL; the portrait RT's vertical half-tangent is larger by the aspect.
 	const float VTan = FMath::Max(0.1f, FMath::Tan(FMath::DegreesToRadians(FOV * 0.5f)) * Aspect);
-	// Fill ~82% of the frame height; clamp inside the pod chamber.
+	// Fill ~82% of the frame height. The old 250cm ceiling was the pod CHAMBER wall -- the stage is
+	// open now (decapsulated), so the landscape lens may pull back inside the ~9m backdrop dome.
 	const float Dist = FMath::Clamp(
-		(BodyH * 0.5f * 1.22f) / VTan + CVarLoadoutPreviewFwd.GetValueOnGameThread(), 110.f, 250.f);
+		(BodyH * 0.5f * 1.22f) / VTan + CVarLoadoutPreviewFwd.GetValueOnGameThread(), 110.f, 600.f);
 
 	// The camera stays on +X BY DESIGN (the pod's backdrop/dome/FX all live at X<0, "strictly
 	// behind the hero"); the ROBOT'S facing is the mesh yaw (ApplyDrivingMesh initial + the

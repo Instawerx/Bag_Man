@@ -18,6 +18,7 @@
 #include "UI/AFLW_HueArc.h"          // C2 kit: the native hue arc a kit row hosts
 #include "Components/Image.h"        // the channel swatch        // the slot readout   // the build name the player types
 #include "Components/PanelWidget.h"       // the rail the rows are spawned into           // CC-5: the creator's own way out
+#include "Components/SizeBox.h"           // per-row desired-size card (canvas-rooted rows report ~0)
 #include "Engine/TextureRenderTarget2D.h"   // region B: the preview capture the creator displays
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
@@ -172,6 +173,12 @@ void UAFLW_CreatorChannelRowBase::SetRowData(const FAFLCreatorChannelRow& InRow)
 	if (Row_Readout)
 	{
 		Row_Readout->SetText(Row.Readout);
+		// READOUT AND REASON SHARE THE CARD'S DATA LINE (co-located by the ratified geometry --
+		// they are mutually exclusive states, not neighbours). A disabled row shows its REASON;
+		// drawing the readout under it printed both on top of each other (measured on the inert
+		// ProMod Body/Edge rows).
+		Row_Readout->SetVisibility(Row.Reason.IsEmpty()
+			? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
 	if (Row_Reason)
 	{
@@ -334,7 +341,17 @@ void UAFLW_Creator::RebuildChannelRows()
 			// keeps a rebuilt rail from double-binding a recycled widget.
 			RowWidget->OnRowHueChanged.RemoveDynamic(this, &UAFLW_Creator::HandleRowHueChanged);
 			RowWidget->OnRowHueChanged.AddDynamic(this, &UAFLW_Creator::HandleRowHueChanged);
-			ChannelRailContainer->AddChild(RowWidget);
+
+			// SIZEBOX WRAP, not MinimumDesiredSize: the kit row is CANVAS-rooted, a CanvasPanel
+			// reports ~zero desired size, and the ScrollBox stacked every row on one spot
+			// (measured twice -- SetMinimumDesiredSize did NOT reach the runtime Slate desired
+			// size). A SizeBox is an unconditional desired-size source: the ratified card is
+			// 408x186 at the 1080 authoring base.
+			USizeBox* Card = NewObject<USizeBox>(this);
+			Card->SetMinDesiredHeight(186.f);
+			Card->SetMinDesiredWidth(408.f);
+			Card->AddChild(RowWidget);
+			ChannelRailContainer->AddChild(Card);
 		}
 	}
 

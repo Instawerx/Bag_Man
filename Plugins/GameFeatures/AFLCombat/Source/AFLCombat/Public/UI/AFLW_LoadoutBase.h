@@ -292,8 +292,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
 	float PreviewFOV = 45.f; // auto-framed distance compensates; 45 gives product-shot perspective
 
+	/** Matches the ratified B viewport (744x536 at 720p = 1116x804 at the 1080 authoring base) --
+	 *  a portrait RT stretched into the landscape region distorted the robot (measured). The camera
+	 *  auto-framing derives its vertical FOV from this aspect, so framing follows automatically. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
-	FIntPoint PreviewResolution = FIntPoint(512, 768);
+	FIntPoint PreviewResolution = FIntPoint(1116, 804);
 
 	/** The reusable kiosk-pod diorama actor staged around the previewed hero (Increment C). Null -> the C++
 	 *  AAFLLoadoutPod placeholder; override with a branded BP child in the WBP for the SM_AFL_LoadoutPod swap. */
