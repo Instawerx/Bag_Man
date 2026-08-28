@@ -691,10 +691,10 @@ const ENTRIES = [
  warn:'Edge stays dead-by-authoring on M_AFL_Character: EdgeGlowMagnitude is a broad surface wash, not a rim, and is authored 0.0 — the rail row says so in-UI. A real rim needs a material pass, not plumbing.',
  c:['c78532e2','f592f6b4','0226b3e2','5f0d839b','47b0e371']},
 
-{g:'UI / FRONT END', status:'COMMITTED', opRep:true, ssot:'ssot/ui-frontend.md',
+{g:'UI / FRONT END', status:'PROVEN', opRep:true, ssot:'ssot/ui-frontend.md',
  t:'Creator preview stage — floor stance, unarmed idle, auto-framed, open',
  what:'Operator rulings delivered in two steps. Step 1 (watched in PIE, "that is good"): platform disc removed; grounding is MEASURED from worn-body bounds (the part actor renders feet at the pawn ORIGIN — the old capsule-half-height formula was the 90cm float); the Lyra unarmed relaxed idle (MM_Unarmed_Idle_Ready) loops on the driving mesh and the robot copy-poses it; the camera auto-frames from the same bounds (FOV 82 to 45, focus at 48 percent of body height, old absolutes rescoped to trim cvars) with the body yawed square to the lens via afl.Loadout.BodyYaw=225, picked from an 8-step contact sheet. Step 2 (RT-verified): DECAPSULATED — PodMesh capsule, halo ring and backdrop slab deleted; the hero stands out front and clear with the neon key light, gradient dome and electric-arc element as the open stage. One class serves the rig pod and the placed AFL_ArmoryPod, so both opened together.',
- remains:'Operator watched pass on the open stage. Taste trims live: afl.Loadout.BodyYaw + the afl.Loadout.Preview* cvars.',
+ remains:'Nothing — operator watched the open stage 2026-08-28 ("looks AAA"). Standing constraint: the Loadout Pawn POSITION is operator-set in the level; code positions pod + camera RELATIVE to it and must never move the pawn itself. Taste trims live: afl.Loadout.BodyYaw + the afl.Loadout.Preview* cvars.',
  warn:'Anything derived from worn-body bounds must ALSO run on the 0.25s world timer, never only in NativeTick — the loadout stops ticking under the pushed creator and froze a mid-dress knee-height framing until that lesson was measured.',
  c:['6427f016','6bbfd8bd']},
 
