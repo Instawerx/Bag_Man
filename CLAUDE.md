@@ -28,6 +28,10 @@ detail lives in the skills referenced below — open those on demand, don't inli
    terminal is the only source of truth — status marks and summaries are reports, not proof.
 6. **Multi-platform:** PC + PS5/XSX + iOS/Android. Every shipped material needs a PC master
    and a `_Mobile` instance. Guard platform code with `#if PLATFORM_*`.
+7. **Mockup-first (ruled 2026-08-27):** every NEW screen or system design gets a **1:1 UI mockup
+   for operator approval BEFORE any engine build** (Claude Design canvas, 1280×720 base, brand lock
+   per `Docs/Hub/IRONICS_CC_DESIGN_BRIEF.md` §0). Align visions first; author second. Applies to
+   revamps of existing screens too.
 
 ## Build / verify — TWO-ENGINE PARTITION (re-ruled 2026-08-27; supersedes the 2026-08-11 one-engine note)
 
