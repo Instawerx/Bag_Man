@@ -1,6 +1,8 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "UI/AFLW_LoadoutBase.h"
+
+#include "EngineUtils.h" // TActorIterator -- the one-display-pawn-per-world adoption (AFL-3214)
 #include "UI/AFLW_Creator.h"                 // CC-5: the creator this loadout opens
 #include "PrimaryGameLayout.h"                // CC-5: PushWidgetToLayerStack -- the loadout's own push pattern
 #include "NativeGameplayTags.h"              // CC-5: the menu layer tag
@@ -490,6 +492,28 @@ APawn* UAFLW_LoadoutBase::GetPreviewPawn()
 	{
 		return nullptr;
 	}
+
+	// ONE DISPLAY PAWN PER WORLD (AFL-3214, measured live): the home screen survives under the pushed
+	// creator, so two loadout-base instances coexisted, EACH spawning a private pawn at origin -- the
+	// capture showed one robot while the creator's drags painted a different, naked one. The truth
+	// must be single: adopt a live TRANSIENT display pawn before ever spawning. Level-placed set-piece
+	// pawns are deliberately NOT adopted (startup actors; their part spawns are their own story).
+	for (TActorIterator<AAFLLoadoutDisplayPawn> It(World); It; ++It)
+	{
+		AAFLLoadoutDisplayPawn* Existing = *It;
+		if (IsValid(Existing) && Existing->HasAnyFlags(RF_Transient) && !Existing->IsNetStartupActor())
+		{
+			DisplayPawn = Existing;
+			UE_LOG(LogTemp, Log, TEXT("[AFLDisplayPawn] adopted shared display pawn %s"), *Existing->GetName());
+			ApplySelectionToDisplayPawn();
+			if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+			{
+				LastAppliedDisplaySelection = Loadout->GetSelection();
+			}
+			return Existing;
+		}
+	}
+
 	// Spawn the ASC-less display pawn. NEVER possessed -> no ASC -> the ASC-gated AFLCombat ability grant has no
 	// target (the flagged combat-leak risk, dodged BY CONSTRUCTION). Location: at the local gameplay pawn if one
 	// exists (in-match de-risk), else origin (front-end, Inc 3). The capture isolates it via the ShowOnlyList.
