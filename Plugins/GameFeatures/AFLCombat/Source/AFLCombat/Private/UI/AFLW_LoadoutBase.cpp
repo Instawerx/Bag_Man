@@ -2,7 +2,7 @@
 
 #include "UI/AFLW_LoadoutBase.h"
 
-#include "EngineUtils.h" // TActorIterator -- the one-display-pawn-per-world adoption (AFL-3214)
+#include "Cosmetics/AFLPreviewRigSubsystem.h" // C1: the ONE owner of the display pawn + pod
 #include "UI/AFLW_Creator.h"                 // CC-5: the creator this loadout opens
 #include "PrimaryGameLayout.h"                // CC-5: PushWidgetToLayerStack -- the loadout's own push pattern
 #include "NativeGameplayTags.h"              // CC-5: the menu layer tag
@@ -493,40 +493,24 @@ APawn* UAFLW_LoadoutBase::GetPreviewPawn()
 		return nullptr;
 	}
 
-	// ONE DISPLAY PAWN PER WORLD (AFL-3214, measured live): the home screen survives under the pushed
-	// creator, so two loadout-base instances coexisted, EACH spawning a private pawn at origin -- the
-	// capture showed one robot while the creator's drags painted a different, naked one. The truth
-	// must be single: adopt a live TRANSIENT display pawn before ever spawning. Level-placed set-piece
-	// pawns are deliberately NOT adopted (startup actors; their part spawns are their own story).
-	for (TActorIterator<AAFLLoadoutDisplayPawn> It(World); It; ++It)
+	// C1 PREVIEW SPINE (AFL-3210/3211/3214): the RIG owns the pawn; this widget only APPLIES to it.
+	// Per-widget spawn/adopt/destroy is what produced four coexisting display pawns in one world --
+	// the capture showed one while the drags painted another. Location preference (at the local
+	// gameplay pawn in-match, origin in the front end) is passed through; the first acquirer decides.
+	UAFLPreviewRigSubsystem* Rig = World->GetSubsystem<UAFLPreviewRigSubsystem>();
+	if (!Rig)
 	{
-		AAFLLoadoutDisplayPawn* Existing = *It;
-		if (IsValid(Existing) && Existing->HasAnyFlags(RF_Transient) && !Existing->IsNetStartupActor())
-		{
-			DisplayPawn = Existing;
-			UE_LOG(LogTemp, Log, TEXT("[AFLDisplayPawn] adopted shared display pawn %s"), *Existing->GetName());
-			ApplySelectionToDisplayPawn();
-			if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
-			{
-				LastAppliedDisplaySelection = Loadout->GetSelection();
-			}
-			return Existing;
-		}
+		UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] no preview rig subsystem -- no display pawn."));
+		return nullptr;
 	}
-
-	// Spawn the ASC-less display pawn. NEVER possessed -> no ASC -> the ASC-gated AFLCombat ability grant has no
-	// target (the flagged combat-leak risk, dodged BY CONSTRUCTION). Location: at the local gameplay pawn if one
-	// exists (in-match de-risk), else origin (front-end, Inc 3). The capture isolates it via the ShowOnlyList.
 	FVector SpawnLoc = FVector::ZeroVector;
 	if (const APawn* Local = GetLocalPawn())
 	{
 		SpawnLoc = Local->GetActorLocation();
 	}
-	UClass* PawnCls = DisplayPawnClass ? DisplayPawnClass.Get() : AAFLLoadoutDisplayPawn::StaticClass();
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.ObjectFlags |= RF_Transient;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	AAFLLoadoutDisplayPawn* Spawned = World->SpawnActor<AAFLLoadoutDisplayPawn>(PawnCls, SpawnLoc, FRotator::ZeroRotator, SpawnParams);
+	AAFLLoadoutDisplayPawn* Spawned = Rig->AcquireDisplayPawn(
+		DisplayPawnClass ? TSubclassOf<AAFLLoadoutDisplayPawn>(DisplayPawnClass.Get()) : TSubclassOf<AAFLLoadoutDisplayPawn>(),
+		SpawnLoc);
 	if (!Spawned)
 	{
 		return nullptr;
@@ -787,11 +771,14 @@ void UAFLW_LoadoutBase::SetupPreviewCapture()
 	// renders INSIDE the pod). Align the pod's base (PawnAnchor = pod-local origin) to the pawn's feet.
 	if (!PreviewPod.IsValid())
 	{
-		UClass* PodCls = PodClass ? PodClass.Get() : AAFLLoadoutPod::StaticClass();
-		FActorSpawnParameters PodSpawnParams;
-		PodSpawnParams.ObjectFlags |= RF_Transient;
-		PodSpawnParams.Owner = Pawn;
-		PreviewPod = World->SpawnActor<AAFLLoadoutPod>(PodCls, PodSpawnParams);
+		// C1: the rig owns THE pod too -- two widgets each spawning one around the shared pawn put
+		// two overlapping dioramas into every capture.
+		if (UAFLPreviewRigSubsystem* Rig = World->GetSubsystem<UAFLPreviewRigSubsystem>())
+		{
+			PreviewPod = Rig->AcquirePod(
+				PodClass ? TSubclassOf<AAFLLoadoutPod>(PodClass.Get()) : TSubclassOf<AAFLLoadoutPod>(),
+				Cast<AAFLLoadoutDisplayPawn>(Pawn));
+		}
 	}
 	if (AAFLLoadoutPod* Pod = PreviewPod.Get())
 	{
@@ -828,16 +815,10 @@ void UAFLW_LoadoutBase::TeardownPreviewCapture()
 	}
 	PreviewCapture = nullptr;
 
-	if (AAFLLoadoutPod* Pod = PreviewPod.Get())
-	{
-		Pod->Destroy();
-	}
+	// C1: the pawn and the pod belong to the RIG, not this widget -- destroying them here is how one
+	// widget's teardown orphaned every other widget's preview (measured: the creator repainted a
+	// respawned pawn while the capture still showed the dead one's replacement). Drop the caches only.
 	PreviewPod = nullptr;
-
-	if (AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get())
-	{
-		Pawn->Destroy();
-	}
 	DisplayPawn = nullptr;
 }
 
