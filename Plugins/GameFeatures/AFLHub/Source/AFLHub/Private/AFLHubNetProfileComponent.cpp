@@ -1,0 +1,193 @@
+// Copyright C12 AI Gaming. All Rights Reserved.
+
+#include "AFLHubNetProfileComponent.h"
+
+#include "AFLHub.h"
+#include "AFLHubZoneProfiles.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "Character/LyraPawnExtensionComponent.h"
+#include "Engine/ReplicatedState.h"
+#include "GameFramework/Actor.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(AFLHubNetProfileComponent)
+
+UAFLHubNetProfileComponent::UAFLHubNetProfileComponent()
+{
+	PrimaryComponentTick.bCanEverTick = false; // event-driven (tag listener), not tick-driven.
+}
+
+void UAFLHubNetProfileComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Frequency + quantisation land unconditionally (server writes the wire format; the owning
+	// client's copy keeps CDO expectations coherent -- the AC's "authority + owning client").
+	ApplyNetPosture();
+
+	// ASC resolve: DIRECT first, PawnExtension hook as the fallback for the possessed PLAYER whose
+	// PlayerState ASC lands after pawn BeginPlay. The Sprint/Dash/Death proven bind, verbatim.
+	if (AActor* Owner = GetOwner())
+	{
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
+		{
+			BindToAbilitySystem(ASC);
+		}
+		else if (ULyraPawnExtensionComponent* PawnExt = ULyraPawnExtensionComponent::FindPawnExtensionComponent(Owner))
+		{
+			PawnExt->OnAbilitySystemInitialized_RegisterAndCall(
+				FSimpleMulticastDelegate::FDelegate::CreateUObject(this, &ThisClass::OnAbilitySystemReady));
+		}
+	}
+}
+
+void UAFLHubNetProfileComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	UnbindFromAbilitySystem();
+	RestoreNetPosture();
+	Super::EndPlay(EndPlayReason);
+}
+
+void UAFLHubNetProfileComponent::OnAbilitySystemReady()
+{
+	if (AActor* Owner = GetOwner())
+	{
+		if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
+		{
+			BindToAbilitySystem(ASC);
+		}
+	}
+}
+
+void UAFLHubNetProfileComponent::BindToAbilitySystem(UAbilitySystemComponent* InASC)
+{
+	if (!InASC || (CachedASC.Get() == InASC && ZoneTagHandles.Num() > 0))
+	{
+		return; // idempotent
+	}
+	if (CachedASC.IsValid() && CachedASC.Get() != InASC)
+	{
+		UnbindFromAbilitySystem(); // controller swap -> fresh PlayerState ASC
+	}
+	if (!ZoneProfiles)
+	{
+		UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBNET: %s has no ZoneProfiles DA -- frequency/quantisation applied, zone culling inert."),
+			*GetNameSafe(GetOwner()));
+		return;
+	}
+
+	CachedASC = InASC;
+	for (const FAFLHubZoneProfile& Row : ZoneProfiles->Zones)
+	{
+		if (!Row.ZoneTag.IsValid())
+		{
+			continue;
+		}
+		FDelegateHandle Handle = InASC->RegisterGameplayTagEvent(Row.ZoneTag, EGameplayTagEventType::NewOrRemoved)
+			.AddUObject(this, &UAFLHubNetProfileComponent::HandleZoneTagChanged);
+		ZoneTagHandles.Emplace(Row.ZoneTag, Handle);
+	}
+	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: %s bound %d zone-tag listeners (ASC %s)."),
+		*GetNameSafe(GetOwner()), ZoneTagHandles.Num(), *GetNameSafe(InASC));
+
+	// The pawn may already stand in a zone (spawn inside Hub.Zone.Main; the volume's BeginPlay seed
+	// can beat this bind) -- sync to present tag state instead of waiting for the next transition.
+	RecomputeCullDistance();
+}
+
+void UAFLHubNetProfileComponent::UnbindFromAbilitySystem()
+{
+	if (UAbilitySystemComponent* ASC = CachedASC.Get())
+	{
+		for (const TPair<FGameplayTag, FDelegateHandle>& Pair : ZoneTagHandles)
+		{
+			if (Pair.Value.IsValid())
+			{
+				ASC->RegisterGameplayTagEvent(Pair.Key, EGameplayTagEventType::NewOrRemoved).Remove(Pair.Value);
+			}
+		}
+	}
+	ZoneTagHandles.Empty();
+	CachedASC.Reset();
+}
+
+void UAFLHubNetProfileComponent::HandleZoneTagChanged(const FGameplayTag /*Tag*/, int32 /*NewCount*/)
+{
+	RecomputeCullDistance();
+}
+
+void UAFLHubNetProfileComponent::RecomputeCullDistance()
+{
+	AActor* Owner = GetOwner();
+	UAbilitySystemComponent* ASC = CachedASC.Get();
+	if (!Owner || !ASC || !ZoneProfiles || !Owner->HasAuthority())
+	{
+		return; // relevancy is a server decision; clients keep their applied posture untouched.
+	}
+
+	// Recomputed from LIVE tag state each change: idempotent across overlap seams, double-fires and
+	// respawn-in-zone. Smallest active distance wins (the denser zone's perf posture is the safe one).
+	float Distance = ZoneProfiles->DefaultNetCullDistance;
+	FGameplayTag WinningTag;
+	for (const FAFLHubZoneProfile& Row : ZoneProfiles->Zones)
+	{
+		if (Row.ZoneTag.IsValid() && ASC->GetTagCount(Row.ZoneTag) > 0
+			&& (!WinningTag.IsValid() || Row.NetCullDistance < Distance))
+		{
+			Distance = Row.NetCullDistance;
+			WinningTag = Row.ZoneTag;
+		}
+	}
+
+	Owner->SetNetCullDistanceSquared(Distance * Distance);
+	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: %s cull -> %.0fcm (%s)."),
+		*GetNameSafe(Owner), Distance, WinningTag.IsValid() ? *WinningTag.ToString() : TEXT("no zone / default"));
+}
+
+void UAFLHubNetProfileComponent::ApplyNetPosture()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || bPostureApplied)
+	{
+		return;
+	}
+
+	CachedNetUpdateFrequency = Owner->GetNetUpdateFrequency();
+	CachedMinNetUpdateFrequency = Owner->GetMinNetUpdateFrequency();
+	CachedNetCullDistanceSquared = Owner->GetNetCullDistanceSquared();
+	Owner->SetNetUpdateFrequency(HubNetUpdateFrequency);
+	Owner->SetMinNetUpdateFrequency(HubMinNetUpdateFrequency);
+
+	FRepMovement& RepMove = Owner->GetReplicatedMovement_Mutable();
+	CachedLocationQuantization = static_cast<uint8>(RepMove.LocationQuantizationLevel);
+	CachedRotationQuantization = static_cast<uint8>(RepMove.RotationQuantizationLevel);
+	CachedVelocityQuantization = static_cast<uint8>(RepMove.VelocityQuantizationLevel);
+	RepMove.LocationQuantizationLevel = EVectorQuantization::RoundOneDecimal;
+	RepMove.RotationQuantizationLevel = ERotatorQuantization::ByteComponents;
+	RepMove.VelocityQuantizationLevel = EVectorQuantization::RoundWholeNumber;
+
+	bPostureApplied = true;
+	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: %s posture applied (freq %.0f/%.0f Hz, quantised; was %.0f/%.0f)."),
+		*GetNameSafe(Owner), HubNetUpdateFrequency, HubMinNetUpdateFrequency,
+		CachedNetUpdateFrequency, CachedMinNetUpdateFrequency);
+}
+
+void UAFLHubNetProfileComponent::RestoreNetPosture()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !bPostureApplied)
+	{
+		return;
+	}
+
+	Owner->SetNetUpdateFrequency(CachedNetUpdateFrequency);
+	Owner->SetMinNetUpdateFrequency(CachedMinNetUpdateFrequency);
+	Owner->SetNetCullDistanceSquared(CachedNetCullDistanceSquared);
+
+	FRepMovement& RepMove = Owner->GetReplicatedMovement_Mutable();
+	RepMove.LocationQuantizationLevel = static_cast<EVectorQuantization>(CachedLocationQuantization);
+	RepMove.RotationQuantizationLevel = static_cast<ERotatorQuantization>(CachedRotationQuantization);
+	RepMove.VelocityQuantizationLevel = static_cast<EVectorQuantization>(CachedVelocityQuantization);
+
+	bPostureApplied = false;
+}

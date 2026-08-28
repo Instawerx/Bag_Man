@@ -27,6 +27,7 @@
     "Plugins":  [
                     { "Name": "AFLCore",                "Enabled": true },
                     { "Name": "AFLCombat",              "Enabled": true },
+                    { "Name": "AFLBagMan",              "Enabled": true },
                     { "Name": "AFLNetTypes",            "Enabled": true },
                     { "Name": "AFLVFX",                 "Enabled": true },
                     { "Name": "GameplayAbilities",      "Enabled": true },
