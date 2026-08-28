@@ -25,6 +25,7 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Creator, "UI.Layer.Menu");
 #include "GameFramework/PlayerState.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "TimerManager.h"
 #include "Input/CommonUIInputTypes.h"
 #include "UI/AFLW_LoadoutTileBase.h"
 #include "Blueprint/UserWidget.h"
@@ -471,8 +472,18 @@ void UAFLW_LoadoutBase::NativeOnActivated()
 
 void UAFLW_LoadoutBase::NativeOnDeactivated()
 {
-	TeardownPreviewCapture();
+	// C1: DO NOT tear the capture down here. Pushing the creator on the same layer deactivates this
+	// loadout -- and the creator DISPLAYS this widget's PreviewRT (GetPreviewRenderTarget). Destroying
+	// the capture on deactivate froze that RT into a still photograph: every drag recolored the pawn's
+	// MIDs while the panel showed the dead lens's last frame (measured: CAPS total=0 with the creator
+	// open, black panel, live SetColorOverride stream). The lens dies with the WIDGET, not the focus.
 	Super::NativeOnDeactivated();
+}
+
+void UAFLW_LoadoutBase::NativeDestruct()
+{
+	TeardownPreviewCapture();
+	Super::NativeDestruct();
 }
 
 APawn* UAFLW_LoadoutBase::GetLocalPawn() const
@@ -797,6 +808,16 @@ void UAFLW_LoadoutBase::SetupPreviewCapture()
 
 	RefreshPreviewShowList();
 
+	// C1: keep the show-list honest while this widget is DEACTIVATED (collapsed widgets stop ticking,
+	// but the capture now lives on under the pushed creator). A chassis swap there replaces the part
+	// ACTOR; only a live refresh puts the new one in the lens. World timers ignore widget visibility.
+	if (!ShowListRefreshTimer.IsValid())
+	{
+		World->GetTimerManager().SetTimer(ShowListRefreshTimer,
+			FTimerDelegate::CreateWeakLambda(this, [this]() { RefreshPreviewShowList(); }),
+			0.25f, /*bLoop*/ true);
+	}
+
 	// Route the render target into the center-stage image.
 	if (PreviewImage && PreviewRT)
 	{
@@ -809,6 +830,10 @@ void UAFLW_LoadoutBase::SetupPreviewCapture()
 
 void UAFLW_LoadoutBase::TeardownPreviewCapture()
 {
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ShowListRefreshTimer);
+	}
 	if (ASceneCapture2D* Cap = PreviewCapture.Get())
 	{
 		Cap->Destroy();

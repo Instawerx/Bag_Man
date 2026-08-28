@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CommonActivatableWidget.h"
+#include "Engine/TimerHandle.h"      // FTimerHandle (show-list refresh survives widget deactivation)
 #include "Templates/SubclassOf.h"
 #include "AFLCosmeticCoreTypes.h"    // EAFLCosmeticType + FAFLCatalogEntry (by-value out-param)
 #include "Cosmetics/AFLCosmeticSelectionTypes.h" // FAFLCosmeticSelection (display-pawn change tracking)
@@ -165,6 +166,7 @@ protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeOnActivated() override;
 	virtual void NativeOnDeactivated() override;
+	virtual void NativeDestruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 	//~End
@@ -506,8 +508,13 @@ private:
 	/** The scene-capture actor framing the pawn (attached to it; captures every frame -> live). */
 	TWeakObjectPtr<ASceneCapture2D> PreviewCapture;
 
-	/** The kiosk-pod diorama actor spawned attached to the pawn -> rendered INSIDE the preview via the
-	 *  ShowOnlyList (Increment C). Destroyed with the capture on deactivate. */
+	/** Visibility-independent show-list refresh (C1). A deactivated (collapsed) loadout stops ticking,
+	 *  but its capture now lives on under the pushed creator -- a chassis swap there spawns a NEW part
+	 *  actor the frozen ShowOnlyList doesn't contain. A world timer keeps the lens honest. */
+	FTimerHandle ShowListRefreshTimer;
+
+	/** The kiosk-pod diorama actor around the pawn -- rendered INSIDE the preview via the ShowOnlyList
+	 *  (Increment C). C1: owned by the preview rig; this is only a cache. */
 	TWeakObjectPtr<AAFLLoadoutPod> PreviewPod;
 
 	/** The ASC-less display pawn captured in the pod (spawned on GetPreviewPawn, destroyed on teardown). */
