@@ -347,6 +347,25 @@ void AAFLCharacterPartActor::ApplySkinColor(const UAFLSkinColorAsset* ColorAsset
 				// above -> a skipped key stays skipped. Invalid override -> nullptr -> the expression below is
 				// byte-identical to before (regression guarantee, by construction). Precedence: override > registry > baked.
 				const FLinearColor* OverrideTone = ColorOverride.FindOverrideForParam(KV.Key);
+				// VISOR OWNS SLOT 1's EMISSIVE (measured 2026-08-28, X-chassis probe8): on
+				// M_AFL_FaceMask_Visor the ONLY authored colour knob is EmissiveColor -- the mask's
+				// visible tint (NeonColor absent on that master; BaseTint a near-black base coat) --
+				// so the VISOR wheel wrote an invisible param while this loop's blanket write handed
+				// the mask to the GLOW wheel. Channel ownership per the schema's own slot split:
+				// glow = slot 0 (body pipes), visor = slot 1 (mask/visor glow + base), on BOTH slot-1
+				// masters. Applies only while a creator override is live (FindOverrideForParam is
+				// null-when-invalid); the registry/baked path is untouched.
+				{
+					static const FName NEmissiveKey(TEXT("EmissiveColor"));
+					static const FName NBaseTintKey(TEXT("BaseTint"));
+					if (SlotIndex == 1 && KV.Key == NEmissiveKey)
+					{
+						if (const FLinearColor* VisorTone = ColorOverride.FindOverrideForParam(NBaseTintKey))
+						{
+							OverrideTone = VisorTone;
+						}
+					}
+				}
 				const FLinearColor* RegistryTone = bIdentityResolved ? ResolvedIdentity.SkinFinish.FindToneForParam(KV.Key) : nullptr;
 				const FLinearColor FinalVal = OverrideTone ? *OverrideTone : (RegistryTone ? *RegistryTone : KV.Value);
 				MID->SetVectorParameterValue(KV.Key, FVector(FinalVal));
