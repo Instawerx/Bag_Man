@@ -4,6 +4,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Cosmetics/AFLCharacterPartMap.h"   // ResolveCharacterPart -- the line-availability query
+#include "Cosmetics/AFLCharacterPartActor.h" // CollectPartsOn -- the dual-mode part walk (AFL-3214)
 
 #include "UI/AFLW_LoadoutBase.h"
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
@@ -515,11 +516,12 @@ namespace
 			(Channel == EAFLCreatorChannel::Glow)  ? TEXT("EmissiveColor") :
 			                                         TEXT("BaseTint");
 
-		TArray<UChildActorComponent*> CACs;
-		const_cast<APawn*>(Pawn)->GetComponents<UChildActorComponent>(CACs);
-		for (const UChildActorComponent* CAC : CACs)
+		// DUAL-MODE WALK (AFL-3214): the display pawn wears parts as attached actors, not CACs --
+		// the CAC-only sniff read the worn channel off NOTHING on exactly the pawn the rail fronts.
+		TArray<AAFLCharacterPartActor*> WornParts;
+		AAFLCharacterPartActor::CollectPartsOn(Pawn, WornParts);
+		for (AAFLCharacterPartActor* Child : WornParts)
 		{
-			AActor* Child = CAC ? CAC->GetChildActor() : nullptr;
 			if (!Child) { continue; }
 			TArray<UMeshComponent*> Meshes;
 			Child->GetComponents<UMeshComponent>(Meshes);
@@ -852,11 +854,13 @@ namespace
 	{
 		if (!Pawn) { return EAFLChassisLine::Manny; }
 
-		TArray<UChildActorComponent*> CACs;
-		const_cast<APawn*>(Pawn)->GetComponents<UChildActorComponent>(CACs);
-		for (const UChildActorComponent* CAC : CACs)
+		// DUAL-MODE WALK (AFL-3214): same reason as AFLReadWornChannel above -- a CAC-only sniff
+		// reported Manny forever on the display pawn, which also defeated SelectChassisLine's
+		// early-out ("already this chassis") in both directions.
+		TArray<AAFLCharacterPartActor*> SniffParts;
+		AAFLCharacterPartActor::CollectPartsOn(Pawn, SniffParts);
+		for (AAFLCharacterPartActor* Child : SniffParts)
 		{
-			AActor* Child = CAC ? CAC->GetChildActor() : nullptr;
 			if (!Child) { continue; }
 			TArray<USkeletalMeshComponent*> Meshes;
 			Child->GetComponents<USkeletalMeshComponent>(Meshes);

@@ -1,6 +1,7 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "Cosmetics/AFLCharacterPartActor.h"
+#include "Components/ChildActorComponent.h" // CollectPartsOn: the CAC half of the dual walk
 #include "Cosmetics/AFLCosmeticLoadoutComponent.h"
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/Controller.h"
@@ -758,4 +759,30 @@ void AAFLCharacterPartActor::ApplyStickerSet(const FAFLStickerSet& Set, const UA
 		MID->SetScalarParameterValue(P_Int, 1.0f);
 	});
 	UE_LOG(LogAFLSkinDiag, Log, TEXT("[Sticker] composited %d sticker(s) -> RT, intensity 1"), Count);
+}
+
+void AAFLCharacterPartActor::CollectPartsOn(const AActor* Owner, TArray<AAFLCharacterPartActor*>& OutParts)
+{
+	if (!Owner)
+	{
+		return;
+	}
+	TArray<UChildActorComponent*> ChildActorComps;
+	Owner->GetComponents<UChildActorComponent>(ChildActorComps);
+	for (const UChildActorComponent* CAC : ChildActorComps)
+	{
+		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
+		{
+			OutParts.Add(Part);
+		}
+	}
+	TArray<AActor*> AttachedActors;
+	Owner->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(Attached))
+		{
+			OutParts.AddUnique(Part); // a CAC child is ALSO attached -- never visit a part twice
+		}
+	}
 }

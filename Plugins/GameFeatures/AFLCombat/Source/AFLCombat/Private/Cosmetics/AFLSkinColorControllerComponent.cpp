@@ -128,14 +128,14 @@ FGameplayTag UAFLSkinColorControllerComponent::ResolveBrandTag(APawn* Pawn) cons
 
 	const FGameplayTag& BrandParent = AFLBrandParentTag();
 
-	TArray<UChildActorComponent*> ChildActorComps;
-	Pawn->GetComponents<UChildActorComponent>(ChildActorComps);
-	for (UChildActorComponent* CAC : ChildActorComps)
+	// DUAL-MODE WALK (AFL-3214): the display pawn wears parts as attached actors, not CACs.
+	TArray<AAFLCharacterPartActor*> BrandParts;
+	AAFLCharacterPartActor::CollectPartsOn(Pawn, BrandParts);
+	for (const AAFLCharacterPartActor* Part : BrandParts)
 	{
-		const AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr);
 		if (!Part)
 		{
-			continue; // non-body child actor (e.g. a weapon) -> skip, same filter as the pawn component
+			continue;
 		}
 
 		FGameplayTagContainer PartTags;

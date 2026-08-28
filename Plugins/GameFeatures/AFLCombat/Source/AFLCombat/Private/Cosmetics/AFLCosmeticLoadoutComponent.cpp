@@ -1211,29 +1211,10 @@ FAFLCreatorChannelSchema UAFLCosmeticLoadoutComponent::GetChannelSchemaForPawn(A
 	//   slot 1 -- the visor master -> visor
 	// Probed at the material level: M_AFL_Character gives body=0 count=2 bodyState=PresentButInert;
 	// M_Mannequin gives body=1 count=3. Two on the X line, three on Manny-based, as ruled.
+	// DUAL-MODE WALK (AFL-3214, measured live: cacs=0 while the robot renders): the shared collector
+	// walks CACs AND attached actors, so the schema resolves on exactly the pawn the creator fronts.
 	TArray<AAFLCharacterPartActor*> CandidateParts;
-	TArray<UChildActorComponent*> CACs;
-	Pawn->GetComponents<UChildActorComponent>(CACs);
-	for (const UChildActorComponent* CAC : CACs)
-	{
-		if (AAFLCharacterPartActor* CACPart = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
-		{
-			CandidateParts.Add(CACPart);
-		}
-	}
-	// FRONT-END DISPLAY-PAWN PARITY (AFL-3214, measured live): on the ASC-less display pawn the
-	// character-parts add attaches the spawned robot as a plain ATTACHED ACTOR -- cacs=0 while the
-	// robot renders. Walking only ChildActorComponents made the schema fail on exactly the pawn the
-	// creator fronts. Both attachment modes are legitimate; walk both.
-	TArray<AActor*> AttachedActors;
-	Pawn->GetAttachedActors(AttachedActors);
-	for (AActor* Attached : AttachedActors)
-	{
-		if (AAFLCharacterPartActor* AttachedPart = Cast<AAFLCharacterPartActor>(Attached))
-		{
-			CandidateParts.AddUnique(AttachedPart);
-		}
-	}
+	AAFLCharacterPartActor::CollectPartsOn(Pawn, CandidateParts);
 	for (AAFLCharacterPartActor* Part : CandidateParts)
 	{
 		TArray<UMeshComponent*> Meshes;
@@ -1521,15 +1502,13 @@ void UAFLCosmeticLoadoutComponent::RefreshStickers() const
 	if (!Pawn) { return; }
 	const UAFLCosmeticCatalogSubsystem* Cat = UAFLCosmeticCatalogSubsystem::Get(this);
 	int32 Parts = 0;
-	TArray<UChildActorComponent*> CACs;
-	Pawn->GetComponents<UChildActorComponent>(CACs);
-	for (UChildActorComponent* CAC : CACs)
+	// DUAL-MODE WALK (AFL-3214) -- stickers ride the same part set as skin colour, both modes.
+	TArray<AAFLCharacterPartActor*> StickerParts;
+	AAFLCharacterPartActor::CollectPartsOn(Pawn, StickerParts);
+	for (AAFLCharacterPartActor* Part : StickerParts)
 	{
-		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
-		{
-			Part->ApplyStickerSet(Selection.StickerSet, Cat);
-			++Parts;
-		}
+		Part->ApplyStickerSet(Selection.StickerSet, Cat);
+		++Parts;
 	}
 	UE_LOG(LogAFLSkinDiag, Log, TEXT("%s[Sticker] RefreshStickers -> %d part(s), %d zone(s) set"),
 		*AFLSkinDiag::Prefix(this), Parts, Selection.StickerSet.NumSet());

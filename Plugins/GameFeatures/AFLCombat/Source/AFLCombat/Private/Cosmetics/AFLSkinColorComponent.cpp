@@ -204,16 +204,16 @@ void UAFLSkinColorComponent::ReapplyColorToAllParts()
 		return;
 	}
 
-	TArray<UChildActorComponent*> ChildActorComps;
-	Owner->GetComponents<UChildActorComponent>(ChildActorComps);
+	// DUAL-MODE WALK (AFL-3214): CACs on gameplay pawns, plain attached actors on the display pawn.
+	// The by-construction filter survives: CollectPartsOn only returns AAFLCharacterPartActor, so a
+	// weapon or other child never receives skin.
+	TArray<AAFLCharacterPartActor*> Parts;
+	AAFLCharacterPartActor::CollectPartsOn(Owner, Parts);
 
 	const bool bDiag = AFLSkinDiag::IsOn();
 	int32 NumPartsFound = 0;
-	for (UChildActorComponent* CAC : ChildActorComps)
+	for (AAFLCharacterPartActor* Part : Parts)
 	{
-		// EDIT 1 FILTER (by-construction): only OUR body parts. Non-body child-actors (e.g. a weapon)
-		// are not AAFLCharacterPartActor -> Cast returns null -> skipped. Skin never bleeds onto them.
-		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
 		{
 			++NumPartsFound;
 			if (bDiag)
@@ -311,10 +311,10 @@ void UAFLSkinColorComponent::OnRep_ColorOverride()
 		// parts= is load-bearing: a correct dispatch that finds ZERO parts lands nowhere, and without this a clean
 		// OnRep followed by unchanged MIDs is ambiguous (it was the server's structural condition).
 		int32 DiagParts = 0;
-		if (const AActor* O = GetOwner())
 		{
-			TArray<UChildActorComponent*> CACs; O->GetComponents<UChildActorComponent>(CACs);
-			for (const UChildActorComponent* C : CACs) { if (Cast<AAFLCharacterPartActor>(C ? C->GetChildActor() : nullptr)) { ++DiagParts; } }
+			TArray<AAFLCharacterPartActor*> DiagPartsArr;
+			AAFLCharacterPartActor::CollectPartsOn(GetOwner(), DiagPartsArr); // dual-mode (AFL-3214)
+			DiagParts = DiagPartsArr.Num();
 		}
 		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : OnRep_ColorOverride netmode=%d bValid=%d parts=%d Body=(%.4f,%.4f,%.4f)"),
 			*AFLSkinDiag::Prefix(this), GetOwner() ? *GetOwner()->GetName() : TEXT("<no-owner>"),
@@ -349,15 +349,15 @@ void UAFLSkinColorComponent::ReapplyBodyColorToAllParts()
 		return;
 	}
 
-	TArray<UChildActorComponent*> ChildActorComps;
-	Owner->GetComponents<UChildActorComponent>(ChildActorComps);
+	// DUAL-MODE WALK (AFL-3214): CACs on gameplay pawns, plain attached actors on the display pawn.
+	// The CAC-only walk found ZERO parts on the front-end pawn -- every push landed nowhere, silently.
+	TArray<AAFLCharacterPartActor*> Parts;
+	AAFLCharacterPartActor::CollectPartsOn(Owner, Parts);
 
 	const bool bDiag = AFLSkinDiag::IsOn();
 	int32 NumPartsFound = 0;
-	for (UChildActorComponent* CAC : ChildActorComps)
+	for (AAFLCharacterPartActor* Part : Parts)
 	{
-		// Same by-construction filter as ReapplyColorToAllParts: only OUR body parts (weapons cast to null).
-		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
 		{
 			++NumPartsFound;
 			Part->ApplySkinColor(BodyColor, ActiveColorOverride); // body finish (TeamColor + emissive); null -> guarded no-op; CC-2.1 overlay -> TeamColor
@@ -420,14 +420,12 @@ void UAFLSkinColorComponent::ReapplyEmblemToAllParts()
 	// ApplyEmblem(nullptr, ...) restores the chassis-authored decal rather than leaving the last mark up.
 	AActor* Owner = GetOwner();
 	if (!Owner) { return; }
-	TArray<UChildActorComponent*> ChildActorComps;
-	Owner->GetComponents<UChildActorComponent>(ChildActorComps);
-	for (UChildActorComponent* CAC : ChildActorComps)
+	// DUAL-MODE WALK (AFL-3214) -- same reason as the skin/facemask reapplies.
+	TArray<AAFLCharacterPartActor*> Parts;
+	AAFLCharacterPartActor::CollectPartsOn(Owner, Parts);
+	for (AAFLCharacterPartActor* Part : Parts)
 	{
-		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
-		{
-			Part->ApplyEmblem(Emblem, SkinColor, ActiveColorOverride);
-		}
+		Part->ApplyEmblem(Emblem, SkinColor, ActiveColorOverride);
 	}
 }
 
@@ -441,15 +439,15 @@ void UAFLSkinColorComponent::ReapplyFacemaskToAllParts()
 		return;
 	}
 
-	TArray<UChildActorComponent*> ChildActorComps;
-	Owner->GetComponents<UChildActorComponent>(ChildActorComps);
+	// DUAL-MODE WALK (AFL-3214): CACs on gameplay pawns, plain attached actors on the display pawn.
+	// The CAC-only walk found ZERO parts on the front-end pawn -- every push landed nowhere, silently.
+	TArray<AAFLCharacterPartActor*> Parts;
+	AAFLCharacterPartActor::CollectPartsOn(Owner, Parts);
 
 	const bool bDiag = AFLSkinDiag::IsOn();
 	int32 NumPartsFound = 0;
-	for (UChildActorComponent* CAC : ChildActorComps)
+	for (AAFLCharacterPartActor* Part : Parts)
 	{
-		// Same by-construction filter as ReapplyColorToAllParts: only OUR body parts (weapons cast to null).
-		if (AAFLCharacterPartActor* Part = Cast<AAFLCharacterPartActor>(CAC ? CAC->GetChildActor() : nullptr))
 		{
 			++NumPartsFound;
 			// Re-establish the FULL finish on the swapped material so the BODY is not STRANDED (Option B). The swap

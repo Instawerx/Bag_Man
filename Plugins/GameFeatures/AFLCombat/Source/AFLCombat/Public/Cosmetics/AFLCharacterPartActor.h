@@ -145,6 +145,15 @@ public:
 	bool UsesUniqueBodyUVs() const { return bUniqueBodyUVs; }
 
 	/**
+	 * Collect the owner's body parts across BOTH attachment modes. Gameplay pawns carry parts as
+	 * ChildActorComponents; the ASC-less front-end display pawn ends up with the spawned part as a
+	 * plain ATTACHED ACTOR (AFL-3214, measured live: cacs=0 while the robot renders). Every consumer
+	 * that hardcoded the CAC walk went silently blind on the display pawn -- skin, facemask, emblem,
+	 * stickers, the channel schema and the chassis sniff. ONE walk, every consumer.
+	 */
+	static void CollectPartsOn(const AActor* Owner, TArray<AAFLCharacterPartActor*>& OutParts);
+
+	/**
 	 * The colour identity this body belongs to (Cosmetic.Identity.<Brand>), or an invalid tag for a
 	 * STANDARD body. Read by the RosterTest harness so a lock assertion can compare against the body's OWN
 	 * brand tone instead of guessing from the class name -- and so an identity sweep can report up-front
