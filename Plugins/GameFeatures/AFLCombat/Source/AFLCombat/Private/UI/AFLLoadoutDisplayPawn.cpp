@@ -9,9 +9,18 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Animation/AnimSequenceBase.h" // DrivingIdleAnim -- the kiosk's looping unarmed idle
+#include "HAL/IConsoleManager.h"        // afl.Loadout.BodyYaw
 #include "UObject/UObjectGlobals.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLLoadoutDisplayPawn)
+
+// The robot's INITIAL facing: relative yaw applied to the driving mesh (parts hang off GetMesh, so
+// this turns the whole rendered body + weapon sockets together -- the same axis CreatorRotatePreview
+// spins). The preview camera is fixed on +X by pod design; this yaw is what faces the hero into it.
+static TAutoConsoleVariable<float> CVarLoadoutBodyYaw(TEXT("afl.Loadout.BodyYaw"), 225.f,
+	TEXT("Initial preview-body yaw (deg, mesh-relative). Applied on each dress; spin adds on top. ")
+	TEXT("225 = visor + chest emblem square to the +X preview camera (yaw-sweep contact sheet, 2026-08-28)."));
 
 AAFLLoadoutDisplayPawn::AAFLLoadoutDisplayPawn(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -53,6 +62,11 @@ AAFLLoadoutDisplayPawn::AAFLLoadoutDisplayPawn(const FObjectInitializer& ObjectI
 
 	// Default content (overridable): the invisible driving mesh the robot part copy-poses from.
 	DrivingMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Heroes/Mannequin/Meshes/SKM_Manny_Invis.SKM_Manny_Invis")));
+
+	// Relaxed UNARMED idle (operator ruling 2026-08-28) -- the Lyra-canonical unarmed stance, looping
+	// single-node on the driving mesh; the robot copy-poses it. Replaces the raw ref-pose.
+	DrivingIdleAnim = TSoftObjectPtr<UAnimSequenceBase>(FSoftObjectPath(
+		TEXT("/Game/Characters/Heroes/Mannequin/Animations/Locomotion/Unarmed/MM_Unarmed_Idle_Ready.MM_Unarmed_Idle_Ready")));
 }
 
 void AAFLLoadoutDisplayPawn::PostInitializeComponents()
@@ -112,9 +126,22 @@ void AAFLLoadoutDisplayPawn::ApplyDrivingMesh()
 	if (SM)
 	{
 		MeshComp->SetSkeletalMeshAsset(SM); // UE5.6 API -- SetSkeletalMesh is the deprecated wrapper
+		// Face the hero into the fixed +X preview camera (cvar-tuned; re-applied per dress, so a
+		// body swap resets any user spin to the canonical facing).
+		MeshComp->SetRelativeRotation(FRotator(0.f, CVarLoadoutBodyYaw.GetValueOnGameThread(), 0.f));
 		// LOAD-BEARING: the driver is invisible + off in a SceneCapture, so it can skip pose ticks. Force it to
 		// ALWAYS tick pose+bones so the copy-posed robot animates AND the weapon sockets (weapon_r) stay resolvable.
 		MeshComp->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	}
+	// POSE: a looping single-node idle wins over the AnimBP path (operator-ruled relaxed unarmed
+	// stance -- a kiosk pose needs no state machine). Falls back to DrivingAnimClass, then ref-pose.
+	if (!DrivingIdleAnim.IsNull())
+	{
+		if (UAnimSequenceBase* Idle = DrivingIdleAnim.LoadSynchronous())
+		{
+			MeshComp->PlayAnimation(Idle, /*bLooping*/ true);
+			return;
+		}
 	}
 	if (!DrivingAnimClass.IsNull())
 	{

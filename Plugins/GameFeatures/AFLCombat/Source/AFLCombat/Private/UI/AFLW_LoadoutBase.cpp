@@ -40,6 +40,7 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Creator, "UI.Layer.Menu");
 #include "Components/CapsuleComponent.h"
 #include "UI/AFLLoadoutPod.h"
 #include "UI/AFLLoadoutDisplayPawn.h"
+#include "Cosmetics/AFLCharacterPartActor.h" // CollectPartsOn -- measured-feet pod grounding
 
 #if !UE_BUILD_SHIPPING
 #include "Engine/LocalPlayer.h"
@@ -64,15 +65,18 @@ AFL_COOKED_ASSET(GAFLLoadoutRootWidget,
 // angle). Framing is operator-eyeball-tuned live from here via these cvars -- no rebuild.
 // Defaults computed to FILL the panel with the 270cm capsule (camera ~180cm out, look-at the pod's vertical
 // mid). All live-tunable in PIE via these cvars -- no rebuild -- so the operator dials the final composition.
-static TAutoConsoleVariable<float> CVarLoadoutPreviewFwd(TEXT("afl.Loadout.PreviewFwd"), 180.f, TEXT("Preview cam forward offset -- LOWER = closer = pod FILLS more."));
+// AUTO-FRAMED (2026-08-28): the camera derives distance + focus from the measured worn-body bounds;
+// these are TRIMS on top of that (all default 0 except the 3/4 lateral). Old hand-tuned absolutes
+// (fwd 180 / up 47 / focus 21 / FOV 82) belonged to the floating composition.
+static TAutoConsoleVariable<float> CVarLoadoutPreviewFwd(TEXT("afl.Loadout.PreviewFwd"), 0.f, TEXT("EXTRA camera distance (cm) on top of the auto-framed distance. Negative = closer."));
 static TAutoConsoleVariable<float> CVarLoadoutPreviewRight(TEXT("afl.Loadout.PreviewRight"), 40.f, TEXT("Preview cam right offset (3/4 angle)."));
-static TAutoConsoleVariable<float> CVarLoadoutPreviewUp(TEXT("afl.Loadout.PreviewUp"), 47.f, TEXT("Preview cam up offset (camera height)."));
-static TAutoConsoleVariable<float> CVarLoadoutPreviewFocusUp(TEXT("afl.Loadout.PreviewFocusUp"), 21.f, TEXT("Preview cam look-at height -- ~pod vertical mid; lower to frame the robot lower. (operator-tuned)"));
-static TAutoConsoleVariable<float> CVarLoadoutPreviewFOV(TEXT("afl.Loadout.PreviewFOV"), 82.f, TEXT("Preview cam FOV -- higher = wider. (operator-tuned to fill the panel)"));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewUp(TEXT("afl.Loadout.PreviewUp"), 0.f, TEXT("EXTRA camera height (cm) above the auto height (focus + 12)."));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewFocusUp(TEXT("afl.Loadout.PreviewFocusUp"), 0.f, TEXT("EXTRA look-at height (cm) on top of the auto focus (48% of body height)."));
+static TAutoConsoleVariable<float> CVarLoadoutPreviewFOV(TEXT("afl.Loadout.PreviewFOV"), 45.f, TEXT("Preview cam horizontal FOV. Auto-distance compensates -- this sets perspective character."));
 // Grounding: raises the HERO relative to the capsule (drops the pod under the pawn) so the feet clear the
 // capsule's base geometry, with the glowing floor disc glued under the feet. THIS is the raise-the-robot
 // knob (the old PlatformZ moved only the disc). Tunable live; a bigger value lifts the hero higher.
-static TAutoConsoleVariable<float> CVarLoadoutPodGroundZ(TEXT("afl.Loadout.PodGroundZ"), 10.f, TEXT("Raise the hero relative to the capsule (cm) so feet clear the base; disc follows. Re-check framing after."));
+static TAutoConsoleVariable<float> CVarLoadoutPodGroundZ(TEXT("afl.Loadout.PodGroundZ"), 0.f, TEXT("Sink the pod (cm) below the MEASURED feet (toe-clip trim). Grounding is bounds-measured now; default 0."));
 // Enlarge the CAPSULE (not the hero) about the grounded feet -> headroom above the head + side clearance,
 // while the feet stay exactly on the floor disc. Live-tunable; re-check framing after (a bigger pod fills more).
 static TAutoConsoleVariable<float> CVarLoadoutPodScale(TEXT("afl.Loadout.PodScale"), 1.2f, TEXT("Uniform capsule scale about the hero's feet -- bigger = more headroom + side buffer. Re-tune framing after."));
@@ -857,13 +861,21 @@ void UAFLW_LoadoutBase::SetupPreviewCapture()
 
 	RefreshPreviewShowList();
 
-	// C1: keep the show-list honest while this widget is DEACTIVATED (collapsed widgets stop ticking,
-	// but the capture now lives on under the pushed creator). A chassis swap there replaces the part
-	// ACTOR; only a live refresh puts the new one in the lens. World timers ignore widget visibility.
+	// C1: keep the LENS honest while this widget is DEACTIVATED (collapsed widgets stop ticking,
+	// but the capture now lives on under the pushed creator). Show-list: a chassis swap replaces the
+	// part ACTOR. Camera + pod: both derive from the MEASURED body bounds, and the last tick before
+	// the creator covered this widget caught the robot MID-DRESS (bounds max still low) -- the
+	// camera froze at knee height forever (measured: settled bounds relMax=178 while the frame
+	// showed a ~65cm-body framing). World timers ignore widget visibility; 4 Hz re-derives all three.
 	if (!ShowListRefreshTimer.IsValid())
 	{
 		World->GetTimerManager().SetTimer(ShowListRefreshTimer,
-			FTimerDelegate::CreateWeakLambda(this, [this]() { RefreshPreviewShowList(); }),
+			FTimerDelegate::CreateWeakLambda(this, [this]()
+			{
+				RefreshPreviewShowList();
+				RepositionPreviewCamera();
+				RepositionPreviewPod();
+			}),
 			0.25f, /*bLoop*/ true);
 	}
 
@@ -926,20 +938,63 @@ void UAFLW_LoadoutBase::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 	RepositionPreviewPod(); // live grounding: raise the hero relative to the capsule + glue the disc under the feet
 }
 
+bool UAFLW_LoadoutBase::MeasureWornBodyZ(float& OutMinZ, float& OutMaxZ) const
+{
+	// The worn robot's rendered vertical extent, in WORLD Z -- the ground truth both the pod
+	// grounding and the camera auto-framing key off (chassis- and pose-agnostic by construction).
+	const AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get();
+	if (!Pawn)
+	{
+		return false;
+	}
+	TArray<AAFLCharacterPartActor*> WornParts;
+	AAFLCharacterPartActor::CollectPartsOn(Pawn, WornParts);
+	bool bMeasured = false;
+	OutMinZ = TNumericLimits<float>::Max();
+	OutMaxZ = TNumericLimits<float>::Lowest();
+	for (const AAFLCharacterPartActor* Part : WornParts)
+	{
+		if (!Part) { continue; }
+		TArray<USkeletalMeshComponent*> Meshes;
+		Part->GetComponents<USkeletalMeshComponent>(Meshes);
+		for (const USkeletalMeshComponent* Mesh : Meshes)
+		{
+			if (Mesh && Mesh->GetSkeletalMeshAsset())
+			{
+				const FBox Box = Mesh->Bounds.GetBox();
+				OutMinZ = FMath::Min(OutMinZ, static_cast<float>(Box.Min.Z));
+				OutMaxZ = FMath::Max(OutMaxZ, static_cast<float>(Box.Max.Z));
+				bMeasured = true;
+			}
+		}
+	}
+	return bMeasured;
+}
+
 void UAFLW_LoadoutBase::RepositionPreviewPod()
 {
 	AAFLLoadoutPod* Pod = PreviewPod.Get();
-	if (!Pod)
+	AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get();
+	if (!Pod || !Pawn)
 	{
 		return;
 	}
 	const float GroundZ = CVarLoadoutPodGroundZ.GetValueOnGameThread();
 	const float Scale = FMath::Max(0.1f, CVarLoadoutPodScale.GetValueOnGameThread());
-	// Scale the whole pod ABOUT the grounded feet: SetActorScale + a matching drop keep the floor disc's TOP
-	// exactly at the feet for ANY scale, while the capsule top rises (headroom) and the base drops below.
+
+	// MEASURED FEET, not the capsule (operator-reported float, RT-confirmed): the robot renders as an
+	// ATTACHED PART ACTOR whose mesh puts the feet at the PAWN ORIGIN -- capsule centre -- while the
+	// old formula placed the pod floor a capsule-half-height lower, so the hero hovered ~90cm above
+	// the disc. Glue the pod's floor (pod-local Z 0 = the branded base-top, by design) to the worn
+	// body's actual lowest rendered point.
+	float MinZ = 0.f, MaxZ = 0.f;
+	const float FeetWorldZ = MeasureWornBodyZ(MinZ, MaxZ) ? MinZ : Pawn->GetActorLocation().Z;
+
+	// Scale the whole pod ABOUT the grounded feet; positive GroundZ sinks the pod slightly below the
+	// measured feet (toe-clip trim), default 0.
 	Pod->SetActorScale3D(FVector(Scale));
-	Pod->SetActorRelativeLocation(FVector(0.f, 0.f, -(PreviewFeetDrop + GroundZ * Scale)));
-	Pod->SetPlatformZ(GroundZ - 2.f);
+	Pod->SetActorRelativeLocation(FVector(0.f, 0.f,
+		(FeetWorldZ - Pawn->GetActorLocation().Z) - GroundZ * Scale));
 }
 
 void UAFLW_LoadoutBase::RefreshPreviewShowList()
@@ -973,19 +1028,45 @@ void UAFLW_LoadoutBase::RefreshPreviewShowList()
 void UAFLW_LoadoutBase::RepositionPreviewCamera()
 {
 	ASceneCapture2D* Cap = PreviewCapture.Get();
+	AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get();
 	if (!Cap)
 	{
 		return;
 	}
-	const FVector Off(CVarLoadoutPreviewFwd.GetValueOnGameThread(),
+	// AUTO-FRAME from the measured worn-body bounds (2026-08-28, with the measured-feet grounding):
+	// the old hand-tuned offsets (focus at shin height, FOV 82) were compensating for the floating
+	// composition -- once the feet grounded, the head cropped and the pedestal filled the frame.
+	// Distance is derived from the body height and the VERTICAL field of view (portrait RT), so any
+	// chassis, any pose, frames itself; the cvars are TRIMS on top of the computed frame.
+	float MinZ = 0.f, MaxZ = 0.f;
+	const bool bMeasured = MeasureWornBodyZ(MinZ, MaxZ);
+	const float PawnZ = Pawn ? Pawn->GetActorLocation().Z : 0.f;
+	const float BottomRel = bMeasured ? (MinZ - PawnZ) : 0.f;
+	const float BodyH = bMeasured ? FMath::Max(60.f, MaxZ - MinZ) : 180.f;
+	// Slight low bias (48%) keeps a little air above the head and the base rim in shot.
+	const float FocusZ = BottomRel + BodyH * 0.48f + CVarLoadoutPreviewFocusUp.GetValueOnGameThread();
+
+	const float FOV = CVarLoadoutPreviewFOV.GetValueOnGameThread();
+	const float Aspect = (PreviewResolution.X > 0)
+		? static_cast<float>(PreviewResolution.Y) / static_cast<float>(PreviewResolution.X) : 1.5f;
+	// FOVAngle is HORIZONTAL; the portrait RT's vertical half-tangent is larger by the aspect.
+	const float VTan = FMath::Max(0.1f, FMath::Tan(FMath::DegreesToRadians(FOV * 0.5f)) * Aspect);
+	// Fill ~82% of the frame height; clamp inside the pod chamber.
+	const float Dist = FMath::Clamp(
+		(BodyH * 0.5f * 1.22f) / VTan + CVarLoadoutPreviewFwd.GetValueOnGameThread(), 110.f, 250.f);
+
+	// The camera stays on +X BY DESIGN (the pod's backdrop/dome/FX all live at X<0, "strictly
+	// behind the hero"); the ROBOT'S facing is the mesh yaw (ApplyDrivingMesh initial + the
+	// CreatorRotatePreview spin), never the camera's azimuth.
+	const FVector Off(Dist,
 	                  CVarLoadoutPreviewRight.GetValueOnGameThread(),
-	                  CVarLoadoutPreviewUp.GetValueOnGameThread());
-	const FVector Focus(0.f, 0.f, CVarLoadoutPreviewFocusUp.GetValueOnGameThread());
+	                  FocusZ + 12.f + CVarLoadoutPreviewUp.GetValueOnGameThread()); // slight high look-down
+	const FVector Focus(0.f, 0.f, FocusZ);
 	Cap->SetActorRelativeLocation(Off);
 	Cap->SetActorRelativeRotation((Focus - Off).Rotation());
 	if (USceneCaptureComponent2D* CapComp = Cap->GetCaptureComponent2D())
 	{
-		CapComp->FOVAngle = CVarLoadoutPreviewFOV.GetValueOnGameThread();
+		CapComp->FOVAngle = FOV;
 	}
 }
 

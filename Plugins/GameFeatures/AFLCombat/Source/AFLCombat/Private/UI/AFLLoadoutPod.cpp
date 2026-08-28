@@ -69,25 +69,10 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 	BackdropMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	BackdropMesh->SetCastShadow(false);
 
-	// Glowing platform disc under the hero's feet. Unlit emissive #1E5AFF but DIM (MI_AFL_NeonFloor, low
-	// EmissiveStrength) so its bloom does NOT wash over the hero's lower legs -- the halo ring keeps the
-	// bright MI_AFL_NeonPlatform. A flat cylinder at the feet.
+	// PLATFORM DISC REMOVED (operator ruling 2026-08-28): the hero stands directly on the pod's own
+	// base platform (branded kiosk base-top = pod-local Z 0); the extra glow puck under the feet is
+	// gone. MI_AFL_NeonPlatform stays -- the halo ring uses it.
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PlatformMat(TEXT("/Game/AFL/Casino/Materials/MI_AFL_NeonPlatform.MI_AFL_NeonPlatform"));
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> FloorMat(TEXT("/Game/AFL/Casino/Materials/MI_AFL_NeonFloor.MI_AFL_NeonFloor"));
-	PlatformDisc = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PlatformDisc"));
-	PlatformDisc->SetupAttachment(PodRoot);
-	if (CylinderMesh.Succeeded())
-	{
-		PlatformDisc->SetStaticMesh(CylinderMesh.Object);
-	}
-	PlatformDisc->SetRelativeLocation(FVector(0.f, 0.f, -2.f)); // top ~at the feet (pod-0); driven live by SetPlatformZ
-	PlatformDisc->SetRelativeScale3D(FVector(1.5f, 1.5f, 0.04f)); // ~150cm disc, 4cm thin
-	if (FloorMat.Succeeded())
-	{
-		PlatformDisc->SetMaterial(0, FloorMat.Object); // DIM floor (won't wash the legs); ring uses PlatformMat
-	}
-	PlatformDisc->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	PlatformDisc->SetCastShadow(false);
 
 	// Halo-RING -- the concept's top-of-chamber signature glow, in the roomy pod's 57.6cm headroom above the
 	// hero's head (~pod-local Z 210; head ~180). A flat emissive ring reusing the unlit neon platform material.
@@ -175,10 +160,3 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 	FramingCamera->SetFieldOfView(38.f);
 }
 
-void AAFLLoadoutPod::SetPlatformZ(float Z)
-{
-	if (PlatformDisc)
-	{
-		PlatformDisc->SetRelativeLocation(FVector(0.f, 0.f, Z));
-	}
-}

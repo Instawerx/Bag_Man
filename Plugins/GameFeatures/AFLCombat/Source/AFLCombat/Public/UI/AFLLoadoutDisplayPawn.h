@@ -9,6 +9,7 @@
 class UAFLSkinColorComponent;
 class USkeletalMesh;
 class UAnimInstance;
+class UAnimSequenceBase;
 
 /**
  * AAFLLoadoutDisplayPawn -- an ASC-LESS, non-replicated DISPLAY pawn for the loadout / armory preview.
@@ -61,7 +62,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Display")
 	TSoftObjectPtr<USkeletalMesh> DrivingMesh;
 
-	/** Optional idle AnimBP for the driving mesh; unset -> ref-pose (acceptable for the de-risk slice). */
+	/** Looping single-node idle for the driving mesh -- the kiosk POSE (defaults to the Lyra unarmed
+	 *  relaxed idle, operator-ruled 2026-08-28). Wins over DrivingAnimClass when set. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Display")
+	TSoftObjectPtr<UAnimSequenceBase> DrivingIdleAnim;
+
+	/** Optional idle AnimBP for the driving mesh; used only when DrivingIdleAnim is unset; neither -> ref-pose. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Display")
 	TSoftClassPtr<UAnimInstance> DrivingAnimClass;
 

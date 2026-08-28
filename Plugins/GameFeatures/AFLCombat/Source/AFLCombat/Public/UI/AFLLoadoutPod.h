@@ -42,10 +42,6 @@ public:
 	/** The diorama framing camera (Increment B direct-view; unused in C, which frames via the SceneCapture). */
 	UCameraComponent* GetFramingCamera() const { return FramingCamera; }
 
-	/** Set the glowing platform disc's pod-local Z (its TOP is ~Z+2cm) -- the loadout drives this from the
-	 *  grounding (afl.Loadout.PodGroundZ) so the disc stays glued under the hero's risen feet. */
-	void SetPlatformZ(float Z);
-
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Pod")
 	TObjectPtr<USceneComponent> PodRoot;
@@ -57,10 +53,6 @@ protected:
 	/** Backdrop slab behind the hero (placeholder; the "portal" plate). */
 	UPROPERTY(VisibleAnywhere, Category = "Pod")
 	TObjectPtr<UStaticMeshComponent> BackdropMesh;
-
-	/** Glowing platform disc under the hero's feet -- the lit halo the hero stands on (unlit emissive #1E5AFF). */
-	UPROPERTY(VisibleAnywhere, Category = "Pod")
-	TObjectPtr<UStaticMeshComponent> PlatformDisc;
 
 	/** Glowing halo-RING in the headroom above the hero's head -- the concept's top-of-chamber signature glow
 	 *  (unlit emissive #1E5AFF). Lives in the roomy pod's 57.6cm headroom. */

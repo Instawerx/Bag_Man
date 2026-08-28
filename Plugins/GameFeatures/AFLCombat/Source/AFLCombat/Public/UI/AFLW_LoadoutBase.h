@@ -290,7 +290,7 @@ protected:
 	FVector PreviewFocusOffset = FVector(0.f, 0.f, 21.f);
 
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
-	float PreviewFOV = 82.f;
+	float PreviewFOV = 45.f; // auto-framed distance compensates; 45 gives product-shot perspective
 
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout|Preview")
 	FIntPoint PreviewResolution = FIntPoint(512, 768);
@@ -517,6 +517,10 @@ protected:
 
 private:
 	void TeardownPreviewCapture();
+
+	/** The worn robot's rendered vertical extent in WORLD Z (bounds over the part meshes). Ground
+	 *  truth for pod grounding AND camera auto-framing; false when nothing is worn yet. */
+	bool MeasureWornBodyZ(float& OutMinZ, float& OutMaxZ) const;
 
 	/** Run the capture only while someone can SEE its RT: this widget activated, or a borrow held.
 	 *  Pausing = bCaptureEveryFrame off; actor/RT/pawn/pod stay alive, the RT keeps its last frame. */
