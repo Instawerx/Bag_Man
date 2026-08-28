@@ -23,6 +23,13 @@
 
 #if WITH_EDITOR
 #include "FileHelpers.h"
+
+namespace
+{
+	// Defined below with the other helpers; declared here so AuthorWidgetBlueprint (earlier in the
+	// file) shares ONE resolver with AddWidgetsToBlueprint instead of a drifting inline copy.
+	UClass* AFLResolveWidgetClass(const FString& Type);
+}
 #endif
 
 TArray<FString> UAFLStyleRepointLibrary::RepointTextStyle(
@@ -412,17 +419,7 @@ TArray<FString> UAFLStyleRepointLibrary::AuthorWidgetBlueprint(
 			continue;
 		}
 
-		UClass* WidgetClass = nullptr;
-		if (Type == TEXT("VerticalBox"))      { WidgetClass = UVerticalBox::StaticClass(); }
-		else if (Type == TEXT("CanvasPanel")) { WidgetClass = UCanvasPanel::StaticClass(); }
-		else if (Type == TEXT("TextBlock"))   { WidgetClass = UTextBlock::StaticClass(); }
-		else if (Type == TEXT("Image"))       { WidgetClass = UImage::StaticClass(); }
-		else if (Type == TEXT("Border"))      { WidgetClass = UBorder::StaticClass(); }
-		else if (Type == TEXT("Button"))      { WidgetClass = UButton::StaticClass(); }
-		else if (Type == TEXT("CommonTextBlock"))
-		{
-			WidgetClass = LoadClass<UWidget>(nullptr, TEXT("/Script/CommonUI.CommonTextBlock"));
-		}
+		UClass* WidgetClass = AFLResolveWidgetClass(Type);
 
 		if (!WidgetClass)
 		{
@@ -472,6 +469,17 @@ namespace
 		if (Type == TEXT("CommonTextBlock"))
 		{
 			return LoadClass<UWidget>(nullptr, TEXT("/Script/CommonUI.CommonTextBlock"));
+		}
+		// C2 kit: generic fallback -- any LOADED UWidget class by object name (a C++ widget like
+		// AFLW_HueArc or ListView, or a loaded WBP generated class like W_LyraButton_C; the caller
+		// preloads asset classes). Loaded-only is deliberate: a typo still reports UNKNOWN TYPE
+		// rather than being guessed into existence.
+		if (UClass* Found = FindFirstObject<UClass>(*Type, EFindFirstObjectOptions::None))
+		{
+			if (Found->IsChildOf(UWidget::StaticClass()) && !Found->HasAnyClassFlags(CLASS_Abstract))
+			{
+				return Found;
+			}
 		}
 		return nullptr;
 	}
@@ -569,5 +577,81 @@ TArray<FString> UAFLStyleRepointLibrary::AddWidgetsToBlueprint(
 		*WBP->GetName(), Added, Skipped, bSaved ? TEXT("OK") : TEXT("FAILED")));
 	Out.Add(TEXT("VERIFY with UAFLWidgetAuditLibrary -- compilation reports success on unfulfilled "
 	             "BindWidgets, so a clean compile proves nothing about the bindings."));
+	return Out;
+}
+
+TArray<FString> UAFLStyleRepointLibrary::RemoveWidgetsFromBlueprint(
+	const FString& BlueprintPath,
+	const TArray<FString>& WidgetNames,
+	bool bApply)
+{
+	TArray<FString> Out;
+
+	UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(nullptr, *BlueprintPath);
+	if (!WBP || !WBP->WidgetTree)
+	{
+		Out.Add(FString::Printf(TEXT("FAIL could not load %s (or it has no WidgetTree)"), *BlueprintPath));
+		return Out;
+	}
+
+	int32 Removed = 0;
+	for (const FString& Name : WidgetNames)
+	{
+		UWidget* W = WBP->WidgetTree->FindWidget(FName(*Name));
+		if (!W)
+		{
+			Out.Add(FString::Printf(TEXT("  ? %-24s not found -- nothing to remove"), *Name));
+			continue;
+		}
+		const UPanelWidget* AsPanel = Cast<UPanelWidget>(W);
+		if (AsPanel && AsPanel->GetChildrenCount() > 0)
+		{
+			Out.Add(FString::Printf(TEXT("  ! %-24s has %d child(ren) -- leaf-only policy, SKIPPED"),
+				*Name, AsPanel->GetChildrenCount()));
+			continue;
+		}
+		const FString TypeName = W->GetClass()->GetName();
+		if (!bApply)
+		{
+			Out.Add(FString::Printf(TEXT("  - %-24s %s   [dry]"), *Name, *TypeName));
+			++Removed;
+			continue;
+		}
+		if (WBP->WidgetTree->RemoveWidget(W))
+		{
+			++Removed;
+			Out.Add(FString::Printf(TEXT("  - %-24s %s removed"), *Name, *TypeName));
+		}
+		else
+		{
+			Out.Add(FString::Printf(TEXT("  FAILED to remove '%s'"), *Name));
+		}
+	}
+
+	if (!bApply)
+	{
+		Out.Add(FString::Printf(TEXT("DRY RUN %s: %d would be removed."), *WBP->GetName(), Removed));
+		return Out;
+	}
+
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WBP);
+	FKismetEditorUtilities::CompileBlueprint(WBP);
+
+	// THE COMPILE VERDICT IS THE POINT. A graph that referenced a removed widget fails right here --
+	// and a broken asset is NOT persisted: report, leave unsaved, clean the graph, run again.
+	if (WBP->Status == BS_Error)
+	{
+		Out.Add(FString::Printf(TEXT("APPLIED %s IN MEMORY: -%d, compile=ERRORS -- graph nodes still "
+			"reference a removed widget. NOT SAVED. Clean the graph, then re-run."),
+			*WBP->GetName(), Removed));
+		return Out;
+	}
+
+	TArray<UPackage*> ToSave;
+	ToSave.Add(WBP->GetOutermost());
+	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(ToSave, false);
+
+	Out.Add(FString::Printf(TEXT("APPLIED %s: -%d, compile=OK, save=%s"),
+		*WBP->GetName(), Removed, bSaved ? TEXT("OK") : TEXT("FAILED")));
 	return Out;
 }

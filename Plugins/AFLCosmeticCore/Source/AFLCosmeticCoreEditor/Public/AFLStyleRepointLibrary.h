@@ -124,4 +124,19 @@ public:
 		const FString& ParentClassPath,
 		const TArray<FString>& WidgetSpecs,
 		bool bApply = false);
+
+	/**
+	 * Remove named LEAF widgets from an existing Widget Blueprint. C2 kit: the greybox row shipped a
+	 * Slider named Row_HueArc -- the exact control the ruling forbids -- squatting on the kit arc's
+	 * bind name, and idempotent Add correctly refuses to touch a taken name.
+	 *
+	 * LEAF-ONLY by policy: a widget with children is reported and skipped, never cascade-deleted.
+	 * The compile result is REPORTED, not swallowed -- a graph that referenced the removed widget
+	 * fails its compile, and that failure is the honest next work item, not a silent success.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AFL|UI Author")
+	static TArray<FString> RemoveWidgetsFromBlueprint(
+		const FString& BlueprintPath,
+		const TArray<FString>& WidgetNames,
+		bool bApply = false);
 };
