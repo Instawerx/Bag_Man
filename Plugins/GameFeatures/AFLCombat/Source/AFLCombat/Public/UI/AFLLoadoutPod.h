@@ -12,21 +12,16 @@ class UCameraComponent;
 class UNiagaraComponent;
 
 /**
- * AAFLLoadoutPod -- the reusable IRONICS loadout/armory KIOSK-POD diorama actor (#7 pod increment).
+ * AAFLLoadoutPod -- the IRONICS preview STAGE actor (#7 pod increment; DECAPSULATED 2026-08-28).
  *
- * A SELF-CONTAINED, mesh-swappable pod: a podium the hero stands on, a backdrop panel, an electric-blue
- * neon rect-light, a PawnAnchor marking where the posed hero stands, and a framing camera. Built ONCE to
- * serve every context of the loadout-pod plan (operator ruled C -> B -> in-game, one pod actor for all):
- *   - Increment C (now): spawned attached to the local player's pawn + rendered INSIDE the loadout's
- *     SceneCapture preview (the pod attaches to the pawn, so RefreshPreviewShowList's GetAttachedActors
- *     auto-includes it in the isolated capture). Zero front-end / launch-menu risk.
- *   - Increment B (next): dropped into a dedicated B_AFL_LoadoutExperience scene, framed by FramingCamera.
- *   - In-game (later): RT-rendered kiosk.
- *
- * The placeholder engine-shape meshes (/Engine/BasicShapes) swap to the branded SM_AFL_LoadoutPod by
- * overriding PodMesh/BackdropMesh in a BP child -- the actor is built to ACCEPT the swap, not hardcode it.
- * Cosmetic-only: all mesh collision is disabled so the pod never pushes the posed pawn, and it is spawned
- * client-side/transient (never replicated) so it renders only in the local player's preview.
+ * Operator ruling: the hero stands OUT FRONT AND CLEAR -- no enclosing capsule, halo ring, backdrop
+ * slab, or platform disc (all four components deleted). What remains is the open stage: the
+ * electric-blue neon key light, the dark blue->violet gradient dome behind, the electric-arc energy
+ * element, a PawnAnchor marking where the posed hero stands, and a framing camera (Increment B).
+ *   - Increment C (now): spawned attached to the display pawn + rendered inside the loadout's
+ *     SceneCapture preview (RefreshPreviewShowList's GetAttachedActors auto-includes it).
+ *   - Increment B (next): dropped into a dedicated scene, framed by FramingCamera.
+ * Cosmetic-only: no collision, client-side/transient, never replicated.
  */
 UCLASS()
 class AFLCOMBAT_API AAFLLoadoutPod : public AActor
@@ -45,19 +40,6 @@ public:
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Pod")
 	TObjectPtr<USceneComponent> PodRoot;
-
-	/** Podium the hero stands on (placeholder cylinder; swap to the branded SM_AFL_LoadoutPod base). */
-	UPROPERTY(VisibleAnywhere, Category = "Pod")
-	TObjectPtr<UStaticMeshComponent> PodMesh;
-
-	/** Backdrop slab behind the hero (placeholder; the "portal" plate). */
-	UPROPERTY(VisibleAnywhere, Category = "Pod")
-	TObjectPtr<UStaticMeshComponent> BackdropMesh;
-
-	/** Glowing halo-RING in the headroom above the hero's head -- the concept's top-of-chamber signature glow
-	 *  (unlit emissive #1E5AFF). Lives in the roomy pod's 57.6cm headroom. */
-	UPROPERTY(VisibleAnywhere, Category = "Pod")
-	TObjectPtr<UStaticMeshComponent> HaloRing;
 
 	/** Dark/neon theater light -- electric-blue #1E5AFF (IRONICS palette), aimed at the hero's chest. */
 	UPROPERTY(VisibleAnywhere, Category = "Pod")

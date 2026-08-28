@@ -24,77 +24,13 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 	PodRoot = CreateDefaultSubobject<USceneComponent>(TEXT("PodRoot"));
 	SetRootComponent(PodRoot);
 
-	// Meshes: the BRANDED IRONICS kiosk (imported SM_AFL_LoadoutPod, 2-slot neon-glass) is the DEFAULT; the
-	// engine cylinder is the placeholder fallback if the branded mesh is absent. PodClass (on the WBP) can
-	// still override the whole actor with a BP child for future pod variants.
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> BrandedPod(TEXT("/Game/AFL/Casino/Meshes/Capsules/SM_AFL_LoadoutPod.SM_AFL_LoadoutPod"));
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderMesh(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
-	const bool bBranded = BrandedPod.Succeeded();
+	// DECAPSULATED (operator ruling 2026-08-28): the hero stands OUT FRONT AND CLEAR -- no kiosk
+	// capsule, no halo ring, no backdrop slab, no platform disc. What remains is the open STAGE:
+	// the neon key light, the dark gradient dome behind, and the electric-arc energy element.
+	// (PodMesh / BackdropMesh / HaloRing / PlatformDisc components deleted with their finders.)
 
 	// The look-at reference: roughly the posed hero's chest (pod-local).
 	const FVector ChestPoint(0.f, 0.f, 95.f);
-
-	// Pod body. BRANDED: the ~2.7m ROOMY neon-glass capsule (BASE-centre pivot). Drop it 32.4cm so the 32.4cm
-	// base platform-TOP lands at the PawnAnchor (pod origin = the hero's feet) -> the hero stands ON the
-	// platform, head ~180 with 57.6cm headroom above (the halo-ring space); visible through the translucent
-	// shell. PLACEHOLDER: a low podium disc (flat cylinder dropped so its top sits at Z=0, the feet).
-	PodMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PodMesh"));
-	PodMesh->SetupAttachment(PodRoot);
-	if (bBranded)
-	{
-		PodMesh->SetStaticMesh(BrandedPod.Object);
-		PodMesh->SetRelativeLocation(FVector(0.f, 0.f, -32.4f));
-		PodMesh->SetRelativeScale3D(FVector::OneVector);
-	}
-	else if (CylinderMesh.Succeeded())
-	{
-		PodMesh->SetStaticMesh(CylinderMesh.Object);
-		PodMesh->SetRelativeLocation(FVector(0.f, 0.f, -7.5f));
-		PodMesh->SetRelativeScale3D(FVector(2.4f, 2.4f, 0.15f));
-	}
-	PodMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	PodMesh->SetCastShadow(false);
-
-	// Backdrop -- the placeholder "portal" slab behind the hero. The branded kiosk carries its own shell, so
-	// this is HIDDEN when branded (kept for the AFL_Avatar_Portal drop later).
-	BackdropMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BackdropMesh"));
-	BackdropMesh->SetupAttachment(PodRoot);
-	if (CylinderMesh.Succeeded())
-	{
-		BackdropMesh->SetStaticMesh(CylinderMesh.Object);
-	}
-	BackdropMesh->SetRelativeLocation(FVector(-95.f, 0.f, 100.f));
-	BackdropMesh->SetRelativeScale3D(FVector(2.8f, 0.12f, 2.1f));
-	BackdropMesh->SetVisibility(!bBranded); // branded kiosk carries its own shell -> hide the placeholder slab
-	BackdropMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	BackdropMesh->SetCastShadow(false);
-
-	// PLATFORM DISC REMOVED (operator ruling 2026-08-28): the hero stands directly on the pod's own
-	// base platform (branded kiosk base-top = pod-local Z 0); the extra glow puck under the feet is
-	// gone. MI_AFL_NeonPlatform stays -- the halo ring uses it.
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PlatformMat(TEXT("/Game/AFL/Casino/Materials/MI_AFL_NeonPlatform.MI_AFL_NeonPlatform"));
-
-	// Halo-RING -- the concept's top-of-chamber signature glow, in the roomy pod's 57.6cm headroom above the
-	// hero's head (~pod-local Z 210; head ~180). A flat emissive ring reusing the unlit neon platform material.
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> RingMesh(TEXT("/Game/Effects/Meshes/ring.ring"));
-	HaloRing = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HaloRing"));
-	HaloRing->SetupAttachment(PodRoot);
-	if (RingMesh.Succeeded())
-	{
-		HaloRing->SetStaticMesh(RingMesh.Object);
-	}
-	if (PlatformMat.Succeeded())
-	{
-		HaloRing->SetMaterial(0, PlatformMat.Object);
-	}
-	// The ring mesh is a flat 20cm annulus in the YZ plane. Rotate 90deg (pitch) so it lies HORIZONTAL -- a
-	// ceiling halo flat/parallel to the floor -- near the TOP of the chamber (headroom), scaled to ~120cm.
-	// Its material (M_AFL_NeonEmissive) is two-sided so the ring reads from BELOW (the camera looks up at it).
-	HaloRing->SetRelativeRotation(FRotator(90.f, 0.f, 0.f));
-	HaloRing->SetRelativeLocation(FVector(0.f, 0.f, 225.f));
-	HaloRing->SetRelativeScale3D(FVector(6.0f, 6.0f, 6.0f));
-	HaloRing->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	HaloRing->SetCastShadow(false);
 
 	// Neon theater light -- electric-blue #1E5AFF, front-above, aimed at the hero's chest.
 	NeonLight = CreateDefaultSubobject<URectLightComponent>(TEXT("NeonLight"));
