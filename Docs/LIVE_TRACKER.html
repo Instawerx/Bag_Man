@@ -684,6 +684,26 @@ const ENTRIES = [
  remains:'Either make the delegate BlueprintAssignable or surface the state through a Blueprint-readable getter the widget polls. The state machine itself is complete and correct.',
  c:[]},
 
+{g:'UI / FRONT END', status:'PROVEN', opRep:true, ssot:'ssot/ui-frontend.md',
+ t:'Character creator colour system — five wheels PROVEN on both chassis',
+ what:'Operator-watched "all wheels AAA Success": Glow, Visor, Emblem (NEW fifth channel driving the chest-decal NeonColor end to end — selection, replication, server clamp, build save/load, rail row) and click-frame chassis switching, on ProMod and Original. Underneath, the measured root causes of the week-long "robot never recolors" saga: the C1 single-owner preview rig (one pawn + one pod per world); the LENS-LIFETIME fix (capture teardown moved from deactivate to destruct — the creator displays the loadout RT and had been painting a dead frame its whole life); the visor value-drop (unchanged-early-out predated the VisorColor field); the base-master lineage walk that made PresentButInert reachable from the live pawn path, so Body and Edge now show honestly disabled with reasons on the X chassis; the SetRobotBody stale-guard un-poison; the RT-borrow contract (exactly one capture renders at a time — the input-lag fix); and visor-owns-slot-1 emissive so the facemask follows the visor wheel, not the glow wheel.',
+ remains:'Match-regression re-run owed at the next gate (ApplySkinColor slot-1 ownership + CollectPartsOn touch gameplay reapply paths; restore PlayNetMode=PIE_Client in Saved EditorPerProjectUserSettings first — it is pinned Standalone for creator work). Minor click hitch: chassis-class preload and per-drag soft-resolve caches are scoped, not built.',
+ warn:'Edge stays dead-by-authoring on M_AFL_Character: EdgeGlowMagnitude is a broad surface wash, not a rim, and is authored 0.0 — the rail row says so in-UI. A real rim needs a material pass, not plumbing.',
+ c:['c78532e2','f592f6b4','0226b3e2','5f0d839b','47b0e371']},
+
+{g:'UI / FRONT END', status:'COMMITTED', opRep:true, ssot:'ssot/ui-frontend.md',
+ t:'Creator preview stage — floor stance, unarmed idle, auto-framed, open',
+ what:'Operator rulings delivered in two steps. Step 1 (watched in PIE, "that is good"): platform disc removed; grounding is MEASURED from worn-body bounds (the part actor renders feet at the pawn ORIGIN — the old capsule-half-height formula was the 90cm float); the Lyra unarmed relaxed idle (MM_Unarmed_Idle_Ready) loops on the driving mesh and the robot copy-poses it; the camera auto-frames from the same bounds (FOV 82 to 45, focus at 48 percent of body height, old absolutes rescoped to trim cvars) with the body yawed square to the lens via afl.Loadout.BodyYaw=225, picked from an 8-step contact sheet. Step 2 (RT-verified): DECAPSULATED — PodMesh capsule, halo ring and backdrop slab deleted; the hero stands out front and clear with the neon key light, gradient dome and electric-arc element as the open stage. One class serves the rig pod and the placed AFL_ArmoryPod, so both opened together.',
+ remains:'Operator watched pass on the open stage. Taste trims live: afl.Loadout.BodyYaw + the afl.Loadout.Preview* cvars.',
+ warn:'Anything derived from worn-body bounds must ALSO run on the 0.25s world timer, never only in NativeTick — the loadout stops ticking under the pushed creator and froze a mid-dress knee-height framing until that lesson was measured.',
+ c:['6427f016','6bbfd8bd']},
+
+{g:'UI / FRONT END', status:'OPEN', ssot:'ssot/ui-frontend.md',
+ t:'Creator lane — owed follow-ups',
+ what:'Residue the five-wheel pass left tracked, none blocking: level-placed display pawns never dress (AddCharacterPart spawns nothing on placed pawns — the front-end schema warning on pawn _0); the kit WBP layout still needs the full ratified I-25 spec numbers; the ActionBar carries four off-token literals from the greybox era.',
+ remains:'Each scoped. Suggested pickup order: kit-layout pass to I-25 numbers, then the placed-pawn dress gap.',
+ c:[]},
+
 // =========================== CROSS-CUTTING ================================
 {g:'CROSS-CUTTING', status:'OPEN', opRep:true, ssot:'(multiple)',
  t:'PlayFab RemoveMatchmakingQueue acknowledges without removing',
