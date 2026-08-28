@@ -13,6 +13,7 @@
 #include "Components/EditableTextBox.h"
 #include "Components/TextBlock.h"
 #include "Components/CheckBox.h"     // the link toggle
+#include "UI/AFLW_HueArc.h"          // C2 kit: the native hue arc a kit row hosts
 #include "Components/Image.h"        // the channel swatch        // the slot readout   // the build name the player types
 #include "Components/PanelWidget.h"       // the rail the rows are spawned into           // CC-5: the creator's own way out
 #include "Engine/TextureRenderTarget2D.h"   // region B: the preview capture the creator displays
@@ -128,6 +129,14 @@ void UAFLW_Creator::NativeOnInitialized()
 	{
 		F_Save->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleSaveClicked);
 	}
+	else
+	{
+		// SAYS SO. An unbound commit button is exactly the "built, correct, unreachable" shape this
+		// step exists to end. (Was mis-attached to the A_ChassisProMod check below -- it warned about
+		// F_Save when a CHASSIS TILE was missing and stayed silent when F_Save itself was.)
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("[Creator] F_Save not bound -- the creator has no way to commit a build."));
+	}
 
 	// REGIONS A and F, wired where the existing buttons are wired -- one place, so a future reader
 	// finds every binding together rather than discovering region A was hooked up somewhere else.
@@ -145,13 +154,6 @@ void UAFLW_Creator::NativeOnInitialized()
 	{
 		A_ChassisProMod->OnClicked.RemoveDynamic(this, &UAFLW_Creator::HandleChassisProModClicked);
 		A_ChassisProMod->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleChassisProModClicked);
-	}
-	else
-	{
-		// SAYS SO. An unbound commit button is exactly the "built, correct, unreachable" shape this
-		// step exists to end.
-		UE_LOG(LogAFLCombat, Warning,
-			TEXT("[Creator] F_Save not bound -- the creator has no way to commit a build."));
 	}
 }
 
@@ -206,10 +208,25 @@ void UAFLW_CreatorChannelRowBase::SetRowData(const FAFLCreatorChannelRow& InRow)
 		Row_LinkToggle->SetIsEnabled(Row.bInteractive);
 	}
 
+	if (Row_HueArc)
+	{
+		// DISPLAY reads (bHasValue || bInherited); COMMIT stays bHasValue alone -- the arc only
+		// displays, and the write path re-derives the row, so the separation holds (struct law).
+		Row_HueArc->SetHue(Row.HueDegrees, Row.bHasValue || Row.bInherited);
+		Row_HueArc->SetReadOnly(!Row.bInteractive);
+		Row_HueArc->OnHueChanged.RemoveDynamic(this, &UAFLW_CreatorChannelRowBase::HandleArcHueChanged);
+		Row_HueArc->OnHueChanged.AddDynamic(this, &UAFLW_CreatorChannelRowBase::HandleArcHueChanged);
+	}
+
 	// The whole row reads as unavailable when it is, rather than looking live and doing nothing.
 	SetIsEnabled(Row.bInteractive);
 
 	OnRowDataSet();
+}
+
+void UAFLW_CreatorChannelRowBase::HandleArcHueChanged(const float HueDegrees)
+{
+	OnRowHueChanged.Broadcast(Row.Channel, HueDegrees);
 }
 
 void UAFLW_Creator::NativeOnActivated()
@@ -268,6 +285,10 @@ void UAFLW_Creator::RebuildChannelRows()
 			CreateWidget<UAFLW_CreatorChannelRowBase>(this, ChannelRowClass))
 		{
 			RowWidget->SetRowData(RowData);
+			// C2 kit: the row's arc routes here -> SetChannelHue, the one write path. Remove-then-add
+			// keeps a rebuilt rail from double-binding a recycled widget.
+			RowWidget->OnRowHueChanged.RemoveDynamic(this, &UAFLW_Creator::HandleRowHueChanged);
+			RowWidget->OnRowHueChanged.AddDynamic(this, &UAFLW_Creator::HandleRowHueChanged);
 			ChannelRailContainer->AddChild(RowWidget);
 		}
 	}
@@ -695,6 +716,12 @@ void UAFLW_Creator::RebuildRows()
 	}
 
 	OnChannelRowsChanged();
+}
+
+void UAFLW_Creator::HandleRowHueChanged(const EAFLCreatorChannel Channel, const float HueDegrees)
+{
+	// The one write path: schema gate, single clamp, link fan-out and preview all live inside.
+	SetChannelHue(Channel, HueDegrees);
 }
 
 FLinearColor UAFLW_Creator::GetArcTrackColour(const float HueDegrees) const
