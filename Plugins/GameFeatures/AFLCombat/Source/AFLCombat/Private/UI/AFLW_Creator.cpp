@@ -17,6 +17,7 @@
 #include "Components/CheckBox.h"     // the link toggle
 #include "UI/AFLW_HueArc.h"          // C2 kit: the native hue arc a kit row hosts
 #include "UI/AFLW_BuildSlotStrip.h"  // the D saved-builds strip (kit widget, embedded layout pass)
+#include "UI/AFLW_PartPicker.h"      // the C-rail part tiles (facemask/emblem/finish, spec s4)
 #include "Components/Image.h"        // the channel swatch        // the slot readout   // the build name the player types
 #include "Components/PanelWidget.h"       // the rail the rows are spawned into           // CC-5: the creator's own way out
 #include "Components/SizeBox.h"           // per-row desired-size card (canvas-rooted rows report ~0)
@@ -170,6 +171,80 @@ void UAFLW_Creator::NativeOnInitialized()
 	{
 		B_RangeToggleLabel->SetText(NSLOCTEXT("AFLCreator", "RangePortrait", "PORTRAIT"));
 	}
+	if (C_TabFacemask)
+	{
+		C_TabFacemask->OnClicked.RemoveDynamic(this, &UAFLW_Creator::HandlePartTabFacemask);
+		C_TabFacemask->OnClicked.AddDynamic(this, &UAFLW_Creator::HandlePartTabFacemask);
+	}
+	if (C_TabEmblem)
+	{
+		C_TabEmblem->OnClicked.RemoveDynamic(this, &UAFLW_Creator::HandlePartTabEmblem);
+		C_TabEmblem->OnClicked.AddDynamic(this, &UAFLW_Creator::HandlePartTabEmblem);
+	}
+	if (C_TabFinish)
+	{
+		C_TabFinish->OnClicked.RemoveDynamic(this, &UAFLW_Creator::HandlePartTabFinish);
+		C_TabFinish->OnClicked.AddDynamic(this, &UAFLW_Creator::HandlePartTabFinish);
+	}
+	if (C_PartPicker)
+	{
+		C_PartPicker->OnPartSelected.RemoveDynamic(this, &UAFLW_Creator::HandlePartSelected);
+		C_PartPicker->OnPartSelected.AddDynamic(this, &UAFLW_Creator::HandlePartSelected);
+	}
+}
+
+FName UAFLW_Creator::WorkingIdForPartAxis(const EAFLLoadoutAxis Axis) const
+{
+	const UAFLW_LoadoutBase* L = Loadout.Get();
+	if (!L)
+	{
+		return NAME_None;
+	}
+	const FAFLCosmeticSelection Sel = L->CreatorGetWorkingSelection();
+	switch (Axis)
+	{
+		case EAFLLoadoutAxis::Facemask:  return Sel.FacemaskId;
+		case EAFLLoadoutAxis::Emblem:    return Sel.EmblemId;
+		case EAFLLoadoutAxis::BodyColor: return Sel.BodyId;
+		default:                         return NAME_None;
+	}
+}
+
+void UAFLW_Creator::SetActivePartTab(const EAFLLoadoutAxis Axis)
+{
+	ActivePartTab = Axis;
+	if (C_PartPicker)
+	{
+		const EAFLCosmeticType Type =
+			(Axis == EAFLLoadoutAxis::Facemask) ? EAFLCosmeticType::Facemask :
+			(Axis == EAFLLoadoutAxis::Emblem)   ? EAFLCosmeticType::Emblem   :
+			                                      EAFLCosmeticType::Finish;
+		C_PartPicker->SetCatalogFilter(Type, Axis, WorkingIdForPartAxis(Axis));
+	}
+	// SELECTED-TAB-AS-DISABLED, the chassis-segment convention: the disabled brush is styled as the
+	// accent selected state, and a dead click on the active tab costs nothing.
+	if (C_TabFacemask) { C_TabFacemask->SetIsEnabled(Axis != EAFLLoadoutAxis::Facemask); }
+	if (C_TabEmblem)   { C_TabEmblem->SetIsEnabled(Axis != EAFLLoadoutAxis::Emblem); }
+	if (C_TabFinish)   { C_TabFinish->SetIsEnabled(Axis != EAFLLoadoutAxis::BodyColor); }
+}
+
+void UAFLW_Creator::HandlePartTabFacemask() { SetActivePartTab(EAFLLoadoutAxis::Facemask); }
+void UAFLW_Creator::HandlePartTabEmblem()   { SetActivePartTab(EAFLLoadoutAxis::Emblem); }
+void UAFLW_Creator::HandlePartTabFinish()   { SetActivePartTab(EAFLLoadoutAxis::BodyColor); }
+
+void UAFLW_Creator::HandlePartSelected(const EAFLLoadoutAxis Axis, const FName CosmeticId)
+{
+	UAFLW_LoadoutBase* L = Loadout.Get();
+	if (!L)
+	{
+		return;
+	}
+	L->CreatorSetPart(Axis, CosmeticId);
+	// A finish swaps the worn materials the wheels READ; a facemask swaps slot 1. Re-derive the
+	// rail from the pawn as worn NOW, and re-badge the picker's equipped mark.
+	RefreshFromSchema();
+	RebuildChannelRows();
+	SetActivePartTab(Axis);
 }
 
 void UAFLW_Creator::HandleRangeToggleClicked()
@@ -332,6 +407,15 @@ void UAFLW_Creator::NativeOnActivated()
 	// (CC_UI_HANDOFF 2), so a picker painted later would describe a chassis the rail has moved past.
 	RefreshChassisPicker();
 	RefreshPreviewViewport();
+
+	// Part tiles (spec s4): populate the active tab's catalog; the pill states the I-9 promise
+	// (everyone SEES everything; ownership gates the equip). Reads the entitlement ladder once it
+	// un-stubs -- today the mode is one value.
+	SetActivePartTab(ActivePartTab);
+	if (C_ModePill)
+	{
+		C_ModePill->SetText(NSLOCTEXT("AFLCreator", "ModePill", "ALL PARTS VISIBLE — OWN TO EQUIP"));
+	}
 
 	// Paint once now (a set that replicated before this screen opened produces no edge to listen for),
 	// then follow the authoritative set from here on.

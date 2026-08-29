@@ -298,6 +298,23 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|B")
 	TObjectPtr<class UTextBlock> B_RangeToggleLabel;
 
+	// ===== REGION C, LOWER HALF -- PART TILES (spec s4: Facemask / Emblem / Finish) ===============
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|C")
+	TObjectPtr<class UAFLW_PartPicker> C_PartPicker;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|C")
+	TObjectPtr<class UButton> C_TabFacemask;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|C")
+	TObjectPtr<class UButton> C_TabEmblem;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|C")
+	TObjectPtr<class UButton> C_TabFinish;
+
+	/** The entitlement mode pill (spec s4). Reads the component's creator-colour entitlement. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|C")
+	TObjectPtr<class UTextBlock> C_ModePill;
+
 	// ===== REGION F -- COMMIT BAR, SECOND HALF ====================================================
 	//
 	// "UCommonButtonBase x2" -- save AND revert. Revert existed in the WBP and was never bound, so
@@ -396,6 +413,27 @@ protected:
 
 	UFUNCTION()
 	void HandleRangeToggleClicked();
+
+	/** Part-tile plumbing (spec s4). The tab decides the catalog filter; a tile click writes the
+	 *  matching PART axis on the working selection and re-derives the rail (a finish changes the
+	 *  worn materials the wheels read). */
+	void SetActivePartTab(EAFLLoadoutAxis Axis);
+	FName WorkingIdForPartAxis(EAFLLoadoutAxis Axis) const;
+
+	UFUNCTION()
+	void HandlePartTabFacemask();
+
+	UFUNCTION()
+	void HandlePartTabEmblem();
+
+	UFUNCTION()
+	void HandlePartTabFinish();
+
+	UFUNCTION()
+	void HandlePartSelected(EAFLLoadoutAxis Axis, FName CosmeticId);
+
+	/** The part tab currently filtering C_PartPicker. */
+	EAFLLoadoutAxis ActivePartTab = EAFLLoadoutAxis::Facemask;
 
 	UFUNCTION()
 	void HandleCloseClicked();

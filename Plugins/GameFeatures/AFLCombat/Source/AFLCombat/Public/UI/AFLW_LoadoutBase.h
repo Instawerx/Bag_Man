@@ -440,6 +440,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
 	bool CreatorToggleCombatRange();
 
+	/** Set a PART axis on the working selection (facemask / emblem / finish tiles -- spec s4) and
+	 *  push the preview. Id axes, not colour overrides: bUseCreatorColors is NOT flipped here. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
+	void CreatorSetPart(EAFLLoadoutAxis Axis, FName CosmeticId);
+
 	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Preview")
 	bool IsPreviewCombatRange() const { return bPreviewCombatRange; }
 

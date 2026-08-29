@@ -734,6 +734,30 @@ void UAFLW_LoadoutBase::CreatorApplyPreview()
 	ApplySelectionToDisplayPawn();
 }
 
+void UAFLW_LoadoutBase::CreatorSetPart(const EAFLLoadoutAxis Axis, const FName CosmeticId)
+{
+	// Same seed rule as CreatorSetChannel: the working selection opens showing what the player has.
+	if (!bCreatorWorkingSeeded)
+	{
+		if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+		{
+			CreatorWorking = Loadout->GetSelection();
+		}
+		bCreatorWorkingSeeded = true;
+	}
+	switch (Axis)
+	{
+		case EAFLLoadoutAxis::Facemask:  CreatorWorking.FacemaskId = CosmeticId; break;
+		case EAFLLoadoutAxis::Emblem:    CreatorWorking.EmblemId   = CosmeticId; break;
+		case EAFLLoadoutAxis::BodyColor: CreatorWorking.BodyId     = CosmeticId; break;
+		default:
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("[Creator] CreatorSetPart: axis %d is not a part axis -- refused."), (int32)Axis);
+			return;
+	}
+	CreatorApplyPreview();
+}
+
 bool UAFLW_LoadoutBase::CreatorToggleCombatRange()
 {
 	bPreviewCombatRange = !bPreviewCombatRange;
