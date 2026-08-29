@@ -50,10 +50,6 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Pod|Environment")
 	TObjectPtr<UStaticMeshComponent> BackdropDome;
 
-	/** Electric neon arcs (AFL laser-FX Niagara) crackling STRICTLY behind the pod on the dark backdrop. */
-	UPROPERTY(VisibleAnywhere, Category = "Pod|Environment")
-	TObjectPtr<UNiagaraComponent> LightningFX;
-
 	/** Marks the posed-hero stand point (pod-local origin, base centre). */
 	UPROPERTY(VisibleAnywhere, Category = "Pod")
 	TObjectPtr<USceneComponent> PawnAnchor;

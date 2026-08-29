@@ -50,7 +50,6 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 	// camera-to-pod volume. A dark neon backdrop + a single electric-arc element (no spreading cloud/bubbles). ---
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> BackdropMat(TEXT("/Game/AFL/Casino/Materials/M_AFL_NeonBackdrop.M_AFL_NeonBackdrop"));
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> ElectricFX(TEXT("/Game/LaserFX_BP/Niagara/OrbType/NS_AFL_Electric_Orb_02.NS_AFL_Electric_Orb_02"));
 
 	// Backdrop dome -- a large inward two-sided sphere (near-black blue->violet gradient) enclosing the pod =
 	// the dark neon sky. It encloses (the pod occludes its far side); it never renders in front of the pod.
@@ -69,18 +68,8 @@ AAFLLoadoutPod::AAFLLoadoutPod()
 	BackdropDome->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	BackdropDome->SetCastShadow(false);
 
-	// Electric neon arcs -- the IRONICS electric charge language (AFL laser-FX). Placed FAR behind (X=-800,
-	// well past the pod at X=0) so any particle spread stays STRICTLY behind the hero -- never in the
-	// camera(+X)-to-pod volume (fixes the "VFX in front" regression). Single element; no cloud/bubbles.
-	LightningFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("LightningFX"));
-	LightningFX->SetupAttachment(PodRoot);
-	if (ElectricFX.Succeeded())
-	{
-		LightningFX->SetAsset(ElectricFX.Object);
-	}
-	LightningFX->SetRelativeLocation(FVector(-800.f, 0.f, 120.f));
-	LightningFX->SetRelativeScale3D(FVector(1.5f));
-	LightningFX->SetCastShadow(false);
+	// Electric arcs REMOVED (operator 08-29): the crackle read as a leftover from the capsule-era
+	// design once the character preview moved into the card. The stage is the neon key + dome only.
 
 	// Where the posed hero stands (pod-local origin = base centre).
 	PawnAnchor = CreateDefaultSubobject<USceneComponent>(TEXT("PawnAnchor"));
