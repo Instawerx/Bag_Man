@@ -300,13 +300,19 @@ void UAFLW_LoadoutTileBase::ApplyTabStyle(bool bActive)
 			Style.Hovered = Pill(GhostH, AccentH, 1.5f);
 			Style.Pressed = Pill(GhostH, Accent, 1.5f);
 		}
-		Style.NormalPadding = FMargin(18.f, 7.f);
-		Style.PressedPadding = FMargin(18.f, 8.f, 18.f, 6.f);
+		// 12px sides: nine pills must fit the band -- 18px overflowed it off the screen edge.
+		Style.NormalPadding = FMargin(12.f, 6.f);
+		Style.PressedPadding = FMargin(12.f, 7.f, 12.f, 5.f);
 		SelectButton->SetStyle(Style);
 	}
 	if (UTextBlock* Label = Cast<UTextBlock>(GetWidgetFromName(TEXT("NameText"))))
 	{
 		Label->SetText(FText::FromString(Label->GetText().ToString().ToUpper()));
+		// 12pt / 100 tracking: NINE pills share one row -- at 15pt the row ran off the band edge.
+		FSlateFontInfo Font = Label->GetFont();
+		Font.Size = 12;
+		Font.LetterSpacing = 100;
+		Label->SetFont(Font);
 		Label->SetColorAndOpacity(bActive
 			? FSlateColor(FLinearColor(1.f, 1.f, 1.f, 1.f))
 			: FSlateColor(FLinearColor(0.55f, 0.60f, 0.75f, 1.f)));

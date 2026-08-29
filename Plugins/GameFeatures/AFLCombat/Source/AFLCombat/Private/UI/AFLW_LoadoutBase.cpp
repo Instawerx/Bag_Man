@@ -455,6 +455,30 @@ void UAFLW_LoadoutBase::EquipForAxis(EAFLLoadoutAxis Axis, FName CosmeticId)
 	Loadout->ServerSetCosmeticSelection(Sel);
 }
 
+void UAFLW_LoadoutBase::PreviewWeaponInHands()
+{
+	// Operator 08-29: the browsed weapon renders IN THE CHARACTER'S HANDS -- the flat render band
+	// fought the character for card space. Shipping path, deliberately: preview selection ->
+	// GetEffectiveSelection -> RefreshWeaponForPawn (the display pawn is local-authority by design,
+	// so the BlueprintAuthorityOnly equip applies directly).
+	AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get();
+	APlayerController* PC = GetOwningPlayer();
+	UAFLSkinColorControllerComponent* SkinCtrl =
+		PC ? PC->FindComponentByClass<UAFLSkinColorControllerComponent>() : nullptr;
+	const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
+	if (!Pawn || !SkinCtrl || !Loadout)
+	{
+		return;
+	}
+	FAFLCosmeticSelection Prev = Loadout->GetSelection();
+	if (ActiveAxis == EAFLLoadoutAxis::Weapon && !SelectedId.IsNone())
+	{
+		Prev.WeaponId = SelectedId;
+	}
+	SkinCtrl->SetPreviewSelection(Prev);
+	SkinCtrl->RefreshWeaponForPawn(Pawn);
+}
+
 void UAFLW_LoadoutBase::CreatorCommitWorking()
 {
 	UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
@@ -666,6 +690,9 @@ void UAFLW_LoadoutBase::ApplySelectionToDisplayPawn()
 	{
 		return;
 	}
+	// The committed weapon sits in the hands from the first frame (operator 08-29); a browse
+	// selection overrides it through the same path.
+	PreviewWeaponInHands();
 
 	// IDENTITY body: resolve the player's identity -> robot class (IRONICS fallback). Re-spawn ONLY on identity
 	// change (SetRobotBody removes+adds -> don't thrash on color/weapon picks). The selector's ResolveBodyForPawn
@@ -1284,6 +1311,7 @@ void UAFLW_LoadoutBase::SelectItem(FName CosmeticId)
 	// The rail is rebuilt so the highlight moves. Nothing is equipped and no RPC is sent.
 	RebuildRail();
 	RefreshDetail();
+	PreviewWeaponInHands();
 }
 
 void UAFLW_LoadoutBase::CommitEquip()
@@ -1343,8 +1371,8 @@ void UAFLW_LoadoutBase::RebuildAxisTabs()
 		UPanelSlot* TabSlot = AxisTabContainer->AddChild(Tab);
 		if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(TabSlot))
 		{
-			// Pill row rhythm (I-27 artboard): 10px gaps, pills hug their content vertically.
-			HSlot->SetPadding(FMargin(0.f, 0.f, 10.f, 0.f));
+			// Pill row rhythm (I-27 artboard): 8px gaps, pills hug their content vertically.
+			HSlot->SetPadding(FMargin(0.f, 0.f, 8.f, 0.f));
 			HSlot->SetVerticalAlignment(VAlign_Center);
 		}
 	}
@@ -1488,6 +1516,38 @@ void UAFLW_LoadoutBase::RefreshDetail()
 		{
 			DetailImage->SetVisibility(ESlateVisibility::Collapsed);
 		}
+	}
+
+	// The two-slot weapon CACHE (operator 08-29): box 1 = main mount, box 2 = left mount, straight
+	// off the committed selection -- EQUIP fills box 1, SWAP exchanges them. Empty slot = ghost box.
+	auto FillCache = [this](UImage* Box, FName WeaponSku)
+	{
+		if (!Box) { return; }
+		UTexture2D* CacheThumb = nullptr;
+		if (WeaponSku != NAME_None)
+		{
+			if (const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog())
+			{
+				if (const FAFLCatalogEntry* Entry = Catalog->FindEntry(WeaponSku))
+				{
+					if (!Entry->ShopThumbnail.IsNull()) { CacheThumb = Entry->ShopThumbnail.LoadSynchronous(); }
+				}
+			}
+		}
+		if (CacheThumb)
+		{
+			Box->SetBrushFromTexture(CacheThumb, /*bMatchSize*/ false);
+			Box->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			Box->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	};
+	if (const UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent())
+	{
+		FillCache(CacheImage1, Loadout->GetSelection().WeaponId);
+		FillCache(CacheImage2, Loadout->GetSelection().LeftWeaponId);
 	}
 
 	if (DetailMetaText)

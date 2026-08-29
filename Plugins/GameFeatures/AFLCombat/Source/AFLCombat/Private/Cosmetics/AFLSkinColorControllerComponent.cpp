@@ -642,6 +642,32 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 
 	if (WeaponId != NAME_None)
 	{
+		// DISPLAY-ONLY RAIL (operator 08-29, weapon-in-hands preview): a controller-less preview pawn
+		// has no Inventory and no QuickBar (both UControllerComponents), so the ONE QuickBar rail
+		// legitimately cannot run here -- and the ASTRA layer-skip defect cannot occur either, because
+		// there is no QuickBar to disagree with. Direct equip, tracked in SelectedWeaponInstance,
+		// replaced on every change. REAL pawns never enter this branch.
+		if (bIsPreviewPawn)
+		{
+			// REPLACE BY SWEEP, not by tracked handle: the tracking is per-CONTROLLER and the spine
+			// alternates pawns (display pawn vs gameplay), so a tracked-handle replace orphans an
+			// instance per thrash -- the P34 double-Arclight. Unequipping every ranged instance on
+			// THIS manager is idempotent whatever the tracking says.
+			for (ULyraEquipmentInstance* Existing :
+				EquipMgr->GetEquipmentInstancesOfType(ULyraRangedWeaponInstance::StaticClass()))
+			{
+				EquipMgr->UnequipItem(Existing);
+			}
+			SelectedWeaponInstance = EquipMgr->EquipItem(EquipDef);
+			EquippedWeaponId = WeaponId;
+			if (AFLSkinDiag::IsOn())
+			{
+				UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : preview DIRECT equip '%s' -> %s"),
+					*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *WeaponId.ToString(),
+					SelectedWeaponInstance.IsValid() ? *SelectedWeaponInstance->GetName() : TEXT("FAILED"));
+			}
+			return;
+		}
 		if (TryEquipWeaponViaQuickBar(WeaponId))
 		{
 			EquippedWeaponId = WeaponId;
@@ -668,6 +694,18 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 	// DESELECT (WeaponId == NAME_None) -- the QuickBar-side replacement for the deleted else branch. The old
 	// one unequipped SelectedWeaponInstance, a handle the rail never sets, so deselecting a routed weapon
 	// removed nothing and left it in slot 3 forever.
+	if (bIsPreviewPawn)
+	{
+		// The display rail sweeps its manager clean; there is no QuickBar to clear.
+		for (ULyraEquipmentInstance* Existing :
+			EquipMgr->GetEquipmentInstancesOfType(ULyraRangedWeaponInstance::StaticClass()))
+		{
+			EquipMgr->UnequipItem(Existing);
+		}
+		SelectedWeaponInstance = nullptr;
+		EquippedWeaponId = NAME_None;
+		return;
+	}
 	ClearWeaponFromQuickBar();
 	QuickBarRoutedItem = nullptr;
 	EquippedWeaponId = NAME_None;

@@ -283,6 +283,15 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UImage> DetailImage;
 
+	/** I-27 refinement (operator 08-29): the two-slot weapon CACHE boxes on the detail card --
+	 *  box 1 mirrors the committed main mount (WeaponId), box 2 the left mount (LeftWeaponId).
+	 *  EQUIP fills box 1, SWAP exchanges them; the boxes visualize, the verbs commit. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UImage> CacheImage1;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UImage> CacheImage2;
+
 	/** I-27 one-click verbs beside EQUIP. SWAP exchanges the main/left weapon mounts (Weapon axis
 	 *  only); DISCARD clears the active axis. Both commit through ServerSetCosmeticSelection. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
@@ -460,6 +469,10 @@ public:
 	 *  build NOW, not only in the preview. Same RPC + server clamp every equip path uses. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
 	void CreatorCommitWorking();
+
+	/** The browsed weapon renders IN THE CHARACTER'S HANDS (operator 08-29) -- committed selection
+	 *  plus the selected weapon, through the shipping preview path onto the display pawn. */
+	void PreviewWeaponInHands();
 
 	/** Copy the IDENTITY fields (type/team/character) from the COMMITTED selection into the working
 	 *  one. EquipForAxis writes the committed selection, but CreatorWorking is a seed-time snapshot --
