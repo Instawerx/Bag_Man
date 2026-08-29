@@ -292,6 +292,13 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UImage> CacheImage2;
 
+	/** I-29 follow-on (operator 08-29): FAMILY-LEVEL stat bars -- honest fields only. Damage is
+	 *  parity-locked (Arsenal Law) and says so; cadence is the FIRE FAMILY from the granted
+	 *  ability lineage; handling is the SSOT GripPoint_L classifier on the spawned preview weapon.
+	 *  C++ constructs the rows; the WBP carries only this container. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> StatsCol;
+
 	/** I-27 one-click verbs beside EQUIP. SWAP exchanges the main/left weapon mounts (Weapon axis
 	 *  only); DISCARD clears the active axis. Both commit through ServerSetCosmeticSelection. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
@@ -473,6 +480,9 @@ public:
 	/** The browsed weapon renders IN THE CHARACTER'S HANDS (operator 08-29) -- committed selection
 	 *  plus the selected weapon, through the shipping preview path onto the display pawn. */
 	void PreviewWeaponInHands();
+
+	/** Rebuild the family-level stat bars for the selected weapon (weapon axis only). */
+	void RefreshStatsBars();
 
 	/** Copy the IDENTITY fields (type/team/character) from the COMMITTED selection into the working
 	 *  one. EquipForAxis writes the committed selection, but CreatorWorking is a seed-time snapshot --

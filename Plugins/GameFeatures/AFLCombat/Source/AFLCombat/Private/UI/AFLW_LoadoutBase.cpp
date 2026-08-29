@@ -31,6 +31,16 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Creator, "UI.Layer.Menu");
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"       // I-27 grid rail: WrapBox + SizeBox cells built per rebuild
 #include "Components/WrapBox.h"
+#include "Components/HorizontalBox.h"     // I-29 stat bars (rows built in code)
+#include "Components/VerticalBoxSlot.h"
+#include "Components/Border.h"
+#include "Equipment/LyraEquipmentDefinition.h"       // fire-family walk
+#include "Equipment/LyraEquipmentManagerComponent.h" // handling classifier (preview weapon)
+#include "Equipment/LyraEquipmentInstance.h"
+#include "Weapons/LyraRangedWeaponInstance.h"
+#include "AbilitySystem/LyraAbilitySet.h"
+#include "Cosmetics/AFLWeaponCosmeticAsset.h"
+#include "UObject/UnrealType.h"
 #include "Components/SizeBox.h"
 #include "Components/PanelWidget.h"
 #include "Components/HorizontalBoxSlot.h" // I-27 pill-row tab slots
@@ -477,6 +487,126 @@ void UAFLW_LoadoutBase::PreviewWeaponInHands()
 	}
 	SkinCtrl->SetPreviewSelection(Prev);
 	SkinCtrl->RefreshWeaponForPawn(Pawn);
+}
+
+void UAFLW_LoadoutBase::RefreshStatsBars()
+{
+	if (!StatsCol) { return; }
+	StatsCol->ClearChildren();
+	if (ActiveAxis != EAFLLoadoutAxis::Weapon || SelectedId.IsNone() || !WidgetTree) { return; }
+
+	// --- CADENCE = the FIRE FAMILY, classified from the granted ability lineage. Reflection read:
+	// GrantedGameplayAbilities is protected on ULyraAbilitySet. UNKNOWN stays unrendered -- a bar
+	// this code cannot classify is a bar the player does not see, never a guess.
+	FText CadenceWord; int32 CadenceSeg = 0;
+	if (const UAFLCosmeticCatalogSubsystem* Catalog = GetCatalog())
+	{
+		if (const UAFLWeaponCosmeticAsset* Carrier = Cast<UAFLWeaponCosmeticAsset>(Catalog->ResolveAsset(SelectedId)))
+		{
+			UClass* EquipCls = Carrier->EquipmentDefinition.LoadSynchronous();
+			const ULyraEquipmentDefinition* Def = EquipCls ? GetDefault<ULyraEquipmentDefinition>(EquipCls) : nullptr;
+			const FArrayProperty* Arr = FindFProperty<FArrayProperty>(ULyraAbilitySet::StaticClass(), TEXT("GrantedGameplayAbilities"));
+			const FStructProperty* Inner = Arr ? CastField<FStructProperty>(Arr->Inner) : nullptr;
+			const FProperty* AbilityProp = Inner ? Inner->Struct->FindPropertyByName(TEXT("Ability")) : nullptr;
+			if (Def && Arr && AbilityProp)
+			{
+				for (const ULyraAbilitySet* Set : Def->AbilitySetsToGrant)
+				{
+					if (!Set || CadenceSeg > 0) { continue; }
+					FScriptArrayHelper Helper(Arr, Arr->ContainerPtrToValuePtr<void>(Set));
+					for (int32 i = 0; i < Helper.Num() && CadenceSeg == 0; ++i)
+					{
+						const void* Elem = Helper.GetRawPtr(i);
+						const FClassProperty* CP = CastField<FClassProperty>(AbilityProp);
+						UClass* AbilityCls = CP ? Cast<UClass>(CP->GetPropertyValue_InContainer(Elem)) : nullptr;
+						for (const UClass* C = AbilityCls; C; C = C->GetSuperClass())
+						{
+							const FString N = C->GetName();
+							if (N.Contains(TEXT("Laser_Charge")))      { CadenceSeg = 2; CadenceWord = NSLOCTEXT("AFLLoadout", "FamCharge", "CHARGE"); break; }
+							if (N.Contains(TEXT("BeamChannel")))       { CadenceSeg = 5; CadenceWord = NSLOCTEXT("AFLLoadout", "FamBeam", "BEAM"); break; }
+							if (N.Contains(TEXT("Deployable")))        { CadenceSeg = 1; CadenceWord = NSLOCTEXT("AFLLoadout", "FamDeploy", "DEPLOYABLE"); break; }
+							if (N.Contains(TEXT("Projectile")))        { CadenceSeg = 3; CadenceWord = NSLOCTEXT("AFLLoadout", "FamArc", "ARC"); break; }
+							if (N.Contains(TEXT("Hitscan")) || N.Contains(TEXT("Laser_Pulse"))) { CadenceSeg = 4; CadenceWord = NSLOCTEXT("AFLLoadout", "FamAuto", "AUTO"); break; }
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// --- HANDLING = the SSOT GripPoint_L classifier, read off the SPAWNED preview weapon
+	// (PreviewWeaponInHands runs before this refresh). Mirrors UAFLWeaponIKComponent::ResolveHandling.
+	FText HandlingWord; int32 HandlingSeg = 0;
+	if (AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get())
+	{
+		if (ULyraEquipmentManagerComponent* EM = Pawn->FindComponentByClass<ULyraEquipmentManagerComponent>())
+		{
+			for (ULyraEquipmentInstance* Inst : EM->GetEquipmentInstancesOfType(ULyraRangedWeaponInstance::StaticClass()))
+			{
+				if (!Inst || Inst->GetSpawnedActors().Num() == 0) { continue; }
+				if (const USkeletalMeshComponent* WM = Inst->GetSpawnedActors()[0]->FindComponentByClass<USkeletalMeshComponent>())
+				{
+					const bool bTwoHanded = WM->DoesSocketExist(TEXT("GripPoint_L"));
+					HandlingSeg = bTwoHanded ? 4 : 2;
+					HandlingWord = bTwoHanded
+						? NSLOCTEXT("AFLLoadout", "Hand2H", "TWO-HANDED")
+						: NSLOCTEXT("AFLLoadout", "Hand1H", "ONE-HANDED");
+					break;
+				}
+			}
+		}
+	}
+
+	const FLinearColor Accent(0.012f, 0.102f, 1.f);
+	const FLinearColor Dim(0.044f, 0.060f, 0.135f);
+	const FLinearColor Muted(0.55f, 0.60f, 0.75f);
+	auto AddBar = [this, &Accent, &Dim, &Muted](const FText& Label, int32 Seg, const FText& Word)
+	{
+		UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+		auto MakeText = [this](const FText& T, int32 Size, const FLinearColor& Col)
+		{
+			UTextBlock* TB = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+			TB->SetText(T);
+			FSlateFontInfo F = TB->GetFont(); F.Size = Size; F.LetterSpacing = 120; TB->SetFont(F);
+			TB->SetColorAndOpacity(FSlateColor(Col));
+			return TB;
+		};
+		USizeBox* LabelBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+		LabelBox->SetWidthOverride(104.f);
+		LabelBox->AddChild(MakeText(Label, 10, Muted));
+		Row->AddChild(LabelBox);
+		for (int32 i = 0; i < 5; ++i)
+		{
+			USizeBox* SegBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+			SegBox->SetWidthOverride(26.f);
+			SegBox->SetHeightOverride(8.f);
+			UBorder* SegB = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
+			SegB->SetBrushColor(i < Seg ? Accent : Dim);
+			SegBox->AddChild(SegB);
+			UPanelSlot* PS = Row->AddChild(SegBox);
+			if (UHorizontalBoxSlot* HS = Cast<UHorizontalBoxSlot>(PS))
+			{
+				HS->SetPadding(FMargin(0.f, 3.f, 4.f, 0.f));
+				HS->SetVerticalAlignment(VAlign_Center);
+			}
+		}
+		UPanelSlot* WS = Row->AddChild(MakeText(Word, 10, FLinearColor(0.92f, 0.94f, 1.f)));
+		if (UHorizontalBoxSlot* HS = Cast<UHorizontalBoxSlot>(WS))
+		{
+			HS->SetPadding(FMargin(8.f, 0.f, 0.f, 0.f));
+			HS->SetVerticalAlignment(VAlign_Center);
+		}
+		UPanelSlot* RS = StatsCol->AddChild(Row);
+		if (UVerticalBoxSlot* VS = Cast<UVerticalBoxSlot>(RS))
+		{
+			VS->SetPadding(FMargin(0.f, 2.f, 0.f, 2.f));
+		}
+	};
+
+	// DAMAGE is parity-locked by the Arsenal Law -- every weapon shows the same bar AND SAYS WHY.
+	AddBar(NSLOCTEXT("AFLLoadout", "StatDamage", "DAMAGE"), 3, NSLOCTEXT("AFLLoadout", "DmgParity", "STANDARD (PARITY)"));
+	if (CadenceSeg > 0)  { AddBar(NSLOCTEXT("AFLLoadout", "StatCadence", "CADENCE"), CadenceSeg, CadenceWord); }
+	if (HandlingSeg > 0) { AddBar(NSLOCTEXT("AFLLoadout", "StatHandling", "HANDLING"), HandlingSeg, HandlingWord); }
 }
 
 void UAFLW_LoadoutBase::CreatorCommitWorking()
@@ -1309,9 +1439,11 @@ void UAFLW_LoadoutBase::SelectItem(FName CosmeticId)
 {
 	SelectedId = CosmeticId;
 	// The rail is rebuilt so the highlight moves. Nothing is equipped and no RPC is sent.
+	// PreviewWeaponInHands runs FIRST: the stat bars' handling classifier reads the SPAWNED
+	// preview weapon's mesh socket, so the actor must exist before the detail refresh.
 	RebuildRail();
-	RefreshDetail();
 	PreviewWeaponInHands();
+	RefreshDetail();
 }
 
 void UAFLW_LoadoutBase::CommitEquip()
@@ -1549,6 +1681,8 @@ void UAFLW_LoadoutBase::RefreshDetail()
 		FillCache(CacheImage1, Loadout->GetSelection().WeaponId);
 		FillCache(CacheImage2, Loadout->GetSelection().LeftWeaponId);
 	}
+
+	RefreshStatsBars();
 
 	if (DetailMetaText)
 	{
