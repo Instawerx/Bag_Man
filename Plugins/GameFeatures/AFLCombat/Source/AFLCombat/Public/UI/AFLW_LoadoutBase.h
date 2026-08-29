@@ -456,6 +456,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
 	void CreatorApplyPreview();
 
+	/** I-13 EQUIP: commit the creator's WORKING selection to the server -- the player wears the
+	 *  build NOW, not only in the preview. Same RPC + server clamp every equip path uses. */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
+	void CreatorCommitWorking();
+
 	/** Copy the IDENTITY fields (type/team/character) from the COMMITTED selection into the working
 	 *  one. EquipForAxis writes the committed selection, but CreatorWorking is a seed-time snapshot --
 	 *  a chassis switch that then pushes the preview would dress the NEW chassis with the PRE-swap

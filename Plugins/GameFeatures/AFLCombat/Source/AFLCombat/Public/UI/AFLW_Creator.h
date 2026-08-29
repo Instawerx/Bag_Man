@@ -229,6 +229,11 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UButton> F_Save;
 
+	/** I-13 EQUIP: wear the working build NOW (commits it to the server selection). Optional --
+	 *  the verb landed after the greybox; a WBP without it simply has no equip verb, not a crash. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UButton> F_Equip;
+
 	/** The build's name. Validated server-side; a refused name refuses the whole save. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UEditableTextBox> E_BuildName;
@@ -449,6 +454,9 @@ protected:
 
 	UFUNCTION()
 	void HandleSaveClicked();
+
+	UFUNCTION()
+	void HandleEquipClicked();
 
 public:
 

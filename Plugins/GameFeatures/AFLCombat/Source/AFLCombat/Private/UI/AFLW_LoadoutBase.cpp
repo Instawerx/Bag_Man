@@ -455,6 +455,25 @@ void UAFLW_LoadoutBase::EquipForAxis(EAFLLoadoutAxis Axis, FName CosmeticId)
 	Loadout->ServerSetCosmeticSelection(Sel);
 }
 
+void UAFLW_LoadoutBase::CreatorCommitWorking()
+{
+	UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
+	if (!Loadout)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("[AFLLoadout] CreatorCommitWorking REFUSED -- no loadout component."));
+		return;
+	}
+	if (!bCreatorWorkingSeeded)
+	{
+		// Nothing was ever touched -- the working copy does not exist yet. Committing the committed
+		// selection back to itself would be a no-op dressed up as an action.
+		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] CreatorCommitWorking skipped -- working selection never seeded."));
+		return;
+	}
+	Loadout->ServerSetCosmeticSelection(CreatorWorking);
+	UE_LOG(LogAFLCombat, Display, TEXT("[AFLLoadout] creator WORKING selection COMMITTED (I-13 equip verb)."));
+}
+
 void UAFLW_LoadoutBase::HandleSwapClicked()
 {
 	// I-27 SWAP SLOT: exchange the main and left weapon mounts, one click, through the same commit

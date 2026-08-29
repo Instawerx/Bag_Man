@@ -136,6 +136,10 @@ void UAFLW_Creator::NativeOnInitialized()
 	{
 		F_Save->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleSaveClicked);
 	}
+	if (F_Equip)
+	{
+		F_Equip->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleEquipClicked);
+	}
 	else
 	{
 		// SAYS SO. An unbound commit button is exactly the "built, correct, unreachable" shape this
@@ -738,6 +742,15 @@ bool UAFLW_Creator::CommitBuild()
 	// DISPATCHING IS NOT SUCCEEDING. The server re-checks the cap, the name and the lapse state.
 	LC->ServerSaveBuild(Build, EditingIndex);
 	return true;
+}
+
+void UAFLW_Creator::HandleEquipClicked()
+{
+	// I-13 EQUIP: the working build goes LIVE -- one click, same server clamp as every equip.
+	if (UAFLW_LoadoutBase* L = Loadout.Get())
+	{
+		L->CreatorCommitWorking();
+	}
 }
 
 void UAFLW_Creator::HandleSaveClicked()
