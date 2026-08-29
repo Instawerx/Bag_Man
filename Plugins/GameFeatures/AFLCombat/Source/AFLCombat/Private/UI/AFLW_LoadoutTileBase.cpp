@@ -3,6 +3,7 @@
 #include "UI/AFLW_LoadoutTileBase.h"
 
 #include "Components/Button.h"
+#include "Styling/SlateTypes.h" // I-27 filter-pill tab styling (FButtonStyle built in code)
 #include "Cook/AFLCookedAssetRegistry.h"
 #include "Components/TextBlock.h"
 #include "Components/RichTextBlock.h" // dual-COLOR price -> tagged runs styled by DT_AFL_PriceStyles
@@ -269,13 +270,46 @@ void UAFLW_LoadoutTileBase::ApplyTabStyle(bool bActive)
 		}
 	}
 
-	// The active tab is the lit segment; the rest are unlit tube. Electric is the house LEAD and is the
-	// only colour that may carry "active" -- arc-violet is hover/focus and never a resting state.
+	// FILTER PILLS (the ratified I-27 artboard): the active axis is an Electric-FILLED pill with
+	// white text; the rest are outlined ghosts with muted text. Electric stays the ONLY colour that
+	// carries "active" -- it moved from the inactive text (which read backwards) to the active fill.
+	const FLinearColor Accent(0.012f, 0.102f, 1.f);
+	const FLinearColor AccentH(0.030f, 0.160f, 1.f);
+	const FLinearColor Ghost(0.f, 0.f, 0.f, 0.f);
+	const FLinearColor GhostH(0.010f, 0.014f, 0.045f);
+	const FLinearColor Line2(0.044f, 0.060f, 0.135f);
+	auto Pill = [](const FLinearColor& Fill, const FLinearColor& Outline, float OutlineW)
+	{
+		FSlateBrush B;
+		B.DrawAs = ESlateBrushDrawType::RoundedBox;
+		B.TintColor = Fill;
+		B.OutlineSettings = FSlateBrushOutlineSettings(FVector4(15, 15, 15, 15), Outline, OutlineW);
+		B.OutlineSettings.RoundingType = ESlateBrushRoundingType::FixedRadius;
+		return B;
+	};
+	if (SelectButton)
+	{
+		FButtonStyle Style = SelectButton->GetStyle();
+		if (bActive)
+		{
+			Style.Normal = Style.Hovered = Style.Pressed = Pill(Accent, Accent, 0.f);
+		}
+		else
+		{
+			Style.Normal  = Pill(Ghost, Line2, 1.f);
+			Style.Hovered = Pill(GhostH, AccentH, 1.5f);
+			Style.Pressed = Pill(GhostH, Accent, 1.5f);
+		}
+		Style.NormalPadding = FMargin(18.f, 7.f);
+		Style.PressedPadding = FMargin(18.f, 8.f, 18.f, 6.f);
+		SelectButton->SetStyle(Style);
+	}
 	if (UTextBlock* Label = Cast<UTextBlock>(GetWidgetFromName(TEXT("NameText"))))
 	{
+		Label->SetText(FText::FromString(Label->GetText().ToString().ToUpper()));
 		Label->SetColorAndOpacity(bActive
 			? FSlateColor(FLinearColor(1.f, 1.f, 1.f, 1.f))
-			: FSlateColor(FLinearColor(0.013f, 0.102f, 1.f, 1.f)));
+			: FSlateColor(FLinearColor(0.55f, 0.60f, 0.75f, 1.f)));
 	}
 }
 

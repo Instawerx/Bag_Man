@@ -33,6 +33,7 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Creator, "UI.Layer.Menu");
 #include "Components/WrapBox.h"
 #include "Components/SizeBox.h"
 #include "Components/PanelWidget.h"
+#include "Components/HorizontalBoxSlot.h" // I-27 pill-row tab slots
 #include "Components/Button.h"
 #include "Components/Image.h"
 #include "Engine/SceneCapture2D.h"
@@ -1320,7 +1321,13 @@ void UAFLW_LoadoutBase::RebuildAxisTabs()
 		Tab->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleAxisTabClicked);
 		// A card is not a tab. Ten cards overflowed 1280px; ten labels do not.
 		Tab->ApplyTabStyle(Axis == ActiveAxis);
-		AxisTabContainer->AddChild(Tab);
+		UPanelSlot* TabSlot = AxisTabContainer->AddChild(Tab);
+		if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(TabSlot))
+		{
+			// Pill row rhythm (I-27 artboard): 10px gaps, pills hug their content vertically.
+			HSlot->SetPadding(FMargin(0.f, 0.f, 10.f, 0.f));
+			HSlot->SetVerticalAlignment(VAlign_Center);
+		}
 	}
 }
 
