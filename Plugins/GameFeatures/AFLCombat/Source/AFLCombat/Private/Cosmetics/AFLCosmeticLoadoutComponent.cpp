@@ -1294,8 +1294,22 @@ FAFLCreatorChannelSchema UAFLCosmeticLoadoutComponent::GetChannelSchemaForPawn(A
 	}
 	// No slot-1 material found. Claim nothing rather than guessing a default schema -- a creator that
 	// offers controls it cannot honour is worse than one that offers none until it knows.
-	UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SCHEMA] no slot-1 master found on %s -- no channels claimed"),
-		*Pawn->GetName());
+	// SEVERITY IS SCOPED TO THE PAWN KIND: on a GAMEPLAY pawn this is the EXPECTED front-end state
+	// (parts resolve server-side; the client pawn wears none -- the banked "resolve FAIL
+	// (server-only) x7" family), and Warning-severity was echoing onto the PIE screen as a yellow
+	// toast over the shipped creator. A DISPLAY pawn with no parts is a genuine dress failure and
+	// keeps the alarm.
+	const bool bDisplayPawn = Pawn->GetClass()->GetName().Contains(TEXT("LoadoutDisplayPawn"));
+	if (bDisplayPawn)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[SCHEMA] no slot-1 master found on %s -- no channels claimed"),
+			*Pawn->GetName());
+	}
+	else
+	{
+		UE_LOG(LogAFLCombat, Verbose, TEXT("AFL_TEST[SCHEMA] no slot-1 master on gameplay pawn %s (expected front-end state)"),
+			*Pawn->GetName());
+	}
 	return Out;
 }
 

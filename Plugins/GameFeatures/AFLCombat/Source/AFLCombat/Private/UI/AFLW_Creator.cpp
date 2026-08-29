@@ -16,6 +16,7 @@
 #include "Components/TextBlock.h"
 #include "Components/CheckBox.h"     // the link toggle
 #include "UI/AFLW_HueArc.h"          // C2 kit: the native hue arc a kit row hosts
+#include "UI/AFLW_BuildSlotStrip.h"  // the D saved-builds strip (kit widget, embedded layout pass)
 #include "Components/Image.h"        // the channel swatch        // the slot readout   // the build name the player types
 #include "Components/PanelWidget.h"       // the rail the rows are spawned into           // CC-5: the creator's own way out
 #include "Components/SizeBox.h"           // per-row desired-size card (canvas-rooted rows report ~0)
@@ -280,6 +281,15 @@ void UAFLW_Creator::NativeOnActivated()
 			}
 		}
 	}
+
+	// D strip verbs: a slot click OPENS that build; the empty-slot action starts a new one.
+	if (D_BuildStrip)
+	{
+		D_BuildStrip->OnBuildSlotClicked.RemoveDynamic(this, &UAFLW_Creator::HandleBuildSlotClicked);
+		D_BuildStrip->OnBuildSlotClicked.AddDynamic(this, &UAFLW_Creator::HandleBuildSlotClicked);
+		D_BuildStrip->OnNewBuildRequested.RemoveDynamic(this, &UAFLW_Creator::HandleNewBuildRequested);
+		D_BuildStrip->OnNewBuildRequested.AddDynamic(this, &UAFLW_Creator::HandleNewBuildRequested);
+	}
 }
 
 void UAFLW_Creator::NativeOnDeactivated()
@@ -361,12 +371,49 @@ void UAFLW_Creator::RebuildChannelRows()
 
 void UAFLW_Creator::RefreshSlotCounter()
 {
-	if (!D_SlotCounter)
+	if (D_SlotCounter)
+	{
+		// UNLOCKED / CAP. A locked build sits outside the cap, so showing the total would print "5 / 2".
+		D_SlotCounter->SetText(GetSlotCounterText());
+	}
+	// The strip rides the same OnBuildSetChanged edge (and the same activate-time paint).
+	RefreshBuildStrip();
+}
+
+void UAFLW_Creator::RefreshBuildStrip()
+{
+	if (!D_BuildStrip)
 	{
 		return;
 	}
-	// UNLOCKED / CAP. A locked build sits outside the cap, so showing the total would print "5 / 2".
-	D_SlotCounter->SetText(GetSlotCounterText());
+	const APlayerController* PC = GetOwningPlayer();
+	const APlayerState* PS = PC ? PC->PlayerState : nullptr;
+	const UAFLCosmeticLoadoutComponent* LC = PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+	if (!LC)
+	{
+		return;
+	}
+	const FAFLCreatorBuildSet& Set = LC->GetBuildSet();
+	TArray<FAFLBuildSlotDesc> Descs;
+	Descs.Reserve(Set.Builds.Num());
+	for (int32 i = 0; i < Set.Builds.Num(); ++i)
+	{
+		FAFLBuildSlotDesc& D = Descs.AddDefaulted_GetRef();
+		D.Name    = FText::FromString(Set.Builds[i].DisplayName);
+		D.bActive = (i == Set.ActiveBuildIndex);
+		D.bLocked = Set.Builds[i].bReadOnly;
+	}
+	D_BuildStrip->SetBuilds(Descs, GetSlotsUsed(), GetSlotCap());
+}
+
+void UAFLW_Creator::HandleBuildSlotClicked(const int32 BuildIndex)
+{
+	LoadBuild(BuildIndex);
+}
+
+void UAFLW_Creator::HandleNewBuildRequested()
+{
+	BeginNewBuild();
 }
 
 FAFLCreatorBuild UAFLW_Creator::AssembleBuild() const

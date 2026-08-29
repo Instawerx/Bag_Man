@@ -237,6 +237,11 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UTextBlock> D_SlotCounter;
 
+	/** The D saved-builds strip (kit widget embedded in the layout pass). Fed from the component's
+	 *  build set on the same OnBuildSetChanged edge the counter rides; clicks route to LoadBuild. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UAFLW_BuildSlotStrip> D_BuildStrip;
+
 	// ===== REGION A -- CHASSIS PICKER (CC_UI_HANDOFF section 2) ====================================
 	//
 	// "Ordered first because it determines the channel rail's contents." The rail length varies by
@@ -310,6 +315,15 @@ protected:
 	/** Paint the counter from the authoritative set. */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Slots")
 	void RefreshSlotCounter();
+
+	/** Paint the D strip from the authoritative set (same edge as the counter). */
+	void RefreshBuildStrip();
+
+	UFUNCTION()
+	void HandleBuildSlotClicked(int32 BuildIndex);
+
+	UFUNCTION()
+	void HandleNewBuildRequested();
 
 	/**
 	 * Which saved build this session is editing. INDEX_NONE = a NEW build, which is the only case the
