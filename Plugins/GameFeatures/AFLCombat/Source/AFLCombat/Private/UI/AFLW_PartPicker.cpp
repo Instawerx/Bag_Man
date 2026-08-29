@@ -56,6 +56,7 @@ void UAFLW_PartPicker::SetCatalogFilter(const EAFLCosmeticType CatalogType, cons
 		Item->Axis = ListAxis;
 		Item->CosmeticId = Entry->CosmeticId;
 		Item->DisplayName = Entry->DisplayName;
+		Item->Thumbnail = Entry->ShopThumbnail; // the row's thumb frame renders it (operator 08-29)
 		Item->bEquipped = (Entry->CosmeticId == EquippedId);
 		const bool bEntitled = Wallet && Wallet->IsEntitled(PS, Entry->CosmeticId);
 		Item->bPurchasable = !bEntitled;
