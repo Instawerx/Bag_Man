@@ -311,6 +311,11 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|C")
 	TObjectPtr<class UButton> C_TabFinish;
 
+	/** The third tab is CHASSIS-AWARE (operator ruling 2026-08-28): FINISH where the body master
+	 *  consumes it (Manny), STICKERS on the X chassis where Finish parameters are dead. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|C")
+	TObjectPtr<class UTextBlock> C_TabFinishLabel;
+
 	/** The entitlement mode pill (spec s4). Reads the component's creator-colour entitlement. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|C")
 	TObjectPtr<class UTextBlock> C_ModePill;
@@ -419,6 +424,10 @@ protected:
 	 *  worn materials the wheels read). */
 	void SetActivePartTab(EAFLLoadoutAxis Axis);
 	FName WorkingIdForPartAxis(EAFLLoadoutAxis Axis) const;
+
+	/** What the third part tab MEANS on this chassis: BodyColor (FINISH) when the body master
+	 *  consumes finishes, Sticker otherwise (the X chassis -- operator ruling 2026-08-28). */
+	EAFLLoadoutAxis ThirdPartTabAxis() const;
 
 	UFUNCTION()
 	void HandlePartTabFacemask();

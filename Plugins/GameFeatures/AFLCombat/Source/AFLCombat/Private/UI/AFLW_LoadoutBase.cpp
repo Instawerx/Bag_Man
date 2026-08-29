@@ -808,12 +808,45 @@ void UAFLW_LoadoutBase::CreatorSetPart(const EAFLLoadoutAxis Axis, const FName C
 		case EAFLLoadoutAxis::Facemask:  CreatorWorking.FacemaskId = CosmeticId; break;
 		case EAFLLoadoutAxis::Emblem:    CreatorWorking.EmblemId   = CosmeticId; break;
 		case EAFLLoadoutAxis::BodyColor: CreatorWorking.BodyId     = CosmeticId; break;
+		case EAFLLoadoutAxis::Sticker:
+		{
+			// ONE-CLICK STICKER (operator ruling 2026-08-28: the X-chassis third tab is STICKERS):
+			// land the pick in the first EMPTY zone; all nine full -> replace zone 0. Fine placement
+			// stays the dedicated sticker flow; this makes the tile DO something on click.
+			CreatorWorking.StickerSet.EnsureSized();
+			int32 Zone = 0;
+			for (int32 i = 0; i < FAFLStickerSet::ZoneCount; ++i)
+			{
+				if (CreatorWorking.StickerSet.Zones[i].StickerId == NAME_None) { Zone = i; break; }
+			}
+			FAFLStickerPlacement Placement;
+			Placement.StickerId = CosmeticId;
+			CreatorWorking.StickerSet.Set(static_cast<EAFLStickerZone>(Zone), Placement);
+			UE_LOG(LogAFLCombat, Display, TEXT("[Creator] sticker %s -> zone %d"), *CosmeticId.ToString(), Zone);
+			break;
+		}
 		default:
 			UE_LOG(LogAFLCombat, Warning,
 				TEXT("[Creator] CreatorSetPart: axis %d is not a part axis -- refused."), (int32)Axis);
 			return;
 	}
 	CreatorApplyPreview();
+
+	// Stickers do not ride the SetPreviewSelection fan-out (RefreshStickers walks the GAMEPLAY
+	// pawn) -- push the working set onto the DISPLAY pawn's parts directly via the proven part API.
+	if (Axis == EAFLLoadoutAxis::Sticker)
+	{
+		if (const AAFLLoadoutDisplayPawn* Pawn = DisplayPawn.Get())
+		{
+			TArray<AAFLCharacterPartActor*> Parts;
+			AAFLCharacterPartActor::CollectPartsOn(Pawn, Parts);
+			const UAFLCosmeticCatalogSubsystem* Cat = GetCatalog();
+			for (AAFLCharacterPartActor* Part : Parts)
+			{
+				if (Part) { Part->ApplyStickerSet(CreatorWorking.StickerSet, Cat); }
+			}
+		}
+	}
 }
 
 bool UAFLW_LoadoutBase::CreatorToggleCombatRange()

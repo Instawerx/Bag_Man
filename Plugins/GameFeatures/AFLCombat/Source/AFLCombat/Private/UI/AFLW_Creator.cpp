@@ -206,31 +206,56 @@ FName UAFLW_Creator::WorkingIdForPartAxis(const EAFLLoadoutAxis Axis) const
 		case EAFLLoadoutAxis::Facemask:  return Sel.FacemaskId;
 		case EAFLLoadoutAxis::Emblem:    return Sel.EmblemId;
 		case EAFLLoadoutAxis::BodyColor: return Sel.BodyId;
+		case EAFLLoadoutAxis::Sticker:   return NAME_None; // an arrangement -- no single equipped mark
 		default:                         return NAME_None;
 	}
 }
 
+EAFLLoadoutAxis UAFLW_Creator::ThirdPartTabAxis() const
+{
+	// Finish presets drive TeamColor + friends -- dead on the X master (the Body-wheel truth,
+	// applied to parts): offering FINISH there is a control that writes nowhere. The X chassis
+	// gets STICKERS instead (operator ruling 2026-08-28).
+	return (Schema.BodyState == EAFLChannelAvailability::Connected)
+		? EAFLLoadoutAxis::BodyColor
+		: EAFLLoadoutAxis::Sticker;
+}
+
 void UAFLW_Creator::SetActivePartTab(const EAFLLoadoutAxis Axis)
 {
-	ActivePartTab = Axis;
+	// SELF-COERCING: a chassis switch can change what the third tab MEANS while it is active --
+	// whichever third-tab axis was requested, resolve it against the CURRENT schema.
+	EAFLLoadoutAxis Resolved = Axis;
+	if (Axis == EAFLLoadoutAxis::BodyColor || Axis == EAFLLoadoutAxis::Sticker)
+	{
+		Resolved = ThirdPartTabAxis();
+	}
+	ActivePartTab = Resolved;
 	if (C_PartPicker)
 	{
 		const EAFLCosmeticType Type =
-			(Axis == EAFLLoadoutAxis::Facemask) ? EAFLCosmeticType::Facemask :
-			(Axis == EAFLLoadoutAxis::Emblem)   ? EAFLCosmeticType::Emblem   :
-			                                      EAFLCosmeticType::Finish;
-		C_PartPicker->SetCatalogFilter(Type, Axis, WorkingIdForPartAxis(Axis));
+			(Resolved == EAFLLoadoutAxis::Facemask) ? EAFLCosmeticType::Facemask :
+			(Resolved == EAFLLoadoutAxis::Emblem)   ? EAFLCosmeticType::Emblem   :
+			(Resolved == EAFLLoadoutAxis::Sticker)  ? EAFLCosmeticType::Sticker  :
+			                                          EAFLCosmeticType::Finish;
+		C_PartPicker->SetCatalogFilter(Type, Resolved, WorkingIdForPartAxis(Resolved));
+	}
+	if (C_TabFinishLabel)
+	{
+		C_TabFinishLabel->SetText(ThirdPartTabAxis() == EAFLLoadoutAxis::BodyColor
+			? NSLOCTEXT("AFLCreator", "TabFinish", "FINISH")
+			: NSLOCTEXT("AFLCreator", "TabStickers", "STICKERS"));
 	}
 	// SELECTED-TAB-AS-DISABLED, the chassis-segment convention: the disabled brush is styled as the
 	// accent selected state, and a dead click on the active tab costs nothing.
-	if (C_TabFacemask) { C_TabFacemask->SetIsEnabled(Axis != EAFLLoadoutAxis::Facemask); }
-	if (C_TabEmblem)   { C_TabEmblem->SetIsEnabled(Axis != EAFLLoadoutAxis::Emblem); }
-	if (C_TabFinish)   { C_TabFinish->SetIsEnabled(Axis != EAFLLoadoutAxis::BodyColor); }
+	if (C_TabFacemask) { C_TabFacemask->SetIsEnabled(Resolved != EAFLLoadoutAxis::Facemask); }
+	if (C_TabEmblem)   { C_TabEmblem->SetIsEnabled(Resolved != EAFLLoadoutAxis::Emblem); }
+	if (C_TabFinish)   { C_TabFinish->SetIsEnabled(Resolved != ThirdPartTabAxis()); }
 }
 
 void UAFLW_Creator::HandlePartTabFacemask() { SetActivePartTab(EAFLLoadoutAxis::Facemask); }
 void UAFLW_Creator::HandlePartTabEmblem()   { SetActivePartTab(EAFLLoadoutAxis::Emblem); }
-void UAFLW_Creator::HandlePartTabFinish()   { SetActivePartTab(EAFLLoadoutAxis::BodyColor); }
+void UAFLW_Creator::HandlePartTabFinish()   { SetActivePartTab(ThirdPartTabAxis()); }
 
 void UAFLW_Creator::HandlePartSelected(const EAFLLoadoutAxis Axis, const FName CosmeticId)
 {
@@ -1295,6 +1320,7 @@ bool UAFLW_Creator::SelectChassisLine(const EAFLChassisLine Line)
 	// chassis off the pawn, enabling the correct tile (the stale read was the dead switch-back).
 	RefreshFromSchema();
 	RebuildChannelRows();
+	SetActivePartTab(ActivePartTab); // the third tab is chassis-aware (FINISH vs STICKERS) -- re-resolve
 
 	UE_LOG(LogAFLCombat, Display, TEXT("[Creator] chassis -> %s (identity %s); rail re-derived"),
 		Line == EAFLChassisLine::ProMod ? TEXT("ProMod") : TEXT("Manny"), *Target.ToString());
