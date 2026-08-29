@@ -734,6 +734,14 @@ void UAFLW_LoadoutBase::CreatorApplyPreview()
 	ApplySelectionToDisplayPawn();
 }
 
+bool UAFLW_LoadoutBase::CreatorToggleCombatRange()
+{
+	bPreviewCombatRange = !bPreviewCombatRange;
+	RepositionPreviewCamera(); // apply NOW -- the 0.25s timer would land it anyway, but a toggle
+	                           // that answers on the next tick reads as lag.
+	return bPreviewCombatRange;
+}
+
 void UAFLW_LoadoutBase::CreatorSyncIdentityFromCommitted()
 {
 	if (!bCreatorWorkingSeeded)
@@ -1051,10 +1059,12 @@ void UAFLW_LoadoutBase::RepositionPreviewCamera()
 		? static_cast<float>(PreviewResolution.Y) / static_cast<float>(PreviewResolution.X) : 1.5f;
 	// FOVAngle is HORIZONTAL; the portrait RT's vertical half-tangent is larger by the aspect.
 	const float VTan = FMath::Max(0.1f, FMath::Tan(FMath::DegreesToRadians(FOV * 0.5f)) * Aspect);
-	// Fill ~82% of the frame height. The old 250cm ceiling was the pod CHAMBER wall -- the stage is
-	// open now (decapsulated), so the landscape lens may pull back inside the ~9m backdrop dome.
+	// Fill ~82% of the frame height (portrait). COMBAT RANGE (I-6) multiplies the distance so the
+	// build is judged the way opponents read it. The old 250cm ceiling was the pod CHAMBER wall --
+	// the stage is open now (decapsulated); 600 stays inside the ~9m backdrop dome.
+	const float RangeMul = bPreviewCombatRange ? 2.2f : 1.f;
 	const float Dist = FMath::Clamp(
-		(BodyH * 0.5f * 1.22f) / VTan + CVarLoadoutPreviewFwd.GetValueOnGameThread(), 110.f, 600.f);
+		(BodyH * 0.5f * 1.22f) / VTan * RangeMul + CVarLoadoutPreviewFwd.GetValueOnGameThread(), 110.f, 600.f);
 
 	// The camera stays on +X BY DESIGN (the pod's backdrop/dome/FX all live at X<0, "strictly
 	// behind the hero"); the ROBOT'S facing is the mesh yaw (ApplyDrivingMesh initial + the

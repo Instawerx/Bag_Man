@@ -291,6 +291,13 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidget), Category = "AFL|Creator|B")
 	TObjectPtr<class UImage> B_PreviewImage;
 
+	/** I-6 (mandatory): Portrait <-> Combat-range framing toggle, top-right of B. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|B")
+	TObjectPtr<class UButton> B_RangeToggle;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "AFL|Creator|B")
+	TObjectPtr<class UTextBlock> B_RangeToggleLabel;
+
 	// ===== REGION F -- COMMIT BAR, SECOND HALF ====================================================
 	//
 	// "UCommonButtonBase x2" -- save AND revert. Revert existed in the WBP and was never bound, so
@@ -380,6 +387,15 @@ protected:
 	virtual void NativeOnActivated() override;
 	virtual void NativeOnDeactivated() override;
 	virtual void BeginDestroy() override;
+
+	/** I-5 drag-rotate: a press inside B grabs the model; horizontal drag spins it (the mesh --
+	 *  CreatorRotatePreview -- so the capture stays put). Release lets go. */
+	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+
+	UFUNCTION()
+	void HandleRangeToggleClicked();
 
 	UFUNCTION()
 	void HandleCloseClicked();
@@ -557,6 +573,10 @@ protected:
 	/** This creator holds an RT borrow on the loadout (keeps its capture running while the loadout
 	 *  sits deactivated underneath). Taken in InitializeCreator, released on deactivate/destroy. */
 	bool bHoldsPreviewBorrow = false;
+
+	/** I-5 drag-rotate state. */
+	bool bDraggingPreview = false;
+	float LastDragX = 0.f;
 
 	/** Fired after the rail changes so the WBP can rebind without polling. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Creator")

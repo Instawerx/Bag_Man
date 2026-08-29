@@ -161,6 +161,72 @@ void UAFLW_Creator::NativeOnInitialized()
 		A_ChassisProMod->OnClicked.RemoveDynamic(this, &UAFLW_Creator::HandleChassisProModClicked);
 		A_ChassisProMod->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleChassisProModClicked);
 	}
+	if (B_RangeToggle)
+	{
+		B_RangeToggle->OnClicked.RemoveDynamic(this, &UAFLW_Creator::HandleRangeToggleClicked);
+		B_RangeToggle->OnClicked.AddDynamic(this, &UAFLW_Creator::HandleRangeToggleClicked);
+	}
+	if (B_RangeToggleLabel)
+	{
+		B_RangeToggleLabel->SetText(NSLOCTEXT("AFLCreator", "RangePortrait", "PORTRAIT"));
+	}
+}
+
+void UAFLW_Creator::HandleRangeToggleClicked()
+{
+	UAFLW_LoadoutBase* L = Loadout.Get();
+	if (!L)
+	{
+		return;
+	}
+	const bool bCombat = L->CreatorToggleCombatRange();
+	if (B_RangeToggleLabel)
+	{
+		// The label names the CURRENT view, not the destination -- same rule as the chassis tiles.
+		B_RangeToggleLabel->SetText(bCombat
+			? NSLOCTEXT("AFLCreator", "RangeCombat", "COMBAT RANGE")
+			: NSLOCTEXT("AFLCreator", "RangePortrait", "PORTRAIT"));
+	}
+}
+
+FReply UAFLW_Creator::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	// I-5: grab the model. Only the LEFT button, only inside B -- everywhere else stays a normal click.
+	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && B_PreviewImage
+		&& B_PreviewImage->GetCachedGeometry().IsUnderLocation(InMouseEvent.GetScreenSpacePosition()))
+	{
+		bDraggingPreview = true;
+		LastDragX = InMouseEvent.GetScreenSpacePosition().X;
+		return FReply::Handled().CaptureMouse(TakeWidget());
+	}
+	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
+}
+
+FReply UAFLW_Creator::NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (bDraggingPreview)
+	{
+		const float X = InMouseEvent.GetScreenSpacePosition().X;
+		if (UAFLW_LoadoutBase* L = Loadout.Get())
+		{
+			// 0.5 deg/px: a full B-region sweep (~1100px authored) is ~1.5 turns -- fast enough to
+			// inspect the back without wrist gymnastics, slow enough to land a 3/4.
+			L->CreatorRotatePreview((X - LastDragX) * 0.5f);
+		}
+		LastDragX = X;
+		return FReply::Handled();
+	}
+	return Super::NativeOnMouseMove(InGeometry, InMouseEvent);
+}
+
+FReply UAFLW_Creator::NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (bDraggingPreview && InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+	{
+		bDraggingPreview = false;
+		return FReply::Handled().ReleaseMouseCapture();
+	}
+	return Super::NativeOnMouseButtonUp(InGeometry, InMouseEvent);
 }
 
 void UAFLW_CreatorChannelRowBase::SetRowData(const FAFLCreatorChannelRow& InRow)

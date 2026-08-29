@@ -434,6 +434,15 @@ public:
 	 *  identity. Call after any committed identity change, before CreatorApplyPreview. */
 	void CreatorSyncIdentityFromCommitted();
 
+	/** I-6 (mandatory): Portrait <-> Combat-range viewport framing. Combat-range pulls the lens back
+	 *  so the build is judged at the distance opponents actually read it. The auto-framer applies it
+	 *  on its next tick (the 0.25s stage timer). Returns the NEW state (true = combat range). */
+	UFUNCTION(BlueprintCallable, Category = "AFL|Creator|Preview")
+	bool CreatorToggleCombatRange();
+
+	UFUNCTION(BlueprintPure, Category = "AFL|Creator|Preview")
+	bool IsPreviewCombatRange() const { return bPreviewCombatRange; }
+
 	/** Spin the model. Rotates the MESH, not the actor: the scene capture is ATTACHED to the actor, so
 	 *  rotating the actor would carry the camera around with it and the view would never change -- a
 	 *  rotate control that looks wired and does nothing. */
@@ -531,6 +540,9 @@ private:
 
 	/** Live RT borrows (creator on top). Non-zero keeps the capture running while deactivated. */
 	int32 PreviewBorrowCount = 0;
+
+	/** I-6 framing state: false = portrait product shot, true = combat-range read. */
+	bool bPreviewCombatRange = false;
 
 	/** The scene-capture actor framing the pawn (attached to it; captures every frame -> live). */
 	TWeakObjectPtr<ASceneCapture2D> PreviewCapture;
