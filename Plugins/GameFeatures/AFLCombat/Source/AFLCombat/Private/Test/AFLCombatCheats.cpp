@@ -100,6 +100,7 @@
 #include "Misc/Paths.h"                                // afl.Thumbnail.Canary: ProjectSavedDir
 #include "HAL/FileManager.h"                           // afl.Thumbnail.Canary: MakeDirectory for the output dir
 #include "Engine/Texture2D.h"                           // afl.Thumbnail.Batch: UTexture2D + TEXTUREGROUP_UI
+#include "Components/SpotLightComponent.h"              // thumb capture light rig (exposure knobs are inert on SceneCapture)
 #include "UObject/SavePackage.h"                         // afl.Thumbnail.Batch: FSavePackageArgs / UPackage::SavePackage
 #include "AssetRegistry/AssetRegistryModule.h"           // afl.Thumbnail.Batch: FAssetRegistryModule::AssetCreated
 #include "Misc/PackageName.h"                             // afl.Thumbnail.Batch: LongPackageNameToFilename
@@ -2587,6 +2588,37 @@ namespace
 	static TAutoConsoleVariable<float> CVarThumbPortUp(TEXT("afl.Thumb.Port.Up"), 55.f, TEXT("Identity/finish thumb: camera up offset."));
 	static TAutoConsoleVariable<float> CVarThumbPortFOV(TEXT("afl.Thumb.Port.FOV"), 35.f, TEXT("Identity/finish thumb: FOV degrees."));
 	static TAutoConsoleVariable<float> CVarThumbPortFocusUp(TEXT("afl.Thumb.Port.FocusUp"), 40.f, TEXT("Identity/finish thumb: look-at up."));
+	static TAutoConsoleVariable<float> CVarThumbExposure(TEXT("afl.Thumb.Exposure"), 10.5f, TEXT("Thumb captures: MANUAL exposure bias. One-shot captures have no eye-adaptation history -> auto exposure renders black."));
+	static TAutoConsoleVariable<float> CVarThumbLight(TEXT("afl.Thumb.Light"), 40000.f, TEXT("Thumb captures: key-light intensity. SceneCapture ignores exposure knobs entirely (the banked venue-capture finding: bias 0-15 = pixel-identical) -- the subject must be LIT to read."));
+
+	/** Key/fill/rim rig for thumb captures. OWNED BY the capture actor (its components die with it),
+	 *  ATTACHED TO the pawn (pawn-local placement -- the capture actor re-frames per preset and would
+	 *  drag camera-relative lights along with it). Lights are not primitives, so the ShowOnly isolate
+	 *  list does not filter them. */
+	static void SpawnThumbLightRig(ASceneCapture2D* Cap, APawn* Pawn)
+	{
+		if (!Cap || !Pawn || !Pawn->GetRootComponent()) { return; }
+		struct FRigLight { FVector Loc; float Mul; };
+		const FRigLight Rig[] = {
+			{ FVector(180.f, 130.f, 170.f), 1.0f },   // key
+			{ FVector(170.f, -150.f, 60.f), 0.45f },  // fill
+			{ FVector(-170.f, -50.f, 150.f), 0.7f },  // rim
+		};
+		const float Base = CVarThumbLight.GetValueOnGameThread();
+		for (const FRigLight& L : Rig)
+		{
+			USpotLightComponent* Spot = NewObject<USpotLightComponent>(Cap);
+			Spot->SetMobility(EComponentMobility::Movable);
+			Spot->SetIntensity(Base * L.Mul);
+			Spot->SetAttenuationRadius(1200.f);
+			Spot->SetOuterConeAngle(55.f);
+			Spot->SetCastShadows(false);
+			Spot->RegisterComponent();
+			Spot->AttachToComponent(Pawn->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+			Spot->SetRelativeLocation(L.Loc);
+			Spot->SetRelativeRotation((FVector(0.f, 0.f, 70.f) - L.Loc).Rotation());
+		}
+	}
 	static TAutoConsoleVariable<float> CVarThumbFaceFwd(TEXT("afl.Thumb.Face.Fwd"), 80.f, TEXT("Facemask thumb: camera forward offset. (PIE-approved seed)"));
 	static TAutoConsoleVariable<float> CVarThumbFaceRight(TEXT("afl.Thumb.Face.Right"), 35.f, TEXT("Facemask thumb: camera right offset."));
 	static TAutoConsoleVariable<float> CVarThumbFaceUp(TEXT("afl.Thumb.Face.Up"), 82.f, TEXT("Facemask thumb: camera up offset. (PIE-approved seed)"));
@@ -2623,6 +2655,7 @@ namespace
 			return;
 		}
 		Cap->AttachToActor(Pawn, FAttachmentTransformRules::KeepRelativeTransform);
+		SpawnThumbLightRig(Cap, Pawn); // the subject must be lit -- capture exposure knobs are inert here
 
 		TArray<AActor*> ShowOnly;
 		ShowOnly.Add(Pawn);
@@ -2640,12 +2673,24 @@ namespace
 		CapComp->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR; // lit + tonemapped (neon reads true)
 		CapComp->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
 		CapComp->ShowOnlyActors = ShowOnly;
-		CapComp->bCaptureEveryFrame = false;
+		// CONTINUOUS capture, not one-shot: a single CaptureScene has no eye-adaptation history and
+		// renders black, and exposure knobs are inert on SceneCapture (the banked venue finding, re-proven
+		// 08-29). The loadout preview RT is correctly exposed for exactly this reason -- it runs every
+		// frame. Reads happen after a settle, so the RT always holds an adapted frame.
+		CapComp->bCaptureEveryFrame = true;
 		CapComp->bCaptureOnMovement = false;
 		CapComp->ShowFlags.SetAtmosphere(false);
 		CapComp->ShowFlags.SetFog(false);
 		CapComp->ShowFlags.SetVolumetricFog(false);
 		CapComp->ShowFlags.SetCloud(false);
+		// One-shot captures carry NO eye-adaptation history -> auto exposure renders BLACK (the 08-29
+		// arena batch shipped 127/127 black frames). Pin MANUAL exposure; the bias is a cvar so the
+		// canary can dial it live without a rebuild.
+		CapComp->PostProcessSettings.bOverride_AutoExposureMethod = true;
+		CapComp->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+		CapComp->PostProcessSettings.bOverride_AutoExposureBias = true;
+		CapComp->PostProcessSettings.AutoExposureBias = CVarThumbExposure.GetValueOnGameThread();
+		CapComp->PostProcessBlendWeight = 1.f;
 
 		struct FThumbPreset { const TCHAR* Label; FVector Cam; FVector Focus; float FOV; int32 W; int32 H; };
 		const FVector WpnCam(CVarThumbWpnFwd.GetValueOnGameThread(), CVarThumbWpnRight.GetValueOnGameThread(), CVarThumbWpnUp.GetValueOnGameThread());
@@ -2664,30 +2709,62 @@ namespace
 
 		const FString OutDir = FPaths::ProjectSavedDir() / TEXT("Thumbnails");
 		IFileManager::Get().MakeDirectory(*OutDir, /*Tree*/ true);
-		int32 Count = 0;
-		for (const FThumbPreset& P : Presets)
-		{
-			RT->InitCustomFormat(P.W, P.H, PF_B8G8R8A8, /*bInForceLinearGamma*/ false);
-			RT->UpdateResourceImmediate(true);
-			CapComp->TextureTarget = RT;
-			CapComp->FOVAngle = P.FOV;
-			Cap->SetActorRelativeLocation(P.Cam);
-			Cap->SetActorRelativeRotation((P.Focus - P.Cam).Rotation());
-			CapComp->CaptureScene(); // synchronous render into RT
 
-			const FString FileName = FString::Printf(TEXT("CANARY_%s.png"), P.Label);
-			UKismetRenderingLibrary::ExportRenderTarget(World, RT, OutDir, FileName); // reads-with-flush -> PNG
-			Ar.Logf(TEXT("afl.Thumbnail.Canary - %s (%dx%d, FOV %.0f) -> %s/%s"), P.Label, P.W, P.H, P.FOV, *OutDir, *FileName);
-			++Count;
-		}
-
-		Cap->Destroy();
-		Ar.Logf(TEXT("afl.Thumbnail.Canary - DONE: %d framings -> %s . Open the PNGs, tune afl.Thumb.* cvars, re-run (no rebuild)."), Count, *OutDir);
-		if (GEngine)
+		// TIMER WALK, not a synchronous loop: with continuous capture the RT only holds a correctly
+		// adapted frame after real frames have passed at a given framing. Each tick exports the
+		// PREVIOUS preset's settled frame, then re-frames for the next.
+		struct FCanaryWalk { TArray<FThumbPreset> Steps; int32 Idx = 0; FString Dir; };
+		TSharedPtr<FCanaryWalk> Walk = MakeShared<FCanaryWalk>();
+		for (const FThumbPreset& P : Presets) { Walk->Steps.Add(P); }
+		Walk->Dir = OutDir;
+		TWeakObjectPtr<ASceneCapture2D> WCap = Cap;
+		TWeakObjectPtr<UTextureRenderTarget2D> WRT = RT;
+		TWeakObjectPtr<UWorld> WWorld = World;
+		TSharedPtr<FTimerHandle> Timer = MakeShared<FTimerHandle>();
+		auto Step = [Walk, WCap, WRT, WWorld, Timer]()
 		{
-			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green,
-				FString::Printf(TEXT("THUMB CANARY: %d PNGs -> Saved/Thumbnails/ (tune afl.Thumb.* + re-run)"), Count));
-		}
+			UWorld* W = WWorld.Get();
+			ASceneCapture2D* C = WCap.Get();
+			UTextureRenderTarget2D* T = WRT.Get();
+			if (!W || !C || !T)
+			{
+				if (W && Timer.IsValid()) { W->GetTimerManager().ClearTimer(*Timer); }
+				return;
+			}
+			USceneCaptureComponent2D* CC = C->GetCaptureComponent2D();
+			if (Walk->Idx > 0)
+			{
+				const FThumbPreset& Prev = Walk->Steps[Walk->Idx - 1];
+				UKismetRenderingLibrary::ExportRenderTarget(W, T, Walk->Dir,
+					FString::Printf(TEXT("CANARY_%s.png"), Prev.Label)); // reads-with-flush -> PNG
+				UE_LOG(LogAFLCombat, Display, TEXT("[ThumbCanary] %s exported (settled frame)"), Prev.Label);
+			}
+			if (Walk->Idx >= Walk->Steps.Num())
+			{
+				W->GetTimerManager().ClearTimer(*Timer);
+				C->Destroy();
+				UE_LOG(LogAFLCombat, Display,
+					TEXT("[ThumbCanary] DONE: %d framings -> Saved/Thumbnails/ . Open the PNGs, tune afl.Thumb.* cvars, re-run (no rebuild)."),
+					Walk->Steps.Num());
+				if (GEngine)
+				{
+					GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green,
+						TEXT("THUMB CANARY DONE -> Saved/Thumbnails/ (tune afl.Thumb.* + re-run)"));
+				}
+				return;
+			}
+			const FThumbPreset& P = Walk->Steps[Walk->Idx];
+			T->InitCustomFormat(P.W, P.H, PF_B8G8R8A8, /*bInForceLinearGamma*/ false);
+			T->UpdateResourceImmediate(true);
+			CC->TextureTarget = T;
+			CC->FOVAngle = P.FOV;
+			C->SetActorRelativeLocation(P.Cam);
+			C->SetActorRelativeRotation((P.Focus - P.Cam).Rotation());
+			Walk->Idx++;
+		};
+		World->GetTimerManager().SetTimer(*Timer, FTimerDelegate::CreateLambda(Step), 1.5f, /*bLoop*/ true, /*FirstDelay*/ 0.1f);
+		Ar.Logf(TEXT("afl.Thumbnail.Canary - WALKING %d presets (continuous capture, 1.5s settle each) -> %s"),
+			Walk->Steps.Num(), *OutDir);
 	}
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLThumbnailCanaryCmd(
@@ -2743,12 +2820,12 @@ namespace
 		return Str;
 	}
 
-	static void ThumbBatchCaptureAndSave(TSharedPtr<FAFLThumbBatchState> S, const FName& Id)
+	static bool ThumbBatchCaptureAndSave(TSharedPtr<FAFLThumbBatchState> S, const FName& Id)
 	{
 		APawn* Pawn = S->Pawn.Get();
 		ASceneCapture2D* Cap = S->Cap.Get();
 		USceneCaptureComponent2D* CapComp = Cap ? Cap->GetCaptureComponent2D() : nullptr;
-		if (!Pawn || !CapComp || !S->RT) { return; }
+		if (!Pawn || !CapComp || !S->RT) { return false; }
 
 		// Re-frame (axis preset) + REFRESH the isolate list -- the equipped weapon actor changed for this SKU.
 		// The RT is sized + initialized ONCE in START (a registered capture with an uninitialized target renders
@@ -2766,11 +2843,11 @@ namespace
 		const FString SkuName = ThumbAssetName(Id); // full-id -> unique (last-token collides across WeaponSkin/Finish)
 		const FString PkgName = FString::Printf(TEXT("/Game/AFL/UI/Thumbnails/T_Thumb_%s"), *SkuName);
 		UPackage* Pkg = CreatePackage(*PkgName);
-		if (!Pkg) { UE_LOG(LogAFLCombat, Warning, TEXT("[ThumbBatch] CreatePackage FAILED %s"), *PkgName); return; }
+		if (!Pkg) { UE_LOG(LogAFLCombat, Warning, TEXT("[ThumbBatch] CreatePackage FAILED %s"), *PkgName); return false; }
 		Pkg->FullyLoad();
 		UTexture2D* Tex = S->RT->ConstructTexture2D(Pkg, FString::Printf(TEXT("T_Thumb_%s"), *SkuName),
 			RF_Public | RF_Standalone, CTF_Default | CTF_SRGB);
-		if (!Tex) { UE_LOG(LogAFLCombat, Warning, TEXT("[ThumbBatch] ConstructTexture2D FAILED %s"), *SkuName); return; }
+		if (!Tex) { UE_LOG(LogAFLCombat, Warning, TEXT("[ThumbBatch] ConstructTexture2D FAILED %s"), *SkuName); return false; }
 		Tex->LODGroup = TEXTUREGROUP_UI;
 		Tex->MipGenSettings = TMGS_NoMipmaps;
 		Tex->PostEditChange();
@@ -2783,8 +2860,10 @@ namespace
 		if (bSaved) { FAssetRegistryModule::AssetCreated(Tex); }
 		UE_LOG(LogAFLCombat, Display, TEXT("[ThumbBatch] sku=%s -> %s (%dx%d) saved=%s"),
 			*Id.ToString(), *PkgName, S->W, S->H, bSaved ? TEXT("YES") : TEXT("NO"));
+		return bSaved;
 #else
 		UE_LOG(LogAFLCombat, Warning, TEXT("[ThumbBatch] texture save is editor-only (WITH_EDITOR)."));
+		return false;
 #endif
 	}
 
@@ -2814,11 +2893,29 @@ namespace
 		UWorld* W = S.IsValid() ? S->World.Get() : nullptr;
 		if (!W || !S->Loadout.IsValid() || !S->Cap.IsValid()) { GActiveThumbBatch.Reset(); return; }
 
+		// The round system can REPLACE the player pawn mid-batch (a no-score round resolves ~2min in
+		// and respawns everyone). A stale weak ref made every later save early-out in silence -- the
+		// 13-black-tail failure. Re-resolve and re-rig; hold the step (don't advance) while no pawn.
+		if (!S->Pawn.IsValid())
+		{
+			APlayerController* PC = W->GetFirstPlayerController();
+			APawn* Fresh = PC ? PC->GetPawn() : nullptr;
+			if (!Fresh) { return; } // respawn in flight -- try again next tick, same SKU
+			S->Pawn = Fresh;
+			if (ASceneCapture2D* Cap2 = S->Cap.Get())
+			{
+				Cap2->AttachToActor(Fresh, FAttachmentTransformRules::KeepRelativeTransform);
+				SpawnThumbLightRig(Cap2, Fresh);
+			}
+			UE_LOG(LogAFLCombat, Warning,
+				TEXT("[ThumbBatch] pawn REPLACED mid-batch (round reset) -- re-rigged onto %s"), *Fresh->GetName());
+		}
+
 		// 1. Capture the PREVIOUSLY-equipped (now Hold-settled) SKU.
 		if (S->Ids.IsValidIndex(S->EquipIdx))
 		{
-			ThumbBatchCaptureAndSave(S, S->Ids[S->EquipIdx]);
-			S->Saved++;
+			// HONEST COUNT: the unconditional ++ reported 127/127 over a run whose tail never saved.
+			if (ThumbBatchCaptureAndSave(S, S->Ids[S->EquipIdx])) { S->Saved++; }
 		}
 		// 2. Advance + equip the next, or finish.
 		S->EquipIdx++;
@@ -2911,6 +3008,7 @@ namespace
 		USceneCaptureComponent2D* CapComp = Cap ? Cap->GetCaptureComponent2D() : nullptr;
 		if (!CapComp) { Ar.Log(TEXT("afl.Thumbnail.Batch - failed to spawn capture.")); if (Cap) { Cap->Destroy(); } return; }
 		Cap->AttachToActor(Pawn, FAttachmentTransformRules::KeepRelativeTransform);
+		SpawnThumbLightRig(Cap, Pawn); // the subject must be lit -- capture exposure knobs are inert here
 
 		// Axis framing preset (camera + SIZE) -- computed BEFORE the RT so it is initialized to the right size.
 		FVector PCam, PFocus; float PFOV; int32 PW, PH;
@@ -2927,12 +3025,24 @@ namespace
 
 		CapComp->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 		CapComp->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
-		CapComp->bCaptureEveryFrame = false;
+		// CONTINUOUS capture, not one-shot: a single CaptureScene has no eye-adaptation history and
+		// renders black, and exposure knobs are inert on SceneCapture (the banked venue finding, re-proven
+		// 08-29). The loadout preview RT is correctly exposed for exactly this reason -- it runs every
+		// frame. Reads happen after a settle, so the RT always holds an adapted frame.
+		CapComp->bCaptureEveryFrame = true;
 		CapComp->bCaptureOnMovement = false;
 		CapComp->ShowFlags.SetAtmosphere(false);
 		CapComp->ShowFlags.SetFog(false);
 		CapComp->ShowFlags.SetVolumetricFog(false);
 		CapComp->ShowFlags.SetCloud(false);
+		// One-shot captures carry NO eye-adaptation history -> auto exposure renders BLACK (the 08-29
+		// arena batch shipped 127/127 black frames). Pin MANUAL exposure; the bias is a cvar so the
+		// canary can dial it live without a rebuild.
+		CapComp->PostProcessSettings.bOverride_AutoExposureMethod = true;
+		CapComp->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+		CapComp->PostProcessSettings.bOverride_AutoExposureBias = true;
+		CapComp->PostProcessSettings.AutoExposureBias = CVarThumbExposure.GetValueOnGameThread();
+		CapComp->PostProcessBlendWeight = 1.f;
 		{ TArray<AActor*> InitShow; InitShow.Add(Pawn); TArray<AActor*> Att; Pawn->GetAttachedActors(Att); InitShow.Append(Att); CapComp->ShowOnlyActors = InitShow; }
 		CapComp->TextureTarget = RT; // now valid + sized -> the registered capture is safe; also GC-keeps the RT
 
@@ -2947,7 +3057,7 @@ namespace
 		FTimerDelegate Del;
 		TWeakPtr<FAFLThumbBatchState> WS = S;
 		Del.BindLambda([WS]() { TSharedPtr<FAFLThumbBatchState> P = WS.Pin(); if (P.IsValid()) { ThumbBatchStep(P); } });
-		World->GetTimerManager().SetTimer(S->Timer, Del, S->Hold, /*bLoop*/ true, /*FirstDelay*/ 0.25f);
+		World->GetTimerManager().SetTimer(S->Timer, Del, S->Hold, /*bLoop*/ true, /*FirstDelay*/ 2.5f); // warm-up: let the continuous capture's eye adaptation settle before the first read
 	}
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLThumbnailBatchCmd(

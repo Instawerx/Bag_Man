@@ -29,6 +29,9 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Creator, "UI.Layer.Menu");
 #include "Input/CommonUIInputTypes.h"
 #include "UI/AFLW_LoadoutTileBase.h"
 #include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetTree.h"       // I-27 grid rail: WrapBox + SizeBox cells built per rebuild
+#include "Components/WrapBox.h"
+#include "Components/SizeBox.h"
 #include "Components/PanelWidget.h"
 #include "Components/Button.h"
 #include "Components/Image.h"
@@ -1326,12 +1329,32 @@ void UAFLW_LoadoutBase::RebuildRail()
 	if (!RailContainer) { return; }
 	RailContainer->ClearChildren();
 
+	// Grid presentation (I-27): tiles land in a WrapBox of fixed square cells so three columns
+	// emerge from the column width. The WrapBox is rebuilt with the rail -- it is rail CONTENT.
+	UPanelWidget* TileHost = RailContainer;
+	if (bGridRail && WidgetTree)
+	{
+		if (UWrapBox* Wrap = WidgetTree->ConstructWidget<UWrapBox>(UWrapBox::StaticClass()))
+		{
+			Wrap->SetInnerSlotPadding(FVector2D(6.0, 6.0));
+			RailContainer->AddChild(Wrap);
+			TileHost = Wrap;
+		}
+	}
+
 	UClass* SpawnClass = TileClass.Get();
 	if (!SpawnClass) { return; }
 
 	TArray<FAFLCatalogEntry> Owned;
 	GetOwnedEntriesForAxis(ActiveAxis, Owned);
 	const FName EquippedId = GetEquippedIdForAxis(ActiveAxis);
+
+	if (OwnedHeader)
+	{
+		OwnedHeader->SetText(FText::Format(
+			NSLOCTEXT("AFLLoadout", "OwnedCount", "OWNED · {0}"), FText::AsNumber(Owned.Num())));
+	}
+
 	const bool bColorAxis = IsColorAxis(ActiveAxis);
 	const UAFLCosmeticCatalogSubsystem* Catalog = bColorAxis ? GetCatalog() : nullptr;
 
@@ -1363,7 +1386,21 @@ void UAFLW_LoadoutBase::RebuildRail()
 		Row->SetTileData(ActiveAxis, Entry.CosmeticId, Label, Entry.CosmeticId == SelectedId,
 			bIsSwatch, SwatchColor, Entry.ShopThumbnail);
 		Row->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleRailItemClicked);
-		RailContainer->AddChild(Row);
+
+		UWidget* Cell = Row;
+		if (TileHost != RailContainer && WidgetTree)
+		{
+			// Fixed cell: a canvas-rooted tile reports ~zero desired size, which collapses in a
+			// WrapBox -- the SizeBox is what makes the cell real (the banked kit-WBP lesson).
+			if (USizeBox* Box = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass()))
+			{
+				Box->SetWidthOverride(148.f);
+				Box->SetHeightOverride(148.f);
+				Box->AddChild(Row);
+				Cell = Box;
+			}
+		}
+		TileHost->AddChild(Cell);
 	}
 
 	UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] rail axis=%d rows=%d equipped=%s selected=%s"),
@@ -1395,6 +1432,36 @@ void UAFLW_LoadoutBase::RefreshDetail()
 			}
 		}
 		DetailNameText->SetText(Name);
+	}
+
+	// The REAL item render (I-27 "clear real item displays"): the selected entry's shop thumbnail,
+	// large, in the detail card. No thumb / no selection -> the panel collapses rather than
+	// showing a placeholder that could be mistaken for the item.
+	if (DetailImage)
+	{
+		UTexture2D* Thumb = nullptr;
+		if (bHasSelection)
+		{
+			TArray<FAFLCatalogEntry> Owned;
+			GetOwnedEntriesForAxis(ActiveAxis, Owned);
+			for (const FAFLCatalogEntry& Row : Owned)
+			{
+				if (Row.CosmeticId == SelectedId && !Row.ShopThumbnail.IsNull())
+				{
+					Thumb = Row.ShopThumbnail.LoadSynchronous(); // 256-512 thumbs; cheap
+					break;
+				}
+			}
+		}
+		if (Thumb)
+		{
+			DetailImage->SetBrushFromTexture(Thumb, /*bMatchSize*/ false);
+			DetailImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			DetailImage->SetVisibility(ESlateVisibility::Collapsed);
+		}
 	}
 
 	if (DetailMetaText)

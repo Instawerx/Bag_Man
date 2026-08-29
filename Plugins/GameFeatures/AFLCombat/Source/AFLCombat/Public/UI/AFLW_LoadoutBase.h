@@ -73,6 +73,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout")
 	TSubclassOf<UAFLW_LoadoutTileBase> TileClass;
 
+	/** I-27 owned GRID: when true the rail renders as a wrapping grid of fixed square cells (the
+	 *  ratified artboard's 3-column owned grid) instead of a vertical row list. Explicit opt-in on
+	 *  the WBP -- the row-list presentation stays the default for every other consumer of the base. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Loadout")
+	bool bGridRail = false;
+
 	/** Store-card treatment on the tiles (rarity frame + neon-pipe EQUIP button, store parity). Default OFF so the
 	 *  in-match locker stays plain; the FRONT-END locker WBP (WBP_AFL_Loadout) sets this TRUE. Flip the in-match
 	 *  WBP only after the operator watches the front-end. */
@@ -268,6 +274,14 @@ protected:
 	/** REGION E -- the single commit. */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UButton> EquipButton;
+
+	/** I-27 owned-grid header ("OWNED · N") and the detail card's real item render (the ratified
+	 *  artboard's two halves of the overlay content row). */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> OwnedHeader;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UImage> DetailImage;
 
 	/** I-27 one-click verbs beside EQUIP. SWAP exchanges the main/left weapon mounts (Weapon axis
 	 *  only); DISCARD clears the active axis. Both commit through ServerSetCosmeticSelection. */
