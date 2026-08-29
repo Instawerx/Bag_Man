@@ -943,6 +943,34 @@ void UAFLSkinColorControllerComponent::RefreshHandCannonsForPawn(APawn* Pawn, FN
 	const TSubclassOf<ULyraEquipmentDefinition> RightDef = ResolveEquipDef(RightWeaponId);
 	const TSubclassOf<ULyraEquipmentDefinition> LeftDef = ResolveEquipDef(LeftWeaponId);
 
+	// DISPLAY-ONLY RAIL (operator 08-29, akimbo preview -- mirrors the single path's). On a
+	// controller-less preview pawn the per-CONTROLLER tracked handles may point at OTHER pawns'
+	// instances (the thrash behind the P34 double-equip), so the targeted-unequip/idempotency
+	// guards below mis-key. Sweep THIS manager's ranged set and equip both hands fresh --
+	// idempotent and pawn-local, exactly what a preview needs. The sockets stay DATA on each
+	// cannon's EquipmentDefinition, so left/right land correctly with no extra plumbing.
+	if (Pawn->GetController() == nullptr)
+	{
+		for (ULyraEquipmentInstance* Existing :
+			EquipMgr->GetEquipmentInstancesOfType(ULyraRangedWeaponInstance::StaticClass()))
+		{
+			if (Existing) { EquipMgr->UnequipItem(Existing); }
+		}
+		SelectedWeaponInstance     = (RightDef != nullptr) ? EquipMgr->EquipItem(RightDef) : nullptr;
+		SelectedLeftWeaponInstance = (LeftDef  != nullptr) ? EquipMgr->EquipItem(LeftDef)  : nullptr;
+		EquippedWeaponId = RightWeaponId;
+		EquippedLeftWeaponId = LeftWeaponId;
+		if (AFLSkinDiag::IsOn())
+		{
+			UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : preview DUAL equip R='%s' L='%s' -> R=%s L=%s"),
+				*AFLSkinDiag::Prefix(this), *Pawn->GetName(),
+				*RightWeaponId.ToString(), *LeftWeaponId.ToString(),
+				SelectedWeaponInstance.IsValid() ? TEXT("ok") : TEXT("none"),
+				SelectedLeftWeaponInstance.IsValid() ? TEXT("ok") : TEXT("none"));
+		}
+		return;
+	}
+
 	// TARGETED UNEQUIP -- the divergence from the single path's D2 "unequip ALL". Drop every ranged instance that
 	// is NOT one of our two tracked cannons: this removes the hero default primary + any stale prior selection, but
 	// KEEPS the other hand alive so equipping/refreshing one cannon never tears down the other (D2 coexist, not
