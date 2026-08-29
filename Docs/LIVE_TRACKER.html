@@ -704,6 +704,13 @@ const ENTRIES = [
  remains:'Each scoped. Suggested pickup order: kit-layout pass to I-25 numbers, then the placed-pawn dress gap.',
  c:[]},
 
+{g:'UI / FRONT END', status:'PROVEN', opRep:true, ssot:'ssot/ui-frontend.md',
+ t:'Loadout owned-grid + detail item render + 127 weapon thumbnails',
+ what:'I-27 Inc 2 per the ratified artboard: the owned rail is a 3-column WrapBox grid of square tiles (new WBP_AFL_LoadoutGridTile — icon frame, name strip, SELECTED pill; the shared market row tile untouched), OWNED counts the axis, and the detail card renders the selected SKU large from its ShopThumbnail. Behind it, the full weapon thumbnail set: 114 new renders (16 signature weapons + the hand-cannon brand/neon/L matrix) plus the base 13 re-rendered consistent, assigned on DA_AFL_CosmeticCatalog. The batch surfaced four buried rig defects, all fixed: one-shot SceneCapture renders black (no eye-adaptation history and exposure knobs are inert — continuous capture is the only path); captures need a key/fill/rim light rig (cvar afl.Thumb.Light); a no-score round resolves at two minutes and respawns everyone, so the rig re-resolves the replacement pawn instead of silently dropping the alphabetical tail; and the saved counter now counts actual disk saves only.',
+ remains:'Operator watched pass owed. Artboard remainder: filter-pill styling on the axis tabs, stat segment bars (blocked on a real weapon-stats data source — nothing fabricated).',
+ warn:'Direct-PIE on an arena map boots the FRONT-END experience (WorldSettings source) — a match PIE needs ExperienceOverride in Type:Name form (LyraExperienceDefinition:B_...) in Saved EditorPerProjectUserSettings; the struct-syntax form silently fails to parse. REVERT after use — it hijacks front-end PIE.',
+ c:['ce7ba39d','dbc084e6']},
+
 // =========================== CROSS-CUTTING ================================
 {g:'CROSS-CUTTING', status:'OPEN', opRep:true, ssot:'(multiple)',
  t:'PlayFab RemoveMatchmakingQueue acknowledges without removing',
