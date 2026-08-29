@@ -95,6 +95,12 @@ namespace
 		case EAFLLoadoutAxis::EdgeColor:  return EAFLCosmeticType::SkinColor_Edge;
 		case EAFLLoadoutAxis::Facemask:   return EAFLCosmeticType::Facemask;
 		case EAFLLoadoutAxis::Emblem:     return EAFLCosmeticType::Emblem;
+		// OPERATOR RULING 2026-08-28: Sticker/Accessory tabs list their OWN catalogs in the
+		// loadout (they used to be creator DOORS and never reached this query; without these
+		// cases they would fall through to Weapon -- the exact fall-through the coverage
+		// report warns about).
+		case EAFLLoadoutAxis::Sticker:    return EAFLCosmeticType::Sticker;
+		case EAFLLoadoutAxis::Accessory:  return EAFLCosmeticType::Accessory;
 		default:                          return EAFLCosmeticType::Weapon; // Weapon + WeaponSkin (Identity is dual-type, special-cased)
 		}
 	}
@@ -122,6 +128,8 @@ namespace
 		case EAFLLoadoutAxis::EdgeColor:   return { TEXT("AFL.Edge.") };
 		case EAFLLoadoutAxis::Facemask:    return { TEXT("AFL.Facemask.") };
 		case EAFLLoadoutAxis::Emblem:      return { TEXT("AFL.Emblem.") };
+		case EAFLLoadoutAxis::Sticker:     return { TEXT("AFL.Sticker.") };
+		case EAFLLoadoutAxis::Accessory:   return { TEXT("AFL.Accessory.") };
 		default:                           return {}; // Identity -> dual-type query, no namespace filter
 		}
 	}
@@ -665,7 +673,7 @@ void UAFLW_LoadoutBase::ApplySelectionToDisplayPawn()
 		}
 		// The resolve outcome SAYS SO either way (AFL-3214): a null class here previously vanished
 		// into a naked pawn with no trace.
-		UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] body resolve: identity=%s partMap=%s via=%s cls=%s"),
+		UE_LOG(LogTemp, Log, TEXT("[AFLDisplayPawn] body resolve: identity=%s partMap=%s via=%s cls=%s"),
 			IdentityId.IsNone() ? TEXT("<none>") : *IdentityId.ToString(),
 			DisplayPartMap ? TEXT("set") : TEXT("NULL"), ResolveVia,
 			RobotCls ? *RobotCls->GetName() : TEXT("NULL"));
@@ -699,7 +707,7 @@ void UAFLW_LoadoutBase::ApplySelectionToDisplayPawn()
 
 	// Instrumentation (always-on, temporary): confirms the poll fired + the fan-out ran on the DISPLAY pawn.
 	// Fires on loadout-open + each selection change. Pair with `afl.SkinDiag 1` to see the resolved ids.
-	UE_LOG(LogTemp, Warning, TEXT("[AFLDisplayPawn] apply -> pawn=%s identity=%s skinCtrl=%s"),
+	UE_LOG(LogTemp, Log, TEXT("[AFLDisplayPawn] apply -> pawn=%s identity=%s skinCtrl=%s"),
 		*GetNameSafe(Pawn), IdentityId.IsNone() ? TEXT("<none>") : *IdentityId.ToString(),
 		SkinCtrl ? TEXT("FOUND") : TEXT("NULL"));
 }
@@ -1198,16 +1206,10 @@ void UAFLW_LoadoutBase::RebuildTiles()
 
 void UAFLW_LoadoutBase::SetActiveAxis(EAFLLoadoutAxis Axis)
 {
-	if (IsArrangementAxis(Axis))
-	{
-		// A nine-zone arrangement is not something a one-id rail can show. The tab is a DOOR here, and
-		// ActiveAxis deliberately does not move -- backing out of the creator must reveal the axis the
-		// player was actually on, not the door they walked through.
-		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] axis tab %d is an arrangement -> creator SHORTCUT"), (int32)Axis);
-		OpenCreatorOnAxis(Axis);
-		return;
-	}
-
+	// OPERATOR RULING 2026-08-28: the Sticker and Accessory tabs SHOW THEIR OWN GRIDS in the
+	// loadout, never redirect to the creator ("it takes us to our CC not our stickers or jewelry
+	// like they are supposed to"). The tab is a LIST like every other axis; the nine-zone PLACEMENT
+	// remains a creator activity, reached from the detail panel, not by hijacking the tab.
 	ActiveAxis = Axis;
 	// Seed the highlight from what is EQUIPPED on the newly-shown axis, so the detail panel opens on the
 	// player's current choice rather than blank. Browsing then moves the highlight, never the equip.
@@ -1498,30 +1500,11 @@ void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Con
 		return;
 	}
 
-	// CC-5 ARRANGEMENT AXES: one affordance tile, not a catalog rail. Falling through would query the
-	// catalog with QueryTypeForAxis's DEFAULT (Weapon) and fill the sticker rail with weapons.
-	if (IsArrangementAxis(Axis))
-	{
-		UAFLW_LoadoutTileBase* Entry = CreateWidget<UAFLW_LoadoutTileBase>(this, TileClass);
-		if (Entry)
-		{
-			// The axis's own name for itself, via reflection. Typing it here would be a second source.
-			const FText AxisName = StaticEnum<EAFLLoadoutAxis>()
-				? StaticEnum<EAFLLoadoutAxis>()->GetDisplayNameTextByValue(static_cast<int64>(Axis))
-				: FText::GetEmpty();
-			// NAME_None, and bEquipped=false: there is no single id to be equipped ON this axis, which is
-			// the whole reason it is an affordance. HandleTileClicked branches on the AXIS, never on this.
-			Entry->SetTileData(Axis, NAME_None, AxisName, /*bEquipped=*/false,
-				/*bIsSwatch=*/false, FLinearColor::White, nullptr);
-			Entry->OnTileClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleTileClicked);
-			if (bStoreCardStyle)
-			{
-				Entry->ApplyLoadoutCardStyle(false);
-			}
-			Container->AddChild(Entry);
-		}
-		return;
-	}
+	// OPERATOR RULING 2026-08-28: arrangement axes (Sticker/Accessory) LIST their catalogs like
+	// every other tab -- the single creator-door tile is gone ("takes us to our CC not our
+	// stickers or jewelry"). QueryTypeForAxis now maps both types, so the fall-through-to-Weapon
+	// hazard the old comment named is closed. Zone PLACEMENT stays a creator activity, reached
+	// from the detail panel, never by hijacking the tab or the tile.
 
 	TArray<FAFLCatalogEntry> Owned;
 	GetOwnedEntriesForAxis(Axis, Owned);
@@ -1570,13 +1553,15 @@ void UAFLW_LoadoutBase::RebuildAxisTiles(EAFLLoadoutAxis Axis, UPanelWidget* Con
 
 void UAFLW_LoadoutBase::HandleTileClicked(EAFLLoadoutAxis Axis, FName CosmeticId)
 {
-	// CC-5: an arrangement axis has nothing to equip -- its tile OPENS THE CREATOR, focused on that axis.
-	// Branching on the axis and not on CosmeticId is deliberate: see IsArrangementAxis.
+	// OPERATOR RULING 2026-08-28: an arrangement-axis tile SELECTS (browse + detail), it does not
+	// jump to the creator. There is no single-id equip for a nine-zone arrangement (EquipForAxis
+	// refuses those axes by design); placement lives behind the detail panel's creator affordance.
 	if (IsArrangementAxis(Axis))
 	{
-		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] tile clicked -> creator SHORTCUT (axis=%d)"), (int32)Axis);
-		OpenCreatorOnAxis(Axis);
-		return; // no equip, no rebuild: the loadout is unchanged and stays alive under the creator.
+		UE_LOG(LogAFLCombat, Log, TEXT("[AFLLoadout] tile clicked -> select %s (arrangement axis %d)"),
+			*CosmeticId.ToString(), (int32)Axis);
+		SelectItem(CosmeticId);
+		return;
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("[AFLLoadout] tile clicked -> equip %s (axis=%d)"), *CosmeticId.ToString(), (int32)Axis);
