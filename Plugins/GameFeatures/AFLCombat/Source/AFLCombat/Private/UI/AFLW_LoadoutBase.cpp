@@ -443,10 +443,52 @@ void UAFLW_LoadoutBase::EquipForAxis(EAFLLoadoutAxis Axis, FName CosmeticId)
 	Loadout->ServerSetCosmeticSelection(Sel);
 }
 
+void UAFLW_LoadoutBase::HandleSwapClicked()
+{
+	// I-27 SWAP SLOT: exchange the main and left weapon mounts, one click, through the same commit
+	// seam as everything else. Only the Weapon axis has two slots; elsewhere the verb says why.
+	if (ActiveAxis != EAFLLoadoutAxis::Weapon)
+	{
+		UE_LOG(LogAFLCombat, Display, TEXT("[AFLLoadout] SWAP applies to the weapon mounts -- axis %d has one slot."), (int32)ActiveAxis);
+		return;
+	}
+	UAFLCosmeticLoadoutComponent* Loadout = GetLoadoutComponent();
+	if (!Loadout)
+	{
+		return;
+	}
+	FAFLCosmeticSelection Sel = Loadout->GetSelection();
+	if (Sel.WeaponId == NAME_None && Sel.LeftWeaponId == NAME_None)
+	{
+		UE_LOG(LogAFLCombat, Display, TEXT("[AFLLoadout] SWAP: no weapons mounted -- nothing to exchange."));
+		return;
+	}
+	Swap(Sel.WeaponId, Sel.LeftWeaponId);
+	if (Sel.GetActiveIdentityId() == NAME_None)
+	{
+		Sel.IdentityType = EAFLIdentityType::Team;
+		Sel.TeamId = FName(TEXT("AFL.Team.IRONICS"));
+	}
+	Loadout->ServerSetCosmeticSelection(Sel);
+	UE_LOG(LogAFLCombat, Display, TEXT("[AFLLoadout] SWAP: main <-> left (%s <-> %s)."),
+		*Sel.WeaponId.ToString(), *Sel.LeftWeaponId.ToString());
+}
+
+void UAFLW_LoadoutBase::HandleDiscardClicked()
+{
+	// I-27 DISCARD: clear the ACTIVE axis with one click. Ownership is untouched -- the item goes
+	// back to the owned grid. EquipForAxis refuses the Identity axis by namespace (a robot cannot
+	// wear no identity), which is exactly the right refusal here too.
+	UE_LOG(LogAFLCombat, Display, TEXT("[AFLLoadout] DISCARD: clearing axis %d."), (int32)ActiveAxis);
+	EquipForAxis(ActiveAxis, NAME_None);
+}
+
 TOptional<FUIInputConfig> UAFLW_LoadoutBase::GetDesiredInputConfig() const
 {
-	// Menu input while the locker owns the screen: cursor visible + clickable tiles (mirrors the match-end takeover).
-	return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);
+	// I-27: THE OVERLAY NEVER TAKES THE PAWN. ECommonInputMode::All keeps game input flowing (the
+	// player stays free-moving in the world beside the overlay) while the cursor stays visible and
+	// the panel stays clickable. Menu-mode was the full-screen locker's takeover semantics.
+	return FUIInputConfig(ECommonInputMode::All, EMouseCaptureMode::NoCapture);
 }
 
 void UAFLW_LoadoutBase::NativeOnInitialized()
@@ -456,6 +498,14 @@ void UAFLW_LoadoutBase::NativeOnInitialized()
 	if (EquipButton)
 	{
 		EquipButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleEquipButtonClicked);
+	}
+	if (SwapButton)
+	{
+		SwapButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleSwapClicked);
+	}
+	if (DiscardButton)
+	{
+		DiscardButton->OnClicked.AddDynamic(this, &UAFLW_LoadoutBase::HandleDiscardClicked);
 	}
 	if (NewBuildButton)
 	{

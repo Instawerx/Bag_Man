@@ -269,6 +269,14 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UButton> EquipButton;
 
+	/** I-27 one-click verbs beside EQUIP. SWAP exchanges the main/left weapon mounts (Weapon axis
+	 *  only); DISCARD clears the active axis. Both commit through ServerSetCosmeticSelection. */
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UButton> SwapButton;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
+	TObjectPtr<class UButton> DiscardButton;
+
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional))
 	TObjectPtr<class UTextBlock> EquipLabelText;
 
@@ -332,6 +340,12 @@ protected:
 
 	UFUNCTION()
 	void HandleEquipButtonClicked();
+
+	UFUNCTION()
+	void HandleSwapClicked();
+
+	UFUNCTION()
+	void HandleDiscardClicked();
 
 	UFUNCTION()
 	void HandleNewBuildClicked();
