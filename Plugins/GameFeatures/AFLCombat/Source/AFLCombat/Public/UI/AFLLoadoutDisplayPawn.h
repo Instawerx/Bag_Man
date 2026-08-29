@@ -3,6 +3,7 @@
 #pragma once
 
 #include "GameFramework/Character.h"
+#include "Engine/TimerHandle.h" // placed-pawn self-dress retry
 
 #include "AFLLoadoutDisplayPawn.generated.h"
 
@@ -57,6 +58,13 @@ protected:
 	/** (Re)apply the invisible driving mesh to GetMesh() + force always-tick. MUST run after SetRobotBody too:
 	 *  the character-parts add/remove resets the owner mesh to null, which kills the weapon sockets + copy-pose. */
 	void ApplyDrivingMesh();
+
+	/** PLACED-PAWN SELF-DRESS (operator 08-29): a level-placed kiosk pawn has no widget driver, so
+	 *  its robot spawned BARE GREY -- the look lives in the runtime skin fan-out. Retries until the
+	 *  local player's selection is readable, then dresses through the one shipping fan-out. */
+	void TrySelfDressFromLocalSelection();
+
+	FTimerHandle SelfDressTimer;
 
 	/** The invisible driving skeletal mesh the robot part copy-poses from (SKM_Manny_Invis). Overridable. */
 	UPROPERTY(EditDefaultsOnly, Category = "AFL|Display")

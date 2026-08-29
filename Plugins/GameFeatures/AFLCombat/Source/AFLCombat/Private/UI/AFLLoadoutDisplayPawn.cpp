@@ -2,6 +2,12 @@
 
 #include "UI/AFLLoadoutDisplayPawn.h"
 
+#include "Cosmetics/AFLSkinColorControllerComponent.h" // placed-pawn self-dress fan-out
+#include "Cosmetics/AFLCosmeticLoadoutComponent.h"     // committed-selection readiness gate
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
+#include "TimerManager.h"
+
 #include "Cosmetics/AFLSkinColorComponent.h"                 // pawn-side color holder (the fan-out target)
 #include "Cosmetics/LyraCharacterPartTypes.h"                // FLyraCharacterPart + ECharacterCustomizationCollisionMode
 #include "Equipment/LyraEquipmentManagerComponent.h"         // weapon-visual equip target (MinimalAPI, UE_API ctor)
@@ -109,6 +115,37 @@ void AAFLLoadoutDisplayPawn::BeginPlay()
 			SetRobotBody(BodyCls);
 		}
 	}
+
+	// PLACED (net-startup) kiosk pawns: nobody drives the skin fan-out, so the robot stood bare
+	// grey (P44). Self-dress from the local player's committed selection once it replicates.
+	if (IsNetStartupActor())
+	{
+		GetWorldTimerManager().SetTimer(SelfDressTimer, this,
+			&AAFLLoadoutDisplayPawn::TrySelfDressFromLocalSelection, 1.0f, /*bLoop*/ true, /*First*/ 1.0f);
+	}
+}
+
+void AAFLLoadoutDisplayPawn::TrySelfDressFromLocalSelection()
+{
+	APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	UAFLSkinColorControllerComponent* SkinCtrl =
+		PC ? PC->FindComponentByClass<UAFLSkinColorControllerComponent>() : nullptr;
+	const APlayerState* PS = PC ? PC->PlayerState : nullptr;
+	const UAFLCosmeticLoadoutComponent* Loadout =
+		PS ? PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>() : nullptr;
+	if (!SkinCtrl || !Loadout)
+	{
+		return; // not ready -- the timer retries
+	}
+	// The ONE shipping fan-out, aimed at THIS pawn. Identity body stays the DefaultBodyClass house
+	// robot (a kiosk is scene dressing); colors/facemask/weapon read the committed selection, and
+	// the weapon lands through the display-only rail (controller-less pawn).
+	SkinCtrl->RefreshSkinForPawn(this);
+	SkinCtrl->RefreshFacemaskForPawn(this);
+	SkinCtrl->RefreshWeaponSkinForPawn(this);
+	SkinCtrl->RefreshWeaponForPawn(this);
+	GetWorldTimerManager().ClearTimer(SelfDressTimer);
+	UE_LOG(LogTemp, Log, TEXT("[AFLDisplayPawn] %s SELF-DRESSED from the local committed selection (placed kiosk)."), *GetName());
 }
 
 void AAFLLoadoutDisplayPawn::ApplyDrivingMesh()
