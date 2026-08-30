@@ -718,6 +718,13 @@ const ENTRIES = [
  warn:'Probe screenshots under a ToggleDebugCamera controller silently write NOTHING — move the level CameraActors and shoot under the normal controller instead.',
  c:['c898b190','0ef4a4db','9f11d75c','3b675ced','3e6c05ed','7c53d547']},
 
+{g:'MAPS', status:'PROVEN', opRep:true, ssot:'Docs/Hub/IRONICS_HUB_MAP_BUILD_SPEC.md',
+ t:'AFL-3404 complete — zones walk, hero spawns dressed with the Pro kit',
+ what:'Operator-walked on Outpost Earth: all 11 AAFLHubZoneVolume placed+tagged per the ratified 12-row table (Tournament+MiniGame co-located by design), per-zone GEs applying and removing live; 16 LyraPlayerStarts re-placed at capsule-true height on TRACED flat ground (the authored z=125 embedded every capsule — the no-spawn root); the hub experience carries the canonical cosmetic stack lifted from LAS_AFL_ExtractionMatch (assigner, configured part selector, skin controller BP, pawn skin comp, identity, accessory, wallet, loadout) plus the base LyraPlayerSpawningManagerComponent; pawn data = HeroData_BagMan_Pro so the enhanced kit runs; the robot dresses CLIENT-side (FANATICS X + akimbo cannons verified in the client world). Walk-in collision: the pack tent/container shells sealed their openings with crude hulls — per-poly collision on all 10 shell meshes makes the doorways real (operator confirmed tents enterable). The AFLHub authoring library grew append/dump/remove hatches for AddComponents lists.',
+ remains:'Stop-drag on run-stop observed (animation tuning: distance-matched stop vs the Pro sprint speed or FBIK tug) — check whether the same drag shows in a ProMod arena match; if so it belongs to the movement-overhaul polish list, not the hub. Next ticket: AFL-3405 destination volumes at the ratified doorways.',
+ warn:'Cosmetic part actors spawn CLIENT-side (FastArray PostReplicatedAdd) — the server world NEVER lists them; audit client worlds or you will chase a dress that already works. Streaming sublevels carry the UEDPIE prefix — pick the world WITH a GameState.',
+ c:['7f9b6400','4c6e373d','118f3379']},
+
 // =========================== CROSS-CUTTING ================================
 {g:'CROSS-CUTTING', status:'OPEN', opRep:true, ssot:'(multiple)',
  t:'PlayFab RemoveMatchmakingQueue acknowledges without removing',
