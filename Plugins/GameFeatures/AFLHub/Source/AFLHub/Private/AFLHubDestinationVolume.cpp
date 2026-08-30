@@ -107,7 +107,13 @@ void AAFLHubDestinationVolume::ExecuteDoorAction()
 	{
 	case EAFLHubDestinationAction::OpenScreen:
 	{
-		UClass* WidgetClass = LoadClass<UCommonActivatableWidget>(nullptr, *ResolvedPayload);
+		// Payload: "<widget class path>" or "<widget class path>|Creator" -- the suffix stacks the
+		// CC on the pushed loadout via its own OpenCreator (the armory flow, verbatim).
+		FString ClassPath = ResolvedPayload;
+		FString Mode;
+		ClassPath.Split(TEXT("|"), &ClassPath, &Mode);
+		if (ClassPath.IsEmpty()) { ClassPath = ResolvedPayload; }
+		UClass* WidgetClass = LoadClass<UCommonActivatableWidget>(nullptr, *ClassPath);
 		if (!WidgetClass)
 		{
 			UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBDOOR: '%s' OpenScreen payload '%s' did not resolve to a UCommonActivatableWidget class."),
@@ -127,6 +133,18 @@ void AAFLHubDestinationVolume::ExecuteDoorAction()
 		PushedScreen = UCommonUIExtensions::PushContentToLayer_ForPlayer(LP,
 			FGameplayTag::RequestGameplayTag(TEXT("UI.Layer.Menu")), TSubclassOf<UCommonActivatableWidget>(WidgetClass));
 		UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: OPEN '%s' -> %s."), *DestinationId.ToString(), *WidgetClass->GetName());
+		if (Mode == TEXT("Creator"))
+		{
+			if (UAFLW_LoadoutBase* Loadout = Cast<UAFLW_LoadoutBase>(PushedScreen.Get()))
+			{
+				Loadout->OpenCreator(INDEX_NONE);
+				UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: '%s' stacked the Creator on the loadout."), *DestinationId.ToString());
+			}
+			else
+			{
+				UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBDOOR: '%s' |Creator payload needs a UAFLW_LoadoutBase screen."), *DestinationId.ToString());
+			}
+		}
 		break;
 	}
 	default:
