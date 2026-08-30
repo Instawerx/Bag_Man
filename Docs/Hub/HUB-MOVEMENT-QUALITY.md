@@ -42,6 +42,20 @@ Earth must feel indistinguishable from walking a match map. This doc scopes the 
   movement-feel judgment gets stated WITH its harness (standalone / listen / client). The
   regression pair for any tuning change: one standalone walk + one net-PIE client walk.
 
+## 2.5 · FINAL VERDICT (2026-08-30, operator-certified: "client matches standalone now")
+
+The lane is CLOSED. Real defects fixed en route: AFL-3012 player-pawn net throttle (exempted);
+the parkour family net-desync (WallRun/Slide direct-drive CMC on both sides — REMOVED from the
+hub, global netcode ticket stands); zero air braking (BrakingDecelerationFalling 0→1200,
+FallingLateralFriction 0→0.35 — the downhill "slide until something stops us"); the editor's
+bThrottleCPUWhenNotForeground (froze frames at 125ms/8fps whenever multi-window PIE focus
+flickered — disabled). The residual "wacky feel" that survived every clean trace was the
+HARNESS: single-process Play-As-Client runs two engine worlds in one process where window
+focus decides frame delivery. **LAW: feel-test networked client movement ONLY with
+RunUnderOneProcess=False** (separate processes — shipping-shaped). Final A/B on a fresh
+machine: client sprint pinned 980 @ inputFrac=1.00, 101–106fps, indistinguishable from
+standalone — watched and certified by the operator.
+
 ## 3 · Acceptance (the gate for "hub movement AAA")
 
 - Operator walks hub then an arena back-to-back and calls them indistinguishable.
