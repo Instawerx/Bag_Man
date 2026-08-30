@@ -727,22 +727,21 @@ void UAFLW_LoadoutBase::NativeOnDeactivated()
 	// It does PAUSE here, though, unless a creator holds a borrow -- an unwatched every-frame scene
 	// capture per stacked instance is pure GPU burn (operator-reported input lag).
 	UpdatePreviewCaptureActivity();
-	Super::NativeOnDeactivated();
-}
-
-void UAFLW_LoadoutBase::NativeDestruct()
-{
-	TeardownPreviewCapture();
-	// WORLD-OVERLAY teardown (hub doors): the shared transient display pawn is a set-piece in the
-	// armory but a stray mannequin on a live map. The lens died just above (C1 law: with the
-	// WIDGET); in overlay mode the pawn dies here too -- the rig's weak SharedPawn self-clears
-	// and the next open respawns fresh.
+	// WORLD-OVERLAY teardown lives HERE, not NativeDestruct: the CommonUI layer POOLS deactivated
+	// widgets, so destruct never fires on a normal close. The capture stays alive (C1 lens law);
+	// only the pawn dies -- reopening re-acquires a fresh one.
 	if (bWorldOverlayMode && DisplayPawn.IsValid())
 	{
 		AActor* Doomed = DisplayPawn.Get();
 		DisplayPawn.Reset();
 		Doomed->Destroy();
 	}
+	Super::NativeOnDeactivated();
+}
+
+void UAFLW_LoadoutBase::NativeDestruct()
+{
+	TeardownPreviewCapture();
 	Super::NativeDestruct();
 }
 
@@ -809,6 +808,12 @@ APawn* UAFLW_LoadoutBase::GetPreviewPawn()
 	if (!Spawned)
 	{
 		return nullptr;
+	}
+	if (bWorldOverlayMode)
+	{
+		// Over a live map the preview pawn must never touch the player: no collision (the
+		// stacked-pawn pin) and no world presence beyond the capture's view of it.
+		Spawned->SetActorEnableCollision(false);
 	}
 	DisplayPawn = Spawned;
 
