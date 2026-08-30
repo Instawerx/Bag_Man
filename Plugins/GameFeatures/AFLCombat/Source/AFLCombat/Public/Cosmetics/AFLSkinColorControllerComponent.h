@@ -239,6 +239,9 @@ private:
 	TWeakObjectPtr<ULyraEquipmentInstance> SelectedLeftWeaponInstance;
 	/** The LeftWeaponId currently realized on WeaponTrackedPawn (idempotency key; NAME_None = none/single-held). */
 	FName EquippedLeftWeaponId = NAME_None;
+	/** Option A (2026-08-30): the akimbo pair rode the QuickBar as the line's _XT item -- no direct-mount
+	 *  instances exist. Cleared on new-pawn reset / dual->single / XT-route failure. */
+	bool bAkimboRoutedViaQuickBar = false;
 
 	// --- STORE PREVIEW override (front-end try-before-buy) ---
 	/** When set, the Refresh*ForPawn read THIS instead of the committed loadout selection. Unset -> the normal

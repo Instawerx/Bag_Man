@@ -518,6 +518,7 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 		// with RefreshHandCannonsForPawn, which is only ever dispatched from below).
 		SelectedLeftWeaponInstance = nullptr;
 		EquippedLeftWeaponId = NAME_None;
+		bAkimboRoutedViaQuickBar = false;
 	}
 
 	// Read the selected WeaponId off the PAWN's PlayerState first (respawn-race-safe -- the exact PS resolution
@@ -548,6 +549,7 @@ void UAFLSkinColorControllerComponent::RefreshWeaponForPawn(APawn* Pawn)
 	{
 		SelectedLeftWeaponInstance = nullptr;
 		EquippedLeftWeaponId = NAME_None;
+		bAkimboRoutedViaQuickBar = false;
 	}
 
 	// IDEMPOTENT: already realized this WeaponId on this pawn -> no-op. The dual spine re-runs (possession + OnRep
@@ -913,6 +915,51 @@ void UAFLSkinColorControllerComponent::RefreshHandCannonsForPawn(APawn* Pawn, FN
 	// pawn, and WeaponTrackedPawn == Pawn (tracking is fresh on a respawn). This holds BOTH cannons at once (D2
 	// both-at-once / D3 one-trigger-per-hand): a TARGETED unequip that keeps our two tracked instances, then an
 	// independent equip/replace per hand. NOTHING here runs for single-held guns -- they never carry a LeftWeaponId.
+	// AKIMBO VIA THE QUICKBAR (operator ruling 2026-08-30, Option A): the pair resolves to the RIGHT
+	// hand's line's _XT twin-mount item (one item, two mounts) and rides the ONE QuickBar rail like
+	// every routed weapon -- so cycling the bar unmounts the pair. The direct-equip dual path below
+	// bypassed the QuickBar, which welded the cannons to the pawn across weapon cycles (the exact
+	// defect the 2026-07-29 single-weapon rail was built to kill). A MIXED pair (different L/R skins)
+	// falls back to the right's matched XT by construction. Preview pawns (no controller -> no
+	// QuickBar) and XT-less lines keep the direct dual path unchanged.
+	if (Pawn->GetController() != nullptr)
+	{
+		// AUDIT FIX (2026-08-30): catalog right/single-held ids are BARE line ids
+		// (AFL.Weapon.HandCannon.SIMULARENT) -- the .R suffix exists only in ASSET names, never in
+		// ids. The original EndsWith(".R") gate was false for every real selection, silently
+		// skipping this whole block (the welded-pair defect). Normalize either form to the line id.
+		const FString RightStr = RightWeaponId.ToString();
+		const FString LineStr  = RightStr.EndsWith(TEXT(".R")) ? RightStr.LeftChop(2) : RightStr;
+		const FName XtId(*(LineStr + TEXT(".XT")));
+		if (bAkimboRoutedViaQuickBar && RightWeaponId == EquippedWeaponId && LeftWeaponId == EquippedLeftWeaponId)
+		{
+			return; // already routed for this exact selection -- idempotent re-drive
+		}
+		// Gate BEFORE touching anything (the dual-mount law: gate every candidate row).
+		const UAFLCosmeticCatalogSubsystem* XtCatalog = UAFLCosmeticCatalogSubsystem::Get(this);
+		if (XtCatalog && XtCatalog->ResolveWeaponItemDefClass(XtId) && TryEquipWeaponViaQuickBar(XtId))
+		{
+			// The pair is now ONE routed item: sweep any previously direct-equipped L/R instances so
+			// the XT does not stack with them, then clear the direct-mount tracking.
+			if (ULyraEquipmentManagerComponent* SweepMgr = Pawn->FindComponentByClass<ULyraEquipmentManagerComponent>())
+			{
+				if (ULyraEquipmentInstance* StaleR = SelectedWeaponInstance.Get())     { SweepMgr->UnequipItem(StaleR); }
+				if (ULyraEquipmentInstance* StaleL = SelectedLeftWeaponInstance.Get()) { SweepMgr->UnequipItem(StaleL); }
+			}
+			SelectedWeaponInstance = nullptr;
+			SelectedLeftWeaponInstance = nullptr;
+			EquippedWeaponId = RightWeaponId;      // idempotency keys stay the SELECTED ids
+			EquippedLeftWeaponId = LeftWeaponId;
+			bAkimboRoutedViaQuickBar = true;
+			UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : akimbo pair -> XT '%s' via QuickBar (Option A)"),
+				*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *XtId.ToString());
+			return;
+		}
+		UE_LOG(LogAFLSkinDiag, Log, TEXT("%s%s : akimbo XT '%s' unavailable (no row/ItemDefClass or route refused) -> direct dual path"),
+			*AFLSkinDiag::Prefix(this), *Pawn->GetName(), *XtId.ToString());
+	}
+	bAkimboRoutedViaQuickBar = false;
+
 	ULyraEquipmentManagerComponent* EquipMgr = Pawn->FindComponentByClass<ULyraEquipmentManagerComponent>();
 	if (!EquipMgr)
 	{
