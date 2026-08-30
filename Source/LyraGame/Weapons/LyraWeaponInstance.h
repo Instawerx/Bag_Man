@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "Containers/Ticker.h"
 #include "Cosmetics/LyraCosmeticAnimationTypes.h"
 #include "Equipment/LyraEquipmentInstance.h"
 #include "GameFramework/InputDevicePropertyHandle.h"
@@ -15,6 +16,7 @@ class UObject;
 struct FFrame;
 struct FGameplayTagContainer;
 class UInputDeviceProperty;
+class ULyraPawnComponent_CharacterParts;
 
 /**
  * ULyraWeaponInstance
@@ -36,6 +38,13 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	UE_API void UpdateFiringTime();
+
+	/** Links EquippedAnimSet's pick for the pawn's CURRENT cosmetic tags onto the mesh, verifying
+	 *  against the component's LinkedInstances array (the thing that actually corresponds to a
+	 *  working pose). Idempotent and safe to re-drive from anywhere the link can have been lost —
+	 *  OnEquipped retries it until it takes, and ULyraAnimInstance re-drives it after an in-place
+	 *  anim re-init wipes the linked layers (the chronic client A-pose). */
+	UE_API bool TryLinkEquippedAnimLayer();
 
 	// Returns how long it's been since the weapon was interacted with (fired or equipped)
 	UFUNCTION(BlueprintPure)
@@ -68,6 +77,11 @@ protected:
 	UFUNCTION()
 	UE_API void OnDeathStarted(AActor* OwningActor);
 
+	/** Re-link after a character-part rebuild — SetSkeletalMesh(bReinitPose=true) recreates the
+	 *  AnimInstance and drops every linked layer whenever the body mesh actually swaps. */
+	UFUNCTION()
+	UE_API void OnCosmeticPartsChanged(ULyraPawnComponent_CharacterParts* ComponentWithChangedParts);
+
 	/**
 	 * Apply the ApplicableDeviceProperties to the owning pawn of this weapon.
 	 * Populate the DevicePropertyHandles so that they can be removed later. This will
@@ -84,6 +98,16 @@ private:
 	/** Set of device properties activated by this weapon. Populated by ApplyDeviceProperties */
 	UPROPERTY(Transient)
 	TSet<FInputDevicePropertyHandle> DevicePropertyHandles;
+
+	/** The parts component this equipped weapon is watching for body rebuilds (unbound on unequip). */
+	TWeakObjectPtr<ULyraPawnComponent_CharacterParts> WatchedCharacterParts;
+
+	/** Retry ticker keeping TryLinkEquippedAnimLayer running until the layer lands (see above).
+	 *  Removed on unequip; self-removes on success. */
+	FTSTicker::FDelegateHandle LinkRetryTicker;
+
+	/** Attempt count for the current equip cycle -- throttles the failure diagnostics. */
+	int32 LinkRetryAttempts = 0;
 
 	double TimeLastEquipped = 0.0;
 	double TimeLastFired = 0.0;

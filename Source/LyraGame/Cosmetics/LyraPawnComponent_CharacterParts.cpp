@@ -5,6 +5,8 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Cosmetics/LyraCharacterPartTypes.h"
 #include "GameFramework/Character.h"
+#include "LyraLogChannels.h"
+#include "PhysicsEngine/PhysicsAsset.h"
 #include "GameplayTagAssetInterface.h"
 #include "Net/UnrealNetwork.h"
 
@@ -339,6 +341,12 @@ void ULyraPawnComponent_CharacterParts::BroadcastChanged()
 		// Determine the mesh to use based on cosmetic part tags
 		const FGameplayTagContainer MergedTags = GetCombinedTags(FGameplayTag());
 		USkeletalMesh* DesiredMesh = BodyMeshes.SelectBestBodyStyle(MergedTags);
+
+		UE_LOG(LogLyra, Log, TEXT("AFL_ANIMRELINK: BroadcastChanged on %s role=%d current=%s desired=%s (swap=%d, forcedPhys=%s)"),
+			*GetNameSafe(GetOwner()), (int32)GetOwner()->GetLocalRole(),
+			*GetNameSafe(MeshComponent->GetSkeletalMeshAsset()), *GetNameSafe(DesiredMesh),
+			MeshComponent->GetSkeletalMeshAsset() != DesiredMesh ? 1 : 0,
+			*GetNameSafe(BodyMeshes.ForcedPhysicsAsset.Get()));
 
 		// Apply the desired mesh (this call is a no-op if the mesh hasn't changed)
 		MeshComponent->SetSkeletalMesh(DesiredMesh, /*bReinitPose=*/ bReinitPose);

@@ -82,6 +82,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Loadout")
 	int32 ActiveSlotIndex = 0;
 
+	/** Once-per-controller-life latch. OnAvatarSet fires more than once (Lyra re-runs
+	 *  InitAbilityActorInfo during the component-ready cascade), and each re-fire can re-activate
+	 *  this ability after the first grant already ended it -- duplicating weapons into the
+	 *  persistent controller inventory. Set only on a successful grant, so failure paths retry. */
+	UPROPERTY(Transient)
+	bool bLoadoutGranted = false;
+
 	/**
 	 * DEFER TO A LIVE COSMETIC SELECTION (Block 28). When true and the player's FAFLCosmeticSelection
 	 * carries a WeaponId, this ability still grants and slots every loadout weapon but does NOT call

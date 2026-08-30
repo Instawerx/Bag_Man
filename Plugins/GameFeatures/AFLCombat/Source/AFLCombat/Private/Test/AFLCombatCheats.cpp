@@ -8138,7 +8138,10 @@ namespace
 	{
 		if (!World || !World->IsGameWorld() || !World->GetFirstPlayerController())
 		{
-			AFLArmForPieAuthority(TEXT("AFL_TEST[APOSE]"), [](UWorld* Wd) { AFLRunAnimLayerProbe(Wd); });
+			// PLAIN arm, not Authority: the probe body samples EVERY world each tick, and in the
+		// separate-process client topology this process hosts ONLY the client world -- the
+		// authority gate waited for a server pawn that never exists here and gave up silently.
+		AFLArmForPie(TEXT("AFL_TEST[APOSE]"), [](UWorld* Wd) { AFLRunAnimLayerProbe(Wd); });
 			Ar.Log(TEXT("afl.Test.AnimLayers ARMED -- start PIE; see AFL_TEST[APOSE]."));
 			return;
 		}

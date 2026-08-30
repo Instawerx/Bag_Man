@@ -75,6 +75,12 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 	{
 		return; // late/duplicate broadcast (respawn re-init) after this activation already granted+ended
 	}
+	if (bLoadoutGranted)
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: already granted this controller life -- skipping duplicate activation."));
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+		return;
+	}
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: ASC ready -- granting now."));
 
 	AController* Controller = GetControllerFromActorInfo();
@@ -96,6 +102,8 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
+
+	bLoadoutGranted = true; // controller + inventory resolved -- this activation IS the grant
 
 	int32 GrantedCount = 0;
 	for (int32 SlotIndex = 0; SlotIndex < Weapons.Num(); ++SlotIndex)
