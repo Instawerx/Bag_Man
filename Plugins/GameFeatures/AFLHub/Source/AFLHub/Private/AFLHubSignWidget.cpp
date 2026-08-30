@@ -183,7 +183,7 @@ void UAFLHubSignWidget::SetSignData(const FText& InName, const FText& InSubtitle
 	SubtitleText->SetText(InSubtitle);
 	DistanceText->SetText(FText::FromString(FString::Printf(TEXT("%.0fm"), InDistanceMeters)));
 	StatusText->SetText(bInEnabled
-		? NSLOCTEXT("AFLHub", "SignEnter", "ENTER")
+		? NSLOCTEXT("AFLHub", "SignEnter", "ENTER · [E]")
 		: NSLOCTEXT("AFLHub", "SignOffline", "OFFLINE"));
 	StatusText->SetColorAndOpacity(FSlateColor(bInEnabled ? AccentSoft : OfflineText));
 	if (StatusDot)

@@ -4,6 +4,10 @@
 
 #include "AFLHub.h"
 #include "AFLHubSignWidget.h"
+#include "CommonActivatableWidget.h"
+#include "CommonUIExtensions.h"
+#include "GameplayTagContainer.h"
+#include "InputCoreTypes.h"
 #include "Components/BoxComponent.h"
 #include "Components/WidgetComponent.h"
 #include "GameFramework/Pawn.h"
@@ -61,6 +65,7 @@ void AAFLHubDestinationVolume::BeginPlay()
 		ResolvedName     = Row->DisplayName;
 		ResolvedSubtitle = Row->Subtitle;
 		ResolvedGlyph    = Row->Glyph.LoadSynchronous();
+		ResolvedPayload  = Row->ActionPayload;
 	}
 	else
 	{
@@ -77,6 +82,63 @@ void AAFLHubDestinationVolume::BeginPlay()
 	// 4 Hz tier decision: cheap (one distance per sign), and tier changes are slow by nature.
 	GetWorldTimerManager().SetTimer(TierTimer, this, &AAFLHubDestinationVolume::UpdateSignTier, 0.25f, true);
 	UpdateSignTier();
+
+	// Interact keys, bound ONCE and gated by the at-door state (bConsumeInput=false so the grab
+	// kit and everything else on E keeps working). No project-wide IA_Interact exists yet --
+	// consolidate onto one when the interaction pass lands.
+	if (ResolvedAction != EAFLHubDestinationAction::Disabled)
+	{
+		if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+		{
+			if (PC->IsLocalController() && PC->InputComponent)
+			{
+				FInputKeyBinding& KB = PC->InputComponent->BindKey(EKeys::E, IE_Pressed, this, &AAFLHubDestinationVolume::OnInteractPressed);
+				KB.bConsumeInput = false;
+				FInputKeyBinding& GB = PC->InputComponent->BindKey(EKeys::Gamepad_FaceButton_Left, IE_Pressed, this, &AAFLHubDestinationVolume::OnInteractPressed);
+				GB.bConsumeInput = false;
+			}
+		}
+	}
+}
+
+void AAFLHubDestinationVolume::OnInteractPressed()
+{
+	if (bPawnInVolume && ResolvedAction != EAFLHubDestinationAction::Disabled)
+	{
+		ExecuteDoorAction();
+	}
+}
+
+void AAFLHubDestinationVolume::ExecuteDoorAction()
+{
+	switch (ResolvedAction)
+	{
+	case EAFLHubDestinationAction::OpenScreen:
+	{
+		UClass* WidgetClass = LoadClass<UCommonActivatableWidget>(nullptr, *ResolvedPayload);
+		if (!WidgetClass)
+		{
+			UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBDOOR: '%s' OpenScreen payload '%s' did not resolve to a UCommonActivatableWidget class."),
+				*DestinationId.ToString(), *ResolvedPayload);
+			return;
+		}
+		APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+		ULocalPlayer* LP = PC ? PC->GetLocalPlayer() : nullptr;
+		if (!LP)
+		{
+			return;
+		}
+		// The proven takeover mount: UI.Layer.Menu fills the viewport; deactivate pops back to the hub.
+		UCommonUIExtensions::PushContentToLayer_ForPlayer(LP,
+			FGameplayTag::RequestGameplayTag(TEXT("UI.Layer.Menu")), TSubclassOf<UCommonActivatableWidget>(WidgetClass));
+		UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: OPEN '%s' -> %s."), *DestinationId.ToString(), *WidgetClass->GetName());
+		break;
+	}
+	default:
+		UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: '%s' action %d has no backend yet."),
+			*DestinationId.ToString(), static_cast<int32>(ResolvedAction));
+		break;
+	}
 }
 
 void AAFLHubDestinationVolume::EndPlay(const EEndPlayReason::Type EndPlayReason)

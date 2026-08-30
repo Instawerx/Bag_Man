@@ -106,6 +106,13 @@ protected:
 	/** Low-rate distance-tier decision (ratified mock: far beacon / mid plate / at-door). */
 	void UpdateSignTier();
 
+	/** Interact keypress (E / gamepad face-left; non-consuming) -- acts only AT-DOOR on an enabled row. */
+	void OnInteractPressed();
+
+	/** The enabled-row action: OpenScreen pushes ActionPayload's widget class to UI.Layer.Menu (the
+	 *  proven takeover mount). Travel/JoinClub land with their own backend tickets. */
+	void ExecuteDoorAction();
+
 	/** The approach trigger (root). Extent is the designer knob on the placed instance. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Hub")
 	TObjectPtr<UBoxComponent> PromptBox;
@@ -129,4 +136,5 @@ protected:
 	UPROPERTY(Transient) TObjectPtr<UTexture2D> ResolvedGlyph;
 	bool bPawnInVolume = false;
 	FTimerHandle TierTimer;
+	FString ResolvedPayload;
 };

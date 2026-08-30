@@ -14,6 +14,7 @@ public class AFLHub : ModuleRules
 				"Core",
 				"CoreUObject",
 				"Engine",
+				"InputCore",
 				"GameplayAbilities",
 				"GameplayTags",
 				"GameplayTasks",
