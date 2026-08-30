@@ -105,9 +105,13 @@ void AAFLHubDestinationVolume::OnInteractPressed()
 	// Re-entry gate: while our takeover lives, E belongs to the SCREEN, not the door (the at-door
 	// state persists behind the UI -- an ungated second press stacked two lockers, and closing one
 	// left the other covering the world with menu input mode: "map does not return, no locomotion").
-	if (PushedScreen.IsValid())
+	if (UCommonActivatableWidget* Screen = Cast<UCommonActivatableWidget>(PushedScreen.Get()))
 	{
-		return;
+		if (Screen->IsActivated())
+		{
+			return; // takeover still up -- E belongs to the screen
+		}
+		PushedScreen.Reset(); // pooled widget lingers deactivated; clear so re-entry works
 	}
 	if (bPawnInVolume && ResolvedAction != EAFLHubDestinationAction::Disabled)
 	{

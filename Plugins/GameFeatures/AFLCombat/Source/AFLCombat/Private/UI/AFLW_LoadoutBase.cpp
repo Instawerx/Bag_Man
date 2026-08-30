@@ -730,11 +730,22 @@ void UAFLW_LoadoutBase::NativeOnDeactivated()
 	// WORLD-OVERLAY teardown lives HERE, not NativeDestruct: the CommonUI layer POOLS deactivated
 	// widgets, so destruct never fires on a normal close. The capture stays alive (C1 lens law);
 	// only the pawn dies -- reopening re-acquires a fresh one.
-	if (bWorldOverlayMode && DisplayPawn.IsValid())
+	if (bWorldOverlayMode)
 	{
-		AActor* Doomed = DisplayPawn.Get();
-		DisplayPawn.Reset();
-		Doomed->Destroy();
+		if (DisplayPawn.IsValid())
+		{
+			AActor* Doomed = DisplayPawn.Get();
+			DisplayPawn.Reset();
+			Doomed->Destroy();
+		}
+		// The POD too -- the preview backdrop dome spawns WITH the pawn at the player's location
+		// (the operator's "purple bubble" left standing in the hub).
+		if (PreviewPod.IsValid())
+		{
+			AActor* DoomedPod = PreviewPod.Get();
+			PreviewPod.Reset();
+			DoomedPod->Destroy();
+		}
 	}
 	Super::NativeOnDeactivated();
 }
