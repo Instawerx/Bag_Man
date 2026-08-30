@@ -746,6 +746,13 @@ const ENTRIES = [
  warn:'EDITOR BOOT-POISON: bridge calls during frame-[0] startup silently break EditorAssetLibrary path ops for a plugin root ALL SESSION (loads NULL, saves refuse False, no error logged) while load_object works -- wait for the frame counter to pass ~200 before the first bridge call; only a restart cures a poisoned session.',
  c:['9d841839']},
 
+{g:'MAPS', status:'PROVEN', opRep:true, ssot:'Docs/Hub/IRONICS_HUB_MAP_BUILD_SPEC.md',
+ t:'Hub doors LIVE x3 — Barracks locker, RoboLabs CC stack, Deployments gate cards',
+ what:'Operator lap: all three pass with enter, exit, and re-enter. Barracks -> WBP_AFL_Loadout; RoboLabs -> loadout|Creator payload suffix (the armory OpenCreator stack, verbatim); Deployments -> WBP_AFL_HubGateCards (child of W_IRONICS_Home with is_back_handler=true -- ESC/B closes over the hub while the front-end root keeps no-back; the League/Staked no-stake ruling stays in C++). Door machinery hardened through five operator-caught defects: double-push gate (E behind the takeover stacked two lockers -> menu-mode lockup), world-overlay teardown on DEACTIVATE (pooled widgets never destruct) for the display pawn AND the pod backdrop dome (the "purple bubble"), collision-off overlay pawn (spawned standing ON the player = the pin), activation-aware re-entry (the pooled corpse blocked forever), lazy at-door key binds (level BeginPlay precedes the PC input component).',
+ remains:'CHRONIC BLOCKER promoted to the next dedicated fix: the loadout/ASC grant race -- zero AFL_LOADOUT grants in several recent sessions (A-pose float, no weapons/wheel; movement input unaffected). Purple-beat texture re-stream on exit = polish. Six doors stay OFFLINE pending backends.',
+ warn:'CommonUI POOLS deactivated widgets: NativeDestruct never fires on a normal close -- overlay teardown belongs in NativeOnDeactivated, and any pushed-screen gate must check IsActivated, not pointer validity. Menu input mode blocks raw PC keybinds -- a pushed root screen needs its own back handler (child class with is_back_handler=true).',
+ c:['2d01d9c4','03ea4aee','24b3d821','5c1fab9e','fd1dbd29','14c0ac3d','20525573','79ee3d1c','892b745e']},
+
 // =========================== CROSS-CUTTING ================================
 {g:'CROSS-CUTTING', status:'OPEN', opRep:true, ssot:'(multiple)',
  t:'PlayFab RemoveMatchmakingQueue acknowledges without removing',
