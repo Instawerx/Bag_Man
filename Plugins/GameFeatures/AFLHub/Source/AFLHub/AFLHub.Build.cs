@@ -17,6 +17,7 @@ public class AFLHub : ModuleRules
 				"GameplayAbilities",
 				"GameplayTags",
 				"GameplayTasks",
+				"GameFeatures",
 				"NetCore",
 				"GameplayMessageRuntime",
 				"LyraGame",
