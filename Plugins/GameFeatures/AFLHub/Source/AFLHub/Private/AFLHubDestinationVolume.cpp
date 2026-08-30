@@ -88,6 +88,13 @@ void AAFLHubDestinationVolume::BeginPlay()
 
 void AAFLHubDestinationVolume::OnInteractPressed()
 {
+	// Re-entry gate: while our takeover lives, E belongs to the SCREEN, not the door (the at-door
+	// state persists behind the UI -- an ungated second press stacked two lockers, and closing one
+	// left the other covering the world with menu input mode: "map does not return, no locomotion").
+	if (PushedScreen.IsValid())
+	{
+		return;
+	}
 	if (bPawnInVolume && ResolvedAction != EAFLHubDestinationAction::Disabled)
 	{
 		ExecuteDoorAction();
@@ -117,7 +124,7 @@ void AAFLHubDestinationVolume::ExecuteDoorAction()
 		// behind (the armory set-piece behavior). One-shot, consumed by the screen.
 		UAFLW_LoadoutBase::bNextOpenIsWorldOverlay = true;
 		// The proven takeover mount: UI.Layer.Menu fills the viewport; deactivate pops back to the hub.
-		UCommonUIExtensions::PushContentToLayer_ForPlayer(LP,
+		PushedScreen = UCommonUIExtensions::PushContentToLayer_ForPlayer(LP,
 			FGameplayTag::RequestGameplayTag(TEXT("UI.Layer.Menu")), TSubclassOf<UCommonActivatableWidget>(WidgetClass));
 		UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: OPEN '%s' -> %s."), *DestinationId.ToString(), *WidgetClass->GetName());
 		break;

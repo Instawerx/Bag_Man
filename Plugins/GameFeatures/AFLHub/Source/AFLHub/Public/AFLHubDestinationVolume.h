@@ -11,6 +11,7 @@
 class UBoxComponent;
 class UWidgetComponent;
 class UTexture2D;
+class UCommonActivatableWidget;
 
 /** What a hub door DOES when its backend is proven. Spec s4.3: unproven backends read Disabled. */
 UENUM(BlueprintType)
@@ -136,6 +137,8 @@ protected:
 	UPROPERTY(Transient) TObjectPtr<UTexture2D> ResolvedGlyph;
 	bool bPawnInVolume = false;
 	bool bInteractBound = false;
+	/** The takeover we pushed -- gates re-entry while it lives (E behind the UI double-pushed). */
+	TWeakObjectPtr<UCommonActivatableWidget> PushedScreen;
 	FTimerHandle TierTimer;
 	FString ResolvedPayload;
 };
