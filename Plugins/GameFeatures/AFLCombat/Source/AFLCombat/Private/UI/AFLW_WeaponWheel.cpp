@@ -11,6 +11,65 @@
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_WeaponWheel)
 
+void UAFLW_WeaponWheel::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	// Cold-spawn heal (see the header): only while the ring is empty, at 2Hz.
+	if (Segments.Num() > 0)
+	{
+		return; // built -- the SlotsChanged listener owns refreshes from here
+	}
+	HealAccumulator += InDeltaTime;
+	if (HealAccumulator < 0.5f)
+	{
+		return;
+	}
+	HealAccumulator = 0.f;
+
+	APlayerController* PC = GetOwningPlayer();
+	static const FSoftClassPath QuickBarPath(TEXT("/Script/LyraGame.LyraQuickBarComponent"));
+	UClass* QuickBarClass = QuickBarPath.ResolveClass();
+	UActorComponent* QuickBar = (PC && QuickBarClass)
+		? PC->FindComponentByClass(TSubclassOf<UActorComponent>(QuickBarClass))
+		: nullptr;
+	if (!QuickBar)
+	{
+		return; // the replicated component hasn't arrived yet -- keep waiting
+	}
+
+	// Slots via reflection (no export on the quickbar types -- the documented Lyra trap). The
+	// return slot is a pointer array; element type is irrelevant to the layout.
+	UFunction* GetSlotsFn = QuickBar->FindFunction(FName(TEXT("GetSlots")));
+	if (!GetSlotsFn)
+	{
+		return;
+	}
+	struct FSlotsReturn { TArray<UObject*> ReturnValue; } Slots;
+	QuickBar->ProcessEvent(GetSlotsFn, &Slots);
+	bool bAnyFilled = false;
+	for (const UObject* Item : Slots.ReturnValue)
+	{
+		if (Item)
+		{
+			bAnyFilled = true;
+			break;
+		}
+	}
+	if (!bAnyFilled)
+	{
+		return; // component present, items not replicated yet -- keep waiting
+	}
+
+	++HealAttempts;
+	if (UFunction* PopulateFn = FindFunction(FName(TEXT("PopulateWheel"))))
+	{
+		ProcessEvent(PopulateFn, nullptr);
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_WHEELHEAL: cold-spawn populate #%d -> %d segments."),
+			HealAttempts, Segments.Num());
+	}
+}
+
 void UAFLW_WeaponWheel::BeginRing()
 {
 	Segments.Reset();

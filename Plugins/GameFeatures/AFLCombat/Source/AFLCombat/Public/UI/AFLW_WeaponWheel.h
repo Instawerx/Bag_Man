@@ -178,10 +178,32 @@ public:
 	TObjectPtr<class UCanvasPanel> WheelRoot;
 
 protected:
+	/**
+	 * COLD-SPAWN HEAL. The quickbar component is REPLICATED, so the client never creates it locally
+	 * (GameFrameworkComponentManager refuses non-authority creation) -- it arrives from the server,
+	 * and on a cold first PIE that arrival lands SECONDS after this widget constructs (server pays a
+	 * long synchronous experience load, the component class itself streams in late client-side, and
+	 * the replicated bunches queue behind the class load). Every populate the WBP runs before then
+	 * finds no component and silently builds nothing, and the SlotsChanged message that would refresh
+	 * it fires from the component's own OnRep -- which can be lost to the same window. Result: a dead
+	 * wheel and no weapon cycling for the whole session.
+	 *
+	 * Same doctrine as the equip anim-layer fix: key on STATE, not delivery order. While the ring is
+	 * empty, probe (throttled) for the component + a filled slot, and re-run the WBP's PopulateWheel
+	 * when both exist. The quickbar types carry no LYRAGAME_API export, so the probe goes through
+	 * reflection -- the documented Lyra export trap.
+	 */
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Wheel")
 	TArray<FAFLWheelSegment> Segments;
 
 	/** Dense ring position of the equipped weapon. INDEX_NONE until the first ReflectActiveSlot. */
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Wheel")
 	int32 FocusedIndex = INDEX_NONE;
+
+private:
+	/** Cold-spawn heal throttle + diagnostics (see NativeTick). */
+	float HealAccumulator = 0.f;
+	int32 HealAttempts = 0;
 };
