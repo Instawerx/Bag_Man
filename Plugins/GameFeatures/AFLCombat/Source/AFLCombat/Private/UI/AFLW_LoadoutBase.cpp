@@ -732,22 +732,17 @@ void UAFLW_LoadoutBase::NativeOnDeactivated()
 
 void UAFLW_LoadoutBase::NativeDestruct()
 {
+	TeardownPreviewCapture();
 	// WORLD-OVERLAY teardown (hub doors): the shared transient display pawn is a set-piece in the
-	// armory but a stray mannequin on a live map. The lens/capture died with the widget already
-	// (C1 law); the pawn dies here too -- the rig's weak SharedPawn self-clears and the next open
-	// respawns fresh.
+	// armory but a stray mannequin on a live map. The lens died just above (C1 law: with the
+	// WIDGET); in overlay mode the pawn dies here too -- the rig's weak SharedPawn self-clears
+	// and the next open respawns fresh.
 	if (bWorldOverlayMode && DisplayPawn.IsValid())
 	{
 		AActor* Doomed = DisplayPawn.Get();
 		DisplayPawn.Reset();
 		Doomed->Destroy();
 	}
-	Super::NativeDestruct();
-}
-
-void UAFLW_LoadoutBase::NativeDestruct()
-{
-	TeardownPreviewCapture();
 	Super::NativeDestruct();
 }
 
