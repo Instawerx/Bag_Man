@@ -702,9 +702,16 @@ void UAFLW_LoadoutBase::NativeOnInitialized()
 	}
 }
 
+bool UAFLW_LoadoutBase::bNextOpenIsWorldOverlay = false;
+
 void UAFLW_LoadoutBase::NativeOnActivated()
 {
 	Super::NativeOnActivated();
+	if (bNextOpenIsWorldOverlay)
+	{
+		bWorldOverlayMode = true;
+		bNextOpenIsWorldOverlay = false; // one-shot hint, consumed
+	}
 	RebuildTiles();        // populate the owned grid when the locker opens
 	SetupPreviewCapture(); // start the live 3D preview of the REAL pawn
 	UpdatePreviewCaptureActivity(); // pooled re-activation resumes a paused capture
@@ -721,6 +728,21 @@ void UAFLW_LoadoutBase::NativeOnDeactivated()
 	// capture per stacked instance is pure GPU burn (operator-reported input lag).
 	UpdatePreviewCaptureActivity();
 	Super::NativeOnDeactivated();
+}
+
+void UAFLW_LoadoutBase::NativeDestruct()
+{
+	// WORLD-OVERLAY teardown (hub doors): the shared transient display pawn is a set-piece in the
+	// armory but a stray mannequin on a live map. The lens/capture died with the widget already
+	// (C1 law); the pawn dies here too -- the rig's weak SharedPawn self-clears and the next open
+	// respawns fresh.
+	if (bWorldOverlayMode && DisplayPawn.IsValid())
+	{
+		AActor* Doomed = DisplayPawn.Get();
+		DisplayPawn.Reset();
+		Doomed->Destroy();
+	}
+	Super::NativeDestruct();
 }
 
 void UAFLW_LoadoutBase::NativeDestruct()

@@ -48,6 +48,12 @@ class AFLCOMBAT_API UAFLW_LoadoutBase : public UCommonActivatableWidget
 	GENERATED_BODY()
 
 public:
+	/** WORLD-OVERLAY hint (hub doors): set TRUE immediately before pushing this screen over a live
+	 *  game world. Consumed at first activation; in overlay mode the transient display pawn is
+	 *  DESTROYED with the widget (a live map keeps no set-piece mannequin -- the armory does). */
+	static bool bNextOpenIsWorldOverlay;
+
+public:
 	/** OWNED-ONLY feed for one axis: every catalog entry of Axis the local player is entitled to
 	 *  (GrantedFree auto-owns; paid requires the owned-set). Weapon/WeaponSkin both query Type==Weapon and
 	 *  split by the AFL.Weapon. / AFL.WeaponSkin. namespace; Beam queries Type==Beam. */
@@ -172,6 +178,7 @@ protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeOnActivated() override;
 	virtual void NativeOnDeactivated() override;
+	virtual void NativeDestruct() override;
 	virtual void NativeDestruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
@@ -619,6 +626,8 @@ private:
 
 	/** The ASC-less display pawn captured in the pod (spawned on GetPreviewPawn, destroyed on teardown). */
 	TWeakObjectPtr<AAFLLoadoutDisplayPawn> DisplayPawn;
+	/** Consumed from bNextOpenIsWorldOverlay -- this open rides over a live game world. */
+	bool bWorldOverlayMode = false;
 
 	/** Last selection applied to the display pawn -- the NativeTick change-poll re-drives only on a delta
 	 *  (an equip lands via OnRep async, so a poll is more robust than a post-equip call). */

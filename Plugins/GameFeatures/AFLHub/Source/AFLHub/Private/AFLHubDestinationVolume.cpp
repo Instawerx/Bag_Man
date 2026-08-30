@@ -6,6 +6,7 @@
 #include "AFLHubSignWidget.h"
 #include "CommonActivatableWidget.h"
 #include "CommonUIExtensions.h"
+#include "UI/AFLW_LoadoutBase.h"
 #include "GameplayTagContainer.h"
 #include "InputCoreTypes.h"
 #include "Components/BoxComponent.h"
@@ -112,6 +113,9 @@ void AAFLHubDestinationVolume::ExecuteDoorAction()
 		{
 			return;
 		}
+		// WORLD-OVERLAY hint: over a live map the loadout screen must not leave its display pawn
+		// behind (the armory set-piece behavior). One-shot, consumed by the screen.
+		UAFLW_LoadoutBase::bNextOpenIsWorldOverlay = true;
 		// The proven takeover mount: UI.Layer.Menu fills the viewport; deactivate pops back to the hub.
 		UCommonUIExtensions::PushContentToLayer_ForPlayer(LP,
 			FGameplayTag::RequestGameplayTag(TEXT("UI.Layer.Menu")), TSubclassOf<UCommonActivatableWidget>(WidgetClass));
