@@ -135,6 +135,7 @@ protected:
 	FText ResolvedSubtitle;
 	UPROPERTY(Transient) TObjectPtr<UTexture2D> ResolvedGlyph;
 	bool bPawnInVolume = false;
+	bool bInteractBound = false;
 	FTimerHandle TierTimer;
 	FString ResolvedPayload;
 };

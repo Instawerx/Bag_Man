@@ -83,22 +83,6 @@ void AAFLHubDestinationVolume::BeginPlay()
 	GetWorldTimerManager().SetTimer(TierTimer, this, &AAFLHubDestinationVolume::UpdateSignTier, 0.25f, true);
 	UpdateSignTier();
 
-	// Interact keys, bound ONCE and gated by the at-door state (bConsumeInput=false so the grab
-	// kit and everything else on E keeps working). No project-wide IA_Interact exists yet --
-	// consolidate onto one when the interaction pass lands.
-	if (ResolvedAction != EAFLHubDestinationAction::Disabled)
-	{
-		if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
-		{
-			if (PC->IsLocalController() && PC->InputComponent)
-			{
-				FInputKeyBinding& KB = PC->InputComponent->BindKey(EKeys::E, IE_Pressed, this, &AAFLHubDestinationVolume::OnInteractPressed);
-				KB.bConsumeInput = false;
-				FInputKeyBinding& GB = PC->InputComponent->BindKey(EKeys::Gamepad_FaceButton_Left, IE_Pressed, this, &AAFLHubDestinationVolume::OnInteractPressed);
-				GB.bConsumeInput = false;
-			}
-		}
-	}
 }
 
 void AAFLHubDestinationVolume::OnInteractPressed()
@@ -164,6 +148,24 @@ void AAFLHubDestinationVolume::OnDoorBeginOverlap(UPrimitiveComponent*, AActor* 
 		return;
 	}
 	bPawnInVolume = true;
+	// LAZY interact bind at the first at-door moment (level BeginPlay can precede the PC's input
+	// component; binding here is possession-safe). bConsumeInput=false keeps E free for the grab
+	// kit. No project-wide IA_Interact exists yet -- consolidate when the interaction pass lands.
+	if (!bInteractBound && ResolvedAction != EAFLHubDestinationAction::Disabled)
+	{
+		if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+		{
+			if (PC->IsLocalController() && PC->InputComponent)
+			{
+				FInputKeyBinding& KB = PC->InputComponent->BindKey(EKeys::E, IE_Pressed, this, &AAFLHubDestinationVolume::OnInteractPressed);
+				KB.bConsumeInput = false;
+				FInputKeyBinding& GB = PC->InputComponent->BindKey(EKeys::Gamepad_FaceButton_Left, IE_Pressed, this, &AAFLHubDestinationVolume::OnInteractPressed);
+				GB.bConsumeInput = false;
+				bInteractBound = true;
+				UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: interact keys bound for '%s'."), *DestinationId.ToString());
+			}
+		}
+	}
 	UpdateSignTier();
 	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: AT-DOOR '%s' (%s) for %s."),
 		*DestinationId.ToString(),
