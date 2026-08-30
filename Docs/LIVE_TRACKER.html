@@ -739,6 +739,13 @@ const ENTRIES = [
  warn:'Dedicated servers STRIP render components -- any cosmetic actor touching them needs the NM_DedicatedServer guard or the separate-process/GameLift server crashes at BeginPlay.',
  c:['c8a11e0c','ede4d1fe','3baf1413','de7f6d06']},
 
+{g:'MAPS', status:'PROVEN', opRep:true, ssot:'Docs/Hub/IRONICS_HUB_MAP_BUILD_SPEC.md',
+ t:'Hub signage glyph batch — 9 destination icons live on the sign system',
+ what:'Operator-watched "glyphs read AAA": nine stroke glyphs (cart/robot/shelter/cup/note/deploy/target/trophy/truck) generated brand-consistent (256px white-on-alpha, QA-passed composited on the brand ground; the cafe cup failed first visual review and was redrawn), imported as UI-group textures at /AFLHub/UI/Glyphs, and wired end-to-end: FAR diamonds carry the icon upright inside the rotated frame, AT-DOOR plates gain the icon badge beside the name, both tinted live in accent #1E5AFF. DA_AFL_HubDestinations rows carry TSoftObjectPtr glyph refs (byte-verified save). Zero no-row warnings in the proof walk.',
+ remains:'The s5.7 physical signage/branding art pass (mesh+decal signs via the blender-bridge flow, pack-texture replacement, "Outpost Earth MWR" gate sign) is the remaining signage work.',
+ warn:'EDITOR BOOT-POISON: bridge calls during frame-[0] startup silently break EditorAssetLibrary path ops for a plugin root ALL SESSION (loads NULL, saves refuse False, no error logged) while load_object works -- wait for the frame counter to pass ~200 before the first bridge call; only a restart cures a poisoned session.',
+ c:['9d841839']},
+
 // =========================== CROSS-CUTTING ================================
 {g:'CROSS-CUTTING', status:'OPEN', opRep:true, ssot:'(multiple)',
  t:'PlayFab RemoveMatchmakingQueue acknowledges without removing',
