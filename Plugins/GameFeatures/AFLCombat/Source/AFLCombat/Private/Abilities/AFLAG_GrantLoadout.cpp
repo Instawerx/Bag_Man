@@ -21,6 +21,16 @@ UAFLAG_GrantLoadout::UAFLAG_GrantLoadout()
 	// we additionally guard on authority inside ActivateAbility.
 }
 
+void UAFLAG_GrantLoadout::OnAvatarSet(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilitySpec& Spec)
+{
+	Super::OnAvatarSet(ActorInfo, Spec);
+	// See the header: the one-shot avatar-init sweep misses late-granted specs. This covers both
+	// orderings and is idempotent (TryActivateAbilityOnSpawn early-outs on Spec.IsActive()).
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: OnAvatarSet re-attempting on-spawn activation (specActive=%d)."),
+		Spec.IsActive() ? 1 : 0);
+	TryActivateAbilityOnSpawn(ActorInfo, Spec);
+}
+
 void UAFLAG_GrantLoadout::ActivateAbility(
 	const FGameplayAbilitySpecHandle Handle,
 	const FGameplayAbilityActorInfo* ActorInfo,

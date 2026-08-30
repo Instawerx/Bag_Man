@@ -51,6 +51,13 @@ public:
 	UAFLAG_GrantLoadout();
 
 protected:
+	/** LATE-GRANT ON-SPAWN FIX (the A-pose loadout race): Lyra's on-spawn sweep runs ONCE at avatar
+	 *  init, so a spec granted AFTER it (grant order vs InitAbilityActorInfo flips intermittently)
+	 *  was never attempted -- this ability silently dead for the pawn's whole life, zero AFL_LOADOUT
+	 *  lines. GAS fires OnAvatarSet in BOTH orderings; re-attempting here is Epic's own idempotent
+	 *  pattern (mirrors LyraPlayerController::OnRep_PlayerState's late-PC retry). */
+	virtual void OnAvatarSet(const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilitySpec& Spec) override;
+
 	virtual void ActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
