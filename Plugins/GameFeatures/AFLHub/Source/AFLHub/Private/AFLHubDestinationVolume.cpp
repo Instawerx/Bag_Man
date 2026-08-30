@@ -52,6 +52,14 @@ void AAFLHubDestinationVolume::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// COSMETIC-ONLY guard: a dedicated server has no screen, and it STRIPS render components --
+	// the TextRender pointers are null there (separate-process PIE server crashed on SetText;
+	// single-process PIE masked it). Everything below is client prompt dressing.
+	if (GetNetMode() == NM_DedicatedServer || !NameText || !StatusText)
+	{
+		return;
+	}
+
 	const FAFLHubDestinationRow* Row = Destinations ? Destinations->FindRow(DestinationId) : nullptr;
 	if (!Row)
 	{
