@@ -182,10 +182,16 @@ UClass* UAFLCosmeticCatalogSubsystem::ResolveWeaponItemDefClass(FName CosmeticId
 
 	// Type-gate BEFORE loading: a non-weapon row must never hand back an equipment class even if someone
 	// mistakenly filled ItemDefClass on it. The type is the contract; the payload field is just storage.
-	if (Entry->Type != EAFLCosmeticType::Weapon)
+	// XT EXTENSION (operator Option A, 2026-08-30): a BUNDLE row may DELIBERATELY carry the twin-mount
+	// item's class -- the .XT hand-cannon rows own an L+R pair as one purchasable AND one equippable
+	// item, so the akimbo QuickBar route resolves through them. Bundle rows with ItemDefClass unset
+	// remain unresolvable; every other non-weapon type is refused exactly as before.
+	const bool bWeaponRow      = (Entry->Type == EAFLCosmeticType::Weapon);
+	const bool bTwinMountBundle = (Entry->Type == EAFLCosmeticType::Bundle) && !Entry->ItemDefClass.IsNull();
+	if (!bWeaponRow && !bTwinMountBundle)
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("AFL_CATALOG: '%s' is not a Weapon-type SKU -- refusing to resolve an item-def class."),
+			TEXT("AFL_CATALOG: '%s' is not a Weapon-type SKU (or twin-mount bundle) -- refusing to resolve an item-def class."),
 			*CosmeticId.ToString());
 		return nullptr;
 	}

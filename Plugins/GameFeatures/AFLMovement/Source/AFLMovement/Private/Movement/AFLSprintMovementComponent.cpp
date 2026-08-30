@@ -186,16 +186,24 @@ void UAFLSprintMovementComponent::TickSprintDiag()
 	// answering it off log timestamps means parsing them and assuming the sampler and the swap started together.
 	// Carrying the offset in the payload makes the ramp readable straight off the line.
 	const float SinceOnset = GetWorld() ? (GetWorld()->GetTimeSeconds() - SprintStartTime) : 0.0f;
+	// inputFrac: |CurrentAcceleration| / MaxAcceleration == the INPUT magnitude the CMC actually
+	// received this tick (analog fraction). CMC top speed scales by it, so a sustained inputFrac
+	// of 0.8 CAPS velocity at 0.8*MaxWalkSpeed -- the direct discriminator for the client-mode
+	// "sprint tops out at ~783 of 980" mystery (input layer vs movement layer).
+	const float MaxAccel = CMC->GetMaxAcceleration();
+	const float InputFrac = (MaxAccel > KINDA_SMALL_NUMBER)
+		? CMC->GetCurrentAcceleration().Size2D() / MaxAccel : 0.0f;
 	UE_LOG(LogAFLMovement, Log,
-		TEXT("AFL_SPRINTDIAG: %-26s t=%.2f auth=%d localCtl=%d role=%d | MaxWalkSpeed=%.0f MaxAccel=%.0f Velocity2D=%.0f"),
+		TEXT("AFL_SPRINTDIAG: %-26s t=%.2f auth=%d localCtl=%d role=%d | MaxWalkSpeed=%.0f MaxAccel=%.0f Velocity2D=%.0f inputFrac=%.2f"),
 		*GetNameSafe(Owner),
 		SinceOnset,
 		Pawn->HasAuthority() ? 1 : 0,
 		Pawn->IsLocallyControlled() ? 1 : 0,
 		static_cast<int32>(Pawn->GetLocalRole()),
 		CMC->MaxWalkSpeed,
-		CMC->GetMaxAcceleration(),
-		CMC->Velocity.Size2D());
+		MaxAccel,
+		CMC->Velocity.Size2D(),
+		InputFrac);
 }
 
 void UAFLSprintMovementComponent::RestoreSprintTuning()
