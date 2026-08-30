@@ -86,6 +86,20 @@ void AAFLHubDestinationVolume::BeginPlay()
 
 }
 
+void AAFLHubDestinationVolume::OnExitPressed()
+{
+	// Pop OUR takeover if it is still up (a screen's own back handler may already have popped it
+	// on the same press -- DeactivateWidget on a deactivated widget is a no-op).
+	if (UCommonActivatableWidget* Screen = Cast<UCommonActivatableWidget>(PushedScreen.Get()))
+	{
+		if (Screen->IsActivated())
+		{
+			Screen->DeactivateWidget();
+			UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: EXIT closed '%s'."), *DestinationId.ToString());
+		}
+	}
+}
+
 void AAFLHubDestinationVolume::OnInteractPressed()
 {
 	// Re-entry gate: while our takeover lives, E belongs to the SCREEN, not the door (the at-door
@@ -190,6 +204,12 @@ void AAFLHubDestinationVolume::OnDoorBeginOverlap(UPrimitiveComponent*, AActor* 
 				KB.bConsumeInput = false;
 				FInputKeyBinding& GB = PC->InputComponent->BindKey(EKeys::Gamepad_FaceButton_Left, IE_Pressed, this, &AAFLHubDestinationVolume::OnInteractPressed);
 				GB.bConsumeInput = false;
+				// Uniform door-exit: ESC / gamepad B closes OUR pushed screen even when the screen
+				// has no back handler of its own (the front-end Home is a root -- it never needed one).
+				FInputKeyBinding& EB = PC->InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AAFLHubDestinationVolume::OnExitPressed);
+				EB.bConsumeInput = false;
+				FInputKeyBinding& XB = PC->InputComponent->BindKey(EKeys::Gamepad_FaceButton_Right, IE_Pressed, this, &AAFLHubDestinationVolume::OnExitPressed);
+				XB.bConsumeInput = false;
 				bInteractBound = true;
 				UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: interact keys bound for '%s'."), *DestinationId.ToString());
 			}

@@ -110,6 +110,9 @@ protected:
 	/** Interact keypress (E / gamepad face-left; non-consuming) -- acts only AT-DOOR on an enabled row. */
 	void OnInteractPressed();
 
+	/** ESC / gamepad B: closes OUR pushed screen (uniform exit for handler-less screens). */
+	void OnExitPressed();
+
 	/** The enabled-row action: OpenScreen pushes ActionPayload's widget class to UI.Layer.Menu (the
 	 *  proven takeover mount). Travel/JoinClub land with their own backend tickets. */
 	void ExecuteDoorAction();
