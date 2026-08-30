@@ -2,6 +2,8 @@
 
 #include "AFLHubNetProfileComponent.h"
 
+#include "TimerManager.h" // deferred pawn frequency decision
+
 #include "AFLHub.h"
 #include "AFLHubZoneProfiles.h"
 #include "AbilitySystemComponent.h"
@@ -155,8 +157,31 @@ void UAFLHubNetProfileComponent::ApplyNetPosture()
 	CachedNetUpdateFrequency = Owner->GetNetUpdateFrequency();
 	CachedMinNetUpdateFrequency = Owner->GetMinNetUpdateFrequency();
 	CachedNetCullDistanceSquared = Owner->GetNetCullDistanceSquared();
-	Owner->SetNetUpdateFrequency(HubNetUpdateFrequency);
-	Owner->SetMinNetUpdateFrequency(HubMinNetUpdateFrequency);
+
+	// AFL-3012 DEVIATION (operator ruling 2026-08-30, "full fledge top tier movements"): the
+	// helper-doc 15/5 Hz target was written for CROWD bandwidth, but applied to a PLAYER-
+	// CONTROLLED pawn it throttles the owner's own correction loop -- measured in the hub walk
+	// as "pulls / sluggish / pushed against while walking". Player-controlled pawns keep the
+	// engine rates; the throttle still lands on future crowd/NPC hub actors. Quantisation and
+	// the zone-cull machinery below stay for everyone (they do not fight the owner's CMC).
+	// POSSESSION-ROBUST: BeginPlay usually precedes possession, so IsPlayerControlled() here
+	// would misread the player as an NPC and throttle them anyway. For pawns the frequency
+	// decision is DEFERRED 2s (twice, in case of a slow join); everything else decides now.
+	const APawn* OwnerPawn = Cast<APawn>(Owner);
+	bool bPlayerControlled = OwnerPawn && OwnerPawn->IsPlayerControlled();
+	if (OwnerPawn && !bPlayerControlled)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(FreqDecisionTimer, this,
+				&UAFLHubNetProfileComponent::DecideFrequencyThrottle, 2.0f, /*bLoop*/ true);
+		}
+	}
+	else if (!bPlayerControlled)
+	{
+		Owner->SetNetUpdateFrequency(HubNetUpdateFrequency);
+		Owner->SetMinNetUpdateFrequency(HubMinNetUpdateFrequency);
+	}
 
 	FRepMovement& RepMove = Owner->GetReplicatedMovement_Mutable();
 	CachedLocationQuantization = static_cast<uint8>(RepMove.LocationQuantizationLevel);
@@ -167,9 +192,40 @@ void UAFLHubNetProfileComponent::ApplyNetPosture()
 	RepMove.VelocityQuantizationLevel = EVectorQuantization::RoundWholeNumber;
 
 	bPostureApplied = true;
-	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: %s posture applied (freq %.0f/%.0f Hz, quantised; was %.0f/%.0f)."),
-		*GetNameSafe(Owner), HubNetUpdateFrequency, HubMinNetUpdateFrequency,
+	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: %s posture applied (%s; quantised; was %.0f/%.0f)."),
+		*GetNameSafe(Owner),
+		bPlayerControlled ? TEXT("PLAYER-CONTROLLED -> engine freq kept") :
+			*FString::Printf(TEXT("freq %.0f/%.0f Hz"), HubNetUpdateFrequency, HubMinNetUpdateFrequency),
 		CachedNetUpdateFrequency, CachedMinNetUpdateFrequency);
+}
+
+void UAFLHubNetProfileComponent::DecideFrequencyThrottle()
+{
+	AActor* Owner = GetOwner();
+	APawn* OwnerPawn = Cast<APawn>(Owner);
+	if (!Owner || !OwnerPawn)
+	{
+		if (UWorld* World = GetWorld()) { World->GetTimerManager().ClearTimer(FreqDecisionTimer); }
+		return;
+	}
+	FreqDecisionPolls++;
+	const bool bPlayerControlled = OwnerPawn->IsPlayerControlled();
+	if (bPlayerControlled || FreqDecisionPolls >= 3)
+	{
+		if (!bPlayerControlled)
+		{
+			Owner->SetNetUpdateFrequency(HubNetUpdateFrequency);
+			Owner->SetMinNetUpdateFrequency(HubMinNetUpdateFrequency);
+			UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: %s NPC/crowd -> throttled %.0f/%.0f Hz."),
+				*GetNameSafe(Owner), HubNetUpdateFrequency, HubMinNetUpdateFrequency);
+		}
+		else
+		{
+			UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: %s PLAYER-CONTROLLED -> engine freq kept (AAA movement ruling)."),
+				*GetNameSafe(Owner));
+		}
+		if (UWorld* World = GetWorld()) { World->GetTimerManager().ClearTimer(FreqDecisionTimer); }
+	}
 }
 
 void UAFLHubNetProfileComponent::RestoreNetPosture()

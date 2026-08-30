@@ -4,6 +4,7 @@
 
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
+#include "Engine/TimerHandle.h"
 
 #include "AFLHubNetProfileComponent.generated.h"
 
@@ -66,6 +67,11 @@ private:
 
 	/** Any profiled zone tag rose or fell -> recompute the cull posture from live ASC state. */
 	void HandleZoneTagChanged(const FGameplayTag Tag, int32 NewCount);
+
+	/** Deferred pawn frequency decision -- possession lands after BeginPlay (AAA movement ruling). */
+	void DecideFrequencyThrottle();
+	FTimerHandle FreqDecisionTimer;
+	int32 FreqDecisionPolls = 0;
 
 	/** Smallest active zone cull distance, else the DA default; applied to the owner. */
 	void RecomputeCullDistance();
