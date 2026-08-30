@@ -8,12 +8,21 @@ Earth must feel indistinguishable from walking a match map. This doc scopes the 
 
 | # | Symptom | Root cause | State |
 |---|---|---|---|
-| 1 | "Pulls / sluggish / pushed against while walking" | **AFL-3012 net throttle on the player's own pawn**: `HubNetUpdateFrequency=15`, floor 5 Hz, applied to every hub pawn including the local player. A player-controlled character corrected at 5–15 Hz produces sparse server corrections yanking the client's prediction — the exact reported feel. The helper-doc target was written for *crowd bandwidth*, not the owner's correction loop. | **FIXED** — player-controlled pawns keep engine rates (possession-robust deferred decision); the throttle still lands on future crowd/NPC actors. Quantisation + zone-cull stay for everyone. Documented AFL-3012 deviation. |
-| 2 | "Pull and drag when we stop running" | Animation tuning, not components (duplicate-component census: clean; one of each movement/IK comp). Candidates: distance-matched stop vs the Pro sprint speed (980), FBIK ground tug at deceleration. | **OPEN** — discriminator: does the same drag show in a ProMod ARENA match? Same pawn + ABP there. Yes → movement-overhaul polish lane owns it. No → hub-specific (this map's surfaces/net) and it stays here. |
+| 1 | "Pulls / sluggish / pushed against while walking" | TWO-LAYER. (a) **AFL-3012 net throttle on the player's own pawn** (15 Hz / floor 5) — sparse corrections yanking prediction. (b) After (a) was fixed the feel persisted **only in Play-As-Client PIE**: the harness runs a full client-prediction loop plus TWO worlds on one machine. **Standalone walk = "AAA smooth" (operator-watched 08-29) — map and pawn EXONERATED.** The residual is the networked-client path. | (a) **FIXED** — player-controlled pawns keep engine rates; crowd/NPC throttle retained. (b) **OPEN → W-NET below.** Measurement pass armed: `p.NetShowCorrections 1` + AFL_SPRINTDIAG role-split log in a client-mode run. |
+| 2 | "Pull and drag when we stop running" | Subsumed into #1(b) pending the client-mode measurement — the stop-drag was reported in the same Play-As-Client harness that standalone proved clean. | **FOLDED into W-NET** — re-test standalone verdict covers the stop too; if a stop-specific drag survives on a networked client only, it's the sprint-toggle correction window. |
 | 3 | Couldn't enter tents/containers | Pack shells sealed openings with crude hulls (one box per entry tent). | **FIXED** — per-poly collision on all 10 shell meshes; operator-confirmed enterable. |
 
 ## 2 · Workstreams to the AAA bar
 
+- **W-NET · Networked-client movement quality** (the live workstream; shipping hub = dedicated
+  server, so client feel is the product). Suspects, in order: (1) the sprint MaxWalkSpeed swap is
+  tag-event-driven on both sides but NOT part of the saved-move reconciliation — every toggle has
+  a replication-skew window where client predicts 980 against a 700 server cap → correction pull;
+  the AAA fix is a saved-move compressed flag (or a GetMaxSpeed override reading shared state).
+  (2) Dual-world single-machine PIE frame cost — a harness artifact, not a product bug; real
+  client verification needs a separate-process client. Measurement: client-mode PIE with
+  `p.NetShowCorrections 1` + AFL_SPRINTDIAG (role-split TOLD-vs-DOING): corrections during plain
+  walk = base desync; corrections clustered at sprint = suspect (1); zero corrections = suspect (2).
 - **W1 · Net posture, tiered not blanket** (AFL-3012 evolution). When hub crowds arrive, throttle
   by *distance/relevancy tier* (near players full-rate, far players stepped down), never blanket.
   The zone-cull machinery already in the component is the right chassis. Player-controlled pawns
