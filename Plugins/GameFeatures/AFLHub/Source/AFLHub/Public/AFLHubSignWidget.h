@@ -10,6 +10,8 @@ class UBorder;
 class UTextBlock;
 class UVerticalBox;
 class UHorizontalBox;
+class UImage;
+class UTexture2D;
 
 /** Distance tier the sign is rendering (ratified mock: far beacon / mid plate / at-door full plate). */
 UENUM()
@@ -37,7 +39,7 @@ class AFLHUB_API UAFLHubSignWidget : public UUserWidget
 public:
 	/** One call per tier decision -- rebuild-free; the blocks toggle visibility + text. */
 	void SetSignData(const FText& InName, const FText& InSubtitle, bool bInEnabled,
-		EAFLHubSignTier InTier, float InDistanceMeters);
+		EAFLHubSignTier InTier, float InDistanceMeters, UTexture2D* InGlyph);
 
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -52,4 +54,6 @@ private:
 	UPROPERTY(Transient) TObjectPtr<UBorder>        StatusDot;
 	UPROPERTY(Transient) TObjectPtr<UTextBlock>     StatusText;
 	UPROPERTY(Transient) TObjectPtr<UBorder>        Pillar;
+	UPROPERTY(Transient) TObjectPtr<UImage>         DiamondGlyph;
+	UPROPERTY(Transient) TObjectPtr<UImage>         BadgeGlyph;
 };

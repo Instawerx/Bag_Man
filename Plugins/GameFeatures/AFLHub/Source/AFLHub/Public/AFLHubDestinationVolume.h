@@ -10,6 +10,7 @@
 
 class UBoxComponent;
 class UWidgetComponent;
+class UTexture2D;
 
 /** What a hub door DOES when its backend is proven. Spec s4.3: unproven backends read Disabled. */
 UENUM(BlueprintType)
@@ -37,6 +38,10 @@ struct FAFLHubDestinationRow
 	/** At-door plate subtitle ("Weapons - Masks - Jewellery - Robots"). Ratified sign mock. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Hub")
 	FText Subtitle;
+
+	/** Destination glyph (T_AFL_HubGlyph_*) -- FAR diamond + AT-DOOR badge. White strokes, tinted live. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Hub")
+	TSoftObjectPtr<UTexture2D> Glyph;
 
 	/** Disabled until the backend ticket lands (s4.3). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Hub")
@@ -121,6 +126,7 @@ protected:
 	EAFLHubDestinationAction ResolvedAction = EAFLHubDestinationAction::Disabled;
 	FText ResolvedName;
 	FText ResolvedSubtitle;
+	UPROPERTY(Transient) TObjectPtr<UTexture2D> ResolvedGlyph;
 	bool bPawnInVolume = false;
 	FTimerHandle TierTimer;
 };

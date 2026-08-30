@@ -7,6 +7,7 @@
 #include "Components/BoxComponent.h"
 #include "Components/WidgetComponent.h"
 #include "GameFramework/Pawn.h"
+#include "Engine/Texture2D.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 
@@ -59,6 +60,7 @@ void AAFLHubDestinationVolume::BeginPlay()
 		ResolvedAction   = Row->Action;
 		ResolvedName     = Row->DisplayName;
 		ResolvedSubtitle = Row->Subtitle;
+		ResolvedGlyph    = Row->Glyph.LoadSynchronous();
 	}
 	else
 	{
@@ -147,5 +149,5 @@ void AAFLHubDestinationVolume::UpdateSignTier()
 	}
 
 	Sign->SetSignData(ResolvedName, ResolvedSubtitle,
-		ResolvedAction != EAFLHubDestinationAction::Disabled, Tier, DistMeters);
+		ResolvedAction != EAFLHubDestinationAction::Disabled, Tier, DistMeters, ResolvedGlyph);
 }

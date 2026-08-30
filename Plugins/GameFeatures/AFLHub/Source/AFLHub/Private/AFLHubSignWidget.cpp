@@ -7,10 +7,12 @@
 #include "Components/BorderSlot.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/Font.h"
+#include "Engine/Texture2D.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLHubSignWidget)
 
@@ -48,8 +50,13 @@ TSharedRef<SWidget> UAFLHubSignWidget::RebuildWidget()
 	// --- FAR: diamond marker (a rotated bordered square; glow comes from the accent outline) ---
 	DiamondOuter = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Diamond"));
 	DiamondOuter->SetBrushColor(Surface);
-	DiamondOuter->SetPadding(FMargin(12.0f));
+	DiamondOuter->SetPadding(FMargin(7.0f));
 	DiamondOuter->SetRenderTransformAngle(45.0f);
+	DiamondGlyph = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("DiamondGlyph"));
+	DiamondGlyph->SetRenderTransformAngle(-45.0f);
+	DiamondGlyph->SetDesiredSizeOverride(FVector2D(22.0f, 22.0f));
+	DiamondGlyph->SetColorAndOpacity(Accent);
+	DiamondOuter->SetContent(DiamondGlyph);
 	{
 		FSlateBrush Brush; Brush.DrawAs = ESlateBrushDrawType::RoundedBox;
 		Brush.OutlineSettings.Width = 1.5f;
@@ -65,13 +72,26 @@ TSharedRef<SWidget> UAFLHubSignWidget::RebuildWidget()
 		S->SetPadding(FMargin(0, 0, 0, 10));
 	}
 
-	// --- Name (all tiers; size retinted per tier in SetSignData) ---
+	// --- Name row (all tiers): AT-DOOR glyph badge + name ---
+	UHorizontalBox* NameRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("NameRow"));
+	BadgeGlyph = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BadgeGlyph"));
+	BadgeGlyph->SetDesiredSizeOverride(FVector2D(26.0f, 26.0f));
+	BadgeGlyph->SetColorAndOpacity(Accent);
+	if (UHorizontalBoxSlot* S = NameRow->AddChildToHorizontalBox(BadgeGlyph))
+	{
+		S->SetVerticalAlignment(VAlign_Center);
+		S->SetPadding(FMargin(0, 0, 10, 0));
+	}
 	NameText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NameText"));
 	NameText->SetFont(Face(Display, 15, TEXT("Bold")));
 	NameText->SetColorAndOpacity(FSlateColor(TextPrimary));
 	NameText->SetShadowOffset(FVector2D(0, 0));
 	NameText->SetShadowColorAndOpacity(FLinearColor(Accent.R, Accent.G, Accent.B, 0.8f));
-	if (UVerticalBoxSlot* S = Root->AddChildToVerticalBox(NameText))
+	if (UHorizontalBoxSlot* S = NameRow->AddChildToHorizontalBox(NameText))
+	{
+		S->SetVerticalAlignment(VAlign_Center);
+	}
+	if (UVerticalBoxSlot* S = Root->AddChildToVerticalBox(NameRow))
 	{
 		S->SetHorizontalAlignment(HAlign_Center);
 	}
@@ -151,7 +171,7 @@ TSharedRef<SWidget> UAFLHubSignWidget::RebuildWidget()
 }
 
 void UAFLHubSignWidget::SetSignData(const FText& InName, const FText& InSubtitle, bool bInEnabled,
-	EAFLHubSignTier InTier, float InDistanceMeters)
+	EAFLHubSignTier InTier, float InDistanceMeters, UTexture2D* InGlyph)
 {
 	using namespace AFLHubSign;
 	if (!NameText) // RebuildWidget not run yet
@@ -177,6 +197,14 @@ void UAFLHubSignWidget::SetSignData(const FText& InName, const FText& InSubtitle
 	const bool bMid  = InTier == EAFLHubSignTier::Mid;
 	const bool bDoor = InTier == EAFLHubSignTier::AtDoor;
 
+	if (InGlyph)
+	{
+		DiamondGlyph->SetBrushFromTexture(InGlyph, false);
+		DiamondGlyph->SetDesiredSizeOverride(FVector2D(22.0f, 22.0f));
+		BadgeGlyph->SetBrushFromTexture(InGlyph, false);
+		BadgeGlyph->SetDesiredSizeOverride(FVector2D(26.0f, 26.0f));
+	}
+	BadgeGlyph->SetVisibility(bDoor && InGlyph ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	DiamondOuter->SetVisibility(bFar ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	SubtitleText->SetVisibility(bDoor && !InSubtitle.IsEmpty() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	DistanceText->SetVisibility(bMid ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
