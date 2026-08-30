@@ -64,6 +64,11 @@ protected:
 		const FGameplayAbilityActivationInfo ActivationInfo,
 		const FGameplayEventData* TriggerEventData) override;
 
+	/** The actual grant body -- runs only once the pawn's ASC is INITIALIZED. Granting earlier hit
+	 *  Epic's silent AbilitySet skip (FLyraEquipmentList::AddEntry only grants `if (ASC)`), leaving
+	 *  the first equipped weapon mute + the pawn A-posed until a manual cycle re-equipped it. */
+	void GrantWhenReady();
+
 	/**
 	 * The starting weapons, in QuickBar slot order (index 0 = first equipped).
 	 * Defaulted empty; the BP child (GA_AFL_GrantLoadout) sets it to

@@ -10,6 +10,7 @@
 #include "Inventory/LyraInventoryItemDefinition.h"
 #include "Inventory/LyraInventoryItemInstance.h"
 #include "Inventory/LyraInventoryManagerComponent.h"
+#include "Character/LyraPawnExtensionComponent.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_GrantLoadout)
 
@@ -45,6 +46,36 @@ void UAFLAG_GrantLoadout::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, /*bReplicateEndAbility=*/true, /*bWasCancelled=*/false);
 		return;
 	}
+
+	// ASC-READY DEFERRAL (the A-pose first-equip race): granting here can precede the pawn's ASC
+	// wiring, and FLyraEquipmentList::AddEntry grants a weapon's AbilitySets only `if (ASC)` --
+	// silently, so the first equipped weapon holds no anim-layer abilities until re-equipped.
+	// Route the grant through the pawn extension's OnAbilitySystemInitialized (the delegate proven
+	// from pawn-side code: AFLDeathComponent, AFLHubNetProfileComponent) -- it calls IMMEDIATELY
+	// when the ASC is already up, so both orderings land the grant post-ASC.
+	if (APawn* AvatarPawn = Cast<APawn>(ActorInfo->AvatarActor.Get()))
+	{
+		if (ULyraPawnExtensionComponent* PawnExt = ULyraPawnExtensionComponent::FindPawnExtensionComponent(AvatarPawn))
+		{
+			PawnExt->OnAbilitySystemInitialized_RegisterAndCall(
+				FSimpleMulticastDelegate::FDelegate::CreateUObject(this, &UAFLAG_GrantLoadout::GrantWhenReady));
+			return; // GrantWhenReady ends the ability when it runs
+		}
+	}
+	UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOADOUT: no pawn extension on the avatar -- granting immediately (race-exposed)."));
+	GrantWhenReady();
+}
+
+void UAFLAG_GrantLoadout::GrantWhenReady()
+{
+	const FGameplayAbilitySpecHandle Handle = CurrentSpecHandle;
+	const FGameplayAbilityActorInfo* ActorInfo = CurrentActorInfo;
+	const FGameplayAbilityActivationInfo ActivationInfo = CurrentActivationInfo;
+	if (!ActorInfo || !IsActive())
+	{
+		return; // late/duplicate broadcast (respawn re-init) after this activation already granted+ended
+	}
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: ASC ready -- granting now."));
 
 	AController* Controller = GetControllerFromActorInfo();
 	if (!Controller)
