@@ -725,6 +725,13 @@ const ENTRIES = [
  warn:'Cosmetic part actors spawn CLIENT-side (FastArray PostReplicatedAdd) — the server world NEVER lists them; audit client worlds or you will chase a dress that already works. Streaming sublevels carry the UEDPIE prefix — pick the world WITH a GameState.',
  c:['7f9b6400','4c6e373d','118f3379']},
 
+{g:'MAPS', status:'PROVEN', opRep:true, ssot:'Docs/Hub/HUB-MOVEMENT-QUALITY.md',
+ t:'Hub movement deep-look CLOSED — client certified equal to standalone',
+ what:'Operator-certified on a fresh machine: client-mode walk/sprint/stops indistinguishable from standalone (sprint pinned 980 @ inputFrac=1.00, 101-106fps). Real defects fixed en route: AFL-3012 net throttle exempted for player-controlled pawns; WallRun+Slide REMOVED from the hub experience (the parkour family direct-drives CMC mode/velocity on BOTH server and client from tick, outside saved-move prediction — divergent latches froze the server pawn at v=37 or floated the client; global netcode ticket stands for arenas); air braking authored (BrakingDecelerationFalling 0-to-1200, FallingLateralFriction 0-to-0.35 — downhill coasts never slowed); editor bThrottleCPUWhenNotForeground disabled (froze frames at 125ms/8fps on multi-window focus flicker). Jump + double jump PROVEN. Adjacent kills: the cue-tag boot-registration regression (6 GCNs dark every session — Pulse fire/tracer, beam, overdrive, dismember; BOOT-REG copies in DefaultGameplayTags.ini; operator-watched weapons fire AAA) and akimbo Option A (matched pair rides QuickBar slot 3 as the XT twin-mount item; resolver accepts deliberate Bundle ItemDefClass; 14 catalog rows filled; operator-watched cannons cycle).',
+ remains:'HARNESS LAW: feel-test networked client movement ONLY with RunUnderOneProcess=False. Global parkour netcode pass (movement-overhaul lane) before any networked mode ships WallRun/Slide/Climb. 35 XT catalog rows without matching item assets fall back loudly. WallJump refire gate + landing polish are cosmetic follow-ups.',
+ warn:'Single-process PIE_Client feel is an ARTIFACT — two engine worlds share one process and window focus decides frame delivery. Every gameplay metric can read clean while feel is ruined.',
+ c:['5541ad23','ace6d098','36bb1d0f','f965fd78','0c5a699a','c16f4654','24501159']},
+
 // =========================== CROSS-CUTTING ================================
 {g:'CROSS-CUTTING', status:'OPEN', opRep:true, ssot:'(multiple)',
  t:'PlayFab RemoveMatchmakingQueue acknowledges without removing',
