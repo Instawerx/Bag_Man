@@ -3,9 +3,12 @@
 #include "AFLHubDestinationVolume.h"
 
 #include "AFLHub.h"
+#include "AFLHubSignWidget.h"
 #include "Components/BoxComponent.h"
-#include "Components/TextRenderComponent.h"
+#include "Components/WidgetComponent.h"
 #include "GameFramework/Pawn.h"
+#include "Kismet/GameplayStatics.h"
+#include "TimerManager.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLHubDestinationVolume)
 
@@ -32,61 +35,55 @@ AAFLHubDestinationVolume::AAFLHubDestinationVolume()
 	PromptBox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	SetRootComponent(PromptBox);
 
-	NameText = CreateDefaultSubobject<UTextRenderComponent>(TEXT("NameText"));
-	NameText->SetupAttachment(PromptBox);
-	NameText->SetRelativeLocation(FVector(0.0f, 0.0f, 210.0f));
-	NameText->SetHorizontalAlignment(EHTA_Center);
-	NameText->SetWorldSize(44.0f);
-	NameText->SetTextRenderColor(FColor(90, 220, 255));
-	NameText->SetVisibility(false);
-
-	StatusText = CreateDefaultSubobject<UTextRenderComponent>(TEXT("StatusText"));
-	StatusText->SetupAttachment(PromptBox);
-	StatusText->SetRelativeLocation(FVector(0.0f, 0.0f, 160.0f));
-	StatusText->SetHorizontalAlignment(EHTA_Center);
-	StatusText->SetWorldSize(24.0f);
-	StatusText->SetVisibility(false);
+	SignWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("SignWidget"));
+	SignWidget->SetupAttachment(PromptBox);
+	SignWidget->SetRelativeLocation(FVector(0.0f, 0.0f, 260.0f));
+	SignWidget->SetWidgetSpace(EWidgetSpace::Screen);
+	SignWidget->SetDrawAtDesiredSize(true);
 }
 
 void AAFLHubDestinationVolume::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// COSMETIC-ONLY guard: a dedicated server has no screen, and it STRIPS render components --
-	// the TextRender pointers are null there (separate-process PIE server crashed on SetText;
-	// single-process PIE masked it). Everything below is client prompt dressing.
-	if (GetNetMode() == NM_DedicatedServer || !NameText || !StatusText)
+	// COSMETIC-ONLY guard: a dedicated server has no screen and strips render components
+	// (the separate-process PIE server crash law). Everything below is client sign dressing.
+	if (GetNetMode() == NM_DedicatedServer || !SignWidget)
 	{
 		return;
 	}
 
 	const FAFLHubDestinationRow* Row = Destinations ? Destinations->FindRow(DestinationId) : nullptr;
-	if (!Row)
+	if (Row)
 	{
-		// Loud, once, and the prompt stays generic -- a missing row is an authoring error, not a crash.
-		UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBDOOR: %s has no row for '%s' in %s -- prompt shows the raw id."),
-			*GetName(), *DestinationId.ToString(), *GetNameSafe(Destinations));
-		NameText->SetText(FText::FromName(DestinationId));
-		StatusText->SetText(NSLOCTEXT("AFLHub", "DoorNoRow", "OFFLINE"));
-		StatusText->SetTextRenderColor(FColor(255, 90, 90));
-		return;
-	}
-
-	ResolvedAction = Row->Action;
-	NameText->SetText(Row->DisplayName);
-	if (ResolvedAction == EAFLHubDestinationAction::Disabled)
-	{
-		StatusText->SetText(NSLOCTEXT("AFLHub", "DoorOffline", "OFFLINE"));
-		StatusText->SetTextRenderColor(FColor(255, 90, 90));
+		ResolvedAction   = Row->Action;
+		ResolvedName     = Row->DisplayName;
+		ResolvedSubtitle = Row->Subtitle;
 	}
 	else
 	{
-		StatusText->SetText(NSLOCTEXT("AFLHub", "DoorOnline", "ONLINE"));
-		StatusText->SetTextRenderColor(FColor(120, 255, 150));
+		UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBDOOR: %s has no row for '%s' in %s -- sign shows the raw id."),
+			*GetName(), *DestinationId.ToString(), *GetNameSafe(Destinations));
+		ResolvedName = FText::FromName(DestinationId);
 	}
+
+	SignWidget->SetWidgetClass(UAFLHubSignWidget::StaticClass());
 
 	PromptBox->OnComponentBeginOverlap.AddDynamic(this, &AAFLHubDestinationVolume::OnDoorBeginOverlap);
 	PromptBox->OnComponentEndOverlap.AddDynamic(this, &AAFLHubDestinationVolume::OnDoorEndOverlap);
+
+	// 4 Hz tier decision: cheap (one distance per sign), and tier changes are slow by nature.
+	GetWorldTimerManager().SetTimer(TierTimer, this, &AAFLHubDestinationVolume::UpdateSignTier, 0.25f, true);
+	UpdateSignTier();
+}
+
+void AAFLHubDestinationVolume::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(TierTimer);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 bool AAFLHubDestinationVolume::IsLocalPlayerPawn(const AActor* Actor)
@@ -102,9 +99,9 @@ void AAFLHubDestinationVolume::OnDoorBeginOverlap(UPrimitiveComponent*, AActor* 
 	{
 		return;
 	}
-	NameText->SetVisibility(true);
-	StatusText->SetVisibility(true);
-	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: prompt SHOWN '%s' (%s) for %s."),
+	bPawnInVolume = true;
+	UpdateSignTier();
+	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: AT-DOOR '%s' (%s) for %s."),
 		*DestinationId.ToString(),
 		ResolvedAction == EAFLHubDestinationAction::Disabled ? TEXT("OFFLINE") : TEXT("ONLINE"),
 		*GetNameSafe(OtherActor));
@@ -117,7 +114,38 @@ void AAFLHubDestinationVolume::OnDoorEndOverlap(UPrimitiveComponent*, AActor* Ot
 	{
 		return;
 	}
-	NameText->SetVisibility(false);
-	StatusText->SetVisibility(false);
-	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: prompt hidden '%s'."), *DestinationId.ToString());
+	bPawnInVolume = false;
+	UpdateSignTier();
+	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: left '%s'."), *DestinationId.ToString());
+}
+
+void AAFLHubDestinationVolume::UpdateSignTier()
+{
+	UAFLHubSignWidget* Sign = SignWidget ? Cast<UAFLHubSignWidget>(SignWidget->GetWidget()) : nullptr;
+	if (!Sign)
+	{
+		return;
+	}
+
+	const APlayerCameraManager* Cam = UGameplayStatics::GetPlayerCameraManager(this, 0);
+	if (!Cam)
+	{
+		return;
+	}
+	const float DistUnits  = FVector::Dist(Cam->GetCameraLocation(), GetActorLocation());
+	const float DistMeters = DistUnits / 100.0f;
+
+	// Ratified tiers: AT-DOOR = the box overlap; MID 15-40m; FAR beyond.
+	EAFLHubSignTier Tier = EAFLHubSignTier::Far;
+	if (bPawnInVolume || DistMeters < 15.0f)
+	{
+		Tier = EAFLHubSignTier::AtDoor;
+	}
+	else if (DistMeters < 40.0f)
+	{
+		Tier = EAFLHubSignTier::Mid;
+	}
+
+	Sign->SetSignData(ResolvedName, ResolvedSubtitle,
+		ResolvedAction != EAFLHubDestinationAction::Disabled, Tier, DistMeters);
 }
