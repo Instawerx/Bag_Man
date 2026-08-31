@@ -35,6 +35,60 @@ rulings D-1..D-11 stand unchanged; the SURFACE model pivots). Parent authority:
    at any till point (PX counter) or from the cart chip — one confirm, sequential grants,
    per-item refusals spoken. Cart is CLIENT-LOCAL and session-only (no persistence).
 
+## Two tiers, one flow (operator: "a quick flow and a detailed flow option")
+
+- **QUICK**: grab -> wearing it -> small card -> BUY (two taps) or ADD TO CART or DISCARD. Done
+  standing there. This is the default and covers most purchases.
+- **DETAILED**: the small card carries one **DETAILS** affordance -> the product page overlay
+  (already built: world-visible, full read, related items) for the considered purchase. Same
+  seams, no new machinery — the page becomes the opt-in deep dive instead of the front door.
+
+## INTENTIONAL pickups (operator law: "not everywhere we step")
+
+- Grab pads are TIGHT (the item's own footprint, ~1m), never zone-sized; crossing a shop floor
+  never dresses you by accident.
+- A short dwell (~0.3s on the pad) or an explicit E-grab arms the apply — brushing past does
+  nothing. Which of the two feels right is an operator playtest call; both ship behind one knob.
+- Placement rules: pads OFF the main walking lanes (alcoves, counters, wall bays); the decal
+  ring + item name render only within ~4m and only with line of sight. Density budget per venue
+  (readable shelves, not minefields).
+- The hub at large stays CLEAN: retail pads exist only inside the ruled venues — the open lobby
+  never sells at your feet.
+
+## Cart discipline (non-intrusive on the lobby)
+
+Chip is small, corner-anchored, collapsible to the icon; it renders only while the cart is
+non-empty or inside a venue. No toasts outside venues; checkout confirms once, not per item.
+
+## Cost & effects assessment (operator-requested)
+
+**Server/runtime cost — near zero by construction (helper doc s4/s5 discipline):**
+- Item displays, try-on applies, cards, cart = CLIENT-LOCAL; zero replication, zero GameLift
+  overhead. The server sees only final purchase RPCs (unchanged from today).
+- Mirrors: proximity-gated captures, show-only-filtered — the s5 pattern exists precisely so
+  1,000 CCU survives them; capture cost is paid only by the player standing at one.
+- Pads: N small overlap boxes (~40-80 across five venues) — trivial; same class of cost as the
+  12 door volumes already proven.
+- Perf watch-item: grab-apply churn (rapid wear/unwear swapping materials/meshes) — bounded by
+  the dwell/E gate and a 1-apply-at-a-time rule.
+
+**Dev cost (S2 estimate, in proven-pattern units):**
+- Grab pad actor + intentionality gate: 1 build cycle (door-volume + preview-seam patterns).
+- Small card + in-card confirm + DETAILS link: 1-2 cycles (C++-built tree, the page exists).
+- Cart chip + till checkout: 1-2 cycles (client array + sequential validated purchases).
+- Mirror actor: 1 cycle (s5 recipe is explicit).
+- Placement passes: operator-anchor sessions per venue (the door-anchor flow, proven).
+- Retire rack layout: trivial. TOTAL: roughly 5-7 build cycles + placement.
+
+**UX effects:** shopping becomes exploration (venues worth walking to); the lobby stays a
+lobby (no takeovers, no ambient commerce); try-on-first raises purchase confidence and mirrors
+close the loop. Risk: discoverability — solved by door signs (wayfinding) + venue glyphs.
+
+**Economy effects:** on-the-spot buying shortens the impulse path (good for SPARK-rung volume);
+try-on-before-buy reduces refund/regret pressure; the cart aggregates multi-item baskets the
+old per-tile flow never could. Risks: accidental purchases (killed by the two-tap confirm) and
+price visibility (card always shows price before any tap).
+
 ## Mirrors (s5, verbatim)
 
 Proximity-gated SceneCapture mirrors in the Visor and Jewellery houses: capture OFF by default,
