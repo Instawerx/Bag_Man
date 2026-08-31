@@ -1,5 +1,10 @@
 # IRONICS — STORE · LOADOUT · CREATOR · UI DESIGN HANDOFF
 
+> ⚠ **STALE TABLE (2026-08-31):** the axis-row table below claims Accessory=0 rows; measured 10
+> (all priced). Verify counts against catalog-export.json before designing from R3.1.
+
+
+
 > ## REVISION R3 — 2026-08-23
 > **The flow changed and the catalog shrank. R3 supersedes R2 on both; everything else in R2 stands.**
 >

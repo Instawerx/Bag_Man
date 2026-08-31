@@ -1,5 +1,12 @@
 # IRONICS -- MASTER PRODUCT / SKU CATALOG (living doc)
 
+> ⚠ **SUPERSEDED FOR COUNTS + STORE SCOPE (2026-08-31):** row counts here are 2026-08-05-stale
+> (measured deltas recorded in the CC SSOT §3.4). Product scope is governed by
+> `Docs/design/PX_STORE_BUILD_RULINGS.md` (D-3: colours/skins/beams/edges are NON-products)
+> and `Docs/Hub/LOBBY_UPGRADE_DOC.md`. Use `Docs/reference/catalog-export.json` for counts.
+
+
+
 > **PRECEDENCE (ruled 2026-08-24):** the NEWEST economy doc is authoritative; where the newest is SILENT on a question, the prior doc governs. This doc last changed **2026-08-05** (`1c072a49`). Today `IRONICS_PRICING_SSOT.md` (2026-08-19) is newest and `IRONICS_ECONOMY_SPEC.md` (2026-08-05) fills its gaps — e.g. Volt packs, on which the newer doc is silent. The rule exists so a later disagreement resolves without re-ruling.
 
 **Human-readable mirror of the machine SKU registry.** This doc is the at-a-glance catalog of
