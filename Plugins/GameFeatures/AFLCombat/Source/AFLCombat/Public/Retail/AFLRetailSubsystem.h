@@ -115,6 +115,10 @@ private:
 	FName CurrentId;
 	bool bPurchasedCurrent = false;
 
+	/** TRUE when the armed confirm spends a WEAPON/STICKER CREDIT instead of Volts (the ruled
+	 *  acquisition for credit-pool rows -- the first-3 signup weapons redeem through this). */
+	bool bConfirmRedeem = false;
+
 	TWeakObjectPtr<APawn> LocalPawn;
 	TWeakObjectPtr<APlayerController> BoundPC;
 

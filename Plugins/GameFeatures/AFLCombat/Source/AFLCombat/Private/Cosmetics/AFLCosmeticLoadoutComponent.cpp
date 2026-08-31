@@ -448,9 +448,12 @@ void UAFLCosmeticLoadoutComponent::ServerRequestTryOn_Implementation(FName Cosme
 	}
 	UAFLWalletComponent* EntitleWallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
 	const bool bAlreadyEntitled = EntitleWallet && EntitleWallet->IsEntitled(PS, CosmeticId);
-	if (!Entry->bTransactable && !bAlreadyEntitled)
+	// Weapon rows are always HOLDABLE at the hub pads (the venue's whole point -- grab, feel it,
+	// test-fire); ACQUIRING one still runs the ruled paths (credit redemption / direct price).
+	const bool bHoldableWeapon = (Entry->Type == EAFLCosmeticType::Weapon);
+	if (!Entry->bTransactable && !bAlreadyEntitled && !bHoldableWeapon)
 	{
-		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TRYON: '%s' REFUSED -- not transactable and not owned."),
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TRYON: '%s' REFUSED -- not transactable, not owned, not a holdable type."),
 			*CosmeticId.ToString());
 		return;
 	}

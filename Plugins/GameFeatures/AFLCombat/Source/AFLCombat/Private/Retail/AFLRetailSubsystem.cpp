@@ -31,6 +31,17 @@ namespace AFLRetail
 	static const FLinearColor Good(0.16f, 0.85f, 0.35f, 1.0f);
 	static const FLinearColor Bad(1.0f, 0.16f, 0.22f, 1.0f);
 	static const FLinearColor Dim(1.0f, 1.0f, 1.0f, 0.55f);
+
+	/** Which counted credit pays for a credit-pool row (mirrors the wallet's server-side resolve). */
+	static FName CreditKeyForType(EAFLCosmeticType Type)
+	{
+		switch (Type)
+		{
+		case EAFLCosmeticType::Weapon:  return FName(TEXT("AFL.WeaponCredit"));
+		case EAFLCosmeticType::Sticker: return FName(TEXT("AFL.StickerCredit"));
+		default:                        return NAME_None;
+		}
+	}
 }
 
 UAFLRetailSubsystem* UAFLRetailSubsystem::Get(const UObject* WorldContext)
@@ -248,7 +259,7 @@ void UAFLRetailSubsystem::OnKeyBuy()
 	{
 		const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr);
 		const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CurrentId) : nullptr;
-		if (!Entry || !Entry->bTransactable)
+		if (!Entry)
 		{
 			return;
 		}
@@ -257,14 +268,33 @@ void UAFLRetailSubsystem::OnKeyBuy()
 		{
 			return; // D-7: owned non-counted rows never re-charge
 		}
-		State = ERetailState::ConfirmBuy;
-		if (Card)
+		const UAFLWalletComponent* Wallet = GetWallet();
+		if (Entry->bTransactable)
 		{
-			const UAFLWalletComponent* Wallet = GetWallet();
-			const int32 Bal = Wallet ? Wallet->GetVolts() : 0;
-			Card->SetBuyRow(FText::Format(NSLOCTEXT("AFLRetail", "ConfirmFmt", "[F]  SURE?  −{0} V  →  {1} V"),
-				FText::AsNumber(Entry->PriceVolts), FText::AsNumber(Bal - Entry->PriceVolts)), true);
-			Card->SetStatus(NSLOCTEXT("AFLRetail", "ConfirmHint", "F again buys it · Q backs out"), AFLRetail::Dim);
+			bConfirmRedeem = false;
+			State = ERetailState::ConfirmBuy;
+			if (Card)
+			{
+				const int32 Bal = Wallet ? Wallet->GetVolts() : 0;
+				Card->SetBuyRow(FText::Format(NSLOCTEXT("AFLRetail", "ConfirmFmt", "[F]  SURE?  −{0} V  →  {1} V"),
+					FText::AsNumber(Entry->PriceVolts), FText::AsNumber(Bal - Entry->PriceVolts)), true);
+				Card->SetStatus(NSLOCTEXT("AFLRetail", "ConfirmHint", "F again buys it · Q backs out"), AFLRetail::Dim);
+			}
+			return;
+		}
+		// Credit-pool row (the ruled weapon acquisition): confirm spends ONE credit.
+		const FName CreditKey = Entry->bCreditRedeemable ? AFLRetail::CreditKeyForType(Entry->Type) : NAME_None;
+		const int32 Credits = (!CreditKey.IsNone() && Wallet) ? Wallet->GetCountedEntitlement(CreditKey) : 0;
+		if (Credits > 0)
+		{
+			bConfirmRedeem = true;
+			State = ERetailState::ConfirmBuy;
+			if (Card)
+			{
+				Card->SetBuyRow(FText::Format(NSLOCTEXT("AFLRetail", "ConfirmRedeemFmt", "[F]  SURE?  −1 CREDIT  →  {0} left"),
+					FText::AsNumber(Credits - 1)), true);
+				Card->SetStatus(NSLOCTEXT("AFLRetail", "ConfirmHint2b", "F again redeems it · Q backs out"), AFLRetail::Dim);
+			}
 		}
 		return;
 	}
@@ -279,6 +309,20 @@ void UAFLRetailSubsystem::OnKeyCart()
 	if ((State != ERetailState::Browsing && State != ERetailState::ConfirmBuy) || CurrentId.IsNone())
 	{
 		return;
+	}
+	// Credit-pool rows redeem on the spot -- the cart's checkout runs the Volts purchase path,
+	// which would refuse them one by one. Keep the cart honest.
+	{
+		const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr);
+		const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CurrentId) : nullptr;
+		if (Entry && !Entry->bTransactable)
+		{
+			if (Card)
+			{
+				Card->SetStatus(NSLOCTEXT("AFLRetail", "CreditNoCart", "Credit item — redeem it right here with [F]"), AFLRetail::Dim);
+			}
+			return;
+		}
 	}
 	AddToCart(CurrentId);
 	State = ERetailState::Browsing;
@@ -381,17 +425,29 @@ void UAFLRetailSubsystem::BeginPurchase(FName CosmeticId)
 		return;
 	}
 	State = ERetailState::Purchasing;
-	// The proven split (product page / market chassis): PlayFab in shipping, the dev grant path in PIE.
+	if (bConfirmRedeem)
+	{
+		// The ruled credit path (first-3 signup weapons + pool rows): the server validates the pool
+		// membership + count; production re-validates at the Lambda past zero.
+		Wallet->ServerRequestCreditRedemption(CosmeticId);
+	}
+	else
+	{
+		// The proven split (product page / market chassis): PlayFab in shipping, the dev grant path in PIE.
 #if UE_BUILD_SHIPPING
-	Wallet->ClientRequestPurchase(CosmeticId);
+		Wallet->ClientRequestPurchase(CosmeticId);
 #else
-	Wallet->ServerPurchaseCosmetic(CosmeticId);
+		Wallet->ServerPurchaseCosmetic(CosmeticId);
 #endif
+	}
 	if (Card)
 	{
-		Card->SetBuyRow(NSLOCTEXT("AFLRetail", "Purchasing", "PURCHASING…"), false);
+		Card->SetBuyRow(bConfirmRedeem
+			? NSLOCTEXT("AFLRetail", "Redeeming", "REDEEMING…")
+			: NSLOCTEXT("AFLRetail", "Purchasing", "PURCHASING…"), false);
 		Card->SetStatus(FText::GetEmpty(), AFLRetail::Dim);
 	}
+	bConfirmRedeem = false;
 	GrantPolls = 0;
 	if (UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr)
 	{
@@ -561,18 +617,34 @@ void UAFLRetailSubsystem::RefreshCard()
 		: (bHolding ? NSLOCTEXT("AFLRetail", "Holding", "HOLDING") : NSLOCTEXT("AFLRetail", "Wearing", "WEARING")));
 
 	const bool bCounted = !Entry->CountedKey.IsNone();
+	const FName CreditKey = Entry->bCreditRedeemable ? AFLRetail::CreditKeyForType(Entry->Type) : NAME_None;
 	if ((IsOwned(CurrentId) && !bCounted) || bPurchasedCurrent)
 	{
 		Card->SetBuyRow(NSLOCTEXT("AFLRetail", "OwnedBuy2", "OWNED ✓"), false);
 	}
-	else if (!Entry->bTransactable)
-	{
-		Card->SetBuyRow(NSLOCTEXT("AFLRetail", "NotForSale", "NOT FOR SALE"), false);
-	}
-	else
+	else if (Entry->bTransactable)
 	{
 		Card->SetBuyRow(FText::Format(NSLOCTEXT("AFLRetail", "BuyFmt", "[F]  BUY · {0}"),
 			Catalog->GetEntryPriceText(*Entry)), true);
+	}
+	else if (!CreditKey.IsNone())
+	{
+		// The RULED acquisition for pool weapons: 1 credit per row (the first-3 signup grant seeds 3).
+		const UAFLWalletComponent* Wallet = GetWallet();
+		const int32 Credits = Wallet ? Wallet->GetCountedEntitlement(CreditKey) : 0;
+		if (Credits > 0)
+		{
+			Card->SetBuyRow(FText::Format(NSLOCTEXT("AFLRetail", "RedeemFmt", "[F]  REDEEM · 1 CREDIT  ({0} left)"),
+				FText::AsNumber(Credits)), true);
+		}
+		else
+		{
+			Card->SetBuyRow(NSLOCTEXT("AFLRetail", "NoCredits", "NO CREDITS — grab a credit pack"), false);
+		}
+	}
+	else
+	{
+		Card->SetBuyRow(NSLOCTEXT("AFLRetail", "NotForSale", "NOT FOR SALE"), false);
 	}
 	Card->SetStatus(FText::GetEmpty(), AFLRetail::Dim);
 }

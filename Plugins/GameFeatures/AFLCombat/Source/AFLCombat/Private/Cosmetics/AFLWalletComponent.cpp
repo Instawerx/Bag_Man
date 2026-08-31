@@ -1465,11 +1465,24 @@ void UAFLWalletComponent::ServerRequestCreditRedemption_Implementation(const FNa
 	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
 	if (!Online || !Online->IsCountedEntitlementConfigured())
 	{
+#if !UE_BUILD_SHIPPING
+		// DEV REDEMPTION (retail S2): the hub retail flow must be PIE-provable without the signer.
+		// Same shape as the dev purchase path (ServerPurchaseCosmetic): local mirror decrement +
+		// grant through the ONE commit funnel, loudly labeled DEV. Shipping keeps the hard refusal --
+		// the Lambda's past-zero re-read stays the production authority.
+		UE_LOG(LogAFLWalletDiag, Warning,
+			TEXT("%sREDEEM DEV-PATH %s -- signer not configured; local mirror decrement %s %d -> %d + grant (PIE only)."),
+			*WalletPrefix(this), *CosmeticId.ToString(), *CreditKey.ToString(), Have, Have - 1);
+		ApplyAuthoritativeCounted(CreditKey, Have - 1);
+		CommitMutation(0, 0, CosmeticId, TEXT("DevCreditRedeem"));
+		return;
+#else
 		// NAMES THE MISSING LEG. 'not configured' is not 'the Lambda said no'.
 		UE_LOG(LogAFLWalletDiag, Warning,
 			TEXT("%sREDEEM REFUSED %s -- signer NOT CONFIGURED (needs AFL_COUNTED_URL + AFL_EARN_HMAC_KEY). This is NOT a refusal of the redemption."),
 			*WalletPrefix(this), *CosmeticId.ToString());
 		return;
+#endif
 	}
 	const FString PlayFabId = Online->GetPlayFabId();
 	if (PlayFabId.IsEmpty())
@@ -1716,6 +1729,21 @@ void UAFLWalletComponent::LoadCountedFromBackend()
 	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
 	if (!Online || !Online->IsCountedEntitlementConfigured())
 	{
+#if !UE_BUILD_SHIPPING
+		// DEV SIGNUP-PARITY SEED (retail S2): production seats every fresh account with EXACTLY 3
+		// weapon credits (grant-once, DynamoDB-idempotent -- PROOF_SIGNUP_GRANT 2026-08-24). A PIE
+		// session with no signer would read 0 forever and the ruled first-3 flow could never be
+		// walked. Mirror the grant once per session, only when the counter has never been touched.
+		static const FName WeaponCreditKey(TEXT("AFL.WeaponCredit"));
+		if (GetCountedEntitlement(WeaponCreditKey) == 0)
+		{
+			ApplyAuthoritativeCounted(WeaponCreditKey, 3);
+			UE_LOG(LogAFLWalletDiag, Warning,
+				TEXT("%sCOUNTED DEV-SEED -- no signer; signup-parity 3x AFL.WeaponCredit seeded (PIE only)."),
+				*WalletPrefix(this));
+			return;
+		}
+#endif
 		UE_LOG(LogAFLWalletDiag, Log,
 			TEXT("%sCOUNTED READ skipped -- no signer (bring-up); counted set stays as replicated"),
 			*WalletPrefix(this));

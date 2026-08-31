@@ -7,6 +7,8 @@
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "AFLCosmeticCoreTypes.h"
 #include "Cosmetics/AFLSkinColorAsset.h"     // facemask MIC for the head-bust display
+#include "Cosmetics/AFLWeaponCosmeticAsset.h"
+#include "Equipment/LyraEquipmentDefinition.h"
 #include "Cosmetics/AFLWalletComponent.h"    // lap-5: entitled free rows read LIVE, not OFFLINE
 #include "GameFramework/PlayerState.h"
 #include "Player/LyraPlayerState.h"
@@ -147,6 +149,7 @@ void AAFLDisplayPedestal::ResolveRetailDisplay()
 				DisplayProp->GetComponentTransform(), Params);
 			if (DisplayPartActor)
 			{
+				DisplayPartActor->SetReplicates(false); // display copy is per-machine; never replicate
 				DisplayPartActor->AttachToComponent(DisplayProp, FAttachmentTransformRules::KeepWorldTransform);
 				DisplayPartActor->SetActorEnableCollision(false);
 				UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: pad '%s' displaying part actor %s."),
@@ -154,6 +157,45 @@ void AAFLDisplayPedestal::ResolveRetailDisplay()
 			}
 		}
 		return;
+	}
+
+	// WEAPON rows: the REAL equipped display actor floats over the spawn pad (operator design-intent
+	// ruling: weapons ON spawn pads, no towers). The actor route is the only reliable one -- the
+	// meshes live in child-BP override records invisible to SCS/CDO walks -- and the equipment actor
+	// is cosmetic-only by construction. Hidden-SkeletalMesh trap: force everything visible.
+	if (UAFLCosmeticCatalogSubsystem* WeaponCatalog = UAFLCosmeticCatalogSubsystem::Get(GetWorld()))
+	{
+		if (const UAFLWeaponCosmeticAsset* WeaponAsset =
+			Cast<UAFLWeaponCosmeticAsset>(WeaponCatalog->ResolveAsset(CosmeticId)))
+		{
+			UClass* EquipCls = WeaponAsset->EquipmentDefinition.LoadSynchronous();
+			const ULyraEquipmentDefinition* Def = EquipCls ? GetDefault<ULyraEquipmentDefinition>(EquipCls) : nullptr;
+			if (Def && Def->ActorsToSpawn.Num() > 0 && Def->ActorsToSpawn[0].ActorToSpawn)
+			{
+				FActorSpawnParameters Params;
+				Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+				Params.Owner = this;
+				DisplayPartActor = GetWorld()->SpawnActor<AActor>(Def->ActorsToSpawn[0].ActorToSpawn,
+					DisplayProp->GetComponentTransform(), Params);
+				if (DisplayPartActor)
+				{
+					DisplayPartActor->SetReplicates(false); // display copy is per-machine; never replicate
+					DisplayPartActor->AttachToComponent(DisplayProp, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+					DisplayPartActor->SetActorRelativeScale3D(Def->ActorsToSpawn[0].AttachTransform.GetScale3D());
+					DisplayPartActor->SetActorEnableCollision(false);
+					TArray<USceneComponent*> SceneComps;
+					DisplayPartActor->GetComponents<USceneComponent>(SceneComps);
+					for (USceneComponent* SC : SceneComps)
+					{
+						SC->SetHiddenInGame(false);
+						SC->SetVisibility(true, /*bPropagateToChildren*/ true);
+					}
+					UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: pad '%s' displaying weapon actor %s (%d comps unhidden)."),
+						*CosmeticId.ToString(), *GetNameSafe(DisplayPartActor), SceneComps.Num());
+					return;
+				}
+			}
+		}
 	}
 
 	// SHOP THUMBNAIL rows (facemasks all carry T_Thumb_Facemask_*): a floating upright thumbnail
@@ -323,8 +365,15 @@ void AAFLDisplayPedestal::UpdatePlate()
 			Name = Entry->DisplayName.IsEmpty() ? Name : Entry->DisplayName;
 			PriceLine = Catalog->GetEntryPriceText(*Entry);
 			bSellable = Entry->bTransactable;
-			// Lap-5 fix: free-to-all rows (weapons) read OFFLINE because they are not FOR SALE --
-			// but an entitled player can absolutely grab them. Entitled = live pad, "Free" price.
+			// CREDIT-POOL rows (the ruled weapon acquisition): live pad, price = one credit.
+			if (!bSellable && Entry->bCreditRedeemable)
+			{
+				bSellable = true;
+				PriceLine = (Entry->Type == EAFLCosmeticType::Sticker)
+					? NSLOCTEXT("AFLRetail", "OneStickerCredit", "1 STICKER CREDIT")
+					: NSLOCTEXT("AFLRetail", "OneWeaponCredit", "1 WEAPON CREDIT");
+			}
+			// Entitled rows (owned / free-granted) can always be grabbed. Entitled = live pad.
 			if (!bSellable)
 			{
 				APlayerController* LocalPC = GetWorld()->GetFirstPlayerController();
