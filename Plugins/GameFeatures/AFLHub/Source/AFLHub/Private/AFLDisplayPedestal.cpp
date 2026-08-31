@@ -85,9 +85,9 @@ void AAFLDisplayPedestal::BeginPlay()
 
 void AAFLDisplayPedestal::ResolveRetailDisplay()
 {
-	if (CosmeticId.IsNone())
+	if (CosmeticId.IsNone() || bSuppressDisplay)
 	{
-		return;
+		return; // a tower/wall parent owns the visual -- the pad is trigger + plate only
 	}
 	const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(GetWorld());
 	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;

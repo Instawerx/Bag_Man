@@ -45,6 +45,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Retail", meta = (ClampMin = "0.05", ClampMax = "2.0"))
 	float DwellSeconds = 0.35f;
 
+	/** TRUE when a parent display (weapon tower / sticker wall) owns the item visual: the pad keeps
+	 *  its plinth, plate and grab loop but resolves NO item display of its own. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
+	bool bSuppressDisplay = false;
+
 	/** Head bust the facemask display paints (the dismembered-head recipe). Operator-swappable. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
 	TSoftObjectPtr<UStaticMesh> FacemaskBustMesh =
