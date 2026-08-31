@@ -75,6 +75,27 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation, BlueprintCallable, BlueprintAuthorityOnly, Category = "AFL|Cosmetics")
 	void ServerSetCosmeticSelection(FAFLCosmeticSelection Requested);
 
+	// --- HUB TRY-ON (distributed retail S2; MAP-EXCEPTION GRANT process, operator-ruled 2026-08-31) ---
+	// Grab a retail item on a hub pad -> the server TEMP-GRANTS it (wallet transient set) and equips it
+	// through THIS component's real commit path, so the try-on is replicated truth: weapon in hands
+	// (range test-fire live), mask on the face (mirrors show it). One active try-on at a time; the
+	// server snapshots the baseline selection at first grant and restores it on release. Scope gate:
+	// the pawn must carry the hub travel component (delivered only by the hub experience) -- soft class
+	// lookup, no AFLHub link. Rate-limited server-side (grab-churn bound, plan s"cost assessment").
+
+	/** Client asks to wear/hold CosmeticId right now. Axis-classified server-side; unsupported axes refuse. */
+	UFUNCTION(Server, Reliable, WithValidation, Category = "AFL|Retail")
+	void ServerRequestTryOn(FName CosmeticId);
+
+	/** End the try-on. bKeepWearing=true after a completed purchase (real entitlement now covers the
+	 *  equip -> no restore); false = discard/exit -> restore the baseline selection. */
+	UFUNCTION(Server, Reliable, WithValidation, Category = "AFL|Retail")
+	void ServerReleaseTryOn(bool bKeepWearing);
+
+	/** The client-side mirror of the active try-on id (set locally by the retail subsystem; the server
+	 *  keeps its own authoritative copy). NAME_None = nothing on trial. */
+	FName LocalActiveTryOnId;
+
 	// --- CC-3.2 SAVED BUILDS -------------------------------------------------------------------
 	// A build is an AUTHORING layer ABOVE the proven seam, never a second thing gameplay reads.
 	// The server resolves the active build INTO Selection and the existing commit path then runs
@@ -385,6 +406,20 @@ protected:
 private:
 	/** Owning PlayerState (typed convenience; null-safe). */
 	ALyraPlayerState* GetLyraPlayerState() const;
+
+	//~ HUB TRY-ON server-side state (transient; see the RPC block above) -------------------------------
+	bool ServerRequestTryOn_Validate(FName CosmeticId) { return true; }
+	bool ServerReleaseTryOn_Validate(bool bKeepWearing) { return true; }
+
+	/** The id currently on trial (authoritative). NAME_None = none. */
+	FName ActiveTryOnId;
+
+	/** Selection snapshot taken at the FIRST grant of a try-on chain -- restored on release(false).
+	 *  Chained try-ons (pad to pad) keep the ORIGINAL baseline, never a mid-trial state. */
+	FAFLCosmeticSelection TryOnBaseline;
+
+	/** Server-side grab-churn bound (plan: "1-apply-at-a-time + dwell gate"). */
+	double LastTryOnServerTime = 0.0;
 
 	/** Resolve the entitlement source (the real UAFLWalletComponent owned-set impl -- S-ECON-WALLET). Null-tolerant:
 	 *  a missing source means basics are owned (the call sites short-circuit to allowed). */

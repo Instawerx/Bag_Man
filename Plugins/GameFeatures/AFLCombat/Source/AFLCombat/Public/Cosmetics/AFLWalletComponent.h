@@ -288,6 +288,20 @@ public:
 	 *  without spending). */
 	void DebugGrantOwnership(FName CosmeticId);
 
+	//~ HUB TRY-ON -- the MAP-EXCEPTION GRANT process (operator-ruled 2026-08-31, distributed retail S2) --
+
+	/** Grant a TRANSIENT map-scoped entitlement so the selection gate honors a try-on equip through the
+	 *  REAL seam. Server-side only, NEVER persisted, NEVER PlayFab -- dies with the PlayerState on travel.
+	 *  IsEntitled() deliberately does NOT consult this set (the store's OWNED checks must stay real
+	 *  ownership); only the loadout commit gate reads IsTempMapGranted(). Authority-only. */
+	void GrantTempMapEntitlement(FName CosmeticId);
+
+	/** Revoke a transient try-on grant (discard / pad exit / purchase completed). Authority-only. */
+	void RevokeTempMapEntitlement(FName CosmeticId);
+
+	/** Consulted by the loadout commit gate ONLY -- see GrantTempMapEntitlement. */
+	bool IsTempMapGranted(FName CosmeticId) const { return TempMapGrants.Contains(CosmeticId); }
+
 protected:
 	//~UActorComponent
 	virtual void BeginPlay() override;
@@ -397,6 +411,10 @@ private:
 	void OnRep_CountedSet();
 
 private:
+	/** HUB TRY-ON transient grants (map-exception process). Server-side only; not a UPROPERTY on purpose --
+	 *  never replicated, never serialized, gone with the PlayerState. FName set, so no GC concern. */
+	TSet<FName> TempMapGrants;
+
 	//~ Server RPC validation bodies (the _Implementation live in the .cpp) -----------------------------
 	bool ServerEarnWatts_Validate(int32 Amount) { return true; }
 	bool ServerEarnVolts_Validate(int32 Amount) { return true; }

@@ -14,6 +14,9 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"             // S-ECON-WALLET: the real IAFLEntitlementSource (layer b)
 #include "AFLCombat.h"
+#include "UI/AFLW_FrontEndMarket.h"                    // S2 try-on: ClassifyStoreAxis (id -> loadout axis)
+#include "UObject/SoftObjectPath.h"                    // S2 try-on: hub-marker soft class (no AFLHub link)
+#include "HAL/PlatformTime.h"                          // S2 try-on: server-side grab-churn bound
 #include "Cosmetics/AFLCharacterPartActor.h"           // CC-5.1: slot-1 master lookup
 #include "Components/DecalComponent.h" // emblem-channel schema probe (ChestEmblemDecal)
 #include "Components/MeshComponent.h"
@@ -220,10 +223,15 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	{
 		return (Id != NAME_None) && (!Entitlement || Entitlement->OwnsIdentity(PS, Type, Id));
 	};
+	// HUB TRY-ON (map-exception grant, operator-ruled 2026-08-31): the wallet's TRANSIENT try-on set is
+	// honored HERE and only here -- IsEntitled() itself stays real ownership so the store's OWNED checks
+	// never lie. Resolved once per commit; null-tolerant (no wallet -> no temp grants).
+	const UAFLWalletComponent* TempGrantWallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
 	auto AxisEntitled = [&](FName Id) -> bool
 	{
 		// None = "no change requested for this axis" -> treat as allowed (it just won't overwrite).
-		return (Id == NAME_None) || (!Entitlement || Entitlement->IsEntitled(PS, Id));
+		return (Id == NAME_None) || (!Entitlement || Entitlement->IsEntitled(PS, Id))
+			|| (TempGrantWallet && TempGrantWallet->IsTempMapGranted(Id));
 	};
 	// CC-2.1 CREATOR COLOUR entitlement -- shaped like AxisEntitled/IdentityOwned above.
 	// TODO(Stage B): real gate (creator-colour subscription/tier via the entitlement source). STUB-OPEN now; the
@@ -265,6 +273,12 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	// equip; None is always allowed (clearing needs no entitlement). This is the one-line the runtime equip
 	// path was missing: without it, FacemaskId never left the current value -> the server committed <none>.
 	if (Requested.FacemaskId == NAME_None || AxisEntitled(Requested.FacemaskId)) { NewSelection.FacemaskId = Requested.FacemaskId; }
+
+	// EMBLEM axis (S2 fix): the struct field existed but the gate NEVER copied it -- every emblem equip
+	// (product page, retail try-on) silently kept the prior value server-side. Facemask shape: None is a
+	// meaningful un-equip (always overwrites); a non-None equip is entitlement-gated. Callers build from
+	// GetSelection() copies, so an untouched axis carries the current value and nothing is cleared by accident.
+	if (Requested.EmblemId == NAME_None || AxisEntitled(Requested.EmblemId)) { NewSelection.EmblemId = Requested.EmblemId; }
 
 	// Step 3b -- CREATOR COLOUR OVERLAY (CC-2.1). Clamp each supplied colour into the neon gamut SERVER-SIDE and
 	// commit the CLAMPED values, NEVER the raw request. Entitlement-gated exactly as the axis ids are (Stage-B
@@ -389,6 +403,119 @@ void UAFLCosmeticLoadoutComponent::OnRep_Selection()
 
 	NudgeControllerReapply();
 	RefreshStickers();   // CC-7: stickers are not a skin change; drive them explicitly
+}
+
+// --- HUB TRY-ON (map-exception grant process; distributed retail S2) ------------------------------
+
+void UAFLCosmeticLoadoutComponent::ServerRequestTryOn_Implementation(FName CosmeticId)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || CosmeticId == NAME_None)
+	{
+		return;
+	}
+
+	// SCOPE GATE: map-exception grants exist ONLY where the hub experience delivered its travel
+	// component to this pawn. Soft class lookup -- AFLCombat must not link AFLHub (dependency points
+	// the other way); a missing class (hub plugin inactive) refuses cleanly.
+	ALyraPlayerState* PS = GetLyraPlayerState();
+	APawn* Pawn = PS ? PS->GetPawn() : nullptr;
+	UClass* HubMarker = FSoftClassPath(TEXT("/Script/AFLHub.AFLHubTravelComponent")).ResolveClass();
+	if (!Pawn || !HubMarker || !Pawn->FindComponentByClass(HubMarker))
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TRYON: '%s' REFUSED -- not a retail hub pawn (map-exception scope)."),
+			*CosmeticId.ToString());
+		return;
+	}
+
+	// Grab-churn bound (plan cost-assessment: dwell gate + 1-apply-at-a-time; this is the server half).
+	const double Now = FPlatformTime::Seconds();
+	if (Now - LastTryOnServerTime < 0.3)
+	{
+		return;
+	}
+	LastTryOnServerTime = Now;
+
+	// Only real, sellable rows get temp grants -- never an unknown id, never GRANTED/NOT-FOR-SALE stock.
+	const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(GetWorld());
+	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
+	if (!Entry || !Entry->bTransactable)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TRYON: '%s' REFUSED -- %s."),
+			*CosmeticId.ToString(), Entry ? TEXT("not transactable") : TEXT("not in the catalog"));
+		return;
+	}
+
+	EAFLLoadoutAxis Axis;
+	if (!UAFLW_FrontEndMarket::ClassifyStoreAxis(CosmeticId, Axis))
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TRYON: '%s' REFUSED -- unclassified axis."), *CosmeticId.ToString());
+		return;
+	}
+
+	FAFLCosmeticSelection Requested = Selection;
+	switch (Axis)
+	{
+	case EAFLLoadoutAxis::Weapon:     Requested.WeaponId     = CosmeticId; break;
+	case EAFLLoadoutAxis::WeaponSkin: Requested.WeaponSkinId = CosmeticId; break;
+	case EAFLLoadoutAxis::Beam:       Requested.BeamId       = CosmeticId; break;
+	case EAFLLoadoutAxis::Facemask:   Requested.FacemaskId   = CosmeticId; break;
+	case EAFLLoadoutAxis::Emblem:     Requested.EmblemId     = CosmeticId; break;
+	default:
+		// Identity / colour / sticker / accessory axes stay CARD-ONLY in S2 (buy yes, wear-on-pad no).
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: '%s' axis has no try-on shape (card-only)."), *CosmeticId.ToString());
+		return;
+	}
+
+	UAFLWalletComponent* Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+	if (!Wallet)
+	{
+		return;
+	}
+
+	// Baseline: the FIRST grant of a chain snapshots the real look; pad-to-pad chains keep the ORIGINAL
+	// baseline (never a mid-trial state), and the superseded trial's grant is revoked.
+	if (ActiveTryOnId == NAME_None)
+	{
+		TryOnBaseline = Selection;
+	}
+	else if (ActiveTryOnId != CosmeticId)
+	{
+		Wallet->RevokeTempMapEntitlement(ActiveTryOnId);
+	}
+	Wallet->GrantTempMapEntitlement(CosmeticId);
+	ActiveTryOnId = CosmeticId;
+
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: WEARING '%s' (temp grant -> real selection seam)."), *CosmeticId.ToString());
+	ServerSetCosmeticSelection(Requested); // authority-local call: the commit gate honors the temp grant
+}
+
+void UAFLCosmeticLoadoutComponent::ServerReleaseTryOn_Implementation(bool bKeepWearing)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || ActiveTryOnId == NAME_None)
+	{
+		return;
+	}
+	ALyraPlayerState* PS = GetLyraPlayerState();
+	UAFLWalletComponent* Wallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+	const FName Released = ActiveTryOnId;
+	ActiveTryOnId = NAME_None;
+	if (Wallet)
+	{
+		Wallet->RevokeTempMapEntitlement(Released);
+	}
+	if (bKeepWearing)
+	{
+		// Purchase completed -- the real entitlement now covers the equipped id; nothing to restore.
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: '%s' KEPT (purchased -- real entitlement holds the equip)."),
+			*Released.ToString());
+		return;
+	}
+	// Discard/exit -- restore the pre-trial look. Facemask (and LeftWeapon) restore even to None (their
+	// None is a meaningful un-equip). KNOWN S2 GAP: a None baseline on the Weapon/Beam/Emblem/WeaponSkin
+	// axes cannot be restored by the request shape (non-None-overwrite) -- Weapon is never None in
+	// practice; the Beam/Emblem/WeaponSkin None-baseline stick is ticketed in the retail plan.
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: '%s' DISCARDED -- baseline restored."), *Released.ToString());
+	ServerSetCosmeticSelection(TryOnBaseline);
 }
 
 ALyraPlayerState* UAFLCosmeticLoadoutComponent::GetLyraPlayerState() const

@@ -1,4 +1,16 @@
-# DISTRIBUTED RETAIL — design/plan (operator pivot, 2026-08-31; PLAN ONLY, build gated on approval)
+# DISTRIBUTED RETAIL — design/plan (operator pivot, 2026-08-31; S2 BUILD GREENLIT same day)
+
+> **S2 greenlight (operator, verbatim):** "Continuously work through our new plan until ready for
+> placement pass, cart checkout: till / chip-anywhere / both — **Both** but make it easily minimized
+> or opened at player discretion. Non intrusive best practices, comfort and ease not pushy or
+> desperate. Range rule: **test-fire yes but no players can die on our Lobby map. No Kills allowed.**"
+>
+> **Try-on mechanism (operator, same day): "temporary or map exception Grant process."** The try-on
+> is NOT a client-local visual fake: the server grants a TRANSIENT map-scoped entitlement (wallet
+> `TempMapGrants`, never persisted/PlayFab, dies with the PlayerState) and equips through the REAL
+> selection seam. The weapon is genuinely in your hands (range test-fire live), the mask genuinely
+> on (mirrors show replicated truth); discard/exit revokes + restores the server-side baseline
+> snapshot. Scope-gated to hub pawns (hub travel component marker), rate-limited server-side.
 
 Supersedes the centralized-store layout half of `PX_STORE_BUILD_RULINGS.md` (the six-tab economy
 rulings D-1..D-11 stand unchanged; the SURFACE model pivots). Parent authority:
@@ -130,7 +142,29 @@ placed per building.
   there; operator adjusts final placement.
 - Weapons @ Shooting Range, slot packs @ RoboLabs front: pending their anchor passes.
 
-## Still open (operator)
+## Ruled (operator, 2026-08-31)
 
-- Cart checkout point: at a till, from the chip anywhere, or both.
-- Range try-fire: live-fire before buying, or hold-only?
+- Cart checkout: **BOTH** — till pad and from-chip anywhere; chip minimized/opened at player
+  discretion ([V]). Non-intrusive best practices; one confirm, never per item.
+- Range try-fire: **live-fire yes**; **NO KILLS on the lobby map** — every hub player carries
+  `Gameplay.DamageImmunity` (the Lyra health set zeroes all damage on it) via the net-profile
+  component's dynamic-tag GE. Firing stays fully live for the range demo.
+
+## S2 build (landed 2026-08-31 — pending PIE proof)
+
+| Piece | Home | Shape |
+|---|---|---|
+| Map-exception grant | `AFLWalletComponent` (`TempMapGrants` + grant/revoke/query) + loadout commit gate temp clause | transient, server-only; `IsEntitled` stays REAL ownership |
+| Try-on RPCs | `UAFLCosmeticLoadoutComponent::ServerRequestTryOn/ServerReleaseTryOn` | hub-marker scope gate, 0.3s churn bound, baseline snapshot, keep-on-purchase |
+| Orchestrator | `UAFLRetailSubsystem` (AFLCombat, GameInstance subsystem) | pads/till feed it; owns dwell/press arm, card, cart, checkout, keys E/F/C/Q/V/X (non-consuming) |
+| Small card | `UAFLW_RetailCard` | corner, C++-built, no input steal; BUY two-tap / CART / DISCARD / DETAILS→product page |
+| Cart chip | `UAFLW_RetailCartChip` | top-right, [V] open/min, [X] one-confirm checkout, sequential grants + honest sweep |
+| Grab pad | `AAFLDisplayPedestal` (evolved) | tight 90cm box, dwell/press knob, at-item-only LOS-occluded plate, optional DisplayProp mesh |
+| Till | `AAFLRetailTill` | counter box + sign; walking up opens the chip expanded |
+| Mirror | `AAFLHubMirror` (+`UAFLHubMirrorWidget`) | s5: capture off by default, wake box, show-only you+attached, RT into a world widget |
+| No-kill law | `UAFLHubNetProfileComponent` | `Gameplay.DamageImmunity` dynamic-tag GE at ASC bind (authority) |
+| Emblem gate fix | loadout commit | `EmblemId` was NEVER copied by the gate — every emblem equip silently no-opped; fixed facemask-shaped |
+
+Known S2 gaps (ticketed): a None-baseline restore sticks on Weapon/Beam/Emblem/WeaponSkin axes
+(facemask restores clean — its None is a meaningful un-equip); ESC not bound to discard (Q is —
+raw ESC collides with the pause menu); gamepad pass minimal (FaceButton-Left = grab/details only).

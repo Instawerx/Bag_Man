@@ -8,6 +8,7 @@
 #include "AFLHubZoneProfiles.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "AbilitySystem/LyraAbilitySystemComponent.h" // NO-KILL law: dynamic-tag GE (the God-cheat mechanism)
 #include "Character/LyraPawnExtensionComponent.h"
 #include "Engine/ReplicatedState.h"
 #include "GameFramework/Actor.h"
@@ -71,6 +72,28 @@ void UAFLHubNetProfileComponent::BindToAbilitySystem(UAbilitySystemComponent* In
 	{
 		UnbindFromAbilitySystem(); // controller swap -> fresh PlayerState ASC
 	}
+
+	// NO-KILL LAW (operator-ruled 2026-08-31, distributed retail S2): "test-fire yes but no players
+	// can die on our Lobby map." Every hub player gets Gameplay.DamageImmunity -- ULyraHealthSet
+	// zeroes ALL incoming damage on a target holding it, while firing itself stays fully live (the
+	// range demo works, nobody drops). Granted the CANONICAL Lyra way: the same dynamic-tag
+	// GameplayEffect the God cheat uses (doctrine: immunity is a GE, never a bare flag). Authority
+	// applies; the GE replicates. Sits ABOVE the ZoneProfiles gate on purpose -- the law holds even
+	// on a pawn with no zone DA. Idempotent via the tag check.
+	if (AActor* OwnerActor = GetOwner(); OwnerActor && OwnerActor->HasAuthority())
+	{
+		if (ULyraAbilitySystemComponent* LyraASC = Cast<ULyraAbilitySystemComponent>(InASC))
+		{
+			const FGameplayTag Immunity = FGameplayTag::RequestGameplayTag(TEXT("Gameplay.DamageImmunity"), false);
+			if (Immunity.IsValid() && !LyraASC->HasMatchingGameplayTag(Immunity))
+			{
+				LyraASC->AddDynamicTagGameplayEffect(Immunity);
+				UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: NO-KILL law applied to %s (Gameplay.DamageImmunity via dynamic-tag GE)."),
+					*GetNameSafe(OwnerActor));
+			}
+		}
+	}
+
 	if (!ZoneProfiles)
 	{
 		UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBNET: %s has no ZoneProfiles DA -- frequency/quantisation applied, zone culling inert."),

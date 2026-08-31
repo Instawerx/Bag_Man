@@ -2,6 +2,8 @@
 
 #include "Cosmetics/AFLWalletComponent.h"
 
+#include "AFLCombat.h"                                  // LogAFLCombat (AFL_TRYON temp-grant diag)
+
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h"  // Phase A0: local SaveGame persistence -- the GetPersistence() swap point
 #include "AFLOnlineSubsystem.h"                         // A1.1: PlayFabId = the durable account key for MakePlayerId
 #include "Dom/JsonObject.h"
@@ -1025,6 +1027,24 @@ void UAFLWalletComponent::DebugGrantOwnership(FName CosmeticId)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority() || CosmeticId == NAME_None) { return; }
 	CommitMutation(0, 0, CosmeticId, TEXT("DebugGrant"));
+}
+
+// -- HUB TRY-ON map-exception grants (operator-ruled 2026-08-31). Transient by construction: plain TSet,
+// no replication, no persistence call -- the ONLY consumer is the loadout commit gate's temp clause.
+void UAFLWalletComponent::GrantTempMapEntitlement(FName CosmeticId)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || CosmeticId == NAME_None) { return; }
+	TempMapGrants.Add(CosmeticId);
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: temp grant '%s' (map exception, transient)."), *CosmeticId.ToString());
+}
+
+void UAFLWalletComponent::RevokeTempMapEntitlement(FName CosmeticId)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || CosmeticId == NAME_None) { return; }
+	if (TempMapGrants.Remove(CosmeticId) > 0)
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: temp grant '%s' revoked."), *CosmeticId.ToString());
+	}
 }
 
 // The single authority commit point: apply the delta + optional grant, replicate (DOREPLIFETIME), persist,

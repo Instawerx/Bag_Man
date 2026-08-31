@@ -6,25 +6,23 @@
 #include "AFLHubSignWidget.h"
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "AFLCosmeticCoreTypes.h"
-#include "CommonActivatableWidget.h"
-#include "CommonUIExtensions.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/BoxComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Components/WidgetComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
-#include "GameplayTagContainer.h"
-#include "InputCoreTypes.h"
-#include "Components/InputComponent.h"
 #include "TimerManager.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLDisplayPedestal)
 
 AAFLDisplayPedestal::AAFLDisplayPedestal()
 {
-	// Shelf-sized engage trigger, the door PromptBox pattern scaled to a display fixture.
+	// TIGHT pad (operator law: the item's own footprint, ~1m -- crossing a shop floor never dresses you).
 	ShelfBox = CreateDefaultSubobject<UBoxComponent>(TEXT("ShelfBox"));
 	ShelfBox->SetupAttachment(RootComponent);
-	ShelfBox->SetBoxExtent(FVector(160.f, 160.f, 120.f));
+	ShelfBox->SetBoxExtent(FVector(90.f, 90.f, 110.f));
 	ShelfBox->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	ShelfBox->SetCollisionResponseToAllChannels(ECR_Ignore);
 	ShelfBox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
@@ -34,6 +32,11 @@ AAFLDisplayPedestal::AAFLDisplayPedestal()
 	PlateWidget->SetRelativeLocation(FVector(0.f, 0.f, 170.f));
 	PlateWidget->SetWidgetSpace(EWidgetSpace::Screen);
 	PlateWidget->SetDrawAtDesiredSize(true);
+
+	DisplayProp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DisplayProp"));
+	DisplayProp->SetupAttachment(RootComponent);
+	DisplayProp->SetRelativeLocation(FVector(0.f, 0.f, 60.f));
+	DisplayProp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 
 void AAFLDisplayPedestal::BeginPlay()
@@ -47,8 +50,9 @@ void AAFLDisplayPedestal::BeginPlay()
 	}
 
 	PlateWidget->SetWidgetClass(UAFLHubSignWidget::StaticClass());
-	ShelfBox->OnComponentBeginOverlap.AddDynamic(this, &AAFLDisplayPedestal::OnShelfBeginOverlap);
-	ShelfBox->OnComponentEndOverlap.AddDynamic(this, &AAFLDisplayPedestal::OnShelfEndOverlap);
+	PlateWidget->SetVisibility(false); // at-item only; UpdatePlate raises it inside 4m with LOS
+	ShelfBox->OnComponentBeginOverlap.AddDynamic(this, &AAFLDisplayPedestal::OnPadBeginOverlap);
+	ShelfBox->OnComponentEndOverlap.AddDynamic(this, &AAFLDisplayPedestal::OnPadEndOverlap);
 	GetWorldTimerManager().SetTimer(PlateTimer, this, &AAFLDisplayPedestal::UpdatePlate, 0.5f, true);
 	UpdatePlate();
 }
@@ -58,16 +62,23 @@ void AAFLDisplayPedestal::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(PlateTimer);
+		if (bPawnAtShelf)
+		{
+			if (UAFLRetailSubsystem* Retail = UAFLRetailSubsystem::Get(this))
+			{
+				Retail->PadLeft(CosmeticId);
+			}
+		}
 	}
 	Super::EndPlay(EndPlayReason);
 }
 
 void AAFLDisplayPedestal::AttemptPickUpWeapon_Implementation(APawn* /*Pawn*/)
 {
-	// RETAIL: the pad never grants. Deliberately empty -- engagement (E at the shelf) is the verb.
+	// RETAIL: the pad never grants by touch. Deliberately empty -- the subsystem owns the verbs.
 }
 
-void AAFLDisplayPedestal::OnShelfBeginOverlap(UPrimitiveComponent*, AActor* OtherActor,
+void AAFLDisplayPedestal::OnPadBeginOverlap(UPrimitiveComponent*, AActor* OtherActor,
 	UPrimitiveComponent*, int32, bool, const FHitResult&)
 {
 	APawn* Pawn = Cast<APawn>(OtherActor);
@@ -76,27 +87,15 @@ void AAFLDisplayPedestal::OnShelfBeginOverlap(UPrimitiveComponent*, AActor* Othe
 		return;
 	}
 	bPawnAtShelf = true;
-
-	// LAZY engage bind at the first at-shelf moment (the proven door pattern verbatim).
-	if (!bEngageBound)
+	if (UAFLRetailSubsystem* Retail = UAFLRetailSubsystem::Get(this))
 	{
-		if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
-		{
-			if (PC->IsLocalController() && PC->InputComponent)
-			{
-				FInputKeyBinding& KB = PC->InputComponent->BindKey(EKeys::E, IE_Pressed, this, &AAFLDisplayPedestal::OnEngagePressed);
-				KB.bConsumeInput = false;
-				FInputKeyBinding& GB = PC->InputComponent->BindKey(EKeys::Gamepad_FaceButton_Left, IE_Pressed, this, &AAFLDisplayPedestal::OnEngagePressed);
-				GB.bConsumeInput = false;
-				bEngageBound = true;
-			}
-		}
+		Retail->PadEntered(CosmeticId, ArmMode, DwellSeconds, Pawn);
 	}
 	UpdatePlate();
-	UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: AT-SHELF '%s'."), *CosmeticId.ToString());
+	UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: ON-PAD '%s'."), *CosmeticId.ToString());
 }
 
-void AAFLDisplayPedestal::OnShelfEndOverlap(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveComponent*, int32)
+void AAFLDisplayPedestal::OnPadEndOverlap(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveComponent*, int32)
 {
 	APawn* Pawn = Cast<APawn>(OtherActor);
 	if (!Pawn || !Pawn->IsLocallyControlled())
@@ -104,42 +103,11 @@ void AAFLDisplayPedestal::OnShelfEndOverlap(UPrimitiveComponent*, AActor* OtherA
 		return;
 	}
 	bPawnAtShelf = false;
+	if (UAFLRetailSubsystem* Retail = UAFLRetailSubsystem::Get(this))
+	{
+		Retail->PadLeft(CosmeticId);
+	}
 	UpdatePlate();
-}
-
-void AAFLDisplayPedestal::OnEngagePressed()
-{
-	if (!bPawnAtShelf || CosmeticId.IsNone())
-	{
-		return;
-	}
-	UClass* PageClass = LoadClass<UCommonActivatableWidget>(nullptr, *ProductPageClassPath);
-	if (!PageClass)
-	{
-		UE_LOG(LogAFLHub, Warning, TEXT("AFL_RETAIL: '%s' product page class '%s' did not resolve."),
-			*CosmeticId.ToString(), *ProductPageClassPath);
-		return;
-	}
-	APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
-	ULocalPlayer* LP = PC ? PC->GetLocalPlayer() : nullptr;
-	if (!LP)
-	{
-		return;
-	}
-	UCommonActivatableWidget* Page = UCommonUIExtensions::PushContentToLayer_ForPlayer(LP,
-		FGameplayTag::RequestGameplayTag(TEXT("UI.Layer.Menu")), TSubclassOf<UCommonActivatableWidget>(PageClass));
-	UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: ENGAGE '%s' -> %s."), *CosmeticId.ToString(), *GetNameSafe(PageClass));
-
-	// Hand the SKU over reflectively -- the page lives in AFLCombat; AFLHub fronts seams, never
-	// links UI internals (the ProcessEvent recipe, same as the quickbar reach).
-	if (Page)
-	{
-		if (UFunction* Fn = Page->FindFunction(FName(TEXT("FocusCosmeticId"))))
-		{
-			struct { FName Id; } Args{ CosmeticId };
-			Page->ProcessEvent(Fn, &Args);
-		}
-	}
 }
 
 void AAFLDisplayPedestal::UpdatePlate()
@@ -149,6 +117,28 @@ void AAFLDisplayPedestal::UpdatePlate()
 	{
 		return;
 	}
+
+	// AT-ITEM ONLY (plan bug-fix 1): the plate renders inside 4m WITH line of sight -- never through
+	// walls, never across the venue. Distance tiers are retired for products (door signs keep theirs).
+	APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	const float Meters = Pawn ? FVector::Dist(Pawn->GetActorLocation(), GetActorLocation()) / 100.f : 999.f;
+	bool bShow = bPawnAtShelf || Meters < 4.f;
+	if (bShow && Pawn && PC && PC->PlayerCameraManager)
+	{
+		FHitResult Hit;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(RetailPlateLOS), false, this);
+		Params.AddIgnoredActor(Pawn);
+		const FVector From = PC->PlayerCameraManager->GetCameraLocation();
+		const FVector To = GetActorLocation() + FVector(0.f, 0.f, 120.f);
+		bShow = !GetWorld()->LineTraceSingleByChannel(Hit, From, To, ECC_Visibility, Params);
+	}
+	PlateWidget->SetVisibility(bShow);
+	if (!bShow)
+	{
+		return;
+	}
+
 	FText Name = FText::FromName(CosmeticId);
 	FText PriceLine = FText::GetEmpty();
 	bool bSellable = false;
@@ -161,8 +151,5 @@ void AAFLDisplayPedestal::UpdatePlate()
 			bSellable = Entry->bTransactable;
 		}
 	}
-	APawn* Pawn = GetWorld() && GetWorld()->GetFirstPlayerController() ? GetWorld()->GetFirstPlayerController()->GetPawn() : nullptr;
-	const float Meters = Pawn ? FVector::Dist(Pawn->GetActorLocation(), GetActorLocation()) / 100.f : 999.f;
-	const EAFLHubSignTier Tier = (bPawnAtShelf || Meters < 6.f) ? EAFLHubSignTier::AtDoor : (Meters < 20.f ? EAFLHubSignTier::Mid : EAFLHubSignTier::Far);
-	Plate->SetSignData(Name, PriceLine, bSellable, Tier, Meters, nullptr);
+	Plate->SetSignData(Name, PriceLine, bSellable, EAFLHubSignTier::AtDoor, Meters, nullptr);
 }

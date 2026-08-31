@@ -4,25 +4,26 @@
 
 #include "WeaponSpawns/AFLWeaponSpawner.h"
 #include "Engine/TimerHandle.h"
+#include "Retail/AFLRetailSubsystem.h" // EAFLGrabArmMode (the operator's dwell/press knob)
 
 #include "AFLDisplayPedestal.generated.h"
 
 class UBoxComponent;
+class UStaticMeshComponent;
 class UWidgetComponent;
-class UInputComponent;
 
 /**
- * AAFLDisplayPedestal  (PX retail framework -- MAIN_MAP_LOBBY_SYSTEM_HELPER s4 / LOBBY_UPGRADE_DOC)
+ * AAFLDisplayPedestal -- the GRAB PAD (distributed retail S2, PX_DISTRIBUTED_RETAIL_PLAN).
  *
- * "Use map weapon spawner systems recolored for our store -- gives us all the functionality we
- * need and AAA Display" (operator directive, verbatim). This IS the proven weapon-spawner pad,
- * re-purposed: the pad's registry-driven weapon display stays; the GRANT is replaced by RETAIL
- * ENGAGEMENT -- at the shelf, E opens the product page focused on this pedestal's catalog row.
+ * Evolved from the centralized-store shelf pedestal at the operator pivot (2026-08-31): the pad IS
+ * the product now. Step onto the tight pad -> the retail subsystem arms the try-on (dwell or E, the
+ * INTENTIONAL-pickup knob), the server map-exception grant equips it through the REAL selection seam
+ * (wearing the mask / holding the weapon), and the small corner card opens. Step off unbought -> the
+ * server restores your look. All UX lives in UAFLRetailSubsystem (AFLCombat); this actor is the
+ * trigger + the display fixture, nothing more.
  *
- * Client-local by doctrine (s4: shopping visuals cost the server nothing): the plate widget and
- * the engage keys exist only on the local client; AttemptPickUpWeapon is overridden to a no-op
- * so walking over the pad never grants. Purchase validation stays server/PlayFab-side, reached
- * through the product page's wallet calls -- this actor never touches currency.
+ * Client-local by doctrine (helper s4): overlap events feed a client subsystem; the server sees only
+ * the try-on/purchase RPCs. AttemptPickUpWeapon stays a no-op -- the pad never grants by touch.
  */
 UCLASS(Blueprintable, BlueprintType)
 class AFLHUB_API AAFLDisplayPedestal : public AAFLWeaponSpawner
@@ -32,42 +33,49 @@ class AFLHUB_API AAFLDisplayPedestal : public AAFLWeaponSpawner
 public:
 	AAFLDisplayPedestal();
 
-	/** The catalog row this pedestal sells (AFL.<Type>.<Name>). Display name/price resolve live. */
+	/** The catalog row this pad sells (AFL.<Type>.<Name>). Display name/price resolve live. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
 	FName CosmeticId;
 
-	/** The product-page widget class the engage push opens (soft path -- content stays data). */
+	/** INTENTIONAL-pickup knob (operator playtest call, plan s"INTENTIONAL pickups"): dwell arms after
+	 *  DwellSeconds on the pad; Press waits for an explicit E-grab. Both ship; default dwell. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
-	FString ProductPageClassPath = TEXT("/Script/AFLCombat.AFLW_ProductPage");
+	EAFLGrabArmMode ArmMode = EAFLGrabArmMode::Dwell;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Retail", meta = (ClampMin = "0.05", ClampMax = "2.0"))
+	float DwellSeconds = 0.35f;
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	/** RETAIL OVERRIDE: the pad never grants. Engagement is the only verb. */
+	/** RETAIL OVERRIDE: the pad never grants by touch. The subsystem owns the whole verb set. */
 	virtual void AttemptPickUpWeapon_Implementation(APawn* Pawn) override;
 
 	UFUNCTION()
-	void OnShelfBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+	void OnPadBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	UFUNCTION()
-	void OnShelfEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+	void OnPadEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
-	void OnEngagePressed();
 	void UpdatePlate();
 
-	/** At-shelf trigger (the door PromptBox pattern, shelf-sized). */
+	/** TIGHT arm trigger (~1m -- the item's own footprint, never zone-sized; operator law). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
 	TObjectPtr<UBoxComponent> ShelfBox;
 
-	/** Floating product plate (name + price + ENTER), screen-space like the door signs. */
+	/** Product plate: AT-ITEM ONLY (<=4m + line of sight -- the plate-through-walls bug, fixed by rule). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
 	TObjectPtr<UWidgetComponent> PlateWidget;
 
+	/** Optional display prop for non-weapon rows (mask bust / jewellery case) while the spawner half
+	 *  only knows weapon meshes. Operator/artist assigns per placement; empty = spawner display only. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
+	TObjectPtr<UStaticMeshComponent> DisplayProp;
+
 private:
 	bool bPawnAtShelf = false;
-	bool bEngageBound = false;
 	FTimerHandle PlateTimer;
 };
