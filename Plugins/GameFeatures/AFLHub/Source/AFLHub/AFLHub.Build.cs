@@ -28,6 +28,8 @@ public class AFLHub : ModuleRules
 				// AAFLWeaponSpawner + UAFLWeaponSpawnRegistry -- the proven pad pattern the
 				// display pedestal subclasses (HUB-READ-1 s3). Always-loaded plugin, safe direction.
 				"AFLGameCore",
+				// PX retail: pedestal plates resolve name/price straight off the catalog (s4).
+				"AFLCosmeticCore",
 				// Doctrine: every net-serialised struct lives in an always-loaded module.
 				"AFLNetTypes",
 				"AFLVFX",

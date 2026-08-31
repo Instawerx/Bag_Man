@@ -91,8 +91,12 @@ protected:
 	/** Bound (AddUObject) to the store ListView's NATIVE OnItemSelectionChanged (the BP one is private). Item ==
 	 *  the newly selected entry, or nullptr on full deselect. */
 	void OnStoreItemSelectionChanged(UObject* Item);
-	/** CosmeticId namespace -> loadout axis (the reverse of the store-tab taxonomy). False if unclassifiable. */
+public:
+	/** CosmeticId namespace -> loadout axis (the reverse of the store-tab taxonomy). False if
+	 *  unclassifiable. PUBLIC: the product page (AFL-3250) classifies through the same one map. */
 	static bool ClassifyStoreAxis(FName CosmeticId, EAFLLoadoutAxis& OutAxis);
+
+protected:
 	/** Clear any active store preview -> the display robot returns to the player's real saved loadout. */
 	void RevertStorePreview();
 
