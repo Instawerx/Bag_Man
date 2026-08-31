@@ -9,6 +9,13 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystem/LyraAbilitySystemComponent.h" // NO-KILL law: dynamic-tag GE (the God-cheat mechanism)
+#include "System/LyraAssetManager.h"                   // NO-KILL: resolve the dynamic-tag GE class
+#include "System/LyraGameData.h"                       // NO-KILL: DynamicTagGameplayEffect soft ref
+#include "GameplayEffect.h"                            // NO-KILL: spec build on the raw ASC
+#include "Character/LyraHealthComponent.h"            // respawn safety net: death watch
+#include "GameModes/LyraGameMode.h"                    // respawn safety net: RequestPlayerRestartNextFrame
+#include "GameFramework/Pawn.h"
+#include "GameFramework/Controller.h"
 #include "Character/LyraPawnExtensionComponent.h"
 #include "Engine/ReplicatedState.h"
 #include "GameFramework/Actor.h"
@@ -27,6 +34,18 @@ void UAFLHubNetProfileComponent::BeginPlay()
 	// Frequency + quantisation land unconditionally (server writes the wire format; the owning
 	// client's copy keeps CDO expectations coherent -- the AC's "authority + owning client").
 	ApplyNetPosture();
+
+	// HUB RESPAWN SAFETY NET: DamageImmunity (below) stops weapon damage, but Lyra's SelfDestruct
+	// path (KillZ / fell-out-of-world) bypasses immunity BY DESIGN -- and the hub experience runs no
+	// shooter respawn rule, so a dead player sat dead forever (lap-3). Authority watches the pawn's
+	// death and requests the stock Lyra restart.
+	if (AActor* NetOwner = GetOwner(); NetOwner && NetOwner->HasAuthority())
+	{
+		if (ULyraHealthComponent* Health = ULyraHealthComponent::FindHealthComponent(NetOwner))
+		{
+			Health->OnDeathFinished.AddDynamic(this, &UAFLHubNetProfileComponent::HandleDeathFinished);
+		}
+	}
 
 	// ASC resolve: DIRECT first, PawnExtension hook as the fallback for the possessed PLAYER whose
 	// PlayerState ASC lands after pawn BeginPlay. The Sprint/Dash/Death proven bind, verbatim.
@@ -49,6 +68,25 @@ void UAFLHubNetProfileComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 	UnbindFromAbilitySystem();
 	RestoreNetPosture();
 	Super::EndPlay(EndPlayReason);
+}
+
+void UAFLHubNetProfileComponent::HandleDeathFinished(AActor* /*OwningActor*/)
+{
+	APawn* Pawn = Cast<APawn>(GetOwner());
+	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
+	UWorld* World = GetWorld();
+	ALyraGameMode* GameMode = World ? World->GetAuthGameMode<ALyraGameMode>() : nullptr;
+	if (Controller && GameMode)
+	{
+		UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: death on the lobby (immunity-bypassing source) -> respawn requested for %s."),
+			*GetNameSafe(Controller));
+		GameMode->RequestPlayerRestartNextFrame(Controller, /*bForceReset*/ true);
+	}
+	else
+	{
+		UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBNET: death seen but no controller/GameMode to respawn (%s / %s)."),
+			*GetNameSafe(Controller), *GetNameSafe(GameMode));
+	}
 }
 
 void UAFLHubNetProfileComponent::OnAbilitySystemReady()
@@ -75,22 +113,51 @@ void UAFLHubNetProfileComponent::BindToAbilitySystem(UAbilitySystemComponent* In
 
 	// NO-KILL LAW (operator-ruled 2026-08-31, distributed retail S2): "test-fire yes but no players
 	// can die on our Lobby map." Every hub player gets Gameplay.DamageImmunity -- ULyraHealthSet
-	// zeroes ALL incoming damage on a target holding it, while firing itself stays fully live (the
-	// range demo works, nobody drops). Granted the CANONICAL Lyra way: the same dynamic-tag
-	// GameplayEffect the God cheat uses (doctrine: immunity is a GE, never a bare flag). Authority
-	// applies; the GE replicates. Sits ABOVE the ZoneProfiles gate on purpose -- the law holds even
-	// on a pawn with no zone DA. Idempotent via the tag check.
+	// zeroes ALL incoming damage on a target holding it (the AFL exec calc emits health damage
+	// through that same meta attribute), while firing stays fully live. Applied as the SAME
+	// dynamic-tag GE the God cheat uses -- but spec-built directly on the RAW ASC: lap-3 died
+	// because the pawn's ASC is not guaranteed to be ULyraAbilitySystemComponent (self-ASC'd pawn
+	// law) and the old Cast<> guard SKIPPED SILENTLY. Every refusal branch now logs; sits ABOVE the
+	// ZoneProfiles gate so the law holds even on a pawn with no zone DA. Idempotent via the tag check.
 	if (AActor* OwnerActor = GetOwner(); OwnerActor && OwnerActor->HasAuthority())
 	{
-		if (ULyraAbilitySystemComponent* LyraASC = Cast<ULyraAbilitySystemComponent>(InASC))
+		const FGameplayTag Immunity = FGameplayTag::RequestGameplayTag(TEXT("Gameplay.DamageImmunity"), false);
+		if (!Immunity.IsValid())
 		{
-			const FGameplayTag Immunity = FGameplayTag::RequestGameplayTag(TEXT("Gameplay.DamageImmunity"), false);
-			if (Immunity.IsValid() && !LyraASC->HasMatchingGameplayTag(Immunity))
+			UE_LOG(LogAFLHub, Error, TEXT("AFL_HUBNET: NO-KILL FAILED -- Gameplay.DamageImmunity tag not registered."));
+		}
+		else if (InASC->HasMatchingGameplayTag(Immunity))
+		{
+			UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: NO-KILL already held by %s."), *GetNameSafe(OwnerActor));
+		}
+		else if (const TSubclassOf<UGameplayEffect> DynamicTagGE =
+			ULyraAssetManager::GetSubclass(ULyraGameData::Get().DynamicTagGameplayEffect))
+		{
+			const FGameplayEffectSpecHandle SpecHandle = InASC->MakeOutgoingSpec(DynamicTagGE, 1.0f, InASC->MakeEffectContext());
+			if (FGameplayEffectSpec* Spec = SpecHandle.Data.Get())
 			{
-				LyraASC->AddDynamicTagGameplayEffect(Immunity);
-				UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: NO-KILL law applied to %s (Gameplay.DamageImmunity via dynamic-tag GE)."),
-					*GetNameSafe(OwnerActor));
+				Spec->DynamicGrantedTags.AddTag(Immunity);
+				// Lobby decorum rider: the AFL exec calc guards only LYRA health -- zone drains could
+				// still SEVER an immune player's limb mid-test-fire. The calc honors this tag; grant
+				// it in the same effect so no-kill also means no-dismember on the lobby.
+				const FGameplayTag NoDismember = FGameplayTag::RequestGameplayTag(TEXT("State.Mode.NoDismember"), false);
+				if (NoDismember.IsValid())
+				{
+					Spec->DynamicGrantedTags.AddTag(NoDismember);
+				}
+				InASC->ApplyGameplayEffectSpecToSelf(*Spec);
+				UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: NO-KILL law applied to %s (DamageImmunity now %s)."),
+					*GetNameSafe(OwnerActor),
+					InASC->HasMatchingGameplayTag(Immunity) ? TEXT("HELD") : TEXT("MISSING -- INVESTIGATE"));
 			}
+			else
+			{
+				UE_LOG(LogAFLHub, Error, TEXT("AFL_HUBNET: NO-KILL FAILED -- could not build the dynamic-tag spec."));
+			}
+		}
+		else
+		{
+			UE_LOG(LogAFLHub, Error, TEXT("AFL_HUBNET: NO-KILL FAILED -- DynamicTagGameplayEffect missing from LyraGameData."));
 		}
 	}
 

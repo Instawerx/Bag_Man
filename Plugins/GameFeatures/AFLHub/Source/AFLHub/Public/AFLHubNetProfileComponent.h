@@ -62,6 +62,12 @@ private:
 	/** Deferred-player ASC-ready callback (PawnExtension hook; Sprint pattern). */
 	void OnAbilitySystemReady();
 
+	/** HUB RESPAWN SAFETY NET (lap-3: a KillZ/self-destruct death bypasses DamageImmunity BY LYRA
+	 *  DESIGN, and the hub experience carries no shooter respawn rule -- the operator died and sat
+	 *  dead forever). Authority-only death watch -> the stock Lyra restart request. */
+	UFUNCTION()
+	void HandleDeathFinished(AActor* OwningActor);
+
 	void BindToAbilitySystem(UAbilitySystemComponent* InASC);
 	void UnbindFromAbilitySystem();
 

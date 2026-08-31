@@ -75,8 +75,11 @@ private:
 	void ArmTryOn();
 	void CloseCurrent(bool bReleaseServer);
 
-	//~ Key handlers (bConsumeInput=false; guarded by state so idle presses cost nothing) ---------------
+	//~ Key handlers (persistent E/V/X non-consuming; card-scoped F/C/Q CONSUMING -- the Q/grenade
+	//~ collision fix: gameplay abilities never see card action keys while a card is open) -------------
 	void EnsureKeyBinds(APawn* LocalPawn);
+	void BindCardKeys();
+	void UnbindCardKeys();
 	void OnKeyGrabDetails();  // E
 	void OnKeyBuy();          // F
 	void OnKeyCart();         // C
@@ -124,6 +127,7 @@ private:
 	TArray<FName> CartIds;
 	bool bChipExpanded = false;
 	bool bAtTill = false;
+	bool bCardKeysBound = false;
 
 	FTimerHandle DwellTimer;
 	FTimerHandle GrantPollTimer;

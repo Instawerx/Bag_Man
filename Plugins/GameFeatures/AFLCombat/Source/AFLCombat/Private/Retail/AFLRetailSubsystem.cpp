@@ -154,7 +154,9 @@ void UAFLRetailSubsystem::EnsureKeyBinds(APawn* InLocalPawn)
 	{
 		return;
 	}
-	// The proven door lazy-bind pattern, retail-wide: never consuming, state-guarded handlers.
+	// PERSISTENT, non-consuming (the door lazy-bind pattern): only keys with no gameplay collision.
+	// The card's action keys (F/C/Q) are NOT here -- lap-3 found Q double-fired the GRENADE ability
+	// and the operator blew themselves up mid-discard. Those bind CONSUMING, card-scoped, below.
 	auto Bind = [&](const FKey& Key, void (UAFLRetailSubsystem::*Fn)())
 	{
 		FInputKeyBinding& KB = PC->InputComponent->BindKey(Key, IE_Pressed, this, Fn);
@@ -162,13 +164,52 @@ void UAFLRetailSubsystem::EnsureKeyBinds(APawn* InLocalPawn)
 	};
 	Bind(EKeys::E, &UAFLRetailSubsystem::OnKeyGrabDetails);
 	Bind(EKeys::Gamepad_FaceButton_Left, &UAFLRetailSubsystem::OnKeyGrabDetails);
-	Bind(EKeys::F, &UAFLRetailSubsystem::OnKeyBuy);
-	Bind(EKeys::C, &UAFLRetailSubsystem::OnKeyCart);
-	Bind(EKeys::Q, &UAFLRetailSubsystem::OnKeyDiscard);
 	Bind(EKeys::V, &UAFLRetailSubsystem::OnKeyChipToggle);
 	Bind(EKeys::X, &UAFLRetailSubsystem::OnKeyCheckout);
 	BoundPC = PC;
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_RETAIL: keys armed (E/F/C/Q/V/X, non-consuming)."));
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_RETAIL: persistent keys armed (E/V/X, non-consuming)."));
+}
+
+void UAFLRetailSubsystem::BindCardKeys()
+{
+	APlayerController* PC = GetLocalPC();
+	if (bCardKeysBound || !PC || !PC->InputComponent)
+	{
+		return;
+	}
+	// CARD-SCOPED, CONSUMING: while the card is open, F/C/Q belong to retail and gameplay abilities
+	// on those keys (grenade on Q!) never see the press. Removed the moment the card closes, so the
+	// grenade works everywhere else in the hub.
+	auto Bind = [&](const FKey& Key, void (UAFLRetailSubsystem::*Fn)())
+	{
+		FInputKeyBinding& KB = PC->InputComponent->BindKey(Key, IE_Pressed, this, Fn);
+		KB.bConsumeInput = true;
+	};
+	Bind(EKeys::F, &UAFLRetailSubsystem::OnKeyBuy);
+	Bind(EKeys::C, &UAFLRetailSubsystem::OnKeyCart);
+	Bind(EKeys::Q, &UAFLRetailSubsystem::OnKeyDiscard);
+	bCardKeysBound = true;
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_RETAIL: card keys armed (F/C/Q, CONSUMING -- grenade shielded)."));
+}
+
+void UAFLRetailSubsystem::UnbindCardKeys()
+{
+	if (!bCardKeysBound)
+	{
+		return;
+	}
+	bCardKeysBound = false;
+	APlayerController* PC = BoundPC.Get();
+	if (!PC || !PC->InputComponent)
+	{
+		return;
+	}
+	PC->InputComponent->KeyBindings.RemoveAll([this](const FInputKeyBinding& B)
+	{
+		return B.KeyDelegate.IsBoundToObject(this)
+			&& (B.Chord.Key == EKeys::F || B.Chord.Key == EKeys::C || B.Chord.Key == EKeys::Q);
+	});
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_RETAIL: card keys released (F/C/Q back to gameplay)."));
 }
 
 void UAFLRetailSubsystem::OnKeyGrabDetails()
@@ -486,6 +527,7 @@ void UAFLRetailSubsystem::ShowCard()
 	{
 		Card->SetOwnerSubsystem(this);
 		Card->AddToViewport(60);
+		BindCardKeys(); // F/C/Q consume ONLY while the card is up (grenade shield)
 	}
 	RefreshChip(); // restack: the chip lifts above the card
 }
@@ -541,6 +583,7 @@ void UAFLRetailSubsystem::DestroyCard()
 	{
 		Card->RemoveFromParent();
 		Card = nullptr;
+		UnbindCardKeys(); // F/C/Q return to gameplay the moment the card closes
 		RefreshChip(); // restack: the chip drops back to the corner
 	}
 }
