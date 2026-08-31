@@ -63,6 +63,11 @@ protected:
 	/** DIAGNOSTIC: log the pickup guard state (authority/available/def/itemDef) then run the stock grant path. */
 	virtual void AttemptPickUpWeapon_Implementation(APawn* Pawn) override;
 
+	/** Display-only subclasses (retail pads) return false: with no WeaponIntent they run bare
+	 *  AActor::BeginPlay instead of the stock path, silencing the "no valid weapon definition"
+	 *  Error that is a false alarm for a pad that never grants. Stock spawners keep true. */
+	virtual bool WantsStockSpawnerFallback() const { return true; }
+
 	/** The designer's per-spawner choice, resolved to a ULyraWeaponPickupDefinition by the AFL GameFeature. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Spawner", meta = (Categories = "AFL.Spawner"))
 	FGameplayTag WeaponIntent;

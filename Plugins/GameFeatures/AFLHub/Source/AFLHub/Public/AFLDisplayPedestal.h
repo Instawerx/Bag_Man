@@ -55,6 +55,9 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void Tick(float DeltaSeconds) override;
 
+	/** Retail pads are display-only: silence the stock spawner's null-definition Error. */
+	virtual bool WantsStockSpawnerFallback() const override { return false; }
+
 	/** THE ITEM IS THE DISPLAY (operator gap, lap 2026-08-31): resolve the catalog row to a real
 	 *  visual -- accessory rows spawn their AccessoryPartClass actor (the actual chain/watch/pendant
 	 *  mesh); facemask rows paint the mask MIC onto the head bust (AAFLDismemberedHead pattern,
@@ -87,6 +90,11 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
 	TObjectPtr<UStaticMeshComponent> DisplayProp;
 
+	/** The visible display PLATFORM (operator lap-2: "no spawner or display platforms are visible") --
+	 *  a dark brand cylinder the item floats above. Always present, editor-visible. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
+	TObjectPtr<UStaticMeshComponent> PlinthMesh;
+
 private:
 	bool bPawnAtShelf = false;
 	FTimerHandle PlateTimer;
@@ -94,4 +102,13 @@ private:
 	/** The spawned accessory display actor (client-local), destroyed with the pad. */
 	UPROPERTY(Transient)
 	TObjectPtr<AActor> DisplayPartActor;
+
+	/** Facemask display: floating shop-thumbnail plate (upright, brand-consistent -- replaces the
+	 *  lap-2 "flat gib on the floor"). Created at runtime, spins with DisplayProp. */
+	UPROPERTY(Transient)
+	TObjectPtr<UWidgetComponent> ThumbPlate;
+
+	/** Pushed to the plate lazily (the widget component creates its UUserWidget late). */
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> ThumbTexture;
 };

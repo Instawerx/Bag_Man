@@ -26,7 +26,16 @@ void AAFLWeaponSpawner::BeginPlay()
 	// logging). Stock ShooterCore content behaves byte-for-byte as before.
 	if (!WeaponIntent.IsValid())
 	{
-		Super::BeginPlay();
+		if (WantsStockSpawnerFallback())
+		{
+			Super::BeginPlay();
+		}
+		else
+		{
+			// Display-only subclass (retail pad): the stock "no valid weapon definition" Error is a
+			// false alarm for a pad that never grants -- bare actor init, same bypass as the AFL path.
+			AActor::BeginPlay();
+		}
 		return;
 	}
 

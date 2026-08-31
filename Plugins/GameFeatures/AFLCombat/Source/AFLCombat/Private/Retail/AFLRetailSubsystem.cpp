@@ -86,9 +86,16 @@ void UAFLRetailSubsystem::PadLeft(FName CosmeticId)
 
 void UAFLRetailSubsystem::OpenTill()
 {
+	bAtTill = true;
 	bChipExpanded = true;
 	RefreshChip();
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_RETAIL: at the till (cart=%d)."), CartIds.Num());
+}
+
+void UAFLRetailSubsystem::CloseTill()
+{
+	bAtTill = false;
+	RefreshChip();
 }
 
 // --- Arming ----------------------------------------------------------------------------------------
@@ -480,6 +487,7 @@ void UAFLRetailSubsystem::ShowCard()
 		Card->SetOwnerSubsystem(this);
 		Card->AddToViewport(60);
 	}
+	RefreshChip(); // restack: the chip lifts above the card
 }
 
 void UAFLRetailSubsystem::RefreshCard()
@@ -533,13 +541,16 @@ void UAFLRetailSubsystem::DestroyCard()
 	{
 		Card->RemoveFromParent();
 		Card = nullptr;
+		RefreshChip(); // restack: the chip drops back to the corner
 	}
 }
 
 void UAFLRetailSubsystem::RefreshChip()
 {
-	// Chip discipline: it exists only while the cart is non-empty (or a checkout is settling).
-	if (CartIds.Num() == 0 && State != ERetailState::CheckingOut)
+	// Chip discipline: it exists while the cart is non-empty, a checkout is settling, or the player
+	// stands at a till (the counter always answers -- lap-2 "TILL Button does not work" was an empty
+	// cart making OpenTill a silent no-op).
+	if (CartIds.Num() == 0 && State != ERetailState::CheckingOut && !bAtTill)
 	{
 		if (Chip)
 		{
@@ -564,6 +575,18 @@ void UAFLRetailSubsystem::RefreshChip()
 		}
 		Chip->SetOwnerSubsystem(this);
 		Chip->AddToViewport(59);
+	}
+	// Pinned lower-right (operator ruling); stacks ABOVE the small card when both are on screen.
+	Chip->SetCornerOffset(Card ? FVector2D(-24.f, -420.f) : FVector2D(-24.f, -24.f));
+
+	// Empty-cart courtesy view at the till.
+	if (CartIds.Num() == 0 && State != ERetailState::CheckingOut)
+	{
+		Chip->SetCartView(NSLOCTEXT("AFLRetail", "ChipEmpty", "🛒 CART EMPTY"), {},
+			FText::GetEmpty(),
+			NSLOCTEXT("AFLRetail", "ChipEmptyHint", "grab items on the pads — buy on the spot or add here"),
+			true);
+		return;
 	}
 
 	const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr);

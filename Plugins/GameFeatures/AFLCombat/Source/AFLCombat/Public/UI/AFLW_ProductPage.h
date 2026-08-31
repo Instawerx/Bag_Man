@@ -29,6 +29,8 @@ class AFLCOMBAT_API UAFLW_ProductPage : public UCommonActivatableWidget
 	GENERATED_BODY()
 
 public:
+	UAFLW_ProductPage();
+
 	/** Point the page at a catalog row. Reflection-reachable (the pedestal calls it by name). */
 	UFUNCTION(BlueprintCallable, Category = "AFL|Retail")
 	void FocusCosmeticId(FName InCosmeticId);
@@ -43,6 +45,10 @@ protected:
 
 	UFUNCTION()
 	void HandleEquipClicked();
+
+	/** Mouse path off the page (lap-2: ESC was the only exit and it was dead). */
+	UFUNCTION()
+	void HandleCloseClicked();
 
 	/** Confirm-modal resolution (bound to the pushed modal's delegate). */
 	UFUNCTION()

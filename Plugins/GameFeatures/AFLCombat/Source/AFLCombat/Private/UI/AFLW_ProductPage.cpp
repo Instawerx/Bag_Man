@@ -48,6 +48,14 @@ namespace AFLProductPage
 	}
 }
 
+UAFLW_ProductPage::UAFLW_ProductPage()
+{
+	// LAP-2 FIX (operator: "could not close or back out... had to stop PIE"): the back action existed
+	// but this flag was never set, so CommonUI never ROUTED ESC/B here -- the page was a trap. The
+	// HubGateCards lesson, finally applied.
+	bIsBackHandler = true;
+}
+
 TSharedRef<SWidget> UAFLW_ProductPage::RebuildWidget()
 {
 	using namespace AFLProductPage;
@@ -88,6 +96,19 @@ TSharedRef<SWidget> UAFLW_ProductPage::RebuildWidget()
 		}
 		return T;
 	};
+
+	// Explicit ✕ exit for the mouse (ESC works too now, but a visible way out is non-negotiable).
+	UButton* CloseButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("CloseButton"));
+	CloseButton->SetBackgroundColor(FLinearColor(1.f, 1.f, 1.f, 0.08f));
+	UTextBlock* CloseLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("CloseLabel"));
+	Style(CloseLabel, Display, 12.f, FLinearColor(1.f, 1.f, 1.f, 0.8f));
+	CloseLabel->SetText(NSLOCTEXT("AFLRetail", "PageClose", "✕  CLOSE"));
+	CloseButton->AddChild(CloseLabel);
+	CloseButton->OnClicked.AddDynamic(this, &UAFLW_ProductPage::HandleCloseClicked);
+	if (UVerticalBoxSlot* VS = Col->AddChildToVerticalBox(CloseButton))
+	{
+		VS->SetHorizontalAlignment(HAlign_Right);
+	}
 
 	NameText  = AddText(TEXT("NameText"), Display, 22.f, FLinearColor::White, 0.f);
 	TierText  = AddText(TEXT("TierText"), Display, 11.f, Accent, 6.f);
@@ -142,6 +163,11 @@ bool UAFLW_ProductPage::NativeOnHandleBackAction()
 {
 	DeactivateWidget();
 	return true;
+}
+
+void UAFLW_ProductPage::HandleCloseClicked()
+{
+	DeactivateWidget();
 }
 
 void UAFLW_ProductPage::FocusCosmeticId(FName InCosmeticId)

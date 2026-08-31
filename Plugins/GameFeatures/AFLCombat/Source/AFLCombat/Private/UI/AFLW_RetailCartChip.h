@@ -28,9 +28,13 @@ class UAFLW_RetailCartChip : public UUserWidget
 public:
 	void SetOwnerSubsystem(UAFLRetailSubsystem* InOwner) { Owner = InOwner; }
 
-	/** One call renders the whole chip: collapsed shows SummaryLine only; expanded adds lines + checkout. */
+	/** One call renders the whole chip: collapsed shows SummaryLine only; expanded adds lines + checkout.
+	 *  An empty CheckoutLabel hides the checkout row (empty-cart courtesy view). */
 	void SetCartView(const FText& SummaryLine, const TArray<FText>& Lines, const FText& CheckoutLabel,
 		const FText& Status, bool bExpanded);
+
+	/** Reposition the pinned corner panel (lower-right ruling; the subsystem stacks it above the card). */
+	void SetCornerOffset(const FVector2D& Offset);
 
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -41,6 +45,7 @@ protected:
 private:
 	UPROPERTY(Transient) TObjectPtr<UAFLRetailSubsystem> Owner;
 
+	UPROPERTY(Transient) TObjectPtr<UBorder>      Panel;
 	UPROPERTY(Transient) TObjectPtr<UButton>      ToggleButton;
 	UPROPERTY(Transient) TObjectPtr<UTextBlock>   SummaryText;
 	UPROPERTY(Transient) TObjectPtr<UVerticalBox> LinesBox;

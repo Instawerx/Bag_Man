@@ -42,14 +42,16 @@ TSharedRef<SWidget> UAFLW_RetailCartChip::RebuildWidget()
 	UCanvasPanel* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("ChipCanvas"));
 	WidgetTree->RootWidget = Canvas;
 
-	UBorder* Panel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChipPanel"));
+	Panel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChipPanel"));
 	Panel->SetBrushColor(Surface);
 	Panel->SetPadding(FMargin(10.f, 8.f));
 	if (UCanvasPanelSlot* S = Canvas->AddChildToCanvas(Panel))
 	{
-		S->SetAnchors(FAnchors(1.f, 0.f, 1.f, 0.f));
-		S->SetAlignment(FVector2D(1.f, 0.f));
-		S->SetPosition(FVector2D(-24.f, 16.f));
+		// Pinned LOWER-RIGHT (operator ruling, lap-2); the subsystem lifts it above the card via
+		// SetCornerOffset when both are visible.
+		S->SetAnchors(FAnchors(1.f, 1.f, 1.f, 1.f));
+		S->SetAlignment(FVector2D(1.f, 1.f));
+		S->SetPosition(FVector2D(-24.f, -24.f));
 		S->SetAutoSize(true);
 	}
 
@@ -108,13 +110,22 @@ void UAFLW_RetailCartChip::SetCartView(const FText& SummaryLine, const TArray<FT
 	}
 	if (CheckoutButton)
 	{
-		CheckoutButton->SetVisibility(bExpanded ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		CheckoutButton->SetVisibility((bExpanded && !CheckoutLabel.IsEmpty())
+			? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
 	if (CheckoutText) { CheckoutText->SetText(CheckoutLabel); }
 	if (StatusText)
 	{
 		StatusText->SetText(Status);
 		StatusText->SetVisibility(Status.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+	}
+}
+
+void UAFLW_RetailCartChip::SetCornerOffset(const FVector2D& Offset)
+{
+	if (UCanvasPanelSlot* S = Panel ? Cast<UCanvasPanelSlot>(Panel->Slot) : nullptr)
+	{
+		S->SetPosition(Offset);
 	}
 }
 

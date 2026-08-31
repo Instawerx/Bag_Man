@@ -473,6 +473,10 @@ bool UAFLW_FrontEndMarket::ClassifyStoreAxis(FName CosmeticId, EAFLLoadoutAxis& 
 	if (Id.StartsWith(TEXT("AFL.Facemask."),   ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::Facemask;   return true; }
 	if (Id.StartsWith(TEXT("AFL.Character."),  ESearchCase::IgnoreCase) ||
 	    Id.StartsWith(TEXT("AFL.Team."),       ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::Identity;   return true; }
+	// S2 lap-2 fix: these two were MISSING -- every downstream Accessory/Emblem switch case was a dead
+	// branch (retail try-on refused "unclassified", the product page's Emblem EQUIP could never fire).
+	if (Id.StartsWith(TEXT("AFL.Accessory."),  ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::Accessory;  return true; }
+	if (Id.StartsWith(TEXT("AFL.Emblem."),     ESearchCase::IgnoreCase)) { OutAxis = EAFLLoadoutAxis::Emblem;     return true; }
 	return false; // Bundles / unknown -> no single preview axis
 }
 

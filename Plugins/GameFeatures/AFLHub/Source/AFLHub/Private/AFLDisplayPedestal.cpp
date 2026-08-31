@@ -7,8 +7,11 @@
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "AFLCosmeticCoreTypes.h"
 #include "Cosmetics/AFLSkinColorAsset.h"     // facemask MIC for the head-bust display
+#include "AFLHubMirror.h"                     // UAFLHubMirrorWidget: the RT/texture-plate widget, reused for thumbnails
 #include "Engine/StaticMesh.h"
+#include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceConstant.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -38,8 +41,27 @@ AAFLDisplayPedestal::AAFLDisplayPedestal()
 
 	DisplayProp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DisplayProp"));
 	DisplayProp->SetupAttachment(RootComponent);
-	DisplayProp->SetRelativeLocation(FVector(0.f, 0.f, 60.f));
+	DisplayProp->SetRelativeLocation(FVector(0.f, 0.f, 118.f)); // float the item at chest height
+	DisplayProp->SetRelativeScale3D(FVector(1.5f));
 	DisplayProp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// The visible platform (lap-2): dark brand cylinder, editor-visible so placement reads instantly.
+	PlinthMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PlinthMesh"));
+	PlinthMesh->SetupAttachment(RootComponent);
+	PlinthMesh->SetRelativeLocation(FVector(0.f, 0.f, 12.f));
+	PlinthMesh->SetRelativeScale3D(FVector(0.75f, 0.75f, 0.25f));
+	PlinthMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cyl(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	if (Cyl.Succeeded())
+	{
+		PlinthMesh->SetStaticMesh(Cyl.Object);
+	}
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DarkMI(
+		TEXT("/Game/BagMan/Characters/Cosmetics/IRONICS_Blank/MI_AFL_IRONICS_Body.MI_AFL_IRONICS_Body"));
+	if (DarkMI.Succeeded())
+	{
+		PlinthMesh->SetMaterial(0, DarkMI.Object);
+	}
 }
 
 void AAFLDisplayPedestal::BeginPlay()
@@ -97,8 +119,30 @@ void AAFLDisplayPedestal::ResolveRetailDisplay()
 		return;
 	}
 
-	// FACEMASK rows: paint the mask MIC over the head bust on EVERY slot (the AAFLDismemberedHead
-	// recipe -- slot 1 is the canonical mask slot, but the gib's sections all take it cleanly).
+	// SHOP THUMBNAIL rows (facemasks all carry T_Thumb_Facemask_*): a floating upright thumbnail
+	// plate on the plinth -- brand-consistent, readable, spins with the fixture. Replaces the lap-2
+	// painted-gib attempt ("flat on floor").
+	if (!Entry->ShopThumbnail.IsNull())
+	{
+		if (UTexture2D* Thumb = Entry->ShopThumbnail.LoadSynchronous())
+		{
+			ThumbTexture = Thumb;
+			ThumbPlate = NewObject<UWidgetComponent>(this, TEXT("ThumbPlate"));
+			ThumbPlate->SetupAttachment(DisplayProp);
+			ThumbPlate->RegisterComponent();
+			ThumbPlate->SetWidgetSpace(EWidgetSpace::World);
+			ThumbPlate->SetDrawSize(FVector2D(512.f, 512.f));
+			ThumbPlate->SetRelativeScale3D(FVector(0.11f)); // ~84cm plate at the 1.5x DisplayProp scale
+			ThumbPlate->SetWidgetClass(UAFLHubMirrorWidget::StaticClass());
+			ThumbPlate->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			// The widget itself is created late -- UpdatePlate's 0.5s timer pushes the texture (idempotent).
+			UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: pad '%s' displaying shop thumbnail plate."), *CosmeticId.ToString());
+			return;
+		}
+	}
+
+	// LAST RESORT (no part class, no thumbnail): facemask MIC painted over the head bust on every
+	// slot (the AAFLDismemberedHead recipe).
 	if (UAFLCosmeticCatalogSubsystem* MutableCatalog = UAFLCosmeticCatalogSubsystem::Get(GetWorld()))
 	{
 		if (const UAFLSkinColorAsset* MaskAsset = Cast<UAFLSkinColorAsset>(MutableCatalog->ResolveAsset(CosmeticId)))
@@ -191,6 +235,15 @@ void AAFLDisplayPedestal::OnPadEndOverlap(UPrimitiveComponent*, AActor* OtherAct
 
 void AAFLDisplayPedestal::UpdatePlate()
 {
+	// Feed the thumbnail plate here (2 Hz, idempotent) -- its inner widget is created late.
+	if (ThumbPlate && ThumbTexture)
+	{
+		if (UAFLHubMirrorWidget* PlateImg = Cast<UAFLHubMirrorWidget>(ThumbPlate->GetWidget()))
+		{
+			PlateImg->SetMirrorTexture(ThumbTexture, FVector2D(512.f, 512.f));
+		}
+	}
+
 	UAFLHubSignWidget* Plate = PlateWidget ? Cast<UAFLHubSignWidget>(PlateWidget->GetWidget()) : nullptr;
 	if (!Plate)
 	{

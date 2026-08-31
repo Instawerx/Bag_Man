@@ -453,6 +453,7 @@ void UAFLCosmeticLoadoutComponent::ServerRequestTryOn_Implementation(FName Cosme
 	}
 
 	FAFLCosmeticSelection Requested = Selection;
+	bool bViaWearablePath = false;
 	switch (Axis)
 	{
 	case EAFLLoadoutAxis::Weapon:     Requested.WeaponId     = CosmeticId; break;
@@ -460,8 +461,9 @@ void UAFLCosmeticLoadoutComponent::ServerRequestTryOn_Implementation(FName Cosme
 	case EAFLLoadoutAxis::Beam:       Requested.BeamId       = CosmeticId; break;
 	case EAFLLoadoutAxis::Facemask:   Requested.FacemaskId   = CosmeticId; break;
 	case EAFLLoadoutAxis::Emblem:     Requested.EmblemId     = CosmeticId; break;
+	case EAFLLoadoutAxis::Accessory:  bViaWearablePath = true; break; // jewellery: server-resolved slot
 	default:
-		// Identity / colour / sticker / accessory axes stay CARD-ONLY in S2 (buy yes, wear-on-pad no).
+		// Identity / colour / sticker axes stay CARD-ONLY in S2 (buy yes, wear-on-pad no).
 		UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: '%s' axis has no try-on shape (card-only)."), *CosmeticId.ToString());
 		return;
 	}
@@ -485,8 +487,18 @@ void UAFLCosmeticLoadoutComponent::ServerRequestTryOn_Implementation(FName Cosme
 	Wallet->GrantTempMapEntitlement(CosmeticId);
 	ActiveTryOnId = CosmeticId;
 
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: WEARING '%s' (temp grant -> real selection seam)."), *CosmeticId.ToString());
-	ServerSetCosmeticSelection(Requested); // authority-local call: the commit gate honors the temp grant
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: WEARING '%s' (temp grant -> real %s seam)."),
+		*CosmeticId.ToString(), bViaWearablePath ? TEXT("wearable") : TEXT("selection"));
+	if (bViaWearablePath)
+	{
+		// The wearable path resolves the slot server-side (chain/pendant/wrist rules) and commits
+		// through the same gate; its owned-check honors the temp grant.
+		ServerEquipWearable_Implementation(CosmeticId);
+	}
+	else
+	{
+		ServerSetCosmeticSelection(Requested); // authority-local call: the commit gate honors the temp grant
+	}
 }
 
 void UAFLCosmeticLoadoutComponent::ServerReleaseTryOn_Implementation(bool bKeepWearing)
@@ -511,10 +523,13 @@ void UAFLCosmeticLoadoutComponent::ServerReleaseTryOn_Implementation(bool bKeepW
 		return;
 	}
 	// Discard/exit -- restore the pre-trial look. Facemask (and LeftWeapon) restore even to None (their
-	// None is a meaningful un-equip). KNOWN S2 GAP: a None baseline on the Weapon/Beam/Emblem/WeaponSkin
-	// axes cannot be restored by the request shape (non-None-overwrite) -- Weapon is never None in
-	// practice; the Beam/Emblem/WeaponSkin None-baseline stick is ticketed in the retail plan.
+	// None is a meaningful un-equip). ACCESSORIES: the commit gate deliberately ignores the REQUEST's
+	// AccessorySet (ServerSetAccessory mutates the live Selection first, then commits) -- so the
+	// restore uses the same mutate-then-commit shape. KNOWN S2 GAP: a None baseline on the
+	// Weapon/Beam/Emblem/WeaponSkin axes cannot be restored by the request shape (non-None-overwrite)
+	// -- Weapon is never None in practice; the rest is ticketed in the retail plan.
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: '%s' DISCARDED -- baseline restored."), *Released.ToString());
+	Selection.AccessorySet = TryOnBaseline.AccessorySet; // the ServerSetAccessory precedent
 	ServerSetCosmeticSelection(TryOnBaseline);
 }
 
@@ -1653,7 +1668,9 @@ void UAFLCosmeticLoadoutComponent::ServerEquipWearable_Implementation(const FNam
 	// never opened the store can still send this RPC, and the loadout's owned-only filter is a
 	// courtesy to the player, not a boundary.
 	const UAFLWalletComponent* Wallet = GetWalletComponent();
-	if (!Wallet || !Wallet->OwnsCosmetic(CosmeticId))
+	// HUB TRY-ON: the transient map-exception grant passes here too -- same containment as the
+	// selection gate's temp clause (real ownership reads stay untouched everywhere else).
+	if (!Wallet || (!Wallet->OwnsCosmetic(CosmeticId) && !Wallet->IsTempMapGranted(CosmeticId)))
 	{
 		UE_LOG(LogAFLCombat, Warning,
 			TEXT("[AFLWearable] REFUSED id=%s -- not owned by this player. Nothing equipped."), *CosmeticId.ToString());

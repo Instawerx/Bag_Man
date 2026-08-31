@@ -22,6 +22,8 @@ class AFLCOMBAT_API UAFLW_PurchaseConfirm : public UCommonActivatableWidget
 	GENERATED_BODY()
 
 public:
+	UAFLW_PurchaseConfirm();
+
 	UPROPERTY(BlueprintAssignable, Category = "AFL|Retail")
 	FAFLPurchaseConfirmResolved Resolved;
 

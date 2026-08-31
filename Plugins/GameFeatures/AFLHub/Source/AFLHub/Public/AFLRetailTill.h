@@ -33,6 +33,10 @@ protected:
 	void OnTillBeginOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
 		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
+	UFUNCTION()
+	void OnTillEndOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+
 	/** At-counter trigger (door PromptBox pattern, counter-sized). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
 	TObjectPtr<UBoxComponent> CounterBox;

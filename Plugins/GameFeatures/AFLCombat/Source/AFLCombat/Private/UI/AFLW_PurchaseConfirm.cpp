@@ -16,6 +16,13 @@
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_PurchaseConfirm)
 
+UAFLW_PurchaseConfirm::UAFLW_PurchaseConfirm()
+{
+	// LAP-2 FIX: without this flag CommonUI never routes ESC/B to NativeOnHandleBackAction -- the
+	// modal's back path was authored but unreachable.
+	bIsBackHandler = true;
+}
+
 TSharedRef<SWidget> UAFLW_PurchaseConfirm::RebuildWidget()
 {
 	static const FLinearColor Accent(0.013f, 0.102f, 1.0f, 1.0f);

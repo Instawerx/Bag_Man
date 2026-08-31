@@ -53,8 +53,12 @@ public:
 	 *  release (server restores the baseline) and close the card. "Nothing leaves the store unbought." */
 	void PadLeft(FName CosmeticId);
 
-	/** Till pad (PX counter): open the cart chip expanded with checkout focused. */
+	/** Till pad: pin the cart chip open (lower-right) while at the counter -- even with an empty
+	 *  cart, so the till always visibly answers. */
 	void OpenTill();
+
+	/** Left the counter: an empty-cart courtesy chip goes away; a real cart keeps its chip. */
+	void CloseTill();
 
 	//~ Cart (client-local, session-only by ruling) -----------------------------------------------------
 
@@ -119,6 +123,7 @@ private:
 
 	TArray<FName> CartIds;
 	bool bChipExpanded = false;
+	bool bAtTill = false;
 
 	FTimerHandle DwellTimer;
 	FTimerHandle GrantPollTimer;

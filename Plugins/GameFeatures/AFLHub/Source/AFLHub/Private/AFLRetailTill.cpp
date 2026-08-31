@@ -34,17 +34,11 @@ void AAFLRetailTill::BeginPlay()
 	{
 		return; // client-local surface; the dedicated server strips retail UX entirely
 	}
-	if (SignWidget)
-	{
-		SignWidget->SetWidgetClass(UAFLHubSignWidget::StaticClass());
-		if (UAFLHubSignWidget* Sign = Cast<UAFLHubSignWidget>(SignWidget->GetWidget()))
-		{
-			Sign->SetSignData(NSLOCTEXT("AFLRetail", "TillName", "TILL"),
-				NSLOCTEXT("AFLRetail", "TillSub", "CHECKOUT — X confirms the cart"),
-				true, EAFLHubSignTier::AtDoor, 0.f, nullptr);
-		}
-	}
+	// LAP-2 (operator): no floating screen-space sign -- the till surfaces ONLY as the pinned
+	// lower-right cart chip while you stand at the counter. SignWidget stays a component (saved
+	// instances carry it) but never gets a widget class, so nothing renders.
 	CounterBox->OnComponentBeginOverlap.AddDynamic(this, &AAFLRetailTill::OnTillBeginOverlap);
+	CounterBox->OnComponentEndOverlap.AddDynamic(this, &AAFLRetailTill::OnTillEndOverlap);
 }
 
 void AAFLRetailTill::OnTillBeginOverlap(UPrimitiveComponent*, AActor* OtherActor,
@@ -60,4 +54,17 @@ void AAFLRetailTill::OnTillBeginOverlap(UPrimitiveComponent*, AActor* OtherActor
 		Retail->OpenTill();
 	}
 	UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: at the TILL."));
+}
+
+void AAFLRetailTill::OnTillEndOverlap(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveComponent*, int32)
+{
+	APawn* Pawn = Cast<APawn>(OtherActor);
+	if (!Pawn || !Pawn->IsLocallyControlled())
+	{
+		return;
+	}
+	if (UAFLRetailSubsystem* Retail = UAFLRetailSubsystem::Get(this))
+	{
+		Retail->CloseTill();
+	}
 }
