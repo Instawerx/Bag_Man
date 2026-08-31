@@ -190,6 +190,10 @@ void AAFLHubDestinationVolume::ExecuteDoorAction()
 		Travel->ServerRequestHubTravel(DestinationId);
 		break;
 	}
+	case EAFLHubDestinationAction::WalkIn:
+		// An open venue: the door is an ENTRANCE, the experience is inside (the PX walkable store).
+		UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: '%s' is a walk-in venue -- step inside."), *DestinationId.ToString());
+		break;
 	default:
 		UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: '%s' action %d has no backend yet."),
 			*DestinationId.ToString(), static_cast<int32>(ResolvedAction));

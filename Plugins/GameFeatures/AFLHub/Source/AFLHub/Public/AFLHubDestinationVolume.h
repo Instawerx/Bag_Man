@@ -21,6 +21,7 @@ enum class EAFLHubDestinationAction : uint8
 	OpenScreen  UMETA(DisplayName = "Open Screen"),
 	Travel      UMETA(DisplayName = "Travel To Map"),
 	JoinClub    UMETA(DisplayName = "Join Club"),
+	WalkIn      UMETA(DisplayName = "Walk-In (open venue, no screen)"),
 };
 
 USTRUCT(BlueprintType)
