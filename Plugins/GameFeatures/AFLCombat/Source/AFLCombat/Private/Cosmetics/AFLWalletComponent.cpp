@@ -496,6 +496,23 @@ void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrenc
 
 void UAFLWalletComponent::ClientRequestPurchase(FName CosmeticId, EAFLPayCurrency PayWith, TFunction<void(bool)> OnComplete)
 {
+	// D-7 fast refusal (PX_STORE_BUILD_RULINGS): an owned single-grant row never reaches the backend.
+	// Counted SKUs (CountedKey set) stay re-buyable by design. The backend stays the authority --
+	// this is the readable, zero-latency half of the ruling.
+	if (const UAFLCosmeticCatalogSubsystem* PreCatalog = GetCatalog())
+	{
+		if (const FAFLCatalogEntry* PreEntry = PreCatalog->FindEntry(CosmeticId))
+		{
+			if (PreEntry->CountedKey.IsNone() && OwnedCosmeticIds.Contains(CosmeticId))
+			{
+				UE_LOG(LogAFLWalletDiag, Log, TEXT("%s ClientRequestPurchase(%s) refused client-side: already owned (D-7)."),
+					*WalletPrefix(this), *CosmeticId.ToString());
+				if (OnComplete) { OnComplete(false); }
+				return;
+			}
+		}
+	}
+
 	auto Fail = [&OnComplete](const TCHAR* Why)
 	{
 		UE_LOG(LogAFLWalletDiag, Log, TEXT("[Wallet] ClientRequestPurchase denied: %s"), Why);

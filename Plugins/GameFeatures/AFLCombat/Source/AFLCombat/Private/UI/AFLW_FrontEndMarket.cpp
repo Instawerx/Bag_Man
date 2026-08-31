@@ -192,7 +192,7 @@ namespace
 		// AFL.Bundle. is DELIBERATELY ABSENT -- see the tab table below.
 	};
 
-	struct FStoreTabDef { const TCHAR* TabName; const TCHAR* LabelName; const TCHAR* Prefixes[3]; };
+	struct FStoreTabDef { const TCHAR* TabName; const TCHAR* LabelName; const TCHAR* Prefixes[4]; };
 
 	// FIVE tabs. There is no BUNDLES tab and no AFL.Bundle. namespace, ruled 2026-08-25.
 	//
@@ -211,13 +211,16 @@ namespace
 	// SIX tabs again -- but Tab_BUNDLES now carries LEAGUE, a category that exists, rather than
 	// AFL.Bundle., which does not. The widget is reused because it is already in the WBP; only the
 	// caption and the prefix change, which is the same pattern the CAMOS/BEAMS relabels used.
+	// D-10 (PX_STORE_BUILD_RULINGS, 2026-08-31): JEWELLERY = accessories ONLY; emblems pair with the
+	// sticker credits on the CREDITS surface (the closed emblem/sticker "one surface, two tabs" ruling
+	// applied to the store -- the MARKS sub-grouping lands with the new store screen).
 	static const FStoreTabDef GStoreTabs[6] = {
-		{ TEXT("Tab_WEAPONS"), TEXT("TabLabel_WEAPONS"), { TEXT("AFL.CreatorSlot."),  nullptr,                    nullptr                   } }, // -> ROBOTS
-		{ TEXT("Tab_SKINS"),   TEXT("TabLabel_SKINS"),   { TEXT("AFL.Weapon."),       nullptr,                    nullptr                   } }, // -> WEAPONS (incl. the .XT pairs)
-		{ TEXT("Tab_HELMETS"), TEXT("TabLabel_HELMETS"), { TEXT("AFL.WeaponCredit."), TEXT("AFL.StickerCredit."), TEXT("AFL.FacemaskCredit") } }, // -> CREDITS
-		{ TEXT("Tab_VISORS"),  TEXT("TabLabel_VISORS"),  { TEXT("AFL.Facemask."),     nullptr,                    nullptr                   } }, // -> FACEMASKS
-		{ TEXT("Tab_EMOTES"),  TEXT("TabLabel_EMOTES"),  { TEXT("AFL.Accessory."),    TEXT("AFL.Emblem."),        nullptr                   } }, // -> JEWELLERY
-		{ TEXT("Tab_BUNDLES"), TEXT("TabLabel_BUNDLES"), { TEXT("AFL.League."),       nullptr,                    nullptr                   } }, // -> LEAGUE
+		{ TEXT("Tab_WEAPONS"), TEXT("TabLabel_WEAPONS"), { TEXT("AFL.CreatorSlot."),  nullptr,                    nullptr,                    nullptr           } }, // -> ROBOTS
+		{ TEXT("Tab_SKINS"),   TEXT("TabLabel_SKINS"),   { TEXT("AFL.Weapon."),       nullptr,                    nullptr,                    nullptr           } }, // -> WEAPONS (incl. the .XT pairs)
+		{ TEXT("Tab_HELMETS"), TEXT("TabLabel_HELMETS"), { TEXT("AFL.WeaponCredit."), TEXT("AFL.StickerCredit."), TEXT("AFL.FacemaskCredit"), TEXT("AFL.Emblem.") } }, // -> CREDITS (+ MARKS)
+		{ TEXT("Tab_VISORS"),  TEXT("TabLabel_VISORS"),  { TEXT("AFL.Facemask."),     nullptr,                    nullptr,                    nullptr           } }, // -> FACEMASKS
+		{ TEXT("Tab_EMOTES"),  TEXT("TabLabel_EMOTES"),  { TEXT("AFL.Accessory."),    nullptr,                    nullptr,                    nullptr           } }, // -> JEWELLERY (D-10: accessories only)
+		{ TEXT("Tab_BUNDLES"), TEXT("TabLabel_BUNDLES"), { TEXT("AFL.League."),       nullptr,                    nullptr,                    nullptr           } }, // -> LEAGUE
 	};
 	static constexpr int32 GStoreTabCount = 6;
 
