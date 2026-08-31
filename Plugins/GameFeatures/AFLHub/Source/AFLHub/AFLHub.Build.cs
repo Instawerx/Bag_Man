@@ -46,6 +46,9 @@ public class AFLHub : ModuleRules
 				"CommonUI",
 				"CommonGame",
 				"UMG",
+				// Retail pads carry the arena spawn-pad FX stack (NS_GunPad) -- operator design-intent
+				// ruling: displays ARE the spawner look, lighting and effects included.
+				"Niagara",
 			}
 		);
 	}

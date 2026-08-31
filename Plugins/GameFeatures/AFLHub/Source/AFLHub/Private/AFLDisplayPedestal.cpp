@@ -8,9 +8,12 @@
 #include "AFLCosmeticCoreTypes.h"
 #include "Cosmetics/AFLSkinColorAsset.h"     // facemask MIC for the head-bust display
 #include "AFLHubMirror.h"                     // UAFLHubMirrorWidget: the RT/texture-plate widget, reused for thumbnails
+#include "Components/PointLightComponent.h"   // spawner-pad accent light
 #include "Engine/StaticMesh.h"
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceConstant.h"
+#include "NiagaraComponent.h"                 // NS_GunPad cage FX (the B_WeaponSpawner stack)
+#include "NiagaraSystem.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/BoxComponent.h"
@@ -45,23 +48,44 @@ AAFLDisplayPedestal::AAFLDisplayPedestal()
 	DisplayProp->SetRelativeScale3D(FVector(1.5f));
 	DisplayProp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-	// The visible platform (lap-2): dark brand cylinder, editor-visible so placement reads instantly.
+	// THE ARENA SPAWN PAD, verbatim (operator ruling: the spawner IS the display language) --
+	// SM_launchpad_Round + its glow-disc MI, the NS_GunPad cage FX, and an accent light. Pivot sits
+	// at the mesh base (B_WeaponSpawner offsets it -81 under an 80-half-height capsule root); our
+	// root is ON the floor, so z=0 lands the pad exactly.
 	PlinthMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PlinthMesh"));
 	PlinthMesh->SetupAttachment(RootComponent);
-	PlinthMesh->SetRelativeLocation(FVector(0.f, 0.f, 12.f));
-	PlinthMesh->SetRelativeScale3D(FVector(0.75f, 0.75f, 0.25f));
+	PlinthMesh->SetRelativeLocation(FVector::ZeroVector);
 	PlinthMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cyl(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
-	if (Cyl.Succeeded())
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> PadArt(
+		TEXT("/Game/Weapons/Spawnpad/Mesh/SM_launchpad_Round.SM_launchpad_Round"));
+	if (PadArt.Succeeded())
 	{
-		PlinthMesh->SetStaticMesh(Cyl.Object);
+		PlinthMesh->SetStaticMesh(PadArt.Object);
 	}
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DarkMI(
-		TEXT("/Game/BagMan/Characters/Cosmetics/IRONICS_Blank/MI_AFL_IRONICS_Body.MI_AFL_IRONICS_Body"));
-	if (DarkMI.Succeeded())
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GlowMI(
+		TEXT("/Game/Weapons/Spawnpad/Material/MI_InternalShapeGlow_Circle.MI_InternalShapeGlow_Circle"));
+	if (GlowMI.Succeeded())
 	{
-		PlinthMesh->SetMaterial(0, DarkMI.Object);
+		PlinthMesh->SetMaterial(1, GlowMI.Object); // slot 1 = the internal glow disc (slot 0 = shell)
 	}
+
+	PadFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("PadFX"));
+	PadFX->SetupAttachment(RootComponent);
+	PadFX->SetRelativeLocation(FVector(0.f, 0.f, 10.f));
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> PadCage(
+		TEXT("/Game/Effects/Particles/Item/NS_GunPad.NS_GunPad"));
+	if (PadCage.Succeeded())
+	{
+		PadFX->SetAsset(PadCage.Object);
+	}
+
+	PadLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("PadLight"));
+	PadLight->SetupAttachment(RootComponent);
+	PadLight->SetRelativeLocation(FVector(0.f, 0.f, 130.f));
+	PadLight->SetIntensity(3000.f);
+	PadLight->SetAttenuationRadius(420.f);
+	PadLight->SetLightColor(FLinearColor(0.08f, 0.4f, 1.f)); // house electric until the row colors it
+	PadLight->SetCastShadows(false);
 }
 
 void AAFLDisplayPedestal::BeginPlay()
@@ -95,6 +119,16 @@ void AAFLDisplayPedestal::ResolveRetailDisplay()
 	{
 		UE_LOG(LogAFLHub, Warning, TEXT("AFL_RETAIL: pad '%s' has no catalog row -- no display."), *CosmeticId.ToString());
 		return;
+	}
+
+	// The row's primary color becomes the pad's accent light ("lighting and effects", per-item).
+	if (PadLight)
+	{
+		const FLinearColor Accent = UAFLCosmeticCatalogSubsystem::GetEntryPrimaryColor(this, *Entry);
+		if (!Accent.IsAlmostBlack())
+		{
+			PadLight->SetLightColor(Accent);
+		}
 	}
 
 	// ACCESSORY rows: the part BP IS the product -- spawn it as the display (real chain/watch/pendant
@@ -168,10 +202,15 @@ void AAFLDisplayPedestal::ResolveRetailDisplay()
 void AAFLDisplayPedestal::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	// The retail turntable: slow spin on the display fixture (and anything attached to it).
-	if (DisplayProp && (DisplayProp->GetStaticMesh() || DisplayPartActor))
+	// The retail turntable: slow spin + spawner-style hover bob on the display fixture.
+	const bool bHasItem = DisplayProp && (DisplayProp->GetStaticMesh() || DisplayPartActor || ThumbPlate);
+	if (bHasItem)
 	{
 		DisplayProp->AddLocalRotation(FRotator(0.f, 40.f * DeltaSeconds, 0.f));
+		BobPhase += DeltaSeconds;
+		FVector Loc = DisplayProp->GetRelativeLocation();
+		Loc.Z = 118.f + 8.f * FMath::Sin(BobPhase * 1.6f);
+		DisplayProp->SetRelativeLocation(Loc);
 	}
 }
 

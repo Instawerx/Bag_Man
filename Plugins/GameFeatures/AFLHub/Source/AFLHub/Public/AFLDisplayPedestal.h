@@ -95,13 +95,23 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
 	TObjectPtr<UStaticMeshComponent> DisplayProp;
 
-	/** The visible display PLATFORM (operator lap-2: "no spawner or display platforms are visible") --
-	 *  a dark brand cylinder the item floats above. Always present, editor-visible. */
+	/** The visible display PLATFORM -- the ARENA SPAWN PAD art (operator design-intent ruling: "our
+	 *  weapons and assets should be on these spawners with lighting and effects"): SM_launchpad_Round
+	 *  with the internal glow disc, exactly what B_WeaponSpawner ships. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
 	TObjectPtr<UStaticMeshComponent> PlinthMesh;
 
+	/** The spawner cage/orbit FX (NS_GunPad -- the B_WeaponSpawner idle loop). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
+	TObjectPtr<class UNiagaraComponent> PadFX;
+
+	/** Per-item accent light -- colored from the catalog row's primary color at resolve time. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
+	TObjectPtr<class UPointLightComponent> PadLight;
+
 private:
 	bool bPawnAtShelf = false;
+	float BobPhase = 0.f;
 	FTimerHandle PlateTimer;
 
 	/** The spawned accessory display actor (client-local), destroyed with the pad. */
