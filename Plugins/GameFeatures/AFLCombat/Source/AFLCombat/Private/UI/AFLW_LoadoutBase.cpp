@@ -30,7 +30,8 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Creator, "UI.Layer.Menu");
 #include "UI/AFLW_LoadoutTileBase.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"       // I-27 grid rail: WrapBox + SizeBox cells built per rebuild
-#include "Components/OverlaySlot.h"      // hub-door full-screen backdrop (BG layer force-fill)
+#include "Components/Overlay.h"          // hub-door full-screen backdrop (root overlay floor)
+#include "Components/OverlaySlot.h"
 #include "Components/WrapBox.h"
 #include "Components/HorizontalBox.h"     // I-29 stat bars (rows built in code)
 #include "Components/VerticalBoxSlot.h"
@@ -718,40 +719,52 @@ void UAFLW_LoadoutBase::NativeOnActivated()
 	// The WBP's root is RootOverlay with a designed 'BG' layer as its FIRST child -- already at
 	// the correct depth -- so overlay mode forces THAT layer opaque + full-bleed instead of
 	// injecting a new widget (the injected-canvas attempt silently no-oped: root is not a canvas).
-	if (UWidget* BGWidget = GetWidgetFromName(TEXT("BG")))
+	// Two redundant layers, both logged (the tint-only attempt "ran" and drew NOTHING -- the
+	// designed BG brush is DrawAs None, so a color tint has nothing to draw):
+	// (1) replace the BG Border's BRUSH with a solid-color brush;
+	// (2) inject an opaque Border at child index 0 of the root overlay (behind everything).
+	const FLinearColor HouseBlack(0.002f, 0.003f, 0.006f, 1.0f);
+	if (bWorldOverlayMode)
 	{
-		if (UOverlaySlot* BGSlot = Cast<UOverlaySlot>(BGWidget->Slot))
+		if (UBorder* BGBorder = Cast<UBorder>(GetWidgetFromName(TEXT("BG"))))
 		{
-			BGSlot->SetHorizontalAlignment(HAlign_Fill);
-			BGSlot->SetVerticalAlignment(VAlign_Fill);
-		}
-		if (UBorder* BGBorder = Cast<UBorder>(BGWidget))
-		{
-			if (bWorldOverlayMode)
+			if (UOverlaySlot* BGSlot = Cast<UOverlaySlot>(BGBorder->Slot))
 			{
-				if (!bBGBrushCached)
-				{
-					CachedBGBrushColor = BGBorder->GetBrushColor();
-					bBGBrushCached = true;
-				}
-				BGBorder->SetBrushColor(FLinearColor(0.002f, 0.003f, 0.006f, 1.0f)); // UI.House.Black, opaque
+				BGSlot->SetHorizontalAlignment(HAlign_Fill);
+				BGSlot->SetVerticalAlignment(VAlign_Fill);
 			}
-			else if (bBGBrushCached)
-			{
-				BGBorder->SetBrushColor(CachedBGBrushColor); // pooled front-end reuse keeps its look
-			}
-			UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: BG backdrop %s (overlay=%d)."),
-				bWorldOverlayMode ? TEXT("opaque") : TEXT("restored"), bWorldOverlayMode ? 1 : 0);
+			FSlateBrush Solid;
+			Solid.DrawAs = ESlateBrushDrawType::Image; // no resource + Image = solid color fill
+			Solid.TintColor = FSlateColor(HouseBlack);
+			BGBorder->SetBrush(Solid);
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: BG brush replaced with solid fill."));
 		}
-		else
+		UOverlay* RootOverlay = Cast<UOverlay>(GetRootWidget());
+		if (RootOverlay && !WorldOverlayFloor)
 		{
-			UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOADOUT: 'BG' is %s, not a Border -- backdrop not applied."),
-				*GetNameSafe(BGWidget->GetClass()));
+			WorldOverlayFloor = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("WorldOverlayFloor"));
+			FSlateBrush FloorBrush;
+			FloorBrush.DrawAs = ESlateBrushDrawType::Image;
+			FloorBrush.TintColor = FSlateColor(HouseBlack);
+			WorldOverlayFloor->SetBrush(FloorBrush);
+			RootOverlay->AddChildToOverlay(WorldOverlayFloor);
+			if (UOverlaySlot* FloorSlot = Cast<UOverlaySlot>(WorldOverlayFloor->Slot))
+			{
+				FloorSlot->SetHorizontalAlignment(HAlign_Fill);
+				FloorSlot->SetVerticalAlignment(VAlign_Fill);
+			}
+			RootOverlay->ShiftChild(0, WorldOverlayFloor); // behind every designed layer
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: overlay floor injected at index 0 (children=%d)."),
+				RootOverlay->GetChildrenCount());
+		}
+		if (WorldOverlayFloor)
+		{
+			WorldOverlayFloor->SetVisibility(ESlateVisibility::Visible);
 		}
 	}
-	else
+	else if (WorldOverlayFloor)
 	{
-		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOADOUT: no 'BG' widget found -- backdrop not applied."));
+		WorldOverlayFloor->SetVisibility(ESlateVisibility::Collapsed); // pooled front-end reuse
 	}
 	RebuildTiles();        // populate the owned grid when the locker opens
 	SetupPreviewCapture(); // start the live 3D preview of the REAL pawn
