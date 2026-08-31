@@ -53,20 +53,15 @@ void AAFLHubDestinationVolume::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// COSMETIC-ONLY guard: a dedicated server has no screen and strips render components
-	// (the separate-process PIE server crash law). Everything below is client sign dressing.
-	if (GetNetMode() == NM_DedicatedServer || !SignWidget)
-	{
-		return;
-	}
-
+	// ROW RESOLUTION RUNS ON EVERY NET MODE: the SERVER validates Travel requests off these
+	// resolved fields (GetTravelContract) -- guarding it behind the dedicated-server early-out
+	// left every server-side door Disabled and refused every legitimate club hop.
 	const FAFLHubDestinationRow* Row = Destinations ? Destinations->FindRow(DestinationId) : nullptr;
 	if (Row)
 	{
 		ResolvedAction   = Row->Action;
 		ResolvedName     = Row->DisplayName;
 		ResolvedSubtitle = Row->Subtitle;
-		ResolvedGlyph    = Row->Glyph.LoadSynchronous();
 		ResolvedPayload  = Row->ActionPayload;
 	}
 	else
@@ -74,6 +69,18 @@ void AAFLHubDestinationVolume::BeginPlay()
 		UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBDOOR: %s has no row for '%s' in %s -- sign shows the raw id."),
 			*GetName(), *DestinationId.ToString(), *GetNameSafe(Destinations));
 		ResolvedName = FText::FromName(DestinationId);
+	}
+
+	// COSMETIC-ONLY guard: a dedicated server has no screen and strips render components
+	// (the separate-process PIE server crash law). Everything below is client sign dressing.
+	if (GetNetMode() == NM_DedicatedServer || !SignWidget)
+	{
+		return;
+	}
+
+	if (Row)
+	{
+		ResolvedGlyph = Row->Glyph.LoadSynchronous();
 	}
 
 	SignWidget->SetWidgetClass(UAFLHubSignWidget::StaticClass());
