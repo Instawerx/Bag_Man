@@ -30,6 +30,8 @@ UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_UI_Layer_Menu_Creator, "UI.Layer.Menu");
 #include "UI/AFLW_LoadoutTileBase.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"       // I-27 grid rail: WrapBox + SizeBox cells built per rebuild
+#include "Components/CanvasPanel.h"      // hub-door full-screen backdrop
+#include "Components/CanvasPanelSlot.h"
 #include "Components/WrapBox.h"
 #include "Components/HorizontalBox.h"     // I-29 stat bars (rows built in code)
 #include "Components/VerticalBoxSlot.h"
@@ -711,6 +713,25 @@ void UAFLW_LoadoutBase::NativeOnActivated()
 	{
 		bWorldOverlayMode = true;
 		bNextOpenIsWorldOverlay = false; // one-shot hint, consumed
+	}
+	// FULL-SCREEN BACKDROP for hub-door opens (operator ruling: the takeover must cover the world
+	// behind it -- the front-end armory stages a scene on the left; a hub doorway does not). One
+	// House-Black border, created once, toggled per mode so pooled reuse in the front-end stays
+	// transparent there.
+	if (UCanvasPanel* RootCanvas = Cast<UCanvasPanel>(GetRootWidget()))
+	{
+		if (!WorldOverlayBackdrop)
+		{
+			WorldOverlayBackdrop = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("WorldOverlayBackdrop"));
+			WorldOverlayBackdrop->SetBrushColor(FLinearColor(0.002f, 0.003f, 0.006f, 1.0f)); // UI.House.Black
+			if (UCanvasPanelSlot* BackdropSlot = RootCanvas->AddChildToCanvas(WorldOverlayBackdrop))
+			{
+				BackdropSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+				BackdropSlot->SetOffsets(FMargin(0.f));
+				BackdropSlot->SetZOrder(-100);
+			}
+		}
+		WorldOverlayBackdrop->SetVisibility(bWorldOverlayMode ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
 	RebuildTiles();        // populate the owned grid when the locker opens
 	SetupPreviewCapture(); // start the live 3D preview of the REAL pawn
