@@ -121,9 +121,16 @@ placed per building.
 5. Zone placement passes with operator anchors (range/visor house/jewellery house/labs/PX).
 6. Retire the 19-rack layout + product-plate distance tiers.
 
-## Open items for the operator at approval
+## Placement anchors (operator, 2026-08-31)
 
-- Which buildings are the Visor House and Jewellery House (name meshes/doors like SM_Door_001).
+- **VISOR HOUSE = the current PX building** (SM_Door_001, already open) — the 19-rack layout
+  inside retires; facemask grab pads + mirrors replace it. The general-store corner (credits /
+  League / till) shares the building or moves at the operator's final pass.
+- **JEWELLERY = the SM_Scifi_Crate area** at (-3250, 1865, 82) — display cases + mirrors staged
+  there; operator adjusts final placement.
+- Weapons @ Shooting Range, slot packs @ RoboLabs front: pending their anchor passes.
+
+## Still open (operator)
+
 - Cart checkout point: at a till, from the chip anywhere, or both.
-- Range try-fire: grabbing a weapon at the range — live-fire before buying (needs the range
-  CanFire zone + temp ammo rules) or hold-only?
+- Range try-fire: live-fire before buying, or hold-only?
