@@ -7,6 +7,9 @@
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "AFLCosmeticCoreTypes.h"
 #include "Cosmetics/AFLSkinColorAsset.h"     // facemask MIC for the head-bust display
+#include "Cosmetics/AFLWalletComponent.h"    // lap-5: entitled free rows read LIVE, not OFFLINE
+#include "GameFramework/PlayerState.h"
+#include "Player/LyraPlayerState.h"
 #include "AFLHubMirror.h"                     // UAFLHubMirrorWidget: the RT/texture-plate widget, reused for thumbnails
 #include "Components/PointLightComponent.h"   // spawner-pad accent light
 #include "Engine/StaticMesh.h"
@@ -320,6 +323,17 @@ void AAFLDisplayPedestal::UpdatePlate()
 			Name = Entry->DisplayName.IsEmpty() ? Name : Entry->DisplayName;
 			PriceLine = Catalog->GetEntryPriceText(*Entry);
 			bSellable = Entry->bTransactable;
+			// Lap-5 fix: free-to-all rows (weapons) read OFFLINE because they are not FOR SALE --
+			// but an entitled player can absolutely grab them. Entitled = live pad, "Free" price.
+			if (!bSellable)
+			{
+				APlayerController* LocalPC = GetWorld()->GetFirstPlayerController();
+				APlayerState* LocalPS = LocalPC ? LocalPC->PlayerState : nullptr;
+				const ALyraPlayerState* LocalLyraPS = Cast<ALyraPlayerState>(LocalPS);
+				const UAFLWalletComponent* LocalWallet =
+					LocalPS ? LocalPS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+				bSellable = LocalWallet && LocalLyraPS && LocalWallet->IsEntitled(LocalLyraPS, CosmeticId);
+			}
 		}
 	}
 	Plate->SetSignData(Name, PriceLine, bSellable, EAFLHubSignTier::AtDoor, Meters, nullptr);

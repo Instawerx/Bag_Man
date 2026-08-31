@@ -435,13 +435,23 @@ void UAFLCosmeticLoadoutComponent::ServerRequestTryOn_Implementation(FName Cosme
 	}
 	LastTryOnServerTime = Now;
 
-	// Only real, sellable rows get temp grants -- never an unknown id, never GRANTED/NOT-FOR-SALE stock.
+	// A real row is required. Non-transactable rows still equip when the requester is ALREADY
+	// ENTITLED (lap-5: weapons are free-to-all by economy design -- their rows are not for sale,
+	// but grabbing one off a tower must still put it in your hands). Only sellable rows a player
+	// does NOT own take the temp map-exception grant.
 	const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(GetWorld());
 	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
-	if (!Entry || !Entry->bTransactable)
+	if (!Entry)
 	{
-		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TRYON: '%s' REFUSED -- %s."),
-			*CosmeticId.ToString(), Entry ? TEXT("not transactable") : TEXT("not in the catalog"));
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TRYON: '%s' REFUSED -- not in the catalog."), *CosmeticId.ToString());
+		return;
+	}
+	UAFLWalletComponent* EntitleWallet = PS ? PS->FindComponentByClass<UAFLWalletComponent>() : nullptr;
+	const bool bAlreadyEntitled = EntitleWallet && EntitleWallet->IsEntitled(PS, CosmeticId);
+	if (!Entry->bTransactable && !bAlreadyEntitled)
+	{
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TRYON: '%s' REFUSED -- not transactable and not owned."),
+			*CosmeticId.ToString());
 		return;
 	}
 
@@ -475,7 +485,8 @@ void UAFLCosmeticLoadoutComponent::ServerRequestTryOn_Implementation(FName Cosme
 	}
 
 	// Baseline: the FIRST grant of a chain snapshots the real look; pad-to-pad chains keep the ORIGINAL
-	// baseline (never a mid-trial state), and the superseded trial's grant is revoked.
+	// baseline (never a mid-trial state), and the superseded trial's grant is revoked. An already-
+	// entitled row (free weapons) needs no temp grant -- the gate passes on real entitlement.
 	if (ActiveTryOnId == NAME_None)
 	{
 		TryOnBaseline = Selection;
@@ -484,7 +495,10 @@ void UAFLCosmeticLoadoutComponent::ServerRequestTryOn_Implementation(FName Cosme
 	{
 		Wallet->RevokeTempMapEntitlement(ActiveTryOnId);
 	}
-	Wallet->GrantTempMapEntitlement(CosmeticId);
+	if (!bAlreadyEntitled)
+	{
+		Wallet->GrantTempMapEntitlement(CosmeticId);
+	}
 	ActiveTryOnId = CosmeticId;
 
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: WEARING '%s' (temp grant -> real %s seam)."),

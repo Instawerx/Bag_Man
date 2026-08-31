@@ -119,6 +119,12 @@ void UAFLHubNetProfileComponent::BindToAbilitySystem(UAbilitySystemComponent* In
 	// because the pawn's ASC is not guaranteed to be ULyraAbilitySystemComponent (self-ASC'd pawn
 	// law) and the old Cast<> guard SKIPPED SILENTLY. Every refusal branch now logs; sits ABOVE the
 	// ZoneProfiles gate so the law holds even on a pawn with no zone DA. Idempotent via the tag check.
+	// DIAG (lap-5): the loud branches below never printed in the operator's log while "bound N
+	// zone-tag listeners" did -- name the gate state unconditionally so the next lap settles it.
+	UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBNET: NO-KILL gate on %s -- owner=%s role=%d authority=%d."),
+		*GetNameSafe(this), *GetNameSafe(GetOwner()),
+		GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
+		(GetOwner() && GetOwner()->HasAuthority()) ? 1 : 0);
 	if (AActor* OwnerActor = GetOwner(); OwnerActor && OwnerActor->HasAuthority())
 	{
 		const FGameplayTag Immunity = FGameplayTag::RequestGameplayTag(TEXT("Gameplay.DamageImmunity"), false);

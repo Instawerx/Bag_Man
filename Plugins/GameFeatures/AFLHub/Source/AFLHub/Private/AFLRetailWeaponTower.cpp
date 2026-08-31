@@ -25,9 +25,12 @@
 
 namespace AFLWeaponTower
 {
-	/** Catalog row -> the equipped actor's skeletal mesh, WITHOUT spawning gameplay. Returns null for
-	 *  beam-family weapons (their mesh slot is legitimately empty); OutThumb/OutScale always fill. */
-	static USkeletalMesh* ResolveDisplayMesh(const UObject* WorldCtx, FName CosmeticId,
+	/** Catalog row -> the equipped DISPLAY ACTOR class + WID attach scale. The actor route replaces
+	 *  the SCS mesh walk (lap-5: every mesh lives in a CHILD-class override record the parent's SCS
+	 *  templates never carry -- all 24 tiers fell to thumbnails). Equipment actors are cosmetic-only
+	 *  (abilities come from the EquipmentManager grant, never the actor), so spawning one IS
+	 *  display-safe. OutThumb always fills for the fallback. */
+	static UClass* ResolveDisplayActorClass(const UObject* WorldCtx, FName CosmeticId,
 		UTexture2D*& OutThumb, FVector& OutScale)
 	{
 		OutThumb = nullptr;
@@ -56,28 +59,7 @@ namespace AFLWeaponTower
 		}
 		// WID AttachTransform scale IS the weapon's size knob (banked law) -- honor it on the display.
 		OutScale = Def->ActorsToSpawn[0].AttachTransform.GetScale3D();
-		UClass* ActorCls = Def->ActorsToSpawn[0].ActorToSpawn;
-		// SCS TEMPLATE WALK up the super chain: the shared BP parent owns an INHERITED SkeletalMesh
-		// component that CDO component iteration cannot see (the banked hidden-component trap).
-		for (UClass* C = ActorCls; C && C != AActor::StaticClass(); C = C->GetSuperClass())
-		{
-			const UBlueprintGeneratedClass* BPC = Cast<UBlueprintGeneratedClass>(C);
-			if (!BPC || !BPC->SimpleConstructionScript)
-			{
-				continue;
-			}
-			for (const USCS_Node* Node : BPC->SimpleConstructionScript->GetAllNodes())
-			{
-				if (const USkeletalMeshComponent* Tmpl = Node ? Cast<USkeletalMeshComponent>(Node->ComponentTemplate) : nullptr)
-				{
-					if (USkeletalMesh* Mesh = Tmpl->GetSkeletalMeshAsset())
-					{
-						return Mesh;
-					}
-				}
-			}
-		}
-		return nullptr;
+		return Def->ActorsToSpawn[0].ActorToSpawn;
 	}
 }
 
@@ -129,6 +111,14 @@ void AAFLRetailWeaponTower::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		}
 	}
 	Pads.Reset();
+	for (AActor* Disp : DisplayActors)
+	{
+		if (Disp)
+		{
+			Disp->Destroy();
+		}
+	}
+	DisplayActors.Reset();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -166,16 +156,32 @@ void AAFLRetailWeaponTower::BuildDisplay()
 
 		UTexture2D* Thumb = nullptr;
 		FVector WidScale = FVector::OneVector;
-		if (USkeletalMesh* Mesh = AFLWeaponTower::ResolveDisplayMesh(this, Id, Thumb, WidScale))
+		UClass* DisplayCls = AFLWeaponTower::ResolveDisplayActorClass(this, Id, Thumb, WidScale);
+		AActor* DisplayActor = nullptr;
+		if (DisplayCls && World)
 		{
-			USkeletalMeshComponent* MeshComp = NewObject<USkeletalMeshComponent>(this);
-			MeshComp->SetupAttachment(Arm);
-			MeshComp->RegisterComponent();
-			MeshComp->SetSkeletalMeshAsset(Mesh);
-			MeshComp->SetRelativeScale3D(WidScale);
-			MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-			UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: tower tier %d '%s' -> mesh %s (scale %s)."),
-				i, *Id.ToString(), *GetNameSafe(Mesh), *WidScale.ToCompactString());
+			FActorSpawnParameters Params;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Params.Owner = this;
+			DisplayActor = World->SpawnActor<AActor>(DisplayCls, Arm->GetComponentTransform(), Params);
+		}
+		if (DisplayActor)
+		{
+			DisplayActor->AttachToComponent(Arm, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+			DisplayActor->SetActorRelativeScale3D(WidScale);
+			DisplayActor->SetActorEnableCollision(false);
+			// The banked hidden-SkeletalMesh trap: the weapon actor's mesh component can sit hidden
+			// until an equip unhides it -- force every scene component visible for the display.
+			TArray<USceneComponent*> SceneComps;
+			DisplayActor->GetComponents<USceneComponent>(SceneComps);
+			for (USceneComponent* SC : SceneComps)
+			{
+				SC->SetHiddenInGame(false);
+				SC->SetVisibility(true, /*bPropagateToChildren*/ true);
+			}
+			DisplayActors.Add(DisplayActor);
+			UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: tower tier %d '%s' -> display actor %s (scale %s, %d comps unhidden)."),
+				i, *Id.ToString(), *GetNameSafe(DisplayCls), *WidScale.ToCompactString(), SceneComps.Num());
 		}
 		else if (Thumb)
 		{
@@ -185,7 +191,8 @@ void AAFLRetailWeaponTower::BuildDisplay()
 			Plate->RegisterComponent();
 			Plate->SetWidgetSpace(EWidgetSpace::World);
 			Plate->SetDrawSize(FVector2D(512.f, 512.f));
-			Plate->SetRelativeScale3D(FVector(0.12f));
+			Plate->SetRelativeScale3D(FVector(0.18f));
+			Plate->SetTwoSided(true); // readable from both sides of the spin
 			Plate->SetWidgetClass(UAFLHubMirrorWidget::StaticClass());
 			Plate->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Plate->InitWidget();

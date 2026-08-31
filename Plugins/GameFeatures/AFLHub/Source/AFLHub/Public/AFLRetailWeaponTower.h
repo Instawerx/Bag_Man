@@ -60,4 +60,8 @@ protected:
 private:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<AAFLDisplayPedestal>> Pads;
+
+	/** The spawned cosmetic equipment actors on the tiers (attached actors don't auto-destroy). */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<AActor>> DisplayActors;
 };
