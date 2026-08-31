@@ -49,7 +49,7 @@ TSharedRef<SWidget> UAFLW_RetailCard::RebuildWidget()
 
 	UBorder* Panel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CardPanel"));
 	Panel->SetBrushColor(Surface);
-	Panel->SetPadding(FMargin(14.f, 12.f));
+	Panel->SetPadding(FMargin(17.f, 15.f));
 	if (UCanvasPanelSlot* S = Canvas->AddChildToCanvas(Panel))
 	{
 		S->SetAnchors(FAnchors(1.f, 1.f, 1.f, 1.f));
@@ -65,13 +65,13 @@ TSharedRef<SWidget> UAFLW_RetailCard::RebuildWidget()
 	UHorizontalBox* Head = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("HeadRow"));
 	Col->AddChildToVerticalBox(Head);
 	NameText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("NameText"));
-	Style(NameText, Display, 15.f, FLinearColor::White);
+	Style(NameText, Display, 18.f, FLinearColor::White);
 	if (UHorizontalBoxSlot* S = Head->AddChildToHorizontalBox(NameText))
 	{
 		S->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
 	}
 	WearText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("WearText"));
-	Style(WearText, Display, 10.f, Accent);
+	Style(WearText, Display, 12.f, Accent);
 	if (UHorizontalBoxSlot* S = Head->AddChildToHorizontalBox(WearText))
 	{
 		S->SetPadding(FMargin(10.f, 3.f, 0.f, 0.f));
@@ -79,10 +79,10 @@ TSharedRef<SWidget> UAFLW_RetailCard::RebuildWidget()
 
 	// Price · meta
 	PriceText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PriceText"));
-	Style(PriceText, Display, 13.f, Accent);
+	Style(PriceText, Display, 16.f, Accent);
 	if (UVerticalBoxSlot* S = Col->AddChildToVerticalBox(PriceText)) { S->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f)); }
 	MetaText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("MetaText"));
-	Style(MetaText, Display, 8.f, Dim);
+	Style(MetaText, Display, 10.f, Dim);
 	if (UVerticalBoxSlot* S = Col->AddChildToVerticalBox(MetaText)) { S->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f)); }
 
 	// Action rows (key-first labels; clickable when a cursor exists).
@@ -92,11 +92,11 @@ TSharedRef<SWidget> UAFLW_RetailCard::RebuildWidget()
 		OutBtn = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), Name);
 		OutBtn->SetBackgroundColor(Fill);
 		UTextBlock* L = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
-		Style(L, Display, 11.f, FLinearColor::White);
+		Style(L, Display, 13.f, FLinearColor::White);
 		L->SetText(Label);
 		OutBtn->AddChild(L);
 		if (OutLabel) { *OutLabel = L; }
-		if (UVerticalBoxSlot* S = Col->AddChildToVerticalBox(OutBtn)) { S->SetPadding(FMargin(0.f, 6.f, 0.f, 0.f)); }
+		if (UVerticalBoxSlot* S = Col->AddChildToVerticalBox(OutBtn)) { S->SetPadding(FMargin(0.f, 8.f, 0.f, 0.f)); }
 	};
 
 	AddAction(TEXT("BuyButton"), Accent, NSLOCTEXT("AFLRetail", "CardBuy", "[F]  BUY"), BuyButton, &BuyLabel);
@@ -113,12 +113,12 @@ TSharedRef<SWidget> UAFLW_RetailCard::RebuildWidget()
 
 	// Status + the standing hint (mock: "leaving the venue restores your look").
 	StatusText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StatusText"));
-	Style(StatusText, Body, 10.f, Dim);
+	Style(StatusText, Body, 12.f, Dim);
 	StatusText->SetAutoWrapText(true);
 	if (UVerticalBoxSlot* S = Col->AddChildToVerticalBox(StatusText)) { S->SetPadding(FMargin(0.f, 8.f, 0.f, 0.f)); }
 
 	UTextBlock* Hint = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HintText"));
-	Style(Hint, Body, 8.f, FLinearColor(1.f, 1.f, 1.f, 0.30f));
+	Style(Hint, Body, 10.f, FLinearColor(1.f, 1.f, 1.f, 0.30f));
 	Hint->SetText(NSLOCTEXT("AFLRetail", "CardHint", "walking off the pad puts it back"));
 	if (UVerticalBoxSlot* S = Col->AddChildToVerticalBox(Hint)) { S->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f)); }
 

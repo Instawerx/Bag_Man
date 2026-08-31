@@ -45,9 +45,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Retail", meta = (ClampMin = "0.05", ClampMax = "2.0"))
 	float DwellSeconds = 0.35f;
 
+	/** Head bust the facemask display paints (the dismembered-head recipe). Operator-swappable. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AFL|Retail")
+	TSoftObjectPtr<UStaticMesh> FacemaskBustMesh =
+		TSoftObjectPtr<UStaticMesh>(FSoftObjectPath(TEXT("/Game/BagMan/Characters/Dismember/SM_AFL_RobotHead_Gib.SM_AFL_RobotHead_Gib")));
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void Tick(float DeltaSeconds) override;
+
+	/** THE ITEM IS THE DISPLAY (operator gap, lap 2026-08-31): resolve the catalog row to a real
+	 *  visual -- accessory rows spawn their AccessoryPartClass actor (the actual chain/watch/pendant
+	 *  mesh); facemask rows paint the mask MIC onto the head bust (AAFLDismemberedHead pattern,
+	 *  every slot). Client-local, BeginPlay-time, no gameplay coupling. */
+	void ResolveRetailDisplay();
 
 	/** RETAIL OVERRIDE: the pad never grants by touch. The subsystem owns the whole verb set. */
 	virtual void AttemptPickUpWeapon_Implementation(APawn* Pawn) override;
@@ -78,4 +90,8 @@ protected:
 private:
 	bool bPawnAtShelf = false;
 	FTimerHandle PlateTimer;
+
+	/** The spawned accessory display actor (client-local), destroyed with the pad. */
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> DisplayPartActor;
 };

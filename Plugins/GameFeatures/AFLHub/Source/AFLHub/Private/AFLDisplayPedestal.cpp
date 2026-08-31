@@ -6,6 +6,9 @@
 #include "AFLHubSignWidget.h"
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "AFLCosmeticCoreTypes.h"
+#include "Cosmetics/AFLSkinColorAsset.h"     // facemask MIC for the head-bust display
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceConstant.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -55,10 +58,86 @@ void AAFLDisplayPedestal::BeginPlay()
 	ShelfBox->OnComponentEndOverlap.AddDynamic(this, &AAFLDisplayPedestal::OnPadEndOverlap);
 	GetWorldTimerManager().SetTimer(PlateTimer, this, &AAFLDisplayPedestal::UpdatePlate, 0.5f, true);
 	UpdatePlate();
+	ResolveRetailDisplay();
+}
+
+void AAFLDisplayPedestal::ResolveRetailDisplay()
+{
+	if (CosmeticId.IsNone())
+	{
+		return;
+	}
+	const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(GetWorld());
+	const FAFLCatalogEntry* Entry = Catalog ? Catalog->FindEntry(CosmeticId) : nullptr;
+	if (!Entry)
+	{
+		UE_LOG(LogAFLHub, Warning, TEXT("AFL_RETAIL: pad '%s' has no catalog row -- no display."), *CosmeticId.ToString());
+		return;
+	}
+
+	// ACCESSORY rows: the part BP IS the product -- spawn it as the display (real chain/watch/pendant
+	// mesh; the chain's pendant refresh fails soft to a bare chain with no loadout, which is correct).
+	if (!Entry->AccessoryPartClass.IsNull())
+	{
+		if (UClass* PartClass = Entry->AccessoryPartClass.LoadSynchronous())
+		{
+			FActorSpawnParameters Params;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			Params.Owner = this;
+			DisplayPartActor = GetWorld()->SpawnActor<AActor>(PartClass,
+				DisplayProp->GetComponentTransform(), Params);
+			if (DisplayPartActor)
+			{
+				DisplayPartActor->AttachToComponent(DisplayProp, FAttachmentTransformRules::KeepWorldTransform);
+				DisplayPartActor->SetActorEnableCollision(false);
+				UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: pad '%s' displaying part actor %s."),
+					*CosmeticId.ToString(), *GetNameSafe(DisplayPartActor));
+			}
+		}
+		return;
+	}
+
+	// FACEMASK rows: paint the mask MIC over the head bust on EVERY slot (the AAFLDismemberedHead
+	// recipe -- slot 1 is the canonical mask slot, but the gib's sections all take it cleanly).
+	if (UAFLCosmeticCatalogSubsystem* MutableCatalog = UAFLCosmeticCatalogSubsystem::Get(GetWorld()))
+	{
+		if (const UAFLSkinColorAsset* MaskAsset = Cast<UAFLSkinColorAsset>(MutableCatalog->ResolveAsset(CosmeticId)))
+		{
+			if (UMaterialInstanceConstant* MaskMIC = MaskAsset->GetFacemaskMaterial())
+			{
+				if (UStaticMesh* Bust = FacemaskBustMesh.LoadSynchronous())
+				{
+					DisplayProp->SetStaticMesh(Bust);
+					const int32 NumSlots = DisplayProp->GetNumMaterials();
+					for (int32 i = 0; i < NumSlots; ++i)
+					{
+						DisplayProp->SetMaterial(i, MaskMIC);
+					}
+					UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: pad '%s' displaying mask bust (%d slots painted)."),
+						*CosmeticId.ToString(), NumSlots);
+				}
+			}
+		}
+	}
+}
+
+void AAFLDisplayPedestal::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	// The retail turntable: slow spin on the display fixture (and anything attached to it).
+	if (DisplayProp && (DisplayProp->GetStaticMesh() || DisplayPartActor))
+	{
+		DisplayProp->AddLocalRotation(FRotator(0.f, 40.f * DeltaSeconds, 0.f));
+	}
 }
 
 void AAFLDisplayPedestal::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (DisplayPartActor)
+	{
+		DisplayPartActor->Destroy(); // attached actors do not auto-destroy with their base
+		DisplayPartActor = nullptr;
+	}
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(PlateTimer);
