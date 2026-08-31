@@ -26,6 +26,8 @@ class AFLHUB_API UAFLHubTravelComponent : public UActorComponent
 	GENERATED_BODY()
 
 public:
+	UAFLHubTravelComponent();
+
 	/** Ask the server to run the Travel action of the named destination row. */
 	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "AFL|Hub")
 	void ServerRequestHubTravel(FName DestinationId);

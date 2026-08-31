@@ -9,6 +9,14 @@
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLHubTravelComponent)
 
+UAFLHubTravelComponent::UAFLHubTravelComponent()
+{
+	// A Server RPC only routes on a REPLICATED component: the server creates this (the client-side
+	// GFCM add is refused for replicated components -- by design), it replicates down, and the
+	// client's copy carries the RPC legally. A non-replicated copy crashed ProcessRemoteFunction.
+	SetIsReplicatedByDefault(true);
+}
+
 void UAFLHubTravelComponent::ServerRequestHubTravel_Implementation(FName DestinationId)
 {
 	UWorld* World = GetWorld();
