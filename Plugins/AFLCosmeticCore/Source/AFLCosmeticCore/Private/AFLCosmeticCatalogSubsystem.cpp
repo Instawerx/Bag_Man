@@ -334,6 +334,24 @@ int32 UAFLCosmeticCatalogSubsystem::CountNonFreeRows() const
 	return N;
 }
 
+#if !UE_BUILD_SHIPPING
+void UAFLCosmeticCatalogSubsystem::GetDevBrowseEntries(TArray<FAFLCatalogEntry>& OutEntries) const
+{
+	OutEntries.Reset();
+	if (!Catalog)
+	{
+		return;
+	}
+	for (const FAFLCatalogEntry& Entry : Catalog->Entries)
+	{
+		if (Entry.bTransactable && !Entry.bPlaceholderArt && (Entry.PriceVolts > 0 || Entry.PriceWatts > 0))
+		{
+			OutEntries.Add(Entry);
+		}
+	}
+}
+#endif
+
 void UAFLCosmeticCatalogSubsystem::GetPurchasableEntries(TArray<FAFLCatalogEntry>& OutEntries) const
 {
 	OutEntries.Reset();

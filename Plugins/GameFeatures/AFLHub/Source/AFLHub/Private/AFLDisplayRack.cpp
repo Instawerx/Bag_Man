@@ -49,8 +49,26 @@ void AAFLDisplayRack::Restock()
 		UE_LOG(LogAFLHub, Warning, TEXT("AFL_RETAIL: rack '%s' found no catalog subsystem."), *GetName());
 		return;
 	}
+	// THE RULED OFFLINE BEHAVIOR (item 18): an unanswered sellable set loads the on-disk cache --
+	// never nothing, never all. The hub session has no store-screen login flow, so the rack asks.
+	UAFLCosmeticCatalogSubsystem* MutCatalog = UAFLCosmeticCatalogSubsystem::Get(GetWorld());
+	if (MutCatalog && !MutCatalog->IsRegisteredSetKnown())
+	{
+		const bool bCached = MutCatalog->LoadRegisteredCache();
+		UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: sellable set unknown -- cache %s."),
+			bCached ? TEXT("loaded") : TEXT("absent"));
+	}
 	TArray<FAFLCatalogEntry> Sellable;
 	Catalog->GetPurchasableEntries(Sellable);
+#if !UE_BUILD_SHIPPING
+	if (Sellable.Num() == 0)
+	{
+		// DEV browse: no backend and no cache on this machine -- stock the catalog-ruled subset so
+		// the walkable store is browsable. Purchases still validate on their own paths.
+		Catalog->GetDevBrowseEntries(Sellable);
+		UE_LOG(LogAFLHub, Log, TEXT("AFL_RETAIL: dev-browse fallback -- %d catalog-ruled rows."), Sellable.Num());
+	}
+#endif
 
 	TArray<FName> Stock;
 	for (const FAFLCatalogEntry& E : Sellable)

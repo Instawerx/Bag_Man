@@ -100,6 +100,13 @@ public:
 	 *  time rather than showing everything. Returns true if a cache was found. */
 	bool LoadRegisteredCache();
 
+#if !UE_BUILD_SHIPPING
+	/** DEV BROWSE ONLY (the PX walkable racks): the catalog-ruled sellable subset (transactable +
+	 *  priced + not placeholder) with NO backend intersect. Never compiled into shipping -- the
+	 *  three-state gate stays the shipping truth, and every purchase path still validates. */
+	void GetDevBrowseEntries(TArray<FAFLCatalogEntry>& OutEntries) const;
+#endif
+
 	/** Rows that are NOT GrantedFree -- i.e. what the store surface offered before CC-X22 filtered it.
 	 *  Diagnostic: the gap between this and GetPurchasableEntries().Num() IS the defect's size. */
 	int32 CountNonFreeRows() const;
