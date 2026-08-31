@@ -86,9 +86,19 @@ void UAFLW_FrontEndMarket::NativeConstruct()
 	}
 }
 
+void UAFLW_FrontEndMarket::NativeOnDeactivated()
+{
+	// Leaving the market -> drop any active store preview so the display robot isn't left wearing an
+	// unbought item ("nothing leaves the store unbought" ruling). ON DEACTIVATED, not destruct:
+	// CommonUI POOLS deactivated widgets, so NativeDestruct never fires on a normal close -- the
+	// hub-doors defect class, caught operator-side twice on the loadout.
+	RevertStorePreview();
+	Super::NativeOnDeactivated();
+}
+
 void UAFLW_FrontEndMarket::NativeDestruct()
 {
-	// Leaving the market -> drop any active store preview so the display robot isn't left wearing an unbought item.
+	// Teardown safety net for the genuine-destruction path (world teardown, pool eviction).
 	RevertStorePreview();
 	Super::NativeDestruct();
 }

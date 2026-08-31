@@ -4,6 +4,7 @@
 
 #include "AFLHub.h"
 #include "AFLHubSignWidget.h"
+#include "AFLHubTravelComponent.h"
 #include "CommonActivatableWidget.h"
 #include "CommonUIExtensions.h"
 #include "UI/AFLW_LoadoutBase.h"
@@ -165,11 +166,36 @@ void AAFLHubDestinationVolume::ExecuteDoorAction()
 		}
 		break;
 	}
+	case EAFLHubDestinationAction::Travel:
+	{
+		// Travel moves the SESSION, and this actor has no owning connection -- the request rides
+		// the player-owned pawn's travel component, and the SERVER re-resolves + validates the row.
+		APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		UAFLHubTravelComponent* Travel = Pawn ? Pawn->FindComponentByClass<UAFLHubTravelComponent>() : nullptr;
+		if (!Travel)
+		{
+			UE_LOG(LogAFLHub, Warning, TEXT("AFL_HUBDOOR: '%s' Travel refused -- no UAFLHubTravelComponent on the pawn."),
+				*DestinationId.ToString());
+			return;
+		}
+		UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: TRAVEL '%s' requested."), *DestinationId.ToString());
+		Travel->ServerRequestHubTravel(DestinationId);
+		break;
+	}
 	default:
 		UE_LOG(LogAFLHub, Log, TEXT("AFL_HUBDOOR: '%s' action %d has no backend yet."),
 			*DestinationId.ToString(), static_cast<int32>(ResolvedAction));
 		break;
 	}
+}
+
+bool AAFLHubDestinationVolume::GetTravelContract(FName& OutId, EAFLHubDestinationAction& OutAction, FString& OutPayload) const
+{
+	OutId = DestinationId;
+	OutAction = ResolvedAction;
+	OutPayload = ResolvedPayload;
+	return !DestinationId.IsNone();
 }
 
 void AAFLHubDestinationVolume::EndPlay(const EEndPlayReason::Type EndPlayReason)

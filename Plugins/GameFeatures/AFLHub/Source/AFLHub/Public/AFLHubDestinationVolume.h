@@ -89,6 +89,10 @@ class AFLHUB_API AAFLHubDestinationVolume : public AActor
 public:
 	AAFLHubDestinationVolume();
 
+	/** Server-side row re-resolution for the Travel backend (UAFLHubTravelComponent): the client
+	 *  names a row, the server reads THIS placed volume's resolved action + payload. */
+	bool GetTravelContract(FName& OutId, EAFLHubDestinationAction& OutAction, FString& OutPayload) const;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

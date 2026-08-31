@@ -61,6 +61,10 @@ protected:
 	virtual void NativeDestruct() override;
 	//~End
 
+	/** Pooled-close teardown: CommonUI never destructs a normally-closed widget, so the store
+	 *  preview revert ("nothing leaves the store unbought") lives here. */
+	virtual void NativeOnDeactivated() override;
+
 	/** Center hero slot -> live scene: dissolve the market backdrop when a display pawn is behind us (armory). */
 	void ApplyShowroomMode();
 
