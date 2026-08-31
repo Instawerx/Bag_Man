@@ -628,10 +628,10 @@ private:
 	/** Consumed from bNextOpenIsWorldOverlay -- this open rides over a live game world. */
 	bool bWorldOverlayMode = false;
 
-	/** Full-screen House-Black backdrop shown only in world-overlay mode (hub-door opens must
-	 *  cover the world behind the takeover; the front-end armory stages its own scene). */
-	UPROPERTY(Transient)
-	TObjectPtr<class UBorder> WorldOverlayBackdrop;
+	/** World-overlay backdrop: the WBP's designed 'BG' layer is forced opaque House-Black for
+	 *  hub-door opens; the original brush is cached here so pooled front-end reuse restores it. */
+	FLinearColor CachedBGBrushColor = FLinearColor::Transparent;
+	bool bBGBrushCached = false;
 
 	/** Last selection applied to the display pawn -- the NativeTick change-poll re-drives only on a delta
 	 *  (an equip lands via OnRep async, so a poll is more robust than a post-equip call). */
