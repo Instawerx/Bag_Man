@@ -26,8 +26,8 @@
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h" // TActorIterator (match centroid)
-#include "Animation/AnimInstance.h"           // unarmed layer link for stage pawns
-#include "Components/SkeletalMeshComponent.h" // "
+#include "UI/AFLLoadoutDisplayPawn.h" // the proven kiosk display robot -- the cine stage's pawn subject
+#include "Cosmetics/AFLSkinColorControllerComponent.h" // stage-robot dress: the one shipping fan-out
 #include "Misc/App.h"
 #include "UnrealClient.h"
 #include "UObject/SoftObjectPath.h"
@@ -72,7 +72,10 @@ namespace AFLCine
 		{ {  250,  300, 0 },  200.f, TEXT("AFL.Weapon.Scarlett") },
 		{ {  350, -250, 0 },   80.f, TEXT("AFL.Weapon.HandCannon.IRONICS.XT") },
 	};
-	static const FVector GPawns[] = { { 0, 80, 0 }, { -450, -100, 0 }, { 150, 500, 0 }, { 500, 50, 0 } };
+	// Pawn spots live INSIDE the proven pad cluster's hull (pads verified on the plaza at z~3867).
+	// v2 lesson: (0,80) sat on the canal lip -- GroundSnap dropped the hero into the ditch and the
+	// bank occluded it for the whole beat.
+	static const FVector GPawns[] = { { 40, 0, 0 }, { -225, -75, 0 }, { 300, 25, 0 }, { 100, -300, 0 } };
 
 	/** Snap a stage offset to real ground near the anchor (blind spawns buried the v1 stage). */
 	static FVector GroundSnap(UWorld* World, const FVector& Offset)
@@ -99,6 +102,7 @@ namespace AFLCine
 		double RealStart = 0.0;
 		TArray<FVector> PadSpots;   // snapped stage positions -- hero beats LOOK AT these
 		TArray<FVector> PawnSpots;
+		float ArmFrac = 1.f;        // orbit spring-arm fraction (snap in on a blocker, ease out)
 	};
 	static TSharedPtr<FCaptureState> GState;
 
@@ -124,34 +128,57 @@ namespace AFLCine
 				UE_LOG(LogAFLCombat, Log, TEXT("AFL_CINE: staged pad %s at %s."), P.CosmeticId, *Pad->GetActorLocation().ToCompactString());
 			}
 		}
-		// Hero pawns: the game's own hero BP idling on its AnimBP (uncontrolled = ambient life).
-		UClass* HeroClass = FSoftClassPath(TEXT("/AFLBagMan/Characters/B_Hero_BagMan_Pro.B_Hero_BagMan_Pro_C")).ResolveClass();
-		if (!HeroClass)
-		{
-			HeroClass = LoadClass<AActor>(nullptr, TEXT("/AFLBagMan/Characters/B_Hero_BagMan_Pro.B_Hero_BagMan_Pro_C"));
-		}
-		// An uncontrolled, unarmed pawn links ZERO anim layers -- and in this Lyra setup the whole
-		// pose graph comes from linked layers, so bare stage pawns render full-body reference pose
-		// (the A-pose the operator flagged in the reels). Link the unarmed layer directly: same
-		// class a weaponless equip decision would pick, cosmetic-only, dev-cheat scope.
-		UClass* UnarmedLayers = LoadClass<UAnimInstance>(nullptr,
-			TEXT("/Game/Characters/Heroes/Mannequin/Animations/Locomotion/Unarmed/ABP_UnarmedAnimLayers.ABP_UnarmedAnimLayers_C"));
+		// Stage robots: AAFLLoadoutDisplayPawn -- the PROVEN kiosk/armory display pawn (ASC-less,
+		// self-contained driving mesh + relaxed unarmed idle, gravity off). The old approach --
+		// uncontrolled B_Hero_BagMan_Pro spawns -- rendered NOTHING: the hero base mesh is
+		// SKM_Manny_Invis and the visible robot is a CHARACTER PART only the controller-side
+		// cosmetic spine adds, so every prior loop filmed an invisible pawn on the hero beat.
+		UClass* RobotBody = LoadClass<AActor>(nullptr,
+			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_IRONICS.B_AFL_Robot_IRONICS_C"));
+		// Plaza reference height from the anchor's own snap: any pawn snap that lands well below it
+		// fell into a ditch/canal -- re-place at plaza grade instead of filming an occluded pawn.
+		const float PlazaZ = GroundSnap(World, FVector::ZeroVector).Z;
 		int32 PawnYaw = 0;
 		for (const FVector& Loc : GPawns)
 		{
-			if (!HeroClass) break;
 			FActorSpawnParameters Params;
 			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-			AActor* Pawn = World->SpawnActor<AActor>(HeroClass, GroundSnap(World, Loc) + FVector(0, 0, 90.f), FRotator(0.f, (PawnYaw++ * 97.f), 0.f), Params);
+			FVector Snapped = GroundSnap(World, Loc);
+			if (Snapped.Z < PlazaZ - 120.f)
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_CINE: pawn spot %s snapped %.0f below plaza -- re-placing at plaza grade."),
+					*Loc.ToCompactString(), PlazaZ - Snapped.Z);
+				Snapped.Z = PlazaZ;
+			}
+			AAFLLoadoutDisplayPawn* Pawn = World->SpawnActor<AAFLLoadoutDisplayPawn>(
+				AAFLLoadoutDisplayPawn::StaticClass(), Snapped + FVector(0, 0, 90.f),
+				FRotator(0.f, (PawnYaw++ * 97.f), 0.f), Params);
 			if (Pawn)
 			{
-				if (UnarmedLayers)
+				if (RobotBody)
 				{
-					if (USkeletalMeshComponent* Mesh = Pawn->FindComponentByClass<USkeletalMeshComponent>())
+					Pawn->SetRobotBody(RobotBody);
+				}
+				// DRESS via the one shipping fan-out (v5 lesson: the pawn's own self-dress only arms
+				// for LEVEL-PLACED kiosks -- IsNetStartupActor -- so runtime-spawned stage robots
+				// stood bare grey and HEADLESS; the head/visor is the facemask piece the fan-out
+				// applies). The stage builds after settle, so the local PC + cosmetic stack are up.
+				if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0))
+				{
+					if (UAFLSkinColorControllerComponent* SkinCtrl = PC->FindComponentByClass<UAFLSkinColorControllerComponent>())
 					{
-						Mesh->LinkAnimClassLayers(UnarmedLayers);
+						SkinCtrl->RefreshSkinForPawn(Pawn);
+						SkinCtrl->RefreshFacemaskForPawn(Pawn);
+						SkinCtrl->RefreshWeaponSkinForPawn(Pawn);
+						SkinCtrl->RefreshWeaponForPawn(Pawn);
+					}
+					else
+					{
+						UE_LOG(LogAFLCombat, Warning, TEXT("AFL_CINE: no SkinColorControllerComponent on the local PC -- stage robots stay house-grey."));
 					}
 				}
+				UE_LOG(LogAFLCombat, Log, TEXT("AFL_CINE: staged display robot at %s (body %s)."),
+					*Pawn->GetActorLocation().ToCompactString(), *GetNameSafe(RobotBody));
 				State.Staged.Add(Pawn);
 				State.PawnSpots.Add(Pawn->GetActorLocation() + FVector(0, 0, 40.f)); // chest height
 			}
@@ -233,6 +260,24 @@ namespace AFLCine
 					const float Deg = FMath::Lerp(B.OrbitDegA, B.OrbitDegB, T);
 					const float Rad = FMath::DegreesToRadians(Deg);
 					CamLoc = LookAt + FVector(B.OrbitDist * FMath::Cos(Rad), B.OrbitDist * FMath::Sin(Rad), B.OrbitHeight);
+					// Spring-arm clamp (ported from the Match drone, same laws): fixed orbit params
+					// authored blind against split-level shanty decks can put structures between the
+					// camera and the subject -- the 4K v3 hero beat filmed an occluding railing.
+					// Pull the camera in front of the first WorldStatic blocker; inert when clear.
+					{
+						float DesiredFrac = 1.f;
+						FHitResult Hit;
+						FCollisionQueryParams Q(SCENE_QUERY_STAT(AFLCineLoop), false);
+						FCollisionObjectQueryParams Obj;
+						Obj.AddObjectTypesToQuery(ECC_WorldStatic);
+						if (World->LineTraceSingleByObjectType(Hit, LookAt, CamLoc, Obj, Q))
+						{
+							const float Full = FVector::Dist(LookAt, CamLoc);
+							DesiredFrac = Full > 1.f ? FMath::Clamp((Hit.Distance - 60.f) / Full, 0.3f, 1.f) : 1.f;
+						}
+						S.ArmFrac = DesiredFrac < S.ArmFrac ? DesiredFrac : FMath::Min(1.f, FMath::Lerp(S.ArmFrac, DesiredFrac, 0.12f));
+						CamLoc = LookAt + (CamLoc - LookAt) * S.ArmFrac;
+					}
 					Cam->SetActorLocation(CamLoc);
 					Cam->SetActorRotation((LookAt - CamLoc).Rotation());
 				}
