@@ -113,7 +113,8 @@ void ULyraFrontendStateComponent::FlowStep_TryShowPressStartScreen(FControlFlowN
 	UCommonUserSubsystem* UserSubsystem = GameInstance->GetSubsystem<UCommonUserSubsystem>();
 
 	// Check to see if the first player is already logged in, if they are, we can skip the press start screen.
-	if (const UCommonUserInfo* FirstUser = UserSubsystem->GetUserInfoForLocalPlayerIndex(0))
+	// IRONICS: bAlwaysShowStartScreen keeps the landing on screen regardless (it decides its own skips).
+	if (const UCommonUserInfo* FirstUser = UserSubsystem->GetUserInfoForLocalPlayerIndex(0); FirstUser && !bAlwaysShowStartScreen)
 	{
 		if (FirstUser->InitializationState == ECommonUserInitializationState::LoggedInLocalOnly ||
 			FirstUser->InitializationState == ECommonUserInitializationState::LoggedInOnline)
@@ -126,7 +127,8 @@ void ULyraFrontendStateComponent::FlowStep_TryShowPressStartScreen(FControlFlowN
 	// Check to see if the platform actually requires a 'Press Start' screen.  This is only
 	// required on platforms where there can be multiple online users where depending on what player's
 	// controller presses 'Start' establishes the player to actually login to the game with.
-	if (!UserSubsystem->ShouldWaitForStartInput())
+	// IRONICS: the landing owns init + sign-in, so the PC auto-init skip is bypassed when forced.
+	if (!UserSubsystem->ShouldWaitForStartInput() && !bAlwaysShowStartScreen)
 	{
 		// Start the auto login process, this should finish quickly and will use the default input device id
 		InProgressPressStartScreen = SubFlow;

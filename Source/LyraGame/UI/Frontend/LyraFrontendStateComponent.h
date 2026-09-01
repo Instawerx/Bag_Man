@@ -54,6 +54,12 @@ private:
 	UPROPERTY(EditAnywhere, Category = UI)
 	TSoftClassPtr<UCommonActivatableWidget> PressStartScreenClass;
 
+	/** IRONICS landing (start screen ruling 2026-09-01): TRUE forces the press-start slot to SHOW
+	 *  even where the platform would auto-init and skip it (PC) and even for an already-initialized
+	 *  user -- the slot hosts the sign-in landing, which owns local-play init + Epic sign-in. */
+	UPROPERTY(EditAnywhere, Category = UI)
+	bool bAlwaysShowStartScreen = false;
+
 	UPROPERTY(EditAnywhere, Category = UI)
 	TSoftClassPtr<UCommonActivatableWidget> MainScreenClass;
 

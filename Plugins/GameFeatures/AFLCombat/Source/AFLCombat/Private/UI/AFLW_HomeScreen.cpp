@@ -2,6 +2,8 @@
 
 #include "UI/AFLW_HomeScreen.h"
 
+#include "UI/AFLW_RouteChoice.h" // post-login route consumption (operator ruling 2026-09-01)
+
 #include "AFLCombat.h"              // LogAFLCombat
 #include "CommonButtonBase.h"
 #include "CommonTextBlock.h"
@@ -176,6 +178,14 @@ void UAFLW_HomeScreen::NativeOnActivated()
 	// is true of the nav -- a destination can be configured in between visits.
 	ApplyStakedAvailability();
 	ApplyNavAvailability();
+
+	// POST-LOGIN ROUTE (operator ruling 2026-09-01): the route-choice screen picked MATCHMAKING ->
+	// open the League door through the SAME proven wiring a click would use. Consumed exactly once.
+	if (UAFLW_RouteChoice::ConsumePendingMatchmakingRoute())
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUTE: home screen consuming matchmaking route -> League door."));
+		ChooseDoor(EAFLHomeDoor::League);
+	}
 }
 
 UWidget* UAFLW_HomeScreen::NativeGetDesiredFocusTarget() const

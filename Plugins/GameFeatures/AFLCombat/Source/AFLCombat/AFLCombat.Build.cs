@@ -71,6 +71,10 @@ public class AFLCombat : ModuleRules
 				// authoring is bridge-hostile, so the delegate work lives in code).
 				"UMG",
 				"Niagara",
+				// Start screen (SSOT N1, operator-approved 2026-09-01): the landing's looping video
+				// ground (MediaPlayer/MediaTexture) + local-play init through CommonUser.
+				"MediaAssets",
+				"CommonUser",
 				// AFL-0208: IAFLBeamEndpointProvider, implemented by UAFLBeamChannelComponent.
 				// AFLVFX is the always-on root cosmetic plugin that owns the beam-cue contract;
 				// AFLCombat (a GameFeature) depending on it is the correct load-order direction.
