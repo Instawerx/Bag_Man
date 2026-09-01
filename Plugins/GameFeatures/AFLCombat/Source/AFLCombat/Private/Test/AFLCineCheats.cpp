@@ -25,6 +25,7 @@
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
+#include "EngineUtils.h" // TActorIterator (match centroid)
 #include "Misc/App.h"
 #include "UnrealClient.h"
 #include "UObject/SoftObjectPath.h"
@@ -35,31 +36,53 @@ namespace AFLCine
 	{
 		int32 StartFrame;
 		int32 EndFrame;
-		FVector CamA;      // camera start
-		FVector CamB;      // camera end (per-beat drift/push-in)
-		FRotator Rot;
+		FVector CamA;      // absolute (anchor-relative) when TargetIndex < 0
+		FVector CamB;
+		FRotator Rot;      // used when TargetIndex < 0
 		float Fov;
+		int32 TargetIndex; // 0..3 = staged pad, 10..13 = staged pawn, -1 = fixed rotation
+		float OrbitDist;   // targeted beats: camera orbits the SNAPPED subject (v7 lesson --
+		float OrbitDegA;   // anchor-relative cams hovered hundreds of units above the real ground)
+		float OrbitDegB;
+		float OrbitHeight;
 	};
 
-	// The approved storyboard, camera moves around the ShantyTown core (BR-spawn band, z ~4000).
+	// The approved storyboard, anchored on BR_Spawn_04 (1093,-3844,3967) -- verified playable ground.
+	static const FVector GAnchor(1093.f, -3844.f, 3967.f);
 	static const FBeat GBeats[] = {
-		{   0, 120, { -2600, -2600, 4420 }, { -2200, -2200, 4380 }, {  -8,  45, 0 }, 70.f }, // wide firefight
-		{ 120, 228, {   980,   980, 4090 }, {   890,   900, 4075 }, {  -2, 210, 0 }, 35.f }, // IRONICS hero
-		{ 228, 312, {  1640,  1340, 4070 }, {  1580,  1300, 4060 }, {  -4, 150, 0 }, 28.f }, // RIPSAW hero
-		{ 312, 408, {  -940,  1840, 4110 }, {  -860,  1760, 4095 }, {  -6, 300, 0 }, 40.f }, // SIMULARENT + ARIA
-		{ 408, 504, {   340, -1440, 4050 }, {   260, -1340, 4045 }, {   2,  80, 0 }, 55.f }, // hand-cannon alley
-		{ 504, 600, {  2240,  -640, 4130 }, { -2600, -2600, 4420 }, { -10, 200, 0 }, 33.f }, // SCARLETT -> loop pullback
+		{   0, 110, { -1500, -1500,  460 }, { -1250, -1250,  430 }, { -10,  45, 0 }, 70.f, -1, 0, 0, 0, 0 },      // wide over the stacks
+		{ 110, 215, {0,0,0}, {0,0,0}, {0,0,0}, 45.f, 10, 460.f, 200.f, 232.f, 190.f },                            // IRONICS hero pawn -- high angle over the rim
+		{ 215, 305, {0,0,0}, {0,0,0}, {0,0,0}, 42.f,  0, 500.f, 140.f, 174.f, 210.f },                            // RIPSAW pad -- clears the FX column
+		{ 305, 400, {0,0,0}, {0,0,0}, {0,0,0}, 45.f,  1, 520.f, 288.f, 322.f, 200.f },                            // ARIA pad
+		{ 400, 495, {0,0,0}, {0,0,0}, {0,0,0}, 48.f,  3, 480.f,  60.f,  96.f, 170.f },                            // hand-cannon XT
+		{ 495, 560, {0,0,0}, {0,0,0}, {0,0,0}, 42.f,  2, 490.f, 188.f, 224.f, 220.f },                            // SCARLETT pad
+		{ 560, 600, { -1250, -1250,  430 }, { -1500, -1500,  460 }, { -10,  45, 0 }, 70.f, -1, 0, 0, 0, 0 },      // seam: reverse wide -> frame 0 lock
 	};
+	// Beat coordinates are OFFSETS from the anchor; resolved at run time.
 
 	// The stage: spawn-pad hero subjects (REAL weapons on the game's own display fixtures) + idle pawns.
 	struct FPadSpawn { FVector Loc; float Yaw; const TCHAR* CosmeticId; };
+	// v8 lesson: scattered snaps put pads inside walled alleys -- the WHOLE stage now clusters on
+	// the open plaza (v6-verified clean at ~z3875 around the anchor), orbits sweep free air.
 	static const FPadSpawn GPads[] = {
-		{ { 1500, 1180, 4020 },  150.f, TEXT("AFL.Weapon.Ripsaw") },
-		{ { -760, 1620, 4040 },  300.f, TEXT("AFL.Weapon.Aria") },
-		{ { 2100, -780, 4080 },  200.f, TEXT("AFL.Weapon.Scarlett") },
-		{ {  180, -1240, 4000 },  80.f, TEXT("AFL.Weapon.HandCannon.IRONICS.XT") },
+		{ { -300,  200, 0 },  150.f, TEXT("AFL.Weapon.Ripsaw") },
+		{ { -150, -350, 0 },  300.f, TEXT("AFL.Weapon.Aria") },
+		{ {  250,  300, 0 },  200.f, TEXT("AFL.Weapon.Scarlett") },
+		{ {  350, -250, 0 },   80.f, TEXT("AFL.Weapon.HandCannon.IRONICS.XT") },
 	};
-	static const FVector GPawns[] = { { 830, 830, 4020 }, { -980, 1960, 4040 }, { -2000, -1800, 4000 }, { 500, -1100, 4000 } };
+	static const FVector GPawns[] = { { 0, 80, 0 }, { -450, -100, 0 }, { 150, 500, 0 }, { 500, 50, 0 } };
+
+	/** Snap a stage offset to real ground near the anchor (blind spawns buried the v1 stage). */
+	static FVector GroundSnap(UWorld* World, const FVector& Offset)
+	{
+		const FVector Probe = GAnchor + Offset;
+		FHitResult Hit;
+		if (World->LineTraceSingleByChannel(Hit, Probe + FVector(0, 0, 2000.f), Probe - FVector(0, 0, 4000.f), ECC_Visibility))
+		{
+			return Hit.ImpactPoint + FVector(0, 0, 4.f);
+		}
+		return Probe;
+	}
 
 	struct FCaptureState
 	{
@@ -69,6 +92,11 @@ namespace AFLCine
 		FString OutDir;
 		int32 Frame = 0;
 		bool bCapture = true;
+		int32 SettleTicks = 0;      // counts AFTER the world starts rendering
+		bool bStageBuilt = false;   // stage + camera spawn after settle (WP cells loaded by then)
+		double RealStart = 0.0;
+		TArray<FVector> PadSpots;   // snapped stage positions -- hero beats LOOK AT these
+		TArray<FVector> PawnSpots;
 	};
 	static TSharedPtr<FCaptureState> GState;
 
@@ -81,7 +109,7 @@ namespace AFLCine
 			if (!PadClass) break;
 			FActorSpawnParameters Params;
 			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-			AActor* Pad = World->SpawnActor<AActor>(PadClass, P.Loc, FRotator(0.f, P.Yaw, 0.f), Params);
+			AActor* Pad = World->SpawnActor<AActor>(PadClass, GroundSnap(World, P.Loc), FRotator(0.f, P.Yaw, 0.f), Params);
 			if (Pad)
 			{
 				FProperty* IdProp = PadClass->FindPropertyByName(TEXT("CosmeticId"));
@@ -90,7 +118,8 @@ namespace AFLCine
 					NameProp->SetPropertyValue_InContainer(Pad, FName(P.CosmeticId));
 				}
 				State.Staged.Add(Pad);
-				UE_LOG(LogAFLCombat, Log, TEXT("AFL_CINE: staged pad %s."), P.CosmeticId);
+				State.PadSpots.Add(Pad->GetActorLocation() + FVector(0, 0, 130.f)); // aim at the floating item
+				UE_LOG(LogAFLCombat, Log, TEXT("AFL_CINE: staged pad %s at %s."), P.CosmeticId, *Pad->GetActorLocation().ToCompactString());
 			}
 		}
 		// Hero pawns: the game's own hero BP idling on its AnimBP (uncontrolled = ambient life).
@@ -105,10 +134,11 @@ namespace AFLCine
 			if (!HeroClass) break;
 			FActorSpawnParameters Params;
 			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-			AActor* Pawn = World->SpawnActor<AActor>(HeroClass, Loc, FRotator(0.f, (PawnYaw++ * 97.f), 0.f), Params);
+			AActor* Pawn = World->SpawnActor<AActor>(HeroClass, GroundSnap(World, Loc) + FVector(0, 0, 90.f), FRotator(0.f, (PawnYaw++ * 97.f), 0.f), Params);
 			if (Pawn)
 			{
 				State.Staged.Add(Pawn);
+				State.PawnSpots.Add(Pawn->GetActorLocation() + FVector(0, 0, 40.f)); // chest height
 			}
 		}
 		UE_LOG(LogAFLCombat, Log, TEXT("AFL_CINE: stage built (%d actors)."), State.Staged.Num());
@@ -137,8 +167,36 @@ namespace AFLCine
 		}
 		FCaptureState& S = *GState;
 		UWorld* World = S.World.Get();
+		if (!World)
+		{
+			EndCapture(false);
+			return false;
+		}
+		// PHASE 1 -- SETTLE: v1 burned its 600 frames under the loading screen / WP streaming. Wait
+		// a real-time settle (12s) so the experience, streaming and lighting are up, THEN build the
+		// stage and start the frame clock.
+		if (S.SettleTicks >= 0)
+		{
+			++S.SettleTicks;
+			// A real settle needs a POSSESSED world: player controller present AND 12s of streaming.
+			if (!UGameplayStatics::GetPlayerController(World, 0) || FPlatformTime::Seconds() - S.RealStart < 12.0)
+			{
+				return true;
+			}
+			S.SettleTicks = -1;
+			BuildStage(World, S);
+			FActorSpawnParameters CamParams;
+			CamParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			S.Camera = World->SpawnActor<ACameraActor>(GAnchor + GBeats[0].CamA, GBeats[0].Rot, CamParams);
+			if (S.bCapture)
+			{
+				FApp::SetUseFixedTimeStep(true);
+				FApp::SetFixedDeltaTime(1.0 / 60.0);
+			}
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_CINE: settled -- stage up, frame clock starts."));
+		}
 		ACameraActor* Cam = S.Camera.Get();
-		if (!World || !Cam || S.Frame > 600)
+		if (!Cam || S.Frame > 600)
 		{
 			EndCapture(false);
 			return false;
@@ -149,8 +207,26 @@ namespace AFLCine
 			if (S.Frame >= B.StartFrame && S.Frame < B.EndFrame)
 			{
 				const float T = float(S.Frame - B.StartFrame) / float(B.EndFrame - B.StartFrame);
-				Cam->SetActorLocation(FMath::Lerp(B.CamA, B.CamB, T));
-				Cam->SetActorRotation(B.Rot);
+				FVector LookAt = FVector::ZeroVector;
+				if (B.TargetIndex >= 10 && S.PawnSpots.IsValidIndex(B.TargetIndex - 10)) { LookAt = S.PawnSpots[B.TargetIndex - 10]; }
+				else if (B.TargetIndex >= 0 && S.PadSpots.IsValidIndex(B.TargetIndex))   { LookAt = S.PadSpots[B.TargetIndex]; }
+				FVector CamLoc;
+				if (!LookAt.IsZero())
+				{
+					// ORBIT the snapped subject (v7 lesson: anchor-relative cams sat far above the
+					// real ground). Distance/height are subject-relative; the angle drifts gently.
+					const float Deg = FMath::Lerp(B.OrbitDegA, B.OrbitDegB, T);
+					const float Rad = FMath::DegreesToRadians(Deg);
+					CamLoc = LookAt + FVector(B.OrbitDist * FMath::Cos(Rad), B.OrbitDist * FMath::Sin(Rad), B.OrbitHeight);
+					Cam->SetActorLocation(CamLoc);
+					Cam->SetActorRotation((LookAt - CamLoc).Rotation());
+				}
+				else
+				{
+					CamLoc = GAnchor + FMath::Lerp(B.CamA, B.CamB, T);
+					Cam->SetActorLocation(CamLoc);
+					Cam->SetActorRotation(B.Rot);
+				}
 				Cam->GetCameraComponent()->SetFieldOfView(B.Fov);
 				break;
 			}
@@ -173,9 +249,9 @@ namespace AFLCine
 		TEXT("Capture the 10s start loop: afl.Cine.StartLoop [outdir] [stageonly]. Stages pads+pawns, drives the 6 approved beats at fixed 60Hz, dumps 600 numbered frames."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
-			if (!World || World->WorldType != EWorldType::PIE)
+			if (!World || (World->WorldType != EWorldType::PIE && World->WorldType != EWorldType::Game))
 			{
-				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_CINE: run inside PIE on L_ShantyTown."));
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_CINE: run inside PIE or a -game session on L_ShantyTown."));
 				return;
 			}
 			if (GState.IsValid())
@@ -188,20 +264,185 @@ namespace AFLCine
 			GState->bCapture = !(Args.Num() > 1 && Args[1].StartsWith(TEXT("stage"), ESearchCase::IgnoreCase));
 			IFileManager::Get().MakeDirectory(*GState->OutDir, true);
 
-			BuildStage(World, *GState);
-
-			FActorSpawnParameters Params;
-			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-			GState->Camera = World->SpawnActor<ACameraActor>(AFLCine::GBeats[0].CamA, AFLCine::GBeats[0].Rot, Params);
-
-			if (GState->bCapture)
-			{
-				FApp::SetUseFixedTimeStep(true);
-				FApp::SetFixedDeltaTime(1.0 / 60.0);
-			}
+			GState->RealStart = FPlatformTime::Seconds();
 			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateStatic(&TickCapture), 0.f);
 			UE_LOG(LogAFLCombat, Display, TEXT("AFL_CINE: %s -> %s"),
 				GState->bCapture ? TEXT("CAPTURING 600 frames") : TEXT("STAGE ONLY (no frames)"), *GState->OutDir);
+		}));
+
+
+	// ================= MATCHPLAY DRONE CAPTURE (operator ask: action + overhead + swooping) =========
+	// Live bot combat (the experience's own BotFill), a single drone camera cycling four shot types,
+	// always aimed at the SMOOTHED action centroid. No loop constraint -- promo footage.
+
+	struct FMatchState
+	{
+		TWeakObjectPtr<UWorld> World;
+		TWeakObjectPtr<ACameraActor> Camera;
+		FString OutDir;
+		int32 Frame = 0;
+		int32 TotalFrames = 2700;
+		int32 BotTopUp = 0;
+		int32 BotsAdded = 0;
+		double RealStart = 0.0;
+		bool bRolling = false;
+		FVector Centroid = FVector::ZeroVector;
+		bool bCentroidInit = false;
+	};
+	static TSharedPtr<FMatchState> GMatch;
+
+	static FVector ComputePawnCentroid(UWorld* World, const FVector& Fallback)
+	{
+		FVector Sum = FVector::ZeroVector;
+		int32 N = 0;
+		for (TActorIterator<APawn> It(World); It; ++It)
+		{
+			if (IsValid(*It))
+			{
+				Sum += It->GetActorLocation();
+				++N;
+			}
+		}
+		return N > 0 ? Sum / N : Fallback;
+	}
+
+	static void EndMatchCapture()
+	{
+		FApp::SetUseFixedTimeStep(false);
+		if (GMatch.IsValid())
+		{
+			if (ACameraActor* Cam = GMatch->Camera.Get()) { Cam->Destroy(); }
+		}
+		UE_LOG(LogAFLCombat, Display, TEXT("AFL_CINE: MATCH capture complete."));
+		GMatch.Reset();
+	}
+
+	static bool TickMatch(float /*Delta*/)
+	{
+		if (!GMatch.IsValid())
+		{
+			return false;
+		}
+		FMatchState& S = *GMatch;
+		UWorld* World = S.World.Get();
+		if (!World)
+		{
+			EndMatchCapture();
+			return false;
+		}
+		const double Elapsed = FPlatformTime::Seconds() - S.RealStart;
+		if (!S.bRolling)
+		{
+			// Settle: controller + 14s, then top-up bots one per tick, then 10s of battle warmup.
+			if (!UGameplayStatics::GetPlayerController(World, 0) || Elapsed < 14.0)
+			{
+				return true;
+			}
+			if (S.BotsAdded < S.BotTopUp)
+			{
+				if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0))
+				{
+					PC->ConsoleCommand(TEXT("AddPlayerBot"));
+				}
+				++S.BotsAdded;
+				return true;
+			}
+			if (Elapsed < 26.0)
+			{
+				return true;
+			}
+			S.bRolling = true;
+			FActorSpawnParameters Params;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			S.Centroid = ComputePawnCentroid(World, GAnchor);
+			S.bCentroidInit = true;
+			S.Camera = World->SpawnActor<ACameraActor>(S.Centroid + FVector(0, 0, 900.f), FRotator(-80.f, 0, 0), Params);
+			FApp::SetUseFixedTimeStep(true);
+			FApp::SetFixedDeltaTime(1.0 / 60.0);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_CINE: MATCH rolling -- %d frames, drone program up."), S.TotalFrames);
+		}
+		ACameraActor* Cam = S.Camera.Get();
+		if (!Cam || S.Frame >= S.TotalFrames)
+		{
+			EndMatchCapture();
+			return false;
+		}
+		// Smoothed action centroid (recomputed every half second, lerped hard toward per frame).
+		if (S.Frame % 30 == 0)
+		{
+			const FVector Fresh = ComputePawnCentroid(World, S.Centroid);
+			S.Centroid = FMath::Lerp(S.Centroid, Fresh, 0.35f);
+		}
+		// Drone program: 4 shot types, 7s (420-frame) shots, base bearing walks 73 deg per shot.
+		const int32 Shot = S.Frame / 420;
+		const float T = float(S.Frame % 420) / 420.f;
+		const float Base = FMath::DegreesToRadians(Shot * 73.f);
+		FVector CamLoc;
+		switch (Shot % 4)
+		{
+		case 0: // OVERHEAD slow orbit
+		{
+			const float A = Base + T * 0.9f;
+			CamLoc = S.Centroid + FVector(900.f * FMath::Cos(A), 900.f * FMath::Sin(A), 1100.f);
+			break;
+		}
+		case 1: // SWOOP: high approach, low pass over the fight, rise out
+		{
+			const FVector Dir(FMath::Cos(Base), FMath::Sin(Base), 0.f);
+			const float Along = (1.f - 2.f * T) * 1400.f;
+			const float H = 180.f + (700.f - 180.f) * FMath::Square(2.f * T - 1.f);
+			CamLoc = S.Centroid + Dir * Along + FVector(0, 0, H);
+			break;
+		}
+		case 2: // ACTION ARC: tight, low, fast
+		{
+			const float A = Base + T * 1.8f;
+			CamLoc = S.Centroid + FVector(380.f * FMath::Cos(A), 380.f * FMath::Sin(A), 140.f);
+			break;
+		}
+		default: // WIDE establishing orbit
+		{
+			const float A = Base + T * 0.5f;
+			CamLoc = S.Centroid + FVector(1600.f * FMath::Cos(A), 1600.f * FMath::Sin(A), 520.f);
+			break;
+		}
+		}
+		Cam->SetActorLocation(CamLoc);
+		Cam->SetActorRotation((S.Centroid + FVector(0, 0, 60.f) - CamLoc).Rotation());
+		if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0))
+		{
+			PC->SetViewTargetWithBlend(Cam, 0.f);
+		}
+		FScreenshotRequest::RequestScreenshot(
+			FString::Printf(TEXT("%s/frame.%04d.png"), *S.OutDir, S.Frame), false, false);
+		++S.Frame;
+		return true;
+	}
+
+	static FAutoConsoleCommandWithWorldAndArgs GCineMatch(
+		TEXT("afl.Cine.Match"),
+		TEXT("Matchplay drone capture over live bots: afl.Cine.Match [outdir] [seconds=45] [topUpBots=0]. Overhead / swoop / action-arc / wide shots tracking the fight."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			if (!World || (World->WorldType != EWorldType::PIE && World->WorldType != EWorldType::Game))
+			{
+				UE_LOG(LogAFLCombat, Warning, TEXT("AFL_CINE: run Match inside PIE or a -game session."));
+				return;
+			}
+			if (GMatch.IsValid())
+			{
+				EndMatchCapture();
+			}
+			GMatch = MakeShared<FMatchState>();
+			GMatch->World = World;
+			GMatch->OutDir = Args.Num() > 0 ? Args[0] : FPaths::ProjectSavedDir() / TEXT("CineMatch");
+			GMatch->TotalFrames = 60 * FMath::Clamp(Args.Num() > 1 ? FCString::Atoi(*Args[1]) : 45, 5, 300);
+			GMatch->BotTopUp = FMath::Clamp(Args.Num() > 2 ? FCString::Atoi(*Args[2]) : 0, 0, 64);
+			GMatch->RealStart = FPlatformTime::Seconds();
+			IFileManager::Get().MakeDirectory(*GMatch->OutDir, true);
+			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateStatic(&TickMatch), 0.f);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_CINE: MATCH armed -> %s (%d frames, +%d bots)."),
+				*GMatch->OutDir, GMatch->TotalFrames, GMatch->BotTopUp);
 		}));
 
 	static FAutoConsoleCommand GCineStop(
