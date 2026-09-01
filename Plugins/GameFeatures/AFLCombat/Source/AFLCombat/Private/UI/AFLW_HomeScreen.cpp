@@ -393,6 +393,19 @@ void UAFLW_HomeScreen::OpenNavTarget(EAFLNavTarget Target)
 		return;
 	}
 
+	// STORE (operator ruling 2026-09-01): the store is no longer a screen -- it IS the lobby (the
+	// distributed retail venues on the base). The button travels there instead of pushing the retired
+	// market chassis. Standalone front-end context -> plain client travel with the hub experience.
+	if (Target == EAFLNavTarget::Store)
+	{
+		if (APlayerController* PC = GetOwningPlayer())
+		{
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_HOME: STORE -> traveling to the base (the store lives on the lobby)."));
+			PC->ClientTravel(TEXT("/AFLHub/Maps/L_AFL_OutpostEarth?Experience=B_AFL_Experience_Hub"), TRAVEL_Absolute);
+		}
+		return;
+	}
+
 	const TSoftClassPtr<UCommonActivatableWidget>& Destination = this->*(Route->Destination);
 	if (Destination.IsNull())
 	{
@@ -425,7 +438,9 @@ void UAFLW_HomeScreen::ApplyNavAvailability()
 		// ⚠ DISABLED, NOT HIDDEN. Same reasoning as the staked door: a player should be able to see that
 		// Venues and Career are coming and that they are not available yet. Hiding them would make the
 		// footer silently change shape as surfaces ship.
-		Button->SetIsInteractionEnabled(!(this->*(Route.Destination)).IsNull());
+		// STORE is always live: it travels to the lobby (the store IS the base -- 2026-09-01 ruling),
+		// so it needs no destination screen class.
+		Button->SetIsInteractionEnabled(Route.Target == EAFLNavTarget::Store || !(this->*(Route.Destination)).IsNull());
 	}
 }
 
