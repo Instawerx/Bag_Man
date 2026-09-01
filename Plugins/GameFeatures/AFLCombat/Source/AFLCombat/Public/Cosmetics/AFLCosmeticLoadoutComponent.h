@@ -496,6 +496,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
 	FString GetLastRefusalReason() const { return LastRefusalReason; }
 
+	/** Fires on the OWNING CLIENT when the server refuses a wearable equip (reason verbatim).
+	 *  The retail card listens so a jewellery refusal is SPOKEN, not a silent nothing (polish pass). */
+	DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAFLWearableRefused, FName /*CosmeticId*/, const FString& /*Reason*/);
+	FOnAFLWearableRefused OnWearableRefused;
+
 	/** Which id was refused, so a stale reason cannot be misread as a fresh one. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Cosmetics")
 	FName GetLastRefusalId() const { return LastRefusalId; }

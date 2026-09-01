@@ -539,14 +539,18 @@ void UAFLCosmeticLoadoutComponent::ServerReleaseTryOn_Implementation(bool bKeepW
 			*Released.ToString());
 		return;
 	}
-	// Discard/exit -- restore the pre-trial look. Facemask (and LeftWeapon) restore even to None (their
-	// None is a meaningful un-equip). ACCESSORIES: the commit gate deliberately ignores the REQUEST's
-	// AccessorySet (ServerSetAccessory mutates the live Selection first, then commits) -- so the
-	// restore uses the same mutate-then-commit shape. KNOWN S2 GAP: a None baseline on the
-	// Weapon/Beam/Emblem/WeaponSkin axes cannot be restored by the request shape (non-None-overwrite)
-	// -- Weapon is never None in practice; the rest is ticketed in the retail plan.
+	// Discard/exit -- restore the pre-trial look COMPLETELY. The commit gate's request shape skips
+	// None on Weapon/Beam/Emblem/WeaponSkin (None = no change there), so a None BASELINE on those
+	// axes would stick at the trial value. Fix (polish pass): pre-assign the live Selection to the
+	// baseline on every gate-skippable axis (the ServerSetAccessory mutate-then-commit precedent --
+	// the gate builds NewSelection FROM the live Selection), then commit the baseline as the request
+	// so entitlement-gated axes still flow through the gate.
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_TRYON: '%s' DISCARDED -- baseline restored."), *Released.ToString());
-	Selection.AccessorySet = TryOnBaseline.AccessorySet; // the ServerSetAccessory precedent
+	Selection.AccessorySet  = TryOnBaseline.AccessorySet;  // gate ignores the request's set by design
+	Selection.WeaponId      = TryOnBaseline.WeaponId;
+	Selection.WeaponSkinId  = TryOnBaseline.WeaponSkinId;
+	Selection.BeamId        = TryOnBaseline.BeamId;
+	Selection.EmblemId      = TryOnBaseline.EmblemId;
 	ServerSetCosmeticSelection(TryOnBaseline);
 }
 
@@ -932,6 +936,7 @@ void UAFLCosmeticLoadoutComponent::ClientWearableRefused_Implementation(FName Co
 	// that the reason crossed the wire, which is the half that was missing.
 	UE_LOG(LogAFLCombat, Warning,
 		TEXT("[AFLWearable] CLIENT NOTIFIED: %s refused -- %s"), *CosmeticId.ToString(), *Reason);
+	OnWearableRefused.Broadcast(CosmeticId, Reason);
 }
 
 void UAFLCosmeticLoadoutComponent::RedriveAccessoryChains() const

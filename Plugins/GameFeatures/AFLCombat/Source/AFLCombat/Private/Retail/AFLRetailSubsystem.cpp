@@ -64,6 +64,13 @@ void UAFLRetailSubsystem::PadEntered(FName CosmeticId, EAFLGrabArmMode ArmMode, 
 	LocalPawn = InLocalPawn;
 	EnsureKeyBinds(InLocalPawn);
 
+	// Speak wearable refusals on the card (polish: a jewellery slot refusal was a silent nothing).
+	if (UAFLCosmeticLoadoutComponent* Loadout = GetLoadout(); Loadout && !bRefusalBound)
+	{
+		Loadout->OnWearableRefused.AddUObject(this, &UAFLRetailSubsystem::HandleWearableRefused);
+		bRefusalBound = true;
+	}
+
 	// INTENTIONAL pickups (operator law): a short dwell -- or the explicit E-grab -- arms the apply.
 	// Brushing past does nothing; both behaviors ship behind the pad's one knob.
 	if (ArmMode == EAFLGrabArmMode::Dwell)
@@ -199,8 +206,12 @@ void UAFLRetailSubsystem::BindCardKeys()
 	Bind(EKeys::F, &UAFLRetailSubsystem::OnKeyBuy);
 	Bind(EKeys::C, &UAFLRetailSubsystem::OnKeyCart);
 	Bind(EKeys::Q, &UAFLRetailSubsystem::OnKeyDiscard);
+	// Gamepad pass (polish): same card-scoped consuming discipline -- Y buy, D-pad-up cart, B discard.
+	Bind(EKeys::Gamepad_FaceButton_Top, &UAFLRetailSubsystem::OnKeyBuy);
+	Bind(EKeys::Gamepad_DPad_Up, &UAFLRetailSubsystem::OnKeyCart);
+	Bind(EKeys::Gamepad_FaceButton_Right, &UAFLRetailSubsystem::OnKeyDiscard);
 	bCardKeysBound = true;
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_RETAIL: card keys armed (F/C/Q, CONSUMING -- grenade shielded)."));
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_RETAIL: card keys armed (F/C/Q + pad Y/DUp/B, CONSUMING -- gameplay shielded)."));
 }
 
 void UAFLRetailSubsystem::UnbindCardKeys()
@@ -218,7 +229,9 @@ void UAFLRetailSubsystem::UnbindCardKeys()
 	PC->InputComponent->KeyBindings.RemoveAll([this](const FInputKeyBinding& B)
 	{
 		return B.KeyDelegate.IsBoundToObject(this)
-			&& (B.Chord.Key == EKeys::F || B.Chord.Key == EKeys::C || B.Chord.Key == EKeys::Q);
+			&& (B.Chord.Key == EKeys::F || B.Chord.Key == EKeys::C || B.Chord.Key == EKeys::Q
+				|| B.Chord.Key == EKeys::Gamepad_FaceButton_Top || B.Chord.Key == EKeys::Gamepad_DPad_Up
+				|| B.Chord.Key == EKeys::Gamepad_FaceButton_Right);
 	});
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_RETAIL: card keys released (F/C/Q back to gameplay)."));
 }
@@ -377,6 +390,15 @@ void UAFLRetailSubsystem::OnKeyCheckout()
 	// First X: arm the one confirm ("checkout confirms once, not per item" -- plan cart discipline).
 	CheckoutIndex = INDEX_NONE;
 	RefreshChip();
+}
+
+void UAFLRetailSubsystem::HandleWearableRefused(FName CosmeticId, const FString& Reason)
+{
+	if (Card && CosmeticId == CurrentId)
+	{
+		// The server's authored reason, verbatim ("both wrists are full -- remove one first").
+		Card->SetStatus(FText::FromString(Reason), AFLRetail::Bad);
+	}
 }
 
 // --- Cart ------------------------------------------------------------------------------------------

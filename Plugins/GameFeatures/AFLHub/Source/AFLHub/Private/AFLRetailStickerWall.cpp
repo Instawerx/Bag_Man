@@ -4,6 +4,7 @@
 
 #include "AFLHub.h"
 #include "AFLDisplayPedestal.h"
+#include "AFLHubMirror.h" // UAFLHubMirrorWidget: thumbnail-plate fallback (generalized wall)
 #include "AFLCosmeticCatalogSubsystem.h"
 #include "AFLCosmeticCoreTypes.h"
 #include "Blueprint/WidgetTree.h"
@@ -105,12 +106,13 @@ void AAFLRetailStickerWall::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void AAFLRetailStickerWall::BuildMural()
 {
 	const UAFLCosmeticCatalogSubsystem* Catalog = UAFLCosmeticCatalogSubsystem::Get(GetWorld());
-	UTexture2D* Atlas = StickerAtlas.LoadSynchronous();
-	if (!Catalog || !Atlas)
+	if (!Catalog)
 	{
-		UE_LOG(LogAFLHub, Warning, TEXT("AFL_RETAIL: sticker wall '%s' -- no catalog/atlas."), *GetNameSafe(this));
+		UE_LOG(LogAFLHub, Warning, TEXT("AFL_RETAIL: sticker wall '%s' -- no catalog."), *GetNameSafe(this));
 		return;
 	}
+	// Atlas is only needed for TILE rows; a thumbnail-only wall (future MARKS wall) runs without it.
+	UTexture2D* Atlas = StickerAtlas.IsNull() ? nullptr : StickerAtlas.LoadSynchronous();
 
 	// GRAFFITI SCATTER -- deterministic per index (same wall every boot): tilts, sizes, loose rows.
 	static const float Yoff[]  = { -290.f, -160.f, -35.f, 90.f, 215.f, 300.f, -250.f, -115.f, 15.f, 145.f, 270.f, -200.f, -60.f, 75.f, 205.f, -120.f };
@@ -123,9 +125,25 @@ void AAFLRetailStickerWall::BuildMural()
 	for (int32 i = 0; i < StickerIds.Num(); ++i)
 	{
 		const FAFLCatalogEntry* Entry = Catalog->FindEntry(StickerIds[i]);
-		if (!Entry || Entry->StickerAtlasTile < 0)
+		if (!Entry)
 		{
-			continue; // unknown or inert pack row
+			continue;
+		}
+		// GENERALIZED (polish pass): a row renders via its atlas TILE when it has one, else via its
+		// SHOP THUMBNAIL -- so the same wall class serves a future MARKS/emblem wall the moment
+		// T_Thumb_Emblem_* art lands (no thumbnails exist for emblems today; art ask flagged).
+		UTexture2D* Thumb = nullptr;
+		if (Entry->StickerAtlasTile < 0)
+		{
+			Thumb = Entry->ShopThumbnail.IsNull() ? nullptr : Entry->ShopThumbnail.LoadSynchronous();
+			if (!Thumb)
+			{
+				continue; // inert pack row / no visual -- nothing to hang
+			}
+		}
+		else if (!Atlas)
+		{
+			continue; // tile row with no atlas loaded -- never hang a blank plate
 		}
 		const int32 P = Placed % PatternNum;
 		const float PlateSize = Sizes[P];
@@ -139,11 +157,23 @@ void AAFLRetailStickerWall::BuildMural()
 		Plate->SetRelativeLocation(FVector(14.f, Yoff[P], Zoff[P]));
 		Plate->SetRelativeRotation(FRotator(0.f, 0.f, Tilt[P]));
 		Plate->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		Plate->SetWidgetClass(UAFLStickerCropWidget::StaticClass());
-		Plate->InitWidget();
-		if (UAFLStickerCropWidget* Crop = Cast<UAFLStickerCropWidget>(Plate->GetWidget()))
+		if (Thumb)
 		{
-			Crop->SetTile(Atlas, Entry->StickerAtlasTile, PlateSize);
+			Plate->SetWidgetClass(UAFLHubMirrorWidget::StaticClass());
+			Plate->InitWidget();
+			if (UAFLHubMirrorWidget* Img = Cast<UAFLHubMirrorWidget>(Plate->GetWidget()))
+			{
+				Img->SetMirrorTexture(Thumb, FVector2D(PlateSize, PlateSize));
+			}
+		}
+		else
+		{
+			Plate->SetWidgetClass(UAFLStickerCropWidget::StaticClass());
+			Plate->InitWidget();
+			if (UAFLStickerCropWidget* Crop = Cast<UAFLStickerCropWidget>(Plate->GetWidget()))
+			{
+				Crop->SetTile(Atlas, Entry->StickerAtlasTile, PlateSize);
+			}
 		}
 		++Placed;
 	}

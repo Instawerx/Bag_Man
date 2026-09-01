@@ -132,6 +132,10 @@ private:
 	bool bChipExpanded = false;
 	bool bAtTill = false;
 	bool bCardKeysBound = false;
+	bool bRefusalBound = false;
+
+	/** Server wearable-refusal reason surfaced on the card (bound lazily at the first pad). */
+	void HandleWearableRefused(FName CosmeticId, const FString& Reason);
 
 	FTimerHandle DwellTimer;
 	FTimerHandle GrantPollTimer;
