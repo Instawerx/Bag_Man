@@ -1,4 +1,8 @@
-# START SCREEN + SIGN-IN + ROUTE CHOICE — scope/plan (operator directive 2026-09-01)
+# IRONICS START SCREEN + SIGN-IN + ROUTE CHOICE — scope/plan (operator directive 2026-09-01)
+
+> **NAMING (operator ruling 2026-09-01): the GAME is IRONICS.** BAG MAN / Bag_Man is the repo &
+> internal codename only — it never appears on a player-facing surface. All screens use the real
+> game logo (T_IRONICS_Color_Logo_BC) and game art ONLY — no invented lockups, taglines, or icons.
 
 > Operator, verbatim: "Start Screen- Sign in... a gameplay video high action shot of gameplay in
 > Shanty Town... sign and sign up, allow users to stay logged in and remember login and password

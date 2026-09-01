@@ -5,7 +5,7 @@ detail lives in the skills referenced below — open those on demand, don't inli
 
 ## Project
 
-- **Game:** BAG MAN. Studio: C12 AI Gaming. Internal prefix: **AFL**.
+- **Game: IRONICS** (operator-ruled 2026-09-01; player-facing name — use ONLY real game logos/art on surfaces). Repo/internal codename: BAG MAN / `Bag_Man`. Studio: C12 AI Gaming. Internal prefix: **AFL**.
 - **Engine:** UE **5.6**, built on **Lyra Starter Game**. `.uproject`: `Bag_Man.uproject`.
 - **Path:** `C:\Dev\Bag_Man`. Repo: `C12-Ai-Gaming/Bag_Man` (Git LFS, 250 GB).
 - **C++ prefix:** `AFL` (modules `AFLCore`, `AFLCombat`, `AFLMovement`, `AFLVFX`; content plugin `AFLVFXLibrary`).
