@@ -287,6 +287,7 @@ namespace AFLCine
 		double RealStart = 0.0;
 		bool bRolling = false;
 		FVector Centroid = FVector::ZeroVector;
+		FVector TargetGoal = FVector::ZeroVector; // cluster recompute lands here; Centroid glides to it
 		bool bCentroidInit = false;
 		float ArmFrac = 1.f; // spring-arm fraction: snaps in on a blocking hit, eases back out
 	};
@@ -392,6 +393,7 @@ namespace AFLCine
 			FActorSpawnParameters Params;
 			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 			S.Centroid = ComputeActionTarget(World, GAnchor, false);
+			S.TargetGoal = S.Centroid;
 			S.bCentroidInit = true;
 			S.Camera = World->SpawnActor<ACameraActor>(S.Centroid + FVector(0, 0, 900.f), FRotator(-80.f, 0, 0), Params);
 			FApp::SetUseFixedTimeStep(true);
@@ -404,12 +406,14 @@ namespace AFLCine
 			EndMatchCapture();
 			return false;
 		}
-		// Smoothed action target (recomputed every half second, lerped toward per update).
+		// Smoothed action target: recompute the cluster goal every half second, but GLIDE toward it
+		// every frame -- v3 stepped the look-at once per 30 frames, smearing exactly those frames
+		// with a one-frame rotation whip (a twice-a-second judder in the encoded reel).
 		if (S.Frame % 30 == 0)
 		{
-			const FVector Fresh = ComputeActionTarget(World, S.Centroid, S.bCentroidInit);
-			S.Centroid = FMath::Lerp(S.Centroid, Fresh, 0.35f);
+			S.TargetGoal = ComputeActionTarget(World, S.Centroid, S.bCentroidInit);
 		}
+		S.Centroid = FMath::Lerp(S.Centroid, S.TargetGoal, 0.02f);
 		// Drone program: 4 shot types, 7s (420-frame) shots, base bearing walks 73 deg per shot.
 		const int32 Shot = S.Frame / 420;
 		const float T = float(S.Frame % 420) / 420.f;
@@ -417,30 +421,33 @@ namespace AFLCine
 		FVector CamLoc;
 		switch (Shot % 4)
 		{
-		case 0: // OVERHEAD slow orbit
+		// v3: every path lives above the palm/roof canopy (v1 rammed rooftops, v2's clamp pinched
+		// into fronds). Variety comes from radius/speed/pattern, not altitude.
+		case 0: // OVERHEAD slow orbit, steep look-down
 		{
 			const float A = Base + T * 0.9f;
-			CamLoc = S.Centroid + FVector(900.f * FMath::Cos(A), 900.f * FMath::Sin(A), 1100.f);
+			CamLoc = S.Centroid + FVector(900.f * FMath::Cos(A), 900.f * FMath::Sin(A), 1250.f);
 			break;
 		}
-		case 1: // SWOOP: high approach, dive over the fight, rise out (v2: low point above the roofline)
-		{
+		case 1: // SWOOP: long dive PAST the fight (lateral offset -- crossing the zenith flips the
+		{       // look-at ~180 deg in a second and smears the whole low pass)
 			const FVector Dir(FMath::Cos(Base), FMath::Sin(Base), 0.f);
+			const FVector Perp(-Dir.Y, Dir.X, 0.f);
 			const float Along = (1.f - 2.f * T) * 1400.f;
-			const float H = 550.f + (1000.f - 550.f) * FMath::Square(2.f * T - 1.f);
-			CamLoc = S.Centroid + Dir * Along + FVector(0, 0, H);
+			const float H = 750.f + (1400.f - 750.f) * FMath::Square(2.f * T - 1.f);
+			CamLoc = S.Centroid + Dir * Along + Perp * 700.f + FVector(0, 0, H);
 			break;
 		}
-		case 2: // ACTION ARC: tight, fast -- the clamp pulls it into a close-up when walls intrude
+		case 2: // ACTION ARC: tighter, faster orbit
 		{
-			const float A = Base + T * 1.8f;
-			CamLoc = S.Centroid + FVector(650.f * FMath::Cos(A), 650.f * FMath::Sin(A), 320.f);
+			const float A = Base + T * 1.2f;
+			CamLoc = S.Centroid + FVector(900.f * FMath::Cos(A), 900.f * FMath::Sin(A), 850.f);
 			break;
 		}
-		default: // WIDE establishing orbit, above the stilt-town roofline
+		default: // WIDE establishing orbit
 		{
 			const float A = Base + T * 0.5f;
-			CamLoc = S.Centroid + FVector(1600.f * FMath::Cos(A), 1600.f * FMath::Sin(A), 1000.f);
+			CamLoc = S.Centroid + FVector(1600.f * FMath::Cos(A), 1600.f * FMath::Sin(A), 1400.f);
 			break;
 		}
 		}
@@ -457,11 +464,13 @@ namespace AFLCine
 			if (World->LineTraceSingleByObjectType(Hit, LookAt, CamLoc, Obj, Q))
 			{
 				const float Full = FVector::Dist(LookAt, CamLoc);
-				DesiredFrac = Full > 1.f ? FMath::Clamp((Hit.Distance - 60.f) / Full, 0.05f, 1.f) : 1.f;
+				// Floor at half arm: a stray palm frond crossing the sight line must never drag the
+				// camera into the canopy (the v2 failure) -- this clamp is a safety, not a framing tool.
+				DesiredFrac = Full > 1.f ? FMath::Clamp((Hit.Distance - 60.f) / Full, 0.5f, 1.f) : 1.f;
 			}
 		}
 		// Snap in on a hit (never clip through), ease back out when clear.
-		S.ArmFrac = DesiredFrac < S.ArmFrac ? DesiredFrac : FMath::Min(1.f, FMath::Lerp(S.ArmFrac, DesiredFrac, 0.05f));
+		S.ArmFrac = DesiredFrac < S.ArmFrac ? DesiredFrac : FMath::Min(1.f, FMath::Lerp(S.ArmFrac, DesiredFrac, 0.12f));
 		CamLoc = LookAt + (CamLoc - LookAt) * S.ArmFrac;
 		Cam->SetActorLocation(CamLoc);
 		Cam->SetActorRotation((LookAt - CamLoc).Rotation());
