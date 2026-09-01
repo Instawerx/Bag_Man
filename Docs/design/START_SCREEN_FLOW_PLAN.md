@@ -30,15 +30,17 @@ build (mockup-first, ruled 2026-08-27). Mock canvas published alongside this doc
   W_IRONICS_Startup` (SKIPPED on PC — `ShouldWaitForStartInput()` false), `MainScreenClass =
   W_IRONICS_Home`. The press-start flow step is the natural hook; it must be made to WAIT so the
   landing actually shows.
-- Auth: `UAFLOnlineSubsystem` (AFLOnline plugin) auto-logs-in headlessly at GameInstance init.
-  Dev = `LoginWithCustomID` (compiled out of shipping); shipping = EOS OIDC
-  (`LoginWithOpenIdConnect`). **No email+password, no register, no persistence exist.** Generic
-  `PostClientApi` transport is ready for `RegisterPlayFabUser` / `LoginWithEmailAddress`.
-- STAY SIGNED IN (security ruling): the password is NEVER stored. Standard PlayFab pattern:
-  after email sign-in, `LinkCustomID` binds a locally generated device GUID to the account
-  (SaveGame slot, the economy-save precedent); subsequent boots replay `LoginWithCustomID` ->
-  one-click entry. Sign-out unlinks + clears the slot. Delivers the operator outcome ("remember
-  login and password for quick access") without a credential store.
+- Auth (CORRECTED by operator 2026-09-01 + website docs): **EPIC SIGN-IN IS ACTIVE** — the
+  website portal anchors accounts as `epic#<sub>` (`lib/accounts.ts`) and the game anchors the
+  SAME Epic identity via `LoginWithOpenIdConnect` connection `epic`, title `1A2077`
+  (IRONICS_VOLTS_PURCHASE_ADMIN_SCOPE.md:158-163). One identity spine, both sides.
+- **GAMELIFT-OVER-PLAYFAB PRIORITY (operator ruling):** no NEW PlayFab surface. The earlier
+  email+password direction (RegisterPlayFabUser et al.) is STRUCK — sign-in and sign-up both run
+  through Epic (Epic's own flow covers account creation; the OIDC login already carries
+  CreateAccount:true, which fires the 3-credit recruit grant on first sign-in).
+- STAY SIGNED IN = **EOS PersistentAuth** (the platform-standard refresh-token credential):
+  Epic's SDK persists the auth locally and replays it on boot — one-click re-entry, no password
+  ever stored, sign-out clears it. "Login just saves" (operator ruling, verbatim intent).
 - Matchmaking route target EXISTS: `UAFLW_Lobby_Root` (League/Staked) -> `StartMatchmaking`.
   Real placements still await T2 S12 (GameLift compute) — routing is buildable now.
 - Media: WmfMedia active (mp4 H.264 loops in UMG on Windows today); ElectraPlayer present but
@@ -58,21 +60,20 @@ hand-recording required; operator hand-played takes welcome as alternates.
 - **V2 — promotional set (files, not cooked):** 3x Shanty Town (district tour · Haywire BR
   action · ProMod parkour run), 1x "INFINEON" (**flag: INFINEON has NO own map — it is the
   stock Expanse arena, retheme owed; footage shows that reality**), 1x ARCANEON (L_Arena_04)
-  showcase. 1080p60 targets, ~30-60s each.
+  showcase. 4K loop; promos 1080p60+, ~30-60s each.
 
 ## Phase S — the screens (GATED on mock approval)
 
-- **S1 `UAFLW_Landing`** (the SSOT's N1; C++-built like every retail surface): full-bleed looping
-  video ground; IRONICS lockup; sign-in card — EMAIL / PASSWORD, SIGN IN (accent CTA),
-  CREATE ACCOUNT tab (note: "3 weapon credits on first sign-up" — the proven grant), STAY
-  SIGNED IN toggle, SIGN IN WITH EPIC secondary (the shipping EOS path, honest to the backend),
-  dev-skip (non-shipping). Auth adds to `UAFLOnlineSubsystem`: `RegisterWithEmail`,
-  `LoginWithEmail`, `LinkDeviceForRememberMe`, remembered-boot replay. Flow: frontend press-start
-  step forced to WAIT; a valid remembered token auto-signs-in and lands directly on S2.
-- **S2 `UAFLW_RouteChoice`:** two doors — OUTPOST LOBBY (the base: shops, range, clubs) |
-  MATCHMAKING (straight to the League queue). Routing: Lobby -> existing home/hub flow;
-  Matchmaking -> push `UAFLW_Lobby_Root`. Optional "remember my choice" is **PROPOSED** on the
-  mock — ratify or strike.
+- **S1 `UAFLW_Landing`** (the SSOT's N1; C++-built): full-bleed looping video ground; the real
+  IRONICS logo; sign-in card — **SIGN IN WITH EPIC primary CTA** (the active identity path;
+  first sign-in creates the account + fires the 3-credit recruit grant), STAY SIGNED IN toggle
+  (EOS PersistentAuth), dev-skip (non-shipping). Auth surface change is SMALL: expose the
+  existing EOS OIDC path behind a user-initiated button + PersistentAuth persistence — no new
+  PlayFab APIs. Flow: frontend press-start step forced to WAIT; persisted Epic auth auto-signs-in
+  and lands directly on S2.
+- **S2 `UAFLW_RouteChoice`:** two doors — OUTPOST LOBBY (the base) | MATCHMAKING (the queue).
+  Routing: Lobby -> existing home/hub flow; Matchmaking -> push `UAFLW_Lobby_Root`.
+  "Remember my choice" STRUCK (operator: not necessary — login saves, the choice is asked).
 - **S3:** SSOT amendment + tracker rows on PIE proof.
 
 ## Build order
@@ -85,8 +86,8 @@ hand-recording required; operator hand-played takes welcome as alternates.
 6. V2 promo renders delivered ->
 7. SSOT amendment + tracker.
 
-## Open questions for the operator (answer any time; defaults in parentheses)
+## Rulings received (operator, 2026-09-01)
 
-1. Loop resolution/framerate (1080p60; 4K optional later).
-2. "Remember my choice" on the route screen — PROPOSED (default OFF, always ask).
-3. INFINEON promo: shoot the stock-Expanse reality now (default) or wait for the retheme?
+1. Loop = **4K**. 2. Remember-my-choice: **struck** — login saves, route is always asked.
+3. INFINEON: **good to shoot as is**. 4. Epic sign-in ACTIVE (website) = the primary auth path;
+**GameLift/AWS services preferred over PlayFab** wherever a choice exists.
