@@ -133,7 +133,11 @@ void UAFLRetailSubsystem::ArmTryOn()
 	bPurchasedCurrent = false;
 	State = ERetailState::Browsing;
 
-	if (UAFLCosmeticLoadoutComponent* Loadout = GetLoadout())
+	// Non-wearable rows (credit packs) skip the try-on RPC -- the server would only refuse them
+	// with a warning; the card is their whole surface.
+	EAFLLoadoutAxis TryAxis;
+	if (UAFLCosmeticLoadoutComponent* Loadout = GetLoadout();
+		Loadout && UAFLW_FrontEndMarket::ClassifyStoreAxis(CurrentId, TryAxis))
 	{
 		Loadout->ServerRequestTryOn(CurrentId);
 		Loadout->LocalActiveTryOnId = CurrentId;
