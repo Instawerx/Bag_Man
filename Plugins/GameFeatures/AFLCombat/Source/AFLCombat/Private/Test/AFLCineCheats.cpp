@@ -288,22 +288,59 @@ namespace AFLCine
 		bool bRolling = false;
 		FVector Centroid = FVector::ZeroVector;
 		bool bCentroidInit = false;
+		float ArmFrac = 1.f; // spring-arm fraction: snaps in on a blocking hit, eases back out
 	};
 	static TSharedPtr<FMatchState> GMatch;
 
-	static FVector ComputePawnCentroid(UWorld* World, const FVector& Fallback)
+	// The action target is the densest CONTROLLED-pawn cluster, not the roster mean -- a BR
+	// roster spreads across the whole town (the mean lands in empty lanes) and late-game
+	// corpses linger as pawns (the controller filter drops them).
+	static FVector ComputeActionTarget(UWorld* World, const FVector& Prev, bool bHavePrev)
 	{
-		FVector Sum = FVector::ZeroVector;
-		int32 N = 0;
+		TArray<FVector, TInlineAllocator<64>> P;
 		for (TActorIterator<APawn> It(World); It; ++It)
 		{
-			if (IsValid(*It))
+			if (IsValid(*It) && It->GetController() != nullptr)
 			{
-				Sum += It->GetActorLocation();
+				P.Add(It->GetActorLocation());
+			}
+		}
+		if (P.Num() == 0)
+		{
+			return Prev;
+		}
+		const float ClusterR2 = FMath::Square(1200.f);
+		int32 BestIdx = 0;
+		float BestScore = -FLT_MAX;
+		for (int32 i = 0; i < P.Num(); ++i)
+		{
+			int32 N = 0;
+			for (int32 j = 0; j < P.Num(); ++j)
+			{
+				if (FVector::DistSquared(P[i], P[j]) < ClusterR2)
+				{
+					++N;
+				}
+			}
+			// Continuity tiebreak: between equal fights, stay on the one the drone already covers.
+			const float Score = N * 10000.f - (bHavePrev ? FVector::Dist(P[i], Prev) * 0.1f : 0.f);
+			if (Score > BestScore)
+			{
+				BestScore = Score;
+				BestIdx = i;
+			}
+		}
+		FVector Sum = FVector::ZeroVector;
+		int32 N = 0;
+		for (const FVector& Q : P)
+		{
+			if (FVector::DistSquared(P[BestIdx], Q) < ClusterR2)
+			{
+				Sum += Q;
 				++N;
 			}
 		}
-		return N > 0 ? Sum / N : Fallback;
+		return Sum / N;
 	}
 
 	static void EndMatchCapture()
@@ -354,7 +391,7 @@ namespace AFLCine
 			S.bRolling = true;
 			FActorSpawnParameters Params;
 			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-			S.Centroid = ComputePawnCentroid(World, GAnchor);
+			S.Centroid = ComputeActionTarget(World, GAnchor, false);
 			S.bCentroidInit = true;
 			S.Camera = World->SpawnActor<ACameraActor>(S.Centroid + FVector(0, 0, 900.f), FRotator(-80.f, 0, 0), Params);
 			FApp::SetUseFixedTimeStep(true);
@@ -367,10 +404,10 @@ namespace AFLCine
 			EndMatchCapture();
 			return false;
 		}
-		// Smoothed action centroid (recomputed every half second, lerped hard toward per frame).
+		// Smoothed action target (recomputed every half second, lerped toward per update).
 		if (S.Frame % 30 == 0)
 		{
-			const FVector Fresh = ComputePawnCentroid(World, S.Centroid);
+			const FVector Fresh = ComputeActionTarget(World, S.Centroid, S.bCentroidInit);
 			S.Centroid = FMath::Lerp(S.Centroid, Fresh, 0.35f);
 		}
 		// Drone program: 4 shot types, 7s (420-frame) shots, base bearing walks 73 deg per shot.
@@ -386,29 +423,48 @@ namespace AFLCine
 			CamLoc = S.Centroid + FVector(900.f * FMath::Cos(A), 900.f * FMath::Sin(A), 1100.f);
 			break;
 		}
-		case 1: // SWOOP: high approach, low pass over the fight, rise out
+		case 1: // SWOOP: high approach, dive over the fight, rise out (v2: low point above the roofline)
 		{
 			const FVector Dir(FMath::Cos(Base), FMath::Sin(Base), 0.f);
 			const float Along = (1.f - 2.f * T) * 1400.f;
-			const float H = 180.f + (700.f - 180.f) * FMath::Square(2.f * T - 1.f);
+			const float H = 550.f + (1000.f - 550.f) * FMath::Square(2.f * T - 1.f);
 			CamLoc = S.Centroid + Dir * Along + FVector(0, 0, H);
 			break;
 		}
-		case 2: // ACTION ARC: tight, low, fast
+		case 2: // ACTION ARC: tight, fast -- the clamp pulls it into a close-up when walls intrude
 		{
 			const float A = Base + T * 1.8f;
-			CamLoc = S.Centroid + FVector(380.f * FMath::Cos(A), 380.f * FMath::Sin(A), 140.f);
+			CamLoc = S.Centroid + FVector(650.f * FMath::Cos(A), 650.f * FMath::Sin(A), 320.f);
 			break;
 		}
-		default: // WIDE establishing orbit
+		default: // WIDE establishing orbit, above the stilt-town roofline
 		{
 			const float A = Base + T * 0.5f;
-			CamLoc = S.Centroid + FVector(1600.f * FMath::Cos(A), 1600.f * FMath::Sin(A), 520.f);
+			CamLoc = S.Centroid + FVector(1600.f * FMath::Cos(A), 1600.f * FMath::Sin(A), 1000.f);
 			break;
 		}
 		}
+		// Spring-arm collision clamp against WORLD-STATIC only (buildings/terrain, never pawns):
+		// v1 proved fixed-height orbits below the roofline ram the stilt town's split-level geometry.
+		// Guaranteeing the LookAt->camera segment is clear keeps the fight framed at any height.
+		const FVector LookAt = S.Centroid + FVector(0, 0, 80.f);
+		float DesiredFrac = 1.f;
+		{
+			FHitResult Hit;
+			FCollisionQueryParams Q(SCENE_QUERY_STAT(AFLCineDrone), false);
+			FCollisionObjectQueryParams Obj;
+			Obj.AddObjectTypesToQuery(ECC_WorldStatic);
+			if (World->LineTraceSingleByObjectType(Hit, LookAt, CamLoc, Obj, Q))
+			{
+				const float Full = FVector::Dist(LookAt, CamLoc);
+				DesiredFrac = Full > 1.f ? FMath::Clamp((Hit.Distance - 60.f) / Full, 0.05f, 1.f) : 1.f;
+			}
+		}
+		// Snap in on a hit (never clip through), ease back out when clear.
+		S.ArmFrac = DesiredFrac < S.ArmFrac ? DesiredFrac : FMath::Min(1.f, FMath::Lerp(S.ArmFrac, DesiredFrac, 0.05f));
+		CamLoc = LookAt + (CamLoc - LookAt) * S.ArmFrac;
 		Cam->SetActorLocation(CamLoc);
-		Cam->SetActorRotation((S.Centroid + FVector(0, 0, 60.f) - CamLoc).Rotation());
+		Cam->SetActorRotation((LookAt - CamLoc).Rotation());
 		if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0))
 		{
 			PC->SetViewTargetWithBlend(Cam, 0.f);
