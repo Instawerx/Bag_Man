@@ -100,6 +100,16 @@ Every arrow that leaves the base comes back to the base. **There is no menu afte
 tournament; there is the base.** The Landing Page is entered once per boot, never on return. This is
 the single most important property of the flow and every gate from H2 onward proves it.
 
+**AMENDED (operator ruling 2026-09-01, screens passed live):** one screen now sits between the
+Landing and the base — the **Route Choice** quick screen (`AFLW_RouteChoice`: "WHERE TO?" —
+Outpost Lobby | Matchmaking). It is asked **every session** (login saves; the route choice does
+not), shown once per boot immediately after sign-in, never on return from a match. Matchmaking
+routes through the home screen's own League door (pending-route flag consumed on activation), so
+the queue path stays the one proven door wiring; back/default = the base. The Landing itself is
+now `AFLW_Landing` — Epic sign-in over the 10s Shanty Town action loop
+(`/Game/Movies/MT_AFL_StartLoop`), stay-signed-in persisted via EOS PersistentAuth prefs. The
+once-per-boot property is unchanged: Landing + Route Choice together are the boot-only pair.
+
 ---
 
 ## 2 · What each node shows (UI, per node)
