@@ -72,11 +72,13 @@ AAFLRetailStickerWall::AAFLRetailStickerWall()
 	{
 		WallMesh->SetStaticMesh(Cube.Object);
 	}
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DarkMI(
-		TEXT("/Game/BagMan/Characters/Cosmetics/IRONICS_Blank/MI_AFL_IRONICS_Body.MI_AFL_IRONICS_Body"));
-	if (DarkMI.Succeeded())
+	// SOLID slab (operator ruling: walls are decoration/display, black or concrete -- the body MI
+	// read patterned on a scaled cube). Engine basic material = flat concrete grey.
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ConcreteMI(
+		TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	if (ConcreteMI.Succeeded())
 	{
-		WallMesh->SetMaterial(0, DarkMI.Object);
+		WallMesh->SetMaterial(0, ConcreteMI.Object);
 	}
 }
 
