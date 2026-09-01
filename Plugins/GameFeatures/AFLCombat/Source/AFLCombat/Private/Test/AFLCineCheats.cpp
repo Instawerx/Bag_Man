@@ -28,6 +28,9 @@
 #include "EngineUtils.h" // TActorIterator (match centroid)
 #include "UI/AFLLoadoutDisplayPawn.h" // the proven kiosk display robot -- the cine stage's pawn subject
 #include "Cosmetics/AFLSkinColorControllerComponent.h" // stage-robot dress: the one shipping fan-out
+#include "Cosmetics/AFLCosmeticSelectionTypes.h"       // per-robot preview selections (store preview rail)
+#include "Animation/AnimSequenceBase.h"                // rifle-ready idle for held-weapon robots
+#include "Components/SkeletalMeshComponent.h"          // "
 #include "Misc/App.h"
 #include "UnrealClient.h"
 #include "UObject/SoftObjectPath.h"
@@ -53,11 +56,12 @@ namespace AFLCine
 	static const FVector GAnchor(1093.f, -3844.f, 3967.f);
 	static const FBeat GBeats[] = {
 		{   0, 110, { -1500, -1500,  460 }, { -1250, -1250,  430 }, { -10,  45, 0 }, 70.f, -1, 0, 0, 0, 0 },      // wide over the stacks
-		{ 110, 215, {0,0,0}, {0,0,0}, {0,0,0}, 45.f, 10, 560.f, 200.f, 232.f, 300.f },                            // IRONICS_X hero -- higher + wider so heads never crop (operator note 09-01)
-		{ 215, 305, {0,0,0}, {0,0,0}, {0,0,0}, 42.f,  0, 500.f, 140.f, 174.f, 210.f },                            // RIPSAW pad -- clears the FX column
-		{ 305, 400, {0,0,0}, {0,0,0}, {0,0,0}, 45.f,  1, 520.f, 288.f, 322.f, 200.f },                            // ARIA pad
-		{ 400, 495, {0,0,0}, {0,0,0}, {0,0,0}, 48.f,  3, 480.f,  60.f,  96.f, 170.f },                            // hand-cannon XT
-		{ 495, 560, {0,0,0}, {0,0,0}, {0,0,0}, 42.f,  2, 490.f, 188.f, 224.f, 220.f },                            // SCARLETT pad
+		{ 110, 190, {0,0,0}, {0,0,0}, {0,0,0}, 40.f, 10, 520.f, 204.f, 228.f, 240.f },                            // HERO FRONT: IRONICS_X faces this arc (facing wired at spawn)
+		{ 190, 270, {0,0,0}, {0,0,0}, {0,0,0}, 38.f, 10, 480.f, 112.f, 140.f, 200.f },                            // HERO SIDE: weapon+character profile (operator ask 09-01)
+		{ 270, 345, {0,0,0}, {0,0,0}, {0,0,0}, 42.f,  0, 500.f, 140.f, 174.f, 210.f },                            // RIPSAW pad -- clears the FX column
+		{ 345, 420, {0,0,0}, {0,0,0}, {0,0,0}, 45.f,  1, 520.f, 288.f, 322.f, 200.f },                            // ARIA pad
+		{ 420, 490, {0,0,0}, {0,0,0}, {0,0,0}, 48.f,  3, 480.f,  60.f,  96.f, 170.f },                            // hand-cannon XT
+		{ 490, 560, {0,0,0}, {0,0,0}, {0,0,0}, 42.f,  2, 490.f, 188.f, 224.f, 220.f },                            // SCARLETT pad
 		{ 560, 600, { -1250, -1250,  430 }, { -1500, -1500,  460 }, { -10,  45, 0 }, 70.f, -1, 0, 0, 0, 0 },      // seam: reverse wide -> frame 0 lock
 	};
 	// Beat coordinates are OFFSETS from the anchor; resolved at run time.
@@ -133,13 +137,23 @@ namespace AFLCine
 		// uncontrolled B_Hero_BagMan_Pro spawns -- rendered NOTHING: the hero base mesh is
 		// SKM_Manny_Invis and the visible robot is a CHARACTER PART only the controller-side
 		// cosmetic spine adds, so every prior loop filmed an invisible pawn on the hero beat.
-		// X-LINE bodies (operator note 09-01: not the old chassis); index 0 = the beat subject.
-		static const TCHAR* GBodies[] = {
-			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_IRONICS_X.B_AFL_Robot_IRONICS_X_C"),
-			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_SCARLETT_X.B_AFL_Robot_SCARLETT_X_C"),
-			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_FANATICS_X.B_AFL_Robot_FANATICS_X_C"),
-			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_VOLT_X.B_AFL_Robot_VOLT_X_C"),
+		// Operator rulings 09-01: X-line bodies, IRONICS branding (no FANATICS), per-robot COLORS,
+		// weapons POSSESSED (hero wears the IRONICS hand-cannon pair arm-worn; the others hold
+		// their guns in a rifle-ready idle). Dressed via the store PREVIEW rail -- transient,
+		// entitlement-free, never touches the committed loadout. Index 0 = the beat subject.
+		struct FStageRobot { const TCHAR* Body; const TCHAR* Edge; const TCHAR* BodyColor; const TCHAR* WeaponR; const TCHAR* WeaponL; bool bRifleIdle; };
+		static const FStageRobot GRobots[] = {
+			{ TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_IRONICS_X.B_AFL_Robot_IRONICS_X_C"),
+			  TEXT("AFL.Edge.NeonBlue"),   TEXT("AFL.Body.NeonBlue"),   TEXT("AFL.Weapon.Arclight"), nullptr, true },
+			{ TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_SCARLETT_X.B_AFL_Robot_SCARLETT_X_C"),
+			  TEXT("AFL.Edge.NeonPink"),   TEXT("AFL.Body.NeonPink"),   TEXT("AFL.Weapon.Scarlett"), nullptr, true },
+			{ TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_VOLT_X.B_AFL_Robot_VOLT_X_C"),
+			  TEXT("AFL.Edge.NeonYellow"), TEXT("AFL.Body.NeonYellow"), TEXT("AFL.Weapon.Voltaic"), nullptr, true },
+			{ TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_ONYXPRIME_X.B_AFL_Robot_ONYXPRIME_X_C"),
+			  TEXT("AFL.Edge.NeonPurple"), TEXT("AFL.Body.NeonPurple"), TEXT("AFL.Weapon.Ripsaw"), nullptr, true },
 		};
+		UAnimSequenceBase* RifleIdle = LoadObject<UAnimSequenceBase>(nullptr,
+			TEXT("/Game/Characters/Heroes/Mannequin/Animations/Locomotion/Rifle/MM_Rifle_Idle_Hipfire.MM_Rifle_Idle_Hipfire"));
 		// Plaza reference height from the anchor's own snap: any pawn snap that lands well below it
 		// fell into a ditch/canal -- re-place at plaza grade instead of filming an occluded pawn.
 		const float PlazaZ = GroundSnap(World, FVector::ZeroVector).Z;
@@ -159,36 +173,64 @@ namespace AFLCine
 			// ACharacter -- its mesh sits at CAPSULE CENTER (the -88 offset lives only in the
 			// mannequin BPs), and the skeleton root is at the feet. Spawning AT the snap plants
 			// them; collision + gravity are off on this pawn, so the sunken capsule is harmless.
+			//
+			// FACING: total facing = ActorYaw + the dress-applied mesh yaw (CVar 225), and the
+			// mesh yaw convention is BACK-to-bearing (v8 filmed the hero's back on the front
+			// beat) -- +180 flips him INTO the front arc (mid-bearing 216); the side beat then
+			// reads his weapon profile. Others fan out from the same base.
+			const float ActorYawDeg = 171.f + PawnYaw * 97.f;
 			AAFLLoadoutDisplayPawn* Pawn = World->SpawnActor<AAFLLoadoutDisplayPawn>(
 				AAFLLoadoutDisplayPawn::StaticClass(), Snapped,
-				FRotator(0.f, (PawnYaw * 97.f), 0.f), Params);
+				FRotator(0.f, ActorYawDeg, 0.f), Params);
 			if (Pawn)
 			{
-				UClass* RobotBody = LoadClass<AActor>(nullptr, GBodies[PawnYaw % UE_ARRAY_COUNT(GBodies)]);
-				if (RobotBody)
+				const FStageRobot& R = GRobots[PawnYaw % UE_ARRAY_COUNT(GRobots)];
+				if (UClass* RobotBody = LoadClass<AActor>(nullptr, R.Body))
 				{
 					Pawn->SetRobotBody(RobotBody);
 				}
 				// DRESS via the one shipping fan-out (v5 lesson: the pawn's own self-dress only arms
 				// for LEVEL-PLACED kiosks -- IsNetStartupActor -- so runtime-spawned stage robots
 				// stood bare grey and HEADLESS; the head/visor is the facemask piece the fan-out
-				// applies). SKIN + FACEMASK ONLY: the weapon passes equipped the host's signature
-				// cannon onto the unarmed idle rig and leaked a floating grip hand (operator pic
-				// 09-01) -- stage heroes stay unarmed; the weapon hero shots are the pad beats.
+				// applies). Per-robot PREVIEW selection = per-robot colors, IRONICS visor + emblem,
+				// and the robot's own weapon; cleared after each dress so nothing leaks anywhere.
 				if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0))
 				{
 					if (UAFLSkinColorControllerComponent* SkinCtrl = PC->FindComponentByClass<UAFLSkinColorControllerComponent>())
 					{
+						FAFLCosmeticSelection Sel;
+						Sel.EdgeId     = FName(R.Edge);
+						Sel.BodyId     = FName(R.BodyColor);
+						// NO EmblemId: the chest-decal projector mislands on the X chassis in the
+						// kiosk pose (v8: a red patch on the hero's thigh). IRONICS branding rides
+						// the IroVisor + house chassis instead.
+						Sel.FacemaskId = FName(TEXT("AFL.Facemask.IroVisor"));
+						Sel.WeaponId   = FName(R.WeaponR);
+						if (R.WeaponL) { Sel.LeftWeaponId = FName(R.WeaponL); }
+						SkinCtrl->SetPreviewSelection(Sel);
 						SkinCtrl->RefreshSkinForPawn(Pawn);
 						SkinCtrl->RefreshFacemaskForPawn(Pawn);
+						SkinCtrl->RefreshEmblemForPawn(Pawn);
+						SkinCtrl->RefreshWeaponForPawn(Pawn);
+						SkinCtrl->ClearPreviewSelection();
 					}
 					else
 					{
 						UE_LOG(LogAFLCombat, Warning, TEXT("AFL_CINE: no SkinColorControllerComponent on the local PC -- stage robots stay house-grey."));
 					}
 				}
-				UE_LOG(LogAFLCombat, Log, TEXT("AFL_CINE: staged display robot at %s (body %s)."),
-					*Pawn->GetActorLocation().ToCompactString(), *GetNameSafe(RobotBody));
+				// Held-gun robots pose in the rifle-ready hipfire idle so the weapon sits gripped,
+				// not dangling off an unarmed stance (the v6/v7 leak read). Runs AFTER SetRobotBody
+				// (whose parts add resets the driving mesh) and is safe beside the weapon equip.
+				if (R.bRifleIdle && RifleIdle)
+				{
+					if (USkeletalMeshComponent* Mesh = Pawn->FindComponentByClass<USkeletalMeshComponent>())
+					{
+						Mesh->PlayAnimation(RifleIdle, /*bLooping=*/true);
+					}
+				}
+				UE_LOG(LogAFLCombat, Log, TEXT("AFL_CINE: staged display robot at %s (body %s, weapon %s)."),
+					*Pawn->GetActorLocation().ToCompactString(), R.Body ? *FPaths::GetBaseFilename(R.Body) : TEXT("?"), R.WeaponR);
 				State.Staged.Add(Pawn);
 				State.PawnSpots.Add(Pawn->GetActorLocation() + FVector(0, 0, 85.f)); // head-line framing
 			}
@@ -528,16 +570,44 @@ namespace AFLCine
 		const FVector LookAt = S.Centroid + FVector(0, 0, 80.f);
 		float DesiredFrac = 1.f;
 		{
-			FHitResult Hit;
-			FCollisionQueryParams Q(SCENE_QUERY_STAT(AFLCineDrone), false);
-			FCollisionObjectQueryParams Obj;
-			Obj.AddObjectTypesToQuery(ECC_WorldStatic);
-			if (World->LineTraceSingleByObjectType(Hit, LookAt, CamLoc, Obj, Q))
+			// FOLIAGE-TRANSPARENT (BR9 lesson): canopy crossings pinched the arm and smeared whole
+			// shots over small rosters hiding under palms. A drone flying briefly through leaves
+			// reads fine; a pinch-smear does not. Object traces stop at the FIRST block, so skip
+			// foliage ITERATIVELY: re-trace from just past each vegetal hit; clamp on the first
+			// SOLID blocker only.
 			{
+				FCollisionQueryParams Q(SCENE_QUERY_STAT(AFLCineDrone), false);
+				FCollisionObjectQueryParams Obj;
+				Obj.AddObjectTypesToQuery(ECC_WorldStatic);
 				const float Full = FVector::Dist(LookAt, CamLoc);
-				// Floor at half arm: a stray palm frond crossing the sight line must never drag the
-				// camera into the canopy (the v2 failure) -- this clamp is a safety, not a framing tool.
-				DesiredFrac = Full > 1.f ? FMath::Clamp((Hit.Distance - 60.f) / Full, 0.5f, 1.f) : 1.f;
+				const FVector Dir = Full > 1.f ? (CamLoc - LookAt) / Full : FVector::ZeroVector;
+				FVector Start = LookAt;
+				for (int32 Skip = 0; Skip < 6 && Full > 1.f; ++Skip)
+				{
+					FHitResult Hit;
+					if (!World->LineTraceSingleByObjectType(Hit, Start, CamLoc, Obj, Q))
+					{
+						break; // clear to the camera
+					}
+					const FString N = GetNameSafe(Hit.GetComponent()) + TEXT("/") + GetNameSafe(Hit.GetActor());
+					const bool bFoliage = N.Contains(TEXT("palm"), ESearchCase::IgnoreCase)
+						|| N.Contains(TEXT("tree"), ESearchCase::IgnoreCase)
+						|| N.Contains(TEXT("bush"), ESearchCase::IgnoreCase)
+						|| N.Contains(TEXT("leaf"), ESearchCase::IgnoreCase)
+						|| N.Contains(TEXT("plant"), ESearchCase::IgnoreCase)
+						|| N.Contains(TEXT("foliage"), ESearchCase::IgnoreCase)
+						|| N.Contains(TEXT("grass"), ESearchCase::IgnoreCase);
+					if (bFoliage)
+					{
+						Start = Hit.ImpactPoint + Dir * 25.f; // step past the frond, keep looking
+						continue;
+					}
+					// Floor at half arm: a solid blocker must never drag the camera into geometry
+					// (the v2 failure) -- this clamp is a safety, not a framing tool.
+					const float Dist = FVector::Dist(LookAt, Hit.ImpactPoint);
+					DesiredFrac = FMath::Clamp((Dist - 60.f) / Full, 0.5f, 1.f);
+					break;
+				}
 			}
 		}
 		// Snap in on a hit (never clip through), ease back out when clear.
