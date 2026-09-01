@@ -53,7 +53,7 @@ namespace AFLCine
 	static const FVector GAnchor(1093.f, -3844.f, 3967.f);
 	static const FBeat GBeats[] = {
 		{   0, 110, { -1500, -1500,  460 }, { -1250, -1250,  430 }, { -10,  45, 0 }, 70.f, -1, 0, 0, 0, 0 },      // wide over the stacks
-		{ 110, 215, {0,0,0}, {0,0,0}, {0,0,0}, 45.f, 10, 460.f, 200.f, 232.f, 190.f },                            // IRONICS hero pawn -- high angle over the rim
+		{ 110, 215, {0,0,0}, {0,0,0}, {0,0,0}, 45.f, 10, 560.f, 200.f, 232.f, 300.f },                            // IRONICS_X hero -- higher + wider so heads never crop (operator note 09-01)
 		{ 215, 305, {0,0,0}, {0,0,0}, {0,0,0}, 42.f,  0, 500.f, 140.f, 174.f, 210.f },                            // RIPSAW pad -- clears the FX column
 		{ 305, 400, {0,0,0}, {0,0,0}, {0,0,0}, 45.f,  1, 520.f, 288.f, 322.f, 200.f },                            // ARIA pad
 		{ 400, 495, {0,0,0}, {0,0,0}, {0,0,0}, 48.f,  3, 480.f,  60.f,  96.f, 170.f },                            // hand-cannon XT
@@ -133,8 +133,13 @@ namespace AFLCine
 		// uncontrolled B_Hero_BagMan_Pro spawns -- rendered NOTHING: the hero base mesh is
 		// SKM_Manny_Invis and the visible robot is a CHARACTER PART only the controller-side
 		// cosmetic spine adds, so every prior loop filmed an invisible pawn on the hero beat.
-		UClass* RobotBody = LoadClass<AActor>(nullptr,
-			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_IRONICS.B_AFL_Robot_IRONICS_C"));
+		// X-LINE bodies (operator note 09-01: not the old chassis); index 0 = the beat subject.
+		static const TCHAR* GBodies[] = {
+			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_IRONICS_X.B_AFL_Robot_IRONICS_X_C"),
+			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_SCARLETT_X.B_AFL_Robot_SCARLETT_X_C"),
+			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_FANATICS_X.B_AFL_Robot_FANATICS_X_C"),
+			TEXT("/Game/BagMan/Characters/Cosmetics/B_AFL_Robot_VOLT_X.B_AFL_Robot_VOLT_X_C"),
+		};
 		// Plaza reference height from the anchor's own snap: any pawn snap that lands well below it
 		// fell into a ditch/canal -- re-place at plaza grade instead of filming an occluded pawn.
 		const float PlazaZ = GroundSnap(World, FVector::ZeroVector).Z;
@@ -150,11 +155,16 @@ namespace AFLCine
 					*Loc.ToCompactString(), PlazaZ - Snapped.Z);
 				Snapped.Z = PlazaZ;
 			}
+			// Feet ON the ground (operator note 09-01: robots hovered): this pawn is raw C++
+			// ACharacter -- its mesh sits at CAPSULE CENTER (the -88 offset lives only in the
+			// mannequin BPs), and the skeleton root is at the feet. Spawning AT the snap plants
+			// them; collision + gravity are off on this pawn, so the sunken capsule is harmless.
 			AAFLLoadoutDisplayPawn* Pawn = World->SpawnActor<AAFLLoadoutDisplayPawn>(
-				AAFLLoadoutDisplayPawn::StaticClass(), Snapped + FVector(0, 0, 90.f),
-				FRotator(0.f, (PawnYaw++ * 97.f), 0.f), Params);
+				AAFLLoadoutDisplayPawn::StaticClass(), Snapped,
+				FRotator(0.f, (PawnYaw * 97.f), 0.f), Params);
 			if (Pawn)
 			{
+				UClass* RobotBody = LoadClass<AActor>(nullptr, GBodies[PawnYaw % UE_ARRAY_COUNT(GBodies)]);
 				if (RobotBody)
 				{
 					Pawn->SetRobotBody(RobotBody);
@@ -162,15 +172,15 @@ namespace AFLCine
 				// DRESS via the one shipping fan-out (v5 lesson: the pawn's own self-dress only arms
 				// for LEVEL-PLACED kiosks -- IsNetStartupActor -- so runtime-spawned stage robots
 				// stood bare grey and HEADLESS; the head/visor is the facemask piece the fan-out
-				// applies). The stage builds after settle, so the local PC + cosmetic stack are up.
+				// applies). SKIN + FACEMASK ONLY: the weapon passes equipped the host's signature
+				// cannon onto the unarmed idle rig and leaked a floating grip hand (operator pic
+				// 09-01) -- stage heroes stay unarmed; the weapon hero shots are the pad beats.
 				if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0))
 				{
 					if (UAFLSkinColorControllerComponent* SkinCtrl = PC->FindComponentByClass<UAFLSkinColorControllerComponent>())
 					{
 						SkinCtrl->RefreshSkinForPawn(Pawn);
 						SkinCtrl->RefreshFacemaskForPawn(Pawn);
-						SkinCtrl->RefreshWeaponSkinForPawn(Pawn);
-						SkinCtrl->RefreshWeaponForPawn(Pawn);
 					}
 					else
 					{
@@ -180,8 +190,9 @@ namespace AFLCine
 				UE_LOG(LogAFLCombat, Log, TEXT("AFL_CINE: staged display robot at %s (body %s)."),
 					*Pawn->GetActorLocation().ToCompactString(), *GetNameSafe(RobotBody));
 				State.Staged.Add(Pawn);
-				State.PawnSpots.Add(Pawn->GetActorLocation() + FVector(0, 0, 40.f)); // chest height
+				State.PawnSpots.Add(Pawn->GetActorLocation() + FVector(0, 0, 85.f)); // head-line framing
 			}
+			++PawnYaw;
 		}
 		UE_LOG(LogAFLCombat, Log, TEXT("AFL_CINE: stage built (%d actors)."), State.Staged.Num());
 	}
