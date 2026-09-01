@@ -26,6 +26,8 @@
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h" // TActorIterator (match centroid)
+#include "Animation/AnimInstance.h"           // unarmed layer link for stage pawns
+#include "Components/SkeletalMeshComponent.h" // "
 #include "Misc/App.h"
 #include "UnrealClient.h"
 #include "UObject/SoftObjectPath.h"
@@ -128,6 +130,12 @@ namespace AFLCine
 		{
 			HeroClass = LoadClass<AActor>(nullptr, TEXT("/AFLBagMan/Characters/B_Hero_BagMan_Pro.B_Hero_BagMan_Pro_C"));
 		}
+		// An uncontrolled, unarmed pawn links ZERO anim layers -- and in this Lyra setup the whole
+		// pose graph comes from linked layers, so bare stage pawns render full-body reference pose
+		// (the A-pose the operator flagged in the reels). Link the unarmed layer directly: same
+		// class a weaponless equip decision would pick, cosmetic-only, dev-cheat scope.
+		UClass* UnarmedLayers = LoadClass<UAnimInstance>(nullptr,
+			TEXT("/Game/Characters/Heroes/Mannequin/Animations/Locomotion/Unarmed/ABP_UnarmedAnimLayers.ABP_UnarmedAnimLayers_C"));
 		int32 PawnYaw = 0;
 		for (const FVector& Loc : GPawns)
 		{
@@ -137,6 +145,13 @@ namespace AFLCine
 			AActor* Pawn = World->SpawnActor<AActor>(HeroClass, GroundSnap(World, Loc) + FVector(0, 0, 90.f), FRotator(0.f, (PawnYaw++ * 97.f), 0.f), Params);
 			if (Pawn)
 			{
+				if (UnarmedLayers)
+				{
+					if (USkeletalMeshComponent* Mesh = Pawn->FindComponentByClass<USkeletalMeshComponent>())
+					{
+						Mesh->LinkAnimClassLayers(UnarmedLayers);
+					}
+				}
 				State.Staged.Add(Pawn);
 				State.PawnSpots.Add(Pawn->GetActorLocation() + FVector(0, 0, 40.f)); // chest height
 			}

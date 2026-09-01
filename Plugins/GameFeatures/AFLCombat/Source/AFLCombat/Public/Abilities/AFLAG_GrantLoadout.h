@@ -89,6 +89,13 @@ protected:
 	UPROPERTY(Transient)
 	bool bLoadoutGranted = false;
 
+	/** The pawn whose equip this ability last drove (or handed to the cosmetic spine). Latch-path
+	 *  activations compare against it: same pawn = a duplicate init broadcast (skip), a DIFFERENT
+	 *  pawn = a respawn on the persistent controller -- the new pawn's equipment manager is empty
+	 *  and nothing else re-equips a quickbar on possession change, so the equip must be re-driven
+	 *  here or the pawn plays zero anim layers (A-pose + glide, the drone-capture bot bug). */
+	TWeakObjectPtr<APawn> LastEquippedPawn;
+
 	/**
 	 * DEFER TO A LIVE COSMETIC SELECTION (Block 28). When true and the player's FAFLCosmeticSelection
 	 * carries a WeaponId, this ability still grants and slots every loadout weapon but does NOT call
@@ -119,7 +126,23 @@ protected:
 	 * Make the QuickBar's active slot = SlotIndex so the hero holds that weapon on spawn. The BP
 	 * child implements this with the stock ULyraQuickBarComponent::SetActiveSlotIndex node. Called
 	 * once after all weapons are slotted (only if at least one was granted).
+	 *
+	 * RESPAWN NOTE: the latch path also calls this twice (a bounce through another slot index) --
+	 * SetActiveSlotIndex no-ops when the index is unchanged, and on respawn the persistent
+	 * quickbar still holds the old index while the NEW pawn's equipment manager is empty. The
+	 * bounce forces a real unequip/equip so the new pawn links anim layers. A bounce through an
+	 * EMPTY slot is safe (index-valid slots equip nothing and the return trip equips the weapon).
 	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Loadout")
 	void EquipActiveSlot(int32 SlotIndex);
+
+	/** True when the equip decision belongs to the cosmetic spine instead of this ability:
+	 *  deferral enabled + a durable WeaponId selection + a PLAYER controller. The player gate is
+	 *  load-bearing and symmetric with FIX A (bot-fire, 2026-07-17): the deferral's only consumer,
+	 *  UAFLSkinColorControllerComponent::RefreshWeaponForPawn, skips non-player controllers -- so a
+	 *  deferred BOT equip never happens and the bot plays zero anim layers (A-pose + glide). On a
+	 *  logged-in listen host every bot PlayerState hydrates the host's persisted selection
+	 *  (WeaponId included) through MakePlayerId's global-login fallback, which is how the deferral
+	 *  started firing for bots at all. */
+	bool ShouldDeferEquipToCosmeticSelection(const AController* Controller) const;
 };

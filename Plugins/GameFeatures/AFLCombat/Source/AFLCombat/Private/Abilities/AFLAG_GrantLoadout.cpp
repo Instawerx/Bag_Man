@@ -66,6 +66,24 @@ void UAFLAG_GrantLoadout::ActivateAbility(
 	GrantWhenReady();
 }
 
+bool UAFLAG_GrantLoadout::ShouldDeferEquipToCosmeticSelection(const AController* Controller) const
+{
+	// See the header: bot symmetry with the FIX A IsPlayerController gate in RefreshWeaponForPawn.
+	// A deferred equip with no consumer is an equip that never happens.
+	if (!bDeferActiveSlotToCosmeticSelection || !Controller || !Controller->IsPlayerController())
+	{
+		return false;
+	}
+	if (const APlayerState* PS = Controller->PlayerState)
+	{
+		if (const UAFLCosmeticLoadoutComponent* Loadout = PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
+		{
+			return Loadout->GetSelection().WeaponId != NAME_None;
+		}
+	}
+	return false;
+}
+
 void UAFLAG_GrantLoadout::GrantWhenReady()
 {
 	const FGameplayAbilitySpecHandle Handle = CurrentSpecHandle;
@@ -75,15 +93,39 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 	{
 		return; // late/duplicate broadcast (respawn re-init) after this activation already granted+ended
 	}
+
+	AController* Controller = GetControllerFromActorInfo();
+
 	if (bLoadoutGranted)
 	{
-		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: already granted this controller life -- skipping duplicate activation."));
+		// Once-per-controller-life latch holds for the GRANT (duplicating items is the bug it
+		// exists for), but each NEW pawn on this controller still needs its EQUIP driven: the
+		// persistent quickbar keeps ActiveSlotIndex while the fresh pawn's equipment manager is
+		// empty, SetActiveSlotIndex(same index) is a stock no-op, and no possession hook re-equips.
+		// Without this, every round-reset / respawned pawn plays ZERO anim layers -- the A-pose +
+		// glide bots in the drone-capture reels. Bounce through another slot to force the equip.
+		// Same pawn as last time = a duplicate init broadcast, not a respawn -- skip (bouncing a
+		// live pawn would stomp a cosmetic-selected weapon back to the loadout slot).
+		APawn* AvatarPawn = Cast<APawn>(ActorInfo->AvatarActor.Get());
+		if (AvatarPawn && AvatarPawn != LastEquippedPawn.Get() && !ShouldDeferEquipToCosmeticSelection(Controller))
+		{
+			const int32 BounceSlot = (ActiveSlotIndex == 0) ? 1 : 0;
+			UE_LOG(LogAFLCombat, Log,
+				TEXT("AFL_LOADOUT: respawn on %s -- re-driving equip for new pawn %s (bounce slot %d -> %d)."),
+				*GetNameSafe(Controller), *GetNameSafe(AvatarPawn), BounceSlot, ActiveSlotIndex);
+			EquipActiveSlot(BounceSlot);
+			EquipActiveSlot(ActiveSlotIndex);
+			LastEquippedPawn = AvatarPawn;
+		}
+		else
+		{
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: already granted this controller life -- skipping duplicate activation."));
+		}
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: ASC ready -- granting now."));
 
-	AController* Controller = GetControllerFromActorInfo();
 	if (!Controller)
 	{
 		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOADOUT: no controller in ActorInfo; cannot grant loadout."));
@@ -134,20 +176,12 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 	// PlayerState -- never "has the cosmetic spine run yet". Both this OnSpawn ability and
 	// UAFLSkinColorControllerComponent::RefreshWeaponForPawn hang off possession with no guaranteed order
 	// between them; keying on state rather than sequence is what makes that race stop mattering.
+	// PLAYERS ONLY (the helper's IsPlayerController gate): the deferral's sole consumer skips bots, so a
+	// deferred bot equip never lands and the bot A-poses unarmed -- bots always equip here.
 	//
 	// Slots 0..N are still granted and populated above -- only the "what do I spawn holding" decision is
 	// handed over, so the player can still cycle to Ripsaw/Verdant/Scatterhawk.
-	bool bCosmeticWeaponSelected = false;
-	if (bDeferActiveSlotToCosmeticSelection)
-	{
-		if (const APlayerState* PS = Controller->PlayerState)
-		{
-			if (const UAFLCosmeticLoadoutComponent* Loadout = PS->FindComponentByClass<UAFLCosmeticLoadoutComponent>())
-			{
-				bCosmeticWeaponSelected = (Loadout->GetSelection().WeaponId != NAME_None);
-			}
-		}
-	}
+	const bool bCosmeticWeaponSelected = ShouldDeferEquipToCosmeticSelection(Controller);
 
 	// Equip the active slot so the hero holds a weapon on spawn (BP event -> SetActiveSlotIndex).
 	if (GrantedCount > 0 && !bCosmeticWeaponSelected)
@@ -159,6 +193,7 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 		UE_LOG(LogAFLCombat, Log,
 			TEXT("AFL_LOADOUT: cosmetic WeaponId selected -- slots granted, active-slot equip deferred to the selection."));
 	}
+	LastEquippedPawn = Cast<APawn>(ActorInfo->AvatarActor.Get());
 
 	UE_LOG(LogAFLCombat, Log,
 		TEXT("AFL_LOADOUT: granted %d/%d weapons on %s, active slot %d."),
