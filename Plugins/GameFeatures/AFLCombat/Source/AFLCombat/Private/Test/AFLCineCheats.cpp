@@ -78,8 +78,10 @@ namespace AFLCine
 	};
 	// Pawn spots live INSIDE the proven pad cluster's hull (pads verified on the plaza at z~3867).
 	// v2 lesson: (0,80) sat on the canal lip -- GroundSnap dropped the hero into the ditch and the
-	// bank occluded it for the whole beat.
-	static const FVector GPawns[] = { { 40, 0, 0 }, { -225, -75, 0 }, { 300, 25, 0 }, { 100, -300, 0 } };
+	// bank occluded it for the whole beat. Operator 09-01: the old spots hugged the boardwalk's
+	// pot-shard scatter (a shard photobombed three reels as a "flesh hand") -- the whole group now
+	// sits ~200 units SW of the bank, so the canal clutter is distant backdrop, not set dressing.
+	static const FVector GPawns[] = { { -60, -180, 0 }, { -280, -220, 0 }, { 240, -120, 0 }, { 40, -330, 0 } };
 
 	/** Snap a stage offset to real ground near the anchor (blind spawns buried the v1 stage). */
 	static FVector GroundSnap(UWorld* World, const FVector& Offset)
