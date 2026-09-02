@@ -170,3 +170,93 @@ the S12 plan's managed-EC2 fleet + first `upload-build` (today's fleet is Anywhe
 - No ClientSecret in staged loose inis (08-15 build); embedded-client secret in pak config is Epic-standard.
 - `Tools/Launch-Editor-Economy.ps1` is stale vs the two-engine ruling (points editor at D:) — fix in P0.
 - CLAUDE.md's `/AFLVFXLibrary/Laser/` doctrine path is dead — the live laser library is `Content/LaserFX_BP` (43 MB, 158 refs); AFLVFXLibrary plugin is an empty shell. Doc fix + shell removal in B-track.
+
+---
+
+# v2 ADDENDUM (2026-09-01) — approved, with two operator additions
+
+**Operator approvals recorded:** full sequence approved; aggressive-cut mandate ("if we can remove
+it without it affecting the game, we do it — everything is source-recoverable"); Matchmaking and
+Staked features are the MOST protected surfaces — no cut may touch playlists, experiences,
+AFLOnline, EOS/PlayFab/GameLift config, or the allocator/join flow. Distribution: website-zip only
+for now.
+
+## 9 · Execution log (what has been done)
+
+- **P0 COMPLETE**: 7 pending files landed (`3d7e05e3` bot-persistence gate, `fc0ab373` operator
+  content); all 64+1 tags pushed (118 tag refs verified on remote); tag `pre-prune-2026-09` +
+  branch `archive/pre-prune-full` pushed; `Launch-Editor-Economy.ps1` editor lane re-pointed to C:.
+  History-rewrite rejected stands. Archive FORK remains optional (branch+tags already pin
+  everything server-side).
+- **Track A COMPLETE (config)**: stock `L_LyraFrontEnd` + `L_DefaultEditorOverview` out of the
+  cook; NeverCook guards added for `_Bridge`, `AFL/References`, `Tools`, `_BridgeTest`;
+  `bSkipEditorContent=True`; `ForDistribution=True` (Oodle 7); cultures 14 → **en**;
+  TopDownArena/ShooterExplorer/ShooterTests disabled in uproject.
+- **Track B COMPLETE (repo)**: 15 tracked packs + Sci_FI_Valley_Village + parked
+  L_ValleyVillage/L_Arena_05 + AFL/_Bridge + MegaBase Showreel/HDRI git-rm'd; untracked anim packs
+  disk-deleted. Hub's MegaBase/Levels refs verified and KEPT. FreeAnimationLibrary tracked climb
+  files KEPT. **Content 64.1 GB → 22.9 GB.** Commit `bf16e71e`.
+- **Track C IN FLIGHT**: post-prune Shipping client BuildCookRun running on the D: lane;
+  gate = manifest diff vs `cook_20260810g` + `cook_soft_refs.py --strict-never-cook` +
+  `cook_datalayers.py`, then the full cooked live-flow gate (§5).
+
+## 10 · Encryption (operator addition 1) — RULED + IMPLEMENTED
+
+UE-native crypto, the industry-standard cheap set (Config/DefaultCrypto.ini, key already present):
+
+| Flag | Now | Why |
+|---|---|---|
+| `bEncryptPakIniFiles` | **True** | Config (incl. the embedded EOS client credentials) no longer greppable from the pak |
+| `bEncryptPakIndex` | **True** | Blocks casual pak browsing/unpacking tools |
+| `bEnablePakSigning` | **True** | RSA tamper detection on every pak read |
+| `bEncryptUAssetFiles` / `bEncryptAllAssetFiles` | False | Full-asset AES costs runtime IO/decompression for marginal protection; not the AAA default. Revisit only if asset-ripping becomes a real problem |
+
+Note: pak encryption keys ship inside the executable by necessity (standard for every UE title) —
+this raises the bar from "zip open" to "dedicated tooling", which is exactly what it's for.
+
+## 11 · Download manager, website-zip channel (operator addition 2) — DESIGN
+
+Institutional-grade delivery on the existing AWS estate (same account as the API Gateway/Lambda
+stack), minimal moving parts:
+
+1. **Artifact discipline**: every release is immutable —
+   `releases/win64/<semver>/IRONICS-<semver>-Win64.zip` + `IRONICS-<semver>-Win64.sha256` +
+   `manifest.json` (version, size, hash, minimum-launcher fields for a future patcher). Built from
+   the staged Shipping dir, zipped deterministically, hashed at build time. Never overwrite a
+   version; `latest.json` is the only mutable pointer.
+2. **Storage/CDN**: private S3 releases bucket (versioning + object-lock optional), CloudFront in
+   front with **Origin Access Control** — the bucket is never public. Signed URLs (CloudFront
+   key-pair, short TTL ~15 min) minted by a `GET /download/latest` Lambda on the existing API
+   Gateway. Gate the mint behind the website's Epic sign-in session if desired (ties downloads to
+   accounts; optional for open beta).
+3. **Integrity UX**: the website download page shows version, size, SHA-256, and release notes;
+   the manifest hash is the support answer to "my download is corrupt". CloudFront handles ranged
+   requests natively → browser-resumable downloads for free.
+4. **Observability/abuse**: CloudFront standard logs → the existing metrics path; WAF rate limit
+   on the mint endpoint; per-release download counters (Athena over logs — no new infra).
+5. **Upgrade path**: this layout is exactly what a future delta patcher (Track D4) consumes —
+   nothing is throwaway.
+
+## 12 · Admin systems + website final pass (operator addition 3) — SCOPE (website repo)
+
+To be executed in the website/backend repo, planned here for sequencing after Track C proves:
+- **Release admin**: publish/promote/rollback a release (writes `latest.json`), release-notes
+  editor, download metrics panel.
+- **Player/account admin**: the existing Volts purchase admin scope hardened to institutional
+  grade — audit log on every admin mutation, role separation (viewer/operator/owner), session
+  timeout, IP allowlist option.
+- **Live-ops surfaces**: entitlement lookup/grant/revoke (PlayFab), match/session inspection
+  (GameLift), wallet adjustments with dual-entry audit.
+- **Quality gate**: Lighthouse/a11y pass on the public site, Epic sign-in flow re-test, legal
+  pages current, download page copy + art (real IRONICS assets only, per the naming ruling).
+
+## 13 · Amended remaining sequence
+
+1. Track C cook completes → lint gates + manifest diff + aggregate new package attribution.
+2. Rebuild editor binaries on C: (uproject plugin changes), operator PIE sanity lap.
+3. ARCANEON texture-budget pass (A3 revised: cap oversized DeepWaterStation/CyberPunk textures
+   referenced by the closure — safer than asset moves; measured against the new manifest).
+4. First **Shipping server** build (`-serverconfig=Shipping`) + full cooked live-flow gate (§5) —
+   EOS sign-in → hub/store lap → every roster map → GameLift match with PlayFab persistence.
+5. Package the release zip per §11, stand up the S3/CloudFront/Lambda mint, website download page.
+6. Admin/website final pass (§12).
