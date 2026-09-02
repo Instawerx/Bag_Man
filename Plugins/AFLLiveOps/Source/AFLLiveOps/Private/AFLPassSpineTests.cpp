@@ -1,12 +1,13 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
+#include "AFLPassSpineTests.h" // UHT rule: a TU's own header first (was last -- flagged every build)
+
 #include "AFLLiveOps.h"
 #include "AFLPassProgressComponent.h"
 #include "AFLPassRewardSink.h"
 #include "AFLPassSeasonAsset.h"
 #include "AFLStoreRotationAsset.h"
 #include "GameFramework/Actor.h"
-#include "AFLPassSpineTests.h"
 
 #if !UE_BUILD_SHIPPING
 

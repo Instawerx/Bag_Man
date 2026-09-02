@@ -614,12 +614,13 @@ void AAFLCharacterPartActor::ApplyFacemask(UMaterialInstanceConstant* FacemaskMI
 	}
 }
 
-#if UE_WITH_CHEAT_MANAGER
 namespace
 {
-	// Shared by both SetParam variants: ensure THIS part has an OWN-MID on every slot of every mesh (same
-	// create-once/own-your-MID pattern as ApplySkinColor) and hand each MID to the visitor. Returns the
-	// number of MID slots visited. Pure helper -- the panel-watch instrument's only job is to set a param.
+	// Shared by the cheat SetParam variants AND the CC-7 sticker compositor (a SHIPPING feature):
+	// ensure THIS part has an OWN-MID on every slot of every mesh (same create-once/own-your-MID
+	// pattern as ApplySkinColor) and hand each MID to the visitor. Returns the number of MID slots
+	// visited. MUST live OUTSIDE UE_WITH_CHEAT_MANAGER -- it did not, and the first Shipping-client
+	// compile (2026-09-02) failed C3861 at the sticker call sites while every editor build passed.
 	template <typename FVisitor>
 	int32 ForEachOwnedMID(AActor* Part, TMap<TObjectPtr<UMeshComponent>, FAFLSkinMIDSlots>& OwnedMIDs, FVisitor&& Visit)
 	{
@@ -652,6 +653,8 @@ namespace
 		return Written;
 	}
 }
+
+#if UE_WITH_CHEAT_MANAGER
 
 int32 AAFLCharacterPartActor::DebugSetMIDVectorParam(FName ParamName, const FLinearColor& Value)
 {

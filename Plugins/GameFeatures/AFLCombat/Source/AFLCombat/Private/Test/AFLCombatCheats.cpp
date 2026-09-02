@@ -31,7 +31,10 @@
 #include "Kismet/KismetRenderingLibrary.h"   // CC-7 screen proof
 #include "Rendering/SkeletalMeshLODModel.h"   // CC-7 step 5 verify
 #include "Rendering/SkeletalMeshModel.h"   // CC-7 step 5 verify
-#include "Editor.h"   // CC-7 editor-world capture
+#if WITH_EDITOR
+#include "Editor.h"   // CC-7 editor-world capture (UnrealEd -- editor targets only; unguarded, this
+                      // broke the first Shipping-client compile 2026-09-02 with C1083)
+#endif
 #include "Animation/SkeletalMeshActor.h"   // CC-7 identity render hash
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"   // CC-7 sticker sampler
 #include "Materials/MaterialExpressionAppendVector.h"   // CC-7 sticker sampler
@@ -39,7 +42,10 @@
 #include "Materials/MaterialExpressionMultiply.h"   // CC-7 sticker sampler
 #include "Materials/MaterialExpressionScalarParameter.h"   // CC-7 sticker sampler
 #include "Materials/MaterialExpressionTextureCoordinate.h"   // CC-7 sticker sampler
-#include "MaterialEditingLibrary.h"   // CC-7 sticker sampler
+#if WITH_EDITOR
+#include "MaterialEditingLibrary.h"   // CC-7 sticker sampler (MaterialEditor module -- Build.cs gates
+                                      // the dep on bBuildEditor; the include must match or C1083 in client)
+#endif
 #include "Misc/FileHelper.h"   // CC-7 material graph read
 #include "Materials/MaterialExpressionTextureSampleParameter.h"   // CC-7 material graph read
 #include "Materials/MaterialExpressionParameter.h"   // CC-7 material graph read
