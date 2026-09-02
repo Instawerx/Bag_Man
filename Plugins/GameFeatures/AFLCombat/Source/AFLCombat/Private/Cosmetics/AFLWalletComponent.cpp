@@ -140,6 +140,18 @@ void UAFLWalletComponent::BeginPlay()
 	// Authority loads the player's economic state (balance + owned set) from persistence; seeds defaults if new.
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
+		// BOT GATE (2026-09-01, same seam as the loadout's): a bot has no account. MakePlayerId's process-
+		// global fallback keyed every bot wallet to the HOST's PlayFabId on a logged-in listen host, so each
+		// bot issued its own GetUserInventory round-trip and mirrored the host's balance + owned set --
+		// after which server-side IsEntitled answered for the host's items on a bot. A bot wallet is
+		// knowably EMPTY: the balance is KNOWN (zero), and there is nothing to load now or reconcile at
+		// login, so both the load and the CC-X23 subscription are skipped.
+		if (IsBotOwned())
+		{
+			bBalanceKnown = true;
+			return;
+		}
+
 		LoadFromPersistence();
 
 		// CC-X23: ...AND SUBSCRIBE, because the load above cannot succeed before there is a session.
@@ -1180,11 +1192,16 @@ FAFLPlayerId UAFLWalletComponent::MakePlayerId() const
 {
 	// A1.1: the durable account key is the PlayFabId (cross-session AND cross-device). Fall back to the
 	// net-id (A0 behavior) when not logged in -- the persistence layer's ForceLocalSlot then applies.
-	if (const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+	// BOT GATE (2026-09-01): the login below is PROCESS-GLOBAL (the HOST's account, not "this
+	// PlayerState's"), so a bot must never take this branch or its key aliases the host's rows.
+	if (!IsBotOwned())
 	{
-		if (Online->IsLoggedIn() && !Online->GetPlayFabId().IsEmpty())
+		if (const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
 		{
-			return FAFLPlayerId::MakeFromBacking(Online->GetPlayFabId());
+			if (Online->IsLoggedIn() && !Online->GetPlayFabId().IsEmpty())
+			{
+				return FAFLPlayerId::MakeFromBacking(Online->GetPlayFabId());
+			}
 		}
 	}
 	if (const APlayerState* PS = GetLyraPlayerState())
@@ -1196,6 +1213,14 @@ FAFLPlayerId UAFLWalletComponent::MakePlayerId() const
 		}
 	}
 	return FAFLPlayerId();
+}
+
+bool UAFLWalletComponent::IsBotOwned() const
+{
+	// APlayerState::bIsABot is engine-set in PostInitializeComponents (from the owning-controller cast),
+	// before any component BeginPlay -- valid at every call site in this file.
+	const APlayerState* PS = GetPlayerState<APlayerState>();
+	return PS && PS->IsABot();
 }
 
 UAFLCosmeticCatalogSubsystem* UAFLWalletComponent::GetCatalog() const

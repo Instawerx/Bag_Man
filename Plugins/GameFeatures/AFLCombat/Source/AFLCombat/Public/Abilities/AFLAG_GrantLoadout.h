@@ -141,8 +141,10 @@ protected:
 	 *  load-bearing and symmetric with FIX A (bot-fire, 2026-07-17): the deferral's only consumer,
 	 *  UAFLSkinColorControllerComponent::RefreshWeaponForPawn, skips non-player controllers -- so a
 	 *  deferred BOT equip never happens and the bot plays zero anim layers (A-pose + glide). On a
-	 *  logged-in listen host every bot PlayerState hydrates the host's persisted selection
+	 *  logged-in listen host every bot PlayerState used to hydrate the host's persisted selection
 	 *  (WeaponId included) through MakePlayerId's global-login fallback, which is how the deferral
-	 *  started firing for bots at all. */
+	 *  started firing for bots at all. That hydration is now bot-gated at its source
+	 *  (UAFLCosmeticLoadoutComponent::IsBotOwned, 2026-09-01) -- a bot selection carries no durable
+	 *  WeaponId anymore, so this player gate is the second layer, kept for the same reason FIX A is. */
 	bool ShouldDeferEquipToCosmeticSelection(const AController* Controller) const;
 };

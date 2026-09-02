@@ -434,6 +434,12 @@ private:
 	/** Derive the opaque player key for persistence from the PlayerState's net-id (stub backing). */
 	FAFLPlayerId MakePlayerId() const;
 
+	/** True when this component sits on an AI-controlled (bot) PlayerState. Persistence is ACCOUNT-scoped
+	 *  and a bot has no account: every id MakePlayerId could derive for one aliases a HUMAN's row (logged
+	 *  in -> the host's PlayFabId via the process-global fallback; otherwise -> the shared local slot), so
+	 *  bots must never load or save through the persistence seam at all. */
+	bool IsBotOwned() const;
+
 	/** After an accepted authority-side change while already possessed: re-run the proven controller
 	 *  push so a pre-match live edit shows immediately (same idempotent path the #38a part-arrival hook
 	 *  uses; no respawn). In-match this is unreachable because step 2 rejects the mutation. */

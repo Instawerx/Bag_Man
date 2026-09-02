@@ -137,7 +137,18 @@ void UAFLCosmeticLoadoutComponent::BeginPlay()
 	// component reads it at the next possess to drive the proven push. No-op if persistence is unbound.
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
-		if (IAFLCosmeticPersistence* Persistence = GetPersistence())
+		// BOT GATE (2026-09-01): a persisted selection belongs to an ACCOUNT, and a bot has none. On a
+		// logged-in listen host MakePlayerId's process-global fallback names the HOST's PlayFabId for every
+		// PlayerState, so an ungated load hydrated every bot with the host's skins/WeaponId/emblems (how the
+		// A-pose deferral fired for bots at all -- see AFLAG_GrantLoadout.h) and cost one PlayFab read per
+		// bot. Not logged in is no safer: ResolveKey maps a bot's invalid id to the SAME local slot the host
+		// saves to. A bot takes exactly the load-MISS path instead: House default identity, no persistence.
+		if (IsBotOwned())
+		{
+			ApplyDefaultIdentityIfUnset();
+			NudgeControllerReapply();
+		}
+		else if (IAFLCosmeticPersistence* Persistence = GetPersistence())
 		{
 			TWeakObjectPtr<UAFLCosmeticLoadoutComponent> WeakThis(this);
 			Persistence->LoadSelection(MakePlayerId(),
@@ -342,9 +353,15 @@ void UAFLCosmeticLoadoutComponent::ServerSetCosmeticSelection_Implementation(FAF
 	}
 
 	// Persist through the stub interface (D8). Fire-and-forget; no-op if unbound.
-	if (IAFLCosmeticPersistence* Persistence = GetPersistence())
+	// BOT GATE: a bot's commit must never persist -- MakePlayerId cannot name a row a bot owns (logged
+	// in -> the host's account; otherwise -> the shared local slot), so a bot save would overwrite a
+	// HUMAN's stored loadout. The in-session Selection above still commits and replicates normally.
+	if (!IsBotOwned())
 	{
-		Persistence->SaveSelection(MakePlayerId(), Selection);
+		if (IAFLCosmeticPersistence* Persistence = GetPersistence())
+		{
+			Persistence->SaveSelection(MakePlayerId(), Selection);
+		}
 	}
 
 	// Step 5 -- if already possessed (pre-match live change), re-run the proven controller push so the
@@ -856,11 +873,18 @@ FAFLPlayerId UAFLCosmeticLoadoutComponent::MakePlayerId() const
 {
 	// A1.1: the account-system/PlayFab backing the #43 stub deferred -- now the PlayFabId (durable, cross-
 	// session AND cross-device). Fall back to the net-id (A0 behavior) when not logged in.
-	if (const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+	// BOT GATE (2026-09-01): the login below is PROCESS-GLOBAL -- it answers "is the HOST logged in", not
+	// "does THIS PlayerState have an account" -- so a bot must never take this branch or its id aliases the
+	// host's persistence rows. (A1.4's UAFLPlayerIdentityComponent closes the remote-HUMAN half of the same
+	// gap on dedicated servers; the bot half is a hard skip, not a resolve.)
+	if (!IsBotOwned())
 	{
-		if (Online->IsLoggedIn() && !Online->GetPlayFabId().IsEmpty())
+		if (const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
 		{
-			return FAFLPlayerId::MakeFromBacking(Online->GetPlayFabId());
+			if (Online->IsLoggedIn() && !Online->GetPlayFabId().IsEmpty())
+			{
+				return FAFLPlayerId::MakeFromBacking(Online->GetPlayFabId());
+			}
 		}
 	}
 	if (const APlayerState* PS = GetLyraPlayerState())
@@ -872,6 +896,15 @@ FAFLPlayerId UAFLCosmeticLoadoutComponent::MakePlayerId() const
 		}
 	}
 	return FAFLPlayerId();
+}
+
+bool UAFLCosmeticLoadoutComponent::IsBotOwned() const
+{
+	// APlayerState::bIsABot is engine-set in PostInitializeComponents (from the owning-controller cast),
+	// which runs before any component BeginPlay -- valid at every call site in this file. Same distinction
+	// FIX A draws controller-side with IsPlayerController() (AFLSkinColorControllerComponent.cpp).
+	const APlayerState* PS = GetPlayerState<APlayerState>();
+	return PS && PS->IsABot();
 }
 
 void UAFLCosmeticLoadoutComponent::NudgeControllerReapply() const

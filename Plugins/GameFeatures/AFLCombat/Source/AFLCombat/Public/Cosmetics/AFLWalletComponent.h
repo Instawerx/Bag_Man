@@ -429,6 +429,11 @@ private:
 	/** Derive the opaque player key (mirrors the loadout's MakePlayerId). */
 	FAFLPlayerId MakePlayerId() const;
 
+	/** True when this wallet sits on an AI-controlled (bot) PlayerState (mirrors the loadout's IsBotOwned).
+	 *  A bot has no account: keyed through MakePlayerId it aliases a HUMAN's persistence rows, so a bot
+	 *  wallet never loads or saves -- it is knowably empty for the whole session. */
+	bool IsBotOwned() const;
+
 	/** Load balance + owned-set from persistence on the authority at BeginPlay; seed defaults if new. */
 	void LoadFromPersistence();
 
