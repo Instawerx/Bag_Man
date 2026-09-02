@@ -1,4 +1,0 @@
-{
-  "api_key": "REPLACE_WITH_RODIN_BUSINESS_API_KEY",
-  "_note": "Copy this file to rodin.config.json (already gitignored) and paste your key, OR set the env var RODIN_API_KEY. Requires a Rodin (Hyper3D) BUSINESS subscription. Key is shown ONCE at creation on the API Key Management page."
-}

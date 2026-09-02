@@ -1,5 +1,0 @@
-# The real key must NEVER commit — only rodin.config.example.json is tracked.
-rodin.config.json
-*.local.json
-# generated assets land here
-out/

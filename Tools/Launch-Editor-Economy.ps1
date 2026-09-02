@@ -99,9 +99,12 @@ $ProjectPath = 'C:\Dev\Bag_Man\Bag_Man.uproject'
 # Opening with the launcher engine silently uses a different binary set from every LyraGame/LyraServer
 # artifact we cook, which is the kind of mismatch that surfaces later as an unexplained content or module
 # error rather than an honest "wrong engine" message.
-# RATIFIED DOCTRINE 2026-08-11, not an incidental choice: D:\UE5.6-source is the SINGLE engine for
-# editor, PIE, AIK, dedicated servers and cooks. This line was right before the ruling existed.
-$EditorPath  = 'D:\UE5.6-source\Engine\Binaries\Win64\UnrealEditor.exe'
+# RE-RULED 2026-08-27 (supersedes the 2026-08-11 single-engine note): TWO-ENGINE PARTITION.
+# C: launcher engine = EDITOR (editor/PIE/AIK/content); D:\UE5.6-source = LyraServer builds +
+# shipping cooks ONLY. Launching the editor from D: clobbers the C: editor binaries (same
+# per-project output path -- it happened on 2026-08-27). The -Server lane below still runs the
+# COOKED server from D:\BagMan, which is correct and unchanged.
+$EditorPath  = 'C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor.exe'
 
 # Engine env var  <-  CloudFormation output key
 $UrlMap = [ordered]@{
