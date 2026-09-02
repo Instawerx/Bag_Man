@@ -217,9 +217,16 @@ if ($Server) {
     # an assertion in FGenerationInfo::Serialize via PackageFileSummary -- the loader hits package headers in
     # a layout it does not expect. Same family as the recorded "uncooked -game cannot resolve PrimaryAssetIds"
     # finding. A staged build carries its own cooked content, so it is NOT passed the .uproject.
+    # PRUNE ARC 2026-09-02: prefer the SHIPPING staged server (first ever built) over the old
+    # Development archive; both are cooked, so either satisfies the uncooked-crash rule below.
+    $shippingExe = 'D:\BagMan\StagedBuilds\WindowsServer\Bag_Man\Binaries\Win64\LyraServer-Win64-Shipping.exe'
     $cookedExe  = 'D:\BagMan\Archive\WindowsServer\LyraServer.exe'
     $projectExe = 'C:\Dev\Bag_Man\Binaries\Win64\LyraServer.exe'
-    if (Test-Path $cookedExe) {
+    if (Test-Path $shippingExe) {
+        $serverExe = $shippingExe
+        $useCooked = $true
+    }
+    elseif (Test-Path $cookedExe) {
         $serverExe = $cookedExe
         $useCooked = $true
     }
