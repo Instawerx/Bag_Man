@@ -1,13 +1,25 @@
-# AFL Design Overrides
+# AFL Design Overrides — IRONICS
+
+> **Identity.** **IRONICS** is the player-facing game name; **AFL** is the internal code/asset prefix
+> (`AFLW_`, `M_AFL_`, `ID_AFL_`, …) and never appears on a player-facing surface. Real IRONICS
+> logos/art only on surfaces. **Partner-brand exception:** **Simularent** carries its own brand
+> treatment where it appears — named here, specced separately (not in this file).
 
 ## When AFL Context is Detected
 
-Apply these AFL-specific overrides on top of the general design system. **They REPLACE the
-general Apple-Glass aesthetic entirely for AFL / BAG MAN / IRONICS work — no frosted glass, no
-white panels, no `#64B4FF`, no SF Pro.** (Brand corrected to cyber/neon per the tracker's
-2026-06-07 store ruling; locked in `Docs/Hub/IRONICS_CC_DESIGN_BRIEF.md` §0 and intent I-24 in
-`Docs/Hub/IRONICS_CC_INTEGRATION_PLAN.md`. This file previously carried the retired Apple-Glass
-direction — that drift is what AFL-3202 removed.)
+Apply these AFL-specific overrides on top of the general design system. The AFL / BAG MAN / IRONICS
+look is **cyber / neon — electric neon blue + purple.** Values below are ratified; **do not invent —
+every hex traces to the cited source line.**
+
+> ### ⛔ SUPERSEDED 2026-09-03 — retired Apple-Glass direction
+> *Kept visible for the trail, not for use. Superseded by `Docs/Hub/IRONICS_CC_DESIGN_BRIEF.md` §0 +
+> `Source/LyraEditor/AFL/AFLTokenCompiler.cpp` / `AFLUITheme.h` — see the ratified system below.*
+>
+> ~~Frosted-glass surfaces · white panels · accent `#64B4FF` · SF Pro type~~ — **all retired.** No
+> frosted glass, no white panels, no `#64B4FF`, no SF Pro. (Brand corrected to cyber/neon per the
+> tracker's 2026-06-07 store ruling; locked in `IRONICS_CC_DESIGN_BRIEF.md` §0 + intent I-24 in
+> `IRONICS_CC_INTEGRATION_PLAN.md`. This file previously carried the Apple-Glass tokens inline —
+> AFL-3202 supersedes them here.)
 
 ---
 
@@ -18,37 +30,68 @@ Studio/Project:  AFL (BAG MAN · IRONICS)
 Engine:          UE5.6 / Lyra Starter Game
 Platforms:       PC, PS5, XSX, iOS, Android
 UI Stack:        CommonUI + LyraPrimaryGameLayout
-Design Language: Cyber / neon — emissive rim-glow, gradient panels, subtle grid, scan-line restraint
+Design Language: Cyber / neon — electric neon blue + purple, emissive rim-glow, gradient panels,
+                 subtle grid, scan-line restraint
 ```
 
 ---
 
 ## AFL Design Tokens (Canonical — brand lock, I-24)
 
-### Brand Colors (ruled in `AFLTokenCompiler.cpp`; supersedes anything else you may read)
+Every value cites the source line it greps back to. The **brand palette** is ruled in
+`Docs/Hub/IRONICS_CC_DESIGN_BRIEF.md` §0; the **chrome / type / geometry** layer is ruled in
+`Source/LyraEditor/AFL/AFLTokenCompiler.cpp`. The palette does NOT live in the style-compiler code —
+do not read palette hexes out of `AFLUITheme.h` (see the DRIFT note at the end of this section).
+
+### Brand palette — `IRONICS_CC_DESIGN_BRIEF.md` §0
 ```
-ground:        #222A3A  — page/scene ground, viewport backdrop
-surface-card:  #0E122B  — panels, cards, rails, bars
-accent:        #1E5AFF  — Electric Neon Blue: focus, primary CTA, active state, selection ring
-watts:         #FF00D5  — Magenta: Watts currency, staked/premium marking — NEVER a general accent
+ground:        #222A3A   page/scene ground, viewport backdrop              [brief §0 · L28]
+surface-card:  #0E122B   panels, cards, rails, bars                        [brief §0 · L29]
+accent:        #1E5AFF   Electric Neon Blue — focus, primary CTA,          [brief §0 · L30]
+                         active/selected, selection ring                    [+ AFLTokenCompiler.cpp L498/L514 "UI.House.Electric"]
+watts:         #FF00D5   Magenta — Watts currency / staked-premium mark,   [brief §0 · L31]
+                         NEVER a general accent
 ```
 
-### Support colors (from the ratified roadmap CSS — data/status use only)
+### Chrome accents — electric neon + purple (NO CYAN)
 ```
-green #3DDC84 · amber #FFB020 · red #FF3355 · cyan #00E5FF
-HARD RULE: cyan is DATA-ONLY (rarity/colour-identity values) — never UI chrome.
+Electric  #1E5AFF   core / fill / active / selection                       [AFLTokenCompiler.cpp L498, L514]
+Violet    #A855F7   purple — rim / focus / hover; never on readable        [AFLTokenCompiler.cpp L499, L515]
+                    core/fill/text (size-gated on at >=64px)
+HARD RULE — NO CYAN: cyan is never a UI colour, an accent, or chrome. The chrome accents are
+   electric neon blue + purple, full stop. Cyan exists ONLY as an internal rarity / colour-
+   identity DATA value resolved through the registry (GetRarityColor) — never design furniture.
+ONE-BLUE RULE: #1E5AFF is the only chrome blue; #00ADFF (free base identity) is RETIRED from
+   chrome — a second chrome blue is a compile failure.                     [AFLTokenCompiler.cpp L460-465]
+```
+
+### Support colours (data / status only — never chrome, never accents)
+```
+green #3DDC84 · amber #FFB020 · red #FF3355
 Rarity is a badge axis (frame colour via GetRarityColor), never the identity colour.
 Anything not listed here is PROPOSED and must be ratified before use — never invented.
 ```
 
 ### Surface system (replaces the retired Glass Panel System)
 ```
-Panels/cards:  surface-card fills, 1px line borders (#2C3550 family), emissive accent rim on
-               focus/active; gradient panels allowed; subtle grid; scan-line restraint.
+Panels/cards:  surface-card fills, 1px line borders (accent-tinted, #2C3550 family), emissive accent
+               rim on focus/active; gradient panels allowed; subtle grid; scan-line restraint.
 Mobile:        no blur-dependent surfaces; solid surface-card fallbacks (GPU overdraw rules below).
 ```
 
-### Typography Scale
+### Geometry — house constants (`AFLTokenCompiler.cpp`)
+```
+radius:  panel 20 · button 12 · input 8      blur: 28                      [L56, L206]
+border:  1px solid on every structural edge — neon rims are OUTLINES, not fills   [L258]
+```
+
+> **⚠ CODE DRIFT — owed, separate code correction (NOT this docs commit):** `AFLUITheme.h` still
+> hard-codes values that contradict the ratified system and must be purged in a follow-up commit:
+> `CyanActive` (L37) + `TabFill` (L43) are **cyan chrome** — the active/selected colour must be
+> Electric `#1E5AFF`, hover Violet `#A855F7`; and `WattsNeon = #FF2D9E` (L34) is stale — ratified
+> Watts is `#FF00D5`. This doc is authoritative; the theme header is the outlier.
+
+### Typography Scale — RULED 2026-08-10 (`AFLTokenCompiler.cpp` L107-126, L937)
 ```
 Display: Orbitron        — titles, region headers, build name, big numbers (identity-carrying text)
 Body:    NotoSans        — labels, descriptions, prompts
