@@ -214,6 +214,14 @@
 			"Enabled": true
 		},
 		{
+			"Name": "VoiceChat",
+			"Enabled": true
+		},
+		{
+			"Name": "EOSVoiceChat",
+			"Enabled": true
+		},
+		{
 			"Name": "OnlineServicesEOS",
 			"Enabled": true
 		},

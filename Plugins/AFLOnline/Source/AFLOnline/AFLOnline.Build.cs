@@ -32,6 +32,7 @@ public class AFLOnline : ModuleRules
 				// DM WebSocket transport (used only in the social .cpp -- the header forward-declares IWebSocket).
 				"WebSockets",
 
+
 				// COMMS-1 text chat spine (private -- used only in the chat .cpp files):
 				"NetCore",         // replication plumbing for the owner-only chat RPCs
 				"ModularGameplay", // UGameFrameworkComponentManager::AddComponentRequest (attach the chat component)
@@ -51,6 +52,29 @@ public class AFLOnline : ModuleRules
 				"EOSSDK",
 			}
 		);
+
+		// COMMS-3/4 voice: the client-side IVoiceChat wiring lives in UAFLVoiceSubsystem, compiled only when
+		// AFLONLINE_WITH_VOICE. The two EOS voice plugins (VoiceChat interface + EOSVoiceChat) are enabled in
+		// Bag_Man.uproject and compile NATIVELY on the D: source engine (Docs/ENGINE_DOCTRINE.md) -- the retired
+		// binary launcher could not, because VoiceChat is a header-only External module with no precompiled
+		// binary ("'VoiceChat' is not a C++ module"). GUARD-FLIP GATE (COMMS-3): set bAFLVoice=true to activate
+		// the subsystem and pull the deps below. Stays false for the foundation commit (guard-off build gate).
+		bool bAFLVoice = false;
+		PublicDefinitions.Add("AFLONLINE_WITH_VOICE=" + (bAFLVoice ? "1" : "0"));
+		if (bAFLVoice)
+		{
+			// VoiceChat: header-only IVoiceChat interface (External module), cross-platform.
+			PrivateDependencyModuleNames.Add("VoiceChat");
+			// EOSVoiceChat: EOS implementation (ClientOnlyNoCommandlet; .uplugin allowlist Win64/Mac/Android).
+			// Link it only where the plugin exists; the subsystem uses IVoiceChat::Get() (modular feature)
+			// elsewhere so no unsupported platform (e.g. iOS) takes a hard link dep.
+			if (Target.Platform == UnrealTargetPlatform.Win64
+				|| Target.Platform == UnrealTargetPlatform.Mac
+				|| Target.Platform == UnrealTargetPlatform.Android)
+			{
+				PrivateDependencyModuleNames.Add("EOSVoiceChat");
+			}
+		}
 
 		// A1.3b earn signer: OpenSSL HMAC-SHA256 for the server-authoritative /earn request signature. Mirror
 		// PlatformCryptoContext's mechanism -- a module-private define gates the <openssl/*> include so the signer
