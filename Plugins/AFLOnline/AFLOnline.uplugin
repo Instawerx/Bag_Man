@@ -21,6 +21,16 @@
 			"Name": "EOSShared",
 			"Enabled": true,
 			"Comment": "D17 shipping login. AFLOnline links the EOSShared MODULE (IEOSSDKManager) to copy the Epic Account Services ID token that Client/LoginWithOpenIdConnect exchanges; UBT warns when a module dependency's owning plugin is not declared. EOSSDK needs no entry -- it is an engine ThirdParty module, not a plugin. OnlineSubsystemEOS is what actually INITIALISES the EOS platform and is enabled project-wide in Bag_Man.uproject; without it there are no active platforms and StartLoginWithEOS fails closed with a diagnostic."
+		},
+		{
+			"Name": "AFLNetTypes",
+			"Enabled": true,
+			"Comment": "COMMS-1 text chat: FAFLChatMessage / EAFLChatChannel live in the always-loaded AFLNetTypes plugin (public dep of the AFLOnline module). NetCore + AIModule are engine modules, not plugins, so they need no entry here."
+		},
+		{
+			"Name": "ModularGameplay",
+			"Enabled": true,
+			"Comment": "COMMS-1 text chat: UGameFrameworkComponentManager::AddComponentRequest attaches UAFLChatComponent to ALyraPlayerController (a GameFramework receiver) without a PC subclass."
 		}
 	]
 }

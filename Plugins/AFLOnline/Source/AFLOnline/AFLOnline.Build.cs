@@ -16,6 +16,9 @@ public class AFLOnline : ModuleRules
 				"Engine",
 				// The public header exposes FHttpRequestPtr/FHttpResponsePtr in a callback signature.
 				"HTTP",
+				// COMMS-1 text chat: FAFLChatMessage / EAFLChatChannel are public in the chat headers, so the
+				// always-loaded types plugin is a PUBLIC dep. FUniqueNetIdRepl comes from Engine (above).
+				"AFLNetTypes",
 			}
 		);
 
@@ -24,6 +27,11 @@ public class AFLOnline : ModuleRules
 			{
 				// FJsonObject / FJsonSerializer -- PlayFab REST request/response bodies.
 				"Json",
+
+				// COMMS-1 text chat spine (private -- used only in the chat .cpp files):
+				"NetCore",         // replication plumbing for the owner-only chat RPCs
+				"ModularGameplay", // UGameFrameworkComponentManager::AddComponentRequest (attach the chat component)
+				"AIModule",        // IGenericTeamAgentInterface -- Team-channel same-team resolution (no LyraGame dep)
 
 				// D17 SHIPPING LOGIN (EOS Default). The shipping PlayFab login is
 				// LoginWithOpenIdConnect against an Epic Account Services ID token, so this module needs
