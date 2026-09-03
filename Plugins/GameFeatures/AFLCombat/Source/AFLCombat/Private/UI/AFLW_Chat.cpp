@@ -164,8 +164,27 @@ TSharedRef<SWidget> UAFLW_Chat::RebuildWidget()
 	Header->SetText(NSLOCTEXT("AFLChat", "Header", "COMMS"));
 	if (UVerticalBoxSlot* VS = Col->AddChildToVerticalBox(Header))
 	{
+		VS->SetPadding(FMargin(2.f, 0.f, 0.f, 6.f));
+	}
+
+	// COMMS-2 (04) deferred-surface stubs -- HONEST disabled affordances, no faked backend (R5/R8). Direct
+	// Messages arrive with the COMMS-5 client (tabbed Session/Inbox); Party with COMMS-3. Present, dim, inert.
+	UHorizontalBox* StubBar = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+	if (UVerticalBoxSlot* VS = Col->AddChildToVerticalBox(StubBar))
+	{
 		VS->SetPadding(FMargin(2.f, 0.f, 0.f, 8.f));
 	}
+	UTextBlock* DmStub = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	Style(DmStub, Body, 10.f, Muted);
+	DmStub->SetText(NSLOCTEXT("AFLChat", "DmStub", "DIRECT MESSAGES - coming soon"));
+	if (UHorizontalBoxSlot* HS = StubBar->AddChildToHorizontalBox(DmStub))
+	{
+		HS->SetPadding(FMargin(0.f, 0.f, 16.f, 0.f));
+	}
+	UTextBlock* PartyStub = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	Style(PartyStub, Body, 10.f, Muted);
+	PartyStub->SetText(NSLOCTEXT("AFLChat", "PartyStub", "PARTY - arrives with parties"));
+	StubBar->AddChildToHorizontalBox(PartyStub);
 
 	// Message list (fills).
 	MessageScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("ChatScroll"));
