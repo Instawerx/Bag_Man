@@ -28,6 +28,10 @@ public class AFLOnline : ModuleRules
 				// FJsonObject / FJsonSerializer -- PlayFab REST request/response bodies.
 				"Json",
 
+				// COMMS-5 DM client (AFLSocialSubsystem): IWebSocket / FWebSocketsModule for the persistent
+				// DM WebSocket transport (used only in the social .cpp -- the header forward-declares IWebSocket).
+				"WebSockets",
+
 				// COMMS-1 text chat spine (private -- used only in the chat .cpp files):
 				"NetCore",         // replication plumbing for the owner-only chat RPCs
 				"ModularGameplay", // UGameFrameworkComponentManager::AddComponentRequest (attach the chat component)
