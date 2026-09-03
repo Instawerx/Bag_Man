@@ -150,10 +150,20 @@ bool UAFLChatComponent::ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerContro
 {
 	OutReason = EAFLChatDropReason::Invalid;
 
+	// [COMMS2 harness] capture the client-supplied values BEFORE they are overwritten, to assert the server
+	// neutralises them (E2 spoof reset, E3 epoch overwrite).
+	const bool  bClientEphemeralIn = Msg.bLocalEphemeral;
+	const int64 ClientEpochMsIn    = Msg.ServerEpochMs;
+
 	// DENY-BY-DEFAULT: the client-only render flag can NEVER survive an inbound. Cleared before any early
 	// return so a dropped OR accepted message can never carry a client-spoofed ephemeral flag forward. This is
 	// the anti-spoof guard -- a hacked client sending Say with bLocalEphemeral=true reaches receivers false.
 	Msg.bLocalEphemeral = false;
+	if (bClientEphemeralIn)
+	{
+		UE_LOG(LogAFLChat, Log, TEXT("AFL_TEST[COMMS2][E2] spoofed bLocalEphemeral in=true -> out=false (ch=%s)"),
+			ChannelName(Msg.Channel));
+	}
 
 	OutSenderPC = Cast<APlayerController>(GetOwner());
 	OutSenderPS = OutSenderPC ? OutSenderPC->PlayerState : nullptr;
@@ -212,6 +222,8 @@ bool UAFLChatComponent::ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerContro
 	Msg.ServerTimestamp = FPlatformTime::Seconds();
 	const FDateTime NowUtc = FDateTime::UtcNow();
 	Msg.ServerEpochMs = NowUtc.ToUnixTimestamp() * 1000LL + NowUtc.GetMillisecond();
+	UE_LOG(LogAFLChat, Verbose, TEXT("AFL_TEST[COMMS2][E3] client ServerEpochMs in=%lld overwritten=%lld"),
+		(long long)ClientEpochMsIn, (long long)Msg.ServerEpochMs);
 	return true;
 }
 
@@ -397,6 +409,8 @@ void UAFLChatComponent::ClientReceiveChatDropped_Implementation(EAFLChatDropReas
 	if (UAFLChatSubsystem* Subsys = UAFLChatSubsystem::Get(this))
 	{
 		Subsys->OnChatMessage.Broadcast(Synth); // DIRECT -- bypasses HandleInbound + the ring
+		UE_LOG(LogAFLChat, Log, TEXT("AFL_TEST[COMMS2][E1] drop echo synthesized reason=%d (sender-only, ephemeral, not ringed)"),
+			static_cast<int32>(Reason));
 	}
 }
 
