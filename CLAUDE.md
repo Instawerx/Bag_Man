@@ -33,28 +33,28 @@ detail lives in the skills referenced below — open those on demand, don't inli
    per `Docs/Hub/IRONICS_CC_DESIGN_BRIEF.md` §0). Align visions first; author second. Applies to
    revamps of existing screens too.
 
-## Build / verify — TWO-ENGINE PARTITION (re-ruled 2026-08-27; supersedes the 2026-08-11 one-engine note)
+## Build / verify — SOURCE-ONLY, ONE ENGINE (ruled 2026-09-03; supersedes the two-engine partition)
 
-- **C: launcher `C:\Program Files\Epic Games\UE_5.6`** — the EDITOR engine: editor, PIE, AIK/bridge,
-  Fab, all content authoring and content commits, and `LyraEditor` builds of the editor checkout
-  (operator-owned).
-- **D: `D:\UE5.6-source`** — the GAMELIFT engine: `LyraServer` dedicated-server builds and shipping
-  cooks, NOTHING else. **Never launch the editor on D:.** A D: `LyraEditor` build OVERWRITES the C:
-  editor binaries (same per-project output path) — recovery: close everything, C: launcher
-  `LyraEditor` rebuild, relaunch on C:. (2026-08-27: this happened; the rule exists because of it.)
+**SSOT: `Docs/ENGINE_DOCTRINE.md`.** IRONICS is a source-build game. **`D:\UE5.6-source` builds
+everything** — editor, PIE, `LyraServer`, shipping cooks, every player-facing artifact. The C:
+launcher engine is **RETIRED from project use**. There is one engine, one lane, one writer of
+engine binaries; the two-engine clobber/rebuild/"never launch editor on D:" rules are DEAD (kept as
+history in the doctrine — do not reintroduce).
 
-**Invoke the engine by EXPLICIT PATH, never by `EngineAssociation`.** ⚠ The `.uproject` GUID
-association resolves to D: — a double-click or bare `Build.bat` opens/builds the WRONG engine.
+**Invoke the engine by EXPLICIT PATH** (primary rule, unchanged). `EngineAssociation`
+`{5066982E-…}` now resolves to `D:/UE5.6-source` in the registry, so it is a *safety backstop* for
+stray double-clicks — not a hazard, and not a substitute for typing the path.
 
 ```powershell
-:: Editor target -- C: launcher (operator-owned on the editor checkout, editor closed)
-& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" LyraEditor Win64 Development `
+:: Editor / PIE / content authoring -- D: source (editor closed; operator-owned build)
+& "D:\UE5.6-source\Engine\Build\BatchFiles\Build.bat" LyraEditor Win64 Development `
     -Project="C:\Dev\Bag_Man\Bag_Man.uproject" -WaitMutex
-:: Dedicated server / shipping -- D: source (worktree or sanctioned D: session only)
+:: Dedicated server / shipping -- SAME engine
 & "D:\UE5.6-source\Engine\Build\BatchFiles\Build.bat" LyraServer Win64 Development `
     -Project="C:\Dev\Bag_Man\Bag_Man.uproject" -WaitMutex
 ```
-Lane detail: `Docs/Hub/IRONICS_LOBBY_HUB_CLAUDE_CODE_BRIEF.md` §1–§2. Never mark work done off a
+Engine is **5.6.0**; syncing to the 5.6.1 tag is a named future task, not assumed. Authoritative
+verdict = the `Result:` line + fresh binary mtimes, never the exit code. Never mark work done off a
 successful build alone — open PIE (listen server + 2 clients for anything networked) and watch it.
 
 ## Skills — consult before acting in these domains
