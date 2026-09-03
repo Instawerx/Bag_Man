@@ -305,6 +305,110 @@ bool UAFLOnlineSubsystem::TryGetEosIdToken(FString& OutIdToken, FString& OutFail
 #endif // WITH_EOS_SDK
 }
 
+#if WITH_EOS_SDK
+namespace
+{
+	struct FAFLEosLoginContext
+	{
+		TWeakObjectPtr<UAFLOnlineSubsystem> Subsystem;
+		bool bPersistentAttempt = false;
+	};
+
+	void EOS_CALL AFLOnEosAuthLoginComplete(const EOS_Auth_LoginCallbackInfo* Data)
+	{
+		// EOS fires this on the platform tick (game thread). The context is heap-owned by this callback.
+		FAFLEosLoginContext* Ctx = static_cast<FAFLEosLoginContext*>(Data->ClientData);
+		if (UAFLOnlineSubsystem* Subsys = Ctx ? Ctx->Subsystem.Get() : nullptr)
+		{
+			Subsys->HandleEosAuthLoginResult(static_cast<int32>(Data->ResultCode), Ctx->bPersistentAttempt);
+		}
+		delete Ctx;
+	}
+
+	EOS_HAuth AFLGetFirstActiveAuthHandle()
+	{
+		IEOSSDKManager* SDKManager = IEOSSDKManager::Get();
+		if (!SDKManager)
+		{
+			return nullptr;
+		}
+		for (const IEOSPlatformHandlePtr& PlatformPtr : SDKManager->GetActivePlatforms())
+		{
+			if (PlatformPtr.IsValid())
+			{
+				return EOS_Platform_GetAuthInterface(static_cast<EOS_HPlatform>(*PlatformPtr));
+			}
+		}
+		return nullptr;
+	}
+
+	void AFLStartEosAuthLogin(UAFLOnlineSubsystem* Subsys, bool bPersistent)
+	{
+		EOS_HAuth AuthHandle = AFLGetFirstActiveAuthHandle();
+		if (!AuthHandle)
+		{
+			Subsys->HandleEosAuthLoginResult(static_cast<int32>(EOS_EResult::EOS_InvalidState), bPersistent);
+			return;
+		}
+		EOS_Auth_Credentials Credentials = {};
+		Credentials.ApiVersion = EOS_AUTH_CREDENTIALS_API_LATEST;
+		Credentials.Type = bPersistent ? EOS_ELoginCredentialType::EOS_LCT_PersistentAuth
+		                               : EOS_ELoginCredentialType::EOS_LCT_AccountPortal;
+		EOS_Auth_LoginOptions Options = {};
+		Options.ApiVersion  = EOS_AUTH_LOGIN_API_LATEST;
+		Options.Credentials = &Credentials;
+		// Scopes MUST match the EAS application's configured permissions (BasicProfile/FriendsList/
+		// Presence per Config/Custom/EOS) -- a superset is refused, a subset breaks consent reuse.
+		Options.ScopeFlags = EOS_EAuthScopeFlags::EOS_AS_BasicProfile
+		                   | EOS_EAuthScopeFlags::EOS_AS_FriendsList
+		                   | EOS_EAuthScopeFlags::EOS_AS_Presence;
+		EOS_Auth_Login(AuthHandle, &Options, new FAFLEosLoginContext{ Subsys, bPersistent }, &AFLOnEosAuthLoginComplete);
+	}
+}
+#endif // WITH_EOS_SDK
+
+void UAFLOnlineSubsystem::StartEosInteractiveLogin()
+{
+#if WITH_EOS_SDK
+	LoginState = EAFLLoginState::InFlight; // gates the retry button while the portal is up
+	bEosPortalAttempted = false;
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] EAS login: trying PersistentAuth (stored stay-signed-in token)."));
+	AFLStartEosAuthLogin(this, /*bPersistent=*/true);
+#else
+	ResolveLogin(false);
+#endif
+}
+
+void UAFLOnlineSubsystem::HandleEosAuthLoginResult(int32 EosResultCode, bool bWasPersistentAttempt)
+{
+#if WITH_EOS_SDK
+	const EOS_EResult Result = static_cast<EOS_EResult>(EosResultCode);
+	if (Result == EOS_EResult::EOS_Success)
+	{
+		// EOS has also stored/refreshed the persistent-auth token at this point -- the next boot's
+		// PersistentAuth attempt is the "stay signed in" promise on the landing panel.
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] EAS login succeeded (%s) -- resuming the OIDC exchange."),
+			bWasPersistentAttempt ? TEXT("PersistentAuth") : TEXT("AccountPortal"));
+		LoginState = EAFLLoginState::NotStarted; // let StartLoginWithEOS re-enter; it now finds the session
+		StartLoginWithEOS();
+		return;
+	}
+	if (bWasPersistentAttempt && !bEosPortalAttempted)
+	{
+		// Normal on first boot / after sign-out: no stored refresh token. Escalate ONCE to the account
+		// portal (Epic sign-in in the system browser / overlay).
+		bEosPortalAttempted = true;
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] PersistentAuth unavailable (%s) -- opening the Epic account portal."),
+			ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+		AFLStartEosAuthLogin(this, /*bPersistent=*/false);
+		return;
+	}
+	UE_LOG(LogAFLOnline, Error, TEXT("[AFLOnline] EAS interactive login failed: %s"),
+		ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+	ResolveLogin(false);
+#endif
+}
+
 void UAFLOnlineSubsystem::StartLoginWithEOS()
 {
 	LoginMethod = TEXT("LoginWithOpenIdConnect(EOS)");
@@ -325,9 +429,18 @@ void UAFLOnlineSubsystem::StartLoginWithEOS()
 	FString IdToken, FailReason;
 	if (!TryGetEosIdToken(IdToken, FailReason))
 	{
+#if WITH_EOS_SDK
+		// D17b: no live EAS session is the NORMAL cold-boot state of a shipped client (dev flows always
+		// had one via the launcher/dev-auth, which is why this was never hit before the first shipped
+		// lap). Start the interactive Epic sign-in and re-enter here when it lands.
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] no live EAS session (%s) -- starting interactive Epic sign-in."), *FailReason);
+		StartEosInteractiveLogin();
+		return;
+#else
 		UE_LOG(LogAFLOnline, Error, TEXT("[AFLOnline] EOS login refused: could not obtain an Epic ID token -- %s"), *FailReason);
 		ResolveLogin(false);
 		return;
+#endif
 	}
 
 	LoginState = EAFLLoginState::InFlight;

@@ -24,7 +24,7 @@ namespace AFLRoute
 	static const FLinearColor Ground(0.0107f, 0.0180f, 0.0439f, 0.96f); // deep panel wash over the world
 	static const FLinearColor Surface(0.0028f, 0.0043f, 0.0231f, 1.f);  // #0E122B
 	static const FLinearColor Accent(0.013f, 0.102f, 1.0f, 1.0f);       // #1E5AFF
-	static const TCHAR* LogoPath = TEXT("/Game/Characters/Cosmetics/T_IRONICS_Color_Logo_BC.T_IRONICS_Color_Logo_BC");
+	static const TCHAR* LogoPath = TEXT("/Game/Characters/Cosmetics/T_IRONICS_Logo_Transparent.T_IRONICS_Logo_Transparent");
 
 	static UFont* Orbitron() { return LoadObject<UFont>(nullptr, TEXT("/Game/UI/Foundation/Fonts/Orbitron.Orbitron")); }
 	static UFont* NotoSans() { return LoadObject<UFont>(nullptr, TEXT("/Game/UI/Foundation/Fonts/NotoSans.NotoSans")); }

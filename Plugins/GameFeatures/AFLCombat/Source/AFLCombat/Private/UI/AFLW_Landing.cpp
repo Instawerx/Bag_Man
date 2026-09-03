@@ -36,7 +36,7 @@ namespace AFLLanding
 	static const FLinearColor Bad(1.0f, 0.16f, 0.22f, 1.0f);
 
 	// Real game art + media (soft paths -- every miss degrades gracefully).
-	static const TCHAR* LogoPath  = TEXT("/Game/Characters/Cosmetics/T_IRONICS_Color_Logo_BC.T_IRONICS_Color_Logo_BC");
+	static const TCHAR* LogoPath  = TEXT("/Game/Characters/Cosmetics/T_IRONICS_Logo_Transparent.T_IRONICS_Logo_Transparent");
 	static const TCHAR* MediaTex  = TEXT("/Game/Movies/MT_AFL_StartLoop.MT_AFL_StartLoop");
 	static const TCHAR* MediaPlyr = TEXT("/Game/Movies/MP_AFL_StartLoop.MP_AFL_StartLoop");
 	static const TCHAR* MediaSrc  = TEXT("/Game/Movies/MS_AFL_StartLoop.MS_AFL_StartLoop");
@@ -78,7 +78,7 @@ TSharedRef<SWidget> UAFLW_Landing::RebuildWidget()
 	}
 	VideoImage->SetColorAndOpacity(FLinearColor(0.06f, 0.08f, 0.14f)); // pre-video ground
 
-	// THE REAL LOGO (T_IRONICS_Color_Logo_BC -- game art only, naming ruling 2026-09-01).
+	// THE REAL LOGO (T_IRONICS_Logo_Transparent -- game art only, ALPHA version (the _BC texture is RGB and rendered as a black box, operator flag 2026-09-02), naming ruling 2026-09-01).
 	LogoImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("Logo"));
 	if (UTexture2D* Logo = LoadObject<UTexture2D>(nullptr, LogoPath))
 	{

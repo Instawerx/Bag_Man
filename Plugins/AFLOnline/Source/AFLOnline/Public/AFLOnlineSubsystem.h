@@ -289,6 +289,22 @@ private:
 	void HandleLoginResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedOk);
 	void ResolveLogin(bool bSuccess);
 
+	/** D17b (found by the first shipped-client lap, 2026-09-02): a cold machine has NO live EAS session,
+	 *  and TryGetEosIdToken only COPIES from one -- dev flows always had a session (launcher/dev-auth),
+	 *  so the interactive sign-in was never wired. This starts the Epic-canonical chain:
+	 *  PersistentAuth (the stored stay-signed-in refresh token, silent) -> AccountPortal (system-browser
+	 *  Epic sign-in) -> on success re-enter StartLoginWithEOS, which now finds the session and proceeds
+	 *  to the OIDC exchange unchanged. Header stays EOS-type-free: results cross as int32. */
+	void StartEosInteractiveLogin();
+
+public:
+	/** Internal completion trampoline for the EOS auth callback (public only for the static thunk). */
+	void HandleEosAuthLoginResult(int32 EosResultCode, bool bWasPersistentAttempt);
+
+private:
+	/** One portal escalation per attempt chain -- a failed portal must fail the login, not loop it. */
+	bool bEosPortalAttempted = false;
+
 	/** Which login produced the current attempt -- for logging only, so the success line names the real path. */
 	FString LoginMethod;
 
