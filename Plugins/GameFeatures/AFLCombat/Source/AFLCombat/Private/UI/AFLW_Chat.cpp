@@ -176,7 +176,7 @@ TSharedRef<SWidget> UAFLW_Chat::RebuildWidget()
 	}
 	UTextBlock* DmStub = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
 	Style(DmStub, Body, 10.f, Muted);
-	DmStub->SetText(NSLOCTEXT("AFLChat", "DmStub", "DIRECT MESSAGES - coming soon"));
+	DmStub->SetText(NSLOCTEXT("AFLChat", "DmStub", "DIRECT MESSAGES - afl.DM.Open"));
 	if (UHorizontalBoxSlot* HS = StubBar->AddChildToHorizontalBox(DmStub))
 	{
 		HS->SetPadding(FMargin(0.f, 0.f, 16.f, 0.f));
