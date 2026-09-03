@@ -36,6 +36,25 @@ namespace AFLChat
 }
 
 /**
+ * EAFLChatDropReason -- why a client's outbound message was dropped server-side (COMMS-2 drop-echo).
+ *
+ * COMMS-1 drops rate-limited / filtered / Party-reserved / otherwise-invalid sends SILENTLY. Silent drops
+ * read as "chat is broken" to the player, so COMMS-2 sends this reason back to the SENDER ONLY via
+ * UAFLChatComponent::ClientReceiveChatDropped; the client renders it as an inline DIM System line. It never
+ * leaves the owning connection and never reaches another player.
+ */
+UENUM(BlueprintType)
+enum class EAFLChatDropReason : uint8
+{
+	RateLimited		UMETA(DisplayName = "Rate limited"),	// per-player token bucket exhausted
+	Invalid			UMETA(DisplayName = "Invalid"),			// empty after sanitize / otherwise unsendable
+	Filtered		UMETA(DisplayName = "Filtered"),		// server content filter blocked it
+	PartyReserved	UMETA(DisplayName = "Party reserved"),	// Party channel reserved for COMMS-3
+
+	MAX				UMETA(Hidden)
+};
+
+/**
  * FAFLChatMessage -- one replicated chat message (COMMS-1).
  *
  * PLAIN-PROPERTY replication (no custom NetSerialize): it travels as a Server/Client RPC parameter, so UE
@@ -74,9 +93,26 @@ struct AFLNETTYPES_API FAFLChatMessage
 	UPROPERTY(BlueprintReadWrite, Category = "AFL|Chat")
 	FString Body;
 
-	/** Seconds since the server's app start (FPlatformTime / world time) at fan-out. SERVER-STAMPED. */
+	/** Seconds since the server's app start (FPlatformTime / world time) at fan-out. SERVER-STAMPED.
+	 *  Match-server UPTIME seconds -- monotonic within one match, NOT wall-clock, NOT comparable across
+	 *  sessions or against the DM backend. Use ServerEpochMs below for any absolute/cross-session ordering. */
 	UPROPERTY(BlueprintReadOnly, Category = "AFL|Chat")
 	double ServerTimestamp = 0.0;
+
+	/** Server UTC epoch MILLISECONDS at fan-out. SERVER-STAMPED -- ServerAcceptAndStamp OVERWRITES whatever a
+	 *  client put here on EVERY inbound, so a client-supplied value is dead. This is the only wall-clock,
+	 *  cross-session-comparable timestamp on the message (the anchor a merged spine+DM timeline would sort on).
+	 *  0 on a client-synthesized local line (the client has no server clock). */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Chat")
+	int64 ServerEpochMs = 0;
+
+	/** CLIENT-RENDER ONLY -- never trusted from the wire. The server FORCES this false in ServerAcceptAndStamp
+	 *  on EVERY inbound (deny-by-default: a client cannot smuggle it true past the server, so it can never spoof
+	 *  a System line to other players). It is set true ONLY client-side, by ClientReceiveChatDropped, on the
+	 *  locally-synthesized drop-echo line -- which is broadcast STRAIGHT to the UI and NEVER enters the 200-ring
+	 *  history. The message-row renderer keys its dim/ephemeral styling off this flag. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Chat")
+	bool bLocalEphemeral = false;
 
 	FAFLChatMessage() = default;
 };
