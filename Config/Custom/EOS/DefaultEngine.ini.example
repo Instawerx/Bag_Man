@@ -132,3 +132,19 @@ PresenceKeyMapName=map_name
 LogEOSSDK=Verbose
 LogEOSShared=Verbose
 LogOnlineServices=Verbose
+
+; --- EAS (Epic Account Services) USER-LOGIN toggle + scopes. NON-SECRET (a boolean + scope names only;
+; --- no Ids/Keys/Secrets/Tokens). The EOS OSSv2 stack derives this section name from
+; --- <ServiceConfigName>.<InterfaceName>.<OperationName> = "EOS"."Auth"."Login" (AuthEOSGS.cpp
+; --- LoadConfig(cfg, TEXT("Login"))). EASAuthEnabled defaults FALSE in the engine; turning it true is what
+; --- runs the EAS user-login branch (Epic Account, not Connect-only). Scope tokens are the BARE names
+; --- (EOSShared.cpp LexFromString: BasicProfile / FriendsList / Presence / Country / Email / FriendsManagement).
+; --- LAW (operator-ruled 2026-09-02): DefaultScopes must EXACTLY mirror the Epic Dev Portal application
+; --- permissions AND the hardcoded ScopeFlags in AFLOnlineSubsystem.cpp AFLStartEosAuthLogin -- Epic refuses
+; --- both an unenabled scope and an enabled-but-unrequested one, so all three move together.
+[OnlineServices.EOS.Auth.Login]
+EASAuthEnabled=true
++DefaultScopes=BasicProfile
++DefaultScopes=FriendsList
++DefaultScopes=Presence
++DefaultScopes=Country
