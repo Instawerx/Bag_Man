@@ -66,6 +66,13 @@ protected:
 	UFUNCTION(Client, Reliable)
 	void ClientReceiveChat(const FAFLChatMessage& Message);
 
+	/** Owner-only: tell the SENDER their outbound was dropped (rate / filter / Party-reserved / invalid). The
+	 *  client handler synthesizes a LOCAL dim System line (bLocalEphemeral) and broadcasts it straight to the
+	 *  UI subscription -- never OnInbound, never the 200-ring. COMMS-2 drop-echo (Ruling 1): the sender learns
+	 *  they were throttled instead of concluding chat is broken. */
+	UFUNCTION(Client, Reliable)
+	void ClientReceiveChatDropped(EAFLChatDropReason Reason);
+
 private:
 	// --- server-side per-player token bucket (burst 5, refill 1/s) ---
 	static constexpr float RateBurst = 5.0f;
@@ -76,9 +83,11 @@ private:
 	/** Server-side content-filter seam (passthrough in COMMS-1). */
 	TSharedPtr<IAFLChatFilter> ServerFilter;
 
-	/** Validate the inbound request, stamp server-authoritative identity/timestamp, and clamp the body.
-	 *  Returns false (with a logged DROP reason) if the message must not proceed. Server only. */
-	bool ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerController*& OutSenderPC, APlayerState*& OutSenderPS);
+	/** Validate the inbound request, stamp server-authoritative identity / ServerTimestamp / ServerEpochMs,
+	 *  force-clear the client-only bLocalEphemeral flag, and clamp the body. Returns false (with a logged DROP
+	 *  reason and OutReason set) if the message must not proceed. Server only. */
+	bool ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerController*& OutSenderPC, APlayerState*& OutSenderPS,
+		EAFLChatDropReason& OutReason);
 
 	/** Refill + try to consume one rate token. False -> rate-limited. Server only. */
 	bool ConsumeRateToken();

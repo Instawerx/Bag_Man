@@ -10,6 +10,7 @@
 #include "GameFramework/PlayerState.h"
 #include "GenericTeamAgentInterface.h" // IGenericTeamAgentInterface (module: AIModule) -- team resolution
 #include "HAL/PlatformTime.h"
+#include "Misc/DateTime.h" // FDateTime::UtcNow -- ServerEpochMs wall-clock stamp
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLChatComponent)
 
@@ -35,6 +36,20 @@ namespace
 	FString SenderTag(const APlayerState* PS)
 	{
 		return PS ? FString::Printf(TEXT("pid=%d"), PS->GetPlayerId()) : TEXT("pid=?");
+	}
+
+	// Player-facing text for a drop reason -- rendered as the dim System drop-echo line (client-side only).
+	// NSLOCTEXT is the localization path; kept as a literal here since COMMS-1 carries no loc table yet.
+	FString DropReasonText(EAFLChatDropReason Reason)
+	{
+		switch (Reason)
+		{
+		case EAFLChatDropReason::RateLimited:   return TEXT("You're sending messages too fast -- slow down.");
+		case EAFLChatDropReason::Filtered:      return TEXT("Message blocked.");
+		case EAFLChatDropReason::PartyReserved: return TEXT("Party chat isn't available yet.");
+		case EAFLChatDropReason::Invalid:
+		default:                                return TEXT("Message couldn't be sent.");
+		}
 	}
 }
 
@@ -130,14 +145,23 @@ bool UAFLChatComponent::ConsumeRateToken()
 	return false;
 }
 
-bool UAFLChatComponent::ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerController*& OutSenderPC, APlayerState*& OutSenderPS)
+bool UAFLChatComponent::ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerController*& OutSenderPC, APlayerState*& OutSenderPS,
+	EAFLChatDropReason& OutReason)
 {
+	OutReason = EAFLChatDropReason::Invalid;
+
+	// DENY-BY-DEFAULT: the client-only render flag can NEVER survive an inbound. Cleared before any early
+	// return so a dropped OR accepted message can never carry a client-spoofed ephemeral flag forward. This is
+	// the anti-spoof guard -- a hacked client sending Say with bLocalEphemeral=true reaches receivers false.
+	Msg.bLocalEphemeral = false;
+
 	OutSenderPC = Cast<APlayerController>(GetOwner());
 	OutSenderPS = OutSenderPC ? OutSenderPC->PlayerState : nullptr;
 
 	// auth-complete check: a real, connected, non-bot player.
 	if (!OutSenderPC || !OutSenderPS || OutSenderPS->IsABot())
 	{
+		OutReason = EAFLChatDropReason::Invalid;
 		UE_LOG(LogAFLChat, Warning, TEXT("AFL_CHAT[DROP_INVALID] no valid sender PlayerState (%s)"), *SenderTag(OutSenderPS));
 		return false;
 	}
@@ -145,6 +169,7 @@ bool UAFLChatComponent::ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerContro
 	// Party is reserved for COMMS-3 -- reject with a clear reason (soft drop, not a disconnect).
 	if (Msg.Channel == EAFLChatChannel::Party)
 	{
+		OutReason = EAFLChatDropReason::PartyReserved;
 		UE_LOG(LogAFLChat, Log, TEXT("AFL_CHAT[DROP_INVALID] %s ch=Party reason=reserved(COMMS-3)"), *SenderTag(OutSenderPS));
 		return false;
 	}
@@ -152,6 +177,7 @@ bool UAFLChatComponent::ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerContro
 	// System from a client should already be gone (Validate), but fail closed if it slips through.
 	if (Msg.Channel == EAFLChatChannel::System)
 	{
+		OutReason = EAFLChatDropReason::Invalid;
 		UE_LOG(LogAFLChat, Warning, TEXT("AFL_CHAT[DROP_INVALID] %s ch=System reason=server-only"), *SenderTag(OutSenderPS));
 		return false;
 	}
@@ -160,6 +186,7 @@ bool UAFLChatComponent::ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerContro
 	Msg.Body = SanitizeBody(Msg.Body);
 	if (Msg.Body.IsEmpty())
 	{
+		OutReason = EAFLChatDropReason::Invalid;
 		UE_LOG(LogAFLChat, Log, TEXT("AFL_CHAT[DROP_INVALID] %s ch=%s reason=empty-after-sanitize"),
 			*SenderTag(OutSenderPS), ChannelName(Msg.Channel));
 		return false;
@@ -173,14 +200,18 @@ bool UAFLChatComponent::ServerAcceptAndStamp(FAFLChatMessage& Msg, APlayerContro
 	}
 	if (bFilterBlock || Msg.Body.IsEmpty())
 	{
+		OutReason = EAFLChatDropReason::Filtered;
 		UE_LOG(LogAFLChat, Log, TEXT("AFL_CHAT[DROP_FILTER] %s ch=%s"), *SenderTag(OutSenderPS), ChannelName(Msg.Channel));
 		return false;
 	}
 
-	// SERVER-STAMP authoritative identity + time (overwrite anything the client put here).
+	// SERVER-STAMP authoritative identity + time (overwrite anything the client put here). ServerEpochMs is the
+	// wall-clock anchor (UTC epoch-ms); ServerTimestamp stays match-uptime seconds. Both client values are dead.
 	Msg.SenderId = OutSenderPS->GetUniqueId();
 	Msg.SenderDisplayName = OutSenderPS->GetPlayerName();
 	Msg.ServerTimestamp = FPlatformTime::Seconds();
+	const FDateTime NowUtc = FDateTime::UtcNow();
+	Msg.ServerEpochMs = NowUtc.ToUnixTimestamp() * 1000LL + NowUtc.GetMillisecond();
 	return true;
 }
 
@@ -194,9 +225,15 @@ void UAFLChatComponent::ServerSendChat_Implementation(const FAFLChatMessage& Mes
 	FAFLChatMessage Msg = Message;
 	APlayerController* SenderPC = nullptr;
 	APlayerState* SenderPS = nullptr;
+	EAFLChatDropReason DropReason = EAFLChatDropReason::Invalid;
 
-	if (!ServerAcceptAndStamp(Msg, SenderPC, SenderPS))
+	if (!ServerAcceptAndStamp(Msg, SenderPC, SenderPS, DropReason))
 	{
+		// Sender-only drop echo (COMMS-2). Skipped only when there is no owning client to echo to (no-sender).
+		if (SenderPC)
+		{
+			ClientReceiveChatDropped(DropReason);
+		}
 		return; // reason already logged
 	}
 
@@ -204,6 +241,7 @@ void UAFLChatComponent::ServerSendChat_Implementation(const FAFLChatMessage& Mes
 	{
 		UE_LOG(LogAFLChat, Log, TEXT("AFL_CHAT[DROP_RATE] %s ch=%s len=%d"),
 			*SenderTag(SenderPS), ChannelName(Msg.Channel), Msg.Body.Len());
+		ClientReceiveChatDropped(EAFLChatDropReason::RateLimited); // sender-only drop echo
 		return;
 	}
 
@@ -341,6 +379,25 @@ void UAFLChatComponent::ClientReceiveChat_Implementation(const FAFLChatMessage& 
 {
 	// Runs on the owning client only (Client RPC). Hand to whoever bound OnInbound (the transport -> subsystem).
 	OnInbound.Broadcast(Message);
+}
+
+void UAFLChatComponent::ClientReceiveChatDropped_Implementation(EAFLChatDropReason Reason)
+{
+	// Owning client only. Synthesize a LOCAL dim System line and push it STRAIGHT to the UI subscription --
+	// NOT through OnInbound / the transport / HandleInbound -- so it never enters the 200-ring history and can
+	// never be re-sent. bLocalEphemeral=true is what the message-row renderer keys its dim styling off.
+	FAFLChatMessage Synth;
+	Synth.Channel = EAFLChatChannel::System;
+	Synth.bLocalEphemeral = true;
+	Synth.Body = DropReasonText(Reason);
+	Synth.SenderDisplayName = TEXT("SYSTEM");
+	Synth.ServerTimestamp = FPlatformTime::Seconds(); // client-local, for ordering among local lines only
+	Synth.ServerEpochMs = 0;                          // no server clock on a locally-synthesized line
+
+	if (UAFLChatSubsystem* Subsys = UAFLChatSubsystem::Get(this))
+	{
+		Subsys->OnChatMessage.Broadcast(Synth); // DIRECT -- bypasses HandleInbound + the ring
+	}
 }
 
 // ------------------------------------------------------------------------------------------------
