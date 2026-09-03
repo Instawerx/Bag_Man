@@ -59,6 +59,8 @@
 #include "Cosmetics/AFLEconomyPersistenceSubsystem.h" // A1.1: afl.Online.VerifyA11 (wipe-local -> load -> assert PlayFab)
 #include "Engine/GameInstance.h"                      // A1.1: GetSubsystem<UAFLEconomyPersistenceSubsystem>()
 #include "AFLOnlineSubsystem.h"                   // CC-X23: IsLoggedIn() -- the probe precondition. The module was already a dependency; the header was never included, because every other online probe reached PlayFab THROUGH the wallet rather than asking the session directly.
+#include "Chat/AFLChatSubsystem.h"                // COMMS-1: text-chat harness (afl.Chat.*)
+#include "Chat/AFLChatComponent.h"                // COMMS-1: SpoofSystem bypasses the client guard via the component
 #include "Teams/LyraTeamSubsystem.h"                 // afl.Cosmetic.Test.Readability: opposing gameplay-team assignment
 #include "Cosmetics/AFLCharacterPartActor.h"          // panel-watch: poke the robot part's live MIDs (DebugSetMID*)
 #include "Cosmetics/AFLCharacterPartMap.h"            // CC-1.2-P EmblemProbe: identity id -> body class (part-map resolver)
@@ -13105,6 +13107,197 @@ static FAutoConsoleVariableRef CVarAFLCreatorBuyProbe(TEXT("afl.Creator.BuyProbe
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLEOSFriendsQueryCmd(TEXT("afl.EOS.Friends.Query"),
 		TEXT("EOS-AUTH-C2: query the OSSv2 Social friends list -> AFL_EOS friends: query=<OK|FAIL>, N=<count>. N=0 is a valid plumbing-proven green (interface wired + EpicAccountId valid). Requires the EAS login (run afl.EOS.Auth.Status first)."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLEOSFriendsQuery));
+
+	// ==================== COMMS-1 TEXT-CHAT HARNESS (AFL-3402-04) ====================
+	// Instrument only. afl.Chat.Arm on EVERY client (records receives), then afl.Chat.RunHarness on ONE
+	// driver, then afl.Chat.SpoofSystem manually LAST (it disconnects the sender). PIE: 1 dedicated + 3
+	// clients. Verdicts read POST-session from AFL_TEST[COMMS1][..] (client RECV) + AFL_CHAT[..] (server).
+
+	EAFLChatChannel AFLChatParseChannel(const FString& S)
+	{
+		if (S.Equals(TEXT("Say"), ESearchCase::IgnoreCase))     { return EAFLChatChannel::Say; }
+		if (S.Equals(TEXT("Team"), ESearchCase::IgnoreCase))    { return EAFLChatChannel::Team; }
+		if (S.Equals(TEXT("Whisper"), ESearchCase::IgnoreCase)) { return EAFLChatChannel::Whisper; }
+		if (S.Equals(TEXT("Party"), ESearchCase::IgnoreCase))   { return EAFLChatChannel::Party; }
+		if (S.Equals(TEXT("System"), ESearchCase::IgnoreCase))  { return EAFLChatChannel::System; }
+		return EAFLChatChannel::MAX;
+	}
+
+	FUniqueNetIdRepl AFLChatFindTargetId(UWorld* World, const FString& Name)
+	{
+		if (const AGameStateBase* GS = World ? World->GetGameState() : nullptr)
+		{
+			for (APlayerState* PS : GS->PlayerArray)
+			{
+				if (PS && PS->GetPlayerName().Equals(Name, ESearchCase::IgnoreCase))
+				{
+					return PS->GetUniqueId();
+				}
+			}
+		}
+		return FUniqueNetIdRepl();
+	}
+
+	// RECV logger: armed per client so each client records what IT receives -- the only way to prove P2
+	// (teammate-not-enemy) / P3 (target-not-third) from post-session logs.
+	FDelegateHandle GAFLChatRecvHandle;
+
+	void HandleAFLChatArm(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		UAFLChatSubsystem* Chat = UAFLChatSubsystem::Get(World);
+		if (!Chat) { Ar.Log(TEXT("AFL_TEST[COMMS1][ARM=FAIL no subsystem]")); return; }
+		if (GAFLChatRecvHandle.IsValid()) { Chat->OnChatMessage.Remove(GAFLChatRecvHandle); }
+		FString Me = TEXT("?");
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			if (PC->PlayerState) { Me = PC->PlayerState->GetPlayerName(); }
+		}
+		GAFLChatRecvHandle = Chat->OnChatMessage.AddLambda([Me](const FAFLChatMessage& M)
+		{
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[COMMS1][RECV on='%s' ch=%d from='%s' len=%d]"),
+				*Me, static_cast<int32>(M.Channel), *M.SenderDisplayName, M.Body.Len());
+		});
+		Ar.Logf(TEXT("AFL_TEST[COMMS1][ARM=OK on='%s']"), *Me);
+	}
+
+	void HandleAFLChatSend(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 2) { Ar.Log(TEXT("usage: afl.Chat.Send <Say|Team|Whisper|Party|System> <text...>")); return; }
+		UAFLChatSubsystem* Chat = UAFLChatSubsystem::Get(World);
+		if (!Chat) { Ar.Log(TEXT("no chat subsystem")); return; }
+		TArray<FString> Rest = Args; Rest.RemoveAt(0);
+		const FString Body = FString::Join(Rest, TEXT(" "));
+		Chat->Send(AFLChatParseChannel(Args[0]), Body);
+		Ar.Logf(TEXT("AFL_TEST[COMMS1][SENT ch=%s len=%d]"), *Args[0], Body.Len());
+	}
+
+	void HandleAFLChatWhisper(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		if (Args.Num() < 2) { Ar.Log(TEXT("usage: afl.Chat.Whisper <playerName> <text...>")); return; }
+		UAFLChatSubsystem* Chat = UAFLChatSubsystem::Get(World);
+		if (!Chat) { Ar.Log(TEXT("no chat subsystem")); return; }
+		const FUniqueNetIdRepl Target = AFLChatFindTargetId(World, Args[0]);
+		if (!Target.IsValid()) { Ar.Logf(TEXT("AFL_TEST[COMMS1][WHISPER=FAIL target '%s' not found]"), *Args[0]); return; }
+		TArray<FString> Rest = Args; Rest.RemoveAt(0);
+		const FString Body = FString::Join(Rest, TEXT(" "));
+		Chat->Send(EAFLChatChannel::Whisper, Body, Target);
+		Ar.Logf(TEXT("AFL_TEST[COMMS1][SENT ch=Whisper to='%s' len=%d]"), *Args[0], Body.Len());
+	}
+
+	void HandleAFLChatSpam(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		UAFLChatSubsystem* Chat = UAFLChatSubsystem::Get(World);
+		if (!Chat) { Ar.Log(TEXT("no chat subsystem")); return; }
+		const int32 Count = Args.Num() > 0 ? FMath::Clamp(FCString::Atoi(*Args[0]), 1, 50) : 12;
+		for (int32 i = 0; i < Count; ++i) { Chat->Send(EAFLChatChannel::Say, FString::Printf(TEXT("spam %d"), i)); }
+		Ar.Logf(TEXT("AFL_TEST[COMMS1][P4 spam sent=%d -- expect server AFL_CHAT[DROP_RATE] after burst 5]"), Count);
+	}
+
+	// SpoofSystem: bypass the subsystem's client guard by sending the raw System RPC through the component ->
+	// the server's ServerSendChat_Validate MUST reject it (disconnect-grade). Run LAST -- it closes the sender.
+	void HandleAFLChatSpoofSystem(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		UAFLChatComponent* Comp = PC ? PC->FindComponentByClass<UAFLChatComponent>() : nullptr;
+		if (!Comp) { Ar.Log(TEXT("AFL_TEST[COMMS1][P5=FAIL no chat component]")); return; }
+		FAFLChatMessage Msg;
+		Msg.Channel = EAFLChatChannel::System;
+		Msg.Body = TEXT("SPOOFED SYSTEM");
+		Comp->SubmitOutbound(Msg);
+		Ar.Log(TEXT("AFL_TEST[COMMS1][P5 SpoofSystem raw-sent -- expect server ServerSendChat_Validate FAIL + connection close]"));
+	}
+
+	// Self-running driver FSM (one designated client). Every client must afl.Chat.Arm first. P5 is NOT
+	// auto-run (it disconnects) -- run afl.Chat.SpoofSystem manually last.
+	struct FAFLChatHarness { FTimerHandle Timer; int32 Phase = 0; FString WhisperTarget; TWeakObjectPtr<UWorld> World; };
+	FAFLChatHarness GAFLChatHarness;
+
+	void AFLChatHarnessStep(); // fwd
+	void AFLChatHarnessSchedule(float Delay)
+	{
+		if (UWorld* W = GAFLChatHarness.World.Get())
+		{
+			W->GetTimerManager().SetTimer(GAFLChatHarness.Timer, FTimerDelegate::CreateStatic(&AFLChatHarnessStep), Delay, false);
+		}
+	}
+	void AFLChatHarnessStep()
+	{
+		UWorld* W = GAFLChatHarness.World.Get();
+		UAFLChatSubsystem* Chat = W ? UAFLChatSubsystem::Get(W) : nullptr;
+		if (!Chat) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[COMMS1][HARNESS=ABORT no subsystem]")); return; }
+		switch (GAFLChatHarness.Phase++)
+		{
+		case 0:
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[COMMS1][P1 Say SENT]"));
+			Chat->Send(EAFLChatChannel::Say, TEXT("P1 hello all"));
+			AFLChatHarnessSchedule(1.5f); break;
+		case 1:
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[COMMS1][P2 Team SENT]"));
+			Chat->Send(EAFLChatChannel::Team, TEXT("P2 team only"));
+			AFLChatHarnessSchedule(1.5f); break;
+		case 2:
+		{
+			const FUniqueNetIdRepl T = AFLChatFindTargetId(W, GAFLChatHarness.WhisperTarget);
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[COMMS1][P3 Whisper SENT to='%s' found=%d]"),
+				*GAFLChatHarness.WhisperTarget, T.IsValid() ? 1 : 0);
+			Chat->Send(EAFLChatChannel::Whisper, TEXT("P3 just for you"), T);
+			AFLChatHarnessSchedule(1.5f); break;
+		}
+		case 3:
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[COMMS1][P4 Spam SENT=12 -- expect DROP_RATE after burst 5]"));
+			for (int32 i = 0; i < 12; ++i) { Chat->Send(EAFLChatChannel::Say, FString::Printf(TEXT("P4 spam %d"), i)); }
+			AFLChatHarnessSchedule(1.5f); break;
+		case 4:
+		{
+			FString Big; for (int32 i = 0; i < 400; ++i) { Big.AppendChar(static_cast<TCHAR>('A' + (i % 26))); }
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[COMMS1][P6 Oversize SENT len=%d -- expect clamp to 256]"), Big.Len());
+			Chat->Send(EAFLChatChannel::Say, Big);
+			AFLChatHarnessSchedule(1.5f); break;
+		}
+		default:
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[COMMS1][HARNESS=DONE P1-P4,P6 sent. Run afl.Chat.SpoofSystem manually for P5 (it disconnects).]"));
+			break;
+		}
+	}
+	void HandleAFLChatRunHarness(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+	{
+		GAFLChatHarness.World = World;
+		GAFLChatHarness.Phase = 0;
+		GAFLChatHarness.WhisperTarget = Args.Num() > 0 ? Args[0] : FString();
+		if (GAFLChatHarness.WhisperTarget.IsEmpty())
+		{
+			FString Me;
+			if (APlayerController* PC = World->GetFirstPlayerController()) { if (PC->PlayerState) { Me = PC->PlayerState->GetPlayerName(); } }
+			if (const AGameStateBase* GS = World->GetGameState())
+			{
+				for (APlayerState* PS : GS->PlayerArray)
+				{
+					if (PS && !PS->IsABot() && !PS->GetPlayerName().Equals(Me)) { GAFLChatHarness.WhisperTarget = PS->GetPlayerName(); break; }
+				}
+			}
+		}
+		Ar.Logf(TEXT("AFL_TEST[COMMS1][HARNESS=START whisperTarget='%s'] -- every client must have run afl.Chat.Arm"), *GAFLChatHarness.WhisperTarget);
+		AFLChatHarnessSchedule(0.5f);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLChatArmCmd(TEXT("afl.Chat.Arm"),
+		TEXT("COMMS-1: subscribe this client's chat receiver -> logs AFL_TEST[COMMS1][RECV ...] for every message it receives. Run on EVERY client before the harness."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChatArm));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLChatSendCmd(TEXT("afl.Chat.Send"),
+		TEXT("COMMS-1: afl.Chat.Send <Say|Team|Whisper|Party|System> <text> -- sends via UAFLChatSubsystem. System is client-refused; Party is server-rejected (reserved)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChatSend));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLChatWhisperCmd(TEXT("afl.Chat.Whisper"),
+		TEXT("COMMS-1: afl.Chat.Whisper <playerName> <text> -- target + echo only; P3 proves it does NOT reach a third client."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChatWhisper));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLChatSpamCmd(TEXT("afl.Chat.Spam"),
+		TEXT("COMMS-1: afl.Chat.Spam <count> -- P4 rate-limit proof; expect server AFL_CHAT[DROP_RATE] after the burst of 5."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChatSpam));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLChatSpoofSystemCmd(TEXT("afl.Chat.SpoofSystem"),
+		TEXT("COMMS-1: P5 -- raw-RPC the server-only System channel; the server MUST reject (Validate fail, connection close). DISCONNECTS the sender -- run LAST."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChatSpoofSystem));
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLChatRunHarnessCmd(TEXT("afl.Chat.RunHarness"),
+		TEXT("COMMS-1: self-running driver FSM -> P1 Say, P2 Team, P3 Whisper, P4 Spam, P6 Oversize (P5 SpoofSystem run manually). Arg: [whisperTargetName] (defaults to first other player)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLChatRunHarness));
 }
 
 #endif // UE_WITH_CHEAT_MANAGER
