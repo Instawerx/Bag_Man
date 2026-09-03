@@ -129,4 +129,14 @@ private:
 	bool bMantling = false;
 
 	bool bExiting = false;
+
+	/** SELF-HEAL (2026-09-02 stuck-in-air fix): the mantle cap directly zeroes CMC gravity + MOVE_Flying to
+	 *  pin the up+forward arc. That override is normally undone by UAFLClimbMovementComponent's tag-driven
+	 *  RestoreClimbState -- but if that component never bound to the ASC on this pawn (observed live: zero
+	 *  "climb tag listener" log lines), NOTHING restores gravity and the character floats forever. So the
+	 *  ability now caches the real entry gravity and restores its OWN override in EndAbility, independent of
+	 *  the component. bGravityOverridden gates it so only mantle exits heal; the storm's no-surface cancels
+	 *  (which never touch gravity) are skipped. */
+	bool bGravityOverridden = false;
+	float CachedEntryGravityScale = 1.0f;
 };

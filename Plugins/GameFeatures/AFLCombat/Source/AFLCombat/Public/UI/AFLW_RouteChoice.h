@@ -33,6 +33,11 @@ public:
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual bool NativeOnHandleBackAction() override; // back = the default (Lobby)
+	// Gamepad/keyboard focus lands on the default (Lobby) door. Without this the doors are raw UButtons with
+	// no focus target, so CommonUI reported "isn't focusable - focusing the game viewport" (observed live
+	// 2026-09-02) -- controller/keyboard users could not act on the cards. The Home screen focuses its League
+	// door the same way.
+	virtual UWidget* NativeGetDesiredFocusTarget() const override;
 
 	UFUNCTION() void HandleLobby();
 	UFUNCTION() void HandleMatchmaking();
@@ -42,4 +47,8 @@ protected:
 private:
 	static bool bPendingMatchmakingRoute;
 	bool bChosen = false;
+
+	/** The default (Lobby) door -- captured in RebuildWidget so NativeGetDesiredFocusTarget can focus it. */
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> DefaultFocusDoor = nullptr;
 };

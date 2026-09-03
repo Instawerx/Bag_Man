@@ -368,6 +368,51 @@ namespace
 		                   | EOS_EAuthScopeFlags::EOS_AS_Country;
 		EOS_Auth_Login(AuthHandle, &Options, new FAFLEosLoginContext{ Subsys, bPersistent }, &AFLOnEosAuthLoginComplete);
 	}
+
+	void EOS_CALL AFLOnEosLogoutComplete(const EOS_Auth_LogoutCallbackInfo* Data)
+	{
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] EOS_Auth_Logout complete: %s"),
+			ANSI_TO_TCHAR(EOS_EResult_ToString(Data ? Data->ResultCode : EOS_EResult::EOS_UnexpectedError)));
+	}
+
+	void EOS_CALL AFLOnEosDeletePersistentAuthComplete(const EOS_Auth_DeletePersistentAuthCallbackInfo* Data)
+	{
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] EOS_Auth_DeletePersistentAuth complete: %s"),
+			ANSI_TO_TCHAR(EOS_EResult_ToString(Data ? Data->ResultCode : EOS_EResult::EOS_UnexpectedError)));
+	}
+
+	// Drop the live EAS session AND the stored stay-signed-in token. Both are async best-effort: the SDK
+	// clears its state on the callback, but the caller has already reset the local login state synchronously,
+	// so a failed callback only means Epic itself may still consider the device signed in -- the game does not.
+	void AFLDoEosLogout()
+	{
+		EOS_HAuth AuthHandle = AFLGetFirstActiveAuthHandle();
+		if (!AuthHandle)
+		{
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] EOS logout skipped -- no active auth interface."));
+			return;
+		}
+
+		// Clear the persistent-auth (stay-signed-in) refresh token so the next boot cannot silently resume.
+		EOS_Auth_DeletePersistentAuthOptions DeleteOptions = {};
+		DeleteOptions.ApiVersion = EOS_AUTH_DELETEPERSISTENTAUTH_API_LATEST;
+		DeleteOptions.RefreshToken = nullptr; // desktop: clears the stored token; RefreshToken is the console path
+		EOS_Auth_DeletePersistentAuth(AuthHandle, &DeleteOptions, nullptr, &AFLOnEosDeletePersistentAuthComplete);
+
+		// Log the current Epic account out of the EAS session.
+		const EOS_EpicAccountId Account = EOS_Auth_GetLoggedInAccountByIndex(AuthHandle, 0);
+		if (EOS_EpicAccountId_IsValid(Account))
+		{
+			EOS_Auth_LogoutOptions LogoutOptions = {};
+			LogoutOptions.ApiVersion = EOS_AUTH_LOGOUT_API_LATEST;
+			LogoutOptions.LocalUserId = Account;
+			EOS_Auth_Logout(AuthHandle, &LogoutOptions, nullptr, &AFLOnEosLogoutComplete);
+		}
+		else
+		{
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] EOS logout -- no logged-in Epic account to log out (persistent token still cleared)."));
+		}
+	}
 }
 #endif // WITH_EOS_SDK
 
@@ -381,6 +426,29 @@ void UAFLOnlineSubsystem::StartEosInteractiveLogin()
 #else
 	ResolveLogin(false);
 #endif
+}
+
+void UAFLOnlineSubsystem::Logout()
+{
+	const bool bWasLoggedIn = IsLoggedIn();
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Logout requested (was %s)."),
+		bWasLoggedIn ? TEXT("logged in") : TEXT("not logged in"));
+
+#if WITH_EOS_SDK
+	// Drop the Epic session + stored stay-signed-in token (async, best-effort, logged).
+	AFLDoEosLogout();
+#endif
+
+	// Clear the local identity synchronously -- from this instant the game is signed out regardless of the
+	// EOS callbacks. NEVER log the ticket/token values; only that they were cleared.
+	LoginState = EAFLLoginState::NotStarted;
+	PlayFabId.Reset();
+	SessionTicket.Reset();
+	EntityToken.Reset();
+	bEosPortalAttempted = false;
+	PendingLoginCallbacks.Reset(); // any waiters were for the OLD session; do not resolve them true
+
+	OnLoggedOut.Broadcast();
 }
 
 void UAFLOnlineSubsystem::HandleEosAuthLoginResult(int32 EosResultCode, bool bWasPersistentAttempt)

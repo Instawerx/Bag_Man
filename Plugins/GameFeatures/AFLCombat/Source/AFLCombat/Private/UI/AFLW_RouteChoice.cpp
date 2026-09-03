@@ -102,6 +102,7 @@ TSharedRef<SWidget> UAFLW_RouteChoice::RebuildWidget()
 		Door->AddChild(Col);
 		if (bPrimary)
 		{
+			DefaultFocusDoor = Door; // gamepad/keyboard focus target (see NativeGetDesiredFocusTarget).
 			// The real logo crowns the default door (game art only).
 			UImage* Logo = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass());
 			if (UTexture2D* Tex = LoadObject<UTexture2D>(nullptr, LogoPath))
@@ -166,6 +167,12 @@ TSharedRef<SWidget> UAFLW_RouteChoice::RebuildWidget()
 	}
 
 	return Super::RebuildWidget();
+}
+
+UWidget* UAFLW_RouteChoice::NativeGetDesiredFocusTarget() const
+{
+	// Focus the default (Lobby) door so controller/keyboard users can act on the cards immediately.
+	return DefaultFocusDoor ? static_cast<UWidget*>(DefaultFocusDoor) : Super::NativeGetDesiredFocusTarget();
 }
 
 bool UAFLW_RouteChoice::NativeOnHandleBackAction()

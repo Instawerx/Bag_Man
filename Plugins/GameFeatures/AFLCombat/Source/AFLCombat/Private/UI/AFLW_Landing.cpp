@@ -315,8 +315,15 @@ void UAFLW_Landing::PushRouteChoice()
 	{
 		return;
 	}
+	// PUSH TO THE MODAL LAYER, NOT MENU (2026-09-02 route-skip fix). The Landing lives on UI.Layer.Menu;
+	// pushing RouteChoice onto that SAME stack covers+deactivates the Landing, which fires Lyra's
+	// LyraFrontendStateComponent press-start OnDeactivated continuation -> it pushes the Home main screen
+	// ~36ms later and buries the choice cards before they can be clicked (observed live 2026-09-02: the
+	// operator never saw "WHERE TO?" and landed on the Home door screen). Modal is a distinct higher layer
+	// (DefaultGameplayTags.ini) -- the Landing stays ACTIVE underneath, so the flow does NOT advance until
+	// the player actually picks a door and OnRouteChosen -> DeactivateWidget() (below) runs.
 	UCommonActivatableWidget* Pushed = UCommonUIExtensions::PushContentToLayer_ForPlayer(LP,
-		FGameplayTag::RequestGameplayTag(TEXT("UI.Layer.Menu")),
+		FGameplayTag::RequestGameplayTag(TEXT("UI.Layer.Modal")),
 		TSubclassOf<UCommonActivatableWidget>(UAFLW_RouteChoice::StaticClass()));
 	if (UAFLW_RouteChoice* Choice = Cast<UAFLW_RouteChoice>(Pushed))
 	{

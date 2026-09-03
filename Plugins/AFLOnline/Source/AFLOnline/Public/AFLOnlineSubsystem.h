@@ -13,6 +13,10 @@ class FJsonObject;
 /** Fires once a PlayFab login resolves successfully (SessionTicket + PlayFabId held). */
 DECLARE_MULTICAST_DELEGATE(FAFLOnLoggedIn);
 
+/** Fires once the player signs out: local session state cleared, EOS/Epic session + stored
+ *  "stay signed in" token dropped. The front-end listens to return to the sign-in screen. */
+DECLARE_MULTICAST_DELEGATE(FAFLOnLoggedOut);
+
 /**
  * UAFLOnlineSubsystem -- Phase A1.1: PlayFab CLIENT login + a thin REST transport. SECRET-FREE.
  *
@@ -77,8 +81,21 @@ public:
 	/** Broadcast once login succeeds. */
 	FAFLOnLoggedIn OnLoggedIn;
 
+	/** Broadcast once the player signs out (state cleared, EOS session + stay-signed-in token dropped). */
+	FAFLOnLoggedOut OnLoggedOut;
+
 	/** Kick a login if not already logged-in / in-flight. Dev -> CustomID; shipping -> platform (gated). */
 	void EnsureLogin();
+
+	/**
+	 * Sign out. Drops BOTH halves of the identity: the PlayFab session (PlayFabId/SessionTicket/EntityToken
+	 * cleared, LoginState -> NotStarted) AND, under the EOS SDK, the live Epic Account Services session
+	 * (EOS_Auth_Logout) plus the stored "stay signed in on this device" refresh token
+	 * (EOS_Auth_DeletePersistentAuth) -- so the next sign-in requires a fresh Epic authorization rather than
+	 * silently resuming. Best-effort on the EOS side (async, logged); the local clear is synchronous.
+	 * Broadcasts OnLoggedOut so the front-end can return to the sign-in screen. Callers own the level travel.
+	 */
+	void Logout();
 
 	/** One-shot: Callback(true) when logged in (immediately if already), Callback(false) on failure/timeout.
 	 *  Kicks a login if none is running. Lets the persistence LOAD path wait for auth then fall back to cache. */

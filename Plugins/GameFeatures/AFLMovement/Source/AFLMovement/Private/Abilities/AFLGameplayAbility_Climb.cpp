@@ -68,6 +68,7 @@ void UAFLGameplayAbility_Climb::ActivateAbility(
 	bExiting = false;
 	bMantling = false;
 	bOrientationApplied = false;
+	bGravityOverridden = false;
 	MontageTask = nullptr;
 
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
@@ -84,6 +85,18 @@ void UAFLGameplayAbility_Climb::ActivateAbility(
 	}
 
 	UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: Activate by %s."), *GetNameSafe(Character));
+
+	// SELF-HEAL: capture the REAL pre-climb gravity NOW, before step 2's climb GE can zero it via the
+	// component. If the live value is already ~0 (a pawn stranded by the pre-fix bug), fall back to the CMC
+	// class default so we never cache-and-restore zero. EndAbility uses this to undo the mantle's gravity
+	// override even when UAFLClimbMovementComponent never bound.
+	if (const UCharacterMovementComponent* CMC = Character->GetCharacterMovement())
+	{
+		const UCharacterMovementComponent* CMCDefault = GetDefault<UCharacterMovementComponent>(CMC->GetClass());
+		CachedEntryGravityScale = (CMC->GravityScale > KINDA_SMALL_NUMBER)
+			? CMC->GravityScale
+			: (CMCDefault ? CMCDefault->GravityScale : 1.0f);
+	}
 
 	// 1. Surface validation: forward trace; no wall -> not a valid climb, cancel.
 	if (const UWorld* World = Character->GetWorld())
@@ -288,6 +301,7 @@ void UAFLGameplayAbility_Climb::TryMantleOrExit(const TCHAR* FallbackReason)
 			{
 				CMC->GravityScale = 0.0f;
 				CMC->SetMovementMode(MOVE_Flying);
+				bGravityOverridden = true; // EndAbility self-heals this if the component doesn't restore it.
 			}
 
 			// WarpToLedgeTop (Cycle 4a): set the mantle warp target so the Section_Mantle notify window skews the
@@ -433,6 +447,34 @@ void UAFLGameplayAbility_Climb::EndAbility(
 		{
 			ASC->RemoveActiveGameplayEffectBySourceEffect(ClimbActiveEffectClass, ASC);
 		}
+	}
+
+	// SELF-HEAL the mantle's direct gravity override. The GE removal above SHOULD trigger the climb
+	// component's RestoreClimbState -- but if that component never bound (observed 2026-09-02: the pawn
+	// floated forever after a mantle, zero "climb tag listener" lines in the lap log), nothing restores
+	// gravity. So if we zeroed gravity ourselves and it is still zero / still MOVE_Flying, restore it here.
+	// The guards make this a NO-OP whenever the component already restored it, so the two paths compose
+	// cleanly. MOVE_Falling lets the character settle to the ground under normal gravity.
+	if (bGravityOverridden)
+	{
+		if (const ACharacter* Character = ActorInfo ? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
+		{
+			if (UCharacterMovementComponent* CMC = Character->GetCharacterMovement())
+			{
+				if (FMath::IsNearlyZero(CMC->GravityScale))
+				{
+					CMC->GravityScale = CachedEntryGravityScale;
+				}
+				if (CMC->MovementMode == MOVE_Flying)
+				{
+					CMC->SetMovementMode(MOVE_Falling);
+					UE_LOG(LogAFLMovement, Warning,
+						TEXT("AFL_CLIMB: self-healed gravity->%.2f + MOVE_Falling (climb component did not restore -- unbound?)."),
+						CachedEntryGravityScale);
+				}
+			}
+		}
+		bGravityOverridden = false;
 	}
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
