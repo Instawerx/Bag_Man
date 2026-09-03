@@ -119,6 +119,12 @@ public:
 	 *  differs. Server-only. OnComplete(bOk = HTTP 200, RespBody = the raw {playFabId} or the error body). */
 	void PostServerResolve(const FString& ResolveJsonBody, TFunction<void(bool, const FString&)> OnComplete);
 
+	/** COMMS-4B: POST a signed body to the server-authoritative /rtc/token Lambda (mint EOS RTC room tokens for a
+	 *  voice room). SAME signer + HMAC key + server gate as PostServerEarn (one game-server caller); only the URL
+	 *  differs. Server-only -- the dedicated server mints tokens + distributes to clients (secrets stay off the
+	 *  instance). OnComplete(bOk = HTTP 200, RespBody = {participants:[{puid,token}]} or the error body). */
+	void PostServerRtcToken(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete);
+
 	/**
 	 * The three MATCH-LIFECYCLE endpoints. All three are the SAME signer, the SAME HMAC key and the SAME
 	 * server-only gate as PostServerEarn -- one game-server caller, one inbound key. Only the URL differs,
@@ -198,6 +204,8 @@ private:
 	FString EarnUrl;
 	/** A1.4 /resolve-identity endpoint URL (env AFL_RESOLVE_URL), read once under the SAME gate as EarnUrl. */
 	FString ResolveUrl;
+	/** COMMS-4B /rtc/token endpoint URL (env AFL_RTC_TOKEN_URL), read once under the SAME gate as EarnUrl. */
+	FString RtcTokenUrl;
 	/** The match-lifecycle endpoints (env AFL_ESCROW_URL / AFL_SETTLE_URL / AFL_RATING_URL), read once under
 	 *  the SAME gate as EarnUrl -- so they never exist in a cooked client process. */
 	FString EscrowUrl;

@@ -152,6 +152,7 @@ void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		EarnHmacKey = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_EARN_HMAC_KEY"));
 		EarnUrl     = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_EARN_URL"));
 		ResolveUrl  = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_RESOLVE_URL"));   // A1.4 (reuses the earn HMAC key)
+		RtcTokenUrl = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_RTC_TOKEN_URL")); // COMMS-4B voice tokens, same key
 		EscrowUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_ESCROW_URL"));   // match lifecycle, same key
 		SettleUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_SETTLE_URL"));
 		RatingUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_RATING_URL"));
@@ -979,6 +980,12 @@ void UAFLOnlineSubsystem::PostServerEarn(const FString& EarnJsonBody, TFunction<
 void UAFLOnlineSubsystem::PostServerResolve(const FString& ResolveJsonBody, TFunction<void(bool, const FString&)> OnComplete)
 {
 	PostServerSigned(ResolveUrl, ResolveJsonBody, MoveTemp(OnComplete));
+}
+
+void UAFLOnlineSubsystem::PostServerRtcToken(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
+{
+	// COMMS-4B: the dedicated server mints EOS RTC room tokens + distributes them; the secret stays off-instance.
+	PostServerSigned(RtcTokenUrl, JsonBody, MoveTemp(OnComplete));
 }
 
 // The three match-lifecycle posts. Thin by design: same signer, same key, same server gate -- only the URL
