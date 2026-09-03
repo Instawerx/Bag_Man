@@ -357,11 +357,15 @@ namespace
 		EOS_Auth_LoginOptions Options = {};
 		Options.ApiVersion  = EOS_AUTH_LOGIN_API_LATEST;
 		Options.Credentials = &Credentials;
-		// Scopes MUST match the EAS application's configured permissions (BasicProfile/FriendsList/
-		// Presence per Config/Custom/EOS) -- a superset is refused, a subset breaks consent reuse.
+		// Scopes MUST EXACTLY match the EAS application's Dev Portal permissions -- Epic refuses
+		// both an unenabled scope AND an enabled-but-unrequested one. Operator-ruled 2026-09-02:
+		// the BAG MAN application has all four enabled (Basic Profile / Online Presence / Friends /
+		// Country), so this request names all four. Config/Custom/EOS DefaultScopes mirrors this
+		// list -- change BOTH together, and only alongside the portal toggles.
 		Options.ScopeFlags = EOS_EAuthScopeFlags::EOS_AS_BasicProfile
 		                   | EOS_EAuthScopeFlags::EOS_AS_FriendsList
-		                   | EOS_EAuthScopeFlags::EOS_AS_Presence;
+		                   | EOS_EAuthScopeFlags::EOS_AS_Presence
+		                   | EOS_EAuthScopeFlags::EOS_AS_Country;
 		EOS_Auth_Login(AuthHandle, &Options, new FAFLEosLoginContext{ Subsys, bPersistent }, &AFLOnEosAuthLoginComplete);
 	}
 }
