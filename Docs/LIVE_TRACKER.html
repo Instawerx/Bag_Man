@@ -128,6 +128,14 @@ const GROUPS = [
 
 const ENTRIES = [
 
+// ==================== ENGINE / BUILD (cross-cutting) ======================
+{g:'CROSS-CUTTING', status:'COMMITTED', ssot:'ENGINE_DOCTRINE.md',
+ t:'Engine consolidation — ONE source engine (D:/UE5.6-source)',
+ what:'Retired the C: launcher engine from project use; D:/UE5.6-source now builds editor, PIE, dedicated server, cooks, and every player-facing artifact. Guard-off LyraEditor Development build Result: Succeeded; LyraServer Win64 Development Result: Succeeded — both on the source engine at the same changelist, so the client/server handshake-mismatch bug class is structurally extinct. Vendoring branch: SKIP (nothing had landed). Engine ruled UE 5.6.1 per Build.version PatchVersion 1; the stale 5.6.0 note is void.',
+ remains:'Owed operator watch: open the one-engine world in a live editor/PIE session with AIK loaded. Ship-provenance gate remains mandatory before any R2 upload.',
+ warn:'Always invoke the engine by EXPLICIT D: path. Ship-provenance gate Tools/verify_ship_provenance.ps1 REJECTS the launcher-built W2A1 beta (exit 1) and PASSES the 3 D: staged builds (exit 0); the W2A1 beta is launcher-contaminated and must not ship — remediation is an operator ruling.',
+ c:['f0edc55c','ffcdf345','f474573d','383a3e38']},
+
 // ============================== MAPS ======================================
 {g:'MAPS', status:'PROVEN', opRep:true, ssot:'ssot/map-build-system.md',
  t:'ARCANEON (L_Arena_04) — AAA art pass, signed off',
