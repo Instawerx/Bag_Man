@@ -44,20 +44,35 @@ pointing at it is correct: a stray double-click or bare `Build.bat` resolves to 
 source engine instead of a launcher. Keep the explicit-path habit anyway (§1) — this is
 belt-and-suspenders, not a license to drop the path.
 
-## 3. Provenance verification on R2 uploads (retained mandate)
+## 3. Provenance verification on R2 uploads (MANDATORY gate)
 
-Every artifact uploaded to R2 / distribution must be provenance-verified before it is
-treated as shippable — the artifact must be proven to have come from the D: source engine,
-not a stray launcher build. The launcher-reject proof from the ship-hardening block stands
-as the known-bad fixture. (`verify_ship_provenance.ps1` is the intended gate; if it is not
-yet on disk, authoring it is a named task and no R2 artifact is "verified" until it runs
-green against a D:-built artifact.)
+Every artifact uploaded to R2 / distribution MUST pass `Tools/verify_ship_provenance.ps1`
+first (authored 2026-09-03). It reads the monolithic game exe's PE version resource, which
+`FEngineVersion` stamps as `<BranchName>-CL-<Changelist>`:
 
-## 4. Engine version
+- **D: source build** → `UE5-CL-0` (BranchName `UE5`, `IsPromotedBuild=0`) → **PASS**, exit 0,
+  prints `SHIP PROVENANCE VERIFIED (D:\UE5.6-source)`.
+- **C: launcher build** → promoted `++UE5+Release-5.6-CL-44394996` (`IsPromotedBuild=1`) →
+  **REFUSED**, exit 1.
 
-The D: source tree is at **UE 5.6.0**. Syncing the source to the **5.6.1** tag is a
-**named, separate future task** — NOT part of the consolidation. Until that task runs,
-5.6.0 is the project's engine version; do not assume 5.6.1 behavior.
+Run it against any staged build root: `Tools\verify_ship_provenance.ps1 -Path <stagedRoot>`.
+Proven 2026-09-03 (validator law — rejects known-bad before its pass counts):
+- **Known-bad (REJECTS):** `D:\BagMan\StagedBuilds_W2A1_Shipping` — the launcher-built W2A1
+  beta (`++UE5+Release-5.6-CL-44394996`), exit 1. **This artifact is provenance-contaminated;
+  do NOT ship it — rebuild on D: first (operator ruling).**
+- **Known-good (PASS):** `D:\BagMan\StagedBuilds\{Windows,WindowsClient,WindowsServer}`
+  (`UE5-CL-0`), exit 0.
+
+## 4. Engine version — UE 5.6.1 (fact; Build.version is the arbiter)
+
+The project engine is **UE 5.6.1**. `D:\UE5.6-source\Engine\Build\Build.version`:
+`MajorVersion 5`, `MinorVersion 6`, `PatchVersion 1`, `CompatibleChangelist 43139311`,
+`IsPromotedBuild 0`, `BranchName "UE5"`, `Changelist 0`. (The C: launcher reported the same
+5.6.1 compat CL but promoted — `IsPromotedBuild 1`, `BranchName "++UE5+Release-5.6"`,
+`Changelist 44394996` — which is the provenance discriminator, §3.)
+
+**Ruled 2026-09-03:** 5.6.1 is confirmed fact; the earlier "engine is 5.6.0 / sync to 5.6.1
+is a future task" note was stale memory and is **void**. There is no pending 5.6.1 sync task.
 
 ## 5. What is NO LONGER a rule (deleted — do not reintroduce)
 
@@ -83,15 +98,24 @@ two-engine partition:
   "never launch the editor on D:"; a D: `LyraEditor` build overwrote the C: editor binaries
   (same per-project output path), recovered by a C: launcher rebuild.
 
-**Why it was retired:** the binary/Installed C: engine cannot compile engine plugins that
-ship without a precompiled binary — the `VoiceChat` interface module (a header-only
-`ModuleType.External`, disabled by default) is absent from the Installed engine's module
-manifest, so enabling EOS voice failed UBT with `'VoiceChat' is not a C++ module`. The
-partition also created a whole bug class: two engines at potentially different changelists
-producing client/server handshake mismatches, plus recurring "which engine did this build
-come from" drift and the clobber-and-rebuild tax. Consolidating to the single source engine
-makes voice (and any future engine-plugin work) compile natively and makes the
-handshake-mismatch class structurally extinct.
+**Why it was retired (durable reasons):** the partition created a whole bug class — two
+engines at potentially different changelists producing client/server handshake mismatches —
+plus recurring "which engine did this build come from" drift (a launcher-built beta actually
+shipped, see §3) and the clobber-and-rebuild tax. Consolidating to the single source engine
+makes any engine-plugin work build from one lane and makes the handshake-mismatch class
+structurally extinct.
+
+> **Correction (2026-09-03) — the voice-blocker premise was a misdiagnosis.** The
+> consolidation was partly motivated by the belief that enabling EOS voice required the
+> source engine because it failed UBT with `'VoiceChat' is not a C++ module`. That error was
+> later root-caused NOT to any binary-vs-source engine limitation but to a **`.uproject`
+> config mistake**: enabling the header-only `VoiceChat` **External** plugin *standalone*
+> forces UBT to instantiate it as a target C++ module (`UEBuildTarget.FindOrCreateCppModuleByName`
+> → External is not a `UEBuildModuleCPP` → throw). It reproduces **identically on both
+> engines** (verified on the D: source engine 2026-09-03). The fix is to enable only
+> `EOSVoiceChat` (which references `VoiceChat` as an *include-path* module, the way stock UE
+> does). **Voice did not actually require the consolidation** — but the consolidation still
+> stands on the durable reasons above.
 
 ---
 

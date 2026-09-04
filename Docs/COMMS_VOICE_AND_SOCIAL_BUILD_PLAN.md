@@ -17,18 +17,22 @@ with the portal live so each step is testable as written. The portal-independent
 
 ## #2 — Voice (COMMS-3 party + COMMS-4 server rooms)
 
-### STATUS 2026-09-03 — engine blocker RESOLVED (source-engine consolidation); foundation landed, guard-flip pending
+### STATUS 2026-09-03 — voice blocker root-caused + fixed (config, not engine); foundation landed, guard-flip pending
 
 `UAFLVoiceSubsystem` (`Plugins/AFLOnline/.../Voice/AFLVoiceSubsystem.{h,cpp}`) is written against the
 VERIFIED UE 5.6 `IVoiceChat` API: lifecycle `Initialize -> Connect -> Login` + `JoinChannel`, mute/PTT
 (`TransmitTo*`)/per-player volume, an `OnPeerTalking` delegate, and `afl.Voice.*` dev commands. It is compiled
 out for the foundation commit via `AFLONLINE_WITH_VOICE=0` (the `bAFLVoice` guard-flip gate in the Build.cs).
 
-**FORMER BLOCKER — now moot.** The old binary/launcher C: engine could not compile the header-only
-`VoiceChat` **External** module (no precompiled binary → `'VoiceChat' is not a C++ module`). Per
-`Docs/ENGINE_DOCTRINE.md` (2026-09-03) the project consolidated to the **D: source engine**, which compiles
-`VoiceChat` + `EOSVoiceChat` natively. The two plugins are now enabled as ordinary engine plugins in
-`Bag_Man.uproject`; no vendoring was needed (nothing had landed — the SKIP branch was taken).
+**BLOCKER root-caused — it was a `.uproject` config mistake, NOT an engine limitation.**
+`'VoiceChat' is not a C++ module` was originally blamed on the binary launcher engine. Real cause:
+enabling the header-only `VoiceChat` **External** plugin *standalone* in `Bag_Man.uproject` forces UBT to
+instantiate it as a target C++ module (`UEBuildTarget.FindOrCreateCppModuleByName` → External is not a
+`UEBuildModuleCPP` → throw). It reproduces **identically on the D: source engine** (verified 2026-09-03).
+**Fix:** enable only **`EOSVoiceChat`** in `Bag_Man.uproject`; it references `VoiceChat` as an *include-path*
+module (the stock-UE pattern), so `IVoiceChat` headers resolve without enabling the External plugin. No
+vendoring (SKIP branch taken). The consolidation (`Docs/ENGINE_DOCTRINE.md`) stands on its own merits but was
+not required to unblock voice.
 
 **Verified EOS-voice facts to use once enabled** (from reading the engine): `IVoiceChat` IS-A `IVoiceChatUser`
 (one local user, no `CreateUser`); `Login` PlayerName = the local **EOS ProductUserId string**, Credentials is
@@ -36,18 +40,21 @@ out for the foundation commit via `AFLONLINE_WITH_VOICE=0` (the `bAFLVoice` guar
 minted per puid+room by `/rtc/token`; `EVoiceChatChannelType::{NonPositional,Positional,Echo}`; reuse the game's
 EOS platform via `FEOSVoiceChatFactory::CreateInstanceWithPlatform` rather than a second config-platform.
 
-**Remaining to activate (COMMS-3 resume):** a full `-Clean` `LyraEditor` build on the D: source engine
-(guard-off gate), then set `bAFLVoice=true` in `AFLOnline.Build.cs` (flips `AFLONLINE_WITH_VOICE` to 1 and
-pulls the `VoiceChat` + platform-gated `EOSVoiceChat` module deps), declare the two plugins in
+**Remaining to activate (COMMS-3 resume):** a `LyraEditor` build on the D: source engine (guard-off gate),
+then set `bAFLVoice=true` in `AFLOnline.Build.cs` (flips `AFLONLINE_WITH_VOICE` to 1; pulls `VoiceChat` as an
+*include-path* module + platform-gated `EOSVoiceChat` link dep), declare **`EOSVoiceChat`** (only) in
 `AFLOnline.uplugin`'s `Plugins` array, add the `[EOSVoiceChat]` config (below), rebuild (guard-on gate), then
 run the audio PIE. Live RTC traffic additionally needs the operator portal checklist (Voice+Lobby on the
 product, policy features, real 64-hex key) — an EOS permissions/policy error at runtime is that named operator
 action, not a code failure.
 
 ### Enable
-1. `Bag_Man.uproject`: enable plugins **VoiceChat** + **EOSVoiceChat**.
+1. `Bag_Man.uproject`: enable **`EOSVoiceChat`** only. Do NOT enable the `VoiceChat` plugin standalone —
+   it is a header-only `External` module and enabling it throws `'VoiceChat' is not a C++ module`;
+   `EOSVoiceChat` pulls its headers via an include-path reference.
 2. `Config/DefaultEngine.ini`: `[Voice] bEnabled=true`; the EOSVoiceChat factory rows.
-3. `AFLOnline.Build.cs`: add `"VoiceChat"` (private).
+3. `AFLOnline.Build.cs`: `PublicIncludePathModuleNames.Add("VoiceChat")` + platform-gated
+   `PrivateDependencyModuleNames.Add("EOSVoiceChat")` (both behind the `bAFLVoice` guard).
 
 ### `UAFLVoiceSubsystem` (AFLOnline, GameInstanceSubsystem — module-placement law)
 - Lifecycle: `IVoiceChat* VC = IVoiceChat::Get();` → `Initialize()` → `Connect()` → `Login(PlatformId, PlayerName, Credentials)` (EOS ProductUserId + token). Client-only; guard `IsRunningDedicatedServer()`.

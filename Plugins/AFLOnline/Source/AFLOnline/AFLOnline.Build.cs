@@ -63,17 +63,14 @@ public class AFLOnline : ModuleRules
 		PublicDefinitions.Add("AFLONLINE_WITH_VOICE=" + (bAFLVoice ? "1" : "0"));
 		if (bAFLVoice)
 		{
-			// VoiceChat: header-only IVoiceChat interface (External module), cross-platform.
-			PrivateDependencyModuleNames.Add("VoiceChat");
-			// EOSVoiceChat: EOS implementation (ClientOnlyNoCommandlet; .uplugin allowlist Win64/Mac/Android).
-			// Link it only where the plugin exists; the subsystem uses IVoiceChat::Get() (modular feature)
-			// elsewhere so no unsupported platform (e.g. iOS) takes a hard link dep.
-			if (Target.Platform == UnrealTargetPlatform.Win64
-				|| Target.Platform == UnrealTargetPlatform.Mac
-				|| Target.Platform == UnrealTargetPlatform.Android)
-			{
-				PrivateDependencyModuleNames.Add("EOSVoiceChat");
-			}
+			// The subsystem talks ONLY to IVoiceChat::Get() -- the "VoiceChat" modular feature that the enabled
+			// EOSVoiceChat plugin registers at load. So AFLOnline needs only the header-only VoiceChat interface,
+			// referenced as an INCLUDE-PATH module -- never a build dep and never a standalone uproject
+			// plugin-enable (instantiating an External module as a target C++ module throws
+			// "'VoiceChat' is not a C++ module" -- UEBuildTarget.FindOrCreateCppModuleByName). No EOSVoiceChat
+			// link dep and no platform gate: the interface is header-only + cross-platform, and the provider is
+			// resolved at runtime (null on the dedicated server, where EOSVoiceChat/ClientOnly never loads).
+			PublicIncludePathModuleNames.Add("VoiceChat");
 		}
 
 		// A1.3b earn signer: OpenSSL HMAC-SHA256 for the server-authoritative /earn request signature. Mirror

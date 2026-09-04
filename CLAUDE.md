@@ -53,7 +53,8 @@ stray double-clicks — not a hazard, and not a substitute for typing the path.
 & "D:\UE5.6-source\Engine\Build\BatchFiles\Build.bat" LyraServer Win64 Development `
     -Project="C:\Dev\Bag_Man\Bag_Man.uproject" -WaitMutex
 ```
-Engine is **5.6.0**; syncing to the 5.6.1 tag is a named future task, not assumed. Authoritative
+Engine is **UE 5.6.1** (Build.version `PatchVersion 1`; the 5.6.0 note was stale memory, ruled void
+2026-09-03 — no pending 5.6.1 sync task). Authoritative
 verdict = the `Result:` line + fresh binary mtimes, never the exit code. Never mark work done off a
 successful build alone — open PIE (listen server + 2 clients for anything networked) and watch it.
 

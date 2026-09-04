@@ -219,6 +219,11 @@ this raises the bar from "zip open" to "dedicated tooling", which is exactly wha
 Institutional-grade delivery on the existing AWS estate (same account as the API Gateway/Lambda
 stack), minimal moving parts:
 
+0. **Ship-provenance gate (MANDATORY — blocks upload).** Before any release is packaged or uploaded,
+   the staged Shipping dir MUST pass `Tools\verify_ship_provenance.ps1 -Path <stagedRoot>` (exit 0 =
+   D:-source build; a promoted `++UE5+Release-*` launcher stamp is refused, exit 1). See
+   `Docs/ENGINE_DOCTRINE.md` §3. Proven known-bad: the launcher-built `StagedBuilds_W2A1_Shipping`
+   beta REJECTS — **do not ship it; rebuild on D: first.**
 1. **Artifact discipline**: every release is immutable —
    `releases/win64/<semver>/IRONICS-<semver>-Win64.zip` + `IRONICS-<semver>-Win64.sha256` +
    `manifest.json` (version, size, hash, minimum-launcher fields for a future patcher). Built from
