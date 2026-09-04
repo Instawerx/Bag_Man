@@ -9679,6 +9679,14 @@ namespace
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLAuthorStickerSampler));
 #endif // WITH_EDITOR
 
+	// Editor-world fallback for dev cheats invoked with no world (e.g. from the editor console).
+	// GEditor exists only on editor targets, so this is guarded -- server/shipping compile with null.
+#if WITH_EDITOR
+	static UWorld* AFLDevEditorWorld() { return GEditor ? GEditor->GetEditorWorldContext().World() : nullptr; }
+#else
+	static UWorld* AFLDevEditorWorld() { return nullptr; }
+#endif
+
 	// === CC-7 step 4: afl.Dev.IdentityRenderHash =================================================
 	static bool AFLCaptureIdentity(UWorld* World, TArray<FColor>& OutPixels)
 	{
@@ -9730,7 +9738,7 @@ namespace
 		// fixed camera -- none of that needs a game world, and PIE would add start-up variance to a
 		// comparison whose entire value is that two captures agree to the byte. It also avoids the
 		// standing rule against injecting console calls while PIE runs.
-		if (!World && GEditor) { World = GEditor->GetEditorWorldContext().World(); }
+		if (!World) { World = AFLDevEditorWorld(); }
 		if (!World) { Ar.Log(TEXT("no world available.")); return; }
 		const FString Tag = Args.IsValidIndex(0) ? Args[0] : TEXT("t");
 
@@ -10451,7 +10459,7 @@ namespace
 
 	void HandleAFLStickerScreenProof(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
 	{
-		if (!World && GEditor) { World = GEditor->GetEditorWorldContext().World(); }
+		if (!World) { World = AFLDevEditorWorld(); }
 		if (!World) { Ar.Log(TEXT("no world")); return; }
 
 		TArray<FColor> Off1, Off2;
@@ -10513,6 +10521,7 @@ namespace
 	// EVERY WIRE HERE IS CONFIRMED BY READING THE INPUT BACK, never by the connect call's return value.
 	void HandleAFLRepairStickerUV(const TArray<FString>& /*Args*/, UWorld* /*W*/, FOutputDevice& Ar)
 	{
+#if WITH_EDITOR
 		UMaterial* M = LoadObject<UMaterial>(nullptr, TEXT("/Game/BagMan/Materials/M_AFL_Character.M_AFL_Character"));
 		if (!M) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_TEST[RSU] no master")); return; }
 		UMaterialExpression* Scaled = AFLFindExprByGuid(M, TEXT("A7568AAB-46A2-266E-6992-EE9A7A271B7C"));
@@ -10567,6 +10576,9 @@ namespace
 			bCreated?1:0, bA?1:0, bB?1:0, bC?1:0, (bA&&bB&&bC) ? TEXT("PASS") : TEXT("FAIL"));
 		UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[RSU] END"));
 		Ar.Log(TEXT("sticker UV repair done -- see AFL_TEST[RSU]."));
+#else
+		Ar.Log(TEXT("RepairStickerUV: editor-only cheat (material graph authoring) -- unavailable on this target."));
+#endif // WITH_EDITOR
 	}
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLRepairStickerUVCmd(TEXT("afl.Dev.RepairStickerUV"),
@@ -10665,10 +10677,11 @@ namespace
 
 	void HandleAFLStickerBisect(const TArray<FString>& /*Args*/, UWorld* World, FOutputDevice& Ar)
 	{
-		if (!World && GEditor) { World = GEditor->GetEditorWorldContext().World(); }
+		if (!World) { World = AFLDevEditorWorld(); }
 		if (!World) { Ar.Log(TEXT("no world")); return; }
 
-		// ---- PART A: the graph, as it stands NOW ---------------------------------------------
+		// ---- PART A: the graph, as it stands NOW (editor-only: material-graph inspection) ----
+#if WITH_EDITOR
 		UMaterial* M = LoadObject<UMaterial>(nullptr, TEXT("/Game/BagMan/Materials/M_AFL_Character.M_AFL_Character"));
 		if (M)
 		{
@@ -10691,6 +10704,7 @@ namespace
 			UE_LOG(LogAFLCombat, Display, TEXT("AFL_TEST[BIS] A3 sampler.Coordinates -> %s"),
 				(Co && Co->Expression) ? *Co->Expression->GetClass()->GetName() : TEXT("<NONE>"));
 		}
+#endif // WITH_EDITOR (PART A: editor-only material-graph inspection)
 
 		// ---- PARTS B/C/D: the ladder ---------------------------------------------------------
 		UTexture2D* Solid = LoadObject<UTexture2D>(nullptr,
