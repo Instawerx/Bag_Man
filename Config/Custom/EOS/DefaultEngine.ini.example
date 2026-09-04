@@ -97,6 +97,22 @@ bUseNewLoginFlow=true
 ;+ClientId=<<FILL_CLIENT_ID>>
 ;+ClientSecret=<<FILL_CLIENT_SECRET__SECRET_NEVER_COMMIT>>
 
+; ---------------------------------------------------------------------------
+;  CREDENTIAL BLOCK 4 — EOSVoiceChat (COMMS-3 RTC voice). EOSVoiceChat.cpp reads section
+;  "EOSVoiceChat" from GEngineIni and stands up its own EOS RTC platform, which
+;  UAFLVoiceSubsystem consumes via IVoiceChat::Get(). Use the SAME values as the artifact
+;  above. FILL + UNCOMMENT in the real (gitignored) file. Secret-bearing block 4 keys
+;  (ClientSecret / ClientEncryptionKey) are NEVER committed.
+; ---------------------------------------------------------------------------
+;[EOSVoiceChat]
+;bEnabled=true
+;ProductId=<<FILL_PRODUCT_ID>>
+;SandboxId=<<FILL_SANDBOX_ID>>
+;DeploymentId=<<FILL_DEPLOYMENT_ID>>
+;ClientId=<<FILL_CLIENT_ID>>
+;ClientSecret=<<FILL_CLIENT_SECRET__SECRET_NEVER_COMMIT>>
+;ClientEncryptionKey=<<FILL_ENCRYPTION_KEY_64_HEX>>
+
 [/Script/Engine.Engine]
 !NetDriverDefinitions=ClearArray
 +NetDriverDefinitions=(DefName="GameNetDriver",DriverClassName="/Script/SocketSubsystemEOS.NetDriverEOS",DriverClassNameFallback="/Script/OnlineSubsystemUtils.IpNetDriver")

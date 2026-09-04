@@ -59,7 +59,7 @@ public class AFLOnline : ModuleRules
 		// binary launcher could not, because VoiceChat is a header-only External module with no precompiled
 		// binary ("'VoiceChat' is not a C++ module"). GUARD-FLIP GATE (COMMS-3): set bAFLVoice=true to activate
 		// the subsystem and pull the deps below. Stays false for the foundation commit (guard-off build gate).
-		bool bAFLVoice = false;
+		bool bAFLVoice = true;
 		PublicDefinitions.Add("AFLONLINE_WITH_VOICE=" + (bAFLVoice ? "1" : "0"));
 		if (bAFLVoice)
 		{

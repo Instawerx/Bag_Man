@@ -31,6 +31,11 @@
 			"Name": "ModularGameplay",
 			"Enabled": true,
 			"Comment": "COMMS-1 text chat: UGameFrameworkComponentManager::AddComponentRequest attaches UAFLChatComponent to ALyraPlayerController (a GameFramework receiver) without a PC subclass."
+		},
+		{
+			"Name": "EOSVoiceChat",
+			"Enabled": true,
+			"Comment": "COMMS-3 voice. EOSVoiceChat registers the 'VoiceChat' modular feature that UAFLVoiceSubsystem consumes via IVoiceChat::Get(). AFLOnline references the header-only VoiceChat interface as an include-path module ONLY (never enable the VoiceChat External plugin standalone -- UBT then instantiates it as a target C++ module and throws 'VoiceChat is not a C++ module'). EOSVoiceChat is also enabled project-wide in Bag_Man.uproject; declaring it here ties its load to AFLOnline."
 		}
 	]
 }
