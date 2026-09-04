@@ -196,9 +196,22 @@ for now.
   L_ValleyVillage/L_Arena_05 + AFL/_Bridge + MegaBase Showreel/HDRI git-rm'd; untracked anim packs
   disk-deleted. Hub's MegaBase/Levels refs verified and KEPT. FreeAnimationLibrary tracked climb
   files KEPT. **Content 64.1 GB → 22.9 GB.** Commit `bf16e71e`.
-- **Track C IN FLIGHT**: post-prune Shipping client BuildCookRun running on the D: lane;
-  gate = manifest diff vs `cook_20260810g` + `cook_soft_refs.py --strict-never-cook` +
-  `cook_datalayers.py`, then the full cooked live-flow gate (§5).
+- **Track C COMPLETE (2026-09-04)** — cooked, provenance-clean, packaged:
+  - **Engine consolidated to ONE source engine** (`Docs/ENGINE_DOCTRINE.md`): `D:/UE5.6-source` builds
+    editor, PIE, server, cooks, all artifacts; the C: launcher is retired. Both consolidation builds
+    green (LyraEditor + LyraServer, same CL — handshake-mismatch class extinct). Engine ruled UE 5.6.1.
+  - **Shipping CLIENT cook** (`LyraGameEOS Win64 Shipping`): BUILD SUCCESSFUL, 0 cook errors / 99 warnings,
+    staged **6.15 GB** → `D:\BagMan\StagedBuilds\Windows`.
+  - **First Shipping SERVER cook** (`LyraServer Win64 Shipping`): BUILD SUCCESSFUL, staged **3.13 GB**
+    → `D:\BagMan\StagedBuilds\WindowsServer`.
+  - **Both provenance-clean**: `Tools/verify_ship_provenance.ps1` → `UE5-CL-0` PASS (client + server).
+    Gate authored + validator-law proven (REJECTS the launcher-built `StagedBuilds_W2A1_Shipping` beta).
+  - **COMMS-3 voice ON** (`AFLONLINE_WITH_VOICE=1`, EOSVoiceChat provider) cooked into the client; the
+    `afl.Voice.*` console harness is the pre-armed 2-client audio-proof mechanism.
+  - **§11 release artifact packaged** (steps 0–1): `releases/win64/0.1.0-beta/IRONICS-0.1.0-beta-Win64.zip`
+    (4.05 GB, pdb excluded, store-mode) + `.sha256` + `manifest.json`. Commits `f0edc55c..70970633` on `personal`.
+  - **Remaining for Track C sign-off**: the cooked live-flow **watched** lap (§5 acceptance) + the
+    manifest-diff lint vs `cook_20260810g`.
 
 ## 10 · Encryption (operator addition 1) — RULED + IMPLEMENTED
 
@@ -257,11 +270,15 @@ To be executed in the website/backend repo, planned here for sequencing after Tr
 
 ## 13 · Amended remaining sequence
 
-1. Track C cook completes → lint gates + manifest diff + aggregate new package attribution.
-2. Rebuild editor binaries on C: (uproject plugin changes), operator PIE sanity lap.
+1. **✅ Track C cook DONE** (client + server, provenance-clean, 2026-09-04). Remaining: manifest-diff lint
+   vs `cook_20260810g` + aggregate new-package attribution.
+2. **OBSOLETE** — "rebuild editor binaries on C:" is superseded by the source-engine consolidation
+   (`Docs/ENGINE_DOCTRINE.md`); the editor builds on `D:/UE5.6-source`. Remaining: operator one-engine PIE lap.
 3. ARCANEON texture-budget pass (A3 revised: cap oversized DeepWaterStation/CyberPunk textures
    referenced by the closure — safer than asset moves; measured against the new manifest).
-4. First **Shipping server** build (`-serverconfig=Shipping`) + full cooked live-flow gate (§5) —
-   EOS sign-in → hub/store lap → every roster map → GameLift match with PlayFab persistence.
-5. Package the release zip per §11, stand up the S3/CloudFront/Lambda mint, website download page.
+4. **✅ First Shipping server build DONE** (`LyraServer` Shipping, provenance-clean). Remaining: the full
+   cooked live-flow **watched** gate (§5) — EOS sign-in → hub/store lap → every roster map → GameLift match.
+5. **◐ Release §11 steps 0–1 DONE** (provenance gate + zip/sha256/manifest at `releases/win64/0.1.0-beta/`).
+   Remaining: stand up the S3/CloudFront/Lambda mint + website download page (AWS/website — needs a real
+   release semver; `0.1.0-beta` is a placeholder).
 6. Admin/website final pass (§12).

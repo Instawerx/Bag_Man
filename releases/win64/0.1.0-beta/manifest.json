@@ -1,0 +1,14 @@
+﻿{
+    "product":  "IRONICS",
+    "version":  "0.1.0-beta",
+    "platform":  "Win64",
+    "channel":  "beta",
+    "file":  "IRONICS-0.1.0-beta-Win64.zip",
+    "sizeBytes":  4352446412,
+    "sha256":  "971e6238112b9d7c537d4ad45e926a079e62ca78d6959470267e7545114e652d",
+    "commit":  "70970633",
+    "engine":  "UE 5.6.1 source (D:/UE5.6-source)",
+    "provenance":  "UE5-CL-0 verified (verify_ship_provenance.ps1 PASS)",
+    "target":  "LyraGameEOS Win64 Shipping",
+    "minimumLauncher":  "0.1.0"
+}

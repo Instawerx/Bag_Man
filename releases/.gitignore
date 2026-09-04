@@ -1,0 +1,8 @@
+# Release build artifacts live on D:\BagMan\releases and (once uploaded) the private S3 bucket -- NEVER in git.
+# Only the small immutable records (manifest.json + *.sha256) are tracked here as a release ledger.
+*.zip
+*.pak
+*.ucas
+*.utoc
+*.exe
+*.pdb
