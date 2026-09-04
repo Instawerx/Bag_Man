@@ -1,7 +1,35 @@
 # IRONICS — D1 Distribution Plan (signed archive + website download)
 
-**Status: PROPOSED — awaiting operator approval. Nothing is built or deployed off this doc.**
-Execution plan for **BPD §11/§12** (`Docs/BUILD_PRUNE_DEPLOY_PLAN.md` remains the design SSOT).
+**Status: IMPLEMENTED in the Ironics-Platform repo (2026-09-04), awaiting operator deploy.**
+Delivered through the existing **`ironics.org` portal** (sign-up → age gate → approval → download),
+NOT a green-field site — the earlier "no website" assumption was wrong; the platform already exists.
+Code: `Instawerx/Ironics-Platform`, branch `feat/beta-auto-approval-and-download`
+(commits `ba3f7e3` auto-approval, `ffb9829` download). `Docs/BUILD_PRUNE_DEPLOY_PLAN.md` remains the
+design SSOT.
+
+**What was built (the two gaps the operator named):**
+- **Automatic approval** — `POST /v1/beta/apply` now runs the portal's own `approveAccount` on a
+  genuine application (the design-handoff funnel `application_completed → approved`): a 13+ applicant
+  is APPROVED + issued a Founder number instantly. It was the *only* approval path (no admin route is
+  deployed). Reused §5.4, no rework.
+- **Download at `/portal`** — `GET /v1/download/latest` (session-guarded, APPROVED-only) mints a
+  short-TTL **S3 presigned** URL from a private (`block-all-public`) `ironics-releases` bucket via the
+  live `latest.json` pointer; the `PortalStatus` download card shows version / size / SHA-256 + the
+  SmartScreen "More info → Run anyway" guidance.
+
+**D1 delivery choice (deviation from §11, on purpose):** presigned S3, **not** CloudFront-signed URLs
+— the genuinely simplest live path (no distribution to propagate, no signing-key secret to provision),
+bucket still private, client contract unchanged if CloudFront/OAC is layered in later.
+
+**Go-live (operator, in order):** (1) merge the branch through the Lighthouse gate; (2)
+`npm run deploy -w @ironics/api` (creates the bucket + route + widened BetaApply IAM; run `cdk diff`
+first — synth needs Docker/esbuild); (3) `apps/api/scripts/publish-release.ps1 -Zip <0.1.0 zip>
+-Version 0.1.0 -ProvenanceScript <game>/Tools/verify_ship_provenance.ps1` to upload the build + point
+`latest.json`. Then the first authentic test: sign up → approved → download.
+
+---
+
+*Original proposal below (kept for the record; the green-field assumptions in it are superseded).*
 Governs the *simplest live distribution path* (Track D1): host the packaged Shipping client behind
 the website, gated by short-TTL signed URLs. **No patching. No launcher app. No Authenticode cert.**
 
