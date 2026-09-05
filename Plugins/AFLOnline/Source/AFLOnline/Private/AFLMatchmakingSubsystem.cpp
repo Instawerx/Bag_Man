@@ -258,6 +258,13 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 		return;
 	}
 
+	// A FRESH queue attempt re-arms the one-shot LEAGUE bot-fallback. Adding a SECOND cell to a live queue
+	// does not -- the fallback is still pending for the oldest entry.
+	if (Entries.Num() == 0)
+	{
+		bLeagueFallbackFired = false;
+	}
+
 	// ⚠ COUNTED BEFORE THE STATE IS DERIVED, because RederiveState reads it. An in-flight join is what makes
 	// Requesting true when no entry has been accepted yet; with entries already live the derived state stays
 	// Queued, which is correct -- the player IS queued, and is additionally joining somewhere else.
@@ -362,6 +369,44 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 		});
 }
 
+bool UAFLMatchmakingSubsystem::ShouldLeagueBotFallback() const
+{
+	if (Entries.Num() == 0)
+	{
+		return false;
+	}
+	// A staked entry suppresses the fallback -- a staked match waits for real humans (R85: bots are barred
+	// from staked play), so the offline bot match only makes sense when every live cell is unstaked LEAGUE.
+	for (const FEntry& E : Entries)
+	{
+		if (E.Stake > 0)
+		{
+			return false;
+		}
+	}
+	return ElapsedQueuedSeconds() >= LeagueBotFallbackSeconds;
+}
+
+void UAFLMatchmakingSubsystem::WithdrawAllTicketsFireAndForget()
+{
+	if (UAFLOnlineSubsystem* Online = GetGameInstance() ? GetGameInstance()->GetSubsystem<UAFLOnlineSubsystem>() : nullptr)
+	{
+		// Empty selector == cancel EVERY cell. Fire-and-forget: an unstaked ticket holds no exposure to
+		// release, and we are committing to the offline match regardless of the withdrawal's outcome.
+		Online->PostPlayerApi(TEXT("/cancel-ticket"), TEXT("{}"), [](bool, const FString&) {});
+	}
+	Entries.Reset();
+	ResetPollProgress();
+}
+
+void UAFLMatchmakingSubsystem::NotifyFallbackFailed(const FText& Reason)
+{
+	// The host could not stand up an offline match (no playlist backs the cell). Re-arm so a retry can fall
+	// back again, and surface the reason instead of hanging on "Filling with bots...".
+	bLeagueFallbackFired = false;
+	SetState(EAFLMatchmakingState::Failed, Reason);
+}
+
 void UAFLMatchmakingSubsystem::PollMatchStatus()
 {
 	if (State != EAFLMatchmakingState::Queued)
@@ -379,6 +424,26 @@ void UAFLMatchmakingSubsystem::PollMatchStatus()
 		StopPolling();
 		SetState(EAFLMatchmakingState::Failed,
 			NSLOCTEXT("AFL", "MMTimeout", "No match found. Try again, or pick a busier queue."));
+		return;
+	}
+
+	// OPTION A -- LEAGUE bot-fallback (operator ruling 2026-09-04: wait 30s for live players, then fill with
+	// bots). A purely-LEAGUE queue that has waited the window with no placed match drops into a LOCAL offline
+	// bot match, so a solo player gets INTO a game after 30s instead of polling for hours against a backend
+	// with no venue-matched dedicated server yet. Staked queues never reach here (ShouldLeagueBotFallback
+	// requires every entry unstaked). The HOST lives in AFLGameCore: capture the cell, withdraw the tickets,
+	// and signal it.
+	if (!bLeagueFallbackFired && ShouldLeagueBotFallback())
+	{
+		const FString FallbackQueueId = GetOldestQueuedQueueId();
+		bLeagueFallbackFired = true;
+		StopPolling();
+		WithdrawAllTicketsFireAndForget();  // fire-and-forget /cancel-ticket + clears Entries
+		SetState(EAFLMatchmakingState::Joining, NSLOCTEXT("AFL", "MMBotFallback", "Filling your match with bots..."));
+		UE_LOG(LogAFLMatchmaking, Log,
+			TEXT("AFL_MM: LEAGUE bot-fallback after %.0fs with no match -- hosting an offline bot match for %s."),
+			LeagueBotFallbackSeconds, *FallbackQueueId);
+		OnLeagueFallbackDue.Broadcast(FallbackQueueId);
 		return;
 	}
 

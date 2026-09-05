@@ -121,6 +121,20 @@ public:
 	/** Fires on every transition, including Failed. The front end binds this to drive the PLAY button. */
 	FAFLOnMatchmakingState OnStateChanged;
 
+	/**
+	 * OPTION A -- LEAGUE bot-fallback signal. Fires when a purely-LEAGUE (unstaked) queue has waited
+	 * LeagueBotFallbackSeconds with no real match placed, so the player should drop into a LOCAL offline bot
+	 * match instead of polling for hours against a backend that has no venue-matched dedicated server yet. The
+	 * HOST lives in AFLGameCore (which may see LyraGame/CommonSession -- this always-loaded online module
+	 * deliberately may not), so this only SIGNALS; it carries the cell to host.
+	 */
+	DECLARE_MULTICAST_DELEGATE_OneParam(FAFLOnLeagueFallbackDue, const FString& /*QueueId*/);
+	FAFLOnLeagueFallbackDue OnLeagueFallbackDue;
+
+	/** Called back by the AFLGameCore host when it could NOT host the offline fallback (no playlist backs the
+	 *  cell). Moves the subsystem to Failed so the UI recovers rather than hanging on "Filling with bots...". */
+	void NotifyFallbackFailed(const FText& Reason);
+
 private:
 	void SetState(EAFLMatchmakingState NewState, const FText& Reason = FText());
 	void PollMatchStatus();
@@ -159,6 +173,21 @@ private:
 
 	/** Seconds this queue attempt has been waiting. 0 when not queued. */
 	float ElapsedQueuedSeconds() const;
+
+	/** OPTION A trigger test: every live entry is unstaked AND the oldest has waited LeagueBotFallbackSeconds.
+	 *  Any staked entry suppresses it -- bots are barred from staked play (R85), so a staked queue waits. */
+	bool ShouldLeagueBotFallback() const;
+
+	/** Withdraw every live ticket (fire-and-forget /cancel-ticket, empty selector) and clear the entries --
+	 *  the fallback commits to the offline match, so the backend must not also place a real one mid-handoff. */
+	void WithdrawAllTicketsFireAndForget();
+
+	/** Fires exactly once per queue attempt (reset on a fresh StartMatchmaking / on NotifyFallbackFailed). */
+	bool bLeagueFallbackFired = false;
+
+	/** Seconds a purely-LEAGUE queue waits for live players before the offline bot-fallback (operator ruling
+	 *  2026-09-04: "wait 30s for live players, then fill the match with bots"). */
+	static constexpr float LeagueBotFallbackSeconds = 30.0f;
 
 	/**
 	 * THE BACKOFF LADDER. A staked ticket lives 43,200s at FlexMatch while the old client gave up at 603s --
