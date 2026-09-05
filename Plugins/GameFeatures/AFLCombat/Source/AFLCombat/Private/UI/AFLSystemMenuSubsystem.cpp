@@ -12,6 +12,7 @@
 #include "Misc/CoreMisc.h"                 // IsRunningDedicatedServer()
 #include "Styling/CoreStyle.h"             // GetDefaultFontStyle (hint)
 #include "TimerManager.h"                  // hint auto-dismiss timer
+#include "UI/AFLW_Chat.h"                  // Enter opens text chat (COMMS wiring)
 #include "UI/AFLW_SystemMenu.h"
 #include "UObject/UObjectGlobals.h"        // FCoreUObjectDelegates::PostLoadMapWithWorld
 #include "Widgets/Layout/SBox.h"           // hint layout
@@ -50,9 +51,10 @@ namespace
 }
 
 /**
- * The Slate pre-processor. Runs before widget/gameplay input, so it works even when a menu is focused or
- * the player is stuck in-world. Holds a weak ref to its owning subsystem; the subsystem outlives it
- * (it registers/unregisters this).
+ * The Slate pre-processor for the global gameplay hotkeys. Runs before widget/gameplay input, so it works
+ * even when a menu is focused or the player is stuck in-world. Handles Escape (open the System Menu) and
+ * Enter (open text chat) -- both ONLY from gameplay, yielding when a CommonUI widget owns focus. Holds a
+ * weak ref to its owning subsystem; the subsystem outlives it (it registers/unregisters this).
  */
 class FAFLEscapeInputProcessor : public IInputProcessor
 {
@@ -75,6 +77,20 @@ public:
 				{
 					O->OpenSystemMenu();
 					return true; // consume: Escape opened the menu from gameplay
+				}
+			}
+		}
+		if (InKeyEvent.GetKey() == EKeys::Enter && !InKeyEvent.IsRepeat())
+		{
+			if (UAFLSystemMenuSubsystem* O = Owner.Get())
+			{
+				// Enter opens text chat, but ONLY from gameplay. When chat (or any menu) is focused,
+				// IsGameplayContext() is false, so Enter is not consumed here -> it reaches the focused
+				// widget and the chat compose box sends the message. One key both opens and sends.
+				if (IsGameplayContext())
+				{
+					UAFLW_Chat::Open(O);
+					return true; // consume: Enter opened chat from gameplay
 				}
 			}
 		}
@@ -171,7 +187,7 @@ void UAFLSystemMenuSubsystem::ShowMenuHint(UWorld* World)
 		.Padding(FMargin(0.f, 30.f, 0.f, 0.f))
 		[
 			SNew(STextBlock)
-			.Text(NSLOCTEXT("AFLSysMenu", "MenuHint", "Press  ESC  for the menu  (wallet, sign out, quit)"))
+			.Text(NSLOCTEXT("AFLSysMenu", "MenuHint", "Press  ESC  for the menu  (wallet, sign out, quit)      Press  ENTER  to chat"))
 			.ColorAndOpacity(FSlateColor(FLinearColor(0.86f, 0.90f, 0.98f, 0.95f)))
 			.Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
 			.ShadowOffset(FVector2D(1.f, 1.f))
