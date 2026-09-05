@@ -43,6 +43,8 @@ protected:
 	/** Menu input mode + visible cursor -- so the overlay is interactive even when opened FROM gameplay
 	 *  (the global-Esc case where no menu was focused). Cursor shown, keys routed to the UI. */
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
+	/** Populate the wallet readout once the owning player (and its PlayerState wallet) is resolvable. */
+	virtual void NativeOnActivated() override;
 
 	UFUNCTION() void HandleResume();
 	UFUNCTION() void HandleSettings();
@@ -60,6 +62,8 @@ private:
 	void ShowConfirm(EConfirm Which);
 	void DoSignOut();
 	void DoQuit();
+	/** Read the owning player's wallet (Volts/Watts) into WalletText; "—" until IsBalanceKnown. */
+	void RefreshWallet();
 
 	// Panels toggled by visibility (built once in RebuildWidget).
 	UPROPERTY(Transient) TObjectPtr<UWidget> MenuPanel = nullptr;
@@ -67,6 +71,8 @@ private:
 	UPROPERTY(Transient) TObjectPtr<UTextBlock> ConfirmTitle = nullptr;
 	UPROPERTY(Transient) TObjectPtr<UTextBlock> ConfirmBody = nullptr;
 	UPROPERTY(Transient) TObjectPtr<UTextBlock> ConfirmProceedLabel = nullptr;
+	/** Header wallet balance line (VOLTS / WATTS), populated on activation. */
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> WalletText = nullptr;
 
 	/** Default focus targets per step. */
 	UPROPERTY(Transient) TObjectPtr<UButton> SignOutButton = nullptr;      // menu step

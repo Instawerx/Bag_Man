@@ -13,11 +13,13 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Cosmetics/AFLWalletComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 #include "Input/CommonUIInputTypes.h"      // FUIInputConfig / ECommonInputMode
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -99,7 +101,7 @@ TSharedRef<SWidget> UAFLW_SystemMenu::RebuildWidget()
 	{
 		S->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
 		S->SetAlignment(FVector2D(0.5f, 0.5f));
-		S->SetSize(FVector2D(468.f, 480.f));
+		S->SetSize(FVector2D(468.f, 500.f));
 	}
 	UVerticalBox* MenuCol = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Menu->AddChild(MenuCol);
@@ -116,6 +118,17 @@ TSharedRef<SWidget> UAFLW_SystemMenu::RebuildWidget()
 	Style(Sub, Body, 12.f, TextMuted);
 	Sub->SetText(NSLOCTEXT("AFLSysMenu", "Sub", "Signed in with Epic"));
 	if (UVerticalBoxSlot* VS = MenuCol->AddChildToVerticalBox(Sub))
+	{
+		VS->SetPadding(FMargin(4.f, 0.f, 0.f, 6.f));
+	}
+
+	// Wallet balance -- surfaced here because the hub HUD has no wallet viewer (every wallet reader is a
+	// front-end store screen). Populated in NativeOnActivated -> RefreshWallet once the owning player's
+	// PlayerState wallet resolves; "-" until IsBalanceKnown (never a fake 0 on a currency line).
+	WalletText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	Style(WalletText, Body, 13.f, Accent);
+	WalletText->SetText(NSLOCTEXT("AFLSysMenu", "WalletLoading", "VOLTS  —     WATTS  —"));
+	if (UVerticalBoxSlot* VS = MenuCol->AddChildToVerticalBox(WalletText))
 	{
 		VS->SetPadding(FMargin(4.f, 0.f, 0.f, 18.f));
 	}
@@ -218,6 +231,46 @@ TSharedRef<SWidget> UAFLW_SystemMenu::RebuildWidget()
 	Proceed->OnClicked.AddDynamic(this, &UAFLW_SystemMenu::HandleConfirmProceed);
 
 	return Super::RebuildWidget();
+}
+
+void UAFLW_SystemMenu::NativeOnActivated()
+{
+	Super::NativeOnActivated();
+	RefreshWallet();
+}
+
+void UAFLW_SystemMenu::RefreshWallet()
+{
+	if (!WalletText)
+	{
+		return;
+	}
+	int32 Volts = 0;
+	int32 Watts = 0;
+	bool bKnown = false;
+	if (const APlayerController* PC = GetOwningPlayer())
+	{
+		if (const APlayerState* PS = PC->PlayerState)
+		{
+			if (const UAFLWalletComponent* Wallet = PS->FindComponentByClass<UAFLWalletComponent>())
+			{
+				Volts = Wallet->GetVolts();
+				Watts = Wallet->GetWatts();
+				bKnown = Wallet->IsBalanceKnown();
+			}
+		}
+	}
+	// Never render a fake 0 on a currency line (wallet doctrine: 0 and "not yet" are opposite claims).
+	if (bKnown)
+	{
+		WalletText->SetText(FText::Format(
+			NSLOCTEXT("AFLSysMenu", "WalletFmt", "VOLTS  {0}     WATTS  {1}"),
+			FText::AsNumber(Volts), FText::AsNumber(Watts)));
+	}
+	else
+	{
+		WalletText->SetText(NSLOCTEXT("AFLSysMenu", "WalletUnknown", "VOLTS  —     WATTS  —"));
+	}
 }
 
 void UAFLW_SystemMenu::ShowMenu()

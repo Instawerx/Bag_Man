@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Engine/TimerHandle.h"
 #include "UObject/WeakObjectPtr.h"
 
 #include "AFLSystemMenuSubsystem.generated.h"
@@ -44,6 +45,15 @@ public:
 	void OpenSystemMenu();
 
 private:
+	/** On loading a gameplay map (not the front-end Armory), briefly show a "Press ESC for the menu" hint.
+	 *  The menu itself works (first live-lap log-proven), but nothing on screen advertised that Esc opens it. */
+	void HandlePostLoadMap(UWorld* LoadedWorld);
+	void ShowMenuHint(UWorld* World);
+	void RemoveMenuHint();
+
 	TSharedPtr<FAFLEscapeInputProcessor> EscapeProcessor;
 	TWeakObjectPtr<UAFLW_SystemMenu> OpenMenu;
+	TSharedPtr<class SWidget> HintWidget;
+	FDelegateHandle MapLoadHandle;
+	FTimerHandle HintTimerHandle;
 };

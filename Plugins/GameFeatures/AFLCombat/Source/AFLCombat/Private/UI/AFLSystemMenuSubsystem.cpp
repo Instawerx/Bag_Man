@@ -5,12 +5,18 @@
 #include "AFLCombat.h"
 #include "Engine/Engine.h"                 // GEngine->GameViewport
 #include "Engine/GameViewportClient.h"     // GetGameViewportWidget()
+#include "Engine/World.h"                  // GetMapName / GetTimerManager (hint)
 #include "Framework/Application/IInputProcessor.h"
 #include "Framework/Application/SlateApplication.h"
 #include "InputCoreTypes.h"
 #include "Misc/CoreMisc.h"                 // IsRunningDedicatedServer()
+#include "Styling/CoreStyle.h"             // GetDefaultFontStyle (hint)
+#include "TimerManager.h"                  // hint auto-dismiss timer
 #include "UI/AFLW_SystemMenu.h"
+#include "UObject/UObjectGlobals.h"        // FCoreUObjectDelegates::PostLoadMapWithWorld
+#include "Widgets/Layout/SBox.h"           // hint layout
 #include "Widgets/SViewport.h"
+#include "Widgets/Text/STextBlock.h"       // hint text
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLSystemMenuSubsystem)
 
@@ -101,6 +107,11 @@ void UAFLSystemMenuSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	{
 		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_SYSMENU: Slate not initialized -- global Escape handler NOT registered."));
 	}
+
+	// Discoverability: a brief "Press ESC for the menu" hint on entering a gameplay map. The menu itself
+	// works (first live-lap log-proven: AFL_SYSMENU registered + opened), but nothing on-screen told the
+	// player Esc opens it -- the "top-bar account chip" entry point is deferred WBP polish.
+	MapLoadHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UAFLSystemMenuSubsystem::HandlePostLoadMap);
 }
 
 void UAFLSystemMenuSubsystem::Deinitialize()
@@ -110,6 +121,12 @@ void UAFLSystemMenuSubsystem::Deinitialize()
 		FSlateApplication::Get().UnregisterInputPreProcessor(EscapeProcessor);
 	}
 	EscapeProcessor.Reset();
+	if (MapLoadHandle.IsValid())
+	{
+		FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(MapLoadHandle);
+		MapLoadHandle.Reset();
+	}
+	RemoveMenuHint();
 	Super::Deinitialize();
 }
 
@@ -120,4 +137,58 @@ void UAFLSystemMenuSubsystem::OpenSystemMenu()
 		return; // one at a time
 	}
 	OpenMenu = UAFLW_SystemMenu::Open(this);
+}
+
+void UAFLSystemMenuSubsystem::HandlePostLoadMap(UWorld* LoadedWorld)
+{
+	if (IsRunningDedicatedServer() || !LoadedWorld)
+	{
+		return;
+	}
+	// The front-end (Armory) uses Esc as "back", so the menu hint only belongs on gameplay maps.
+	if (LoadedWorld->GetMapName().Contains(TEXT("Armory")))
+	{
+		RemoveMenuHint();
+		return;
+	}
+	ShowMenuHint(LoadedWorld);
+}
+
+void UAFLSystemMenuSubsystem::ShowMenuHint(UWorld* World)
+{
+	if (!GEngine || !GEngine->GameViewport || !World)
+	{
+		return;
+	}
+	RemoveMenuHint();
+
+	// Transient (not persistent) on purpose: a corner chip risks colliding with the health/weapon HUD, so
+	// a top-centre hint that auto-dismisses teaches the control without permanently occupying the screen.
+	// Text-only with a shadow -- no SBorder dependency; readable over the bright arena ground.
+	HintWidget = SNew(SBox)
+		.HAlign(HAlign_Center)
+		.VAlign(VAlign_Top)
+		.Padding(FMargin(0.f, 30.f, 0.f, 0.f))
+		[
+			SNew(STextBlock)
+			.Text(NSLOCTEXT("AFLSysMenu", "MenuHint", "Press  ESC  for the menu  (wallet, sign out, quit)"))
+			.ColorAndOpacity(FSlateColor(FLinearColor(0.86f, 0.90f, 0.98f, 0.95f)))
+			.Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+			.ShadowOffset(FVector2D(1.f, 1.f))
+			.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f))
+		];
+	GEngine->GameViewport->AddViewportWidgetContent(HintWidget.ToSharedRef(), /*ZOrder*/ 5);
+
+	// Auto-dismiss after a few seconds -- long enough to read once on entry, gone before it becomes clutter.
+	World->GetTimerManager().SetTimer(HintTimerHandle,
+		FTimerDelegate::CreateUObject(this, &UAFLSystemMenuSubsystem::RemoveMenuHint), 6.0f, /*bLoop*/ false);
+}
+
+void UAFLSystemMenuSubsystem::RemoveMenuHint()
+{
+	if (HintWidget.IsValid() && GEngine && GEngine->GameViewport)
+	{
+		GEngine->GameViewport->RemoveViewportWidgetContent(HintWidget.ToSharedRef());
+	}
+	HintWidget.Reset();
 }
