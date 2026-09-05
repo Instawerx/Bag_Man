@@ -38,6 +38,9 @@ protected:
 	// 2026-09-02) -- controller/keyboard users could not act on the cards. The Home screen focuses its League
 	// door the same way.
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
+	// Own the input mode so the WHERE TO? door cards are always clickable from a cold-boot input state
+	// (the first-launch dead-button race). Matches every working menu; the Landing sets the same.
+	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 
 	UFUNCTION() void HandleLobby();
 	UFUNCTION() void HandleMatchmaking();

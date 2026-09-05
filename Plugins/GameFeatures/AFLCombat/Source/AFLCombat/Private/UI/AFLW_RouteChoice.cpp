@@ -181,6 +181,13 @@ bool UAFLW_RouteChoice::NativeOnHandleBackAction()
 	return true;
 }
 
+TOptional<FUIInputConfig> UAFLW_RouteChoice::GetDesiredInputConfig() const
+{
+	// Menu mode, visible uncaptured cursor -- the door cards need the mouse, and owning the input mode
+	// keeps them clickable regardless of the input state the Landing handoff leaves active.
+	return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);
+}
+
 void UAFLW_RouteChoice::HandleLobby()       { Choose(false); }
 void UAFLW_RouteChoice::HandleMatchmaking() { Choose(true); }
 

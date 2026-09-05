@@ -124,8 +124,10 @@ kept content); **fresh-clone checkout 66 GB → ~21–25 GB**. GitHub-side stora
 ## 5 · Track C — Ship builds & the keep-the-live-game gate
 
 Shipping lane (unchanged doctrine): D:\UE5.6-source RunUAT BuildCookRun.
-- Client: `-client -clientconfig=Shipping` LyraGameEOS/CustomConfig=EOS (needs the gitignored
-  `Config/Custom/EOS/DefaultEngine.ini` present).
+- Client: `-clientconfig=Shipping -target=IRONICS` (CustomConfig=EOS; needs the gitignored
+  `Config/Custom/EOS/DefaultEngine.ini` present). `IRONICS.Target.cs` is a clone of `LyraGameEOS`
+  that only rebrands the staged exe to **IRONICS.exe**; `-target=LyraGameEOS` still builds the
+  identical binary under the old name if ever needed.
 - Server: **first Shipping server** `-server -serverconfig=Shipping -noclient` (all prior server
   cooks were Development).
 - Junctions Saved/Cooked+StagedBuilds+Intermediate → D:\BagMan already in place; D: has 501 GB free.

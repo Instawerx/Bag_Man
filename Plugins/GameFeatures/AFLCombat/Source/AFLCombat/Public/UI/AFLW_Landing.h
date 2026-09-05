@@ -35,6 +35,8 @@ protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeOnActivated() override;
 	virtual bool NativeOnHandleBackAction() override; // root screen: swallow back
+	// Own the input mode so the sign-in / route cards are always clickable from a cold-boot input state.
+	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 
 	UFUNCTION() void HandleSignInClicked();
 	UFUNCTION() void HandleStayToggled();

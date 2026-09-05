@@ -219,9 +219,35 @@ void UAFLW_Landing::KickLocalPlayInit()
 	{
 		if (UCommonUserSubsystem* Users = GI->GetSubsystem<UCommonUserSubsystem>())
 		{
-			Users->TryToInitializeForLocalPlay(0, FInputDeviceId(), false);
+			// Equivalent to TryToInitializeForLocalPlay(0, <default device>, bCanUseGuestLogin=false), but
+			// with login errors SUPPRESSED. On PC the boot CanPlay login runs EOS AutoLogin -> ShowLoginUI,
+			// and FEOSHelpers::PlatformTriggerLoginUI is an engine stub on Windows (consoles only) that
+			// returns FOnlineError(NotImplemented). Left unsuppressed, CommonUser raises a fullscreen
+			// "Login Failure / Not implemented" modal on EVERY launch that also captures input over the
+			// menu -- the dead MATCHMAKING/ENTER buttons observed on first launch. The failure is benign:
+			// CanPlay never requires online, Lyra's frontend "just continues" on it, and the REAL account
+			// sign-in is the separate AFLOnlineSubsystem Epic->PlayFab flow behind "Sign in with Epic". So
+			// the game owns login feedback (the status text) and CommonUser stays silent.
+			// PrimaryInputDevice is left unset on purpose: TryToInitializeUser only consults the platform
+			// device mapper when a ControllerId is supplied (default -1 skips it) and otherwise resolves
+			// the device from local player 0 -- so we avoid an ApplicationCore link dependency for a lookup
+			// the boot init does not need.
+			FCommonUserInitializeParams Params;
+			Params.LocalPlayerIndex = 0;
+			Params.bCanCreateNewLocalPlayer = true;
+			Params.RequestedPrivilege = ECommonUserPrivilege::CanPlay;
+			Params.bSuppressLoginErrors = true;
+			Users->TryToInitializeUser(Params);
 		}
 	}
+}
+
+TOptional<FUIInputConfig> UAFLW_Landing::GetDesiredInputConfig() const
+{
+	// Own the input mode so a cold-boot input state cannot leave the sign-in / route cards unclickable
+	// (every working menu here sets this; the Landing historically did not -- a compounding cause of the
+	// first-launch dead-button race). Menu mode, visible uncaptured cursor: the cards need the mouse.
+	return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);
 }
 
 void UAFLW_Landing::StartVideoGround()
