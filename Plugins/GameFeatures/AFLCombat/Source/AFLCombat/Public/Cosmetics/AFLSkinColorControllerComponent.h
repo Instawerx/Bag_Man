@@ -7,6 +7,7 @@
 #include "UObject/SoftObjectPtr.h"
 #include "Misc/Optional.h"                         // TOptional<FAFLCosmeticSelection> preview override
 #include "Cosmetics/AFLCosmeticSelectionTypes.h"   // FAFLCosmeticSelection -- the preview override payload
+#include "Engine/TimerHandle.h"                     // FTimerHandle -- bounded cosmetic weapon re-equip retry
 
 #include "AFLSkinColorControllerComponent.generated.h"
 
@@ -252,4 +253,22 @@ private:
 	 *  selection found on SelectionPS. nullptr if neither. The ONE preview injection point -- when the override
 	 *  is unset it returns the committed selection, so in-match behavior is identical. */
 	const FAFLCosmeticSelection* GetEffectiveSelection(const APlayerState* SelectionPS) const;
+
+	/**
+	 * ROUND-2 RE-EQUIP RACE MIRROR (ruling 4, paired with UAFLAG_GrantLoadout's QuickBar-path fix). When a
+	 * cosmetic WeaponId is selected, RefreshWeaponForPawn's EquipItem can hit the SAME offline-standalone
+	 * equipment-manager race the QuickBar bounce hits -- the fresh pawn's manager is not attached yet, the
+	 * cosmetic weapon never spawns, and the player A-poses. Verify the equip took and, if a cosmetic weapon
+	 * is selected but no weapon spawned, retry the (idempotent) weapon chain on a bounded world timer until it
+	 * does. STRICTLY GATED: inert unless a cosmetic weapon is selected, so the default loadout (owned by the
+	 * QuickBar path) is byte-identical to before.
+	 */
+	bool HasSelectedCosmeticWeapon(APawn* Pawn) const;
+	bool IsAnyWeaponSpawned(APawn* Pawn) const;
+	void StartWeaponEquipRetry(APawn* Pawn);
+	void StopWeaponEquipRetry();
+	void TickWeaponEquipRetry();
+	FTimerHandle WeaponEquipRetryTimer;
+	TWeakObjectPtr<APawn> WeaponEquipRetryPawn;
+	int32 WeaponEquipRetryAttempts = 0;
 };

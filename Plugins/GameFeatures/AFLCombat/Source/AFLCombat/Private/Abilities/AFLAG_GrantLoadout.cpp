@@ -11,6 +11,9 @@
 #include "Inventory/LyraInventoryItemInstance.h"
 #include "Inventory/LyraInventoryManagerComponent.h"
 #include "Character/LyraPawnExtensionComponent.h"
+#include "Equipment/LyraEquipmentManagerComponent.h"   // verify the round-reset re-equip actually took
+#include "Equipment/LyraEquipmentInstance.h"           // GetSpawnedActors()
+#include "Weapons/LyraWeaponInstance.h"                 // the equipped-weapon type to verify
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLAG_GrantLoadout)
 
@@ -109,13 +112,37 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 		APawn* AvatarPawn = Cast<APawn>(ActorInfo->AvatarActor.Get());
 		if (AvatarPawn && AvatarPawn != LastEquippedPawn.Get() && !ShouldDeferEquipToCosmeticSelection(Controller))
 		{
-			const int32 BounceSlot = (ActiveSlotIndex == 0) ? 1 : 0;
-			UE_LOG(LogAFLCombat, Log,
-				TEXT("AFL_LOADOUT: respawn on %s -- re-driving equip for new pawn %s (bounce slot %d -> %d)."),
-				*GetNameSafe(Controller), *GetNameSafe(AvatarPawn), BounceSlot, ActiveSlotIndex);
-			EquipActiveSlot(BounceSlot);
-			EquipActiveSlot(ActiveSlotIndex);
-			LastEquippedPawn = AvatarPawn;
+			StopEquipVerifyRetry();   // a new pawn supersedes a retry still driving the previous one
+
+			// VERIFY BEFORE BOUNCE -- a fresh pawn that already equipped must NOT be stomped back to the
+			// loadout slot (that would clobber a cosmetic-selected weapon, and re-open the same race).
+			if (IsLoadoutWeaponSpawned(AvatarPawn))
+			{
+				UE_LOG(LogAFLCombat, Log,
+					TEXT("AFL_LOADOUT: respawn on %s -- new pawn %s already equipped, no bounce needed."),
+					*GetNameSafe(Controller), *GetNameSafe(AvatarPawn));
+				LastEquippedPawn = AvatarPawn;
+			}
+			else
+			{
+				UE_LOG(LogAFLCombat, Log,
+					TEXT("AFL_LOADOUT: respawn on %s -- re-driving equip for new pawn %s (bounce)."),
+					*GetNameSafe(Controller), *GetNameSafe(AvatarPawn));
+				BounceEquipForPawn();
+				if (IsLoadoutWeaponSpawned(AvatarPawn))
+				{
+					LastEquippedPawn = AvatarPawn;
+				}
+				else
+				{
+					// THE ROUND-2 RACE: the fresh pawn's GameFeature-added equipment manager was not ready
+					// this frame on the offline-standalone host, so EquipActiveSlot silently no-op'd (no
+					// OnEquipped, weapon=None, A-pose). Retry the bounce until it takes; the retry latches
+					// LastEquippedPawn and ends the ability, so DO NOT end it here.
+					StartEquipVerifyRetry(AvatarPawn);
+					return;
+				}
+			}
 		}
 		else
 		{
@@ -200,4 +227,121 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 		GrantedCount, Weapons.Num(), *GetNameSafe(Controller), ActiveSlotIndex);
 
 	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+}
+
+bool UAFLAG_GrantLoadout::IsLoadoutWeaponSpawned(APawn* Pawn) const
+{
+	if (!Pawn)
+	{
+		return false;
+	}
+	// A ULyraWeaponInstance whose actors have SPAWNED is the proof the QuickBar equip actually took -- the
+	// held weapon mesh exists and its anim-layer abilities are live. GetFirstInstanceOfType is
+	// LYRAGAME_API-exported; GetSpawnedActors is inline. An empty/absent instance = the equip silently no-op'd.
+	if (ULyraEquipmentManagerComponent* EqMgr = Pawn->FindComponentByClass<ULyraEquipmentManagerComponent>())
+	{
+		if (const ULyraWeaponInstance* Weapon = EqMgr->GetFirstInstanceOfType<ULyraWeaponInstance>())
+		{
+			return Weapon->GetSpawnedActors().Num() > 0;
+		}
+	}
+	return false;
+}
+
+void UAFLAG_GrantLoadout::BounceEquipForPawn()
+{
+	// Bounce through another slot so SetActiveSlotIndex is a real change (a same-index set is a stock no-op),
+	// forcing a genuine unequip/equip that links the new pawn's anim layers. A bounce through an empty slot
+	// is safe -- it equips nothing and the return trip equips the active weapon.
+	const int32 BounceSlot = (ActiveSlotIndex == 0) ? 1 : 0;
+	EquipActiveSlot(BounceSlot);
+	EquipActiveSlot(ActiveSlotIndex);
+}
+
+void UAFLAG_GrantLoadout::StartEquipVerifyRetry(APawn* Pawn)
+{
+	StopEquipVerifyRetry();
+	EquipRetryPawn = Pawn;
+	EquipRetryAttempts = 0;
+
+	TWeakObjectPtr<UAFLAG_GrantLoadout> WeakThis(this);
+	// ~0.05s cadence; the cap lives in TickEquipVerifyRetry. Weak-this so a GC'd ability never dereferences,
+	// and the tick itself aborts if the avatar has moved on to a newer respawn.
+	EquipRetryTickHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateLambda([WeakThis](float /*Dt*/) -> bool
+		{
+			UAFLAG_GrantLoadout* Self = WeakThis.Get();
+			return Self ? Self->TickEquipVerifyRetry() : false;
+		}), 0.05f);
+
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_LOADOUT: equip did not take on %s this frame -- starting bounded re-equip retry."),
+		*GetNameSafe(Pawn));
+}
+
+void UAFLAG_GrantLoadout::StopEquipVerifyRetry()
+{
+	if (EquipRetryTickHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(EquipRetryTickHandle);
+		EquipRetryTickHandle.Reset();
+	}
+	EquipRetryPawn.Reset();
+	EquipRetryAttempts = 0;
+}
+
+bool UAFLAG_GrantLoadout::TickEquipVerifyRetry()
+{
+	APawn* Pawn = EquipRetryPawn.Get();
+	APawn* CurrentAvatar = CurrentActorInfo ? Cast<APawn>(CurrentActorInfo->AvatarActor.Get()) : nullptr;
+
+	// Abort quietly: the ability ended, the pawn is gone, or a newer respawn moved the avatar on. The handle
+	// is reset because returning false unregisters this ticker.
+	if (!IsActive() || !Pawn || CurrentAvatar != Pawn)
+	{
+		EquipRetryTickHandle.Reset();
+		EquipRetryPawn.Reset();
+		EquipRetryAttempts = 0;
+		return false;
+	}
+
+	if (IsLoadoutWeaponSpawned(Pawn))
+	{
+		const int32 Attempts = EquipRetryAttempts;
+		LastEquippedPawn = Pawn;
+		EquipRetryTickHandle.Reset();       // reset BEFORE EndAbility -> StopEquipVerifyRetry finds no handle
+		EquipRetryPawn.Reset();
+		EquipRetryAttempts = 0;
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: re-equip VERIFIED for %s after %d retr(ies) -- weapon spawned."),
+			*GetNameSafe(Pawn), Attempts);
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		return false;
+	}
+
+	if (++EquipRetryAttempts > 40)
+	{
+		const int32 Attempts = EquipRetryAttempts;
+		EquipRetryTickHandle.Reset();
+		EquipRetryPawn.Reset();
+		EquipRetryAttempts = 0;
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_LOADOUT: re-equip did NOT verify for %s after %d retries -- giving up (pawn may A-pose)."),
+			*GetNameSafe(Pawn), Attempts);
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		return false;
+	}
+
+	BounceEquipForPawn();   // re-attempt until the equipment manager accepts the equip
+	return true;
+}
+
+void UAFLAG_GrantLoadout::EndAbility(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo,
+	bool bReplicateEndAbility,
+	bool bWasCancelled)
+{
+	StopEquipVerifyRetry();   // no ticker may outlive the ability (cancel / interrupt / normal end)
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

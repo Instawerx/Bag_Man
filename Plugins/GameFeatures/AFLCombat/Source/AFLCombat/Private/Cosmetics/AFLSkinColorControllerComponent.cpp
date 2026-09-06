@@ -20,6 +20,9 @@
 #include "Cosmetics/AFLWeaponCosmeticAsset.h"         // the carrier (WeaponId -> EquipmentDefinition); AFLCombat-homed, brings the full ULyraEquipmentDefinition type
 #include "Equipment/LyraEquipmentManagerComponent.h"  // EquipItem / UnequipItem / GetEquipmentInstancesOfType
 #include "Equipment/LyraEquipmentInstance.h"          // the equipped instance we track + unequip
+#include "Weapons/LyraWeaponInstance.h"               // ruling-4 mirror: verify the cosmetic weapon spawned
+#include "TimerManager.h"                             // bounded cosmetic weapon re-equip retry
+#include "Engine/World.h"                             // GetWorld()->GetTimerManager()
 #include "Inventory/LyraInventoryItemDefinition.h"    // Block 28: the QuickBar rail grants an ITEM, not equipment
 #include "Inventory/LyraInventoryItemInstance.h"      // ... the granted instance handed to AddItemToSlot
 #include "Inventory/LyraInventoryManagerComponent.h"  // ... AddItemDefinition (UE_API-exported, safe from C++)
@@ -107,6 +110,13 @@ void UAFLSkinColorControllerComponent::OnPossessedPawnChanged(APawn* /*OldPawn*/
 		RefreshFacemaskForPawn(NewPawn);
 		// #43 WeaponId consumer: equip the selected weapon (D2 replace) on possession/respawn.
 		RefreshWeaponForPawn(NewPawn);
+		// RULING 4 MIRROR: if a cosmetic weapon is selected but the equip raced the fresh pawn's equipment
+		// manager (the offline-standalone round-2 race), retry the weapon chain until it takes. INERT when no
+		// cosmetic weapon is selected -- the QuickBar loadout path (UAFLAG_GrantLoadout) owns that case.
+		if (HasSelectedCosmeticWeapon(NewPawn) && !IsAnyWeaponSpawned(NewPawn))
+		{
+			StartWeaponEquipRetry(NewPawn);
+		}
 		// ... then apply the weapon COLOR (the WeaponId suffix) -- AFTER equip so the weapon mesh exists.
 		RefreshWeaponSkinForPawn(NewPawn);
 		// INDEPENDENT BeamId axis: apply the selected beam to the equipped weapon (overrides its default beam).
@@ -1206,4 +1216,98 @@ void UAFLSkinColorControllerComponent::RefreshBeamColorForPawn(APawn* Pawn) cons
 		// Authority -> replicated BeamColor -> all clients apply via OnRep_BeamColor (mirrors SetWeaponSkin/SetFacemask).
 		PawnComp->SetBeamColor(BeamAsset);
 	}
+}
+
+// ===== RULING 4: cosmetic-weapon round-2 re-equip verify-and-retry (mirrors UAFLAG_GrantLoadout) =====
+
+bool UAFLSkinColorControllerComponent::HasSelectedCosmeticWeapon(APawn* Pawn) const
+{
+	if (!Pawn)
+	{
+		return false;
+	}
+	// Same selection resolution RefreshWeaponForPawn uses: pawn PS first (respawn-race-safe), else controller PS.
+	const APlayerState* PawnPS = Pawn->GetPlayerState();
+	const AController* Ctrl = GetController<AController>();
+	const APlayerState* SelPS = PawnPS ? PawnPS : (Ctrl ? Ctrl->PlayerState : nullptr);
+	const FAFLCosmeticSelection* Sel = GetEffectiveSelection(SelPS);
+	return Sel && (Sel->WeaponId != NAME_None || Sel->LeftWeaponId != NAME_None);
+}
+
+bool UAFLSkinColorControllerComponent::IsAnyWeaponSpawned(APawn* Pawn) const
+{
+	if (!Pawn)
+	{
+		return false;
+	}
+	// A ULyraWeaponInstance whose actors have spawned = the equip produced a real held weapon (mesh + anim
+	// layers). GetFirstInstanceOfType is LYRAGAME_API-exported; GetSpawnedActors is inline.
+	if (ULyraEquipmentManagerComponent* EqMgr = Pawn->FindComponentByClass<ULyraEquipmentManagerComponent>())
+	{
+		if (const ULyraWeaponInstance* Weapon = EqMgr->GetFirstInstanceOfType<ULyraWeaponInstance>())
+		{
+			return Weapon->GetSpawnedActors().Num() > 0;
+		}
+	}
+	return false;
+}
+
+void UAFLSkinColorControllerComponent::StartWeaponEquipRetry(APawn* Pawn)
+{
+	StopWeaponEquipRetry();
+	if (!Pawn || !GetWorld())
+	{
+		return;
+	}
+	WeaponEquipRetryPawn = Pawn;
+	WeaponEquipRetryAttempts = 0;
+	// A world timer (not FTSTicker): FTimerManager auto-invalidates a member-bound timer when this component
+	// is destroyed, so no EndPlay teardown is required. ~0.05s cadence; the cap lives in the tick.
+	GetWorld()->GetTimerManager().SetTimer(WeaponEquipRetryTimer, this,
+		&UAFLSkinColorControllerComponent::TickWeaponEquipRetry, 0.05f, /*bLoop=*/true);
+	UE_LOG(LogAFLCombat, Log,
+		TEXT("AFL_COSMETIC: cosmetic weapon did not equip on %s this frame -- starting bounded re-equip retry."),
+		*GetNameSafe(Pawn));
+}
+
+void UAFLSkinColorControllerComponent::StopWeaponEquipRetry()
+{
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(WeaponEquipRetryTimer);
+	}
+	WeaponEquipRetryPawn.Reset();
+	WeaponEquipRetryAttempts = 0;
+}
+
+void UAFLSkinColorControllerComponent::TickWeaponEquipRetry()
+{
+	APawn* Pawn = WeaponEquipRetryPawn.Get();
+	const AController* Ctrl = GetController<AController>();
+	// Abort: the pawn is gone, or the controller now possesses a different (newer) pawn -- stop quietly.
+	if (!Pawn || !Ctrl || Ctrl->GetPawn() != Pawn)
+	{
+		StopWeaponEquipRetry();
+		return;
+	}
+	if (IsAnyWeaponSpawned(Pawn))
+	{
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_COSMETIC: cosmetic weapon re-equip VERIFIED for %s after %d retr(ies)."),
+			*GetNameSafe(Pawn), WeaponEquipRetryAttempts);
+		StopWeaponEquipRetry();
+		return;
+	}
+	if (++WeaponEquipRetryAttempts > 40)
+	{
+		UE_LOG(LogAFLCombat, Warning,
+			TEXT("AFL_COSMETIC: cosmetic weapon re-equip did NOT verify for %s after %d retries -- giving up."),
+			*GetNameSafe(Pawn), WeaponEquipRetryAttempts);
+		StopWeaponEquipRetry();
+		return;
+	}
+	// Re-run the (idempotent) weapon chain: equip, then re-apply skin + beam once the mesh exists.
+	RefreshWeaponForPawn(Pawn);
+	RefreshWeaponSkinForPawn(Pawn);
+	RefreshBeamColorForPawn(Pawn);
 }

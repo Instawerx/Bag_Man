@@ -3,6 +3,7 @@
 #pragma once
 
 #include "AbilitySystem/Abilities/LyraGameplayAbility.h"
+#include "Containers/Ticker.h"   // FTSTicker -- bounded verify-and-retry of the round-reset re-equip
 
 #include "AFLAG_GrantLoadout.generated.h"
 
@@ -147,4 +148,47 @@ protected:
 	 *  (UAFLCosmeticLoadoutComponent::IsBotOwned, 2026-09-01) -- a bot selection carries no durable
 	 *  WeaponId anymore, so this player gate is the second layer, kept for the same reason FIX A is. */
 	bool ShouldDeferEquipToCosmeticSelection(const AController* Controller) const;
+
+	/** Cancel a pending re-equip retry when the ability ends (or is cancelled) so no ticker outlives it. */
+	virtual void EndAbility(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo,
+		bool bReplicateEndAbility,
+		bool bWasCancelled) override;
+
+private:
+	/**
+	 * THE ROUND-2 RE-EQUIP RACE (offline-standalone ServerTravel host, proven from a Shipping log 2026-09-05):
+	 * on a round-reset respawn the latch-path bounce (EquipActiveSlot) fires while the fresh pawn's
+	 * GameFeature-added ULyraEquipmentManagerComponent is not yet attached, so the equip silently no-ops --
+	 * no OnEquipped, weapon=None, no anim layer -> A-pose + empty weapon-wheel on BOTH player and bot. The one
+	 * shot bounce was proven on a listen host and never covered this offline-host timing. The fix is to VERIFY
+	 * the equip actually produced a spawned weapon and, if not, retry the bounce on a bounded ticker until it
+	 * takes. Verify-BEFORE-bounce so a pawn that already equipped is never stomped back to the loadout slot.
+	 */
+	/** True when Pawn already holds a ULyraWeaponInstance whose actors have spawned (the equip took). */
+	bool IsLoadoutWeaponSpawned(APawn* Pawn) const;
+
+	/** Bounce the QuickBar active slot through another index to force a real unequip/equip on a fresh pawn. */
+	void BounceEquipForPawn();
+
+	/** Begin a bounded next-frame retry loop that re-bounces until IsLoadoutWeaponSpawned(Pawn) or it caps. */
+	void StartEquipVerifyRetry(APawn* Pawn);
+
+	/** Remove the retry ticker and clear its state (idempotent; safe to call when none is pending). */
+	void StopEquipVerifyRetry();
+
+	/** One retry tick: verify -> latch+end on success, give up after the cap, else re-bounce. Returns
+	 *  true to keep ticking, false to unregister. */
+	bool TickEquipVerifyRetry();
+
+	/** Active retry-ticker handle (thread-safe core ticker; game-thread only in practice). */
+	FTSTicker::FDelegateHandle EquipRetryTickHandle;
+
+	/** The fresh pawn the retry is driving; the loop aborts if the current avatar changes to a newer one. */
+	TWeakObjectPtr<APawn> EquipRetryPawn;
+
+	/** Retry attempts so far; capped (~40 x ~0.05s ~= 2s) so a pawn that never accepts the equip cannot spin. */
+	int32 EquipRetryAttempts = 0;
 };
