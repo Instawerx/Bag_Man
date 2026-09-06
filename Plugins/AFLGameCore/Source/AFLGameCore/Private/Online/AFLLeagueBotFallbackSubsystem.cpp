@@ -38,31 +38,76 @@ void UAFLLeagueBotFallbackSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
-FName UAFLLeagueBotFallbackSubsystem::ResolvePlaylistAsset(const FString& QueueId)
+namespace
 {
-	// QueueId: Tier_League_Ruleset_Venue_Bracket, e.g. LeaguePlay_ProMod_MatchPlay_Map_3v3. The client cannot
-	// read the server registry (R18 keeps map/experience off the /queues wire), so this maps the cell to the
-	// matching authored ULyraUserFacingExperienceDefinition (which carries the map + experience). A missing
-	// asset is handled by the caller (the load returns null), so an over-broad guess is safe. LEAGUE MatchPlay
-	// team cells only -- BR and staked never reach here.
-	TArray<FString> P;
-	QueueId.ParseIntoArray(P, TEXT("_"));
-	if (P.Num() != 5 || P[0] != TEXT("LeaguePlay") || P[2] != TEXT("MatchPlay"))
+	// LEFT-ANCHORED parse of "Tier_League_Ruleset_Venue_Bracket". The bracket is the REMAINDER joined back, so
+	// a BR bracket that carries an embedded underscore (BR_9 / BR_20 / BR_36) survives whole -- the old fixed
+	// 5-token split turned BR_9 into a 6-token cell and rejected every Battle Royale queue. Returns false for a
+	// staked (Volts/Watts) or malformed cell -- only unstaked LeaguePlay gets an offline fallback.
+	bool ParseLeagueCell(const FString& QueueId, FString& OutLeague, FString& OutRuleset, FString& OutVenue, FString& OutBracket)
+	{
+		TArray<FString> P;
+		QueueId.ParseIntoArray(P, TEXT("_"));
+		if (P.Num() < 5 || P[0] != TEXT("LeaguePlay"))
+		{
+			return false;
+		}
+		OutLeague  = P[1];   // ProMod / Haywire
+		OutRuleset = P[2];   // MatchPlay / BattleRoyale
+		OutVenue   = P[3];   // Arena / Map
+		OutBracket.Reset();
+		for (int32 i = 4; i < P.Num(); ++i)
+		{
+			if (i > 4) { OutBracket += TEXT("_"); }
+			OutBracket += P[i];
+		}
+		return !OutLeague.IsEmpty() && !OutRuleset.IsEmpty() && !OutVenue.IsEmpty() && !OutBracket.IsEmpty();
+	}
+
+	// Playlist-name token for a bracket: MatchPlay brackets pass through ("2v2"); BR brackets drop the
+	// underscore ("BR_9" -> "BR9") to match the authored DA_AFL_ShantyTown_BR9_* / DA_AFL_ShantyTown_2v2_* names.
+	FString PlaylistBracketToken(const FString& Bracket)
+	{
+		return Bracket.Replace(TEXT("_"), TEXT(""));
+	}
+}
+
+FName UAFLLeagueBotFallbackSubsystem::ShantyTownFallbackFor(const FString& QueueId)
+{
+	FString League, Ruleset, Venue, Bracket;
+	if (!ParseLeagueCell(QueueId, League, Ruleset, Venue, Bracket))
 	{
 		return NAME_None;
 	}
-	const FString& League = P[1];  // ProMod / Haywire
-	const FString& Venue = P[3];    // Arena / Map
-	const FString& Bracket = P[4];  // 1v1 .. 8v8
+	// ShantyTown carries an authored playlist for EVERY bracket+league -- 12 MatchPlay (1v1..8v8 x
+	// ProMod/Haywire) and 3 BR (BR9/BR20/BR36 x league). This is the guaranteed fill for any uncovered
+	// venue+bracket (operator ruling 2026-09-05: uncovered Arena brackets play on ShantyTown).
+	return FName(*FString::Printf(TEXT("DA_AFL_ShantyTown_%s_%s"), *PlaylistBracketToken(Bracket), *League));
+}
 
-	if (Venue == TEXT("Map"))
+FName UAFLLeagueBotFallbackSubsystem::ResolvePlaylistAsset(const FString& QueueId)
+{
+	// QueueId: Tier_League_Ruleset_Venue_Bracket, e.g. LeaguePlay_ProMod_MatchPlay_Arena_2v2 or
+	// LeaguePlay_Haywire_BattleRoyale_Map_BR_9. The client cannot read the server registry (R18 keeps
+	// map/experience off the /queues wire), so this maps the cell to the authored ULyraUserFacingExperience
+	// Definition. Returns the PREFERRED playlist (venue-specific Arena where authored); the caller falls back
+	// to ShantyTownFallbackFor when it does not load, so EVERY unstaked LEAGUE cell fills.
+	FString League, Ruleset, Venue, Bracket;
+	if (!ParseLeagueCell(QueueId, League, Ruleset, Venue, Bracket))
 	{
-		// Map venue -> ShantyTown; one playlist per bracket+league (all 12 authored).
-		return FName(*FString::Printf(TEXT("DA_AFL_ShantyTown_%s_%s"), *Bracket, *League));
+		return NAME_None;
 	}
-	if (Venue == TEXT("Arena"))
+
+	// Battle Royale has only a ShantyTown (Map) venue -- straight to the guaranteed playlist.
+	if (Ruleset == TEXT("BattleRoyale"))
 	{
-		// Arena's concrete map varies by bracket: 3v3 -> Arena01, 5v5/8v8 -> Arena04. Others have no playlist.
+		return ShantyTownFallbackFor(QueueId);
+	}
+
+	// MatchPlay Arena has authored playlists only for 3v3 (Arena01) and 5v5/8v8 (Arena04). 1v1/2v2/4v4 -- and
+	// any league variant that is unauthored (e.g. Arena-3v3-Haywire) -- fall through to ShantyTown below.
+	if (Ruleset == TEXT("MatchPlay") && Venue == TEXT("Arena"))
+	{
 		if (Bracket == TEXT("3v3"))
 		{
 			return FName(*FString::Printf(TEXT("DA_AFL_Arena01_3v3_%s"), *League));
@@ -72,7 +117,9 @@ FName UAFLLeagueBotFallbackSubsystem::ResolvePlaylistAsset(const FString& QueueI
 			return FName(*FString::Printf(TEXT("DA_AFL_Arena04_%s_%s"), *Bracket, *League));
 		}
 	}
-	return NAME_None;
+
+	// MatchPlay Map, or an uncovered Arena bracket: the ShantyTown playlist of this bracket+league.
+	return ShantyTownFallbackFor(QueueId);
 }
 
 void UAFLLeagueBotFallbackSubsystem::HandleLeagueFallbackDue(const FString& QueueId)
@@ -100,14 +147,40 @@ void UAFLLeagueBotFallbackSubsystem::HandleLeagueFallbackDue(const FString& Queu
 	// Playlists are scanned PrimaryAssets (Config/DefaultGame.ini) and AlwaysCook, so they resolve in a
 	// packaged client. Load synchronously -- the player is already waiting on a spinner.
 	UAssetManager& AM = UAssetManager::Get();
-	const FPrimaryAssetId PlaylistId(FPrimaryAssetType(TEXT("LyraUserFacingExperienceDefinition")), PlaylistName);
-	UObject* Obj = AM.GetPrimaryAssetObject(PlaylistId);
-	if (!Obj)
+	auto LoadPlaylist = [&AM](const FName Name) -> ULyraUserFacingExperienceDefinition*
 	{
-		const FSoftObjectPath Path = AM.GetPrimaryAssetPath(PlaylistId);
-		Obj = Path.IsValid() ? Path.TryLoad() : nullptr;
+		if (Name.IsNone())
+		{
+			return nullptr;
+		}
+		const FPrimaryAssetId Id(FPrimaryAssetType(TEXT("LyraUserFacingExperienceDefinition")), Name);
+		UObject* Obj = AM.GetPrimaryAssetObject(Id);
+		if (!Obj)
+		{
+			const FSoftObjectPath Path = AM.GetPrimaryAssetPath(Id);
+			Obj = Path.IsValid() ? Path.TryLoad() : nullptr;
+		}
+		return Cast<ULyraUserFacingExperienceDefinition>(Obj);
+	};
+
+	ULyraUserFacingExperienceDefinition* Playlist = LoadPlaylist(PlaylistName);
+	if (!Playlist)
+	{
+		// UNIVERSAL SHANTYTOWN FALLBACK (ruling 1): an uncovered Arena bracket (1v1/2v2/4v4) or a missing
+		// venue-specific league variant (e.g. Arena-3v3-Haywire) still fills -- host the guaranteed ShantyTown
+		// playlist of this bracket+league instead of stranding the player.
+		const FName ShantyFallback = ShantyTownFallbackFor(QueueId);
+		if (ShantyFallback != PlaylistName)
+		{
+			Playlist = LoadPlaylist(ShantyFallback);
+			if (Playlist)
+			{
+				UE_LOG(LogAFLGameCore, Log,
+					TEXT("AFL_FALLBACK: %s -- preferred playlist %s unavailable, falling back to ShantyTown %s."),
+					*QueueId, *PlaylistName.ToString(), *ShantyFallback.ToString());
+			}
+		}
 	}
-	ULyraUserFacingExperienceDefinition* Playlist = Cast<ULyraUserFacingExperienceDefinition>(Obj);
 	if (!Playlist)
 	{
 		Fail(FText::Format(NSLOCTEXT("AFL", "FallbackNoAsset", "No offline match backs {0} yet."),
