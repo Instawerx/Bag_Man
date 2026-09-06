@@ -87,6 +87,29 @@ bool UAFLAG_GrantLoadout::ShouldDeferEquipToCosmeticSelection(const AController*
 	return false;
 }
 
+int32 UAFLAG_GrantLoadout::CountLoadoutDefsPresent(const ULyraInventoryManagerComponent* Inventory, int32& OutDefsTotal) const
+{
+	// The CONSUMER'S state: how many of this loadout's item definitions the controller's inventory holds RIGHT NOW.
+	// After the inherited hero graph's ClearInventory (K2_OnReset for survivors of a round reset, K2_OnDeathFinished
+	// for the dead) this is 0 -- and that, not a boolean set in a previous pawn life, is what decides a re-grant.
+	// GetTotalItemCountByDefinition is UE_API-exported (LyraInventoryManagerComponent.h) -- no engine fork.
+	OutDefsTotal = 0;
+	int32 Present = 0;
+	for (const TSubclassOf<ULyraInventoryItemDefinition>& ItemDef : Weapons)
+	{
+		if (!ItemDef)
+		{
+			continue;
+		}
+		++OutDefsTotal;
+		if (Inventory && Inventory->GetTotalItemCountByDefinition(ItemDef) > 0)
+		{
+			++Present;
+		}
+	}
+	return Present;
+}
+
 void UAFLAG_GrantLoadout::GrantWhenReady()
 {
 	const FGameplayAbilitySpecHandle Handle = CurrentSpecHandle;
@@ -98,60 +121,111 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 	}
 
 	AController* Controller = GetControllerFromActorInfo();
+	APawn* AvatarPawn = Cast<APawn>(ActorInfo->AvatarActor.Get());
+
+	// The InventoryManager lives on the CONTROLLER (LAS_ShooterGame_StandardComponents adds it there).
+	ULyraInventoryManagerComponent* Inventory =
+		Controller ? Controller->FindComponentByClass<ULyraInventoryManagerComponent>() : nullptr;
+
+	// ---------------------------------------------------------------------------------------------------------
+	// THE STATE READ (the round-2 A-pose, 2026-09-06 -- root-caused from the Shipping log + a 4-way code trace).
+	//
+	// Lyra's own pairing is "ClearInventory on death/reset, re-grant on every possession". The teardown half runs
+	// per pawn life in the INHERITED ShooterCore hero graph (B_Hero_ShooterMannequin::ClearInventory off
+	// K2_OnReset -- which UAFLRoundManagerComponent::Server_ResetRoundActors triggers on every survivor via
+	// OldPawn->Reset() -- and off K2_OnDeathFinished for the dead): RemoveItemFromSlot on every QuickBar slot
+	// (Slots[i]=null, ActiveSlotIndex=-1) + RemoveItemInstance on every item. The controller reaches round 2 EMPTY.
+	// The grant half had been made once-per-CONTROLLER-life by the bLoadoutGranted latch (cc379c89, 2026-08-30,
+	// added to stop duplicate items on a mid-round respawn where the inventory PERSISTS). The latch never knew
+	// about the wipe: on the fresh round-2 pawn it re-drove the EQUIP (a slot bounce) against slots that were now
+	// null -- ULyraQuickBarComponent::EquipItemInSlot equips nothing for a null slot, silently -- so no weapon was
+	// ever equipped, no anim layer was ever linked (Lyra links them only from ULyraWeaponInstance::OnEquipped;
+	// there is no default unarmed layer in C++) and every pawn stood in A-pose with an empty wheel. The earlier
+	// "retry the bounce" fix (24cdb47b) could not converge: it verified the OUTPUT (a spawned weapon) but never
+	// read the INPUT (the controller's inventory), and every round-2 pawn already had its equipment manager
+	// (log: "equipMgr=yes"). Bouncing an empty wheel 41 times equips nothing 41 times.
+	//
+	// So the latch defers to the CONSUMER'S STATE: if the controller still holds the loadout, this is the
+	// same-pawn duplicate broadcast (or a respawn that kept the inventory) and the equip-only path below is
+	// correct -- no duplicates. If it holds none/part of it, the controller was cleared and we RESTOCK through the
+	// same grant path round 1 used, per-definition idempotent (only definitions that are absent get added).
+	// ---------------------------------------------------------------------------------------------------------
+	int32 DefsTotal = 0;
+	const int32 DefsPresent = CountLoadoutDefsPresent(Inventory, DefsTotal);
+	const bool bInventoryHoldsLoadout = (DefsTotal > 0) && (DefsPresent >= DefsTotal);
+	const bool bWasLatched = bLoadoutGranted;   // captured BEFORE any re-arm: "this activation is a RESTOCK"
 
 	if (bLoadoutGranted)
 	{
-		// Once-per-controller-life latch holds for the GRANT (duplicating items is the bug it
-		// exists for), but each NEW pawn on this controller still needs its EQUIP driven: the
-		// persistent quickbar keeps ActiveSlotIndex while the fresh pawn's equipment manager is
-		// empty, SetActiveSlotIndex(same index) is a stock no-op, and no possession hook re-equips.
-		// Without this, every round-reset / respawned pawn plays ZERO anim layers -- the A-pose +
-		// glide bots in the drone-capture reels. Bounce through another slot to force the equip.
-		// Same pawn as last time = a duplicate init broadcast, not a respawn -- skip (bouncing a
-		// live pawn would stomp a cosmetic-selected weapon back to the loadout slot).
-		APawn* AvatarPawn = Cast<APawn>(ActorInfo->AvatarActor.Get());
-		if (AvatarPawn && AvatarPawn != LastEquippedPawn.Get() && !ShouldDeferEquipToCosmeticSelection(Controller))
-		{
-			StopEquipVerifyRetry();   // a new pawn supersedes a retry still driving the previous one
+		// THE INSTRUMENT -- one line that proves the seam in a single PIE run. Prediction: the round-1 same-pawn
+		// re-fire logs items=N defs=N/N; every round-2 pawn logs items=0 defs=0/N equipMgr=yes -> RESTOCK.
+		UE_LOG(LogAFLCombat, Log,
+			TEXT("AFL_LOADOUT: LATCH on %s pawn %s -- controller inventory items=%d, loadout defs present=%d/%d, equipMgr=%s -> %s"),
+			*GetNameSafe(Controller), *GetNameSafe(AvatarPawn),
+			Inventory ? Inventory->GetAllItems().Num() : -1, DefsPresent, DefsTotal,
+			(AvatarPawn && AvatarPawn->FindComponentByClass<ULyraEquipmentManagerComponent>()) ? TEXT("yes") : TEXT("no"),
+			bInventoryHoldsLoadout ? TEXT("EQUIP-ONLY") : TEXT("RESTOCK"));
 
-			// VERIFY BEFORE BOUNCE -- a fresh pawn that already equipped must NOT be stomped back to the
-			// loadout slot (that would clobber a cosmetic-selected weapon, and re-open the same race).
-			if (IsLoadoutWeaponSpawned(AvatarPawn))
+		if (!bInventoryHoldsLoadout)
+		{
+			// RESTOCK: the controller was cleared by the hero graph (round reset / death). Re-arm the latch and fall
+			// through to the grant path below -- the same path that built round 1.
+			bLoadoutGranted = false;
+		}
+		else
+		{
+			// EQUIP-ONLY: the inventory persists (same-pawn duplicate init broadcast, or a respawn that kept it). Each
+			// NEW pawn on this controller still needs its EQUIP driven: the persistent quickbar keeps ActiveSlotIndex
+			// while the fresh pawn's equipment manager is empty, SetActiveSlotIndex(same index) is a stock no-op, and
+			// no possession hook re-equips. Bounce through another slot to force the equip. Same pawn as last time =
+			// a duplicate init broadcast, not a respawn -- skip (bouncing a live pawn would stomp a cosmetic-selected
+			// weapon back to the loadout slot).
+			if (AvatarPawn && AvatarPawn != LastEquippedPawn.Get() && !ShouldDeferEquipToCosmeticSelection(Controller))
 			{
-				UE_LOG(LogAFLCombat, Log,
-					TEXT("AFL_LOADOUT: respawn on %s -- new pawn %s already equipped, no bounce needed."),
-					*GetNameSafe(Controller), *GetNameSafe(AvatarPawn));
-				LastEquippedPawn = AvatarPawn;
-			}
-			else
-			{
-				UE_LOG(LogAFLCombat, Log,
-					TEXT("AFL_LOADOUT: respawn on %s -- re-driving equip for new pawn %s (bounce)."),
-					*GetNameSafe(Controller), *GetNameSafe(AvatarPawn));
-				BounceEquipForPawn();
+				StopEquipVerifyRetry();   // a new pawn supersedes a retry still driving the previous one
+
+				// VERIFY BEFORE BOUNCE -- a fresh pawn that already equipped must NOT be stomped back to the
+				// loadout slot (that would clobber a cosmetic-selected weapon, and re-open the same race).
 				if (IsLoadoutWeaponSpawned(AvatarPawn))
 				{
+					UE_LOG(LogAFLCombat, Log,
+						TEXT("AFL_LOADOUT: respawn on %s -- new pawn %s already equipped, no bounce needed."),
+						*GetNameSafe(Controller), *GetNameSafe(AvatarPawn));
 					LastEquippedPawn = AvatarPawn;
 				}
 				else
 				{
-					// THE ROUND-2 RACE: the fresh pawn's GameFeature-added equipment manager was not ready
-					// this frame on the offline-standalone host, so EquipActiveSlot silently no-op'd (no
-					// OnEquipped, weapon=None, A-pose). Retry the bounce until it takes; the retry latches
-					// LastEquippedPawn and ends the ability, so DO NOT end it here.
-					StartEquipVerifyRetry(AvatarPawn);
-					return;
+					UE_LOG(LogAFLCombat, Log,
+						TEXT("AFL_LOADOUT: respawn on %s -- re-driving equip for new pawn %s (bounce)."),
+						*GetNameSafe(Controller), *GetNameSafe(AvatarPawn));
+					BounceEquipForPawn();
+					if (IsLoadoutWeaponSpawned(AvatarPawn))
+					{
+						LastEquippedPawn = AvatarPawn;
+					}
+					else
+					{
+						// The equip did not take this frame -- retry the bounce until it does. The retry latches
+						// LastEquippedPawn and ends the ability, so DO NOT end it here.
+						StartEquipVerifyRetry(AvatarPawn, /*GraceTicks=*/0);
+						return;
+					}
 				}
 			}
+			else
+			{
+				UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: already granted this controller life -- skipping duplicate activation."));
+			}
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+			return;
 		}
-		else
-		{
-			UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: already granted this controller life -- skipping duplicate activation."));
-		}
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
-		return;
 	}
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: ASC ready -- granting now."));
+
+	// A RESTOCK is exactly "we came through the latch and it re-armed" -- never inferred from LastEquippedPawn,
+	// whose round-1 pawn is destroyed (and the weak ptr invalid) by the time round 2 spawns.
+	const bool bRestock = bWasLatched;
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: ASC ready -- %s now (defs present %d/%d)."),
+		bRestock ? TEXT("RESTOCKING") : TEXT("granting"), DefsPresent, DefsTotal);
 
 	if (!Controller)
 	{
@@ -159,10 +233,6 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 		return;
 	}
-
-	// The InventoryManager lives on the CONTROLLER (LAS_ShooterGame_StandardComponents adds it there).
-	// AddItemDefinition is UE_API-exported -> safe to call from C++.
-	ULyraInventoryManagerComponent* Inventory = Controller->FindComponentByClass<ULyraInventoryManagerComponent>();
 	if (!Inventory)
 	{
 		UE_LOG(LogAFLCombat, Warning,
@@ -183,10 +253,17 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 			continue;
 		}
 
-		// SAME proven flow as ShooterCore: AddItemDefinition (C++, exported) -> AddItemToSlot.
-		// The QuickBar slotting goes through the BP event (AddItemToSlot is BlueprintCallable
-		// but not C++-exportable -- the Lyra Cardinal Rule, see the header).
-		ULyraInventoryItemInstance* Instance = Inventory->AddItemDefinition(ItemDef, /*StackCount=*/1);
+		// PER-DEFINITION IDEMPOTENCE: a definition the controller still holds is re-SLOTTED, never re-ADDED (the
+		// duplicate-item bug the old latch existed for stays closed). AddItemToSlot no-ops on an occupied slot, so
+		// re-slotting a present item is harmless; after a full ClearInventory every slot is null and fills.
+		ULyraInventoryItemInstance* Instance = Inventory->FindFirstItemStackByDefinition(ItemDef);
+		if (!Instance)
+		{
+			// SAME proven flow as ShooterCore: AddItemDefinition (C++, exported) -> AddItemToSlot.
+			// The QuickBar slotting goes through the BP event (AddItemToSlot is BlueprintCallable
+			// but not C++-exportable -- the Lyra Cardinal Rule, see the header).
+			Instance = Inventory->AddItemDefinition(ItemDef, /*StackCount=*/1);
+		}
 		if (Instance)
 		{
 			SlotWeaponInQuickBar(SlotIndex, Instance);
@@ -220,11 +297,22 @@ void UAFLAG_GrantLoadout::GrantWhenReady()
 		UE_LOG(LogAFLCombat, Log,
 			TEXT("AFL_LOADOUT: cosmetic WeaponId selected -- slots granted, active-slot equip deferred to the selection."));
 	}
-	LastEquippedPawn = Cast<APawn>(ActorInfo->AvatarActor.Get());
+	LastEquippedPawn = AvatarPawn;
 
 	UE_LOG(LogAFLCombat, Log,
-		TEXT("AFL_LOADOUT: granted %d/%d weapons on %s, active slot %d."),
-		GrantedCount, Weapons.Num(), *GetNameSafe(Controller), ActiveSlotIndex);
+		TEXT("AFL_LOADOUT: %s %d/%d weapons on %s, active slot %d."),
+		bRestock ? TEXT("restocked") : TEXT("granted"), GrantedCount, Weapons.Num(), *GetNameSafe(Controller), ActiveSlotIndex);
+
+	// SAFETY NET on a restock for a cosmetic-selected player: the equip was handed to the cosmetic spine, which
+	// hangs off the same possession with no ordering guarantee. Verify a weapon actually lands; if none has after
+	// a short grace (the spine's window to equip its selection), bounce-equip the loadout slot so the pawn is
+	// armed and animating rather than A-posed -- the spine still REPLACES the primary when it does run. The
+	// verify-before-bounce inside the retry means a cosmetic weapon that did land is never stomped.
+	if (bRestock && bCosmeticWeaponSelected && GrantedCount > 0 && AvatarPawn && !IsLoadoutWeaponSpawned(AvatarPawn))
+	{
+		StartEquipVerifyRetry(AvatarPawn, /*GraceTicks=*/10);   // ~0.5 s of verify-only before the first bounce
+		return;   // the retry ends the ability
+	}
 
 	EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
 }
@@ -258,11 +346,12 @@ void UAFLAG_GrantLoadout::BounceEquipForPawn()
 	EquipActiveSlot(ActiveSlotIndex);
 }
 
-void UAFLAG_GrantLoadout::StartEquipVerifyRetry(APawn* Pawn)
+void UAFLAG_GrantLoadout::StartEquipVerifyRetry(APawn* Pawn, int32 GraceTicks)
 {
 	StopEquipVerifyRetry();
 	EquipRetryPawn = Pawn;
 	EquipRetryAttempts = 0;
+	EquipRetryGraceTicks = FMath::Max(0, GraceTicks);
 
 	TWeakObjectPtr<UAFLAG_GrantLoadout> WeakThis(this);
 	// ~0.05s cadence; the cap lives in TickEquipVerifyRetry. Weak-this so a GC'd ability never dereferences,
@@ -275,8 +364,8 @@ void UAFLAG_GrantLoadout::StartEquipVerifyRetry(APawn* Pawn)
 		}), 0.05f);
 
 	UE_LOG(LogAFLCombat, Log,
-		TEXT("AFL_LOADOUT: equip did not take on %s this frame -- starting bounded re-equip retry."),
-		*GetNameSafe(Pawn));
+		TEXT("AFL_LOADOUT: equip not yet verified on %s -- starting bounded verify/re-equip retry (grace %d ticks)."),
+		*GetNameSafe(Pawn), EquipRetryGraceTicks);
 }
 
 void UAFLAG_GrantLoadout::StopEquipVerifyRetry()
@@ -288,6 +377,7 @@ void UAFLAG_GrantLoadout::StopEquipVerifyRetry()
 	}
 	EquipRetryPawn.Reset();
 	EquipRetryAttempts = 0;
+	EquipRetryGraceTicks = 0;
 }
 
 bool UAFLAG_GrantLoadout::TickEquipVerifyRetry()
@@ -320,7 +410,7 @@ bool UAFLAG_GrantLoadout::TickEquipVerifyRetry()
 		EquipRetryTickHandle.Reset();       // reset BEFORE EndAbility -> StopEquipVerifyRetry finds no handle
 		EquipRetryPawn.Reset();
 		EquipRetryAttempts = 0;
-		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: re-equip VERIFIED for %s after %d retr(ies) -- weapon spawned."),
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LOADOUT: equip VERIFIED for %s after %d tick(s) -- weapon spawned."),
 			*GetNameSafe(Pawn), Attempts);
 		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
 		return false;
@@ -333,10 +423,16 @@ bool UAFLAG_GrantLoadout::TickEquipVerifyRetry()
 		EquipRetryPawn.Reset();
 		EquipRetryAttempts = 0;
 		UE_LOG(LogAFLCombat, Warning,
-			TEXT("AFL_LOADOUT: re-equip did NOT verify for %s after %d retries -- giving up (pawn may A-pose)."),
+			TEXT("AFL_LOADOUT: equip did NOT verify for %s after %d ticks -- giving up (pawn may A-pose)."),
 			*GetNameSafe(Pawn), Attempts);
 		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
 		return false;
+	}
+
+	// GRACE: verify-only ticks that give a deferred cosmetic equip its window before we bounce the loadout slot.
+	if (EquipRetryAttempts <= EquipRetryGraceTicks)
+	{
+		return true;
 	}
 
 	BounceEquipForPawn();   // re-attempt until the equipment manager accepts the equip

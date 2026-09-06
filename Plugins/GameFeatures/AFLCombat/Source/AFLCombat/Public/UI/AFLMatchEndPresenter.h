@@ -8,7 +8,7 @@
 #include "AFLMatchEndPresenter.generated.h"
 
 class APlayerState;
-class UAFLW_MatchScoreboard;
+class UCommonActivatableWidget;
 
 /**
  * UAFLMatchEndPresenter -- the client-side match-end results PUSHER (the takeover trigger).
@@ -22,6 +22,11 @@ class UAFLW_MatchScoreboard;
  * collects each player's EARNED Watts, coalesces (~50ms), then pushes the results widget (a
  * UCommonActivatableWidget) full-screen onto UI.Layer.Menu and calls ShowResults(). This decouples the
  * match-end takeover from the HUD -- the board is no longer a content-sized HUD-slot overlay.
+ *
+ * MODE-AWARE CARD (2026-09-06): the card is resolved BY MODE at push time, not hardcoded. A Battle Royale
+ * match (UAFLBattleRoyaleComponent on the GameState) gets WBP_AFL_BRResult (placement / match length /
+ * eliminations); every team mode keeps WBP_AFL_MatchScoreboard. Before this, BR inherited the team
+ * scoreboard -- "0 - 0", TEAM A / TEAM B and a raw "Text Block" placeholder on a free-for-all result.
  */
 UCLASS()
 class AFLCOMBAT_API UAFLMatchEndPresenter : public UActorComponent
@@ -39,8 +44,9 @@ private:
 	void HandleMatchEnded(FGameplayTag Channel, const struct FLyraVerbMessage& Msg);
 	void PushResults();
 
-	/** The results takeover WBP (a UCommonActivatableWidget child); soft so it lazy-loads at match-end. */
-	TSoftClassPtr<UAFLW_MatchScoreboard> ResultsWidgetClass;
+	/** Pick the takeover class for THIS match's mode (resolved lazily at push -- the GameState and its mode
+	 *  component are certainly present by match-end, which is not guaranteed at BeginPlay on a client). */
+	TSoftClassPtr<UCommonActivatableWidget> ResolveResultsWidgetClass(bool& bOutIsBattleRoyale) const;
 
 	TMap<TWeakObjectPtr<APlayerState>, int32> EarnedWatts;
 	FGameplayMessageListenerHandle MatchEndedListener;

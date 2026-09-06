@@ -3,16 +3,19 @@
 #include "UI/AFLMatchEndPresenter.h"
 
 #include "AFLCombat.h"
+#include "BattleRoyale/AFLBattleRoyaleComponent.h"   // the mode probe: BR present on the GameState -> BR card
 #include "CommonActivatableWidget.h"
 #include "CommonUIExtensions.h"
 #include "Cook/AFLCookedAssetRegistry.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
+#include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "Messages/LyraVerbMessage.h"
 #include "NativeGameplayTags.h"
 #include "TimerManager.h"
+#include "UI/AFLW_BRResult.h"
 #include "UI/AFLW_MatchScoreboard.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLMatchEndPresenter)
@@ -31,6 +34,10 @@ namespace
 AFL_COOKED_ASSET(GMatchScoreboardWidget,
 	TEXT("/AFLBagMan/UI/WBP_AFL_MatchScoreboard.WBP_AFL_MatchScoreboard_C"));
 
+// The Battle Royale card (placement / match length / eliminations). Same enrolment discipline.
+AFL_COOKED_ASSET(GBRResultWidget,
+	TEXT("/AFLBagMan/UI/WBP_AFL_BRResult.WBP_AFL_BRResult_C"));
+
 UAFLMatchEndPresenter::UAFLMatchEndPresenter()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -46,9 +53,6 @@ void UAFLMatchEndPresenter::BeginPlay()
 	{
 		return;
 	}
-
-	// The AFL results takeover WBP (styled child of UAFLW_MatchScoreboard). Soft ref -> lazy-loaded on match-end.
-	ResultsWidgetClass = GMatchScoreboardWidget.ToSoftClassPtr<UAFLW_MatchScoreboard>();
 
 	// Reuse the proven trigger: the per-player Event.Match.Ended broadcast (fires once per player at PostGame).
 	if (UWorld* World = GetWorld())
@@ -86,6 +90,18 @@ void UAFLMatchEndPresenter::HandleMatchEnded(FGameplayTag /*Channel*/, const FLy
 	}
 }
 
+TSoftClassPtr<UCommonActivatableWidget> UAFLMatchEndPresenter::ResolveResultsWidgetClass(bool& bOutIsBattleRoyale) const
+{
+	// The mode is a fact of the GameState, not of this component: the BR structure layer lives there
+	// (replicated, client-visible), so probing it is safe on every client at match-end.
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GS = World ? World->GetGameState() : nullptr;
+	bOutIsBattleRoyale = (GS && GS->FindComponentByClass<UAFLBattleRoyaleComponent>() != nullptr);
+	return bOutIsBattleRoyale
+		? GBRResultWidget.ToSoftClassPtr<UCommonActivatableWidget>()
+		: GMatchScoreboardWidget.ToSoftClassPtr<UCommonActivatableWidget>();
+}
+
 void UAFLMatchEndPresenter::PushResults()
 {
 	if (bPushed) { return; }   // one takeover per match
@@ -94,18 +110,26 @@ void UAFLMatchEndPresenter::PushResults()
 	ULocalPlayer* LP = PC ? PC->GetLocalPlayer() : nullptr;
 	if (!LP) { return; }
 
-	TSubclassOf<UAFLW_MatchScoreboard> LoadedClass = ResultsWidgetClass.LoadSynchronous();
+	bool bBattleRoyale = false;
+	TSubclassOf<UCommonActivatableWidget> LoadedClass = ResolveResultsWidgetClass(bBattleRoyale).LoadSynchronous();
 	if (!LoadedClass)
 	{
-		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MATCHEND: results takeover WBP failed to load; no board shown."));
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_MATCHEND: results takeover WBP (%s) failed to load; no board shown."),
+			bBattleRoyale ? TEXT("BR") : TEXT("scoreboard"));
 		return;
 	}
 
 	bPushed = true;
 	UCommonActivatableWidget* Pushed = UCommonUIExtensions::PushContentToLayer_ForPlayer(LP, TAG_UI_Layer_Menu_Presenter, LoadedClass);
-	if (UAFLW_MatchScoreboard* Board = Cast<UAFLW_MatchScoreboard>(Pushed))
+	// Hand in the collected EARNED + render. The HUD-hide happens on the widget's activation.
+	if (UAFLW_BRResult* BRCard = Cast<UAFLW_BRResult>(Pushed))
 	{
-		// Hand in the collected EARNED + render. The HUD-hide happens on the widget's activation.
+		BRCard->ShowResults(EarnedWatts);
+	}
+	else if (UAFLW_MatchScoreboard* Board = Cast<UAFLW_MatchScoreboard>(Pushed))
+	{
 		Board->ShowResults(EarnedWatts);
 	}
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_MATCHEND: pushed %s takeover (%s)."),
+		bBattleRoyale ? TEXT("BR result") : TEXT("match scoreboard"), *GetNameSafe(Pushed));
 }

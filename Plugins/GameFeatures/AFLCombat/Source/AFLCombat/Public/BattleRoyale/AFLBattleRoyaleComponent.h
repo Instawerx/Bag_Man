@@ -7,8 +7,18 @@
 #include "Match/AFLMatchResultTypes.h"                     // FAFLMatchParticipant -- DepartedParticipants holds them BY VALUE
 #include "AFLRoundRestartPolicy.h"                        // IAFLRoundRestartPolicy (the always-loaded AFLGameCore seam)
 #include "AFLMatchCancelPolicy.h"                        // IAFLMatchCancelPolicy -- BR inherits the ONE humanless watch
+#include "NativeGameplayTags.h"                          // TAG_AFL_Stat_BR_Placement (the client-visible finishing position)
 
 #include "AFLBattleRoyaleComponent.generated.h"
+
+/**
+ * CLIENT-VISIBLE PLACEMENT. `Placements` below is a server-only TMap (never replicated), so a client's
+ * GetPlacementForPlayer reads 0 for everyone -- the HUD RANK and the result card could not say "#3 of 9" on a
+ * real client. The server writes each booked rung into the PlayerState's replicated StatTags under this tag
+ * (Lyra's own K/D/A channel: ALyraPlayerState::AddStatTagStack), so every client reads it for free. Native tag
+ * (registered at module load; no ini, no editor restart). 0 = not yet booked.
+ */
+AFLCOMBAT_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_AFL_Stat_BR_Placement);
 
 class APawn;
 class APlayerState;
@@ -190,6 +200,10 @@ private:
 	 *  a forfeit can follow a death in the same frame. Shared by the death and forfeit triggers so the two
 	 *  cannot book differently. */
 	bool BookPlacement(APlayerState* PS);
+
+	/** Mirror a booked rung into the PlayerState's replicated StatTags (TAG_AFL_Stat_BR_Placement) so clients can
+	 *  read it. SET semantics (clears any prior stack first). Server-only; null-safe. */
+	void WritePlacementStat(APlayerState* PS, int32 Placement) const;
 
 	/**
 	 * Participants who LEFT, captured whole at the moment they left.

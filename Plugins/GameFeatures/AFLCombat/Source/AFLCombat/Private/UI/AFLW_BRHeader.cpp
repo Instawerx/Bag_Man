@@ -9,6 +9,7 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
+#include "Player/LyraPlayerState.h"   // replicated StatTags -- the client-visible placement
 #include "TimerManager.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_BRHeader)
@@ -95,12 +96,21 @@ void UAFLW_BRHeader::Refresh()
 	}
 
 	// Placement of the local player. 0 = not yet eliminated -> a dash until the ladder books them.
+	// CLIENT-VISIBLE: the component's Placements map is server-only, so read the replicated StatTag the server
+	// writes at booking (TAG_AFL_Stat_BR_Placement); the server map is only a fallback for a listen host.
 	int32 Rank = 0;
 	if (const APlayerController* PC = GetOwningPlayer())
 	{
 		if (const APlayerState* PS = PC->PlayerState)
 		{
-			Rank = B->GetPlacementForPlayer(PS);
+			if (const ALyraPlayerState* LPS = Cast<ALyraPlayerState>(PS))
+			{
+				Rank = LPS->GetStatTagStackCount(TAG_AFL_Stat_BR_Placement);
+			}
+			if (Rank <= 0)
+			{
+				Rank = B->GetPlacementForPlayer(PS);
+			}
 		}
 	}
 	if (Rank != LastRank)

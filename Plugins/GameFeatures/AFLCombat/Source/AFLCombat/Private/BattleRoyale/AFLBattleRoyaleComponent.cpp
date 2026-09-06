@@ -24,8 +24,13 @@
 #include "Match/AFLMatchResultTypes.h"   // FAFLMatchResult
 #include "Teams/LyraTeamSubsystem.h"   // BLOCK 177: runtime team id for the belief-state roster (same source as the round manager)
 #include "Telemetry/AFLCombatTelemetry.h"
+#include "Player/LyraPlayerState.h"        // replicated StatTags -- the client-visible placement mirror
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLBattleRoyaleComponent)
+
+// The client-visible finishing position (see the header). Written at every booking site below.
+UE_DEFINE_GAMEPLAY_TAG_COMMENT(TAG_AFL_Stat_BR_Placement, "AFL.Stat.BR.Placement",
+	"Battle Royale finishing position (1 = winner), mirrored into the PlayerState's replicated StatTags at booking.");
 
 // Same no-respawn tag the round manager uses: the cloned GA_AFL_AutoRespawn skips its respawn node while
 // this is on the owning (PlayerState) ASC. UE dedups native+ini; AFLCombatTags.ini is the spec source.
@@ -265,8 +270,25 @@ bool UAFLBattleRoyaleComponent::BookPlacement(APlayerState* PS)
 		return false;
 	}
 	Placements.Add(PS, NextPlacement);
+	WritePlacementStat(PS, NextPlacement);   // replicate the rung so the client's HUD RANK / result card can read it
 	NextPlacement = FMath::Max(1, NextPlacement - 1);
 	return true;
+}
+
+void UAFLBattleRoyaleComponent::WritePlacementStat(APlayerState* PS, int32 Placement) const
+{
+	// SET, not ADD: StatTags are stack COUNTS. Clear any prior stack (a PlayerState can outlive one match on a
+	// listen host) so the count IS the rung, then add exactly Placement. Server-only -- the container replicates.
+	ALyraPlayerState* LPS = Cast<ALyraPlayerState>(PS);
+	if (!LPS || !HasAuth() || Placement <= 0)
+	{
+		return;
+	}
+	if (const int32 Prior = LPS->GetStatTagStackCount(TAG_AFL_Stat_BR_Placement); Prior > 0)
+	{
+		LPS->RemoveStatTagStack(TAG_AFL_Stat_BR_Placement, Prior);
+	}
+	LPS->AddStatTagStack(TAG_AFL_Stat_BR_Placement, Placement);
 }
 
 void UAFLBattleRoyaleComponent::HandlePlayerLoggedOut(AGameModeBase* /*GameMode*/, AController* Exiting)
@@ -394,6 +416,7 @@ void UAFLBattleRoyaleComponent::Server_EndMatch(APlayerState* Winner)
 	if (Winner && !Placements.Contains(Winner))
 	{
 		Placements.Add(Winner, 1);   // sole survivor takes first place
+		WritePlacementStat(Winner, 1);
 	}
 	WinnerPlayerId = Winner ? Winner->GetPlayerId() : INDEX_NONE;
 

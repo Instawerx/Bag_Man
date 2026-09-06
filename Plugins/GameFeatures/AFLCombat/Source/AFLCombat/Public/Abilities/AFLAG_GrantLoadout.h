@@ -9,6 +9,7 @@
 
 class ULyraInventoryItemDefinition;
 class ULyraInventoryItemInstance;
+class ULyraInventoryManagerComponent;
 
 /**
  * UAFLAG_GrantLoadout
@@ -83,10 +84,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AFL|Loadout")
 	int32 ActiveSlotIndex = 0;
 
-	/** Once-per-controller-life latch. OnAvatarSet fires more than once (Lyra re-runs
-	 *  InitAbilityActorInfo during the component-ready cascade), and each re-fire can re-activate
-	 *  this ability after the first grant already ended it -- duplicating weapons into the
-	 *  persistent controller inventory. Set only on a successful grant, so failure paths retry. */
+	/** "A grant has happened on this controller" -- but NOT, by itself, "skip the grant". OnAvatarSet fires more
+	 *  than once (Lyra re-runs InitAbilityActorInfo during the component-ready cascade), and each re-fire can
+	 *  re-activate this ability after the first grant already ended it -- duplicating weapons into the
+	 *  persistent controller inventory. That is what this guards. It DEFERS TO THE CONSUMER'S STATE
+	 *  (CountLoadoutDefsPresent): when the controller still holds the loadout, the activation is equip-only;
+	 *  when the inherited hero graph's ClearInventory has emptied it (a round reset or a death), the latch is
+	 *  re-armed and the same grant path RESTOCKS -- per-definition idempotent, so duplicates stay impossible.
+	 *  (The blind boolean version, cc379c89 2026-08-30, is the round-2 A-pose regression of 2026-09-06.) */
 	UPROPERTY(Transient)
 	bool bLoadoutGranted = false;
 
@@ -170,11 +175,16 @@ private:
 	/** True when Pawn already holds a ULyraWeaponInstance whose actors have spawned (the equip took). */
 	bool IsLoadoutWeaponSpawned(APawn* Pawn) const;
 
+	/** How many of this loadout's item definitions the controller's inventory holds NOW (OutDefsTotal = how many
+	 *  it should). 0/N after the inherited ClearInventory -> the latch restocks. Null-inventory-safe. */
+	int32 CountLoadoutDefsPresent(const ULyraInventoryManagerComponent* Inventory, int32& OutDefsTotal) const;
+
 	/** Bounce the QuickBar active slot through another index to force a real unequip/equip on a fresh pawn. */
 	void BounceEquipForPawn();
 
-	/** Begin a bounded next-frame retry loop that re-bounces until IsLoadoutWeaponSpawned(Pawn) or it caps. */
-	void StartEquipVerifyRetry(APawn* Pawn);
+	/** Begin a bounded retry loop: verify each tick; after GraceTicks verify-only ticks, re-bounce until
+	 *  IsLoadoutWeaponSpawned(Pawn) or it caps. The grace lets a deferred cosmetic equip land first. */
+	void StartEquipVerifyRetry(APawn* Pawn, int32 GraceTicks);
 
 	/** Remove the retry ticker and clear its state (idempotent; safe to call when none is pending). */
 	void StopEquipVerifyRetry();
@@ -191,4 +201,7 @@ private:
 
 	/** Retry attempts so far; capped (~40 x ~0.05s ~= 2s) so a pawn that never accepts the equip cannot spin. */
 	int32 EquipRetryAttempts = 0;
+
+	/** Verify-only ticks before the first bounce (0 = bounce immediately). */
+	int32 EquipRetryGraceTicks = 0;
 };
