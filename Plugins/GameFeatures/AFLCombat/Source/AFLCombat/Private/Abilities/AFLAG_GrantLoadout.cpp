@@ -295,13 +295,21 @@ bool UAFLAG_GrantLoadout::TickEquipVerifyRetry()
 	APawn* Pawn = EquipRetryPawn.Get();
 	APawn* CurrentAvatar = CurrentActorInfo ? Cast<APawn>(CurrentActorInfo->AvatarActor.Get()) : nullptr;
 
-	// Abort quietly: the ability ended, the pawn is gone, or a newer respawn moved the avatar on. The handle
-	// is reset because returning false unregisters this ticker.
+	// Abort: the ability ended, the pawn is gone, or a newer respawn moved the avatar on. The handle is reset
+	// because returning false unregisters this ticker.
 	if (!IsActive() || !Pawn || CurrentAvatar != Pawn)
 	{
 		EquipRetryTickHandle.Reset();
 		EquipRetryPawn.Reset();
 		EquipRetryAttempts = 0;
+		// If the ability is STILL active here (pawn destroyed, or a NEWER respawn already moved the avatar on),
+		// end it so the next OnSpawn re-activates cleanly for the new pawn. Leaving it active would swallow a
+		// respawn that landed inside the retry window (TryActivateAbilityOnSpawn early-outs on Spec.IsActive())
+		// and re-open the very A-pose this fix closes.
+		if (IsActive())
+		{
+			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		}
 		return false;
 	}
 

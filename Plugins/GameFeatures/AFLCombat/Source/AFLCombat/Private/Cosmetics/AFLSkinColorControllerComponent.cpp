@@ -20,6 +20,7 @@
 #include "Cosmetics/AFLWeaponCosmeticAsset.h"         // the carrier (WeaponId -> EquipmentDefinition); AFLCombat-homed, brings the full ULyraEquipmentDefinition type
 #include "Equipment/LyraEquipmentManagerComponent.h"  // EquipItem / UnequipItem / GetEquipmentInstancesOfType
 #include "Equipment/LyraEquipmentInstance.h"          // the equipped instance we track + unequip
+#include "AFLCombat.h"                                // LogAFLCombat -- the ruling-4 retry logs' category
 #include "Weapons/LyraWeaponInstance.h"               // ruling-4 mirror: verify the cosmetic weapon spawned
 #include "TimerManager.h"                             // bounded cosmetic weapon re-equip retry
 #include "Engine/World.h"                             // GetWorld()->GetTimerManager()
