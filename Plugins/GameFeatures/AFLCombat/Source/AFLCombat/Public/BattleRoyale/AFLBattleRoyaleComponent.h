@@ -69,6 +69,15 @@ public:
 	/** Winner's PlayerId (APlayerState::GetPlayerId), or INDEX_NONE for none/draw. Replicated for a UI toast. */
 	UPROPERTY(ReplicatedUsing = OnRep_Resolved, BlueprintReadOnly, Category = "AFL|BR") int32 WinnerPlayerId = INDEX_NONE;
 
+	/**
+	 * BR COUNT-UP CLOCK (2026-09-05): the BR HUD must show ELAPSED match time counting UP from 0:00 and record
+	 * the match length -- NOT the match-play per-round countdown the old header wrongly reused. These two
+	 * GameState-synced server timestamps are the clock's origin + freeze point; GetElapsedMatchSeconds derives
+	 * the display, NO tick. Plain replicated UPROPERTYs (the component's no-custom-net-struct rule). 0 = unset.
+	 */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|BR") double MatchStartServerTime = 0.0;
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "AFL|BR") double MatchEndServerTime   = 0.0;
+
 	/** Fires on the server at resolve, and on clients via OnRep_Resolved (winner may be null on a draw). */
 	DECLARE_MULTICAST_DELEGATE_OneParam(FAFLBRResolved, APlayerState* /*Winner*/);
 	FAFLBRResolved OnBattleRoyaleResolved;
@@ -78,6 +87,11 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "AFL|BR") bool IsMatchActive() const { return Phase == EAFLBRPhase::Playing; }
 	UFUNCTION(BlueprintPure, Category = "AFL|BR") FString GetMatchId() const { return MatchId.ToString(EGuidFormats::DigitsWithHyphens); }
+
+	/** Seconds since the match entered Playing, COUNTING UP, frozen at match end (records the match length); 0
+	 *  before it starts. The BR HUD header reads this. Client-safe -- uses the GameState-synced server clock so
+	 *  host and every client agree. */
+	UFUNCTION(BlueprintPure, Category = "AFL|BR") float GetElapsedMatchSeconds() const;
 
 	/** Finishing place (1..N) booked for a player, or 0 if not yet resolved. */
 	UFUNCTION(BlueprintPure, Category = "AFL|BR") int32 GetPlacementForPlayer(const APlayerState* PS) const;

@@ -54,6 +54,23 @@ void UAFLBattleRoyaleComponent::GetLifetimeReplicatedProps(TArray<FLifetimePrope
 	DOREPLIFETIME(UAFLBattleRoyaleComponent, AlivePlayers);
 	DOREPLIFETIME(UAFLBattleRoyaleComponent, TotalParticipants);
 	DOREPLIFETIME(UAFLBattleRoyaleComponent, WinnerPlayerId);
+	DOREPLIFETIME(UAFLBattleRoyaleComponent, MatchStartServerTime);
+	DOREPLIFETIME(UAFLBattleRoyaleComponent, MatchEndServerTime);
+}
+
+float UAFLBattleRoyaleComponent::GetElapsedMatchSeconds() const
+{
+	if (MatchStartServerTime <= 0.0)
+	{
+		return 0.0f;   // match has not entered Playing yet
+	}
+	// COUNT UP from the start origin, freezing at the end time once the match concludes. The GameState-synced
+	// server clock (GetServerWorldTimeSeconds) is valid on clients too, so host and every client agree; when
+	// the GameState is momentarily unavailable, hold at the start so the value never goes backwards.
+	const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr;
+	const double Now = GS ? GS->GetServerWorldTimeSeconds() : MatchStartServerTime;
+	const double EndOrNow = (MatchEndServerTime > 0.0) ? MatchEndServerTime : Now;
+	return static_cast<float>(FMath::Max(0.0, EndOrNow - MatchStartServerTime));
 }
 
 bool UAFLBattleRoyaleComponent::HasAuth() const
@@ -181,6 +198,11 @@ void UAFLBattleRoyaleComponent::ServerStartMatch()
 	bMatchStarted = true;
 	MatchId = FGuid::NewGuid();   // authored ONCE, past the guard -> stable staking/earn contract id
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_BR_MATCHID assigned %s"), *GetMatchId());
+
+	// COUNT-UP CLOCK zero: the GameState-synced server time at Playing entry. Replicated -> every client's
+	// GetElapsedMatchSeconds counts up from the same origin. End freezes it (records the match length).
+	MatchStartServerTime = GS->GetServerWorldTimeSeconds();
+	MatchEndServerTime   = 0.0;
 
 	// ══ TAKE THE POT, HERE, AT THE ONE MOMENT THE ROSTER IS BOTH COMPLETE AND AUTHORITATIVE ═══════════════
 	//
@@ -374,6 +396,13 @@ void UAFLBattleRoyaleComponent::Server_EndMatch(APlayerState* Winner)
 		Placements.Add(Winner, 1);   // sole survivor takes first place
 	}
 	WinnerPlayerId = Winner ? Winner->GetPlayerId() : INDEX_NONE;
+
+	// FREEZE the count-up clock: the server world-time at match end -- GetElapsedMatchSeconds now records the
+	// final match length. Replicated to every client so host and clients freeze on the same value.
+	if (const AGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGameStateBase>() : nullptr)
+	{
+		MatchEndServerTime = GS->GetServerWorldTimeSeconds();
+	}
 
 	SetPhaseAuthoritative(EAFLBRPhase::MatchEnd);
 	OnRep_Resolved();   // listen-host local broadcast (OnRep does not fire for the authority's own change)
