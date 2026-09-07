@@ -95,9 +95,18 @@ field gates real mints. Retiring scarcity is therefore a backend work item, not 
 
 ---
 
-## 2 · Scarcity is retired
+## 2 · Scarcity is retired (for the BASE / house catalog)
 
-Cosmetic scarcity is removed with no exceptions and no carve-outs.
+Cosmetic scarcity is removed with no exceptions and no carve-outs **for house-published rows** — this
+section governs the base catalog.
+
+> **Scope clarified 2026-09-07 (operator ruling; platform decision log §12).** Scarcity is retired for
+> the BASE/house catalog only. The **creator economy** repurposes the mint-cap mechanism into a
+> **creator-set** scarcity control: a creator sets the cap at mint — one of a kind, a run of N, or
+> uncapped. A creator item is "sold out" when its creator-set cap is reached; a base/house row never is.
+> The backend mint-cap unwind below applies to base rows; the creator path keeps the cap as a creator
+> setting. The mint cap is surfaced per row in the admin catalog console. See the platform decision log
+> §12 for the full reconciliation.
 
 **Retired:** mint counts as a pricing mechanism · the $1→$500 stretched curve ·
 never-discount at Bolt and above · never-reissue · the Grail/$500 band · identities sold as
