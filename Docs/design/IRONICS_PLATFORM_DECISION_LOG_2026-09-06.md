@@ -235,5 +235,26 @@ crossing is visible rather than discovered on an invoice.
 remembered price (the first was the CloudFront plan allowance in s7). Cost figures in this programme are quoted from the
 meter or the vendor's own page, with the query recorded, or they are marked as estimates.
 
+
+## 9. Website overhaul + DAO / Creator economy / Sponsors, and the $200 server target (2026-09-07)
+
+Full mandate captured verbatim in the scratchpad (`overhaul_mandate.md`) and folded into the website content
+pass. Headline rulings:
+
+| # | Decision | Ruling |
+|---|---|---|
+| S1 | Server cost | **CORRECTED again: the $50 cap is lifted for the SERVER line to a ~$200/month soft GOAL, cost-efficiency the standing objective ("how we pass savings to players").** Not a hard constraint. The Windows c6i.large at ~$129 now sits inside the goal; the Linux rebuild and off-hours scheduling remain worth doing because cheaper is the point, not because a ceiling forces it. Incidental platform/CDN scaling still aims low. |
+| W-DAO | HOUSES -> C12 | Replace the HOUSES nav item and page with **C12 (DAO)**: info, features, benefits, roadmap. C12 AI DAO = Robotics + Hyperledgers, intersecting gaming / entertainment / social equality; 1 AAA in beta + 3 more games; the two source .docx files are UNREAD (OneDrive, sign-in-gated) — DAO specifics come from those or ship with bracketed placeholders. |
+| W-LANES | Content separation | Two lanes, not intertwined: the GAME stays about the game, C12/DAO is its own lane. |
+| W-BETA | Beta = placeholder | Publicly label Beta Land content as PLACEHOLDER capability. The real thesis is **Alpha: a creator-forward, open-source-inspired, DAO-managed economy** where individuals create Weapons/Maps/Characters/Accessories and list them in C12's games. |
+| W-ROLES | Roles + apply | Three public roles, multi-select (one person, many): **DAO ownership interest, Creator, Tester**. Creator/cohort submission -> voting -> DAO approval/integration. AAA quality bar enforced. |
+| W-CREATOR | Creator economy | Creators set scarcity (1-of-1 or many); once in the economy an item is a normal econ item, the new owner's property to buy/sell/trade. |
+| W-SPONSOR | Sponsor offerings | New public offerings page + sales scope: Super Lobby sponsorships, shared collab spaces, player-IP + aligned-interest routing incl. localization, Mini-Game & Tournament sponsoring (Drone Racing/leagues, Shooting, Cart Racing, Space Invaders, more), any feature agreement; the varied ways sponsors reach players; **integration often < 72 h from concept**. |
+| A-WALLET | Admin economy control | **Admins may access and control player wallets, INCLUDING issuing Watts and Volts.** This green-lights the wallet/issue path the four "designed, not wired" economy screens were waiting on — still under the money-safety doctrine (append-only journal, hard caps, named actor, step-up / second-admin where required, no self-approval past threshold). |
+| M-METHOD | Method | /Design mockup-first for every new/changed screen; propose -> approve -> implement; this phase's deliverable is the DESIGN + PROPOSAL. |
+
+MFA and the Cloudflare token down-scope: operator will handle later; deny-unless-MFA stays UN-applied until
+the MFA device exists.
+
 ---
 *Ruled 2026-09-06 under the operator's delegation. Amend by appending; never rewrite a ruling silently.*
