@@ -20,6 +20,7 @@ Operator's words: *"DeepWaterStation+CyberPunk (323 MB, ~170 after 4K cap) are n
 |---|---|---|
 | R1 | **Cull DeepWaterStation + CyberPunk** (excess packs, never used) | Enters the next release's build via NeverCook + reference audit + cook verification (0.1.2 law: verify by cook, not manifest). Repo removal is a separate destructive step. Answers part of #18 (Tier 1B cull items). |
 | R2 | **Downloads stay as they are; any scaling stays under $50/month** | #27 resolved for now: presigned S3 (D1) remains; no CloudFront/R2 build-out; GTM §7 patch paks and D2 Tiers 1-2 DEFERRED behind the cap. Cost model: egress ~$0.09/GB x ~2.5 GB per download ~= $0.22/download -> the cap funds roughly 200 downloads/month before other line items; the 4K cap + cull lower that per-download cost. |
+| R2a | **Cost baseline read from AWS Cost Explorer 2026-09-06 (gross, credits excluded)** | Aug 2026 total **$2.40** (Secrets Manager 1.85, KMS 0.50, DynamoDB/S3/API GW cents) - fully covered by credits (-$2.40 applied). Sep 1-6: $1.43, of which EC2 compute $0.76 since the S12 server launched 09-05 19:43 UTC. **S12 = c6i.large on-demand 24/7 ~= $62/month projected** (+ ~$3-5 EBS/VPC) - the fixed server baseline ALONE exceeds the $50 cap; today credits absorb it. Release bucket `s3://ironics-releases/win64/` = 20.0 GB / 6 objects (5 releases + latest.json, ~4 GB per zip). Egress: AWS free tier = 100 GB/month out, then $0.09/GB -> ~25 downloads/month free at 4 GB, ~$0.36 per download after; the cull (R1) + 4K cap reduce both. **Decision 31 added:** server cost posture (1-yr no-upfront Savings Plan ~= $39/mo; scheduled off-hours stop; smaller instance) and version retention in the bucket. |
 | R3 | **Priority 1 = Admin controls + Dashboard UI/UX** | Admin-scope pass (running) -> recommendations + 1:1 mockups for operator approval (mockup-first) -> build. #2/#3/#4/#5 get ruled inside that presentation. |
 | R4 | **Priority 2 = content + Roadmap pass** | #7-#12, #29 (VR date), #15, #21 (doc-truth) grouped into one pass AFTER admin; every changed screen gets a mockup. |
 | R5 | **Everything else approved as proposed, within the constraints ($50/mo, AAA quality)** | §8 sequencing accepted with R3/R4 order override; ask-before-implementing still applies to each destructive or outward-facing step. |
@@ -682,6 +683,7 @@ _D2 items that belong here:_
 28. [ ] ANALYTICS: confirm PostHog per GTM §6 (and the cookie/consent posture GTM §13 flags), or re-rule.
 29. [ ] VR DATE: reconcile the public '7 Sep 2026' row with the VR programme (VR-0 not started).
 30. [ ] DOWNLOADS INBOX: adopt 'SSOTs live in the repo' as a rule; move the three secret-bearing notes to a secrets manager.
+31. [ ] SERVER COST POSTURE under the $50/mo cap: S12 c6i.large on-demand 24/7 ~= $62/mo gross (credit-covered today). Options: 1-yr no-upfront Compute Savings Plan (~$39/mo), scheduled off-hours stop via the existing Scheduled Task, or a smaller instance (tick-stability risk). Also: how many releases to retain in s3://ironics-releases (20 GB today).
 
 ## 8. Suggested sequencing (SUGGESTION - accept, reorder or reject)
 
