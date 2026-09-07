@@ -25,7 +25,7 @@ operator's hands or signature) · **DEFERRED** (named trigger).
 
 | # | Decision | Ruling | Rationale |
 |---|---|---|---|
-| D-DIST-1 | Delivery path | **CloudFront + Origin Access Control + signed URLs in front of the existing `ironics-releases` bucket (D2 Tier 0), on the CloudFront FREE pricing plan; move to the CloudFront Pro plan ($15/month) when monthly egress approaches the free allowance.** Presigned S3 (D1) retires the day Tier 0 is proven. | The CloudFront free allowance is 1 TB/month of egress and 10 M requests (always-free), i.e. ~250 downloads/month at 4 GB for $0; Pro ($15) covers the ramp to 1,000 (verify the current plan limits at implementation - this is the operator's "$15 tier"). Fixes the 15-minute presigned-link expiry (24 h signed URLs), adds edge logs for download telemetry, keeps the API un-proxied. R2 (GTM s7) would require re-hosting 20 GB and a Worker signer for no cost advantage at this scale. |
+| D-DIST-1 | Delivery path | **AMENDED 2026-09-06 after primary-source verification (see s7).** CloudFront + Origin Access Control + key-group signed URLs in front of the existing `ironics-releases` bucket (D2 Tier 0), **on PAY-AS-YOU-GO pricing (no flat-rate plan)**, using the always-free 1 TB / 10 M-request tier; **flip to the flat-rate Pro plan ($15/month, 50 TB) when monthly egress passes ~1.18 TB (~300 downloads).** Presigned S3 (D1) retires the day Tier 0 is proven. | The 1 TB / 10 M always-free allowance exists ONLY under pay-as-you-go. The flat-rate FREE plan is 100 GB + 1 M requests (~25 downloads of the 3.9 GB zip) **and excludes access logs**, so it would break the download telemetry in D-DIST-3. Pay-as-you-go costs ~$0.33 per 3.9 GB download past the free tier; Pro converts that to a flat $15 with no overage up to 50 TB (~12,800 downloads) - it is the operator's "$15 tier" and covers the whole ramp to 1,000. Fixes the 15-minute presigned-link expiry (24 h signed URLs), keeps the API un-proxied. R2 (GTM s7) would require re-hosting 20 GB and a Worker signer for no cost advantage at this scale. |
 | D-DIST-2 | Link policy | 24 h bearer signed URL, no IP binding; per-account mint quota 3/day on the click path; metadata-only `GET /v1/download/latest/meta` so page renders never mint (D2 fix #2). | Honest metrics + resumable downloads; quota stops link farming without hurting retries. |
 | D-DIST-3 | Telemetry | CloudFront standard logs v2 -> private S3 (30-day lifecycle) -> Athena partition projection -> nightly snapshot into the admin roll-up rows. c-ip dropped at the Athena view (kept 30 days raw). | Pennies at this volume; gives completed/failed/Mbps/country for the Downloads panel. |
 | D-DIST-4 | Launcher / patch paks | DEFERRED. Triggers: > 2 patches/month, or median download > 45 min, or > 300 active testers. | GTM s7.2 triggers stand; a launcher is a product, not a beta need. |
@@ -82,8 +82,8 @@ operator's hands or signature) · **DEFERRED** (named trigger).
 | # | Decision | Ruling |
 |---|---|---|
 | C1 | S12 server (c6i.large 24/7 ~= $62/month gross, credit-covered) | **RULED:** stay on-demand 24/7 while credits cover it (a live beta needs uptime; no 1-year commitment before product-market fit). AWS Budgets alarm at $50 gross/month. Re-evaluate a 1-yr no-upfront Compute Savings Plan (~$39/month) at 100 approved testers or when remaining credits < 2 months (OPERATOR reads the credit balance in Billing > Credits). |
-| C2 | Platform incremental | ~$3-10/month for everything in the admin plan; CloudFront $0 -> $15; DynamoDB/Lambda pennies. Inside the cap. |
-| C3 | Vendors | Zero new paid vendors for the beta. Free tiers only: Cloudflare (Free zone + Zero Trust), CloudFront Free plan, PostHog free (after legal), Resend (existing). |
+| C2 | Platform incremental | ~$3-10/month for everything in the admin plan; CloudFront $0 (pay-as-you-go inside the 1 TB free tier) -> $15 (flat-rate Pro) at ~300 downloads/month; DynamoDB/Lambda/SSM pennies; Secrets Manager $0.40/secret. Inside the cap. |
+| C3 | Vendors | Zero new paid vendors for the beta. Free tiers only: Cloudflare (Free zone + Zero Trust free to 50 seats), CloudFront pay-as-you-go free tier, PostHog free (after legal), Resend (existing). The only planned paid lines are CloudFront Pro ($15) at ~300 downloads/month and Azure Trusted Signing (~$10) at 100 testers - both inside the $50 cap. |
 
 ## 5. Website content + public roadmap (content pass 1-32)
 
@@ -134,6 +134,69 @@ operator's hands or signature) · **DEFERRED** (named trigger).
 | G-EVENTS | Play sessions | **RULED:** scheduled weekly play windows (announced in Discord) so lobbies fill; bot fill covers the rest. |
 | G-SIGNING | Installer trust | **RULED:** = W23. |
 | G-METRICS | North Star | **RULED:** installed -> first match >= 70 % (GTM s10); weekly cohort report from the admin Telemetry panel. |
+
+
+---
+
+## 7. Corrections and additions after primary-source verification (2026-09-06, same day)
+
+Four fact-checks were run against vendor documentation before any code was written. One ruling was wrong and is amended
+above; the rest are additions that bind implementation.
+
+### 7.1 CloudFront - D-DIST-1 AMENDED (my error, corrected)
+
+| What I ruled | What the docs say | Effect |
+|---|---|---|
+| "CloudFront FREE pricing plan, 1 TB + 10 M requests" | Two different things were conflated. The **flat-rate Free plan** is **100 GB + 1 M requests** and **excludes access logs**. The **1 TB + 10 M** allowance is the **pay-as-you-go always-free tier**. | Tier 0 ships on **pay-as-you-go**, not the flat-rate Free plan. |
+| "Pro $15 when egress approaches the free allowance" | Pro = $15/month, **50 TB + 10 M requests**, access logs included, 25 WAF rules, KeyValueStore, no overage charges. | Crossover is ~**1.18 TB/month (~300 downloads)**; Pro then covers the entire ramp to 1,000 for a flat $15. |
+
+Implementation notes now binding: signed URLs (key groups) and OAC are available on every pricing mode, so the Tier 0
+architecture is unchanged. Standard logging **v2** is configured through the CloudWatch Logs delivery API in us-east-1
+(`AWS::Logs::Delivery*`); the output format is fixed at creation and cannot be changed later; avoid Parquet (bills
+CloudWatch). Real-time logs are unsupported under any flat-rate plan and must be disabled before subscribing. A Pro month
+cannot be cancelled mid-billing-period, and a distribution under a plan cannot be deleted until the plan is cancelled.
+**Check before any flat-rate subscription:** the account must not be an "AWS Free Tier" account, and it is unverified
+whether promotional credits can pay the CloudFrontPlans line - assume they cannot and budget $15 cash.
+
+### 7.2 Cloudflare Zero Trust / Access (D3, D7, D30 - confirmed, with detail)
+
+Free plan is $0 for 50 users; a payment method is still attached at setup. Independent MFA explicitly supports logging in
+"with your identity provider or with a one-time PIN" and enforcing MFA on top, so the ruled OTP + security-key path is
+documented - the compatibility check now only has to confirm the MFA tab is present on a Free-plan application. Scope MFA
+to the admin application or its Allow policy; do **not** turn on "apply global MFA settings by default", and leave "use
+identity provider MFA" off (OTP carries no AMR claim). Application session duration and MFA authentication duration are
+**separate timers** - set both to 1 h. Elevate-route verification: JWKS at
+`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, RS256, check `iss`, `aud` contains the app's AUD tag, refresh
+on unknown `kid` (keys rotate every 6 weeks with a 7-day overlap). Protect the CRM by **worker_id** (covers custom domain,
+workers.dev and previews) rather than hostname alone. Fallback 1 (Google IdP) is confirmed available on Free.
+
+### 7.3 apps/crm as a second Worker (D7 - confirmed, with two required changes)
+
+Feasible exactly as ruled ($0 incremental; `admin.ironics.org` has no DNS record today, so Cloudflare creates it on the
+first custom-domain deploy). Two things this adds:
+
+1. **D6 is a hard prerequisite, not a parallel task.** Attaching a new custom domain calls the same
+   `zones/{id}/workers/routes` endpoint that returns code 10000 today, so the token permission edit must land *before* the
+   first CRM deploy.
+2. **The API's CORS origin list must widen** to `["https://ironics.org", "https://admin.ironics.org"]` in
+   `apps/api/lib/api.ts` and be deployed - API Gateway ignores CORS headers a Lambda sets itself.
+
+No `SameSite` change is needed: `admin.ironics.org -> api.ironics.org` is same-site, so both the existing session cookie
+and the ruled host-only admin cookie travel on credentialed fetches. Elevation seam to build into the first screen: the
+**browser** must receive the elevate response's `Set-Cookie` (the Worker never sees a host-only api cookie), while the
+Access assertion arrives at the **Worker** and is forwarded server-side. Worker size is no longer a constraint (64 MiB
+since 2026-09-04); the 180 KB initial-JS gate stays a web-only CI gate.
+
+### 7.4 CloudFormation capacity (nested AdminApiStack - confirmed, shape fixed)
+
+`AdminApiStack extends NestedStack`, a `home?: "portal" | "admin"` field on RouteSpec, and the route loop choosing the
+scope keeps **both** existing test suites valid (grants.test.ts iterates parent + nested templates; admin-guard.test.ts
+keeps parsing the single `routes` array). Projection: parent ~250/450, nested ~260/500 - capacity stops being the binding
+constraint; deploy time and the shared 1,000-Lambda pool take over. Reserved concurrency becomes per-route (portal 10,
+admin 5), replacing the uniform context knob; the `-c reservedConcurrency=50` instruction in the code comment and
+AWS-SETUP.md is superseded and would fail. **Migrating the 8 live admin routes into the nested stack is explicitly NOT in
+Phase 1** - it needs a remove-then-add with downtime and is confirm-first if ever needed. Doc-truth: the route table holds
+22 routes, not 21.
 
 ---
 *Ruled 2026-09-06 under the operator's delegation. Amend by appending; never rewrite a ruling silently.*
