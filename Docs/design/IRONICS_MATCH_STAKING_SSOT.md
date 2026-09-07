@@ -22,7 +22,12 @@
 >
 > **RULINGS RECORDED AS LAW (2026-07-09, operator):** **R1 — HOUSE RAKE** (flag #2 → ✅ RULED): rake off the
 > top of the **TOTAL pool**, tiered by the pool's **Volt-equivalent** (Watts convert at peg **10 W = 1 V** so
-> the bracket is currency-agnostic) — **pool ≤ 500 V-equiv → 5% · pool ≥ 501 V-equiv → 10%** (§3B). **R2 —
+> the bracket is currency-agnostic) — **pool ≤ 500 V-equiv → 5% · pool ≥ 501 V-equiv → 10%** (§3B).
+> **⚠ R1 SUPERSEDED 2026-09-07 → FLAT 5% (R68/R79, operator; platform decision log §13).** The shipped,
+> tested settle code takes a **flat 5% on both pools** and the live ledger confirms it. Ruled: flat 5% is
+> the in-force rake (the ≥5% floor, simple/auditable/AAA, matches shipped code + live data). R1's tiered
+> 5/10 is **deferred, gated on "unless data science proves otherwise"** — it returns only when match-economy
+> data justifies it, as a scoped settle-code change. Until then the rake is **flat 5%**. **R2 —
 > NO CASH-OUT** (flag #1 → ✅ RULED): staking is poker STRUCTURE on **non-cashable, in-game-spend-only**
 > Watts/Volts (inherits `ECON §0`); winnings never convert to real money — the real-money / custody tier
 > stays Phase-3 legal-gated, deferred, not designed. **v0.3 — STAKE-TIER LADDER** (flag #3 → ✅ RULED,
