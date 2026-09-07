@@ -258,3 +258,94 @@ the MFA device exists.
 
 ---
 *Ruled 2026-09-06 under the operator's delegation. Amend by appending; never rewrite a ruling silently.*
+
+---
+
+## 10. FINALIZED for execution — 2026-09-07 (operator: "Designs Approved. Finalize plan then execute")
+
+Designs approved. This section resolves the open decisions by best-practice-grounded-in-truth (operator's
+standing delegation) and folds in the operator's new facts. It governs the build from here.
+
+### 10.1 New grounding facts (operator, 2026-09-07)
+- **Portfolio = 1 AAA in beta + 3 more games** (working titles): **Reel Big Fish** (Pro Fishing League) ·
+  **Drone XL / DXL** · **Drift Kartz**. Flagship **IRONICS** — its Alpha is the "open-world continuous-build
+  creator economy" (this describes IRONICS/the Alpha vision, treated as the flagship, not a 4th title).
+- **Robotic Banking software is LIVE and built — not open to the public.** Reframe from "planned/does not
+  exist" to "built, operating privately, public access staged." The $250K legal foundation still governs
+  lawful PUBLIC bank/stablecoin OPERATION and any offer; "built" ≠ "open to the public."
+- **DAO and stablecoins are MINTED.** Pilot stablecoin contracts deployed+verified (BSC/Polygon, already
+  grounded); governance/DAO tokens minted on-chain. "Minted/deployed" is stated with confidence; it is NOT
+  "available to buy" and carries NO offer/solicitation (securities guardrail unchanged).
+- **Timeline starts NOW (Sep 2026); foundations dated when they actually started** (Phase-1 foundation since
+  2024). Roadmap presents built-vs-gated-vs-forward, not stale future quarters.
+- **Positioning:** offer builds/technology with confidence as forward-thinking, advanced, state-of-the-art;
+  team = talented, proven humans. Applied to tech/company copy, grounded in truth. No superlatives stated as
+  regulated fact ("world's first bank" etc. stay off; "advanced/state-of-the-art" engineering claims are fine).
+
+### 10.2 Admin roster (DONE this session)
+- **instawerx@outlook.com** (acct 01M06…) — owner (bootstrap). The working admin session resolves here.
+- **vrdivebar@gmail.com** (acct 01M1XDKGH3EQPX53SDXYCZHV8S) — GRANTED owner via direct DynamoDB write mirroring
+  grantAdmin + admin.granted audit row (2026-09-07). Arms maker-checker four-eyes structurally.
+- **tm@ir4.io** — added to Cloudflare Access allowlist (can now reach sign-in). BLOCKED on a one-time portal
+  sign-in to mint an accountId; grant the accountId once it exists. Role = **OWNER** (operator ruled
+  2026-09-07) — a genuine second human owner, which makes maker-checker four-eyes real. NOTE: instawerx +
+  vrdivebar are both the operator's own
+  identities, so four-eyes is a STRUCTURAL guard until a genuine second human (e.g. tm@ir4.io) is an owner.
+
+### 10.3 The 14 open decisions — resolved by best practice (operator-overridable)
+1. **Scarcity reconciliation (A5):** creator 1-of-1 / limited-run scarcity is REINSTATED for creator-authored
+   items as an economy feature; the retired "no carve-outs" rule stays for house/base catalog. Two SSOTs
+   reconciled: base catalog non-scarce, creator items may be scarce.
+2. **DAO ownership-interest capture:** ships as a plain interest-and-updates list with a securities
+   disclaimer, ZERO value/upside/return language; its existence remains COUNSEL-GATED (built behind a flag,
+   dark until counsel clears). Creator + Tester roles ship now.
+3. **Creator payout:** closed-loop (non-cashable Watts/Volts) now; real-money payout is a separate
+   counsel-gated program. Honors the standing no-cash-out invariant.
+4. **Sponsor build-status axis:** every offering labeled Live / In the build / Roadmap. Only in-arena
+   placement has a live substrate; Super Lobby, collab spaces, IP-routing = Roadmap.
+5. **Minor-safety:** player-IP / behavioral routing to under-18s default-EXCLUDED pending counsel; no such
+   copy or build ships. Reach/lead-time figures bracketed until real; "under 72h" framed as an aim.
+6–14. Remaining engineering/UX defaults (component sharing, route names, redirect handling, telemetry events,
+   copy tone, image handling, etc.) taken by best practice inline during the build; no operator blocker.
+
+### 10.4 Build order (proper workflow; each ships CI-green + committed)
+- **Increment 1 (now):** content lanes + C12 DAO section (replaces HOUSES) + truth-pass (Simularent fiction,
+  false house counts) + two-zone nav + footer. New route /c12.
+- **Increment 2:** /creators (Alpha creator economy) · /partners (sponsor & brand offerings) · /join (roles +
+  submission→voting→DAO-approval pipeline). Matches approved mockups.
+- **Increment 3:** admin wallet + Watts/Volts issuance (four-eyes ALWAYS; Watts first, Volts gated on L1;
+  house-liability journal; register-economy moved behind it). Highest-risk; staged with its own proof.
+
+---
+
+## 11. Increment 3 SHIPPED — admin wallet + Watts/Volts issuance (2026-09-07)
+
+Money-console mockup approved (artifact a617310c) with operator params: caps **1,000,000 Watts /
+100,000 Volts per transaction**; **enforce the terms gate**; **ship live**; best banking/crypto practice.
+Built, adversarially reviewed (7 lenses; the one confirmed defect — a stuck-"approved" crash window —
+fixed), and deployed.
+
+**Backend (api CI green, IronicsPortalStack deployed), commit d7a43e8:**
+- `lib/issuance.ts` four-eyes state machine + ambiguity-safe mint via the signed currency-earn minter
+  (mirrors approveClaim). `IronicsIssuance` table (status + account GSIs). 6 admin routes: draft
+  (`wallet:adjust`), approve (`economy:approve`, the only minter), reject, pending, journal, wallet.
+- Controls: four-eyes ALWAYS (maker≠approver in the atomic claim); hard per-tx caps as code constants;
+  Volts fail-closed on `volts.issuanceEnabled`; append-only audit journal (both hands, playFabId masked);
+  mint aborts at 8s (< 10s Lambda budget); stranded "approved" rows resume with the SAME nonce (dedups,
+  never double-mints) and are audited at claim + visible in the journal. `economy:approve` = new owner perm.
+- 389 api tests pass (26 issuance unit tests + extended grants least-privilege arms).
+
+**Console UI (crm), commit 1cd01ca:** /economy/wallet (lookup + draft) and /economy/issuance (four-eyes
+queue + journal); flags console labels the Volts gate.
+
+**VOLTS LIVE (operator: "we want Live Volts as well"):** the flag store `/ironics/portal/flags` did not
+exist (the console cannot bootstrap an absent store — its write guard refuses to overwrite a blind store),
+so it was seeded via SSM with the current defaults + `volts.issuanceEnabled=true` (verified; flag.changed
+audit row written). Seeding also UNBLOCKED the flags console for all future toggles. To toggle later:
+admin console → Settings → Flags & Kill switches → `volts.issuanceEnabled` → confirm → Apply.
+NOTE: this gate asserts the Virtual Currency Terms are in force — enabling it is the operator's call; game
+Volts already circulate via purchase (checkout), and four-eyes + the 100k cap still gate every Volt grant.
+
+**Four-eyes reality:** both current owners (instawerx, vrdivebar) are the operator's own identities, so
+today one human can act as both maker and checker across two accounts. A genuine second human (tm@ir4.io,
+ruled owner) makes it real once they sign in.
