@@ -81,7 +81,7 @@ operator's hands or signature) · **DEFERRED** (named trigger).
 
 | # | Decision | Ruling |
 |---|---|---|
-| C1 | S12 server (c6i.large 24/7 ~= $62/month gross, credit-covered) | **RULED:** stay on-demand 24/7 while credits cover it (a live beta needs uptime; no 1-year commitment before product-market fit). AWS Budgets alarm at $50 gross/month. Re-evaluate a 1-yr no-upfront Compute Savings Plan (~$39/month) at 100 approved testers or when remaining credits < 2 months (OPERATOR reads the credit balance in Billing > Credits). |
+| C1 | S12 server - **CORRECTED 2026-09-07, see s8** (c6i.large **Windows**, ~$129/month gross, credit-covered) | **RULED:** stay on-demand 24/7 while credits cover it (a live beta needs uptime; no 1-year commitment before product-market fit). AWS Budgets alarm at $50 gross/month. Re-evaluate a 1-yr no-upfront Compute Savings Plan (~$39/month) at 100 approved testers or when remaining credits < 2 months (OPERATOR reads the credit balance in Billing > Credits). |
 | C2 | Platform incremental | ~$3-10/month for everything in the admin plan; CloudFront $0 (pay-as-you-go inside the 1 TB free tier) -> $15 (flat-rate Pro) at ~300 downloads/month; DynamoDB/Lambda/SSM pennies; Secrets Manager $0.40/secret. Inside the cap. |
 | C3 | Vendors | Zero new paid vendors for the beta. Free tiers only: Cloudflare (Free zone + Zero Trust free to 50 seats), CloudFront pay-as-you-go free tier, PostHog free (after legal), Resend (existing). The only planned paid lines are CloudFront Pro ($15) at ~300 downloads/month and Azure Trusted Signing (~$10) at 100 testers - both inside the $50 cap. |
 
@@ -197,6 +197,43 @@ admin 5), replacing the uniform context knob; the `-c reservedConcurrency=50` in
 AWS-SETUP.md is superseded and would fail. **Migrating the 8 live admin routes into the nested stack is explicitly NOT in
 Phase 1** - it needs a remove-then-add with downtime and is confirm-first if ever needed. Doc-truth: the route table holds
 22 routes, not 21.
+
+
+## 8. Cost correction (2026-09-07) - the server is Windows, and it is 2.08x what I reported
+
+**Read from the live billing meter, not a price list:** `BoxUsage:c6i.large` is metering at **$0.17700/hour**, and
+`describe-instances` returns `PlatformDetails="Windows"`, `UsageOperation="RunInstances:0002"` - Windows Server,
+license-included. Every earlier figure in this log and in the growth plan used the **Linux** rate of $0.085/hour.
+
+| | Reported earlier | Actual |
+|---|---|---|
+| Hourly | $0.085 | **$0.177** |
+| Monthly, 24/7 | ~$62 | **~$129** |
+| Against the $50 cap | 1.24x over | **2.58x over** |
+
+Credits are absorbing it today, so no invoice has been paid, but the run-rate is what decides how long the credits last.
+The growth campaign itself still costs $0; this is entirely the game server.
+
+**Levers, cheapest first (C1 is re-opened on this basis):**
+
+1. **Scheduled stop/start around the ruled play windows.** The growth plan schedules two play windows a week. A server
+   running ~40 hours a week instead of 168 costs **~$31/month** - inside the cap today, no commitment, fully reversible,
+   and it can be automated with EventBridge Scheduler. Cost of being wrong: a tester finds the server down off-window,
+   which the Discord schedule and a status line mitigate.
+2. **A Linux server build.** UE dedicated servers run on Linux, and the same instance on Linux is $0.085/hour =
+   **~$62/month**. This is the single largest structural saving available to the business, and combined with lever 1 it
+   is **~$15/month**. It is a real engineering project (LinuxServer target, cross-compile toolchain, GameLift Anywhere
+   re-registration), so it is scoped rather than assumed.
+3. **A 1-year no-upfront Savings Plan on Windows** - roughly 35% off, ~$84/month. Still over the cap, and it commits a
+   year to an instance shape the game may outgrow. Not recommended before lever 1 or 2.
+
+**Ruled:** lever 1 is adopted now as the default posture once play windows begin; lever 2 enters the engineering backlog
+as a costed investigation; lever 3 stays rejected. The AWS Budget already alerts on gross spend, so the next threshold
+crossing is visible rather than discovered on an invoice.
+
+**Process note:** this is the second ruling in two days corrected by reading a primary source instead of trusting a
+remembered price (the first was the CloudFront plan allowance in s7). Cost figures in this programme are quoted from the
+meter or the vendor's own page, with the query recorded, or they are marked as estimates.
 
 ---
 *Ruled 2026-09-06 under the operator's delegation. Amend by appending; never rewrite a ruling silently.*
