@@ -160,6 +160,16 @@ void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		BundleUrl        = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_BUNDLE_URL"));        // /purchase-bundle, same key
 		CountedUrl       = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_COUNTED_URL"));       // CC-X30 /counted-entitlement, same key
 		ConditionalUrl   = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_CONDITIONAL_URL"));   // CC-4.1 /conditional-entitlement, same key
+			// P0.4 capability-scoped MONEY keys. Distinct env vars for the two money-moving legs so the split
+			// cutover can drop the omnibus from the portal. Each falls back to the omnibus (EarnHmacKey) when its
+			// env is unset -> a host not yet rotated signs escrow/settle exactly as before. NEVER logged (only the
+			// held/fallback/MISSING STATE is, so the S12 cutover can be SEEN before the omnibus is dropped).
+			DebitHmacKey  = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_DEBIT_HMAC_KEY"));
+			SettleHmacKey = FPlatformMisc::GetEnvironmentVariable(TEXT("AFL_SETTLE_HMAC_KEY"));
+			const bool bDebitDistinct  = !DebitHmacKey.IsEmpty();
+			const bool bSettleDistinct = !SettleHmacKey.IsEmpty();
+			if (!bDebitDistinct)  { DebitHmacKey  = EarnHmacKey; }
+			if (!bSettleDistinct) { SettleHmacKey = EarnHmacKey; }
 		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer (%s): key=%s earnUrl=%s resolveUrl=%s escrowUrl=%s settleUrl=%s ratingUrl=%s"),
 			IsRunningDedicatedServer() ? TEXT("dedicated server") : TEXT("editor"),
 			EarnHmacKey.IsEmpty() ? TEXT("MISSING") : TEXT("held"),
@@ -175,6 +185,12 @@ void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer: bundleUrl=%s countedUrl=%s"),
 			BundleUrl.IsEmpty() ? TEXT("MISSING") : *BundleUrl,
 			CountedUrl.IsEmpty() ? TEXT("MISSING") : *CountedUrl);
+		// P0.4 money-key STATE (never the value). 'held(distinct)' = the capability env is set -> this leg is
+		// rotated off the omnibus; 'fallback-to-earn' = signing escrow/settle with EarnHmacKey still (pre-cutover);
+		// 'MISSING' = not a signer (no key at all). Do NOT flip ACCEPT_OMNIBUS_HMAC='false' until BOTH read held(distinct).
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Server signer (P0.4 money keys): debitKey=%s settleKey=%s"),
+			bDebitDistinct  ? TEXT("held(distinct)") : (DebitHmacKey.IsEmpty()  ? TEXT("MISSING") : TEXT("fallback-to-earn")),
+			bSettleDistinct ? TEXT("held(distinct)") : (SettleHmacKey.IsEmpty() ? TEXT("MISSING") : TEXT("fallback-to-earn")));
 	}
 }
 
@@ -806,22 +822,31 @@ FString UAFLOnlineSubsystem::SignHmacSha256Hex(const FString& Body, const FStrin
 
 void UAFLOnlineSubsystem::PostServerSigned(const FString& Url, const FString& Body, TFunction<void(bool, const FString&)> OnComplete)
 {
+	// The non-money endpoints (earn / resolve / rtc / rating / creator-builds / bundle / counted / conditional)
+	// sign with the omnibus EarnHmacKey. WIRE-IDENTICAL to before the P0.4 split -- the earn canary stays valid.
+	PostServerSignedWithKey(Url, Body, EarnHmacKey, MoveTemp(OnComplete));
+}
+
+void UAFLOnlineSubsystem::PostServerSignedWithKey(const FString& Url, const FString& Body, const FString& SigningKey, TFunction<void(bool, const FString&)> OnComplete)
+{
 	// SERVER-ONLY: the HMAC key + the target URL are read only on a dedicated server / editor (Initialize). Empty
 	// => not a server (or env unset) => refuse to sign. No client process ever signs a server-authoritative call.
-	if (EarnHmacKey.IsEmpty() || Url.IsEmpty())
+	// The gate checks the PASSED key: for the money legs SigningKey is Debit/SettleHmacKey, which fall back to
+	// EarnHmacKey when un-rotated, so an un-rotated server fails/succeeds exactly as the omnibus path did.
+	if (SigningKey.IsEmpty() || Url.IsEmpty())
 	{
 		// NAME WHICH LEG SKIPPED. Without the URL this message is identical for every endpoint, so a skip
 		// on one leg is indistinguishable from a skip on another -- measured: two skips that could not be
 		// attributed to earn or to creator-builds, leaving the run inconclusive rather than failed.
-		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerSigned SKIP url=%s keyHeld=%d -- (server/editor only; set AFL_EARN_HMAC_KEY + the endpoint URL env). IsRunningDedicatedServer()=%d GIsEditor=%d."),
-			Url.IsEmpty() ? TEXT("<EMPTY>") : *Url, EarnHmacKey.IsEmpty() ? 0 : 1,
+		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerSigned SKIP url=%s keyHeld=%d -- (server/editor only; set the signing-key env + the endpoint URL env). IsRunningDedicatedServer()=%d GIsEditor=%d."),
+			Url.IsEmpty() ? TEXT("<EMPTY>") : *Url, SigningKey.IsEmpty() ? 0 : 1,
 			IsRunningDedicatedServer() ? 1 : 0, GIsEditor ? 1 : 0);
 		OnComplete(false, TEXT("skip: key/URL unavailable (server-only)"));
 		return;
 	}
 
 	// Sign-what-you-send: sign the EXACT FString handed to SetContentAsString below -- no re-serialize between.
-	const FString Signature = SignHmacSha256Hex(Body, EarnHmacKey);
+	const FString Signature = SignHmacSha256Hex(Body, SigningKey);
 	if (Signature.IsEmpty())
 	{
 		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] PostServerSigned SKIP -- empty signature (OpenSSL unavailable?)."));
@@ -992,11 +1017,13 @@ void UAFLOnlineSubsystem::PostServerRtcToken(const FString& JsonBody, TFunction<
 // differs, so anything more than a URL here would be a second implementation of a solved problem.
 void UAFLOnlineSubsystem::PostServerEscrow(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
 {
-	PostServerSigned(EscrowUrl, JsonBody, MoveTemp(OnComplete));
+	// P0.4: a DEBIT is authorized by the capability-scoped DEBIT key, not the omnibus (falls back to it pre-cutover).
+	PostServerSignedWithKey(EscrowUrl, JsonBody, DebitHmacKey, MoveTemp(OnComplete));
 }
 void UAFLOnlineSubsystem::PostServerSettle(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
 {
-	PostServerSigned(SettleUrl, JsonBody, MoveTemp(OnComplete));
+	// P0.4: a PAYOUT / refund is authorized by the capability-scoped SETTLE key (falls back to omnibus pre-cutover).
+	PostServerSignedWithKey(SettleUrl, JsonBody, SettleHmacKey, MoveTemp(OnComplete));
 }
 void UAFLOnlineSubsystem::PostServerRating(const FString& JsonBody, TFunction<void(bool, const FString&)> OnComplete)
 {

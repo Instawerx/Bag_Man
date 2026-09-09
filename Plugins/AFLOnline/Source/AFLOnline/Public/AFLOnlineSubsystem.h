@@ -202,6 +202,13 @@ private:
 	 *  server (production) or in the editor (dev canary) -- never in a cooked client process. Empty otherwise. */
 	FString EarnHmacKey;
 	FString EarnUrl;
+	/** P0.4 capability-scoped signing keys for the two MONEY-MOVING legs. Read from AFL_DEBIT_HMAC_KEY /
+	 *  AFL_SETTLE_HMAC_KEY under the SAME server/editor gate as EarnHmacKey; each falls back to EarnHmacKey when
+	 *  its env is unset, so a host not yet rotated keeps signing escrow/settle with the omnibus key (the backend
+	 *  accepts either while ACCEPT_OMNIBUS_HMAC='true'). After the split cutover the portal loses debit/settle and
+	 *  ONLY these keys authorize a debit (escrow) or a payout (settle). NEVER logged (held/fallback/MISSING only). */
+	FString DebitHmacKey;
+	FString SettleHmacKey;
 	/** A1.4 /resolve-identity endpoint URL (env AFL_RESOLVE_URL), read once under the SAME gate as EarnUrl. */
 	FString ResolveUrl;
 	/** COMMS-4B /rtc/token endpoint URL (env AFL_RTC_TOKEN_URL), read once under the SAME gate as EarnUrl. */
@@ -223,6 +230,12 @@ private:
 	 *  EXACT Body with EarnHmacKey, POST it to Url with X-Signature, plain-HTTP-200 completion. Server-only
 	 *  (empty key/URL -> logged skip). PostServerEarn/PostServerResolve are thin wrappers over this. */
 	void PostServerSigned(const FString& Url, const FString& Body, TFunction<void(bool, const FString&)> OnComplete);
+
+	/** P0.4 general form: sign Body with an EXPLICIT capability key (debit / settle / earn) rather than always
+	 *  EarnHmacKey. PostServerSigned forwards here with EarnHmacKey, so its wire behavior is unchanged. The
+	 *  server gate checks the PASSED key -- an unset capability key that fell back to an unset EarnHmacKey still
+	 *  fails closed and logs a skip, exactly as before. */
+	void PostServerSignedWithKey(const FString& Url, const FString& Body, const FString& SigningKey, TFunction<void(bool, const FString&)> OnComplete);
 
 public:
 	/**

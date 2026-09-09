@@ -84,6 +84,14 @@ param(
 
     [string] $Stack    = 'BagManTentpoleStack',
     [string] $SecretId = 'bagman/earn/hmac',
+
+    # P0.4 capability-scoped MONEY keys. The rebuilt server signs escrow with the DEBIT key and settle with the
+    # SETTLE key (AFLOnlineSubsystem reads AFL_DEBIT_HMAC_KEY / AFL_SETTLE_HMAC_KEY, falling back to the omnibus
+    # AFL_EARN_HMAC_KEY when its var is unset). Distinct values already exist (CDK-generated at the P0.4 deploy);
+    # this script only DELIVERS them into the process env, held in memory, never written or echoed.
+    [string] $DebitSecretId  = 'bagman/debit/hmac',
+    [string] $SettleSecretId = 'bagman/settle/hmac',
+
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]] $EditorArgs
 )
@@ -173,28 +181,55 @@ if ($secret -is [array]) { throw 'Secret is multi-line; refusing to guess how to
 $env:AFL_EARN_HMAC_KEY = $secret
 Remove-Variable secret
 
+# --- 2b. P0.4 capability-scoped MONEY keys (escrow=DEBIT, settle=SETTLE) -----------------------
+# Delivered the SAME way as the omnibus above -- fetched at launch, held in the process, never written or
+# echoed. Like the engine, each FALLS BACK to the omnibus when its secret is unreadable, so an un-rotated
+# launch still signs (and the backend still accepts it while ACCEPT_OMNIBUS_HMAC='true'). This DELIVERS the
+# already-existing distinct values; it does not create or rotate them. NEVER flip ACCEPT_OMNIBUS_HMAC='false'
+# until the server log shows BOTH of these as held(distinct) and a canary confirms escrow/settle are accepted.
+Write-Step 'Fetching capability-scoped money keys (debit / settle) from Secrets Manager ...'
+foreach ($cap in @(
+        [pscustomobject]@{ Var = 'AFL_DEBIT_HMAC_KEY';  Id = $DebitSecretId },
+        [pscustomobject]@{ Var = 'AFL_SETTLE_HMAC_KEY'; Id = $SettleSecretId })) {
+    $capVal = aws secretsmanager get-secret-value --secret-id $cap.Id --query SecretString --output text 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrEmpty($capVal) -or $capVal -eq 'None') {
+        Write-Warning ("{0}: secret '{1}' not readable -> {0} left UNSET. The server will FALL BACK to the omnibus for this leg (pre-cutover behaviour)." -f $cap.Var, $cap.Id)
+        Remove-Item ("env:{0}" -f $cap.Var) -ErrorAction SilentlyContinue
+    } elseif ($capVal -is [array]) {
+        throw ("Secret '{0}' is multi-line; refusing to guess how to join it. HMAC would not match." -f $cap.Id)
+    } else {
+        Set-Item -Path ("env:{0}" -f $cap.Var) -Value $capVal
+    }
+    Remove-Variable capVal -ErrorAction SilentlyContinue
+}
+
 # --- 3. Report (mirrors the engine's own boot line) --------------------------------------------
 Write-Host ''
 Write-Host 'Environment:' -ForegroundColor Cyan
 $missing = @()
-foreach ($var in @('AFL_EARN_HMAC_KEY') + @($UrlMap.Keys)) {
+$secretVars = @('AFL_EARN_HMAC_KEY', 'AFL_DEBIT_HMAC_KEY', 'AFL_SETTLE_HMAC_KEY')  # never print the value
+$capVars    = @('AFL_DEBIT_HMAC_KEY', 'AFL_SETTLE_HMAC_KEY')                        # optional -> fall back, not fail
+foreach ($var in @('AFL_EARN_HMAC_KEY') + @($UrlMap.Keys) + $capVars) {
     $val = [Environment]::GetEnvironmentVariable($var, 'Process')
     $req = $Required -contains $var
+    $isCap = $capVars -contains $var
 
     if ([string]::IsNullOrEmpty($val)) {
-        $shown = 'MISSING'
-        $color = if ($req) { 'Red' } else { 'Yellow' }
+        # A capability key is OPTIONAL: unset means the server signs this leg with the omnibus (pre-cutover),
+        # which is a WARN, not a failure. A required gating var missing is a hard stop.
+        $shown = if ($isCap) { 'fallback-to-earn' } else { 'MISSING' }
+        $color = if ($req)   { 'Red' } else { 'Yellow' }
         if ($req) { $missing += $var }
-    } elseif ($var -eq 'AFL_EARN_HMAC_KEY') {
-        $shown = 'held'          # never print the key
+    } elseif ($secretVars -contains $var) {
+        $shown = if ($isCap) { 'held(distinct)' } else { 'held' }   # never print the key
         $color = 'Green'
     } else {
         $shown = $val
         $color = 'Green'
     }
 
-    $tag = if ($req) { '[gates C]' } else { '[canary] ' }
-    Write-Host ("  {0} {1,-18} {2}" -f $tag, $var, $shown) -ForegroundColor $color
+    $tag = if ($req) { '[gates C]' } elseif ($isCap) { '[P0.4]   ' } else { '[canary] ' }
+    Write-Host ("  {0} {1,-20} {2}" -f $tag, $var, $shown) -ForegroundColor $color
 }
 
 if ($missing.Count -gt 0) {
@@ -267,6 +302,9 @@ if ($Server) {
     Write-Host ''
     Write-Host '  Watch the log for, in order:' -ForegroundColor Cyan
     Write-Host '    [AFLOnline] Server signer (dedicated server): key=held ...'
+    Write-Host '    [AFLOnline] Server signer (P0.4 money keys): debitKey=held(distinct) settleKey=held(distinct)'
+    Write-Host '      ^ if either reads "fallback-to-earn" the capability secret was not delivered -- do NOT'
+    Write-Host '        flip ACCEPT_OMNIBUS_HMAC=false until BOTH read held(distinct).'
     Write-Host '    AFL_MATCHREPORT: economics from MATCHMAKER -- tier=VoltsPlay ... stake=10 VO'
     Write-Host '    AFL_MATCHREPORT: ... escrow request(s) posted'
     Write-Host ''

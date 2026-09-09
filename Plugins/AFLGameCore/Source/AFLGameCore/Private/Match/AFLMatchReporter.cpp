@@ -13,6 +13,7 @@
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/Guid.h"
+#include "Misc/DateTime.h"                  // P0.3: unix-seconds ts stamp for the replay-bound money bodies
 #include "Engine/World.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/GameModeBase.h"     // OptionsString
@@ -47,6 +48,20 @@ namespace
 		const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Out);
 		FJsonSerializer::Serialize(Obj, Writer);
 		return Out;
+	}
+
+	// P0.3 replay binding. Stamp a fresh unix-SECONDS timestamp + a random nonce onto a money body BEFORE it is
+	// serialized and signed, so the HMAC covers them: a captured (body, signature) pair cannot be replayed, and the
+	// nonce cannot be stripped/altered without breaking the signature. This is the SAME {ts:number, nonce:string}
+	// shape /purchase-bundle already validates -- ts is Number.isInteger-checked server-side, so it MUST be a JSON
+	// number (a double whose value is integral serializes fine). Applied to the three CURRENCY-MOVING bodies
+	// (escrow / settle / cancel-refund); NOT to rating, which moves no money and whose endpoint rejects unknown
+	// fields (§10.1). Backwards-compatible with the deployed backend: its validators ignore unknown keys and HMAC
+	// the raw received bytes, so the extra fields verify today and the backend's nonce ENFORCEMENT lands separately.
+	void StampReplayFields(const TSharedRef<FJsonObject>& Body)
+	{
+		Body->SetNumberField(TEXT("ts"), static_cast<double>(FDateTime::UtcNow().ToUnixTimestamp()));
+		Body->SetStringField(TEXT("nonce"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens));
 	}
 }
 
@@ -359,6 +374,7 @@ FString FAFLMatchReporter::BuildEscrowBody(const FGuid& MatchId, const FString& 
 	Body->SetStringField(TEXT("playFabId"), ReconcileId);
 	Body->SetStringField(TEXT("currencyCode"), CurrencyCode);
 	Body->SetNumberField(TEXT("amount"), Amount);
+	StampReplayFields(Body);   // P0.3 replay binding (ts + nonce), signed with the body
 	return SerializeObject(Body);
 }
 
@@ -420,6 +436,7 @@ bool FAFLMatchReporter::BuildSettleBody(const FAFLMatchResult& Result, int32 Sta
 	Body->SetStringField(TEXT("currencyCode"), CurrencyCode);
 	Body->SetStringField(TEXT("terminalState"), TerminalState);
 	Body->SetArrayField(TEXT("entries"), Entries);
+	StampReplayFields(Body);   // P0.3 replay binding (ts + nonce), signed with the body
 	OutJson = SerializeObject(Body);
 	return true;
 }
@@ -513,6 +530,7 @@ bool FAFLMatchReporter::BuildCancelBody(const FAFLEscrowLedger& Ledger, FString&
 	Body->SetStringField(TEXT("currencyCode"), Ledger.CurrencyCode);
 	Body->SetStringField(TEXT("terminalState"), TEXT("cancelled-refund"));
 	Body->SetArrayField(TEXT("entries"), Entries);
+	StampReplayFields(Body);   // P0.3 replay binding (ts + nonce), signed with the body
 	OutJson = SerializeObject(Body);
 	return true;
 }
