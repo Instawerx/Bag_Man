@@ -220,6 +220,25 @@ void UAFLMatchmakingSubsystem::ArmNextPoll()
 
 void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 Stake)
 {
+	// Built by hand rather than a serializer for the same reason the signed bodies are: the shape is two
+	// fields and the wire form should be obvious at the call site.
+	//
+	// STAKE IS OMITTED WHEN ZERO. An unstaked (LEAGUE PLAY) queue REJECTS a stake outright (R85), so sending
+	// "stake":0 would turn a valid free match into a 400.
+	FString Body;
+	if (Stake > 0)
+	{
+		Body = FString::Printf(TEXT("{\"queueId\":\"%s\",\"stake\":%d}"), *QueueId, Stake);
+	}
+	else
+	{
+		Body = FString::Printf(TEXT("{\"queueId\":\"%s\"}"), *QueueId);
+	}
+	SubmitCreateTicket(QueueId, Stake, Body);
+}
+
+void UAFLMatchmakingSubsystem::SubmitCreateTicket(const FString& QueueId, int32 Stake, const FString& Body)
+{
 	// ⚠ THE BLANKET GUARD IS GONE, AND WHAT REPLACES IT IS NARROWER ON PURPOSE.
 	//
 	// It used to refuse outright while Requesting or Queued -- one entry, ever. That made the backend's
@@ -270,21 +289,6 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 	// Queued, which is correct -- the player IS queued, and is additionally joining somewhere else.
 	++RequestsInFlight;
 	RederiveState(NSLOCTEXT("AFL", "MMRequesting", "Joining queue..."));
-
-	// Built by hand rather than a serializer for the same reason the signed bodies are: the shape is two
-	// fields and the wire form should be obvious at the call site.
-	//
-	// STAKE IS OMITTED WHEN ZERO. An unstaked (LEAGUE PLAY) queue REJECTS a stake outright (R85), so sending
-	// "stake":0 would turn a valid free match into a 400.
-	FString Body;
-	if (Stake > 0)
-	{
-		Body = FString::Printf(TEXT("{\"queueId\":\"%s\",\"stake\":%d}"), *QueueId, Stake);
-	}
-	else
-	{
-		Body = FString::Printf(TEXT("{\"queueId\":\"%s\"}"), *QueueId);
-	}
 
 	UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: /create-ticket queue='%s' stake=%d"), *QueueId, Stake);
 
@@ -367,6 +371,75 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 			// additional join is still right: it re-arms from the ladder position of the OLDEST entry.
 			Self->PollMatchStatus();
 		});
+}
+
+void UAFLMatchmakingSubsystem::FetchReservations(TFunction<void(bool, const TArray<FAFLReservation>&)> OnDone)
+{
+	UAFLOnlineSubsystem* Online = GetGameInstance() ? GetGameInstance()->GetSubsystem<UAFLOnlineSubsystem>() : nullptr;
+	if (!Online)
+	{
+		// No online services — deliver an empty result rather than throwing into the lobby. Same shape a
+		// not-logged-in or offline fetch produces below (GetPlayerApi answers bOk=false).
+		OnDone(false, TArray<FAFLReservation>());
+		return;
+	}
+
+	// No `this` is touched in the handler (it only parses + forwards), so no WeakObjectPtr is needed here; the
+	// caller owns OnDone's lifetime exactly as it does for every other player-API callback.
+	Online->GetPlayerApi(TEXT("/my-reservations"),
+		[OnDone = MoveTemp(OnDone)](bool bOk, const FString& Resp)
+		{
+			TArray<FAFLReservation> Out;
+			if (!bOk)
+			{
+				OnDone(false, Out);
+				return;
+			}
+			const TSharedPtr<FJsonObject> Root = ParseJson(Resp);
+			const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
+			if (Root.IsValid() && Root->TryGetArrayField(TEXT("reservations"), Arr) && Arr)
+			{
+				for (const TSharedPtr<FJsonValue>& V : *Arr)
+				{
+					const TSharedPtr<FJsonObject> O = V.IsValid() ? V->AsObject() : nullptr;
+					if (!O.IsValid())
+					{
+						continue;
+					}
+					FAFLReservation R;
+					O->TryGetStringField(TEXT("contestId"), R.ContestId);
+					O->TryGetStringField(TEXT("queueId"), R.QueueId);
+					O->TryGetStringField(TEXT("token"), R.Token);
+					double Rung = 0.0; O->TryGetNumberField(TEXT("stakeRung"), Rung); R.StakeRung = static_cast<int32>(Rung);
+					double Exp = 0.0;  O->TryGetNumberField(TEXT("exp"), Exp);        R.Exp = static_cast<int64>(Exp);
+					// A row with no token or no contest is not enterable — drop it rather than surface a dead card.
+					if (!R.Token.IsEmpty() && !R.ContestId.IsEmpty())
+					{
+						Out.Add(MoveTemp(R));
+					}
+				}
+			}
+			UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: /my-reservations -> %d reservation(s)"), Out.Num());
+			OnDone(true, Out);
+		});
+}
+
+void UAFLMatchmakingSubsystem::EnterContest(const FString& QueueId, int32 Stake, const FString& ReservationToken)
+{
+	if (ReservationToken.IsEmpty())
+	{
+		SetState(EAFLMatchmakingState::Failed, NSLOCTEXT("AFL", "MMNoReservation", "No contest reservation to enter."));
+		return;
+	}
+	// CONTEST MODE. The body carries ONLY the reservation token; /create-ticket re-derives queueId + stake FROM
+	// the verified token and ignores any client-supplied pair on this path, so we send neither. The token's wire
+	// form is base64url + '.' + hex(hmac) — strictly [A-Za-z0-9_.-], carrying no quote, backslash or control
+	// character — so it embeds directly, exactly as StartMatchmaking embeds queueId. QueueId + Stake here are for
+	// LOCAL bookkeeping only (the duplicate-per-cell guard, the poll ladder, the FEntry); the server is
+	// authoritative on both, and we take them from the reservation the client already fetched.
+	const FString Body = FString::Printf(TEXT("{\"reservationToken\":\"%s\"}"), *ReservationToken);
+	UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: entering contest via reservation (queue='%s' stake=%d)"), *QueueId, Stake);
+	SubmitCreateTicket(QueueId, Stake, Body);
 }
 
 bool UAFLMatchmakingSubsystem::ShouldLeagueBotFallback() const
@@ -1278,6 +1351,61 @@ FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMVerifySupersedeCmd(TEXT("a
 FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMVerifyCmd(TEXT("afl.MM.VerifyMultiQueue"),
 	TEXT("Scripted canary: queue A, queue B alongside it, assert BOTH are live, leave A only, assert B survives. Args: [queueA] [queueB], defaulting to two free LeaguePlay cells. Logs AFL_MQ_CANARY PASS-1/PASS-2 and a final RESULT line."),
 	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMVerify));
+
+// ── 3b.2 BRIDGE — the web-reserved-contest travel path, driven from the console ──────────────────────────
+static void HandleAFLMMReservations(const TArray<FString>&, UWorld* World, FOutputDevice& Ar)
+{
+	UAFLMatchmakingSubsystem* MM = AFLMultiQueueCanary::Get(World);
+	if (!MM) { Ar.Log(TEXT("afl.MM.Reservations - no matchmaking subsystem.")); return; }
+	Ar.Log(TEXT("afl.MM.Reservations -> GET /my-reservations (watch the log for the result)."));
+	MM->FetchReservations([](bool bOk, const TArray<FAFLReservation>& R)
+	{
+		if (!bOk)
+		{
+			UE_LOG(LogAFLMatchmaking, Warning, TEXT("AFL_MM: /my-reservations FAILED (offline, not logged in, or backend fault)."));
+			return;
+		}
+		UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: %d reservation(s):"), R.Num());
+		for (int32 i = 0; i < R.Num(); ++i)
+		{
+			// The token is never printed in full -- a prefix is enough to see one is present, and the full
+			// value is a (short-lived, session-bound) entitlement grant.
+			UE_LOG(LogAFLMatchmaking, Log, TEXT("   [%d] contest=%s queue=%s stake=%d exp=%lld token=%s..."),
+				i, *R[i].ContestId, *R[i].QueueId, R[i].StakeRung, static_cast<long long>(R[i].Exp), *R[i].Token.Left(12));
+		}
+	});
+}
+
+static void HandleAFLMMEnterFirstContest(const TArray<FString>&, UWorld* World, FOutputDevice& Ar)
+{
+	UAFLMatchmakingSubsystem* MM = AFLMultiQueueCanary::Get(World);
+	if (!MM) { Ar.Log(TEXT("afl.MM.EnterFirstContest - no matchmaking subsystem.")); return; }
+	Ar.Log(TEXT("afl.MM.EnterFirstContest -> fetch /my-reservations, then EnterContest on the first."));
+	TWeakObjectPtr<UAFLMatchmakingSubsystem> Weak(MM);
+	MM->FetchReservations([Weak](bool bOk, const TArray<FAFLReservation>& R)
+	{
+		UAFLMatchmakingSubsystem* Self = Weak.Get();
+		if (!Self) { return; }
+		if (!bOk || R.Num() == 0)
+		{
+			UE_LOG(LogAFLMatchmaking, Warning, TEXT("AFL_MM: nothing to enter (ok=%d count=%d). Check in on the web first."), bOk ? 1 : 0, R.Num());
+			return;
+		}
+		const FAFLReservation& First = R[0];
+		UE_LOG(LogAFLMatchmaking, Log,
+			TEXT("AFL_MM: EnterContest contest=%s queue=%s stake=%d. THIS SPENDS REAL CURRENCY at escrow when the match forms."),
+			*First.ContestId, *First.QueueId, First.StakeRung);
+		Self->EnterContest(First.QueueId, First.StakeRung, First.Token);
+	});
+}
+
+FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMReservationsCmd(TEXT("afl.MM.Reservations"),
+	TEXT("3b.2 BRIDGE: list the contests this player reserved on the web (GET /my-reservations). Read-only; spends nothing."),
+	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMReservations));
+
+FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLMMEnterFirstContestCmd(TEXT("afl.MM.EnterFirstContest"),
+	TEXT("3b.2 BRIDGE: fetch /my-reservations and enter the FIRST via contest-mode /create-ticket -- the web->game path end to end. The server binds the token to this player's session, re-derives the stake, and runs the balance + play-limits checks. Escrow SPENDS REAL CURRENCY when the contest match forms."),
+	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&HandleAFLMMEnterFirstContest));
 
 #endif // UE_WITH_CHEAT_MANAGER
 

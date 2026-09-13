@@ -36,6 +36,27 @@ enum class EAFLMatchmakingState : uint8
 DECLARE_MULTICAST_DELEGATE_TwoParams(FAFLOnMatchmakingState, EAFLMatchmakingState /*State*/, const FText& /*Reason*/);
 
 /**
+ * A pending web-reserved contest, as returned by GET /my-reservations (the 3b.2 bridge's travel step). The
+ * player checked into this contest on the web lobby; the backend minted a signed grant bound to their PlayFab
+ * id and left it in the mailbox. `Token` is opaque to the UI — it is handed straight back to EnterContest,
+ * which presents it to /create-ticket. QueueId + StakeRung are for display and local bookkeeping only; the
+ * SERVER re-derives both from the token, so a tampered client copy changes nothing that matters.
+ */
+USTRUCT(BlueprintType)
+struct FAFLReservation
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Staking") FString ContestId;
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Staking") FString QueueId;
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Staking") int32 StakeRung = 0;
+	/** Opaque contest-entry grant -> EnterContest. Never shown to the player. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Staking") FString Token;
+	/** Unix seconds the grant expires. The lobby can hide a reservation whose window has closed. */
+	UPROPERTY(BlueprintReadOnly, Category = "AFL|Staking") int64 Exp = 0;
+};
+
+/**
  * UAFLMatchmakingSubsystem -- PLAY, end to end.
  *
  * Turns a press of PLAY into a joined dedicated server:
@@ -75,6 +96,24 @@ public:
 	 * LEAGUE PLAY. Sending a stake to an unstaked queue is a 400, not a courtesy.
 	 */
 	void StartMatchmaking(const FString& QueueId, int32 Stake);
+
+	/**
+	 * 3b.2 BRIDGE — the SECOND access point. Ask the backend which contests this player reserved on the web
+	 * (GET /my-reservations, authed as the caller). OnDone(bOk, reservations) fires on the game thread; a
+	 * failure (offline, not logged in, backend fault) delivers bOk=false and an empty array — never throws into
+	 * the lobby. The lobby shows the returned reservations and calls EnterContest for the one the player picks.
+	 */
+	void FetchReservations(TFunction<void(bool /*bOk*/, const TArray<FAFLReservation>& /*Reservations*/)> OnDone);
+
+	/**
+	 * 3b.2 BRIDGE — enter a web-reserved contest. Presents the reservation Token to /create-ticket (contest
+	 * mode); the SERVER verifies the token, binds it to THIS player's PlayFab session, re-derives the stake
+	 * from the queue and runs the full balance + play-limits + self-exclusion checks before a ticket forms.
+	 * QueueId + Stake come from the FAFLReservation and are used only for the same local bookkeeping as
+	 * StartMatchmaking (the duplicate-per-cell guard, the poll ladder, the FEntry). Once the ticket is accepted
+	 * this joins the SAME poll -> travel path as ordinary play; FlexMatch groups it with the rest of the contest.
+	 */
+	void EnterContest(const FString& QueueId, int32 Stake, const FString& ReservationToken);
 
 	/**
 	 * Stop searching, and WITHDRAW THE TICKET. Calls POST /cancel-ticket; the ticket is not gone until that
@@ -136,6 +175,15 @@ public:
 	void NotifyFallbackFailed(const FText& Reason);
 
 private:
+	/**
+	 * The shared core of StartMatchmaking and EnterContest: the guards (one entry per cell, signed-in, online),
+	 * the in-flight accounting + state derivation, the POST /create-ticket, and the accepted-ticket handling
+	 * (seat an FEntry for QueueId/Stake, then join the poll). The ONLY thing the two callers differ on is the
+	 * request Body — {queueId,stake?} for ordinary play, {reservationToken} for a contest — so that is all they
+	 * build; everything downstream is identical, which is the point of sharing it.
+	 */
+	void SubmitCreateTicket(const FString& QueueId, int32 Stake, const FString& Body);
+
 	void SetState(EAFLMatchmakingState NewState, const FText& Reason = FText());
 	void PollMatchStatus();
 	void StopPolling();

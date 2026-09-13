@@ -994,6 +994,58 @@ void UAFLOnlineSubsystem::PostPlayerApi(const FString& EndpointPath, const FStri
 	Req->ProcessRequest();
 }
 
+// GET counterpart of PostPlayerApi. Same base-url + not-logged-in guards, same dual-spelling SessionTicket
+// header (the read is authenticated AS the caller, and names no player id, so it can only ever return the
+// caller's own rows), GET verb, no body. See PostPlayerApi for why the two ticket header names are both sent.
+void UAFLOnlineSubsystem::GetPlayerApi(const FString& EndpointPath,
+	TFunction<void(bool, const FString&)> OnComplete)
+{
+	const FString Base = PlayerApiBaseUrl();
+	if (Base.IsEmpty())
+	{
+		UE_LOG(LogAFLOnline, Error,
+			TEXT("[AFLOnline] GetPlayerApi('%s') SKIP -- no API base URL. Set AFL_API_BASE_URL, or "
+			     "[AFL.Online] PlayerApiBaseUrl in DefaultGame.ini."), *EndpointPath);
+		OnComplete(false, TEXT("skip: no api base url"));
+		return;
+	}
+
+	if (SessionTicket.IsEmpty())
+	{
+		UE_LOG(LogAFLOnline, Warning,
+			TEXT("[AFLOnline] GetPlayerApi('%s') SKIP -- no SessionTicket (not logged in)."), *EndpointPath);
+		OnComplete(false, TEXT("skip: not logged in"));
+		return;
+	}
+
+	const FString FullUrl = Base + (EndpointPath.StartsWith(TEXT("/")) ? EndpointPath : TEXT("/") + EndpointPath);
+
+	const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
+	Req->SetURL(FullUrl);
+	Req->SetVerb(TEXT("GET"));
+	// Both spellings, for the same reason PostPlayerApi sends both. The ticket is the player's OWN credential
+	// and rides a header, never a query string (which would land in access logs).
+	Req->SetHeader(TEXT("X-SessionTicket"), SessionTicket);
+	Req->SetHeader(TEXT("X-PlayFab-SessionTicket"), SessionTicket);
+
+	Req->OnProcessRequestComplete().BindLambda(
+		[OnComplete, EndpointPath](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnectedOk)
+		{
+			if (!bConnectedOk || !Response.IsValid())
+			{
+				UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] GetPlayerApi('%s') HTTP failed (no response)."), *EndpointPath);
+				OnComplete(false, TEXT("no response"));
+				return;
+			}
+			const int32 Http = Response->GetResponseCode();
+			const FString RespBody = Response->GetContentAsString();
+			const bool bOk = (Http == 200);
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] GetPlayerApi('%s') -> http=%d ok=%d"), *EndpointPath, Http, bOk ? 1 : 0);
+			OnComplete(bOk, RespBody);
+		});
+	Req->ProcessRequest();
+}
+
 // A1.3b earn + A1.4 resolve: thin wrappers over the shared signed-POST transport. PostServerEarn's WIRE behavior
 // is byte-identical to before the extraction (URL=EarnUrl, X-Signature=HMAC(body), body-as-sent, 200-check,
 // OnComplete(bOk,body)) -- the earn canary (3c69e132) stays valid; only the diag log prefix changed.

@@ -174,6 +174,17 @@ public:
 		TFunction<void(bool, const FString&)> OnComplete);
 
 	/**
+	 * GET counterpart of PostPlayerApi — a player-authed read against the game backend. Same auth (the caller's
+	 * own SessionTicket in both header spellings; no player id anywhere, so it can only ever return the caller's
+	 * own rows), no body, GET verb. Used by GET /my-reservations (the 3b.2 travel step): the game asks "what
+	 * contests have I reserved on the web?" and gets back tokens bound to its own PlayFab id.
+	 *
+	 * EndpointPath is appended to the configured API base ("/my-reservations"). OnComplete(bOk = HTTP 200, raw body).
+	 */
+	void GetPlayerApi(const FString& EndpointPath,
+		TFunction<void(bool, const FString&)> OnComplete);
+
+	/**
 	 * Base URL of our Lambda API for CLIENT calls.
 	 *
 	 * ⚠ CONFIG, NOT ENVIRONMENT. Every server URL here is read from an env var, which works because a
