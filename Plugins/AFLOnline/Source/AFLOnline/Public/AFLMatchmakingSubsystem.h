@@ -182,7 +182,7 @@ private:
 	 * request Body — {queueId,stake?} for ordinary play, {reservationToken} for a contest — so that is all they
 	 * build; everything downstream is identical, which is the point of sharing it.
 	 */
-	void SubmitCreateTicket(const FString& QueueId, int32 Stake, const FString& Body);
+	void SubmitCreateTicket(const FString& QueueId, int32 Stake, const FString& Body, bool bIsContest = false);
 
 	void SetState(EAFLMatchmakingState NewState, const FText& Reason = FText());
 	void PollMatchStatus();
@@ -269,6 +269,12 @@ private:
 	{
 		FString QueueId;
 		int32 Stake = 0;
+		/** 3b.2: a web-reserved CONTEST entry. A contest fills only from its own registrants (HumanOnly, no bot
+		 *  fill), so it must NEVER be dropped into an offline LEAGUE bot match. This is set explicitly at
+		 *  EnterContest rather than inferred from Stake -- a contest's stakeRung can parse to 0 (field drift, a
+		 *  zero-rung contest), and inferring "staked" from that number is exactly how a reserved contest could
+		 *  silently abandon into bots. */
+		bool bIsContest = false;
 		/** Real-time stamp, per entry -- the ladder runs off the OLDEST, matching the server's
 		 *  `expansionAgeSelection: 'oldest'`, so the longest waiter governs. */
 		double StartRealSeconds = 0.0;

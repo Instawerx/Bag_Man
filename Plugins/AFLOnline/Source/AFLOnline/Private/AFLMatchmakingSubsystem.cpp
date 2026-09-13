@@ -237,7 +237,7 @@ void UAFLMatchmakingSubsystem::StartMatchmaking(const FString& QueueId, int32 St
 	SubmitCreateTicket(QueueId, Stake, Body);
 }
 
-void UAFLMatchmakingSubsystem::SubmitCreateTicket(const FString& QueueId, int32 Stake, const FString& Body)
+void UAFLMatchmakingSubsystem::SubmitCreateTicket(const FString& QueueId, int32 Stake, const FString& Body, bool bIsContest)
 {
 	// ⚠ THE BLANKET GUARD IS GONE, AND WHAT REPLACES IT IS NARROWER ON PURPOSE.
 	//
@@ -294,7 +294,7 @@ void UAFLMatchmakingSubsystem::SubmitCreateTicket(const FString& QueueId, int32 
 
 	TWeakObjectPtr<UAFLMatchmakingSubsystem> WeakThis(this);
 	Online->PostPlayerApi(TEXT("/create-ticket"), Body,
-		[WeakThis, QueueId, Stake](bool bOk, const FString& Resp)
+		[WeakThis, QueueId, Stake, bIsContest](bool bOk, const FString& Resp)
 		{
 			// The player may have quit to desktop while this was in flight.
 			UAFLMatchmakingSubsystem* Self = WeakThis.Get();
@@ -346,6 +346,7 @@ void UAFLMatchmakingSubsystem::SubmitCreateTicket(const FString& QueueId, int32 
 			FEntry Entry;
 			Entry.QueueId = QueueId;
 			Entry.Stake = Stake;
+			Entry.bIsContest = bIsContest; // 3b.2: never bot-fall-back a reserved contest, even if stake parses to 0
 			if (const UGameInstance* GI = Self->GetGameInstance())
 			{
 				if (const UWorld* World = GI->GetWorld())
@@ -439,7 +440,7 @@ void UAFLMatchmakingSubsystem::EnterContest(const FString& QueueId, int32 Stake,
 	// authoritative on both, and we take them from the reservation the client already fetched.
 	const FString Body = FString::Printf(TEXT("{\"reservationToken\":\"%s\"}"), *ReservationToken);
 	UE_LOG(LogAFLMatchmaking, Log, TEXT("AFL_MM: entering contest via reservation (queue='%s' stake=%d)"), *QueueId, Stake);
-	SubmitCreateTicket(QueueId, Stake, Body);
+	SubmitCreateTicket(QueueId, Stake, Body, /*bIsContest=*/true);
 }
 
 bool UAFLMatchmakingSubsystem::ShouldLeagueBotFallback() const
@@ -448,11 +449,14 @@ bool UAFLMatchmakingSubsystem::ShouldLeagueBotFallback() const
 	{
 		return false;
 	}
-	// A staked entry suppresses the fallback -- a staked match waits for real humans (R85: bots are barred
-	// from staked play), so the offline bot match only makes sense when every live cell is unstaked LEAGUE.
+	// A staked OR contest entry suppresses the fallback -- a staked match waits for real humans (R85: bots are
+	// barred from staked play), and a web-reserved contest fills only from its own registrants, so the offline
+	// bot match only makes sense when every live cell is an unstaked, non-contest LEAGUE cell. Contest is a
+	// FLAG, not inferred from Stake: a contest's stakeRung can legitimately parse to 0, and treating that as
+	// "unstaked -> bot-fill" is the exact bug that could silently abandon a reserved contest into bots.
 	for (const FEntry& E : Entries)
 	{
-		if (E.Stake > 0)
+		if (E.Stake > 0 || E.bIsContest)
 		{
 			return false;
 		}
