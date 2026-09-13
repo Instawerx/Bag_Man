@@ -16,7 +16,6 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "NativeGameplayTags.h"
-#include "UI/AFLW_RouteChoice.h"        // record the last-played door for the after-match return
 #include "UI/Lobby/AFLW_Lobby_DetailPanel.h"
 #include "UI/Lobby/AFLW_Lobby_QueueRow.h"
 #include "UI/Lobby/AFLW_TicketReview.h"
@@ -1330,12 +1329,6 @@ void UAFLW_Lobby_Root::CommitQueue()
 		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LOBBY: commit with no open queue selected -- refused."));
 		return;
 	}
-
-	// RECORD THE DOOR for the after-match return (survives the return ClientTravel as a static). The player is
-	// committing to enter from THIS door, so when the match ends the front end brings them back to this lobby
-	// rather than the bare card split. Recorded here at the commit for BOTH doors — staked continues through
-	// ticket review below, league queues immediately — so a single line covers every real entry.
-	UAFLW_RouteChoice::SetPendingReturnDoor(Door);
 
 	if (RequiresTicketReview())
 	{

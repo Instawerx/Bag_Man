@@ -181,29 +181,10 @@ void UAFLW_HomeScreen::NativeOnActivated()
 
 	// POST-LOGIN ROUTE (operator ruling 2026-09-01): the route-choice screen picked MATCHMAKING ->
 	// open the League door through the SAME proven wiring a click would use. Consumed exactly once.
-	//
-	// ⚠ ORDER MATTERS. A FRESH matchmaking choice (the player just picked MATCHMAKING at WHERE TO?) wins over a
-	// stale return-door, so it is checked first. If it fires it also drains the return-door so a later visit
-	// does not re-open a lobby the player has moved on from.
 	if (UAFLW_RouteChoice::ConsumePendingMatchmakingRoute())
 	{
 		UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUTE: home screen consuming matchmaking route -> League door."));
-		EAFLHomeDoor Drain;
-		UAFLW_RouteChoice::ConsumePendingReturnDoor(Drain); // supersede any pending return
 		ChooseDoor(EAFLHomeDoor::League);
-	}
-	// RETURN TO THE LAST-PLAYED LOBBY (the after-match bug): a match was entered from the League or Staked door,
-	// the door was recorded at commit (survives the return ClientTravel), and here the player is brought back to
-	// that exact lobby rather than dropped on the card split with nothing chosen. Consumed exactly once.
-	else
-	{
-		EAFLHomeDoor ReturnDoor;
-		if (UAFLW_RouteChoice::ConsumePendingReturnDoor(ReturnDoor))
-		{
-			UE_LOG(LogAFLCombat, Log, TEXT("AFL_HOME: returning to last-played %s lobby."),
-				ReturnDoor == EAFLHomeDoor::League ? TEXT("LEAGUE") : TEXT("STAKED"));
-			ChooseDoor(ReturnDoor);
-		}
 	}
 }
 

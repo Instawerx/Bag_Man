@@ -8,7 +8,6 @@
 
 class UButton;
 class UTextBlock;
-enum class EAFLHomeDoor : uint8; // defined in AFLW_HomeScreen.h; only referenced by value here
 
 /**
  * UAFLW_RouteChoice -- the post-login quick screen (operator ruling 2026-09-01, amending the
@@ -31,21 +30,8 @@ public:
 	/** Home screen pulls this exactly once on activation: TRUE = auto-open the League door. */
 	static bool ConsumePendingMatchmakingRoute();
 
-	/**
-	 * RETURN-TO-LAST-LOBBY (the after-match bug). A lobby records the door it committed a match from; it
-	 * survives the return ClientTravel because it is static, exactly like bPendingMatchmakingRoute. On the way
-	 * back to the front end the Home screen consumes it and reopens that lobby, and THIS screen peeks it to skip
-	 * the WHERE TO? cards entirely — a match return should land in the lobby, not re-ask where to go.
-	 */
-	static void SetPendingReturnDoor(EAFLHomeDoor Door);
-	/** Home pulls this exactly once on activation. Returns false (and leaves OutDoor untouched) when none is set. */
-	static bool ConsumePendingReturnDoor(EAFLHomeDoor& OutDoor);
-	/** Non-destructive test — this screen uses it to decide whether to auto-skip; only Home consumes. */
-	static bool HasPendingReturnDoor();
-
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
-	virtual void NativeOnActivated() override;        // auto-skip the cards on a match return
 	virtual bool NativeOnHandleBackAction() override; // back = the default (Lobby -> the Outpost)
 	// Gamepad/keyboard focus lands on the default (Lobby) door. Without this the doors are raw UButtons with
 	// no focus target, so CommonUI reported "isn't focusable - focusing the game viewport" (observed live
@@ -67,9 +53,6 @@ protected:
 
 private:
 	static bool bPendingMatchmakingRoute;
-	/** The lobby (League/Staked) a match was last committed from, for the return-to-last-lobby flow. */
-	static bool bHasPendingReturnDoor;
-	static EAFLHomeDoor PendingReturnDoor;
 	bool bChosen = false;
 
 	/** The default (Lobby) door -- captured in RebuildWidget so NativeGetDesiredFocusTarget can focus it. */
