@@ -181,11 +181,44 @@ void UAFLW_HomeScreen::NativeOnActivated()
 
 	// POST-LOGIN ROUTE (operator ruling 2026-09-01): the route-choice screen picked MATCHMAKING ->
 	// open the League door through the SAME proven wiring a click would use. Consumed exactly once.
+	//
+	// ⚠ ORDER MATTERS. A FRESH matchmaking choice (the player just picked MATCHMAKING at WHERE TO?) wins over a
+	// stale return-door, so it is checked first. If it fires it also drains the return-door so a later visit
+	// does not re-open a lobby the player has moved on from.
 	if (UAFLW_RouteChoice::ConsumePendingMatchmakingRoute())
 	{
 		UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUTE: home screen consuming matchmaking route -> League door."));
+		EAFLHomeDoor Drain;
+		UAFLW_RouteChoice::ConsumePendingReturnDoor(Drain); // supersede any pending return
 		ChooseDoor(EAFLHomeDoor::League);
 	}
+	// RETURN TO THE LAST-PLAYED LOBBY (the after-match bug): a match was entered from the League or Staked door,
+	// the door was recorded at commit (survives the return ClientTravel), and here the player is brought back to
+	// that exact lobby rather than dropped on the card split with nothing chosen. Consumed exactly once.
+	else
+	{
+		EAFLHomeDoor ReturnDoor;
+		if (UAFLW_RouteChoice::ConsumePendingReturnDoor(ReturnDoor))
+		{
+			UE_LOG(LogAFLCombat, Log, TEXT("AFL_HOME: returning to last-played %s lobby."),
+				ReturnDoor == EAFLHomeDoor::League ? TEXT("LEAGUE") : TEXT("STAKED"));
+			ChooseDoor(ReturnDoor);
+		}
+	}
+}
+
+TOptional<FUIInputConfig> UAFLW_HomeScreen::GetDesiredInputConfig() const
+{
+	// See the header: Menu mode + visible uncaptured cursor, so the doors and footer are clickable regardless
+	// of the input state the previous screen (or a fresh post-match travel) left active.
+	return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);
+}
+
+const TCHAR* UAFLW_HomeScreen::OutpostTravelURL()
+{
+	// The base map + hub experience. The store IS the lobby (2026-09-01), so this is the single destination for
+	// both the STORE footer button and the WHERE-TO Outpost door.
+	return TEXT("/AFLHub/Maps/L_AFL_OutpostEarth?Experience=B_AFL_Experience_Hub");
 }
 
 UWidget* UAFLW_HomeScreen::NativeGetDesiredFocusTarget() const
@@ -401,7 +434,7 @@ void UAFLW_HomeScreen::OpenNavTarget(EAFLNavTarget Target)
 		if (APlayerController* PC = GetOwningPlayer())
 		{
 			UE_LOG(LogAFLCombat, Log, TEXT("AFL_HOME: STORE -> traveling to the base (the store lives on the lobby)."));
-			PC->ClientTravel(TEXT("/AFLHub/Maps/L_AFL_OutpostEarth?Experience=B_AFL_Experience_Hub"), TRAVEL_Absolute);
+			PC->ClientTravel(OutpostTravelURL(), TRAVEL_Absolute);
 		}
 		return;
 	}

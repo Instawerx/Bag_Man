@@ -3,6 +3,7 @@
 #include "UI/AFLW_RouteChoice.h"
 
 #include "AFLCombat.h"
+#include "UI/AFLW_HomeScreen.h"   // EAFLHomeDoor + the shared Outpost travel URL
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -14,10 +15,13 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/Font.h"
 #include "Engine/Texture2D.h"
+#include "GameFramework/PlayerController.h"  // ClientTravel to the Outpost
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLW_RouteChoice)
 
 bool UAFLW_RouteChoice::bPendingMatchmakingRoute = false;
+bool UAFLW_RouteChoice::bHasPendingReturnDoor = false;
+EAFLHomeDoor UAFLW_RouteChoice::PendingReturnDoor = EAFLHomeDoor::League;
 
 namespace AFLRoute
 {
@@ -48,6 +52,28 @@ bool UAFLW_RouteChoice::ConsumePendingMatchmakingRoute()
 	const bool bWas = bPendingMatchmakingRoute;
 	bPendingMatchmakingRoute = false;
 	return bWas;
+}
+
+void UAFLW_RouteChoice::SetPendingReturnDoor(EAFLHomeDoor Door)
+{
+	bHasPendingReturnDoor = true;
+	PendingReturnDoor = Door;
+}
+
+bool UAFLW_RouteChoice::ConsumePendingReturnDoor(EAFLHomeDoor& OutDoor)
+{
+	if (!bHasPendingReturnDoor)
+	{
+		return false;
+	}
+	OutDoor = PendingReturnDoor;
+	bHasPendingReturnDoor = false; // consumed exactly once, like the matchmaking route
+	return true;
+}
+
+bool UAFLW_RouteChoice::HasPendingReturnDoor()
+{
+	return bHasPendingReturnDoor;
 }
 
 TSharedRef<SWidget> UAFLW_RouteChoice::RebuildWidget()
@@ -169,6 +195,23 @@ TSharedRef<SWidget> UAFLW_RouteChoice::RebuildWidget()
 	return Super::RebuildWidget();
 }
 
+void UAFLW_RouteChoice::NativeOnActivated()
+{
+	Super::NativeOnActivated();
+
+	// A MATCH RETURN SKIPS THIS SCREEN. When a lobby recorded a return door, the player just finished a match
+	// and should land back in that lobby, not be re-asked WHERE TO?. Deactivate immediately (before the cards
+	// are meaningfully interactable) and leave the door pending for the Home screen to consume and reopen. Gated
+	// on HasPendingReturnDoor, which is ONLY set by a lobby commit, so the ordinary first-login flow is
+	// untouched. bChosen guards against re-entrancy the same way Choose() does.
+	if (!bChosen && HasPendingReturnDoor())
+	{
+		bChosen = true;
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUTE: match return -> skipping WHERE TO?, Home will reopen the last lobby."));
+		DeactivateWidget();
+	}
+}
+
 UWidget* UAFLW_RouteChoice::NativeGetDesiredFocusTarget() const
 {
 	// Focus the default (Lobby) door so controller/keyboard users can act on the cards immediately.
@@ -177,7 +220,7 @@ UWidget* UAFLW_RouteChoice::NativeGetDesiredFocusTarget() const
 
 bool UAFLW_RouteChoice::NativeOnHandleBackAction()
 {
-	Choose(false); // back = the default route (the base)
+	EnterOutpost(); // back = the default route (the base) -- and the base is a real place, so travel to it
 	return true;
 }
 
@@ -188,7 +231,7 @@ TOptional<FUIInputConfig> UAFLW_RouteChoice::GetDesiredInputConfig() const
 	return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);
 }
 
-void UAFLW_RouteChoice::HandleLobby()       { Choose(false); }
+void UAFLW_RouteChoice::HandleLobby()       { EnterOutpost(); }
 void UAFLW_RouteChoice::HandleMatchmaking() { Choose(true); }
 
 void UAFLW_RouteChoice::Choose(bool bMatchmaking)
@@ -199,7 +242,38 @@ void UAFLW_RouteChoice::Choose(bool bMatchmaking)
 	}
 	bChosen = true;
 	bPendingMatchmakingRoute = bMatchmaking;
+	// A deliberate WHERE TO? choice supersedes any stale return-to-last-lobby intent — the player is telling us
+	// where to go right now, so a leftover return door must not fire on the next Home activation.
+	bHasPendingReturnDoor = false;
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUTE: chose %s."), bMatchmaking ? TEXT("MATCHMAKING") : TEXT("LOBBY"));
 	OnRouteChosen.Broadcast(bMatchmaking);
 	DeactivateWidget();
+}
+
+void UAFLW_RouteChoice::EnterOutpost()
+{
+	if (bChosen)
+	{
+		return;
+	}
+	bChosen = true;
+	// OUTPOST LOBBY is a real destination, not a fall-through: travel to the base, the same map+experience the
+	// Home STORE button reaches. Before this, the lobby door only deactivated and dropped the player on the
+	// Home/Loadout surface (the reported "old unfinished Loadout screen"). A fresh route decision, so clear any
+	// stale return door too.
+	bPendingMatchmakingRoute = false;
+	bHasPendingReturnDoor = false;
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUTE: chose LOBBY -> traveling to the Outpost base."));
+	OnRouteChosen.Broadcast(false);
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		PC->ClientTravel(UAFLW_HomeScreen::OutpostTravelURL(), TRAVEL_Absolute);
+	}
+	else
+	{
+		// No controller to travel with — do not strand the player on a dead modal; fall back to deactivating so
+		// the front end shows underneath, matching the old behaviour rather than hanging.
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_ROUTE: LOBBY chosen but no owning player -- cannot travel to the base."));
+		DeactivateWidget();
+	}
 }

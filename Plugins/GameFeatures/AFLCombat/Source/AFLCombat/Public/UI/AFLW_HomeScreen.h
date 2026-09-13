@@ -199,6 +199,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AFL|Home")
 	void SetWalletReadout(int64 Watts, int64 Volts);
 
+	/**
+	 * The Outpost hub travel URL — the "store IS the lobby" destination (operator ruling 2026-09-01). Defined
+	 * ONCE here so the home STORE button (OpenNavTarget) and the WHERE-TO Outpost door (AFLW_RouteChoice) travel
+	 * to EXACTLY the same place; two spellings of a map+experience string is one that drifts.
+	 */
+	static const TCHAR* OutpostTravelURL();
+
 	/** Server/consumer-facing: can this door be entered? Staked is gated; league is always open. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Home")
 	bool IsDoorAvailable(EAFLHomeDoor Door) const;
@@ -227,6 +234,15 @@ protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeOnActivated() override;
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
+
+	/**
+	 * Own the input mode so the door cards and footer are ALWAYS clickable — Menu with a visible, uncaptured
+	 * cursor. This was the ONE front-end screen missing the override (RouteChoice, Landing, the match-end
+	 * takeovers all assert it), and its absence is why the cards went dead on the return from a match: a fresh
+	 * post-match ClientTravel does not guarantee the residual input mode is Menu, so without owning it the
+	 * screen inherited Game mode and the cursor could not click. Matches every working menu in the front end.
+	 */
+	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 
 	/** Blueprint hook for the navigation push. Fires immediately after `OnDoorChosen`. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "AFL|Home", meta = (DisplayName = "On Door Chosen"))
