@@ -31,7 +31,10 @@ if (-not $SignTool) {
 if (-not $SignTool -or -not (Test-Path $SignTool)) { throw "signtool.exe not found — install the Windows SDK / Trusted Signing Client Tools." }
 
 if (-not $Dlib) {
-  $Dlib = Get-ChildItem "$env:USERPROFILE\.azuresigningtools\*\Azure.CodeSigning.Dlib.dll","C:\Program Files\*\Azure.CodeSigning.Dlib.dll" -ErrorAction SilentlyContinue |
+  $Dlib = Get-ChildItem `
+            "D:\BagMan\tools\TrustedSigningClient\bin\x64\Azure.CodeSigning.Dlib.dll", `
+            "$env:USERPROFILE\.azuresigningtools\*\Azure.CodeSigning.Dlib.dll", `
+            "C:\Program Files\*\Azure.CodeSigning.Dlib.dll" -ErrorAction SilentlyContinue |
           Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
 }
 if (-not $Dlib -or -not (Test-Path $Dlib)) { throw "Azure.CodeSigning.Dlib.dll not found — install the Trusted Signing Client Tools." }
