@@ -61,6 +61,9 @@ public:
 	/** A login is still being worked on (queued or in flight -- e.g. the Epic account portal is open in the
 	 *  browser). UI waiters use this to tell "still waiting" from "failed" when a CallWhenLoggedIn timeout fires. */
 	bool IsLoginInFlight() const { return LoginState == EAFLLoginState::InFlight || LoginState == EAFLLoginState::NotStarted; }
+	/** Human-readable reason for the LAST definitive login failure (empty when none / after a success). The
+	 *  landing card shows it verbatim -- "check the connection" told a refused new player nothing (2026-09-14). */
+	const FString& GetLastLoginFailure() const { return LastLoginFailure; }
 	const FString& GetPlayFabId() const { return PlayFabId; }
 	const FString& GetSessionTicket() const { return SessionTicket; }
 	const FString& GetEntityToken() const { return EntityToken; }
@@ -210,6 +213,7 @@ public:
 private:
 	enum class EAFLLoginState : uint8 { NotStarted, InFlight, LoggedIn, Failed };
 	EAFLLoginState LoginState = EAFLLoginState::NotStarted;
+	FString LastLoginFailure;
 
 	FString PlayFabId;
 	FString SessionTicket;

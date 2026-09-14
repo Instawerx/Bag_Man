@@ -494,6 +494,7 @@ void UAFLOnlineSubsystem::HandleEosAuthLoginResult(int32 EosResultCode, bool bWa
 	}
 	UE_LOG(LogAFLOnline, Error, TEXT("[AFLOnline] EAS interactive login failed: %s"),
 		ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+	LastLoginFailure = FString::Printf(TEXT("Epic sign-in was refused (%s)"), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
 	ResolveLogin(false);
 #endif
 }
@@ -511,6 +512,7 @@ void UAFLOnlineSubsystem::StartLoginWithEOS()
 			TEXT("[AFLOnline] EOS login refused: afl.Online.EosOidcConnectionId is unset. Set it in Config/DefaultEngine.ini ")
 			TEXT("[ConsoleVariables] to the PlayFab OpenID Connect connection configured for Epic Account Services. ")
 			TEXT("Refusing rather than guessing -- authenticating against the wrong connection is worse than not authenticating."));
+		LastLoginFailure = TEXT("sign-in is not configured on this build (no account connection)");
 		ResolveLogin(false);
 		return;
 	}
@@ -626,6 +628,7 @@ void UAFLOnlineSubsystem::HandleLoginResponse(FHttpRequestPtr Request, FHttpResp
 	if (!bConnectedOk || !Response.IsValid())
 	{
 		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] Login HTTP failed (no response)."));
+		LastLoginFailure = TEXT("no response from the account service -- check the connection");
 		ResolveLogin(false);
 		return;
 	}
@@ -640,6 +643,21 @@ void UAFLOnlineSubsystem::HandleLoginResponse(FHttpRequestPtr Request, FHttpResp
 		// Log PlayFab's response body (its errorMessage) so a title-config rejection is self-diagnosing
 		// in the log -- e.g. PlayerCreationDisabled -> "enable client account creation on the title".
 		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] Login rejected (http=%d): %s"), Http, *Response->GetContentAsString().Left(500));
+		// And on the CARD: the player (and whoever they screenshot it to) sees the refusal by name, not
+		// "check the connection". PlayFab's envelope carries error / errorCode / errorMessage on a rejection.
+		FString PfError, PfMessage; double PfErrorCode = 0.0;
+		TSharedPtr<FJsonObject> Raw;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+		if (FJsonSerializer::Deserialize(Reader, Raw) && Raw.IsValid())
+		{
+			Raw->TryGetStringField(TEXT("error"), PfError);
+			Raw->TryGetStringField(TEXT("errorMessage"), PfMessage);
+			Raw->TryGetNumberField(TEXT("errorCode"), PfErrorCode);
+		}
+		LastLoginFailure = PfError.IsEmpty()
+			? FString::Printf(TEXT("the account service rejected the sign-in (HTTP %d)"), Http)
+			: FString::Printf(TEXT("the account service rejected the sign-in: %s (%d)%s%s"), *PfError, static_cast<int32>(PfErrorCode),
+				PfMessage.IsEmpty() ? TEXT("") : TEXT(" -- "), *PfMessage.Left(160));
 		ResolveLogin(false);
 		return;
 	}
@@ -656,6 +674,7 @@ void UAFLOnlineSubsystem::HandleLoginResponse(FHttpRequestPtr Request, FHttpResp
 	if (PlayFabId.IsEmpty() || SessionTicket.IsEmpty())
 	{
 		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] Login response missing PlayFabId/SessionTicket."));
+		LastLoginFailure = TEXT("the account service answered without an account -- try again");
 		ResolveLogin(false);
 		return;
 	}
@@ -669,6 +688,14 @@ void UAFLOnlineSubsystem::HandleLoginResponse(FHttpRequestPtr Request, FHttpResp
 void UAFLOnlineSubsystem::ResolveLogin(bool bSuccess)
 {
 	LoginState = bSuccess ? EAFLLoginState::LoggedIn : EAFLLoginState::Failed;
+	if (bSuccess)
+	{
+		LastLoginFailure.Reset();
+	}
+	else if (LastLoginFailure.IsEmpty())
+	{
+		LastLoginFailure = TEXT("sign-in did not complete"); // every refusal site names its reason; this is the floor
+	}
 
 	// Drain + fire the one-shot waiters (move first -- a callback may re-enter).
 	TArray<TFunction<void(bool)>> Callbacks = MoveTemp(PendingLoginCallbacks);

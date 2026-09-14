@@ -116,7 +116,8 @@ TSharedRef<SWidget> UAFLW_SystemMenu::RebuildWidget()
 	}
 	UTextBlock* Sub = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
 	Style(Sub, Body, 12.f, TextMuted);
-	Sub->SetText(NSLOCTEXT("AFLSysMenu", "Sub", "Signed in with Epic"));
+	Sub->SetText(NSLOCTEXT("AFLSysMenu", "SubUnknown", "—"));
+	IdentityText = Sub; // real text set per activation from the login state (RefreshIdentity)
 	if (UVerticalBoxSlot* VS = MenuCol->AddChildToVerticalBox(Sub))
 	{
 		VS->SetPadding(FMargin(4.f, 0.f, 0.f, 6.f));
@@ -152,6 +153,7 @@ TSharedRef<SWidget> UAFLW_SystemMenu::RebuildWidget()
 
 	UButton* Resume = MakeRow(TEXT("ResumeBtn"), NSLOCTEXT("AFLSysMenu", "Resume", "RESUME"), RowNeutral, FLinearColor(0.905f, 0.925f, 0.965f, 1.f));
 	Resume->OnClicked.AddDynamic(this, &UAFLW_SystemMenu::HandleResume);
+	ResumeButton = Resume;
 
 	UButton* Settings = MakeRow(TEXT("SettingsBtn"), NSLOCTEXT("AFLSysMenu", "Settings", "SETTINGS"), RowNeutral, FLinearColor(0.905f, 0.925f, 0.965f, 1.f));
 	Settings->OnClicked.AddDynamic(this, &UAFLW_SystemMenu::HandleSettings);
@@ -236,6 +238,19 @@ TSharedRef<SWidget> UAFLW_SystemMenu::RebuildWidget()
 void UAFLW_SystemMenu::NativeOnActivated()
 {
 	Super::NativeOnActivated();
+	// POOLED instance: identity and sign-out availability are re-derived on every activation.
+	const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	const bool bSignedIn = Online && Online->IsLoggedIn();
+	if (IdentityText)
+	{
+		IdentityText->SetText(bSignedIn
+			? NSLOCTEXT("AFLSysMenu", "Sub", "Signed in with Epic")
+			: NSLOCTEXT("AFLSysMenu", "SubOut", "Not signed in"));
+	}
+	if (SignOutButton)
+	{
+		SignOutButton->SetVisibility(bSignedIn ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
 	RefreshWallet();
 }
 
@@ -358,9 +373,14 @@ UWidget* UAFLW_SystemMenu::NativeGetDesiredFocusTarget() const
 	{
 		return ConfirmCancelButton;
 	}
-	if (SignOutButton)
+	// SIGN OUT is collapsed while not signed in (NativeOnActivated); focus must never land on a hidden row.
+	if (SignOutButton && SignOutButton->GetVisibility() != ESlateVisibility::Collapsed)
 	{
 		return SignOutButton;
+	}
+	if (ResumeButton)
+	{
+		return ResumeButton;
 	}
 	return Super::NativeGetDesiredFocusTarget();
 }

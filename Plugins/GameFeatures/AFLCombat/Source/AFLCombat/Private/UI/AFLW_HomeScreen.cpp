@@ -5,6 +5,8 @@
 #include "UI/AFLW_RouteChoice.h" // post-login route consumption (operator ruling 2026-09-01)
 
 #include "AFLCombat.h"              // LogAFLCombat
+#include "UI/AFLSystemMenuSubsystem.h" // Esc -> System Menu
+#include "Engine/GameInstance.h"
 #include "CommonButtonBase.h"
 #include "CommonTextBlock.h"
 #include "CommonUIExtensions.h"     // PushContentToLayer_ForPlayer -- the same call the store push uses
@@ -147,9 +149,22 @@ UAFLW_HomeScreen::UAFLW_HomeScreen(const FObjectInitializer& ObjectInitializer)
 	StakedUnavailableReason = LOCTEXT("StakedNotOpen", "Not open yet");
 }
 
+bool UAFLW_HomeScreen::NativeOnHandleBackAction()
+{
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UAFLSystemMenuSubsystem* Menu = GI->GetSubsystem<UAFLSystemMenuSubsystem>())
+		{
+			Menu->OpenSystemMenu();
+		}
+	}
+	return true; // handled either way: the home screen never pops itself on Esc
+}
+
 void UAFLW_HomeScreen::NativeOnInitialized()
 {
 	Super::NativeOnInitialized();
+	bIsBackHandler = true; // Esc -> System Menu (see NativeOnHandleBackAction)
 
 	// BindWidget guarantees these exist on a compiled WBP, but this class is also instantiable from a test
 	// harness with no widget tree at all -- so bind defensively rather than assume the designer contract.

@@ -4,6 +4,7 @@
 
 #include "AFLCombat.h"
 #include "AFLOnlineSubsystem.h"
+#include "UI/AFLSystemMenuSubsystem.h"   // Esc on the root screen -> System Menu (QUIT TO DESKTOP)
 #include "Blueprint/WidgetTree.h"
 #include "CommonUIExtensions.h"
 #include "CommonUserSubsystem.h"
@@ -248,7 +249,16 @@ void UAFLW_Landing::HandleOnlineLoggedIn()
 
 bool UAFLW_Landing::NativeOnHandleBackAction()
 {
-	return true; // root: nothing behind us
+	// Root screen: nothing behind us -- so Esc opens the System Menu (QUIT TO DESKTOP lives there). Before
+	// 2026-09-14 this swallowed Esc, and a player refused at sign-in had no way to leave the game.
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UAFLSystemMenuSubsystem* Menu = GI->GetSubsystem<UAFLSystemMenuSubsystem>())
+		{
+			Menu->OpenSystemMenu();
+		}
+	}
+	return true;
 }
 
 void UAFLW_Landing::KickLocalPlayInit()
@@ -378,7 +388,12 @@ void UAFLW_Landing::HandleLoggedIn(bool bSuccess)
 			}
 			else
 			{
-				StatusText->SetText(NSLOCTEXT("AFLLanding", "Failed", "Sign-in failed — check the connection and try again."));
+				// Name the refusal. A new player whose Epic or account-service step was rejected must see WHY --
+				// and can screenshot it -- instead of a generic connection hint that sends them to their router.
+				const FString Why = Online ? Online->GetLastLoginFailure() : FString();
+				StatusText->SetText(Why.IsEmpty()
+					? NSLOCTEXT("AFLLanding", "Failed", "Sign-in failed — check the connection and try again.")
+					: FText::Format(NSLOCTEXT("AFLLanding", "FailedWhy", "Sign-in failed — {0}. Press Esc for the system menu."), FText::FromString(Why)));
 				StatusText->SetColorAndOpacity(FSlateColor(Bad));
 			}
 		}

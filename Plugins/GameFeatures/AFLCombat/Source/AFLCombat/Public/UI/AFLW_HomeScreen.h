@@ -234,6 +234,9 @@ protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeOnActivated() override;
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
+	/** Esc on the home screen opens the System Menu (QUIT TO DESKTOP lives there). Before 2026-09-14 the home
+	 *  screen was not a back handler, so Esc did nothing and a player parked here had no way to quit. */
+	virtual bool NativeOnHandleBackAction() override;
 
 	/**
 	 * Own the input mode so the door cards and footer are ALWAYS clickable — Menu with a visible, uncaptured

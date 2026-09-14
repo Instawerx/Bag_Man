@@ -73,6 +73,11 @@ private:
 	UPROPERTY(Transient) TObjectPtr<UTextBlock> ConfirmProceedLabel = nullptr;
 	/** Header wallet balance line (VOLTS / WATTS), populated on activation. */
 	UPROPERTY(Transient) TObjectPtr<UTextBlock> WalletText = nullptr;
+	/** "Signed in with Epic" / "Not signed in" -- STATE, not a static string (it was static until 2026-09-14, and
+	 *  read "Signed in" to a player whose sign-in had just been refused). Refreshed on every activation. */
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> IdentityText = nullptr;
+	/** SIGN OUT is hidden while not signed in; RESUME takes the default focus then. */
+	UPROPERTY(Transient) TObjectPtr<UButton> ResumeButton = nullptr;
 
 	/** Default focus targets per step. */
 	UPROPERTY(Transient) TObjectPtr<UButton> SignOutButton = nullptr;      // menu step
