@@ -100,6 +100,15 @@ public:
 	 */
 	void Logout();
 
+	/**
+	 * WELCOME (2026-09-13): the one server-side leg a CLIENT can reach on its own. POSTs this player's own
+	 * session ticket (no HMAC -- there is no client-held secret; PlayFab vouches for the ticket) to
+	 * `PlayerApiBaseUrl()/welcome`, which links the Epic subject for the portal and grant-once's the 3 Weapon
+	 * Credits for an APPROVED portal member. Fire-and-forget after every successful login; 'already' is the
+	 * expected answer after the first. Contract: Bag_Man_Backend/docs/welcome-contract.md.
+	 */
+	void RequestWelcome();
+
 	/** One-shot: Callback(true) when logged in (immediately if already), Callback(false) on failure/timeout.
 	 *  Kicks a login if none is running. Lets the persistence LOAD path wait for auth then fall back to cache. */
 	void CallWhenLoggedIn(TFunction<void(bool)> Callback, float TimeoutSeconds = 6.0f);

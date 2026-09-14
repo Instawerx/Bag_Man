@@ -685,8 +685,61 @@ void UAFLOnlineSubsystem::ResolveLogin(bool bSuccess)
 		// an accumulation. Fire-and-forget: a failure here must never block a player getting into the
 		// game, and the portal's own refusal covers the case where the index is missing.
 		LinkGenericIdentity();
+		// The client-reachable twin of the two legs above (link + signup grant) -- the only one a solo player
+		// who never reaches a dedicated server will ever hit. Fire-and-forget.
+		RequestWelcome();
 		OnLoggedIn.Broadcast();
 	}
+}
+
+void UAFLOnlineSubsystem::RequestWelcome()
+{
+	if (SessionTicket.IsEmpty())
+	{
+		return;
+	}
+	const FString Base = PlayerApiBaseUrl();
+	if (Base.IsEmpty())
+	{
+		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] welcome SKIPPED -- no PlayerApiBaseUrl configured."));
+		return;
+	}
+	// Exactly {sessionTicket, ts}: the endpoint refuses any other key by contract.
+	const FString Body = FString::Printf(TEXT("{\"sessionTicket\":\"%s\",\"ts\":%lld}"),
+		*SessionTicket, static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
+
+	const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
+	Req->SetURL(Base + TEXT("/welcome"));
+	Req->SetVerb(TEXT("POST"));
+	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Req->SetContentAsString(Body);
+	Req->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnectedOk)
+	{
+		if (!bConnectedOk || !Response.IsValid())
+		{
+			UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] welcome HTTP failed (no response)."));
+			return;
+		}
+		const int32 Http = Response->GetResponseCode();
+		TSharedPtr<FJsonObject> Json;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+		if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid())
+		{
+			UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] welcome -> http=%d (unparseable body)."), Http);
+			return;
+		}
+		// PRESENCE OF OUTPUT on every branch: 'already' is the steady state and must read differently from
+		// a regression that stopped welcoming.
+		FString Link, Welcome, Eligibility;
+		Json->TryGetStringField(TEXT("link"), Link);
+		Json->TryGetStringField(TEXT("welcome"), Welcome);
+		Json->TryGetStringField(TEXT("eligibility"), Eligibility);
+		double Count = 0.0;
+		Json->TryGetNumberField(TEXT("count"), Count);
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] welcome -> http=%d link=%s welcome=%s eligibility=%s count=%d"),
+			Http, *Link, *Welcome, *Eligibility, static_cast<int32>(Count));
+	});
+	Req->ProcessRequest();
 }
 
 void UAFLOnlineSubsystem::LinkGenericIdentity()
