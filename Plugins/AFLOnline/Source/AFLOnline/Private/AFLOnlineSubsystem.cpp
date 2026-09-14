@@ -17,6 +17,7 @@
 #include "Misc/ConfigCacheIni.h"                 // GConfig -- the CLIENT's API base URL (no env on a player's box)
 #include "Misc/DateTime.h"                       // FDateTime::UtcNow (canary ts)
 #include "Misc/Guid.h"                           // FGuid (canary matchId/nonce)
+#include "Misc/EngineVersion.h"                  // FEngineVersion (client-diag engine stamp)
 #include "GameFramework/CheatManagerDefines.h"   // UE_WITH_CHEAT_MANAGER (canary guard)
 
 // D17 shipping login (EOS Default). WITH_EOS_SDK is defined PUBLICLY by the EOSSDK module (declared in
@@ -494,7 +495,9 @@ void UAFLOnlineSubsystem::HandleEosAuthLoginResult(int32 EosResultCode, bool bWa
 	}
 	UE_LOG(LogAFLOnline, Error, TEXT("[AFLOnline] EAS interactive login failed: %s"),
 		ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
-	LastLoginFailure = FString::Printf(TEXT("Epic sign-in was refused (%s)"), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+	LastFailStage = TEXT("eas");
+	LastFailEos = ANSI_TO_TCHAR(EOS_EResult_ToString(Result));
+	LastLoginFailure = FString::Printf(TEXT("Epic sign-in was refused (%s)"), *LastFailEos);
 	ResolveLogin(false);
 #endif
 }
@@ -512,6 +515,7 @@ void UAFLOnlineSubsystem::StartLoginWithEOS()
 			TEXT("[AFLOnline] EOS login refused: afl.Online.EosOidcConnectionId is unset. Set it in Config/DefaultEngine.ini ")
 			TEXT("[ConsoleVariables] to the PlayFab OpenID Connect connection configured for Epic Account Services. ")
 			TEXT("Refusing rather than guessing -- authenticating against the wrong connection is worse than not authenticating."));
+		LastFailStage = TEXT("config");
 		LastLoginFailure = TEXT("sign-in is not configured on this build (no account connection)");
 		ResolveLogin(false);
 		return;
@@ -628,6 +632,7 @@ void UAFLOnlineSubsystem::HandleLoginResponse(FHttpRequestPtr Request, FHttpResp
 	if (!bConnectedOk || !Response.IsValid())
 	{
 		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] Login HTTP failed (no response)."));
+		LastFailStage = TEXT("http");
 		LastLoginFailure = TEXT("no response from the account service -- check the connection");
 		ResolveLogin(false);
 		return;
@@ -654,6 +659,10 @@ void UAFLOnlineSubsystem::HandleLoginResponse(FHttpRequestPtr Request, FHttpResp
 			Raw->TryGetStringField(TEXT("errorMessage"), PfMessage);
 			Raw->TryGetNumberField(TEXT("errorCode"), PfErrorCode);
 		}
+		LastFailStage = TEXT("oidc");
+		LastFailPfError = PfError;
+		LastFailPfCode = static_cast<int32>(PfErrorCode);
+		LastFailHttp = Http;
 		LastLoginFailure = PfError.IsEmpty()
 			? FString::Printf(TEXT("the account service rejected the sign-in (HTTP %d)"), Http)
 			: FString::Printf(TEXT("the account service rejected the sign-in: %s (%d)%s%s"), *PfError, static_cast<int32>(PfErrorCode),
@@ -674,6 +683,8 @@ void UAFLOnlineSubsystem::HandleLoginResponse(FHttpRequestPtr Request, FHttpResp
 	if (PlayFabId.IsEmpty() || SessionTicket.IsEmpty())
 	{
 		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] Login response missing PlayFabId/SessionTicket."));
+		LastFailStage = TEXT("oidc");
+		LastFailHttp = 200;
 		LastLoginFailure = TEXT("the account service answered without an account -- try again");
 		ResolveLogin(false);
 		return;
@@ -696,6 +707,10 @@ void UAFLOnlineSubsystem::ResolveLogin(bool bSuccess)
 	{
 		LastLoginFailure = TEXT("sign-in did not complete"); // every refusal site names its reason; this is the floor
 	}
+	if (!bSuccess)
+	{
+		PostClientDiag(); // the same facts the landing card shows, now visible server-side within seconds
+	}
 
 	// Drain + fire the one-shot waiters (move first -- a callback may re-enter).
 	TArray<TFunction<void(bool)>> Callbacks = MoveTemp(PendingLoginCallbacks);
@@ -717,6 +732,66 @@ void UAFLOnlineSubsystem::ResolveLogin(bool bSuccess)
 		RequestWelcome();
 		OnLoggedIn.Broadcast();
 	}
+}
+
+void UAFLOnlineSubsystem::PostClientDiag()
+{
+	// FIXED SHAPE, EXACT KEYS (the sink rejects anything else): kind, build, engine, stage, session, ts, and the
+	// optional eosResult / pfError / pfErrorCode / http / message. NO credentials and NO identity ever ride along
+	// -- `session` is a random GUID per game process, minted once, so a burst from one machine groups without
+	// naming anyone. Strings are clipped to printable ASCII within the sink's caps.
+	static const FString SessionId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+	const FString Base = PlayerApiBaseUrl();
+	if (Base.IsEmpty())
+	{
+		return;
+	}
+	auto Clip = [](const FString& In, int32 Max) -> FString
+	{
+		FString Out; Out.Reserve(FMath::Min(In.Len(), Max));
+		for (const TCHAR C : In)
+		{
+			if (Out.Len() >= Max) break;
+			Out.AppendChar((C >= 0x20 && C <= 0x7E) ? C : TEXT('?'));
+		}
+		return Out;
+	};
+	FString Build;
+	if (GConfig) { GConfig->GetString(TEXT("/Script/EngineSettings.GeneralProjectSettings"), TEXT("ProjectVersion"), Build, GGameIni); }
+	if (Build.IsEmpty()) { Build = TEXT("unknown"); }
+
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("kind"), TEXT("signin-failure"));
+	Body->SetStringField(TEXT("build"), Clip(Build, 40));
+	Body->SetStringField(TEXT("engine"), Clip(FEngineVersion::Current().ToString(EVersionComponent::Patch), 40));
+	Body->SetStringField(TEXT("stage"), LastFailStage.IsEmpty() ? TEXT("other") : Clip(LastFailStage, 16));
+	Body->SetStringField(TEXT("session"), Clip(SessionId, 40));
+	Body->SetNumberField(TEXT("ts"), static_cast<double>(FDateTime::UtcNow().ToUnixTimestamp()));
+	if (!LastFailEos.IsEmpty())     { Body->SetStringField(TEXT("eosResult"), Clip(LastFailEos, 64)); }
+	if (!LastFailPfError.IsEmpty()) { Body->SetStringField(TEXT("pfError"), Clip(LastFailPfError, 64)); }
+	if (LastFailPfCode > 0)         { Body->SetNumberField(TEXT("pfErrorCode"), static_cast<double>(FMath::Clamp(LastFailPfCode, 0, 99999))); }
+	if (LastFailHttp > 0)           { Body->SetNumberField(TEXT("http"), static_cast<double>(FMath::Clamp(LastFailHttp, 0, 999))); }
+	if (!LastLoginFailure.IsEmpty()){ Body->SetStringField(TEXT("message"), Clip(LastLoginFailure, 200)); }
+
+	FString BodyStr;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&BodyStr);
+	FJsonSerializer::Serialize(Body, Writer);
+
+	const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
+	Req->SetURL(Base + TEXT("/client-diag"));
+	Req->SetVerb(TEXT("POST"));
+	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Req->SetContentAsString(BodyStr);
+	Req->OnProcessRequestComplete().BindLambda([](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnectedOk)
+	{
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] client-diag -> %s"),
+			(bConnectedOk && Response.IsValid()) ? *FString::Printf(TEXT("http=%d"), Response->GetResponseCode()) : TEXT("no response"));
+	});
+	Req->ProcessRequest();
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] client-diag: reporting sign-in failure stage=%s"), *LastFailStage);
+
+	// One report per failure; the card keeps LastLoginFailure.
+	LastFailStage.Reset(); LastFailEos.Reset(); LastFailPfError.Reset(); LastFailPfCode = 0; LastFailHttp = 0;
 }
 
 void UAFLOnlineSubsystem::RequestWelcome()

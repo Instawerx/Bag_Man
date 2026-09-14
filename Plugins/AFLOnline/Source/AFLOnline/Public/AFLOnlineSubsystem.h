@@ -214,6 +214,15 @@ private:
 	enum class EAFLLoginState : uint8 { NotStarted, InFlight, LoggedIn, Failed };
 	EAFLLoginState LoginState = EAFLLoginState::NotStarted;
 	FString LastLoginFailure;
+	/** Structured twin of LastLoginFailure for the fire-and-forget POST /client-diag report (no credentials, no
+	 *  identity). stage: eas | oidc | http | config | other. Reset after each report. */
+	FString LastFailStage;
+	FString LastFailEos;
+	FString LastFailPfError;
+	int32 LastFailPfCode = 0;
+	int32 LastFailHttp = 0;
+	/** Report the last definitive login failure to the backend log sink (docs/client-diag-contract.md). */
+	void PostClientDiag();
 
 	FString PlayFabId;
 	FString SessionTicket;
