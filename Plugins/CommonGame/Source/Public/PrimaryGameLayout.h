@@ -49,6 +49,9 @@ public:
 
 	/** A dormant root layout is collapsed and responds only to persistent actions registered by the owning player */
 	UE_API void SetIsDormant(bool Dormant);
+
+	/** IRONICS P0 2026-09-13: records which owning player (if any) an async-push input suspend/resume resolves to. */
+	UE_API void LogAsyncPushInputState(const TCHAR* Phase, const FSoftObjectPath& WidgetClassPath) const;
 	bool IsDormant() const { return bIsDormant; }
 
 public:
@@ -64,12 +67,14 @@ public:
 		static_assert(TIsDerivedFrom<ActivatableWidgetT, UCommonActivatableWidget>::IsDerived, "Only CommonActivatableWidgets can be used here");
 
 		static FName NAME_PushingWidgetToLayer("PushingWidgetToLayer");
+		LogAsyncPushInputState(TEXT("suspend"), ActivatableWidgetClass.ToSoftObjectPath());
 		const FName SuspendInputToken = bSuspendInputUntilComplete ? UCommonUIExtensions::SuspendInputForPlayer(GetOwningPlayer(), NAME_PushingWidgetToLayer) : NAME_None;
 
 		FStreamableManager& StreamableManager = UAssetManager::Get().GetStreamableManager();
 		TSharedPtr<FStreamableHandle> StreamingHandle = StreamableManager.RequestAsyncLoad(ActivatableWidgetClass.ToSoftObjectPath(), FStreamableDelegate::CreateWeakLambda(this,
 			[this, LayerName, ActivatableWidgetClass, StateFunc, SuspendInputToken]()
 			{
+				LogAsyncPushInputState(TEXT("resume"), ActivatableWidgetClass.ToSoftObjectPath());
 				UCommonUIExtensions::ResumeInputForPlayer(GetOwningPlayer(), SuspendInputToken);
 
 				ActivatableWidgetT* Widget = PushWidgetToLayerStack<ActivatableWidgetT>(LayerName, ActivatableWidgetClass.Get(), [StateFunc](ActivatableWidgetT& WidgetToInit) {
@@ -84,6 +89,7 @@ public:
 		StreamingHandle->BindCancelDelegate(FStreamableDelegate::CreateWeakLambda(this,
 			[this, StateFunc, SuspendInputToken]()
 			{
+				LogAsyncPushInputState(TEXT("resume (canceled)"), FSoftObjectPath());
 				UCommonUIExtensions::ResumeInputForPlayer(GetOwningPlayer(), SuspendInputToken);
 				StateFunc(EAsyncWidgetLayerState::Canceled, nullptr);
 			})

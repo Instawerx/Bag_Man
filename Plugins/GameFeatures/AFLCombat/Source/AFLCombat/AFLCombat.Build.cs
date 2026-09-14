@@ -94,6 +94,12 @@ public class AFLCombat : ModuleRules
 				// compile the include. GameFeature -> engine-plugin module direction is correct.
 				"CommonUI",
 				"CommonGame",
+				// P0 2026-09-13 input-pipeline probe (AFLInputProbe.cpp, dev builds only): reads the per-LocalPlayer
+				// CommonInput type filter (CommonInput) and the loading-screen display status (CommonLoadingScreen),
+				// and synthesises OS-level clicks through FSlateApplication (ApplicationCore's EMouseButtons/FGenericWindow).
+				"CommonInput",
+				"CommonLoadingScreen",
+				"ApplicationCore",
 				// EOS-AUTH-C2: the afl.EOS.Auth.Status / afl.EOS.Friends.Query cheats read the OSSv2
 				// UE::Online path -- GetServices(EOnlineServices::Epic), IAuth::GetLocalOnlineUserBy
 				// PlatformUserId, ISocial::QueryFriends/GetFriends. The IOnlineServices/IAuth/ISocial

@@ -34,6 +34,7 @@ public:
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeOnActivated() override;
+	virtual void NativeOnDeactivated() override;
 	virtual bool NativeOnHandleBackAction() override; // root screen: swallow back
 	// Own the input mode so the sign-in / route cards are always clickable from a cold-boot input state.
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
@@ -44,6 +45,10 @@ protected:
 	void KickLocalPlayInit();
 	void StartVideoGround();
 	void HandleLoggedIn(bool bSuccess);
+	/** UAFLOnlineSubsystem::OnLoggedIn -- a login that lands at ANY time while this card is up advances it.
+	 *  (New-player bug 2026-09-13: the one-shot 12 s waiter timed out during the browser sign-in, painted
+	 *  "failed", and the later real success had no listener -- the player was stranded on the card.) */
+	void HandleOnlineLoggedIn();
 	void PushRouteChoice();
 
 private:
@@ -56,4 +61,7 @@ private:
 
 	bool bStaySignedIn = true;
 	bool bSignInInFlight = false;
+	/** One WHERE TO? push per activation: the login waiter AND the OnLoggedIn broadcast can both report the same
+	 *  success (ResolveLogin drains waiters, then broadcasts). Re-armed in NativeOnActivated (pooled instance). */
+	bool bRouteChoicePushed = false;
 };

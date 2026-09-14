@@ -112,6 +112,12 @@ bool UAFLW_PurchaseConfirm::NativeOnHandleBackAction()
 	return true;
 }
 
+void UAFLW_PurchaseConfirm::NativeOnActivated()
+{
+	Super::NativeOnActivated();
+	bFired = false; // one resolution per ACTIVATION -- this object comes back from the layer's widget pool
+}
+
 void UAFLW_PurchaseConfirm::HandleConfirm() { Fire(true); }
 void UAFLW_PurchaseConfirm::HandleCancel() { Fire(false); }
 

@@ -70,6 +70,17 @@ void UPrimaryGameLayout::SetIsDormant(bool InDormant)
 	}
 }
 
+void UPrimaryGameLayout::LogAsyncPushInputState(const TCHAR* Phase, const FSoftObjectPath& WidgetClassPath) const
+{
+	// The async push suspends input on GetOwningPlayer() and resumes it on GetOwningPlayer() one load later.
+	// If the second lookup resolves to nothing (the layout outlives the world its player context points at),
+	// the suspend token is never cleared and the CommonInput filter blocks every input type for good.
+	const APlayerController* PC = GetOwningPlayer();
+	const ULocalPlayer* LP = GetOwningLocalPlayer();
+	UE_LOG(LogCommonGame, Log, TEXT("PushWidgetToLayerStackAsync %s: widget=%s owningPC=%s owningLP=%s layoutWorld=%s"),
+		Phase, *WidgetClassPath.GetAssetName(), *GetNameSafe(PC), *GetNameSafe(LP), *GetNameSafe(GetWorld()));
+}
+
 void UPrimaryGameLayout::OnIsDormantChanged()
 {
 	//@TODO NDarnell Determine what to do with dormancy, in the past we treated dormancy as a way to shutoff rendering

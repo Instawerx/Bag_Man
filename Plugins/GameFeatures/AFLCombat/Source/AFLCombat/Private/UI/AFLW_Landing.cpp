@@ -190,9 +190,22 @@ void UAFLW_Landing::NativeOnActivated()
 	KickLocalPlayInit();
 	StartVideoGround();
 
+	// POOLED INSTANCE (CommonUI layer stacks recycle activatable widgets): every per-visit state is re-armed
+	// here, never trusted from the constructor -- see UAFLW_RouteChoice::NativeOnActivated for the bug this law
+	// comes from.
+	bSignInInFlight = false;
+	bRouteChoicePushed = false;
+
 	// Remembered device: the dev CustomID (and, shipping, EOS persistent auth) may already be mid-login
 	// from GameInstance init -- a completed login skips the card straight to the route choice.
 	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	if (Online)
+	{
+		// Listen for a login that lands at ANY time while the card is up (the browser sign-in of a NEW player
+		// takes far longer than any one-shot waiter). Rebind, don't accumulate -- this object is pooled.
+		Online->OnLoggedIn.RemoveAll(this);
+		Online->OnLoggedIn.AddUObject(this, &UAFLW_Landing::HandleOnlineLoggedIn);
+	}
 	if (Online && Online->IsLoggedIn() && bStaySignedIn)
 	{
 		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: already signed in (remembered) -> route choice."));
@@ -205,6 +218,32 @@ void UAFLW_Landing::NativeOnActivated()
 		StatusText->SetText(NSLOCTEXT("AFLLanding", "DevHint", "DEV: sign-in uses the dev identity in PIE."));
 	}
 #endif
+}
+
+void UAFLW_Landing::NativeOnDeactivated()
+{
+	if (UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this))
+	{
+		Online->OnLoggedIn.RemoveAll(this);
+	}
+	Super::NativeOnDeactivated();
+}
+
+void UAFLW_Landing::HandleOnlineLoggedIn()
+{
+	if (!IsActivated() || bRouteChoicePushed)
+	{
+		return;
+	}
+	// Preference respected: with STAY SIGNED IN off, a boot-time login that completes on its own does not skip
+	// the card -- the player clicks SIGN IN (which then resolves instantly). A click-initiated login advances.
+	if (!bStaySignedIn && !bSignInInFlight)
+	{
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: login landed (stay-signed-in off) -> waiting for the SIGN IN click."));
+		return;
+	}
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: login landed (OnLoggedIn) -> route choice."));
+	HandleLoggedIn(true);
 }
 
 bool UAFLW_Landing::NativeOnHandleBackAction()
@@ -298,13 +337,17 @@ void UAFLW_Landing::HandleSignInClicked()
 	}
 	// Dev = CustomID; shipping = EOS OIDC (PersistentAuth honors the saved preference on that path).
 	Online->EnsureLogin();
+	// The waiter is the FAILURE channel (a PlayFab rejection resolves it with false promptly). Success is also
+	// delivered by OnLoggedIn (subscribed on activation), so the timeout is no longer the deadline for a real
+	// login -- a new player's browser sign-in routinely runs past two minutes. Any earlier-armed waiter in the
+	// subsystem can still drain this one with false; HandleLoggedIn tells "still in flight" from "failed".
 	Online->CallWhenLoggedIn([WeakThis = TWeakObjectPtr<UAFLW_Landing>(this)](bool bOk)
 	{
 		if (UAFLW_Landing* Self = WeakThis.Get())
 		{
 			Self->HandleLoggedIn(bOk);
 		}
-	}, 12.0f);
+	}, 180.0f);
 }
 
 void UAFLW_Landing::HandleStayToggled()
@@ -320,27 +363,46 @@ void UAFLW_Landing::HandleStayToggled()
 void UAFLW_Landing::HandleLoggedIn(bool bSuccess)
 {
 	using namespace AFLLanding;
-	bSignInInFlight = false;
 	if (!bSuccess)
 	{
+		UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+		const bool bStillInFlight = Online && Online->IsLoginInFlight();
 		if (StatusText)
 		{
-			StatusText->SetText(NSLOCTEXT("AFLLanding", "Failed", "Sign-in failed — check the connection and try again."));
-			StatusText->SetColorAndOpacity(FSlateColor(Bad));
+			if (bStillInFlight)
+			{
+				// A waiter timed out but the login is still being worked (the Epic sign-in is open in the browser).
+				// Not a failure: OnLoggedIn advances this card the moment it completes.
+				StatusText->SetText(NSLOCTEXT("AFLLanding", "WaitingBrowser", "Waiting for your Epic sign-in to finish in the browser…"));
+				StatusText->SetColorAndOpacity(FSlateColor(Dim));
+			}
+			else
+			{
+				StatusText->SetText(NSLOCTEXT("AFLLanding", "Failed", "Sign-in failed — check the connection and try again."));
+				StatusText->SetColorAndOpacity(FSlateColor(Bad));
+			}
 		}
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: sign-in waiter resolved false (%s)."), bStillInFlight ? TEXT("login still in flight -- waiting") : TEXT("login FAILED"));
+		bSignInInFlight = false; // the button may be clicked again either way
 		return;
 	}
+	bSignInInFlight = false;
 	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: signed in -> route choice."));
 	PushRouteChoice();
 }
 
 void UAFLW_Landing::PushRouteChoice()
 {
+	if (bRouteChoicePushed)
+	{
+		return; // the waiter and the OnLoggedIn broadcast can both report one login -- one WHERE TO? per activation
+	}
 	ULocalPlayer* LP = GetOwningLocalPlayer();
 	if (!LP)
 	{
 		return;
 	}
+	bRouteChoicePushed = true;
 	// PUSH TO THE MODAL LAYER, NOT MENU (2026-09-02 route-skip fix). The Landing lives on UI.Layer.Menu;
 	// pushing RouteChoice onto that SAME stack covers+deactivates the Landing, which fires Lyra's
 	// LyraFrontendStateComponent press-start OnDeactivated continuation -> it pushes the Home main screen
@@ -353,6 +415,9 @@ void UAFLW_Landing::PushRouteChoice()
 		TSubclassOf<UCommonActivatableWidget>(UAFLW_RouteChoice::StaticClass()));
 	if (UAFLW_RouteChoice* Choice = Cast<UAFLW_RouteChoice>(Pushed))
 	{
+		// POOLED: the layer stack hands back the SAME RouteChoice (and this Landing is pooled too) on every later
+		// visit, so a plain Add would stack one binding per visit. Rebind, don't accumulate.
+		Choice->OnRouteChosen.RemoveAll(this);
 		Choice->OnRouteChosen.AddWeakLambda(this, [this](bool /*bMatchmaking*/)
 		{
 			DeactivateWidget(); // landing done -> the frontend flow continues to the home screen

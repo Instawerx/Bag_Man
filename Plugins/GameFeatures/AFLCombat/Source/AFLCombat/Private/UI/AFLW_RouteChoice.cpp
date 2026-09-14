@@ -190,6 +190,35 @@ TOptional<FUIInputConfig> UAFLW_RouteChoice::GetDesiredInputConfig() const
 	return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);
 }
 
+void UAFLW_RouteChoice::NativeOnActivated()
+{
+	Super::NativeOnActivated();
+	// POOLED INSTANCE: this object is re-activated on every later visit to the front end (CommonUI layer stacks
+	// recycle activatable widgets through GeneratedWidgetsPool). `bChosen` is the guard for ONE choice per
+	// activation; left over from the previous visit it silently disabled both doors and Esc -- the after-match /
+	// after-sign-out dead screen. Every per-visit state must be re-armed here, never trusted from the constructor.
+	const bool bWasLatched = bChosen;
+	bChosen = false;
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUTE: activated (%s instance%s)."), *GetName(),
+		bWasLatched ? TEXT(", pooled -- cleared the previous visit's choice latch") : TEXT(""));
+}
+
+#if !UE_BUILD_SHIPPING
+FReply UAFLW_RouteChoice::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	const FVector2D P = InMouseEvent.GetScreenSpacePosition();
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_INPUTPROBE: WIDGET RouteChoice saw MOUSE DOWN %s at (%.0f,%.0f) (bubbled -- not on a door)"),
+		*InMouseEvent.GetEffectingButton().ToString(), P.X, P.Y);
+	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
+}
+
+FReply UAFLW_RouteChoice::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_INPUTPROBE: WIDGET RouteChoice saw KEY DOWN %s"), *InKeyEvent.GetKey().ToString());
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+#endif // !UE_BUILD_SHIPPING
+
 void UAFLW_RouteChoice::HandleLobby()       { EnterOutpost(); }
 void UAFLW_RouteChoice::HandleMatchmaking() { Choose(true); }
 
@@ -201,7 +230,7 @@ void UAFLW_RouteChoice::Choose(bool bMatchmaking)
 	}
 	bChosen = true;
 	bPendingMatchmakingRoute = bMatchmaking;
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_ROUTE: chose %s."), bMatchmaking ? TEXT("MATCHMAKING") : TEXT("LOBBY"));
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_ROUTE: chose %s (door clicked -- input reached the card)."), bMatchmaking ? TEXT("MATCHMAKING") : TEXT("LOBBY"));
 	OnRouteChosen.Broadcast(bMatchmaking);
 	DeactivateWidget();
 }

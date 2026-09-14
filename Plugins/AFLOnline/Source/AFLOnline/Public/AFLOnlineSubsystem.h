@@ -58,6 +58,9 @@ public:
 	virtual void Deinitialize() override;
 
 	bool IsLoggedIn() const { return LoginState == EAFLLoginState::LoggedIn; }
+	/** A login is still being worked on (queued or in flight -- e.g. the Epic account portal is open in the
+	 *  browser). UI waiters use this to tell "still waiting" from "failed" when a CallWhenLoggedIn timeout fires. */
+	bool IsLoginInFlight() const { return LoginState == EAFLLoginState::InFlight || LoginState == EAFLLoginState::NotStarted; }
 	const FString& GetPlayFabId() const { return PlayFabId; }
 	const FString& GetSessionTicket() const { return SessionTicket; }
 	const FString& GetEntityToken() const { return EntityToken; }

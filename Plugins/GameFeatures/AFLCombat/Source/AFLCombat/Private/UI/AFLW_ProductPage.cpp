@@ -262,6 +262,9 @@ void UAFLW_ProductPage::HandleBuyClicked()
 	if (UAFLW_PurchaseConfirm* Confirm = Cast<UAFLW_PurchaseConfirm>(Pushed))
 	{
 		Confirm->Configure(NameText->GetText(), Catalog->GetEntryPriceText(*Entry));
+		// The confirm is a POOLED instance serving one requester at a time: drop whatever page bound it last, or a
+		// stale page's handler would also fire (and grant) on this resolution.
+		Confirm->Resolved.Clear();
 		Confirm->Resolved.AddUniqueDynamic(this, &UAFLW_ProductPage::HandleConfirmResolved);
 	}
 }
