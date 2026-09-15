@@ -455,8 +455,8 @@ namespace
 				Ar.Logf(TEXT("afl.Identity.PlayNow -- firing in 3 s."));
 				AFLIdentityDefer(World, TEXT("PlayNow"), [](UAFLOnlineSubsystem* Online)
 				{
+					Online->GuestLogin(); // FIRST: sets the in-flight state, or the waiter below would kick the default login
 					Online->CallWhenLoggedIn([](bool bOk) { UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: PlayNow -> login %s; DONE"), bOk ? TEXT("OK") : TEXT("FAILED")); }, 120.f);
-					Online->GuestLogin();
 				});
 			}));
 
@@ -469,8 +469,11 @@ namespace
 				AFLIdentityDefer(World, TEXT("Resume"), [](UAFLOnlineSubsystem* Online)
 				{
 					UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: Resume -> stored session %s"), Online->HasStoredGameSession() ? TEXT("present") : TEXT("ABSENT"));
-					Online->CallWhenLoggedIn([](bool bOk) { UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: Resume -> login %s; DONE"), bOk ? TEXT("OK") : TEXT("FAILED")); }, 120.f);
-					Online->TryResumeGameSession([](bool bResuming) { UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: Resume -> %s"), bResuming ? TEXT("resuming") : TEXT("nothing to resume; DONE")); });
+					Online->TryResumeGameSession([Online](bool bResuming)
+					{
+						UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: Resume -> %s"), bResuming ? TEXT("resuming") : TEXT("nothing to resume; DONE"));
+						if (bResuming) { Online->CallWhenLoggedIn([](bool bOk) { UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: Resume -> login %s; DONE"), bOk ? TEXT("OK") : TEXT("FAILED")); }, 120.f); }
+					});
 				});
 			}));
 
@@ -502,8 +505,8 @@ namespace
 				AFLIdentityDefer(World, TEXT("EmailVerify"), [Code, Challenge](UAFLOnlineSubsystem* Online)
 				{
 					if (Challenge.IsEmpty()) { UE_LOG(LogAFLCombat, Error, TEXT("AFL_IDENTITY: EmailVerify -- no challengeId (run EmailStart first, or pass it); DONE")); return; }
+					Online->VerifyEmailCode(Challenge, Code, /*bLinkToCurrent=*/false); // FIRST (in-flight), then the waiter
 					Online->CallWhenLoggedIn([](bool bOk) { UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: EmailVerify -> login %s; DONE"), bOk ? TEXT("OK") : TEXT("FAILED")); }, 120.f);
-					Online->VerifyEmailCode(Challenge, Code, /*bLinkToCurrent=*/false);
 				});
 			}));
 

@@ -567,8 +567,11 @@ void UAFLW_Landing::HandleContinue()
 	UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
 	if (!Online) { return; }
 	SetStatus(bLinkMode ? NSLOCTEXT("AFLLanding", "Linking", "Linking…") : NSLOCTEXT("AFLLanding", "SigningIn", "Signing in…"));
-	if (!bLinkMode) { bSignInInFlight = true; ArmSignInWaiter(); }
+	// The DOOR first (it marks the login in flight), THEN the waiter: CallWhenLoggedIn kicks the default login
+	// (Epic in a shipped build) when nothing is in flight, which would turn the email door into an Epic sign-in.
+	if (!bLinkMode) { bSignInInFlight = true; }
 	Online->VerifyEmailCode(ChallengeId, Code, bLinkMode);
+	if (!bLinkMode) { ArmSignInWaiter(); }
 }
 
 void UAFLW_Landing::HandleEpicClicked()
