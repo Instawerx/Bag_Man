@@ -80,6 +80,14 @@ static TAutoConsoleVariable<FString> CVarOnlineDevCustomId(
 // NOT guessed: set it in Config/DefaultEngine.ini under [ConsoleVariables].
 // Identity I-2: the PlayFab OpenID connection whose issuer is ironics.org (the portal). Its id_tokens carry
 // sub = portal accountId. Set in Config/DefaultEngine.ini [ConsoleVariables]; empty = the ironics doors refuse.
+#if !UE_BUILD_SHIPPING
+static TAutoConsoleVariable<int32> CVarOnlineDevAutoLogin(
+	TEXT("afl.Online.DevAutoLogin"),
+	1,
+	TEXT("DEV ONLY. 1 = kick the dev CustomID login at boot (default; skips the Landing card). 0 = do not; the Landing's doors (EMAIL / EPIC / PLAY NOW) drive sign-in as in a shipped build."),
+	ECVF_Default);
+#endif
+
 static TAutoConsoleVariable<FString> CVarOnlineIronicsOidcConnectionId(
 	TEXT("afl.Online.IronicsOidcConnectionId"),
 	TEXT("ironics"),
@@ -152,6 +160,16 @@ FString UAFLOnlineSubsystem::ResolveDevCustomId() const
 void UAFLOnlineSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+#if !UE_BUILD_SHIPPING
+	// Identity I-2/I-3 (dev): the boot-time CustomID kick skips the Landing card entirely (an already-signed-in
+	// player goes straight to WHERE TO?). To WATCH the card and its doors in PIE: `afl.Online.DevAutoLogin 0`
+	// in DefaultEngine.ini [ConsoleVariables] (or the console before the front end loads). Shipping is untouched.
+	if (!CVarOnlineDevAutoLogin.GetValueOnGameThread())
+	{
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Subsystem online (title=%s). afl.Online.DevAutoLogin=0 -- NOT kicking the dev login; the Landing doors decide."), *GetTitleId());
+		return;
+	}
+#endif
 	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] Subsystem online (title=%s). Kicking login."), *GetTitleId());
 	EnsureLogin();
 
@@ -1160,40 +1178,57 @@ void UAFLOnlineSubsystem::PostPortal(const FString& Path, const TSharedRef<FJson
 	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&BodyStr);
 	FJsonSerializer::Serialize(Body, Writer);
 
-	const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
-	Req->SetURL(PortalApiBaseUrl() + Path);
-	Req->SetVerb(TEXT("POST"));
-	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-	if (!Bearer.IsEmpty())
+	// ONE retry on a dropped connection (no response at all -- never on a refusal). api.ironics.org answers on
+	// several addresses and a single dead path between one PC and one of them was observed during the I-3
+	// proof; a sign-in must survive that. The retry is a fresh request (fresh resolve), 2 s later.
+	TSharedRef<int32> Attempt = MakeShared<int32>(0);
+	TSharedRef<TFunction<void()>> Send = MakeShared<TFunction<void()>>();
+	*Send = [this, Path, BodyStr, Bearer, OnDone, Attempt, Send]()
 	{
-		Req->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Bearer);
-	}
-	Req->SetContentAsString(BodyStr);
-	Req->OnProcessRequestComplete().BindLambda([Path, OnDone](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnectedOk)
-	{
-		if (!bConnectedOk || !Response.IsValid())
+		(*Attempt)++;
+		const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
+		Req->SetURL(PortalApiBaseUrl() + Path);
+		Req->SetVerb(TEXT("POST"));
+		Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+		if (!Bearer.IsEmpty())
 		{
-			UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] portal %s -> no response"), *Path);
-			OnDone(0, nullptr);
-			return;
+			Req->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Bearer);
 		}
+		Req->SetContentAsString(BodyStr);
+		Req->SetTimeout(20.0f);
+		Req->OnProcessRequestComplete().BindLambda([Path, OnDone, Attempt, Send](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnectedOk)
+		{
+			if (!bConnectedOk || !Response.IsValid())
+			{
+				if (*Attempt < 2)
+				{
+					UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] portal %s -> no response; retrying once in 2 s"), *Path);
+					FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([Send](float) { (*Send)(); return false; }), 2.0f);
+					return;
+				}
+				UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] portal %s -> no response (after retry)"), *Path);
+				OnDone(0, nullptr);
+				return;
+			}
 		TSharedPtr<FJsonObject> Json;
 		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
 		if (!FJsonSerializer::Deserialize(Reader, Json))
 		{
 			Json.Reset();
 		}
-		FString Code;
-		if (Json.IsValid())
-		{
-			Json->TryGetStringField(TEXT("code"), Code);
-		}
-		// Status + refusal code only. The body carries tokens on success; it is never logged.
-		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] portal %s -> http=%d%s"), *Path, Response->GetResponseCode(),
-			Code.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" code=%s"), *Code));
-		OnDone(Response->GetResponseCode(), Json);
-	});
-	Req->ProcessRequest();
+			FString Code;
+			if (Json.IsValid())
+			{
+				Json->TryGetStringField(TEXT("code"), Code);
+			}
+			// Status + refusal code only. The body carries tokens on success; it is never logged.
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] portal %s -> http=%d%s"), *Path, Response->GetResponseCode(),
+				Code.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" code=%s"), *Code));
+			OnDone(Response->GetResponseCode(), Json);
+		});
+		Req->ProcessRequest();
+	};
+	(*Send)();
 }
 
 FString UAFLOnlineSubsystem::PortalRefusalText(int32 Http, const TSharedPtr<FJsonObject>& Json)
