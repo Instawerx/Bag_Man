@@ -14,10 +14,20 @@ STAY SIGNED IN keeps the portal refresh token sealed in `%LOCALAPPDATA%\..\IRONI
 (DPAPI, this Windows user only). Next launch: `TryResumeGameSession` → `/v1/auth/refresh` → PlayFab,
 no card. SIGN OUT revokes the token and forgets it; the guest device credential is kept on purpose.
 
-LINK ACCOUNT (System Menu, guests only): the same card in link mode. Email → the address is attached
+LINK ACCOUNT (System Menu, guests): the same card in link mode. Email → the address is attached
 to the guest's account (same PlayFab player, nothing lost). Epic → EAS sign-in, then the Epic subject is
-attached to the guest's portal account AND `LinkOpenIdConnect(epic)` on the guest's player. A credential
-owned by another account is refused ("sign in to it instead"); never merged.
+attached to the guest's portal account AND `LinkOpenIdConnect(epic)` on the guest's player.
+
+LINK EMAIL (System Menu, Epic-first accounts with no verified address — I-5a): the same card with the
+Epic door collapsed; only an address can be added. The row hides once the portal reports `emailVerified`.
+
+SELF-MERGE (I-5a, both rows above): if the typed address belongs to an EMAIL-ONLY site account (applied
+on ironics.org, never launched the game: one `email#` link, no player, no Epic, no game session), that
+site account FOLDS INTO the signed-in game account — approval, founder number, entitlements, application,
+terms, age and the address move; the site row is retired (`SUSPENDED`, `mergedInto`); the portal writes an
+`account.merged` audit row and mails the address a notice. The response carries `merged:true` and the card
+says so. Anything else (the address has played on another account, holds Epic, is a guest, two founder
+numbers, a banned survivor) is `409 IDENTITY_CONFLICT` and nothing moves ("refused, never moved").
 
 ## Driving it without a click (dev builds only)
 
@@ -53,6 +63,10 @@ Each run prints ✓ per expected log line and a VERDICT. The lines that matter:
 5. SIGN IN WITH EPIC (vrdivebar): unchanged; log shows `LinkOpenIdConnect(ironics) -> linked` once and
    `already` on later logins; the portal row gets `playFabId` from `/welcome`.
 6. Quit, relaunch with STAY SIGNED IN: no card, straight to WHERE TO?.
+7. LINK EMAIL (I-5a, 0.2.1): signed in with Epic on an account with no verified address → System Menu
+   shows LINK EMAIL (not LINK ACCOUNT); the card has no Epic door; typing the address of a site-only
+   application → "Linked. Your site account folded into this one…"; the row is gone on the next System
+   Menu open; ironics.org signs into the same account with that address and shows the founder number.
 
 Config: `[AFL.Online] PortalApiBaseUrl` (DefaultGame.ini), `afl.Online.IronicsOidcConnectionId=ironics`
 (DefaultEngine.ini). The neon border is `/Game/BagMan/UI/Materials/M_AFL_NeonBorder`

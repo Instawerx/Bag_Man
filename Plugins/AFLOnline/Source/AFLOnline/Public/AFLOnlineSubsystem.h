@@ -254,6 +254,12 @@ public:
 	void GuestLogin();
 	/** True while the current PlayFab player belongs to a GUEST portal account (card copy + link nudges). */
 	bool IsGuest() const { return bIsGuest; }
+	/** Identity I-5a -- what the portal said about the signed-in account: an Epic identity is attached / a
+	 *  VERIFIED email is attached. The System Menu offers LINK EMAIL to an Epic-first account that has none. */
+	bool IsEpicLinked() const { return bPortalEpicLinked; }
+	bool HasVerifiedEmail() const { return bPortalEmailVerified; }
+	/** True when the last successful LINK folded an email-only site account into this one (card copy). */
+	bool WasLastLinkMerged() const { return bLastLinkMerged; }
 	/** The portal account id behind the current sign-in (empty for dev CustomID sessions). */
 	const FString& GetPortalAccountId() const { return PortalAccountId; }
 	/** The last portal refusal code (IDENTITY_CONFLICT, GUEST_UPGRADED, RATE_LIMITED, AUTH_FAILED ...). */
@@ -282,6 +288,9 @@ private:
 	bool bStaySignedIn = true;
 	bool bIsGuest = false;
 	bool bPortalSaysHasGamePlayer = false;
+	bool bPortalEpicLinked = false;
+	bool bPortalEmailVerified = false;
+	bool bLastLinkMerged = false;
 	/** True while an Epic sign-in was started to LINK (not to sign in): its success attaches instead of logging in. */
 	bool bEosLinkMode = false;
 	/**

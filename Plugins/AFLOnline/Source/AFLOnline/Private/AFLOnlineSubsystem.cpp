@@ -514,6 +514,9 @@ void UAFLOnlineSubsystem::Logout()
 	LastPortalCode.Reset();
 	bIsGuest = false;
 	bPortalSaysHasGamePlayer = false;
+	bPortalEpicLinked = false;
+	bPortalEmailVerified = false;
+	bLastLinkMerged = false;
 	FAFLCredentialStore::Remove(FAFLCredentialStore::KeyGameRefreshToken);
 
 	OnLoggedOut.Broadcast();
@@ -1280,6 +1283,15 @@ void UAFLOnlineSubsystem::AcceptPortalSession(const TSharedPtr<FJsonObject>& Jso
 	Json->TryGetStringField(TEXT("playFabId"), KnownPlayFabId);
 	bool bEpicLinked = false;
 	Json->TryGetBoolField(TEXT("epicLinked"), bEpicLinked);
+	bPortalEpicLinked = bEpicLinked;
+	// Identity I-5a: a VERIFIED address on the account (the LINK EMAIL row hides when true) and whether this
+	// very response folded an email-only site account into ours (the link card says so).
+	bool bEmailVerified = false;
+	Json->TryGetBoolField(TEXT("emailVerified"), bEmailVerified);
+	bPortalEmailVerified = bEmailVerified;
+	bool bMerged = false;
+	Json->TryGetBoolField(TEXT("merged"), bMerged);
+	bLastLinkMerged = bMerged;
 	FString Status;
 	Json->TryGetStringField(TEXT("status"), Status);
 	bool bCreated = false;

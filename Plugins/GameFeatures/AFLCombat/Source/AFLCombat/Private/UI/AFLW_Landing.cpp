@@ -250,18 +250,20 @@ TSharedRef<SWidget> UAFLW_Landing::RebuildWidget()
 	Cast<UTextBlock>(OrRow)->SetJustification(ETextJustify::Center);
 	if (UVerticalBoxSlot* VS = Doors->AddChildToVerticalBox(OrRow)) { VS->SetPadding(FMargin(0.f, 12.f, 0.f, 12.f)); }
 
-	UHorizontalBox* DoorRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("DoorRow"));
-	Doors->AddChildToVerticalBox(DoorRow);
+	UHorizontalBox* DoorRowBox = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("DoorRow"));
+	Doors->AddChildToVerticalBox(DoorRowBox);
+	DoorRow = DoorRowBox;
 	EpicButton = Button(TEXT("EpicBtn"), bLinkMode ? NSLOCTEXT("AFLLanding", "LinkEpic", "LINK EPIC ACCOUNT") : NSLOCTEXT("AFLLanding", "Epic", "SIGN IN WITH EPIC"), AccentFill, AccentInk);
 	EpicButton->OnClicked.AddDynamic(this, &UAFLW_Landing::HandleEpicClicked);
-	if (UHorizontalBoxSlot* HS = DoorRow->AddChildToHorizontalBox(EpicButton)) { HS->SetSize(FSlateChildSize(ESlateSizeRule::Fill)); HS->SetPadding(FMargin(0.f, 0.f, bLinkMode ? 0.f : 4.f, 0.f)); }
+	if (UHorizontalBoxSlot* HS = DoorRowBox->AddChildToHorizontalBox(EpicButton)) { HS->SetSize(FSlateChildSize(ESlateSizeRule::Fill)); HS->SetPadding(FMargin(0.f, 0.f, bLinkMode ? 0.f : 4.f, 0.f)); }
 	PlayNowButton = Button(TEXT("PlayNow"), NSLOCTEXT("AFLLanding", "PlayNow", "PLAY NOW"), FLinearColor(1.f, 1.f, 1.f, 0.06f), FLinearColor::White);
 	PlayNowButton->OnClicked.AddDynamic(this, &UAFLW_Landing::HandlePlayNow);
-	if (UHorizontalBoxSlot* HS = DoorRow->AddChildToHorizontalBox(PlayNowButton)) { HS->SetSize(FSlateChildSize(ESlateSizeRule::Fill)); HS->SetPadding(FMargin(4.f, 0.f, 0.f, 0.f)); }
+	if (UHorizontalBoxSlot* HS = DoorRowBox->AddChildToHorizontalBox(PlayNowButton)) { HS->SetSize(FSlateChildSize(ESlateSizeRule::Fill)); HS->SetPadding(FMargin(4.f, 0.f, 0.f, 0.f)); }
 	if (bLinkMode) { PlayNowButton->SetVisibility(ESlateVisibility::Collapsed); }
 	{
 		UHorizontalBox* Caps = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("Captions"));
 		if (UVerticalBoxSlot* VS = Doors->AddChildToVerticalBox(Caps)) { VS->SetPadding(FMargin(0.f, 6.f, 0.f, 0.f)); }
+		CaptionsRow = Caps;
 		UTextBlock* C1 = Label(TEXT("Cap1"), Body, 11.f, Faint, bLinkMode
 			? NSLOCTEXT("AFLLanding", "LinkEpicCap", "Already used by another player? It is refused, never moved.")
 			: NSLOCTEXT("AFLLanding", "EpicCap", "Same Epic account as the site."));
@@ -307,9 +309,12 @@ TSharedRef<SWidget> UAFLW_Landing::RebuildWidget()
 		UBorder* Note = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Recruit"));
 		Note->SetBrushColor(FLinearColor(1.f, 1.f, 1.f, 0.05f));
 		Note->SetPadding(FMargin(10.f, 8.f));
-		Note->SetContent(Label(TEXT("RecruitText"), Body, 12.f, FLinearColor(1.f, 1.f, 1.f, 0.72f), bLinkMode
-			? NSLOCTEXT("AFLLanding", "LinkNote", "Already have an IRONICS account on the site? Sign out and sign in to it instead — guest progress stays on this PC.")
-			: NSLOCTEXT("AFLLanding", "Recruit", "NEW? Your first sign-in creates your IRONICS account. Approved beta members receive 3 Weapon Credits.")));
+		// I-5a: an email-only site account FOLDS INTO this one when its address is typed here (approval, founder
+		// number and everything on it come along); only an account that has already played elsewhere is refused.
+		RecruitText = Label(TEXT("RecruitText"), Body, 12.f, FLinearColor(1.f, 1.f, 1.f, 0.72f), bLinkMode
+			? NSLOCTEXT("AFLLanding", "LinkNote", "Already applied on the site? Use that email — the site account folds into this one, approval and founder number included. An account that has already played on another PC is refused, never moved.")
+			: NSLOCTEXT("AFLLanding", "Recruit", "NEW? Your first sign-in creates your IRONICS account. Approved beta members receive 3 Weapon Credits."));
+		Note->SetContent(RecruitText);
 		RecruitNote = Note;
 		if (UVerticalBoxSlot* VS = Doors->AddChildToVerticalBox(Note)) { VS->SetPadding(FMargin(0.f, 12.f, 0.f, 0.f)); }
 	}
@@ -400,6 +405,7 @@ void UAFLW_Landing::NativeOnActivated()
 
 	if (bLinkMode)
 	{
+		ApplyLinkVariant(); // guest → LINK ACCOUNT (email or Epic); Epic-first veteran → LINK EMAIL (email only)
 		return; // the card only; the world behind it (System Menu, Outpost) keeps running
 	}
 
@@ -443,6 +449,35 @@ void UAFLW_Landing::NativeOnDeactivated()
 	}
 	if (UWorld* World = GetWorld()) { World->GetTimerManager().ClearTimer(ResendTimer); }
 	Super::NativeOnDeactivated();
+}
+
+void UAFLW_Landing::ApplyLinkVariant()
+{
+	// Identity I-5a. The one link card serves two people: a GUEST (device-bound; may add an email OR an Epic
+	// login) and an EPIC-FIRST veteran (signed in through Epic; the only thing missing is an address). Derived
+	// on every activation because the instance is pooled and the same person can be both across a session.
+	const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	bEmailOnlyLink = Online && Online->IsLoggedIn() && !Online->IsGuest();
+	const ESlateVisibility EpicDoors = bEmailOnlyLink ? ESlateVisibility::Collapsed : ESlateVisibility::Visible;
+	if (OrRow) { OrRow->SetVisibility(EpicDoors); }
+	if (DoorRow) { DoorRow->SetVisibility(EpicDoors); }
+	if (CaptionsRow) { CaptionsRow->SetVisibility(EpicDoors); }
+	if (TitleText)
+	{
+		TitleText->SetText(bEmailOnlyLink ? NSLOCTEXT("AFLLanding", "LinkEmailTitle", "LINK EMAIL") : NSLOCTEXT("AFLLanding", "LinkTitle", "LINK ACCOUNT"));
+	}
+	if (SubText)
+	{
+		SubText->SetText(bEmailOnlyLink
+			? NSLOCTEXT("AFLLanding", "LinkEmailSub", "Add an email to this account. A code signs you in anywhere — no Epic needed — and the site knows you by it too.")
+			: NSLOCTEXT("AFLLanding", "LinkSub", "Keep everything you've earned on this PC and take it anywhere. Linking makes this your IRONICS account on the site too."));
+	}
+	if (RecruitText)
+	{
+		RecruitText->SetText(bEmailOnlyLink
+			? NSLOCTEXT("AFLLanding", "LinkEmailNote", "Already applied on the site under this address? That site account folds into this one — approval, founder number and everything on it. An address that has already played on another account is refused, never moved.")
+			: NSLOCTEXT("AFLLanding", "LinkNote", "Already applied on the site? Use that email — the site account folds into this one, approval and founder number included. An account that has already played on another PC is refused, never moved."));
+	}
 }
 
 UWidget* UAFLW_Landing::NativeGetDesiredFocusTarget() const
@@ -690,8 +725,14 @@ void UAFLW_Landing::HandlePortalLink(bool bOk, const FString& Reason)
 		SetStatus(FText::FromString(Reason), true);
 		return;
 	}
-	SetStatus(NSLOCTEXT("AFLLanding", "Linked", "Linked. Your progress now follows you — and this is your IRONICS account on the site too."));
-	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: LINK ACCOUNT succeeded."));
+	const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
+	const bool bMerged = Online && Online->WasLastLinkMerged();
+	SetStatus(bMerged
+		? NSLOCTEXT("AFLLanding", "LinkedMerged", "Linked. Your site account folded into this one — approval, founder number and everything on it are here now.")
+		: bEmailOnlyLink
+			? NSLOCTEXT("AFLLanding", "LinkedEmail", "Linked. This email now opens this account anywhere — no Epic needed.")
+			: NSLOCTEXT("AFLLanding", "Linked", "Linked. Your progress now follows you — and this is your IRONICS account on the site too."));
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: LINK %s succeeded%s."), bEmailOnlyLink ? TEXT("EMAIL") : TEXT("ACCOUNT"), bMerged ? TEXT(" (site account merged in)") : TEXT(""));
 	if (UWorld* World = GetWorld())
 	{
 		FTimerHandle Close;

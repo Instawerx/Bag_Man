@@ -70,6 +70,11 @@ protected:
 
 	/** True for the LINK ACCOUNT variant (constructor-set so the pooled instance's activation sees it). */
 	bool bLinkMode = false;
+	/** Identity I-5a -- the LINK EMAIL variant of the link card: a signed-in, non-guest (Epic-first) account adds an
+	 *  address. Derived on EVERY activation from the subsystem (the pooled instance serves guests and veterans alike):
+	 *  the Epic door and its captions collapse, the copy says what an email adds and what a site account folds in. */
+	bool bEmailOnlyLink = false;
+	void ApplyLinkVariant();
 
 private:
 	UPROPERTY(Transient) TObjectPtr<UImage>           VideoImage;
@@ -83,9 +88,12 @@ private:
 	UPROPERTY(Transient) TObjectPtr<UButton>          EpicButton;
 	UPROPERTY(Transient) TObjectPtr<UButton>          PlayNowButton;
 	UPROPERTY(Transient) TObjectPtr<UWidget>          OrRow;
+	UPROPERTY(Transient) TObjectPtr<UWidget>          DoorRow;
+	UPROPERTY(Transient) TObjectPtr<UWidget>          CaptionsRow;
 	UPROPERTY(Transient) TObjectPtr<UWidget>          StayRow;
 	UPROPERTY(Transient) TObjectPtr<UWidget>          StayNoteText;
 	UPROPERTY(Transient) TObjectPtr<UWidget>          RecruitNote;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock>       RecruitText;
 	UPROPERTY(Transient) TObjectPtr<UBorder>          StayCheck;
 	UPROPERTY(Transient) TObjectPtr<UTextBlock>       CodeIntroText;
 	UPROPERTY(Transient) TObjectPtr<UEditableTextBox> CodeBox;

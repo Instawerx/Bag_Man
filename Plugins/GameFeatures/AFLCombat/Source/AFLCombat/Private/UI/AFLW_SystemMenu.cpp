@@ -263,7 +263,15 @@ void UAFLW_SystemMenu::NativeOnActivated()
 	}
 	if (LinkAccountButton)
 	{
-		LinkAccountButton->SetVisibility(bGuest ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		// Identity I-5a: a GUEST links an email or Epic (LINK ACCOUNT); an EPIC-FIRST account with no verified
+		// address adds one (LINK EMAIL) -- and if that address already has a site account, it folds in. An
+		// account that already holds a verified email has nothing to add here.
+		const bool bEpicFirstNoEmail = bSignedIn && !bGuest && !Online->GetPortalAccountId().IsEmpty() && Online->IsEpicLinked() && !Online->HasVerifiedEmail();
+		LinkAccountButton->SetVisibility((bGuest || bEpicFirstNoEmail) ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		if (UTextBlock* RowText = Cast<UTextBlock>(LinkAccountButton->GetChildAt(0)))
+		{
+			RowText->SetText(bGuest ? NSLOCTEXT("AFLSysMenu", "LinkAccount", "LINK ACCOUNT") : NSLOCTEXT("AFLSysMenu", "LinkEmail", "LINK EMAIL"));
+		}
 	}
 	RefreshWallet();
 }
