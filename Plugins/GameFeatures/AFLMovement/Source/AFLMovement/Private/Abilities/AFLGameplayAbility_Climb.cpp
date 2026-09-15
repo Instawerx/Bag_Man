@@ -3,6 +3,7 @@
 #include "Abilities/AFLGameplayAbility_Climb.h"
 
 #include "AFLMovement.h"
+#include "Movement/AFLMovementNetGate.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
@@ -80,6 +81,13 @@ void UAFLGameplayAbility_Climb::ActivateAbility(
 	ACharacter* Character = ActorInfo ? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr;
 	if (!Character)
 	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
+
+	if (AFLTraversalDisabledForNet(Character->GetWorld()))
+	{
+		UE_LOG(LogAFLMovement, Log, TEXT("AFL_CLIMB: net-unsafe verb disabled in networked play (predicted rewrite pending) -> cancel."));
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}

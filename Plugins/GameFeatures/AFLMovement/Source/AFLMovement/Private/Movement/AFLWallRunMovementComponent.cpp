@@ -1,6 +1,7 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "Movement/AFLWallRunMovementComponent.h"
+#include "Movement/AFLMovementNetGate.h"
 
 #include "AFLMovement.h"
 #include "AbilitySystemBlueprintLibrary.h"
@@ -174,6 +175,12 @@ void UAFLWallRunMovementComponent::ExitWallRunState()
 void UAFLWallRunMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	// HOTFIX: no auto wall-run detection or physics in networked play (net-unsafe until the predicted rewrite).
+	if (AFLTraversalDisabledForNet(GetWorld()))
+	{
+		return;
+	}
 
 	if (ReattachTimer > 0.0f)
 	{

@@ -10,6 +10,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "GameplayEffect.h"
+#include "Movement/AFLMovementNetGate.h"
 #include "Movement/AFLWallRunMovementComponent.h"
 #include "NativeGameplayTags.h"
 #include "TimerManager.h"
@@ -66,6 +67,12 @@ void UAFLGameplayAbility_WallRun::ActivateAbility(
 		return;
 	}
 
+	if (AFLTraversalDisabledForNet(Character->GetWorld()))
+	{
+		UE_LOG(LogAFLMovement, Log, TEXT("AFL_WALLRUN: net-unsafe verb disabled in networked play (predicted rewrite pending) -> cancel."));
+		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+		return;
+	}
 	WallRunComponent = Character->FindComponentByClass<UAFLWallRunMovementComponent>();
 	if (!WallRunComponent.IsValid())
 	{
