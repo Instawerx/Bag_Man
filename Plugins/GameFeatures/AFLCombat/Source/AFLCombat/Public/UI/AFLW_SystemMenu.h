@@ -49,6 +49,7 @@ protected:
 	UFUNCTION() void HandleResume();
 	UFUNCTION() void HandleSettings();
 	UFUNCTION() void HandleSignOut();
+	UFUNCTION() void HandleLinkAccount();
 	UFUNCTION() void HandleQuit();
 	UFUNCTION() void HandleConfirmCancel();
 	UFUNCTION() void HandleConfirmProceed();
@@ -81,5 +82,6 @@ private:
 
 	/** Default focus targets per step. */
 	UPROPERTY(Transient) TObjectPtr<UButton> SignOutButton = nullptr;      // menu step
+	UPROPERTY(Transient) TObjectPtr<UButton> LinkAccountButton = nullptr;  // menu step, guests only (Identity I-3)
 	UPROPERTY(Transient) TObjectPtr<UButton> ConfirmCancelButton = nullptr; // confirm step
 };

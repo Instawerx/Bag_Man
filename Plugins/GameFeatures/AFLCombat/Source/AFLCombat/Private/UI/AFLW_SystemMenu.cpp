@@ -1,6 +1,7 @@
 // Copyright C12 AI Gaming. All Rights Reserved.
 
 #include "UI/AFLW_SystemMenu.h"
+#include "UI/AFLW_Landing.h"              // Identity I-3: UAFLW_LinkAccountCard (LINK ACCOUNT for guests)
 
 #include "AFLCombat.h"
 #include "AFLOnlineSubsystem.h"
@@ -158,6 +159,10 @@ TSharedRef<SWidget> UAFLW_SystemMenu::RebuildWidget()
 	UButton* Settings = MakeRow(TEXT("SettingsBtn"), NSLOCTEXT("AFLSysMenu", "Settings", "SETTINGS"), RowNeutral, FLinearColor(0.905f, 0.925f, 0.965f, 1.f));
 	Settings->OnClicked.AddDynamic(this, &UAFLW_SystemMenu::HandleSettings);
 
+	// Identity I-3: a GUEST links an email / Epic credential from here (the Landing card in link mode).
+	LinkAccountButton = MakeRow(TEXT("LinkAccountBtn"), NSLOCTEXT("AFLSysMenu", "LinkAccount", "LINK ACCOUNT"), AccentFill, FLinearColor::White);
+	LinkAccountButton->OnClicked.AddDynamic(this, &UAFLW_SystemMenu::HandleLinkAccount);
+
 	SignOutButton = MakeRow(TEXT("SignOutBtn"), NSLOCTEXT("AFLSysMenu", "SignOut", "SIGN OUT"), AccentFill, FLinearColor::White);
 	SignOutButton->OnClicked.AddDynamic(this, &UAFLW_SystemMenu::HandleSignOut);
 
@@ -241,17 +246,31 @@ void UAFLW_SystemMenu::NativeOnActivated()
 	// POOLED instance: identity and sign-out availability are re-derived on every activation.
 	const UAFLOnlineSubsystem* Online = UAFLOnlineSubsystem::Get(this);
 	const bool bSignedIn = Online && Online->IsLoggedIn();
+	const bool bGuest = bSignedIn && Online->IsGuest();
 	if (IdentityText)
 	{
-		IdentityText->SetText(bSignedIn
-			? NSLOCTEXT("AFLSysMenu", "Sub", "Signed in with Epic")
-			: NSLOCTEXT("AFLSysMenu", "SubOut", "Not signed in"));
+		IdentityText->SetText(!bSignedIn
+			? NSLOCTEXT("AFLSysMenu", "SubOut", "Not signed in")
+			: bGuest
+				? NSLOCTEXT("AFLSysMenu", "SubGuest", "Playing as guest — progress lives on this PC")
+				: (Online->GetPortalAccountId().IsEmpty()
+					? NSLOCTEXT("AFLSysMenu", "Sub", "Signed in with Epic")
+					: NSLOCTEXT("AFLSysMenu", "SubIronics", "Signed in — IRONICS account")));
 	}
 	if (SignOutButton)
 	{
 		SignOutButton->SetVisibility(bSignedIn ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
+	if (LinkAccountButton)
+	{
+		LinkAccountButton->SetVisibility(bGuest ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
 	RefreshWallet();
+}
+
+void UAFLW_SystemMenu::HandleLinkAccount()
+{
+	UAFLW_LinkAccountCard::Open(this);
 }
 
 void UAFLW_SystemMenu::RefreshWallet()

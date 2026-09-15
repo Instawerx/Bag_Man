@@ -5,6 +5,7 @@
 #if !UE_BUILD_SHIPPING
 
 #include "AFLCombat.h"                          // LogAFLCombat
+#include "AFLOnlineSubsystem.h"                 // afl.Identity.* door drivers (Identity I-2/I-3 -game proof)
 #include "CommonInputSubsystem.h"               // UCommonInputSubsystem (the per-LocalPlayer input-type filter)
 #include "CommonInputTypeEnum.h"
 #include "Engine/Engine.h"
@@ -410,6 +411,113 @@ namespace
 					UE_LOG(LogAFLCombat, Display, TEXT("AFL_INPUTPROBE: afl.Dev.OpenFrontEnd -> OpenLevel(/Game/BagMan/Armory/L_IRONICS_Armory)."));
 					UGameplayStatics::OpenLevel(World, FName(TEXT("/Game/BagMan/Armory/L_IRONICS_Armory")));
 				}
+			}));
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// IDENTITY DOOR DRIVERS (Identity I-2/I-3): drive the Landing's doors from the console so a -game launch can
+// prove each one from the log without a click. Each command DEFERS 3 s so the front end (and the Landing card)
+// is up when it fires from -ExecCmds. Log lines are the contract scratchpad/run_identity_proof.ps1 asserts.
+//   afl.Identity.PlayNow             guest -> PlayFab -> route choice
+//   afl.Identity.Resume              stored refresh token -> PlayFab
+//   afl.Identity.EmailStart <email>  sends the code; keeps the challengeId for EmailVerify
+//   afl.Identity.EmailVerify <code>  verifies with the kept challengeId -> PlayFab
+//   afl.Identity.Logout              revoke + forget
+// ---------------------------------------------------------------------------------------------------------
+namespace
+{
+	static FString GIdentityChallengeId;
+
+	static void AFLIdentityDefer(UWorld* World, const FString& Label, TFunction<void(UAFLOnlineSubsystem*)> Fn)
+	{
+		if (!World) return;
+		TWeakObjectPtr<UWorld> WeakWorld(World);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakWorld, Label, Fn](float)
+		{
+			UWorld* W = WeakWorld.Get();
+			UAFLOnlineSubsystem* Online = W ? UAFLOnlineSubsystem::Get(W) : nullptr;
+			if (!Online)
+			{
+				UE_LOG(LogAFLCombat, Error, TEXT("AFL_IDENTITY: %s -- no online subsystem; DONE"), *Label);
+				return false;
+			}
+			UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: %s"), *Label);
+			Fn(Online);
+			return false;
+		}), 3.0f);
+	}
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLIdentityPlayNow(
+		TEXT("afl.Identity.PlayNow"), TEXT("DEV ONLY. PLAY NOW: guest device credential -> portal -> PlayFab (ironics)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>&, UWorld* World, FOutputDevice& Ar)
+			{
+				Ar.Logf(TEXT("afl.Identity.PlayNow -- firing in 3 s."));
+				AFLIdentityDefer(World, TEXT("PlayNow"), [](UAFLOnlineSubsystem* Online)
+				{
+					Online->CallWhenLoggedIn([](bool bOk) { UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: PlayNow -> login %s; DONE"), bOk ? TEXT("OK") : TEXT("FAILED")); }, 120.f);
+					Online->GuestLogin();
+				});
+			}));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLIdentityResume(
+		TEXT("afl.Identity.Resume"), TEXT("DEV ONLY. STAY SIGNED IN: stored portal refresh token -> PlayFab (ironics)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>&, UWorld* World, FOutputDevice& Ar)
+			{
+				Ar.Logf(TEXT("afl.Identity.Resume -- firing in 3 s."));
+				AFLIdentityDefer(World, TEXT("Resume"), [](UAFLOnlineSubsystem* Online)
+				{
+					UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: Resume -> stored session %s"), Online->HasStoredGameSession() ? TEXT("present") : TEXT("ABSENT"));
+					Online->CallWhenLoggedIn([](bool bOk) { UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: Resume -> login %s; DONE"), bOk ? TEXT("OK") : TEXT("FAILED")); }, 120.f);
+					Online->TryResumeGameSession([](bool bResuming) { UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: Resume -> %s"), bResuming ? TEXT("resuming") : TEXT("nothing to resume; DONE")); });
+				});
+			}));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLIdentityEmailStart(
+		TEXT("afl.Identity.EmailStart"), TEXT("DEV ONLY. afl.Identity.EmailStart <email> -- request the 6-digit code; keeps the challengeId."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				const FString Email = Args.Num() > 0 ? Args[0] : FString();
+				Ar.Logf(TEXT("afl.Identity.EmailStart -- firing in 3 s."));
+				AFLIdentityDefer(World, TEXT("EmailStart"), [Email](UAFLOnlineSubsystem* Online)
+				{
+					Online->RequestEmailCode(Email, [](bool bOk, const FString& ChallengeId, const FString& Reason)
+					{
+						if (bOk) { GIdentityChallengeId = ChallengeId; UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: challengeId stored (%d chars); DONE"), ChallengeId.Len()); }
+						else { UE_LOG(LogAFLCombat, Error, TEXT("AFL_IDENTITY: EmailStart refused: %s; DONE"), *Reason); }
+					});
+				});
+			}));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLIdentityEmailVerify(
+		TEXT("afl.Identity.EmailVerify"), TEXT("DEV ONLY. afl.Identity.EmailVerify <code> [challengeId] -- verify the code (kept challengeId by default) -> PlayFab (ironics)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				const FString Code = Args.Num() > 0 ? Args[0] : FString();
+				const FString Challenge = Args.Num() > 1 ? Args[1] : GIdentityChallengeId;
+				Ar.Logf(TEXT("afl.Identity.EmailVerify -- firing in 3 s."));
+				AFLIdentityDefer(World, TEXT("EmailVerify"), [Code, Challenge](UAFLOnlineSubsystem* Online)
+				{
+					if (Challenge.IsEmpty()) { UE_LOG(LogAFLCombat, Error, TEXT("AFL_IDENTITY: EmailVerify -- no challengeId (run EmailStart first, or pass it); DONE")); return; }
+					Online->CallWhenLoggedIn([](bool bOk) { UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: EmailVerify -> login %s; DONE"), bOk ? TEXT("OK") : TEXT("FAILED")); }, 120.f);
+					Online->VerifyEmailCode(Challenge, Code, /*bLinkToCurrent=*/false);
+				});
+			}));
+
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLIdentityLogout(
+		TEXT("afl.Identity.Logout"), TEXT("DEV ONLY. Sign out: revoke the portal refresh token, drop the PlayFab session (guest device credential kept)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>&, UWorld* World, FOutputDevice& Ar)
+			{
+				Ar.Logf(TEXT("afl.Identity.Logout -- firing in 3 s."));
+				AFLIdentityDefer(World, TEXT("Logout"), [](UAFLOnlineSubsystem* Online)
+				{
+					Online->Logout();
+					UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: Logout -> requested; DONE"));
+				});
 			}));
 }
 

@@ -244,6 +244,11 @@ public:
 	/** LINK ACCOUNT -> Epic for a signed-in guest: the Epic sign-in runs, then its token is attached to the guest
 	 *  account (OnPortalLinkResult). */
 	FAFLOnPortalLink OnPortalLinkResult;
+	/** LINK ACCOUNT -> Epic: runs the interactive Epic sign-in WITHOUT replacing the current (guest) PlayFab session;
+	 *  on success the EOS id_token is exchanged with the guest's game session as bearer (attach epic# to the guest's
+	 *  portal account) and LinkOpenIdConnect(epic) is called on the guest's PlayFab player, so an Epic sign-in later
+	 *  lands on this same player. Result via OnPortalLinkResult. */
+	void LinkEpicToCurrent();
 
 	/** PLAY NOW: device credential (minted once, sealed at rest) -> POST /v1/auth/guest/login -> PlayFab. */
 	void GuestLogin();
@@ -277,6 +282,8 @@ private:
 	bool bStaySignedIn = true;
 	bool bIsGuest = false;
 	bool bPortalSaysHasGamePlayer = false;
+	/** True while an Epic sign-in was started to LINK (not to sign in): its success attaches instead of logging in. */
+	bool bEosLinkMode = false;
 	FString PortalAccountId;
 	FString GameIdToken;
 	FString GameRefreshToken;

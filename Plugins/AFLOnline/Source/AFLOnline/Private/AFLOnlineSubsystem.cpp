@@ -503,12 +503,63 @@ void UAFLOnlineSubsystem::HandleEosAuthLoginResult(int32 EosResultCode, bool bWa
 	const EOS_EResult Result = static_cast<EOS_EResult>(EosResultCode);
 	if (Result == EOS_EResult::EOS_Success)
 	{
+		if (bEosLinkMode)
+		{
+			// Identity I-3: this Epic sign-in was started to LINK a signed-in guest, not to sign in. The PlayFab
+			// session stays the guest's; the Epic token is attached to the guest's portal account and player.
+			bEosLinkMode = false;
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] EAS login succeeded (%s) -- attaching Epic to the current account."),
+				bWasPersistentAttempt ? TEXT("PersistentAuth") : TEXT("AccountPortal"));
+			FString EosIdToken, FailReason;
+			if (!TryGetEosIdToken(EosIdToken, FailReason))
+			{
+				OnPortalLinkResult.Broadcast(false, FString::Printf(TEXT("Epic signed in but gave no token (%s)"), *FailReason));
+				return;
+			}
+			const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+			Body->SetStringField(TEXT("eosIdToken"), EosIdToken);
+			PostPortal(TEXT("/v1/auth/epic/exchange"), Body, GameIdToken, [this, EosIdToken](int32 Http, TSharedPtr<FJsonObject> Json)
+			{
+				if (Http != 200 || !Json.IsValid())
+				{
+					LastPortalCode.Reset();
+					if (Json.IsValid()) { Json->TryGetStringField(TEXT("code"), LastPortalCode); }
+					OnPortalLinkResult.Broadcast(false, PortalRefusalText(Http, Json));
+					return;
+				}
+				AcceptPortalSession(Json);
+				// The guest's PlayFab player learns its Epic identity too, so SIGN IN WITH EPIC lands here later.
+				const TSharedRef<FJsonObject> Link = MakeShared<FJsonObject>();
+				Link->SetStringField(TEXT("ConnectionId"), ResolveEosOidcConnectionId());
+				Link->SetStringField(TEXT("IdToken"), EosIdToken);
+				Link->SetBoolField(TEXT("ForceLink"), false);
+				PostClientApi(TEXT("LinkOpenIdConnect"), Link, [this](bool bOk, TSharedPtr<FJsonObject>)
+				{
+					if (bOk)
+					{
+						UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] LINK ACCOUNT (epic): portal linked; LinkOpenIdConnect(epic) on this player -> linked"));
+					}
+					else
+					{
+						UE_LOG(LogAFLOnline, Error, TEXT("[AFLOnline] LINK ACCOUNT (epic): portal linked; LinkOpenIdConnect(epic) on this player -> refused (see the PlayFab error above)"));
+					}
+					OnPortalLinkResult.Broadcast(true, FString());
+				}, /*bRequireAuth=*/true);
+			});
+			return;
+		}
 		// EOS has also stored/refreshed the persistent-auth token at this point -- the next boot's
 		// PersistentAuth attempt is the "stay signed in" promise on the landing panel.
 		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] EAS login succeeded (%s) -- resuming the OIDC exchange."),
 			bWasPersistentAttempt ? TEXT("PersistentAuth") : TEXT("AccountPortal"));
 		LoginState = EAFLLoginState::NotStarted; // let StartLoginWithEOS re-enter; it now finds the session
 		StartLoginWithEOS();
+		return;
+	}
+	if (bEosLinkMode && !(bWasPersistentAttempt && !bEosPortalAttempted))
+	{
+		bEosLinkMode = false;
+		OnPortalLinkResult.Broadcast(false, FString::Printf(TEXT("Epic sign-in was refused (%s)"), ANSI_TO_TCHAR(EOS_EResult_ToString(Result))));
 		return;
 	}
 	if (bWasPersistentAttempt && !bEosPortalAttempted)
@@ -1461,6 +1512,31 @@ void UAFLOnlineSubsystem::StartLoginWithIronics(const FString& IdToken, bool bCr
 	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] LoginWithOpenIdConnect -> %s (connectionId=%s, createAccount=%d, idToken=%d chars)"),
 		*Url, *ConnectionId, bCreateAccount ? 1 : 0, IdToken.Len());
 	Req->ProcessRequest();
+}
+
+void UAFLOnlineSubsystem::LinkEpicToCurrent()
+{
+	if (!IsLoggedIn() || GameIdToken.IsEmpty())
+	{
+		OnPortalLinkResult.Broadcast(false, TEXT("no signed-in guest to link -- sign in first"));
+		return;
+	}
+#if WITH_EOS_SDK
+	// An EAS session may already exist (a previous Epic player on this PC): use its token straight away.
+	FString EosIdToken, FailReason;
+	if (TryGetEosIdToken(EosIdToken, FailReason))
+	{
+		bEosLinkMode = true;
+		HandleEosAuthLoginResult(static_cast<int32>(EOS_EResult::EOS_Success), /*bWasPersistentAttempt=*/false);
+		return;
+	}
+	bEosLinkMode = true;
+	bEosPortalAttempted = false;
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] LINK ACCOUNT (epic): starting the Epic sign-in for the current account."));
+	AFLStartEosAuthLogin(this, /*bPersistent=*/true);
+#else
+	OnPortalLinkResult.Broadcast(false, TEXT("Epic sign-in is not available in this build"));
+#endif
 }
 
 void UAFLOnlineSubsystem::ExchangeEpicForIronics(TFunction<void()> OnDone)
