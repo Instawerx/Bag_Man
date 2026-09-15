@@ -284,6 +284,15 @@ private:
 	bool bPortalSaysHasGamePlayer = false;
 	/** True while an Epic sign-in was started to LINK (not to sign in): its success attaches instead of logging in. */
 	bool bEosLinkMode = false;
+	/**
+	 * Bumped by Logout(). Every asynchronous leg of a sign-in (portal call, PlayFab login) captures the value it
+	 * started under and drops its result if the value moved: a sign-out must never be undone by a response that was
+	 * already in the air (found by the I-3 Logout proof: a boot-time resume landed after Logout and re-stored the
+	 * token). A dropped portal session revokes the rotated refresh token it would have kept.
+	 */
+	uint32 LoginGeneration = 0;
+	/** Best-effort POST /v1/auth/logout for a refresh token that will never be used. */
+	void RevokePortalToken(const FString& Refresh);
 	FString PortalAccountId;
 	FString GameIdToken;
 	FString GameRefreshToken;

@@ -498,11 +498,15 @@ void UAFLOnlineSubsystem::Logout()
 	// Identity I-2/I-3: revoke the portal refresh token (best-effort, the portal's logout is idempotent) and
 	// forget the portal session. The GUEST device credential is deliberately KEPT: PLAY NOW must return to the
 	// same guest on this PC; only linking retires it (the portal answers GUEST_UPGRADED from then on).
-	if (!GameRefreshToken.IsEmpty())
+	// Any sign-in leg still in the air is orphaned by the generation bump (see LoginGeneration).
+	LoginGeneration++;
 	{
-		const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
-		Body->SetStringField(TEXT("refreshToken"), GameRefreshToken);
-		PostPortal(TEXT("/v1/auth/logout"), Body, FString(), [](int32, TSharedPtr<FJsonObject>) {});
+		// The token to revoke may be only in the sealed store (a sign-out before a boot-time resume finished).
+		const FString ToRevoke = !GameRefreshToken.IsEmpty() ? GameRefreshToken : FAFLCredentialStore::Load(FAFLCredentialStore::KeyGameRefreshToken);
+		if (!ToRevoke.IsEmpty())
+		{
+			RevokePortalToken(ToRevoke);
+		}
 	}
 	GameRefreshToken.Reset();
 	GameIdToken.Reset();
@@ -1231,6 +1235,17 @@ void UAFLOnlineSubsystem::PostPortal(const FString& Path, const TSharedRef<FJson
 	(*Send)();
 }
 
+void UAFLOnlineSubsystem::RevokePortalToken(const FString& Refresh)
+{
+	if (Refresh.IsEmpty())
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("refreshToken"), Refresh);
+	PostPortal(TEXT("/v1/auth/logout"), Body, FString(), [](int32, TSharedPtr<FJsonObject>) {});
+}
+
 FString UAFLOnlineSubsystem::PortalRefusalText(int32 Http, const TSharedPtr<FJsonObject>& Json)
 {
 	FString Code;
@@ -1310,8 +1325,19 @@ void UAFLOnlineSubsystem::TryResumeGameSession(TFunction<void(bool)> OnDone)
 
 	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
 	Body->SetStringField(TEXT("refreshToken"), Stored);
-	PostPortal(TEXT("/v1/auth/refresh"), Body, FString(), [this, OnDone](int32 Http, TSharedPtr<FJsonObject> Json)
+	const uint32 Gen = LoginGeneration;
+	PostPortal(TEXT("/v1/auth/refresh"), Body, FString(), [this, OnDone, Gen](int32 Http, TSharedPtr<FJsonObject> Json)
 	{
+		if (Gen != LoginGeneration)
+		{
+			// Signed out while this was in the air: the rotated token must not be kept (or used) -- revoke it.
+			FString Rotated;
+			if (Json.IsValid()) { Json->TryGetStringField(TEXT("refreshToken"), Rotated); }
+			RevokePortalToken(Rotated);
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] stored-session resume landed after a sign-out -- dropped (token revoked)."));
+			OnDone(false);
+			return;
+		}
 		if (Http != 200 || !Json.IsValid())
 		{
 			// A DEAD token (rotated elsewhere, revoked, expired) is forgotten so the next boot does not loop
@@ -1330,8 +1356,10 @@ void UAFLOnlineSubsystem::TryResumeGameSession(TFunction<void(bool)> OnDone)
 		AcceptPortalSession(Json);
 		// A resumed session WAS a full sign-in once, so a NOT-FOUND at PlayFab is never "create a player".
 		bPortalSaysHasGamePlayer = true;
-		OnDone(true);
+		// The PlayFab leg FIRST (it marks the login in flight), THEN the report: a caller that arms a waiter on
+		// "resuming" would otherwise find nothing in flight and kick the default login alongside this one.
 		StartLoginWithIronics(GameIdToken, /*bCreateAccount=*/false);
+		OnDone(true);
 	});
 }
 
@@ -1378,9 +1406,18 @@ void UAFLOnlineSubsystem::VerifyEmailCode(const FString& ChallengeId, const FStr
 	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
 	Body->SetStringField(TEXT("challengeId"), ChallengeId);
 	Body->SetStringField(TEXT("code"), Code.TrimStartAndEnd());
+	const uint32 Gen = LoginGeneration;
 	PostPortal(TEXT("/v1/auth/email/code-verify"), Body, bLinkToCurrent ? GameIdToken : FString(),
-		[this, bLinkToCurrent](int32 Http, TSharedPtr<FJsonObject> Json)
+		[this, bLinkToCurrent, Gen](int32 Http, TSharedPtr<FJsonObject> Json)
 	{
+		if (Gen != LoginGeneration)
+		{
+			FString Rotated;
+			if (Json.IsValid()) { Json->TryGetStringField(TEXT("refreshToken"), Rotated); }
+			RevokePortalToken(Rotated);
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] code-verify landed after a sign-out -- dropped (token revoked)."));
+			return;
+		}
 		if (Http != 200 || !Json.IsValid())
 		{
 			LastPortalCode.Reset();
@@ -1456,8 +1493,17 @@ void UAFLOnlineSubsystem::GuestLogin()
 	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
 	Body->SetStringField(TEXT("deviceId"), DeviceId);
 	Body->SetStringField(TEXT("deviceSecret"), DeviceSecret);
-	PostPortal(TEXT("/v1/auth/guest/login"), Body, FString(), [this](int32 Http, TSharedPtr<FJsonObject> Json)
+	const uint32 Gen = LoginGeneration;
+	PostPortal(TEXT("/v1/auth/guest/login"), Body, FString(), [this, Gen](int32 Http, TSharedPtr<FJsonObject> Json)
 	{
+		if (Gen != LoginGeneration)
+		{
+			FString Rotated;
+			if (Json.IsValid()) { Json->TryGetStringField(TEXT("refreshToken"), Rotated); }
+			RevokePortalToken(Rotated);
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] guest login landed after a sign-out -- dropped (token revoked)."));
+			return;
+		}
 		if (Http != 200 || !Json.IsValid())
 		{
 			LastPortalCode.Reset();
@@ -1511,8 +1557,14 @@ void UAFLOnlineSubsystem::StartLoginWithIronics(const FString& IdToken, bool bCr
 	Req->SetVerb(TEXT("POST"));
 	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	Req->SetContentAsString(BodyStr);
-	Req->OnProcessRequestComplete().BindLambda([this, IdToken, bCreateAccount](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedOk)
+	const uint32 Gen = LoginGeneration;
+	Req->OnProcessRequestComplete().BindLambda([this, IdToken, bCreateAccount, Gen](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedOk)
 	{
+		if (Gen != LoginGeneration)
+		{
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] ironics PlayFab login landed after a sign-out -- ignored."));
+			return;
+		}
 		if (!bCreateAccount && bConnectedOk && Response.IsValid() && Response->GetResponseCode() != 200)
 		{
 			TSharedPtr<FJsonObject> Raw;
@@ -1585,8 +1637,18 @@ void UAFLOnlineSubsystem::ExchangeEpicForIronics(TFunction<void()> OnDone)
 	}
 	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
 	Body->SetStringField(TEXT("eosIdToken"), EosIdToken);
-	PostPortal(TEXT("/v1/auth/epic/exchange"), Body, FString(), [this, OnDone](int32 Http, TSharedPtr<FJsonObject> Json)
+	const uint32 Gen = LoginGeneration;
+	PostPortal(TEXT("/v1/auth/epic/exchange"), Body, FString(), [this, OnDone, Gen](int32 Http, TSharedPtr<FJsonObject> Json)
 	{
+		if (Gen != LoginGeneration)
+		{
+			FString Rotated;
+			if (Json.IsValid()) { Json->TryGetStringField(TEXT("refreshToken"), Rotated); }
+			RevokePortalToken(Rotated);
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] epic exchange landed after a sign-out -- dropped (token revoked)."));
+			OnDone();
+			return;
+		}
 		if (Http != 200 || !Json.IsValid())
 		{
 			UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] epic exchange refused (http=%d) -- the email door will not reach this player until it succeeds."), Http);
