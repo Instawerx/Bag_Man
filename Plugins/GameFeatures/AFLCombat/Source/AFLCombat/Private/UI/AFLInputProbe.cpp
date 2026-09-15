@@ -6,6 +6,8 @@
 
 #include "AFLCombat.h"                          // LogAFLCombat
 #include "AFLOnlineSubsystem.h"                 // afl.Identity.* door drivers (Identity I-2/I-3 -game proof)
+#include "UI/AFLW_Landing.h"                    // afl.Identity.CardSendCode: the CARD's own SEND CODE path
+#include "UObject/UObjectIterator.h"
 #include "CommonInputSubsystem.h"               // UCommonInputSubsystem (the per-LocalPlayer input-type filter)
 #include "CommonInputTypeEnum.h"
 #include "Engine/Engine.h"
@@ -491,6 +493,26 @@ namespace
 						if (bOk) { GIdentityChallengeId = ChallengeId; UE_LOG(LogAFLCombat, Display, TEXT("AFL_IDENTITY: challengeId stored (%d chars); DONE"), ChallengeId.Len()); }
 						else { UE_LOG(LogAFLCombat, Error, TEXT("AFL_IDENTITY: EmailStart refused: %s; DONE"), *Reason); }
 					});
+				});
+			}));
+
+	/** The card itself, not the subsystem: what a click on SEND CODE does, so the step change is on the log. */
+	FAutoConsoleCommandWithWorldArgsAndOutputDevice GAFLIdentityCardSendCode(
+		TEXT("afl.Identity.CardSendCode"), TEXT("DEV ONLY. afl.Identity.CardSendCode <email> -- type the address into the LIVE sign-in card and press SEND CODE."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				const FString Email = Args.Num() > 0 ? Args[0] : FString();
+				Ar.Logf(TEXT("afl.Identity.CardSendCode -- firing in 3 s."));
+				AFLIdentityDefer(World, TEXT("CardSendCode"), [Email](UAFLOnlineSubsystem*)
+				{
+					UAFLW_Landing* Card = nullptr;
+					for (TObjectIterator<UAFLW_Landing> It; It; ++It)
+					{
+						if (It->IsActivated() && !It->IsA<UAFLW_LinkAccountCard>()) { Card = *It; break; }
+					}
+					if (!Card) { UE_LOG(LogAFLCombat, Error, TEXT("AFL_IDENTITY: CardSendCode -- no activated sign-in card; DONE")); return; }
+					Card->DevSendCode(Email);
 				});
 			}));
 

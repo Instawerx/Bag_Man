@@ -33,6 +33,11 @@ class AFLCOMBAT_API UAFLW_Landing : public UCommonActivatableWidget
 
 public:
 	UAFLW_Landing();
+#if !UE_BUILD_SHIPPING
+	/** DEV ONLY (afl.Identity.CardSendCode): drive the EMAIL door exactly as a click on SEND CODE would --
+	 *  the -game proof of the card's own step change, which the subsystem-level drivers never exercised. */
+	void DevSendCode(const FString& Email);
+#endif
 
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;

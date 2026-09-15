@@ -378,6 +378,7 @@ void UAFLW_Landing::NativeOnActivated()
 	ApplyStayVisual();
 
 	// POOLED INSTANCE: re-arm every per-visit state here, never trust the constructor.
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: activated (link=%d) -- per-visit state re-armed, step 0"), bLinkMode ? 1 : 0);
 	bSignInInFlight = false;
 	bRouteChoicePushed = false;
 	ChallengeId.Reset();
@@ -493,6 +494,7 @@ TOptional<FUIInputConfig> UAFLW_Landing::GetDesiredInputConfig() const
 
 bool UAFLW_Landing::NativeOnHandleBackAction()
 {
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: back action (step=%d)"), Steps ? Steps->GetActiveWidgetIndex() : -1);
 	if (Steps && Steps->GetActiveWidgetIndex() == 1)
 	{
 		HandleChangeEmail(); // code step: BACK to the doors
@@ -539,7 +541,8 @@ void UAFLW_Landing::HandleSendCode()
 	Online->RequestEmailCode(Email, [WeakThis = TWeakObjectPtr<UAFLW_Landing>(this), Email](bool bOk, const FString& NewChallengeId, const FString& Reason)
 	{
 		UAFLW_Landing* Self = WeakThis.Get();
-		if (!Self) return;
+		if (!Self) { UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LANDING: send-code result arrived for a card that is gone")); return; }
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: send-code result ok=%d activated=%d"), bOk ? 1 : 0, Self->IsActivated() ? 1 : 0);
 		if (!bOk)
 		{
 			Self->SetStatus(FText::FromString(Reason), true);
@@ -589,6 +592,7 @@ void UAFLW_Landing::HandleResend()
 
 void UAFLW_Landing::HandleChangeEmail()
 {
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: change email -> back to the doors"));
 	if (UWorld* World = GetWorld()) { World->GetTimerManager().ClearTimer(ResendTimer); }
 	ChallengeId.Reset();
 	if (CodeBox) { CodeBox->SetText(FText::GetEmpty()); }
@@ -690,7 +694,18 @@ void UAFLW_Landing::ApplyStayVisual()
 void UAFLW_Landing::ShowStep(int32 Index)
 {
 	if (Steps) { Steps->SetActiveWidgetIndex(Index); }
+	UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: step -> %d (switcher children=%d, active=%d, link=%d)"), Index,
+		Steps ? Steps->GetChildrenCount() : -1, Steps ? Steps->GetActiveWidgetIndex() : -1, bLinkMode ? 1 : 0);
 }
+
+#if !UE_BUILD_SHIPPING
+void UAFLW_Landing::DevSendCode(const FString& Email)
+{
+	UE_LOG(LogAFLCombat, Display, TEXT("AFL_LANDING: DevSendCode (activated=%d, inFlight=%d)"), IsActivated() ? 1 : 0, bSignInInFlight ? 1 : 0);
+	if (EmailBox) { EmailBox->SetText(FText::FromString(Email)); }
+	HandleSendCode();
+}
+#endif
 
 void UAFLW_Landing::SetStatus(const FText& Text, bool bBad)
 {
