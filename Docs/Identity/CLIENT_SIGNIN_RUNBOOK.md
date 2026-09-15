@@ -27,7 +27,9 @@ site account FOLDS INTO the signed-in game account — approval, founder number,
 terms, age and the address move; the site row is retired (`SUSPENDED`, `mergedInto`); the portal writes an
 `account.merged` audit row and mails the address a notice. The response carries `merged:true` and the card
 says so. Anything else (the address has played on another account, holds Epic, is a guest, two founder
-numbers, a banned survivor) is `409 IDENTITY_CONFLICT` and nothing moves ("refused, never moved").
+numbers, a banned survivor) is `409 IDENTITY_CONFLICT` and nothing moves ("refused, never moved"). The notice
+mail to the absorbed address carries a 7-day, single-use UNDO link (confirm page, then one click) that
+puts both accounts back exactly as they were — the guest becomes a guest again and its device credential works.
 
 ## Driving it without a click (dev builds only)
 
