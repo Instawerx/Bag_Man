@@ -19,6 +19,7 @@
 #include "Components/Image.h"
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
+#include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
@@ -28,6 +29,7 @@
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "GameplayTagContainer.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "MediaPlayer.h"
 #include "MediaSource.h"
@@ -59,6 +61,7 @@ namespace AFLLanding
 	static const TCHAR* PrefsSection = TEXT("/Script/AFLCombat.AFLAuthPrefs");
 	static constexpr int32 ResendCooldownSeconds = 45;
 	static constexpr float CardWidth = 452.f;
+	static constexpr float NeonPad = 5.f; // the ring band visible outside the card
 
 	static UFont* Orbitron() { return LoadObject<UFont>(nullptr, TEXT("/Game/UI/Foundation/Fonts/Orbitron.Orbitron")); }
 	static UFont* NotoSans() { return LoadObject<UFont>(nullptr, TEXT("/Game/UI/Foundation/Fonts/NotoSans.NotoSans")); }
@@ -144,18 +147,26 @@ TSharedRef<SWidget> UAFLW_Landing::RebuildWidget()
 		S->SetAnchors(bLinkMode ? FAnchors(0.5f, 0.5f, 0.5f, 0.5f) : FAnchors(1.f, 0.5f, 1.f, 0.5f));
 		S->SetAlignment(bLinkMode ? FVector2D(0.5f, 0.5f) : FVector2D(1.f, 0.5f));
 		S->SetPosition(bLinkMode ? FVector2D(0.f, 0.f) : FVector2D(-44.f, 0.f));
-		S->SetSize(FVector2D(CardWidth + 6.f, 0.f));
+		S->SetSize(FVector2D(CardWidth + 2.f * NeonPad, 0.f));
 		S->SetAutoSize(true);
 	}
 	NeonImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("NeonBorder"));
 	if (UMaterialInterface* Mat = LoadObject<UMaterialInterface>(nullptr, NeonMat))
 	{
-		NeonImage->SetBrushFromMaterial(Mat);
+		// A dynamic instance so the ring can be tuned here: the visible part of the ring is the NeonPad band
+		// outside the card, so Thickness (in UV of the whole quad) must comfortably cover it.
+		UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Mat, this);
+		MID->SetScalarParameterValue(TEXT("Thickness"), 0.06f);
+		MID->SetScalarParameterValue(TEXT("Intensity"), 2.8f);
+		NeonImage->SetBrushFromMaterial(MID);
+		NeonImage->SetColorAndOpacity(FLinearColor::White);
+		UE_LOG(LogAFLCombat, Log, TEXT("AFL_LANDING: neon border material loaded (%s)."), *Mat->GetName());
 	}
 	else
 	{
-		// No material yet (asset not authored on this build): a static accent hairline, never a hole.
-		NeonImage->SetColorAndOpacity(FLinearColor(0.013f, 0.102f, 1.0f, 0.35f));
+		// No material on this build: a static accent frame, never a hole. Logged so a cook gap is visible.
+		NeonImage->SetColorAndOpacity(FLinearColor(0.013f, 0.102f, 1.0f, 0.55f));
+		UE_LOG(LogAFLCombat, Warning, TEXT("AFL_LANDING: neon border material MISSING at %s -- static frame fallback."), NeonMat);
 	}
 	NeonImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 	if (UOverlaySlot* OS = CardWrap->AddChildToOverlay(NeonImage))
@@ -168,7 +179,7 @@ TSharedRef<SWidget> UAFLW_Landing::RebuildWidget()
 	Card->SetPadding(FMargin(22.f, 20.f, 22.f, 18.f));
 	if (UOverlaySlot* OS = CardWrap->AddChildToOverlay(Card))
 	{
-		OS->SetPadding(FMargin(3.f));
+		OS->SetPadding(FMargin(NeonPad));
 		OS->SetHorizontalAlignment(HAlign_Fill);
 		OS->SetVerticalAlignment(VAlign_Fill);
 	}
@@ -272,11 +283,19 @@ TSharedRef<SWidget> UAFLW_Landing::RebuildWidget()
 		UHorizontalBox* Inner = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
 		Stay->AddChild(Inner);
 		if (UButtonSlot* BS = Cast<UButtonSlot>(Inner->Slot)) { BS->SetPadding(FMargin(10.f, 6.f)); } // 30 px hit floor
+		// The check: a white box with an accent fill inside when on (a glyph would depend on the font having it).
+		UBorder* CheckBox = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StayBox"));
+		CheckBox->SetBrushColor(FLinearColor::White);
+		CheckBox->SetPadding(FMargin(3.f));
 		StayCheck = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("StayCheck"));
+		StayCheck->SetBrushColor(Accent);
 		StayCheck->SetPadding(FMargin(0.f));
-		UTextBlock* Tick = Label(TEXT("Tick"), Body, 13.f, FLinearColor::White, NSLOCTEXT("AFLLanding", "Tick", "✓"), false);
-		StayCheck->SetContent(Tick);
-		if (UHorizontalBoxSlot* HS = Inner->AddChildToHorizontalBox(StayCheck)) { HS->SetPadding(FMargin(0.f, 0.f, 10.f, 0.f)); }
+		USizeBox* CheckSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StayCheckSize"));
+		CheckSize->SetWidthOverride(10.f);
+		CheckSize->SetHeightOverride(10.f);
+		StayCheck->SetContent(CheckSize);
+		CheckBox->SetContent(StayCheck);
+		if (UHorizontalBoxSlot* HS = Inner->AddChildToHorizontalBox(CheckBox)) { HS->SetPadding(FMargin(0.f, 0.f, 10.f, 0.f)); HS->SetVerticalAlignment(VAlign_Center); }
 		Inner->AddChildToHorizontalBox(Label(TEXT("StayLabel"), Body, 13.f, FLinearColor::White, NSLOCTEXT("AFLLanding", "Stay", "Stay signed in on this device"), false));
 		StayNoteText = Label(TEXT("StayNote"), Body, 11.f, Faint, NSLOCTEXT("AFLLanding", "StayNote", "Persistent sign-in — one click next time. Nothing to remember; sign-out clears it."));
 		if (UVerticalBoxSlot* VS = Doors->AddChildToVerticalBox(StayNoteText)) { VS->SetPadding(FMargin(0.f, 6.f, 0.f, 0.f)); }
