@@ -25,6 +25,20 @@ struct FGameplayTag;
  * state, including future systems that may have modified friction or
  * air-control (leg-loss, temporary buffs) at the moment dash begins.
  */
+/**
+ * Identity Movement M1 — custom traversal sub-modes driven through the CMC's replicated saved-move
+ * prediction path (never component-tick direct writes). Value = CustomMovementMode; PhysCustom() dispatches
+ * on it. Physics are filled in M2; M1 lands the prediction plumbing only.
+ */
+UENUM(BlueprintType)
+enum class EAFLCustomMoveMode : uint8
+{
+	None = 0   UMETA(DisplayName = "None"),
+	WallRun    UMETA(DisplayName = "Wall Run"),
+	Climb      UMETA(DisplayName = "Climb"),
+	Slide      UMETA(DisplayName = "Slide"),
+};
+
 UCLASS(Config = Game)
 class AFLMOVEMENT_API UAFLCharacterMovementComponent : public ULyraCharacterMovementComponent
 {
@@ -43,6 +57,24 @@ public:
 	/** True while State.Movement.Dashing has caused us to swap friction/air-control. */
 	UFUNCTION(BlueprintPure, Category = "AFL|Movement|Dash")
 	bool IsDashTuningActive() const { return bDashTuningActive; }
+
+	// ---- M1 prediction spine (unwired until the hero uses this component; see project_movement_aaa_upgrade) ----
+
+	/** Predicted movement intent. Set on the owning client from input/abilities; serialized into the saved move
+	 *  (compressed flags) and replayed on the server, so both sides compute the same movement without corrections. */
+	void SetWantsToSprint(bool bWants) { bWantsToSprint = bWants; }
+	void SetWantsWallRun(bool bWants)  { bWantsWallRun  = bWants; }
+	void SetWantsClimb(bool bWants)    { bWantsClimb    = bWants; }
+	void SetWantsSlide(bool bWants)    { bWantsSlide    = bWants; }
+	bool WantsToSprint() const { return bWantsToSprint; }
+
+	/** Sprint speed returned by GetMaxSpeed while sprinting on the ground — predicted on BOTH sides, so it
+	 *  replaces the tag-driven MaxWalkSpeed swap (which lives outside reconciliation) once this is wired. */
+	UPROPERTY(EditDefaultsOnly, Category = "AFL|Movement|Sprint")
+	float SprintSpeed = 980.f;
+
+	virtual float GetMaxSpeed() const override;
+	virtual class FNetworkPredictionData_Client* GetPredictionData_Client() const override;
 
 protected:
 	virtual void InitializeComponent() override;
@@ -64,6 +96,11 @@ protected:
 	 * Behaviourally inert -- Super runs first and nothing else is changed.
 	 */
 	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
+
+	/** Read the predicted-intent bits the client packed into the compressed flags (M1 spine). */
+	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
+	/** Dispatch the custom traversal sub-modes. Stub in M1; filled by M2 (wall-run / climb / slide). */
+	virtual void PhysCustom(float DeltaTime, int32 Iterations) override;
 
 private:
 	/** Bind/unbind the tag-change delegate on the owning pawn's ASC. */
@@ -103,4 +140,12 @@ private:
 
 	/** Delegate handle for the tag-change registration. */
 	FDelegateHandle DashTagChangedHandle;
+
+	// ---- M1 predicted intent (mirrored to/from FSavedMove_AFL compressed flags) ----
+	bool bWantsToSprint = false;
+	bool bWantsWallRun = false;
+	bool bWantsClimb = false;
+	bool bWantsSlide = false;
+
+	friend class FSavedMove_AFL;
 };

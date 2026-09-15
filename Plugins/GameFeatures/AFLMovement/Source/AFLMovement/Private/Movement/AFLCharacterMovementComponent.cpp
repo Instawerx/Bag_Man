@@ -6,6 +6,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Character/LyraPawnExtensionComponent.h"
+#include "GameFramework/Character.h"           // ACharacter::GetCharacterMovement() in the saved-move hooks
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PhysicsVolume.h"   // AFL_MOVEMODE instrumentation reads bWaterVolume off the current volume
 #include "NativeGameplayTags.h"
@@ -13,6 +14,117 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AFLCharacterMovementComponent)
 
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_State_Movement_Dashing, "State.Movement.Dashing");
+
+// ============================================================================================
+//  M1 PREDICTION SPINE  (Identity Movement AAA upgrade -- project_movement_aaa_upgrade)
+//
+//  The parkour desync bug came from traversal that direct-drove Velocity/MovementMode from a
+//  component tick on BOTH server and client, OUTSIDE FSavedMove prediction -- so the two sides
+//  latched different states and the CMC corrected forever ("stuck / pull / slide, jump to break
+//  free"). The AAA-correct fix is to carry every movement INTENT through the CMC's own saved-move
+//  channel: the owning client packs intent into the move's compressed flags, the server replays
+//  the SAME flags, and both sides compute identical movement with no correction.
+//
+//  M1 lands the plumbing only: the flags, the saved-move, the client prediction data, and a
+//  predicted sprint that reads a flag. The custom traversal PHYSICS (wall-run / climb / slide as
+//  real PhysCustom sub-modes with gated detection) is M2 -- PhysCustom() below dispatches on the
+//  sub-mode so M2 fills each arm without touching this spine. Nothing here is wired to the live
+//  hero yet (the pawn still uses the stock CMC); wiring is the operator-watched reparent step.
+// ============================================================================================
+
+/** One saved move per simulated frame. The four AFL intent bits ride the base move's compressed
+ *  flags (FLAG_Custom_0..3), so they replicate to the server and replay on the client for free. */
+class FSavedMove_AFL : public FSavedMove_Character
+{
+	using Super = FSavedMove_Character;
+
+public:
+	uint8 bSavedWantsToSprint : 1;
+	uint8 bSavedWantsWallRun  : 1;
+	uint8 bSavedWantsClimb    : 1;
+	uint8 bSavedWantsSlide    : 1;
+
+	FSavedMove_AFL()
+		: bSavedWantsToSprint(0), bSavedWantsWallRun(0), bSavedWantsClimb(0), bSavedWantsSlide(0)
+	{
+	}
+
+	virtual void Clear() override
+	{
+		Super::Clear();
+		bSavedWantsToSprint = 0;
+		bSavedWantsWallRun  = 0;
+		bSavedWantsClimb    = 0;
+		bSavedWantsSlide    = 0;
+	}
+
+	/** Pack the intent into the compressed flags the server will replay from. */
+	virtual uint8 GetCompressedFlags() const override
+	{
+		uint8 Result = Super::GetCompressedFlags();
+		if (bSavedWantsToSprint) { Result |= FLAG_Custom_0; }
+		if (bSavedWantsWallRun)  { Result |= FLAG_Custom_1; }
+		if (bSavedWantsClimb)    { Result |= FLAG_Custom_2; }
+		if (bSavedWantsSlide)    { Result |= FLAG_Custom_3; }
+		return Result;
+	}
+
+	/** Never fold two moves whose intent differs -- a combined move would lose the flag edge and the
+	 *  server would replay the wrong intent, which is exactly the desync class M1 exists to kill. */
+	virtual bool CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const override
+	{
+		const FSavedMove_AFL* New = static_cast<const FSavedMove_AFL*>(NewMove.Get());
+		if (bSavedWantsToSprint != New->bSavedWantsToSprint) { return false; }
+		if (bSavedWantsWallRun  != New->bSavedWantsWallRun)  { return false; }
+		if (bSavedWantsClimb    != New->bSavedWantsClimb)    { return false; }
+		if (bSavedWantsSlide    != New->bSavedWantsSlide)    { return false; }
+		return Super::CanCombineWith(NewMove, InCharacter, MaxDelta);
+	}
+
+	/** Client: capture the CMC's live intent into this move at save time. */
+	virtual void SetMoveFor(ACharacter* C, float InDeltaTime, FVector const& NewAccel,
+		FNetworkPredictionData_Client_Character& ClientData) override
+	{
+		Super::SetMoveFor(C, InDeltaTime, NewAccel, ClientData);
+		if (const UAFLCharacterMovementComponent* CMC = C ? Cast<UAFLCharacterMovementComponent>(C->GetCharacterMovement()) : nullptr)
+		{
+			bSavedWantsToSprint = CMC->bWantsToSprint ? 1 : 0;
+			bSavedWantsWallRun  = CMC->bWantsWallRun  ? 1 : 0;
+			bSavedWantsClimb    = CMC->bWantsClimb    ? 1 : 0;
+			bSavedWantsSlide    = CMC->bWantsSlide    ? 1 : 0;
+		}
+	}
+
+	/** Client: restore this move's intent onto the CMC before it is replayed during a correction. */
+	virtual void PrepMoveFor(ACharacter* C) override
+	{
+		Super::PrepMoveFor(C);
+		if (UAFLCharacterMovementComponent* CMC = C ? Cast<UAFLCharacterMovementComponent>(C->GetCharacterMovement()) : nullptr)
+		{
+			CMC->bWantsToSprint = bSavedWantsToSprint != 0;
+			CMC->bWantsWallRun  = bSavedWantsWallRun  != 0;
+			CMC->bWantsClimb    = bSavedWantsClimb    != 0;
+			CMC->bWantsSlide    = bSavedWantsSlide    != 0;
+		}
+	}
+};
+
+/** Hands the CMC our saved-move type so intent is carried through prediction. */
+class FNetworkPredictionData_Client_AFL : public FNetworkPredictionData_Client_Character
+{
+	using Super = FNetworkPredictionData_Client_Character;
+
+public:
+	explicit FNetworkPredictionData_Client_AFL(const UCharacterMovementComponent& ClientMovement)
+		: Super(ClientMovement)
+	{
+	}
+
+	virtual FSavedMovePtr AllocateNewMove() override
+	{
+		return FSavedMovePtr(new FSavedMove_AFL());
+	}
+};
 
 UAFLCharacterMovementComponent::UAFLCharacterMovementComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -291,4 +403,63 @@ void UAFLCharacterMovementComponent::RestoreDashTuning()
 	UE_LOG(LogAFLMovement, Verbose,
 		TEXT("Dash tuning restored: friction→%.2f, airControl→%.2f"),
 		GroundFriction, AirControl);
+}
+
+// ---- M1 prediction spine: CMC overrides (unwired until the hero uses this component) ----
+
+FNetworkPredictionData_Client* UAFLCharacterMovementComponent::GetPredictionData_Client() const
+{
+	check(PawnOwner != nullptr);
+
+	if (ClientPredictionData == nullptr)
+	{
+		UAFLCharacterMovementComponent* Mutable = const_cast<UAFLCharacterMovementComponent*>(this);
+		Mutable->ClientPredictionData = new FNetworkPredictionData_Client_AFL(*this);
+		// Lyra-canonical smoothing distances (same values ULyraCharacterMovementComponent would inherit).
+		Mutable->ClientPredictionData->MaxSmoothNetUpdateDist = 92.0f;
+		Mutable->ClientPredictionData->NoSmoothNetUpdateDist  = 140.0f;
+	}
+
+	return ClientPredictionData;
+}
+
+void UAFLCharacterMovementComponent::UpdateFromCompressedFlags(uint8 Flags)
+{
+	Super::UpdateFromCompressedFlags(Flags);
+
+	// Server + replay: reconstruct the exact intent the owning client had for this move.
+	bWantsToSprint = (Flags & FSavedMove_Character::FLAG_Custom_0) != 0;
+	bWantsWallRun  = (Flags & FSavedMove_Character::FLAG_Custom_1) != 0;
+	bWantsClimb    = (Flags & FSavedMove_Character::FLAG_Custom_2) != 0;
+	bWantsSlide    = (Flags & FSavedMove_Character::FLAG_Custom_3) != 0;
+}
+
+float UAFLCharacterMovementComponent::GetMaxSpeed() const
+{
+	// Base first -- ULyraCharacterMovementComponent::GetMaxSpeed() returns ~0 under Gameplay.MovementStopped.
+	// Never sprint past that gate: a stopped pawn stays stopped.
+	const float BaseMax = Super::GetMaxSpeed();
+	if (bWantsToSprint && BaseMax > 0.0f && (IsMovingOnGround() || IsFalling()))
+	{
+		// Predicted on BOTH sides because bWantsToSprint comes from the compressed flags -- this replaces the
+		// tag-driven MaxWalkSpeed swap (which mutated a replicated property outside reconciliation) once wired.
+		return FMath::Max(BaseMax, SprintSpeed);
+	}
+	return BaseMax;
+}
+
+void UAFLCharacterMovementComponent::PhysCustom(float DeltaTime, int32 Iterations)
+{
+	// M1: no custom physics yet. The dispatch exists so M2 fills wall-run / climb / slide as real
+	// PhysCustom sub-modes without reworking the spine. Until then every arm falls through to Super,
+	// which safely treats an unknown custom mode as no movement.
+	switch (static_cast<EAFLCustomMoveMode>(CustomMovementMode))
+	{
+	case EAFLCustomMoveMode::WallRun: /* M2: PhysWallRun(DeltaTime, Iterations) */ break;
+	case EAFLCustomMoveMode::Climb:   /* M2: PhysClimb(DeltaTime, Iterations)   */ break;
+	case EAFLCustomMoveMode::Slide:   /* M2: PhysSlide(DeltaTime, Iterations)   */ break;
+	default: break;
+	}
+
+	Super::PhysCustom(DeltaTime, Iterations);
 }
