@@ -1280,7 +1280,16 @@ void UAFLOnlineSubsystem::AcceptPortalSession(const TSharedPtr<FJsonObject>& Jso
 	Json->TryGetStringField(TEXT("playFabId"), KnownPlayFabId);
 	bool bEpicLinked = false;
 	Json->TryGetBoolField(TEXT("epicLinked"), bEpicLinked);
-	bPortalSaysHasGamePlayer = !KnownPlayFabId.IsEmpty() || bEpicLinked;
+	FString Status;
+	Json->TryGetStringField(TEXT("status"), Status);
+	bool bCreated = false;
+	Json->TryGetBoolField(TEXT("created"), bCreated);
+	// An APPROVED account that was not created by this very sign-in is a beta member from the Epic era: every one
+	// of them played through Epic, so a player exists somewhere even when the portal cannot name it (the 2026-09-15
+	// proof forked the operator's own account this way -- their Epic identity lived on a second portal account).
+	// Creating a player for such an account silently strands founder items; refusing costs one Epic sign-in.
+	const bool bApprovedVeteran = (Status == TEXT("APPROVED")) && !bCreated && !bGuest;
+	bPortalSaysHasGamePlayer = !KnownPlayFabId.IsEmpty() || bEpicLinked || bApprovedVeteran;
 	LastPortalCode.Reset();
 
 	if (!Refresh.IsEmpty())
