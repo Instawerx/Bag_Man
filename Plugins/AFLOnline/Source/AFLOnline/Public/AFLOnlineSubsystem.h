@@ -16,6 +16,8 @@ DECLARE_MULTICAST_DELEGATE(FAFLOnLoggedIn);
 /** Fires once the player signs out: local session state cleared, EOS/Epic session + stored
  *  "stay signed in" token dropped. The front-end listens to return to the sign-in screen. */
 DECLARE_MULTICAST_DELEGATE(FAFLOnLoggedOut);
+/** Identity I-3: a LINK ACCOUNT attempt (guest -> email / Epic) finished. (ok, reason-when-refused). */
+DECLARE_MULTICAST_DELEGATE_TwoParams(FAFLOnPortalLink, bool, const FString&);
 
 /**
  * UAFLOnlineSubsystem -- Phase A1.1: PlayFab CLIENT login + a thin REST transport. SECRET-FREE.
@@ -209,6 +211,76 @@ public:
 	 * local server-side tooling keeps behaving identically.
 	 */
 	FString PlayerApiBaseUrl() const;
+
+	// ---------------------------------------------------------------------------------------------
+	// IDENTITY PROGRAM (I-2 / I-3, 2026-09-15): ironics.org is the OpenID Provider; PlayFab's `ironics`
+	// connection validates its id_tokens (sub = portal accountId). Three doors on the Landing card, one
+	// PlayFab player per account whichever door opened it. Contract: Ironics-Platform/apps/api/docs/
+	// identity-i1-contract.md. Every method below fails CLOSED with a reason the card can print
+	// (GetLastLoginFailure) and reports via client-diag; secrets are never logged.
+	// ---------------------------------------------------------------------------------------------
+
+	/** https://api.ironics.org (config [AFL.Online] PortalApiBaseUrl). */
+	FString PortalApiBaseUrl() const;
+
+	/** Whether the portal refresh token is persisted (STAY SIGNED IN). The guest device credential is always
+	 *  persisted -- a guest with no way back to their own progress is a lost player. */
+	void SetStaySignedIn(bool bStay) { bStaySignedIn = bStay; }
+	bool GetStaySignedIn() const { return bStaySignedIn; }
+
+	/** True when a stored game session exists that TryResumeGameSession can try silently. */
+	bool HasStoredGameSession() const;
+	/** Boot: refresh the stored portal session and log into PlayFab from it. OnDone(true) = the resume is in
+	 *  flight and will resolve through OnLoggedIn / the waiters like every other login; OnDone(false) = there
+	 *  is nothing to resume (show the card). */
+	void TryResumeGameSession(TFunction<void(bool)> OnDone);
+
+	/** EMAIL door, step 1: POST /v1/auth/email/code-start. OnDone(ok, challengeId, reason). The code arrives by mail. */
+	void RequestEmailCode(const FString& Email, TFunction<void(bool, const FString&, const FString&)> OnDone);
+	/** EMAIL door, step 2: POST /v1/auth/email/code-verify, then LoginWithOpenIdConnect(ironics). Resolves through
+	 *  the normal login path. With bLinkToCurrent (a signed-in GUEST), the email is ATTACHED to the guest's
+	 *  account instead -- same PlayFab player, nothing lost -- and OnPortalLinkResult reports it. */
+	void VerifyEmailCode(const FString& ChallengeId, const FString& Code, bool bLinkToCurrent);
+	/** LINK ACCOUNT -> Epic for a signed-in guest: the Epic sign-in runs, then its token is attached to the guest
+	 *  account (OnPortalLinkResult). */
+	FAFLOnPortalLink OnPortalLinkResult;
+
+	/** PLAY NOW: device credential (minted once, sealed at rest) -> POST /v1/auth/guest/login -> PlayFab. */
+	void GuestLogin();
+	/** True while the current PlayFab player belongs to a GUEST portal account (card copy + link nudges). */
+	bool IsGuest() const { return bIsGuest; }
+	/** The portal account id behind the current sign-in (empty for dev CustomID sessions). */
+	const FString& GetPortalAccountId() const { return PortalAccountId; }
+	/** The last portal refusal code (IDENTITY_CONFLICT, GUEST_UPGRADED, RATE_LIMITED, AUTH_FAILED ...). */
+	const FString& GetLastPortalCode() const { return LastPortalCode; }
+
+private:
+	/** POST a JSON body to the portal. Bearer optional (the game id_token, for link flows). OnDone(http, json);
+	 *  http 0 = no response. The body is parsed whatever the status so a refusal's {code} is readable. */
+	void PostPortal(const FString& Path, const TSharedRef<FJsonObject>& Body, const FString& Bearer,
+		TFunction<void(int32, TSharedPtr<FJsonObject>)> OnDone);
+	/** Take a portal sign-in response (idToken / refreshToken / accountId / guest / playFabId) into state. */
+	void AcceptPortalSession(const TSharedPtr<FJsonObject>& Json);
+	/** LoginWithOpenIdConnect on PlayFab's `ironics` connection. Always CreateAccount=false FIRST: a NOT-FOUND
+	 *  then either retries with true (the portal knows of no player for this account) or refuses with "sign in
+	 *  with Epic once" (an Epic-linked player this token cannot reach yet) -- never a second player. */
+	void StartLoginWithIronics(const FString& IdToken, bool bCreateAccount);
+	/** After an EPIC sign-in: exchange the EOS id_token for a portal session and LinkOpenIdConnect(ironics) on
+	 *  the Epic player, so the email door lands on this same player later. Then OnDone (welcome runs after). */
+	void ExchangeEpicForIronics(TFunction<void()> OnDone);
+	FString ResolveIronicsOidcConnectionId() const;
+	/** The refusal the portal returned, as card copy. */
+	static FString PortalRefusalText(int32 Http, const TSharedPtr<FJsonObject>& Json);
+	/** Read (or mint + seal) the guest device credential. False when it cannot be minted. */
+	bool EnsureDeviceCredential(FString& OutDeviceId, FString& OutDeviceSecret);
+
+	bool bStaySignedIn = true;
+	bool bIsGuest = false;
+	bool bPortalSaysHasGamePlayer = false;
+	FString PortalAccountId;
+	FString GameIdToken;
+	FString GameRefreshToken;
+	FString LastPortalCode;
 
 private:
 	enum class EAFLLoginState : uint8 { NotStarted, InFlight, LoggedIn, Failed };

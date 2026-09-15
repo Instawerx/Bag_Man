@@ -18,6 +18,8 @@
 #include "Misc/DateTime.h"                       // FDateTime::UtcNow (canary ts)
 #include "Misc/Guid.h"                           // FGuid (canary matchId/nonce)
 #include "Misc/EngineVersion.h"                  // FEngineVersion (client-diag engine stamp)
+#include "AFLCredentialStore.h"                  // Identity I-2/I-3: sealed-at-rest refresh token + guest device credential
+#include "Misc/Base64.h"
 #include "GameFramework/CheatManagerDefines.h"   // UE_WITH_CHEAT_MANAGER (canary guard)
 
 // D17 shipping login (EOS Default). WITH_EOS_SDK is defined PUBLICLY by the EOSSDK module (declared in
@@ -45,6 +47,7 @@ THIRD_PARTY_INCLUDES_END
 THIRD_PARTY_INCLUDES_START
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
+#include <openssl/rand.h>   // Identity I-3: CSPRNG for the guest device credential
 THIRD_PARTY_INCLUDES_END
 #undef UI
 #endif
@@ -75,6 +78,14 @@ static TAutoConsoleVariable<FString> CVarOnlineDevCustomId(
 // D17: PlayFab OpenID Connect connection id for Epic Account Services. NON-SECRET -- it names a connection,
 // it is not a credential (the secret half lives in PlayFab Game Manager). Empty by default and deliberately
 // NOT guessed: set it in Config/DefaultEngine.ini under [ConsoleVariables].
+// Identity I-2: the PlayFab OpenID connection whose issuer is ironics.org (the portal). Its id_tokens carry
+// sub = portal accountId. Set in Config/DefaultEngine.ini [ConsoleVariables]; empty = the ironics doors refuse.
+static TAutoConsoleVariable<FString> CVarOnlineIronicsOidcConnectionId(
+	TEXT("afl.Online.IronicsOidcConnectionId"),
+	TEXT("ironics"),
+	TEXT("PlayFab OpenID Connect connection id for the IRONICS portal issuer (api.ironics.org). Empty refuses the email/guest doors."),
+	ECVF_Default);
+
 static TAutoConsoleVariable<FString> CVarOnlineEosOidcConnectionId(
 	TEXT("afl.Online.EosOidcConnectionId"),
 	TEXT(""),
@@ -466,6 +477,23 @@ void UAFLOnlineSubsystem::Logout()
 	bEosPortalAttempted = false;
 	PendingLoginCallbacks.Reset(); // any waiters were for the OLD session; do not resolve them true
 
+	// Identity I-2/I-3: revoke the portal refresh token (best-effort, the portal's logout is idempotent) and
+	// forget the portal session. The GUEST device credential is deliberately KEPT: PLAY NOW must return to the
+	// same guest on this PC; only linking retires it (the portal answers GUEST_UPGRADED from then on).
+	if (!GameRefreshToken.IsEmpty())
+	{
+		const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+		Body->SetStringField(TEXT("refreshToken"), GameRefreshToken);
+		PostPortal(TEXT("/v1/auth/logout"), Body, FString(), [](int32, TSharedPtr<FJsonObject>) {});
+	}
+	GameRefreshToken.Reset();
+	GameIdToken.Reset();
+	PortalAccountId.Reset();
+	LastPortalCode.Reset();
+	bIsGuest = false;
+	bPortalSaysHasGamePlayer = false;
+	FAFLCredentialStore::Remove(FAFLCredentialStore::KeyGameRefreshToken);
+
 	OnLoggedOut.Broadcast();
 }
 
@@ -729,7 +757,18 @@ void UAFLOnlineSubsystem::ResolveLogin(bool bSuccess)
 		LinkGenericIdentity();
 		// The client-reachable twin of the two legs above (link + signup grant) -- the only one a solo player
 		// who never reaches a dedicated server will ever hit. Fire-and-forget.
-		RequestWelcome();
+		//
+		// Identity I-2: an EPIC sign-in first exchanges its EOS id_token for a portal session and attaches the
+		// `ironics` identity to THIS player, so /welcome sees it on this very login (game account written back
+		// to the portal row) and the email door lands on this same player from now on. Welcome runs after.
+		if (LoginMethod.Contains(TEXT("(EOS)")))
+		{
+			ExchangeEpicForIronics([this]() { RequestWelcome(); });
+		}
+		else
+		{
+			RequestWelcome();
+		}
 		OnLoggedIn.Broadcast();
 	}
 }
@@ -1033,6 +1072,439 @@ void UAFLOnlineSubsystem::PostServerSignedWithKey(const FString& Url, const FStr
 			OnComplete(bOk, RespBody);
 		});
 	Req->ProcessRequest();
+}
+
+// =====================================================================================================
+// IDENTITY PROGRAM (I-2 / I-3) -- ironics.org as the OpenID Provider; PlayFab `ironics` connection.
+// =====================================================================================================
+
+FString UAFLOnlineSubsystem::PortalApiBaseUrl() const
+{
+	FString Url;
+	if (GConfig)
+	{
+		GConfig->GetString(TEXT("AFL.Online"), TEXT("PortalApiBaseUrl"), Url, GGameIni);
+	}
+	Url = Url.TrimStartAndEnd().TrimQuotes();
+	if (Url.IsEmpty())
+	{
+		Url = TEXT("https://api.ironics.org");
+	}
+	while (Url.EndsWith(TEXT("/")))
+	{
+		Url.LeftChopInline(1);
+	}
+	return Url;
+}
+
+FString UAFLOnlineSubsystem::ResolveIronicsOidcConnectionId() const
+{
+	return CVarOnlineIronicsOidcConnectionId.GetValueOnGameThread();
+}
+
+void UAFLOnlineSubsystem::PostPortal(const FString& Path, const TSharedRef<FJsonObject>& Body, const FString& Bearer,
+	TFunction<void(int32, TSharedPtr<FJsonObject>)> OnDone)
+{
+	FString BodyStr;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&BodyStr);
+	FJsonSerializer::Serialize(Body, Writer);
+
+	const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
+	Req->SetURL(PortalApiBaseUrl() + Path);
+	Req->SetVerb(TEXT("POST"));
+	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	if (!Bearer.IsEmpty())
+	{
+		Req->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Bearer);
+	}
+	Req->SetContentAsString(BodyStr);
+	Req->OnProcessRequestComplete().BindLambda([Path, OnDone](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnectedOk)
+	{
+		if (!bConnectedOk || !Response.IsValid())
+		{
+			UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] portal %s -> no response"), *Path);
+			OnDone(0, nullptr);
+			return;
+		}
+		TSharedPtr<FJsonObject> Json;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+		if (!FJsonSerializer::Deserialize(Reader, Json))
+		{
+			Json.Reset();
+		}
+		FString Code;
+		if (Json.IsValid())
+		{
+			Json->TryGetStringField(TEXT("code"), Code);
+		}
+		// Status + refusal code only. The body carries tokens on success; it is never logged.
+		UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] portal %s -> http=%d%s"), *Path, Response->GetResponseCode(),
+			Code.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" code=%s"), *Code));
+		OnDone(Response->GetResponseCode(), Json);
+	});
+	Req->ProcessRequest();
+}
+
+FString UAFLOnlineSubsystem::PortalRefusalText(int32 Http, const TSharedPtr<FJsonObject>& Json)
+{
+	FString Code;
+	if (Json.IsValid())
+	{
+		Json->TryGetStringField(TEXT("code"), Code);
+	}
+	if (Http == 0)                          { return TEXT("no response from ironics.org -- check the connection"); }
+	if (Code == TEXT("RATE_LIMITED"))       { return TEXT("too many attempts -- wait a little, or sign in with Epic"); }
+	if (Code == TEXT("AUTH_FAILED"))        { return TEXT("that code did not match, or it expired -- request a new one"); }
+	if (Code == TEXT("ACCOUNT_BANNED"))     { return TEXT("this account is banned"); }
+	if (Code == TEXT("ACCOUNT_SUSPENDED"))  { return TEXT("this account is suspended"); }
+	if (Code == TEXT("IDENTITY_CONFLICT"))  { return TEXT("that email already has an IRONICS account -- sign out and sign in to it instead; guest progress stays on this PC"); }
+	if (Code == TEXT("GUEST_UPGRADED"))     { return TEXT("this device's guest account has been linked -- sign in with your email or Epic"); }
+	return FString::Printf(TEXT("ironics.org refused the sign-in (HTTP %d%s)"), Http,
+		Code.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(", %s"), *Code));
+}
+
+void UAFLOnlineSubsystem::AcceptPortalSession(const TSharedPtr<FJsonObject>& Json)
+{
+	GameIdToken.Reset();
+	Json->TryGetStringField(TEXT("idToken"), GameIdToken);
+	FString Refresh;
+	Json->TryGetStringField(TEXT("refreshToken"), Refresh);
+	Json->TryGetStringField(TEXT("accountId"), PortalAccountId);
+	bool bGuest = false;
+	Json->TryGetBoolField(TEXT("guest"), bGuest);
+	bIsGuest = bGuest;
+	// "May this account already own a player?" -- a known game account OR an Epic link (a player reachable
+	// through Epic exists even when the portal never learned its id). Either forbids creating a second one.
+	FString KnownPlayFabId;
+	Json->TryGetStringField(TEXT("playFabId"), KnownPlayFabId);
+	bool bEpicLinked = false;
+	Json->TryGetBoolField(TEXT("epicLinked"), bEpicLinked);
+	bPortalSaysHasGamePlayer = !KnownPlayFabId.IsEmpty() || bEpicLinked;
+	LastPortalCode.Reset();
+
+	if (!Refresh.IsEmpty())
+	{
+		GameRefreshToken = Refresh;
+		if (bStaySignedIn)
+		{
+			FAFLCredentialStore::Save(FAFLCredentialStore::KeyGameRefreshToken, Refresh);
+		}
+		else
+		{
+			FAFLCredentialStore::Remove(FAFLCredentialStore::KeyGameRefreshToken);
+		}
+	}
+	// Lengths and flags only -- the tokens are bearer credentials.
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] portal session accepted account=%s guest=%d hasPlayer=%d idToken=%d chars refresh=%s"),
+		*PortalAccountId, bIsGuest ? 1 : 0, bPortalSaysHasGamePlayer ? 1 : 0, GameIdToken.Len(),
+		Refresh.IsEmpty() ? TEXT("none") : (bStaySignedIn ? TEXT("stored") : TEXT("held")));
+}
+
+bool UAFLOnlineSubsystem::HasStoredGameSession() const
+{
+	return !GameRefreshToken.IsEmpty() || !FAFLCredentialStore::Load(FAFLCredentialStore::KeyGameRefreshToken).IsEmpty();
+}
+
+void UAFLOnlineSubsystem::TryResumeGameSession(TFunction<void(bool)> OnDone)
+{
+	if (LoginState == EAFLLoginState::LoggedIn || LoginState == EAFLLoginState::InFlight)
+	{
+		OnDone(true);
+		return;
+	}
+	const FString Stored = !GameRefreshToken.IsEmpty() ? GameRefreshToken : FAFLCredentialStore::Load(FAFLCredentialStore::KeyGameRefreshToken);
+	if (Stored.IsEmpty())
+	{
+		OnDone(false);
+		return;
+	}
+	LoginMethod = TEXT("LoginWithOpenIdConnect(ironics/resume)");
+	LoginState = EAFLLoginState::InFlight;
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] resuming the stored IRONICS session."));
+
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("refreshToken"), Stored);
+	PostPortal(TEXT("/v1/auth/refresh"), Body, FString(), [this, OnDone](int32 Http, TSharedPtr<FJsonObject> Json)
+	{
+		if (Http != 200 || !Json.IsValid())
+		{
+			// A DEAD token (rotated elsewhere, revoked, expired) is forgotten so the next boot does not loop
+			// on it; an outage keeps it for next time. Either way: the card, with no failure painted --
+			// nothing the player did failed.
+			if (Http == 401)
+			{
+				GameRefreshToken.Reset();
+				FAFLCredentialStore::Remove(FAFLCredentialStore::KeyGameRefreshToken);
+			}
+			LoginState = EAFLLoginState::NotStarted;
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] stored session not resumed (http=%d) -- showing the sign-in card."), Http);
+			OnDone(false);
+			return;
+		}
+		AcceptPortalSession(Json);
+		// A resumed session WAS a full sign-in once, so a NOT-FOUND at PlayFab is never "create a player".
+		bPortalSaysHasGamePlayer = true;
+		OnDone(true);
+		StartLoginWithIronics(GameIdToken, /*bCreateAccount=*/false);
+	});
+}
+
+void UAFLOnlineSubsystem::RequestEmailCode(const FString& Email, TFunction<void(bool, const FString&, const FString&)> OnDone)
+{
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("email"), Email.TrimStartAndEnd());
+	PostPortal(TEXT("/v1/auth/email/code-start"), Body, FString(), [OnDone](int32 Http, TSharedPtr<FJsonObject> Json)
+	{
+		FString ChallengeId;
+		if (Http == 202 && Json.IsValid())
+		{
+			Json->TryGetStringField(TEXT("challengeId"), ChallengeId);
+		}
+		if (ChallengeId.IsEmpty())
+		{
+			OnDone(false, FString(), PortalRefusalText(Http, Json));
+			return;
+		}
+		OnDone(true, ChallengeId, FString());
+	});
+}
+
+void UAFLOnlineSubsystem::VerifyEmailCode(const FString& ChallengeId, const FString& Code, bool bLinkToCurrent)
+{
+	if (bLinkToCurrent)
+	{
+		if (GameIdToken.IsEmpty() || !IsLoggedIn())
+		{
+			OnPortalLinkResult.Broadcast(false, TEXT("no signed-in guest to link -- sign in first"));
+			return;
+		}
+	}
+	else
+	{
+		if (LoginState == EAFLLoginState::InFlight)
+		{
+			return;
+		}
+		LoginMethod = TEXT("LoginWithOpenIdConnect(ironics/email)");
+		LoginState = EAFLLoginState::InFlight;
+	}
+
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("challengeId"), ChallengeId);
+	Body->SetStringField(TEXT("code"), Code.TrimStartAndEnd());
+	PostPortal(TEXT("/v1/auth/email/code-verify"), Body, bLinkToCurrent ? GameIdToken : FString(),
+		[this, bLinkToCurrent](int32 Http, TSharedPtr<FJsonObject> Json)
+	{
+		if (Http != 200 || !Json.IsValid())
+		{
+			LastPortalCode.Reset();
+			if (Json.IsValid()) { Json->TryGetStringField(TEXT("code"), LastPortalCode); }
+			const FString Reason = PortalRefusalText(Http, Json);
+			if (bLinkToCurrent)
+			{
+				OnPortalLinkResult.Broadcast(false, Reason);
+				return;
+			}
+			LastFailStage = TEXT("other");
+			LastFailHttp = Http;
+			LastLoginFailure = Reason;
+			ResolveLogin(false);
+			return;
+		}
+		AcceptPortalSession(Json);
+		if (bLinkToCurrent)
+		{
+			// Same account, same PlayFab player: nothing to log into again. The guest is a guest no longer.
+			UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] LINK ACCOUNT (email) -> linked to account %s."), *PortalAccountId);
+			OnPortalLinkResult.Broadcast(true, FString());
+			return;
+		}
+		StartLoginWithIronics(GameIdToken, /*bCreateAccount=*/false);
+	});
+}
+
+bool UAFLOnlineSubsystem::EnsureDeviceCredential(FString& OutDeviceId, FString& OutDeviceSecret)
+{
+	OutDeviceId = FAFLCredentialStore::Load(FAFLCredentialStore::KeyDeviceId);
+	OutDeviceSecret = FAFLCredentialStore::Load(FAFLCredentialStore::KeyDeviceSecret);
+	if (!OutDeviceId.IsEmpty() && !OutDeviceSecret.IsEmpty())
+	{
+		return true;
+	}
+	// Mint once from the CSPRNG: 16 bytes -> 32 lowercase hex (the public half), 32 bytes -> 43-char
+	// base64url (the proof). Exactly the shapes the portal accepts (guest.ts).
+	uint8 IdBytes[16];
+	uint8 SecretBytes[32];
+	if (RAND_bytes(IdBytes, sizeof(IdBytes)) != 1 || RAND_bytes(SecretBytes, sizeof(SecretBytes)) != 1)
+	{
+		UE_LOG(LogAFLOnline, Error, TEXT("[AFLOnline] guest credential: the CSPRNG refused -- PLAY NOW unavailable."));
+		return false;
+	}
+	OutDeviceId = BytesToHex(IdBytes, sizeof(IdBytes)).ToLower();
+	OutDeviceSecret = FBase64::Encode(SecretBytes, sizeof(SecretBytes)).Replace(TEXT("+"), TEXT("-")).Replace(TEXT("/"), TEXT("_")).Replace(TEXT("="), TEXT(""));
+	FMemory::Memzero(SecretBytes, sizeof(SecretBytes));
+	// Persisted ALWAYS (not gated on STAY SIGNED IN): a guest whose credential is lost is a lost player.
+	const bool bStored = FAFLCredentialStore::Save(FAFLCredentialStore::KeyDeviceId, OutDeviceId)
+		&& FAFLCredentialStore::Save(FAFLCredentialStore::KeyDeviceSecret, OutDeviceSecret);
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] guest credential minted (%s)."), bStored ? TEXT("sealed on this device") : TEXT("this process only -- no sealed store on this platform"));
+	return true;
+}
+
+void UAFLOnlineSubsystem::GuestLogin()
+{
+	if (LoginState == EAFLLoginState::InFlight)
+	{
+		return;
+	}
+	FString DeviceId, DeviceSecret;
+	if (!EnsureDeviceCredential(DeviceId, DeviceSecret))
+	{
+		LastFailStage = TEXT("config");
+		LastLoginFailure = TEXT("could not create a guest credential on this device");
+		ResolveLogin(false);
+		return;
+	}
+	LoginMethod = TEXT("LoginWithOpenIdConnect(ironics/guest)");
+	LoginState = EAFLLoginState::InFlight;
+
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("deviceId"), DeviceId);
+	Body->SetStringField(TEXT("deviceSecret"), DeviceSecret);
+	PostPortal(TEXT("/v1/auth/guest/login"), Body, FString(), [this](int32 Http, TSharedPtr<FJsonObject> Json)
+	{
+		if (Http != 200 || !Json.IsValid())
+		{
+			LastPortalCode.Reset();
+			if (Json.IsValid()) { Json->TryGetStringField(TEXT("code"), LastPortalCode); }
+			if (LastPortalCode == TEXT("GUEST_UPGRADED"))
+			{
+				// The guest behind this device became a real account. The credential is retired on both ends.
+				FAFLCredentialStore::Remove(FAFLCredentialStore::KeyDeviceId);
+				FAFLCredentialStore::Remove(FAFLCredentialStore::KeyDeviceSecret);
+			}
+			LastFailStage = TEXT("other");
+			LastFailHttp = Http;
+			LastLoginFailure = PortalRefusalText(Http, Json);
+			ResolveLogin(false);
+			return;
+		}
+		AcceptPortalSession(Json);
+		// A guest's player exists for this token or not at all -- there is no Epic player it could be hiding
+		// behind, so create-on-first-login is the right (and only) answer here.
+		StartLoginWithIronics(GameIdToken, /*bCreateAccount=*/true);
+	});
+}
+
+void UAFLOnlineSubsystem::StartLoginWithIronics(const FString& IdToken, bool bCreateAccount)
+{
+	const FString ConnectionId = ResolveIronicsOidcConnectionId();
+	if (ConnectionId.IsEmpty() || IdToken.IsEmpty())
+	{
+		UE_LOG(LogAFLOnline, Error, TEXT("[AFLOnline] ironics login refused: %s."),
+			ConnectionId.IsEmpty() ? TEXT("afl.Online.IronicsOidcConnectionId is unset") : TEXT("no portal id_token"));
+		LastFailStage = TEXT("config");
+		LastLoginFailure = TEXT("sign-in is not configured on this build (no IRONICS account connection)");
+		ResolveLogin(false);
+		return;
+	}
+	LoginState = EAFLLoginState::InFlight;
+
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("TitleId"), GetTitleId());
+	Body->SetStringField(TEXT("ConnectionId"), ConnectionId);
+	Body->SetStringField(TEXT("IdToken"), IdToken);
+	Body->SetBoolField(TEXT("CreateAccount"), bCreateAccount);
+
+	FString BodyStr;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&BodyStr);
+	FJsonSerializer::Serialize(Body, Writer);
+
+	const FString Url = BaseUrl() / TEXT("Client/LoginWithOpenIdConnect");
+	const FHttpRequestRef Req = FHttpModule::Get().CreateRequest();
+	Req->SetURL(Url);
+	Req->SetVerb(TEXT("POST"));
+	Req->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Req->SetContentAsString(BodyStr);
+	Req->OnProcessRequestComplete().BindLambda([this, IdToken, bCreateAccount](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedOk)
+	{
+		if (!bCreateAccount && bConnectedOk && Response.IsValid() && Response->GetResponseCode() != 200)
+		{
+			TSharedPtr<FJsonObject> Raw;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+			double ErrorCode = 0.0;
+			if (FJsonSerializer::Deserialize(Reader, Raw) && Raw.IsValid())
+			{
+				Raw->TryGetNumberField(TEXT("errorCode"), ErrorCode);
+			}
+			if (static_cast<int32>(ErrorCode) == 1001) // AccountNotFound: the token verified, no player is linked to it
+			{
+				if (bPortalSaysHasGamePlayer)
+				{
+					// The account owns a player reachable only through Epic (not yet exchanged). Never a second
+					// player: say exactly what unlocks it.
+					UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] ironics login: account %s owns an Epic-linked player this token cannot reach yet."), *PortalAccountId);
+					LastFailStage = TEXT("oidc");
+					LastFailPfError = TEXT("AccountNotFound");
+					LastFailPfCode = 1001;
+					LastFailHttp = Response->GetResponseCode();
+					LastLoginFailure = TEXT("this IRONICS account is linked to Epic -- sign in with Epic once, then email works everywhere");
+					ResolveLogin(false);
+					return;
+				}
+				UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] ironics login: no game player for account %s yet -- creating one."), *PortalAccountId);
+				StartLoginWithIronics(IdToken, /*bCreateAccount=*/true);
+				return;
+			}
+		}
+		HandleLoginResponse(Request, Response, bConnectedOk);
+	});
+	UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] LoginWithOpenIdConnect -> %s (connectionId=%s, createAccount=%d, idToken=%d chars)"),
+		*Url, *ConnectionId, bCreateAccount ? 1 : 0, IdToken.Len());
+	Req->ProcessRequest();
+}
+
+void UAFLOnlineSubsystem::ExchangeEpicForIronics(TFunction<void()> OnDone)
+{
+	FString EosIdToken, FailReason;
+	if (!TryGetEosIdToken(EosIdToken, FailReason))
+	{
+		UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] epic exchange skipped: %s"), *FailReason);
+		OnDone();
+		return;
+	}
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("eosIdToken"), EosIdToken);
+	PostPortal(TEXT("/v1/auth/epic/exchange"), Body, FString(), [this, OnDone](int32 Http, TSharedPtr<FJsonObject> Json)
+	{
+		if (Http != 200 || !Json.IsValid())
+		{
+			UE_LOG(LogAFLOnline, Warning, TEXT("[AFLOnline] epic exchange refused (http=%d) -- the email door will not reach this player until it succeeds."), Http);
+			OnDone();
+			return;
+		}
+		AcceptPortalSession(Json);
+		// Attach the ironics identity to THIS (Epic) player. Client API, the player's own session ticket:
+		// only the holder of the Epic session can do this, and only for the player it is signed into.
+		const TSharedRef<FJsonObject> Link = MakeShared<FJsonObject>();
+		Link->SetStringField(TEXT("ConnectionId"), ResolveIronicsOidcConnectionId());
+		Link->SetStringField(TEXT("IdToken"), GameIdToken);
+		Link->SetBoolField(TEXT("ForceLink"), false);
+		PostClientApi(TEXT("LinkOpenIdConnect"), Link, [OnDone](bool bOk, TSharedPtr<FJsonObject>)
+		{
+			if (bOk)
+			{
+				UE_LOG(LogAFLOnline, Log, TEXT("[AFLOnline] LinkOpenIdConnect(ironics) -> linked"));
+			}
+			else
+			{
+				// "Already linked" on a repeat login is normal. A claim held by ANOTHER player is the fork this
+				// whole path exists to prevent -- loud, never ForceLink (that steals the link and still 409s at the
+				// backend's write-back). The PlayFab error above names which.
+				UE_LOG(LogAFLOnline, Error, TEXT("[AFLOnline] LinkOpenIdConnect(ironics) -> refused (see the PlayFab error above; if it says the identifier is claimed by another player, this account is FORKED -- report it)"));
+			}
+			OnDone();
+		}, /*bRequireAuth=*/true);
+	});
 }
 
 FString UAFLOnlineSubsystem::PlayerApiBaseUrl() const
