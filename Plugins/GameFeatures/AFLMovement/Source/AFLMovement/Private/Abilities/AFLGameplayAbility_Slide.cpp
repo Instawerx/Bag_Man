@@ -4,6 +4,7 @@
 
 #include "AFLMovement.h"
 #include "Movement/AFLMovementNetGate.h"
+#include "Movement/AFLCharacterMovementComponent.h"   // predicted slide intent (SetWantsSlide)
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
@@ -74,13 +75,6 @@ void UAFLGameplayAbility_Slide::ActivateAbility(
 		return;
 	}
 
-	if (AFLTraversalDisabledForNet(Character->GetWorld()))
-	{
-		UE_LOG(LogAFLMovement, Log, TEXT("AFL_SLIDE: net-unsafe verb disabled in networked play (predicted rewrite pending) -> cancel."));
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-		return;
-	}
-
 	// Require grounded + enough horizontal speed (no slide from a standstill or mid-air).
 	if (CMC->IsFalling() || CMC->Velocity.Size2D() < MinSlideSpeed)
 	{
@@ -91,6 +85,14 @@ void UAFLGameplayAbility_Slide::ActivateAbility(
 	}
 
 	UE_LOG(LogAFLMovement, Log, TEXT("AFL_SLIDE: activate by %s (speed2D=%.0f)."), *GetNameSafe(Character), CMC->Velocity.Size2D());
+
+	// Predicted slide: drive the AFL CMC's saved-move slide intent. The CMC applies low friction/braking while
+	// grounded + above min speed (afl.Move.Slide.*). The legacy UAFLSlideMovementComponent self-neuters on
+	// AFL-CMC pawns, so friction is swapped exactly once.
+	if (UAFLCharacterMovementComponent* AFLCMC = Cast<UAFLCharacterMovementComponent>(Character->GetCharacterMovement()))
+	{
+		AFLCMC->SetWantsSlide(true);
+	}
 
 	// 1. Motion Warping -> skew the fixed-distance slide montage to a geometry-aware stop point (mirror Climb).
 	if (UMotionWarpingComponent* MotionWarping = Character->FindComponentByClass<UMotionWarpingComponent>())
@@ -269,6 +271,15 @@ void UAFLGameplayAbility_Slide::EndAbility(
 		if (UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get())
 		{
 			ASC->RemoveActiveGameplayEffectBySourceEffect(SlideActiveEffectClass, ASC);
+		}
+	}
+
+	// Clear the predicted slide intent on every exit path (mirror the GE removal).
+	if (const ACharacter* SlideChar = ActorInfo ? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
+	{
+		if (UAFLCharacterMovementComponent* AFLCMC = Cast<UAFLCharacterMovementComponent>(SlideChar->GetCharacterMovement()))
+		{
+			AFLCMC->SetWantsSlide(false);
 		}
 	}
 

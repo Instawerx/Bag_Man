@@ -102,6 +102,12 @@ protected:
 	/** Dispatch the custom traversal sub-modes. Stub in M1; filled by M2 (wall-run / climb / slide). */
 	virtual void PhysCustom(float DeltaTime, int32 Iterations) override;
 
+	// ---- M2/M3 feel + predicted traversal ----
+	/** Per-frame: apply the afl.Move.* feel cvars (jump/air/gravity/momentum) and slide friction before the move runs. */
+	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	/** Predicted wall-run ENTRY detection (input-toward-wall while airborne, gated); Super runs the normal fall first. */
+	virtual void PhysFalling(float deltaTime, int32 Iterations) override;
+
 private:
 	/** Bind/unbind the tag-change delegate on the owning pawn's ASC. */
 	void TryBindToAbilitySystem();
@@ -146,6 +152,45 @@ private:
 	bool bWantsWallRun = false;
 	bool bWantsClimb = false;
 	bool bWantsSlide = false;
+
+	// ---- M2/M3 feel + predicted traversal (all live-tunable via afl.Move.* cvars) ----
+	/** Apply the afl.Move.* feel cvars each frame, layering slide over the authored base. Air-control writes are
+	 *  skipped while dashing so the proven UAFLDashMovementComponent's dash air-control still stands. */
+	void ApplyMovementTuning(float DeltaTime);
+	/** Snapshot the authored (CDO) feel values ONCE so a sentinel (-1) cvar restores the real authored value. */
+	void CacheAuthoredTuning();
+	/** True while State.Movement.Dashing is on the owning ASC (proven dash component owns dash friction/air-control). */
+	bool IsDashingNow() const;
+
+	/** Try to enter the predicted wall-run custom mode from the falling phys (deterministic: move-input + trace). */
+	bool TryEnterWallRun();
+	/** Wall-run physics: drive velocity along the wall tangent with reduced gravity + stick; exit on loss/timeout/ground/jump. */
+	void PhysWallRun(float DeltaTime, int32 Iterations);
+	/** Launch off the wall (jump pressed during wall-run): away from wall + up, momentum preserved. */
+	void DoWallJump();
+	/** Side-trace both ways for a wall-runnable surface in the direction of movement input. */
+	bool FindWallRunWall(FVector& OutNormal, FVector& OutPoint) const;
+	/** Leave wall-run back to falling, arming the re-entry cooldown. */
+	void ExitWallRun(bool bFromJump);
+
+	bool bAuthoredTuningCached = false;
+	float Authored_AirControl = 0.35f;
+	float Authored_JumpZVelocity = 700.f;
+	int32 Authored_JumpMaxCount = 1;
+	float Authored_GravityScale = 1.f;
+	float Authored_FallingLateralFriction = 0.f;
+	float Authored_BrakingDecelFalling = 0.f;
+	float Authored_GroundFriction = 8.f;
+	float Authored_BrakingDecelWalking = 2048.f;
+
+	/** Predicted slide runtime (bWantsSlide is the saved-move flag). */
+	float SlideTimeRemaining = 0.f;
+
+	/** Wall-run runtime. Velocity is recomputed from the wall each move (deterministic); the short timers are
+	 *  members (not saved-move state) — acceptable because velocity convergence dominates, re-entry cooldown is small. */
+	FVector WallRunNormal = FVector::ZeroVector;
+	float WallRunTimeRemaining = 0.f;
+	float WallRunReentryCooldown = 0.f;
 
 	friend class FSavedMove_AFL;
 };

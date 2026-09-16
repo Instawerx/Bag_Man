@@ -8,6 +8,7 @@
 #include "Character/LyraPawnExtensionComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Movement/AFLCharacterMovementComponent.h"   // neuter on AFL-CMC pawns (CMC owns slide)
 #include "GameFramework/Pawn.h"
 #include "NativeGameplayTags.h"
 
@@ -120,6 +121,14 @@ UCharacterMovementComponent* UAFLSlideMovementComponent::GetOwnerCMC() const
 
 void UAFLSlideMovementComponent::ApplySlideTuning()
 {
+	// AFL-CMC pawns own slide in the predicted CMC (bWantsSlide). This legacy component must NOT also swap
+	// friction/braking, or the two restore chains strand the pawn at slide friction (the reparent double-apply
+	// class of bug). RestoreSlideTuning is bSlideActive-guarded, so early-out here neuters the whole component.
+	if (Cast<UAFLCharacterMovementComponent>(GetOwnerCMC()))
+	{
+		return;
+	}
+
 	// Re-entrancy guard (Overdrive precedent): cache written ONLY when not already sliding.
 	if (bSlideActive)
 	{
